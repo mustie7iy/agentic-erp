@@ -2844,7 +2844,8 @@ step_close() {
   heading "Final step — Financial close: the close template through a governed change, and the year's close calendar"
   as ada
   say "Ada proposes the close template (ADR-0058 §3): the tasks every company's period close is given, each due"
-  say "a number of business days after the period's last day (negative: before it), some waiting for others. The"
+  say "a number of business days after the period's last day (negative: before it), some waiting for others:"
+  say "manual tasks a person completes, and a check the system runs (no entry of the period left parked). The"
   say "template decides what a sign-off requires, so it is configuration, approved as a tier 2 change."
   api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
   local base cr request
@@ -2853,13 +2854,14 @@ step_close() {
     proposed: (.items[0].document | .close.tasks = [
       {\"code\": \"CUTOFF_NOTICE\", \"name\": \"Cut-off reminder sent to the team\", \"kind\": \"manual\", \"due_day\": -2},
       {\"code\": \"AP_CUTOFF\", \"name\": \"Supplier invoices of the period entered\", \"kind\": \"manual\", \"due_day\": 1, \"depends_on\": [\"CUTOFF_NOTICE\"]},
-      {\"code\": \"TB_REVIEW\", \"name\": \"Trial balance reviewed\", \"kind\": \"manual\", \"due_day\": 3, \"depends_on\": [\"AP_CUTOFF\"]}])}" \
+      {\"code\": \"TB_REVIEW\", \"name\": \"Trial balance reviewed\", \"kind\": \"manual\", \"due_day\": 3, \"depends_on\": [\"AP_CUTOFF\"]},
+      {\"code\": \"NO_PARKED\", \"name\": \"No entry of the period left parked\", \"kind\": \"check\", \"check\": \"no_parked_entries\", \"due_day\": 3, \"depends_on\": [\"AP_CUTOFF\"]}])}" \
     "$WORK/last.json" >"$WORK/close.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @close.json
   cr=$(field .id)
   api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
   expect "the change's tier" "$(field .tier)" 2
-  expect "the tasks among the changes" "$(field '[.items[] | select(.path | startswith("close.tasks["))] | length')" 3
+  expect "the tasks among the changes" "$(field '[.items[] | select(.path | startswith("close.tasks["))] | length')" 4
   expect "status after submit" "$(field .status)" pending_approval
   request=$(field .workflow_request_id)
   approve priya "$request" "The monthly close checklist, as agreed with the controller"
@@ -2885,6 +2887,7 @@ step_close() {
   expect "the cut-off reminder before each period's end, the review after it" \
     "$(field '[.periods[] | .first_due_on < .end_date and .last_due_on > .end_date] | all')" true
   close_checklist
+  close_checks
   passed
 }
 
@@ -2904,7 +2907,7 @@ close_checklist() {
     createPeriodClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
   close=$(field .id)
   tag=$ETAG
-  expect "the close's tasks" "$(field '[.tasks[].code] | join(" ")')" "CUTOFF_NOTICE AP_CUTOFF TB_REVIEW"
+  expect "the close's tasks" "$(field '[.tasks[].code] | join(" ")')" "CUTOFF_NOTICE AP_CUTOFF TB_REVIEW NO_PARKED"
   expect "the leading ledger first" "$(field '.ledgers[0].ledger_code')" 0L
   say "A second close of the period is refused, and names the first:"
   refused 409 closing.close_exists createPeriodClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
@@ -2932,12 +2935,55 @@ close_checklist() {
   expect "the review after the reopening" "$(field '.tasks[] | select(.code == "TB_REVIEW") | .status')" done
   QUIET=1 api 200 '' completeCloseTask -p "id=$close" -p code=AP_CUTOFF -if-match "$tag" -body '{"note": "The late invoice entered"}'
   api 200 '"\(.company_code) \(.fiscal_year)/\(.fiscal_period): \(.tasks_done) of \(.tasks_total) tasks done, \(.tasks_overdue) overdue",
-    (.tasks[] | "  \(.code) \(.status) by \(.completed_by_name)")' getPeriodClose -p "id=$close"
-  expect "every task done" "$(field '.tasks_done == .tasks_total')" true
+    (.tasks[] | "  \(.code) \(.status)\(if .completed_by_name then " by " + .completed_by_name else "" end)")' getPeriodClose -p "id=$close"
+  expect "every manual task done" "$(field '[.tasks[] | select(.kind == "manual") | .status == "done"] | all')" true
   say "The calendar's row of the period now shows its close:"
   api 200 ".periods[] | select(.period == $period) | \"  period \\(.period): close \\(.close.status), \\(.close.tasks_done) of \\(.close.tasks_total) done\"" \
     getCloseCalendar -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
   expect "the calendar's close" "$(field ".periods[] | select(.period == $period) | .close.id")" "$close"
+}
+
+# close_checks is T64c's part of step_close (ADR-0058 §6): the close's
+# check task runs on demand and records what it found. Tom parks an entry
+# dated in the period; Carla's check fails naming it, Tom cancels it, and
+# the check passes, which completes the task: every task is done for the
+# sign-off to come.
+close_checks() {
+  local period close tag entry
+  period=$((10#${TODAY:5:2}))
+  as carla
+  QUIET=1 api 200 '' listPeriodCloses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  close=$(field ".items[] | select(.fiscal_period == $period) | .id")
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  tag=$ETAG
+  say "NO_PARKED is a check: Carla does not complete it by hand, the system runs it, and a manual task has no check."
+  refused 409 closing.task_is_check completeCloseTask -p "id=$close" -p code=NO_PARKED -if-match "$tag" -body '{}'
+  refused 409 closing.task_not_check checkCloseTask -p "id=$close" -p code=TB_REVIEW -if-match "$tag"
+  as tom
+  say "Tom parks an accrual dated today, in the period, meaning to post it once the invoice arrives:"
+  api 201 '"parked entry \(.id[0:8])…: \(.status), \(.header_text)"' parkJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Accrual for the courier, invoice to come\", \"lines\": [{\"account_id\": \"$(account 6000)\", \"amount\": {\"amount\": \"120.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$(account 211000)\", \"amount\": {\"amount\": \"-120.00\", \"currency\": \"CAD\"}, \"partner_id\": \"$SUPPLIER\"}]}"
+  entry=$(field .id)
+  local entry_tag=$ETAG
+  as carla
+  say "Carla runs the check. It fails, naming what is left parked in the period and who parked it, and the task"
+  say "stays open; the result is kept on the task with when and by whom it ran."
+  api 200 '"  \(.code) \(.status): \(.check_result.summary)", (.check_result.parked_entries[] | "    \(.posting_date) \(.header_text), \(.status), parked by \(.created_by_name) (\(.created_by_kind))")' \
+    checkCloseTask -p "id=$close" -p code=NO_PARKED -if-match "$tag"
+  tag=$ETAG
+  expect "the check's verdict" "$(field '.check_result.passed')" false
+  expect "the entry it names" "$(field "[.check_result.parked_entries[].id] | index(\"$entry\") != null")" true
+  expect "the task after a failing check" "$(field .status)" open
+  as tom
+  say "The courier's invoice will be entered as an invoice; Tom cancels his accrual:"
+  api 200 '"  parked entry: \(.status)"' cancelParkedJournalEntry -p "id=$entry" -if-match "$entry_tag" -body '{"reason": "The invoice will be entered instead"}'
+  as carla
+  say "Carla runs the check again: it passes, and the task is done, by her, when it passed."
+  api 200 '"  \(.code) \(.status) by \(.completed_by_name): \(.check_result.summary)"' checkCloseTask -p "id=$close" -p code=NO_PARKED -if-match "$tag"
+  expect "the check's verdict" "$(field '.check_result.passed')" true
+  expect "the task after a passing check" "$(field .status)" done
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  expect "every task done" "$(field '.tasks_done == .tasks_total')" true
 }
 
 # name_partners replaces the business partners' ids in what it reads with

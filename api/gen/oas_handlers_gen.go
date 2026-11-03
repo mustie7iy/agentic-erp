@@ -5896,6 +5896,216 @@ func (s *Server) handleCaptureSupplierInvoiceRequest(args [0]string, argsEscaped
 	}
 }
 
+// handleCheckCloseTaskRequest handles checkCloseTask operation.
+//
+// Runs a check task's check now and records its result on the task (ADR-0058 §6, T64c):
+// `check_result` says whether it passed, when, who ran it and what it found, each with its id and
+// name; the task is set done when it passed (who ran it and when become its completion; a task already
+// done keeps its completion) and open when it did not. `no_parked_entries` passes when no parked entry
+// of the company dated in the period (the leading ledger's period's first to last day) is `parked` or
+// `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted`
+// passes when each covered ledger has a posted revaluation run keyed on its period's last day, and
+// names each ledger with its run. A check is a statement about the moment it ran: run it again to
+// refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and
+// for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the
+// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
+// (`task_checked`, with `check_passed`).
+//
+// POST /v1/period-closes/{id}/tasks/{code}:check
+func (s *Server) handleCheckCloseTaskRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("checkCloseTask"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/period-closes/{id}/tasks/{code}:check"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CheckCloseTaskOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CheckCloseTaskOperation,
+			ID:   "checkCloseTask",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CheckCloseTaskOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCheckCloseTaskParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response CheckCloseTaskRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CheckCloseTaskOperation,
+			OperationSummary: "Run a close task's check",
+			OperationID:      "checkCloseTask",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "code",
+					In:   "path",
+				}: params.Code,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = CheckCloseTaskParams
+			Response = CheckCloseTaskRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCheckCloseTaskParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CheckCloseTask(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CheckCloseTask(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCheckCloseTaskResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleClearSupplierInvoiceDownPaymentsRequest handles clearSupplierInvoiceDownPayments operation.
 //
 // Clears paid down payment requests of the invoice's supplier against the posted invoice (SAP F-54;
@@ -6510,10 +6720,11 @@ func (s *Server) handleClosePurchaseOrderRequest(args [1]string, argsEscaped boo
 // handleCompleteCloseTaskRequest handles completeCloseTask operation.
 //
 // Marks an open manual task of a period close done, with an optional note (ADR-0058 §6, T64b):
-// refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a task
-// already done (409 `closing.task_already_done`). `If-Match` is the close's ETag; the answer is the
-// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
-// (`task_completed`).
+// refused while a task it depends on is open (409 `closing.task_blocked`, naming them), for a task
+// already done (409 `closing.task_already_done`) and for a check task, which is done by its check
+// passing (409 `closing.task_is_check`; T64c: run it with `:check`). `If-Match` is the close's ETag;
+// the answer is the task, with the close's new ETag. People only. Audited, and published as
+// PeriodCloseChanged (`task_completed`).
 //
 // POST /v1/period-closes/{id}/tasks/{code}:complete
 func (s *Server) handleCompleteCloseTaskRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -58162,10 +58373,11 @@ func (s *Server) handleRenewContractRequest(args [1]string, argsEscaped bool, w 
 // handleReopenCloseTaskRequest handles reopenCloseTask operation.
 //
 // Returns a done task of a period close to open, with a reason (409 `closing.task_not_done` for an
-// open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared, and the reason is
-// kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays
-// done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People
-// only. Audited, and published as PeriodCloseChanged (`task_reopened`).
+// open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared (a check task keeps
+// its latest `check_result`), and the reason is kept in the audit trail and the event. It reopens
+// nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is
+// the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
+// (`task_reopened`).
 //
 // POST /v1/period-closes/{id}/tasks/{code}:reopen
 func (s *Server) handleReopenCloseTaskRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

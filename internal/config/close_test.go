@@ -19,6 +19,8 @@ func withClose(t *testing.T) *Config {
 		{Code: "AP_CUTOFF", Name: "Supplier invoices of the period entered", Kind: CloseManual, DueDay: 2},
 		{Code: "ACCRUALS", Name: "Accruals reviewed", Kind: CloseManual, DueDay: 3, DependsOn: []string{"AP_CUTOFF"}},
 		{Code: "REPORT", Name: "Management report", Kind: CloseManual, DueDay: -1, DependsOn: []string{"AP_CUTOFF", "ACCRUALS"}, Companies: []string{"1000"}},
+		{Code: "NO_PARKED", Name: "No entry left parked", Kind: CloseCheck, Check: "no_parked_entries", DueDay: 3},
+		{Code: "REVALUED", Name: "Foreign currency revalued", Kind: CloseCheck, Check: "revaluation_posted", DueDay: 1},
 	}
 	return c
 }
@@ -43,7 +45,7 @@ func TestCloseTemplateValid(t *testing.T) {
 		{"no name", task(0, func(t *CloseTask) { t.Name = " " }), "close.tasks[AP_CUTOFF].name"},
 		{"an unknown kind", task(0, func(t *CloseTask) { t.Kind = "approval" }), "close.tasks[AP_CUTOFF].kind"},
 		{"a check on a manual task", task(0, func(t *CloseTask) { t.Check = "no_parked_entries" }), "close.tasks[AP_CUTOFF].check"},
-		{"a check this build does not run", task(0, func(t *CloseTask) { t.Kind, t.Check = CloseCheck, "no_parked_entries" }), "close.tasks[AP_CUTOFF].check"},
+		{"a check this build does not run", task(0, func(t *CloseTask) { t.Kind, t.Check = CloseCheck, "bank_reconciled" }), "close.tasks[AP_CUTOFF].check"},
 		{"a check task without its check", task(0, func(t *CloseTask) { t.Kind = CloseCheck }), "close.tasks[AP_CUTOFF].check"},
 		{"a due day after 31", task(0, func(t *CloseTask) { t.DueDay = 32 }), "close.tasks[AP_CUTOFF].due_day"},
 		{"a due day before -31", task(0, func(t *CloseTask) { t.DueDay = -32 }), "close.tasks[AP_CUTOFF].due_day"},
@@ -99,7 +101,7 @@ func TestCloseCycleNamedOnce(t *testing.T) {
 // and those listing it, in the template's order.
 func TestCloseTasksOf(t *testing.T) {
 	c := withClose(t)
-	for company, want := range map[string]string{"1000": "AP_CUTOFF ACCRUALS REPORT", "2000": "AP_CUTOFF ACCRUALS"} {
+	for company, want := range map[string]string{"1000": "AP_CUTOFF ACCRUALS REPORT NO_PARKED REVALUED", "2000": "AP_CUTOFF ACCRUALS NO_PARKED REVALUED"} {
 		t.Run(company, func(t *testing.T) {
 			var got []string
 			for _, task := range c.CloseTasksOf(company) {

@@ -34,6 +34,7 @@ const (
 	CancelRevaluationRunOperation             OperationName = "CancelRevaluationRun"
 	CancelSupplierInvoiceOperation            OperationName = "CancelSupplierInvoice"
 	CaptureSupplierInvoiceOperation           OperationName = "CaptureSupplierInvoice"
+	CheckCloseTaskOperation                   OperationName = "CheckCloseTask"
 	ClearSupplierInvoiceDownPaymentsOperation OperationName = "ClearSupplierInvoiceDownPayments"
 	CloseFiscalPeriodOperation                OperationName = "CloseFiscalPeriod"
 	ClosePurchaseOrderOperation               OperationName = "ClosePurchaseOrder"

@@ -306,6 +306,23 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices:capture
 	CaptureSupplierInvoice(ctx context.Context, req *SupplierInvoiceCaptureMultipart, params CaptureSupplierInvoiceParams) (CaptureSupplierInvoiceRes, error)
+	// CheckCloseTask implements checkCloseTask operation.
+	//
+	// Runs a check task's check now and records its result on the task (ADR-0058 §6, T64c):
+	// `check_result` says whether it passed, when, who ran it and what it found, each with its id and
+	// name; the task is set done when it passed (who ran it and when become its completion; a task already
+	// done keeps its completion) and open when it did not. `no_parked_entries` passes when no parked entry
+	// of the company dated in the period (the leading ledger's period's first to last day) is `parked` or
+	// `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted`
+	// passes when each covered ledger has a posted revaluation run keyed on its period's last day, and
+	// names each ledger with its run. A check is a statement about the moment it ran: run it again to
+	// refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and
+	// for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the
+	// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
+	// (`task_checked`, with `check_passed`).
+	//
+	// POST /v1/period-closes/{id}/tasks/{code}:check
+	CheckCloseTask(ctx context.Context, params CheckCloseTaskParams) (CheckCloseTaskRes, error)
 	// ClearSupplierInvoiceDownPayments implements clearSupplierInvoiceDownPayments operation.
 	//
 	// Clears paid down payment requests of the invoice's supplier against the posted invoice (SAP F-54;
@@ -338,10 +355,11 @@ type Handler interface {
 	// CompleteCloseTask implements completeCloseTask operation.
 	//
 	// Marks an open manual task of a period close done, with an optional note (ADR-0058 §6, T64b):
-	// refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a task
-	// already done (409 `closing.task_already_done`). `If-Match` is the close's ETag; the answer is the
-	// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
-	// (`task_completed`).
+	// refused while a task it depends on is open (409 `closing.task_blocked`, naming them), for a task
+	// already done (409 `closing.task_already_done`) and for a check task, which is done by its check
+	// passing (409 `closing.task_is_check`; T64c: run it with `:check`). `If-Match` is the close's ETag;
+	// the answer is the task, with the close's new ETag. People only. Audited, and published as
+	// PeriodCloseChanged (`task_completed`).
 	//
 	// POST /v1/period-closes/{id}/tasks/{code}:complete
 	CompleteCloseTask(ctx context.Context, req OptCloseTaskComplete, params CompleteCloseTaskParams) (CompleteCloseTaskRes, error)
@@ -2897,10 +2915,11 @@ type Handler interface {
 	// ReopenCloseTask implements reopenCloseTask operation.
 	//
 	// Returns a done task of a period close to open, with a reason (409 `closing.task_not_done` for an
-	// open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared, and the reason is
-	// kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays
-	// done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People
-	// only. Audited, and published as PeriodCloseChanged (`task_reopened`).
+	// open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared (a check task keeps
+	// its latest `check_result`), and the reason is kept in the audit trail and the event. It reopens
+	// nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is
+	// the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
+	// (`task_reopened`).
 	//
 	// POST /v1/period-closes/{id}/tasks/{code}:reopen
 	ReopenCloseTask(ctx context.Context, req *ReasonInput, params ReopenCloseTaskParams) (ReopenCloseTaskRes, error)

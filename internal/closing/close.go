@@ -144,14 +144,14 @@ func (e *Endpoints) covered(ctx context.Context, legalEntity uuid.UUID, year, pe
 }
 
 // planned is a template task as a close is given it: with its place in the
-// template's order and its due date in the close's period. No template
-// has a check task until T64c builds the first check (config.CloseChecks),
-// so none is written with one.
+// template's order, its check (nil for a manual task) and its due date in
+// the close's period.
 type planned struct {
 	Code      string   `json:"code"`
 	Seq       int      `json:"seq"`
 	Name      string   `json:"name"`
 	Kind      string   `json:"kind"`
+	Check     *string  `json:"check"`
 	DueOn     string   `json:"due_on"`
 	DependsOn []string `json:"depends_on"`
 }
@@ -164,6 +164,9 @@ func plan(doc *config.Config, company string, end time.Time, tasks []config.Clos
 	for i, t := range tasks {
 		out[i] = planned{Code: t.Code, Seq: i + 1, Name: t.Name, Kind: t.Kind, DueOn: dueOn(doc, company, end, t.DueDay).Format(time.DateOnly),
 			DependsOn: append([]string{}, t.DependsOn...)}
+		if t.Kind == config.CloseCheck {
+			out[i].Check = &t.Check
+		}
 	}
 	return out
 }
@@ -188,8 +191,8 @@ func insertClose(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id, legalEn
 func insertTasks(ctx context.Context, tx pgx.Tx, p reqctx.Principal, closeID uuid.UUID, tasks []planned) error {
 	rows, _ := json.Marshal(tasks) // strings, numbers and lists of strings always encode
 	_, err := tx.Exec(ctx, `INSERT INTO closing.close_task (tenant_id, close_id, code, seq, name, kind, check_kind, due_on, depends_on, created_by, updated_by)
-		SELECT $1, $2, x.code, x.seq, x.name, x.kind, NULL, x.due_on, x.depends_on, $3, $3
-		FROM jsonb_to_recordset($4::jsonb) AS x(code text, seq smallint, name text, kind text, due_on date, depends_on text[])`,
+		SELECT $1, $2, x.code, x.seq, x.name, x.kind, x.check, x.due_on, x.depends_on, $3, $3
+		FROM jsonb_to_recordset($4::jsonb) AS x(code text, seq smallint, name text, kind text, "check" text, due_on date, depends_on text[])`,
 		p.TenantID, closeID, p.ID, rows)
 	return errs.Wrapf(err, "closing: insert tasks of close %s", closeID)
 }
@@ -215,20 +218,34 @@ func (e *Endpoints) closeOut(ctx context.Context, tx pgx.Tx, c periodClose) (gen
 // ledgersOf are the ledgers a close covers, with their periods' live
 // status, the leading one first, then by code.
 func (e *Endpoints) ledgersOf(ctx context.Context, tx pgx.Tx, c periodClose) ([]gen.CloseLedger, error) {
-	rows, _ := tx.Query(ctx, `SELECT ledger_id FROM closing.close_ledger WHERE close_id = $1`, c.ID)
-	covered, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	covered, err := e.coveredPeriods(ctx, tx, c.ID, c.LegalEntityID, c.FiscalYear, c.FiscalPeriod)
 	if err != nil {
-		return nil, fmt.Errorf("closing: ledgers of close %s: %w", c.ID, err)
-	}
-	kept, err := e.Ledger.PeriodsOf(ctx, c.LegalEntityID, c.FiscalYear, c.FiscalPeriod)
-	if err != nil {
-		return nil, fmt.Errorf("closing: periods of close %s: %w", c.ID, err)
+		return nil, err
 	}
 	out := []gen.CloseLedger{}
+	for _, k := range covered {
+		out = append(out, gen.CloseLedger{LedgerID: k.LedgerID, LedgerCode: k.Code, LedgerName: k.Name, IsLeading: k.Leading,
+			FiscalPeriodID: k.Period.ID, PeriodStatus: k.Period.Status})
+	}
+	return out, nil
+}
+
+// coveredPeriods are the ledgers a close covers, each with its period as
+// the ledger holds it now, the leading one first, then by code.
+func (e *Endpoints) coveredPeriods(ctx context.Context, tx pgx.Tx, closeID, legalEntity uuid.UUID, year, period int16) ([]LedgerPeriod, error) {
+	rows, _ := tx.Query(ctx, `SELECT ledger_id FROM closing.close_ledger WHERE close_id = $1`, closeID)
+	covered, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return nil, fmt.Errorf("closing: ledgers of close %s: %w", closeID, err)
+	}
+	kept, err := e.Ledger.PeriodsOf(ctx, legalEntity, year, period)
+	if err != nil {
+		return nil, fmt.Errorf("closing: periods of close %s: %w", closeID, err)
+	}
+	var out []LedgerPeriod
 	for _, k := range kept {
 		if slices.Contains(covered, k.LedgerID) && k.Period != nil {
-			out = append(out, gen.CloseLedger{LedgerID: k.LedgerID, LedgerCode: k.Code, LedgerName: k.Name, IsLeading: k.Leading,
-				FiscalPeriodID: k.Period.ID, PeriodStatus: k.Period.Status})
+			out = append(out, k)
 		}
 	}
 	return out, nil

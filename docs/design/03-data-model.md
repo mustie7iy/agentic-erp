@@ -2983,7 +2983,8 @@ adapts, and no context reads it. Its template is configuration (T64a):
 `close.tasks`, at most 200 tasks, each with a unique `code`
 (`[A-Z0-9_]{1,30}`), a `name` (cosmetic), a `kind` (`manual` or `check`,
 with a `check` this build runs exactly when the kind is `check`; each
-slice that builds a check adds it), a `due_day` (business days after the
+slice that builds a check adds it: `no_parked_entries` and
+`revaluation_posted` from T64c), a `due_day` (business days after the
 period's last day, -31 to 31, 0 that day itself), `depends_on` (other
 tasks of the template, each once, without a cycle, and given to every
 company the dependent task is) and optional `companies` (only these
@@ -3035,3 +3036,25 @@ code)` and by assignee. The legal entity, ledgers, periods and principals
 are other contexts', by id, without foreign keys. The close calendar's
 row of a period shows its close and its tasks' due dates once it has one.
 Schema tests: `db/closing_test.go`.
+
+A check task's latest result (T64c, migrations 000196 and 000197) is kept
+on the task:
+
+```
+closing.close_task    + checked_at, checked_by, check_passed, check_result jsonb
+```
+
+`:check` records when the check ran, who ran it, whether it passed and
+what it found (`check_result`: its summary and, for `no_parked_entries`,
+the count and the first 20 parked entries with who parked them; for
+`revaluation_posted`, each covered ledger with its key date and posted
+run), names included as they were then. The four are set together, on a
+check task only (`close_task_checked`), never when the task is created,
+and once recorded are replaced by the next check, never removed
+(`closing.check_close_task`). A check task is `done` only while its latest
+check passed (`close_task_check_passed`): a pass sets it done (who ran it
+and when become its completion, unless it was done already) and a failure
+open; reopening it keeps the result. The checks read the ledger through
+its port (`ledger.CloseChecks`): parked entries of the company by posting
+date in the leading ledger's period (`ledger.parked_entry`) and posted
+revaluation runs per ledger and key date (`ledger.revaluation_run`).

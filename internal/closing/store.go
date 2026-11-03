@@ -135,18 +135,23 @@ type task struct {
 	CompletedBy              *uuid.UUID
 	CompletedAt              *time.Time
 	Note                     *string
+	CheckedAt                *time.Time
+	CheckedBy                *uuid.UUID
+	CheckPassed              *bool
+	Found                    *found
 }
 
 const taskSelect = `SELECT t.close_id, c.legal_entity_id, c.fiscal_year, c.fiscal_period, c.version, t.code, t.seq, t.name, t.kind, t.check_kind,
 		t.due_on, t.depends_on, ARRAY(SELECT d.code FROM closing.close_task d WHERE d.tenant_id = t.tenant_id AND d.close_id = t.close_id
 			AND d.code = ANY (t.depends_on) AND d.status = 'open' ORDER BY d.seq),
-		t.assignee_id, t.status, t.completed_by, t.completed_at, t.note
+		t.assignee_id, t.status, t.completed_by, t.completed_at, t.note, t.checked_at, t.checked_by, t.check_passed, t.check_result
 	FROM closing.close_task t JOIN closing.period_close c ON c.tenant_id = t.tenant_id AND c.id = t.close_id`
 
 func scanTask(r pgx.Row) (task, error) {
 	var t task
 	err := r.Scan(&t.CloseID, &t.LegalEntityID, &t.FiscalYear, &t.FiscalPeriod, &t.CloseVersion, &t.Code, &t.Seq, &t.Name, &t.Kind, &t.Check,
-		&t.DueOn, &t.DependsOn, &t.BlockedBy, &t.Assignee, &t.Status, &t.CompletedBy, &t.CompletedAt, &t.Note)
+		&t.DueOn, &t.DependsOn, &t.BlockedBy, &t.Assignee, &t.Status, &t.CompletedBy, &t.CompletedAt, &t.Note,
+		&t.CheckedAt, &t.CheckedBy, &t.CheckPassed, &t.Found)
 	return t, errs.Wrapf(err, "scan close task")
 }
 
@@ -182,12 +187,13 @@ func touchClose(ctx context.Context, tx pgx.Tx, id, by uuid.UUID) error {
 
 // change is what a write did to a close, for its audit record and event:
 // the action audited, the change published, the task changed (nil when
-// the close was created), why a task was reopened, and what else the
-// audit record keeps.
+// the close was created), why a task was reopened, whether its check
+// passed, and what else the audit record keeps.
 type change struct {
 	action, name string
 	task         *string
 	reason       *string
+	passed       *bool
 	detail       map[string]any
 }
 
@@ -208,5 +214,6 @@ func record(ctx context.Context, c periodClose, ch change) error {
 	return audit.Record(ctx, "closing.period_close."+ch.action, "closing.period_close", c.ID, detail,
 		outbox.Event{Context: "closing", Name: "period_close_changed", AggregateType: "closing.period_close", AggregateID: c.ID,
 			Payload: map[string]any{"period_close_id": c.ID, "legal_entity_id": c.LegalEntityID, "fiscal_year": c.FiscalYear,
-				"fiscal_period": c.FiscalPeriod, "change": ch.name, "task_code": ch.task, "reason": ch.reason, "status": c.Status, "version": c.Version}})
+				"fiscal_period": c.FiscalPeriod, "change": ch.name, "task_code": ch.task, "reason": ch.reason, "check_passed": ch.passed, "status": c.Status,
+				"version": c.Version}})
 }

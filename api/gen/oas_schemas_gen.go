@@ -10997,6 +10997,30 @@ func (s *ChangeRequestUpdateProposed) init() ChangeRequestUpdateProposed {
 	return m
 }
 
+type CheckCloseTaskBadRequest Problem
+
+func (*CheckCloseTaskBadRequest) checkCloseTaskRes() {}
+
+type CheckCloseTaskForbidden Problem
+
+func (*CheckCloseTaskForbidden) checkCloseTaskRes() {}
+
+type CheckCloseTaskNotFound Problem
+
+func (*CheckCloseTaskNotFound) checkCloseTaskRes() {}
+
+type CheckCloseTaskPreconditionFailed Problem
+
+func (*CheckCloseTaskPreconditionFailed) checkCloseTaskRes() {}
+
+type CheckCloseTaskPreconditionRequired Problem
+
+func (*CheckCloseTaskPreconditionRequired) checkCloseTaskRes() {}
+
+type CheckCloseTaskUnprocessableEntity Problem
+
+func (*CheckCloseTaskUnprocessableEntity) checkCloseTaskRes() {}
+
 type ClearSupplierInvoiceDownPaymentsBadRequest Problem
 
 func (*ClearSupplierInvoiceDownPaymentsBadRequest) clearSupplierInvoiceDownPaymentsRes() {}
@@ -11562,6 +11586,320 @@ func (s *CloseCalendarPeriod) SetClose(val OptCloseCalendarClose) {
 	s.Close = val
 }
 
+// A covered ledger as a `revaluation_posted` check found it.
+// Ref: #/components/schemas/CloseCheckLedger
+type CloseCheckLedger struct {
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// Its code.
+	LedgerCode string `json:"ledger_code"`
+	// Its name.
+	LedgerName string `json:"ledger_name"`
+	// Its period's last day, the key date its revaluation run is keyed on.
+	KeyDate time.Time `json:"key_date"`
+	// Whether it has a posted revaluation run at the key date.
+	Posted bool `json:"posted"`
+	// The posted run (`GET /v1/revaluation-runs/{id}`); absent without one.
+	RevaluationRunID OptUUID `json:"revaluation_run_id"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *CloseCheckLedger) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *CloseCheckLedger) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *CloseCheckLedger) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetKeyDate returns the value of KeyDate.
+func (s *CloseCheckLedger) GetKeyDate() time.Time {
+	return s.KeyDate
+}
+
+// GetPosted returns the value of Posted.
+func (s *CloseCheckLedger) GetPosted() bool {
+	return s.Posted
+}
+
+// GetRevaluationRunID returns the value of RevaluationRunID.
+func (s *CloseCheckLedger) GetRevaluationRunID() OptUUID {
+	return s.RevaluationRunID
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *CloseCheckLedger) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *CloseCheckLedger) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *CloseCheckLedger) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetKeyDate sets the value of KeyDate.
+func (s *CloseCheckLedger) SetKeyDate(val time.Time) {
+	s.KeyDate = val
+}
+
+// SetPosted sets the value of Posted.
+func (s *CloseCheckLedger) SetPosted(val bool) {
+	s.Posted = val
+}
+
+// SetRevaluationRunID sets the value of RevaluationRunID.
+func (s *CloseCheckLedger) SetRevaluationRunID(val OptUUID) {
+	s.RevaluationRunID = val
+}
+
+// A parked entry a `no_parked_entries` check found (`GET /v1/parked-journal-entries/{id}`), as it was
+// when the check ran.
+// Ref: #/components/schemas/CloseCheckParkedEntry
+type CloseCheckParkedEntry struct {
+	// The parked entry.
+	ID uuid.UUID `json:"id"`
+	// Its document type.
+	DocumentType string `json:"document_type"`
+	// Its posting date.
+	PostingDate time.Time `json:"posting_date"`
+	// Its status. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Status string `json:"status"`
+	// Its reference; absent without one.
+	Reference OptString `json:"reference"`
+	// Its header text; absent without one.
+	HeaderText OptString `json:"header_text"`
+	// Who parked it.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Whether a person, an agent or a service parked it. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	CreatedByKind string `json:"created_by_kind"`
+	// Their name.
+	CreatedByName string `json:"created_by_name"`
+}
+
+// GetID returns the value of ID.
+func (s *CloseCheckParkedEntry) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetDocumentType returns the value of DocumentType.
+func (s *CloseCheckParkedEntry) GetDocumentType() string {
+	return s.DocumentType
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *CloseCheckParkedEntry) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetStatus returns the value of Status.
+func (s *CloseCheckParkedEntry) GetStatus() string {
+	return s.Status
+}
+
+// GetReference returns the value of Reference.
+func (s *CloseCheckParkedEntry) GetReference() OptString {
+	return s.Reference
+}
+
+// GetHeaderText returns the value of HeaderText.
+func (s *CloseCheckParkedEntry) GetHeaderText() OptString {
+	return s.HeaderText
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *CloseCheckParkedEntry) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetCreatedByKind returns the value of CreatedByKind.
+func (s *CloseCheckParkedEntry) GetCreatedByKind() string {
+	return s.CreatedByKind
+}
+
+// GetCreatedByName returns the value of CreatedByName.
+func (s *CloseCheckParkedEntry) GetCreatedByName() string {
+	return s.CreatedByName
+}
+
+// SetID sets the value of ID.
+func (s *CloseCheckParkedEntry) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetDocumentType sets the value of DocumentType.
+func (s *CloseCheckParkedEntry) SetDocumentType(val string) {
+	s.DocumentType = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *CloseCheckParkedEntry) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CloseCheckParkedEntry) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetReference sets the value of Reference.
+func (s *CloseCheckParkedEntry) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetHeaderText sets the value of HeaderText.
+func (s *CloseCheckParkedEntry) SetHeaderText(val OptString) {
+	s.HeaderText = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *CloseCheckParkedEntry) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetCreatedByKind sets the value of CreatedByKind.
+func (s *CloseCheckParkedEntry) SetCreatedByKind(val string) {
+	s.CreatedByKind = val
+}
+
+// SetCreatedByName sets the value of CreatedByName.
+func (s *CloseCheckParkedEntry) SetCreatedByName(val string) {
+	s.CreatedByName = val
+}
+
+// The latest result of a check task's check (ADR-0058 §6, T64c), recorded when `:check` ran it:
+// whether it passed, when and by whom, and what it found, each with its id and name. A check is a
+// statement about the moment it ran; absent on a manual task and on a check task never checked.
+// Reopening the task keeps it.
+// Ref: #/components/schemas/CloseCheckResult
+type CloseCheckResult struct {
+	// The check run. Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Check string `json:"check"`
+	// Whether it passed: the task was set done when it did, open when it did not.
+	Passed bool `json:"passed"`
+	// When it ran.
+	CheckedAt time.Time `json:"checked_at"`
+	// The person who ran it.
+	CheckedBy uuid.UUID `json:"checked_by"`
+	// Their name.
+	CheckedByName string `json:"checked_by_name"`
+	// What it found, in one sentence.
+	Summary string `json:"summary"`
+	// `no_parked_entries`: how many parked entries of the company dated in the period (posting date from
+	// the leading ledger's period's first to its last day) are `parked` or `pending_approval`; absent for
+	// another check.
+	ParkedEntriesCount OptInt32 `json:"parked_entries_count"`
+	// `no_parked_entries`: the first 20 of them by posting date (`parked_entries_count` says how many
+	// there are); absent for another check.
+	ParkedEntries []CloseCheckParkedEntry `json:"parked_entries"`
+	// `revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted
+	// revaluation run keyed on its period's last day, if it has one; absent for another check.
+	Ledgers []CloseCheckLedger `json:"ledgers"`
+}
+
+// GetCheck returns the value of Check.
+func (s *CloseCheckResult) GetCheck() string {
+	return s.Check
+}
+
+// GetPassed returns the value of Passed.
+func (s *CloseCheckResult) GetPassed() bool {
+	return s.Passed
+}
+
+// GetCheckedAt returns the value of CheckedAt.
+func (s *CloseCheckResult) GetCheckedAt() time.Time {
+	return s.CheckedAt
+}
+
+// GetCheckedBy returns the value of CheckedBy.
+func (s *CloseCheckResult) GetCheckedBy() uuid.UUID {
+	return s.CheckedBy
+}
+
+// GetCheckedByName returns the value of CheckedByName.
+func (s *CloseCheckResult) GetCheckedByName() string {
+	return s.CheckedByName
+}
+
+// GetSummary returns the value of Summary.
+func (s *CloseCheckResult) GetSummary() string {
+	return s.Summary
+}
+
+// GetParkedEntriesCount returns the value of ParkedEntriesCount.
+func (s *CloseCheckResult) GetParkedEntriesCount() OptInt32 {
+	return s.ParkedEntriesCount
+}
+
+// GetParkedEntries returns the value of ParkedEntries.
+func (s *CloseCheckResult) GetParkedEntries() []CloseCheckParkedEntry {
+	return s.ParkedEntries
+}
+
+// GetLedgers returns the value of Ledgers.
+func (s *CloseCheckResult) GetLedgers() []CloseCheckLedger {
+	return s.Ledgers
+}
+
+// SetCheck sets the value of Check.
+func (s *CloseCheckResult) SetCheck(val string) {
+	s.Check = val
+}
+
+// SetPassed sets the value of Passed.
+func (s *CloseCheckResult) SetPassed(val bool) {
+	s.Passed = val
+}
+
+// SetCheckedAt sets the value of CheckedAt.
+func (s *CloseCheckResult) SetCheckedAt(val time.Time) {
+	s.CheckedAt = val
+}
+
+// SetCheckedBy sets the value of CheckedBy.
+func (s *CloseCheckResult) SetCheckedBy(val uuid.UUID) {
+	s.CheckedBy = val
+}
+
+// SetCheckedByName sets the value of CheckedByName.
+func (s *CloseCheckResult) SetCheckedByName(val string) {
+	s.CheckedByName = val
+}
+
+// SetSummary sets the value of Summary.
+func (s *CloseCheckResult) SetSummary(val string) {
+	s.Summary = val
+}
+
+// SetParkedEntriesCount sets the value of ParkedEntriesCount.
+func (s *CloseCheckResult) SetParkedEntriesCount(val OptInt32) {
+	s.ParkedEntriesCount = val
+}
+
+// SetParkedEntries sets the value of ParkedEntries.
+func (s *CloseCheckResult) SetParkedEntries(val []CloseCheckParkedEntry) {
+	s.ParkedEntries = val
+}
+
+// SetLedgers sets the value of Ledgers.
+func (s *CloseCheckResult) SetLedgers(val []CloseCheckLedger) {
+	s.Ledgers = val
+}
+
 type CloseFiscalPeriodBadRequest Problem
 
 func (*CloseFiscalPeriodBadRequest) closeFiscalPeriodRes() {}
@@ -11753,8 +12091,9 @@ type CloseTask struct {
 	Seq int32 `json:"seq"`
 	// What is to be done.
 	Name string `json:"name"`
-	// `manual`: a person completes it; `check`: the system runs it (later slices). Open enumeration:
-	// clients must accept and preserve values not listed here; values may be added within /v1.
+	// `manual`: a person completes it; `check`: its check completes it by passing (`:check`). Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
 	Kind string `json:"kind"`
 	// The check a `check` task runs; absent for a manual task.
 	Check OptString `json:"check"`
@@ -11782,7 +12121,8 @@ type CloseTask struct {
 	// When it was completed; absent while it is open.
 	CompletedAt OptDateTime `json:"completed_at"`
 	// The note given when it was completed; absent without one.
-	Note OptString `json:"note"`
+	Note        OptString           `json:"note"`
+	CheckResult OptCloseCheckResult `json:"check_result"`
 }
 
 // GetCloseID returns the value of CloseID.
@@ -11905,6 +12245,11 @@ func (s *CloseTask) GetNote() OptString {
 	return s.Note
 }
 
+// GetCheckResult returns the value of CheckResult.
+func (s *CloseTask) GetCheckResult() OptCloseCheckResult {
+	return s.CheckResult
+}
+
 // SetCloseID sets the value of CloseID.
 func (s *CloseTask) SetCloseID(val uuid.UUID) {
 	s.CloseID = val
@@ -12025,6 +12370,11 @@ func (s *CloseTask) SetNote(val OptString) {
 	s.Note = val
 }
 
+// SetCheckResult sets the value of CheckResult.
+func (s *CloseTask) SetCheckResult(val OptCloseCheckResult) {
+	s.CheckResult = val
+}
+
 // A manual task's completion.
 // Ref: #/components/schemas/CloseTaskComplete
 type CloseTaskComplete struct {
@@ -12079,6 +12429,7 @@ func (s *CloseTaskHeaders) SetResponse(val CloseTask) {
 	s.Response = val
 }
 
+func (*CloseTaskHeaders) checkCloseTaskRes()    {}
 func (*CloseTaskHeaders) completeCloseTaskRes() {}
 func (*CloseTaskHeaders) reopenCloseTaskRes()   {}
 func (*CloseTaskHeaders) updateCloseTaskRes()   {}
@@ -12770,6 +13121,7 @@ func (*ConflictHeaders) cancelRequisitionRes()                {}
 func (*ConflictHeaders) cancelRevaluationRunRes()             {}
 func (*ConflictHeaders) cancelSupplierInvoiceRes()            {}
 func (*ConflictHeaders) captureSupplierInvoiceRes()           {}
+func (*ConflictHeaders) checkCloseTaskRes()                   {}
 func (*ConflictHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*ConflictHeaders) closeFiscalPeriodRes()                {}
 func (*ConflictHeaders) closePurchaseOrderRes()               {}
@@ -32194,6 +32546,52 @@ func (o OptCloseCalendarClose) Or(d CloseCalendarClose) CloseCalendarClose {
 	return d
 }
 
+// NewOptCloseCheckResult returns new OptCloseCheckResult with value set to v.
+func NewOptCloseCheckResult(v CloseCheckResult) OptCloseCheckResult {
+	return OptCloseCheckResult{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptCloseCheckResult is optional CloseCheckResult.
+type OptCloseCheckResult struct {
+	Value CloseCheckResult
+	Set   bool
+}
+
+// IsSet returns true if OptCloseCheckResult was set.
+func (o OptCloseCheckResult) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptCloseCheckResult) Reset() {
+	var v CloseCheckResult
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptCloseCheckResult) SetTo(v CloseCheckResult) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptCloseCheckResult) Get() (v CloseCheckResult, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptCloseCheckResult) Or(d CloseCheckResult) CloseCheckResult {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptCloseTaskComplete returns new OptCloseTaskComplete with value set to v.
 func NewOptCloseTaskComplete(v CloseTaskComplete) OptCloseTaskComplete {
 	return OptCloseTaskComplete{
@@ -46393,6 +46791,7 @@ func (*ServiceUnavailableHeaders) cancelRequisitionRes()                {}
 func (*ServiceUnavailableHeaders) cancelRevaluationRunRes()             {}
 func (*ServiceUnavailableHeaders) cancelSupplierInvoiceRes()            {}
 func (*ServiceUnavailableHeaders) captureSupplierInvoiceRes()           {}
+func (*ServiceUnavailableHeaders) checkCloseTaskRes()                   {}
 func (*ServiceUnavailableHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*ServiceUnavailableHeaders) closeFiscalPeriodRes()                {}
 func (*ServiceUnavailableHeaders) closePurchaseOrderRes()               {}
@@ -50673,6 +51072,7 @@ func (*TooManyRequestsHeaders) cancelRequisitionRes()                {}
 func (*TooManyRequestsHeaders) cancelRevaluationRunRes()             {}
 func (*TooManyRequestsHeaders) cancelSupplierInvoiceRes()            {}
 func (*TooManyRequestsHeaders) captureSupplierInvoiceRes()           {}
+func (*TooManyRequestsHeaders) checkCloseTaskRes()                   {}
 func (*TooManyRequestsHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*TooManyRequestsHeaders) closeFiscalPeriodRes()                {}
 func (*TooManyRequestsHeaders) closePurchaseOrderRes()               {}
@@ -51058,6 +51458,7 @@ func (*UnauthorizedHeaders) cancelRequisitionRes()                {}
 func (*UnauthorizedHeaders) cancelRevaluationRunRes()             {}
 func (*UnauthorizedHeaders) cancelSupplierInvoiceRes()            {}
 func (*UnauthorizedHeaders) captureSupplierInvoiceRes()           {}
+func (*UnauthorizedHeaders) checkCloseTaskRes()                   {}
 func (*UnauthorizedHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*UnauthorizedHeaders) closeFiscalPeriodRes()                {}
 func (*UnauthorizedHeaders) closePurchaseOrderRes()               {}

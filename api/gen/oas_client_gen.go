@@ -327,6 +327,23 @@ type Invoker interface {
 	//
 	// POST /v1/supplier-invoices:capture
 	CaptureSupplierInvoice(ctx context.Context, request *SupplierInvoiceCaptureMultipart, params CaptureSupplierInvoiceParams) (CaptureSupplierInvoiceRes, error)
+	// CheckCloseTask invokes checkCloseTask operation.
+	//
+	// Runs a check task's check now and records its result on the task (ADR-0058 §6, T64c):
+	// `check_result` says whether it passed, when, who ran it and what it found, each with its id and
+	// name; the task is set done when it passed (who ran it and when become its completion; a task already
+	// done keeps its completion) and open when it did not. `no_parked_entries` passes when no parked entry
+	// of the company dated in the period (the leading ledger's period's first to last day) is `parked` or
+	// `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted`
+	// passes when each covered ledger has a posted revaluation run keyed on its period's last day, and
+	// names each ledger with its run. A check is a statement about the moment it ran: run it again to
+	// refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and
+	// for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the
+	// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
+	// (`task_checked`, with `check_passed`).
+	//
+	// POST /v1/period-closes/{id}/tasks/{code}:check
+	CheckCloseTask(ctx context.Context, params CheckCloseTaskParams) (CheckCloseTaskRes, error)
 	// ClearSupplierInvoiceDownPayments invokes clearSupplierInvoiceDownPayments operation.
 	//
 	// Clears paid down payment requests of the invoice's supplier against the posted invoice (SAP F-54;
@@ -359,10 +376,11 @@ type Invoker interface {
 	// CompleteCloseTask invokes completeCloseTask operation.
 	//
 	// Marks an open manual task of a period close done, with an optional note (ADR-0058 §6, T64b):
-	// refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a task
-	// already done (409 `closing.task_already_done`). `If-Match` is the close's ETag; the answer is the
-	// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
-	// (`task_completed`).
+	// refused while a task it depends on is open (409 `closing.task_blocked`, naming them), for a task
+	// already done (409 `closing.task_already_done`) and for a check task, which is done by its check
+	// passing (409 `closing.task_is_check`; T64c: run it with `:check`). `If-Match` is the close's ETag;
+	// the answer is the task, with the close's new ETag. People only. Audited, and published as
+	// PeriodCloseChanged (`task_completed`).
 	//
 	// POST /v1/period-closes/{id}/tasks/{code}:complete
 	CompleteCloseTask(ctx context.Context, request OptCloseTaskComplete, params CompleteCloseTaskParams) (CompleteCloseTaskRes, error)
@@ -2918,10 +2936,11 @@ type Invoker interface {
 	// ReopenCloseTask invokes reopenCloseTask operation.
 	//
 	// Returns a done task of a period close to open, with a reason (409 `closing.task_not_done` for an
-	// open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared, and the reason is
-	// kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays
-	// done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People
-	// only. Audited, and published as PeriodCloseChanged (`task_reopened`).
+	// open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared (a check task keeps
+	// its latest `check_result`), and the reason is kept in the audit trail and the event. It reopens
+	// nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is
+	// the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
+	// (`task_reopened`).
 	//
 	// POST /v1/period-closes/{id}/tasks/{code}:reopen
 	ReopenCloseTask(ctx context.Context, request *ReasonInput, params ReopenCloseTaskParams) (ReopenCloseTaskRes, error)
@@ -8045,6 +8064,193 @@ func (c *Client) sendCaptureSupplierInvoice(ctx context.Context, request *Suppli
 	return result, nil
 }
 
+// CheckCloseTask invokes checkCloseTask operation.
+//
+// Runs a check task's check now and records its result on the task (ADR-0058 §6, T64c):
+// `check_result` says whether it passed, when, who ran it and what it found, each with its id and
+// name; the task is set done when it passed (who ran it and when become its completion; a task already
+// done keeps its completion) and open when it did not. `no_parked_entries` passes when no parked entry
+// of the company dated in the period (the leading ledger's period's first to last day) is `parked` or
+// `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted`
+// passes when each covered ledger has a posted revaluation run keyed on its period's last day, and
+// names each ledger with its run. A check is a statement about the moment it ran: run it again to
+// refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and
+// for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the
+// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
+// (`task_checked`, with `check_passed`).
+//
+// POST /v1/period-closes/{id}/tasks/{code}:check
+func (c *Client) CheckCloseTask(ctx context.Context, params CheckCloseTaskParams) (CheckCloseTaskRes, error) {
+	res, err := c.sendCheckCloseTask(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendCheckCloseTask(ctx context.Context, params CheckCloseTaskParams) (res CheckCloseTaskRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("checkCloseTask"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/period-closes/{id}/tasks/{code}:check"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CheckCloseTaskOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/period-closes/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/tasks/"
+	{
+		// Encode "code" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "code",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Code))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":check"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CheckCloseTaskOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCheckCloseTaskResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ClearSupplierInvoiceDownPayments invokes clearSupplierInvoiceDownPayments operation.
 //
 // Clears paid down payment requests of the invoice's supplier against the posted invoice (SAP F-54;
@@ -8533,10 +8739,11 @@ func (c *Client) sendClosePurchaseOrder(ctx context.Context, params ClosePurchas
 // CompleteCloseTask invokes completeCloseTask operation.
 //
 // Marks an open manual task of a period close done, with an optional note (ADR-0058 §6, T64b):
-// refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a task
-// already done (409 `closing.task_already_done`). `If-Match` is the close's ETag; the answer is the
-// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
-// (`task_completed`).
+// refused while a task it depends on is open (409 `closing.task_blocked`, naming them), for a task
+// already done (409 `closing.task_already_done`) and for a check task, which is done by its check
+// passing (409 `closing.task_is_check`; T64c: run it with `:check`). `If-Match` is the close's ETag;
+// the answer is the task, with the close's new ETag. People only. Audited, and published as
+// PeriodCloseChanged (`task_completed`).
 //
 // POST /v1/period-closes/{id}/tasks/{code}:complete
 func (c *Client) CompleteCloseTask(ctx context.Context, request OptCloseTaskComplete, params CompleteCloseTaskParams) (CompleteCloseTaskRes, error) {
@@ -53064,10 +53271,11 @@ func (c *Client) sendRenewContract(ctx context.Context, request *ContractRenew, 
 // ReopenCloseTask invokes reopenCloseTask operation.
 //
 // Returns a done task of a period close to open, with a reason (409 `closing.task_not_done` for an
-// open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared, and the reason is
-// kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays
-// done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People
-// only. Audited, and published as PeriodCloseChanged (`task_reopened`).
+// open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared (a check task keeps
+// its latest `check_result`), and the reason is kept in the audit trail and the event. It reopens
+// nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is
+// the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
+// (`task_reopened`).
 //
 // POST /v1/period-closes/{id}/tasks/{code}:reopen
 func (c *Client) ReopenCloseTask(ctx context.Context, request *ReasonInput, params ReopenCloseTaskParams) (ReopenCloseTaskRes, error) {

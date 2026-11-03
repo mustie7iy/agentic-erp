@@ -113,6 +113,10 @@ type CaptureSupplierInvoiceRes interface {
 	captureSupplierInvoiceRes()
 }
 
+type CheckCloseTaskRes interface {
+	checkCloseTaskRes()
+}
+
 type ClearSupplierInvoiceDownPaymentsRes interface {
 	clearSupplierInvoiceDownPaymentsRes()
 }

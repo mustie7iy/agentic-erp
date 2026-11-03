@@ -13973,7 +13973,7 @@ paths:
       tags:
         - closing
       summary: Complete a close task
-      description: "Marks an open manual task of a period close done, with an optional note (ADR-0058 §6, T64b): refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a task already done (409 `closing.task_already_done`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_completed`)."
+      description: "Marks an open manual task of a period close done, with an optional note (ADR-0058 §6, T64b): refused while a task it depends on is open (409 `closing.task_blocked`, naming them), for a task already done (409 `closing.task_already_done`) and for a check task, which is done by its check passing (409 `closing.task_is_check`; T64c: run it with `:check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_completed`)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
@@ -13982,6 +13982,7 @@ paths:
         - closing.close_exists
         - closing.task_already_done
         - closing.task_blocked
+        - closing.task_is_check
         - config.not_bootstrapped
         - request.version_mismatch
       parameters:
@@ -14034,7 +14035,7 @@ paths:
       tags:
         - closing
       summary: Reopen a close task
-      description: "Returns a done task of a period close to open, with a reason (409 `closing.task_not_done` for an open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared, and the reason is kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_reopened`)."
+      description: "Returns a done task of a period close to open, with a reason (409 `closing.task_not_done` for an open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared (a check task keeps its latest `check_result`), and the reason is kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_reopened`)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
@@ -14059,6 +14060,60 @@ paths:
       responses:
         "200":
           description: "The task after the change, with the close's new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CloseTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/period-closes/{id}/tasks/{code}:check":
+    post:
+      operationId: checkCloseTask
+      tags:
+        - closing
+      summary: Run a close task's check
+      description: "Runs a check task's check now and records its result on the task (ADR-0058 §6, T64c): `check_result` says whether it passed, when, who ran it and what it found, each with its id and name; the task is set done when it passed (who ran it and when become its completion; a task already done keeps its completion) and open when it did not. `no_parked_entries` passes when no parked entry of the company dated in the period (the leading ledger's period's first to last day) is `parked` or `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted` passes when each covered ledger has a posted revaluation run keyed on its period's last day, and names each ledger with its run. A check is a statement about the moment it ran: run it again to refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_checked`, with `check_passed`)."
+      x-permission: closing.close.manage
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - closing.close_exists
+        - closing.task_blocked
+        - closing.task_not_check
+        - config.not_bootstrapped
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CloseTaskCode"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The task with its check's result, with the close's new ETag."
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -33612,7 +33667,7 @@ components:
           readOnly: true
         kind:
           type: string
-          description: "`manual`: a person completes it; `check`: the system runs it (later slices). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "`manual`: a person completes it; `check`: its check completes it by passing (`:check`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum: [manual, check]
           readOnly: true
         check:
@@ -33679,6 +33734,8 @@ components:
           type: string
           description: "The note given when it was completed; absent without one."
           readOnly: true
+        check_result:
+          $ref: "#/components/schemas/CloseCheckResult"
       examples:
         - close_id: 0192a000-0000-7000-8000-000000000f01
           close_version: 3
@@ -33703,6 +33760,171 @@ components:
           completed_by_name: Carla Controller
           completed_at: "2026-11-03T15:00:00Z"
           note: Last invoices entered on the 2nd.
+    CloseCheckResult:
+      type: object
+      description: "The latest result of a check task's check (ADR-0058 §6, T64c), recorded when `:check` ran it: whether it passed, when and by whom, and what it found, each with its id and name. A check is a statement about the moment it ran; absent on a manual task and on a check task never checked. Reopening the task keeps it."
+      required:
+        - check
+        - passed
+        - checked_at
+        - checked_by
+        - checked_by_name
+        - summary
+      properties:
+        check:
+          type: string
+          description: "The check run. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [no_parked_entries, revaluation_posted]
+          readOnly: true
+        passed:
+          type: boolean
+          description: "Whether it passed: the task was set done when it did, open when it did not."
+          readOnly: true
+        checked_at:
+          type: string
+          format: date-time
+          description: When it ran.
+          readOnly: true
+        checked_by:
+          type: string
+          format: uuid
+          description: The person who ran it.
+          readOnly: true
+        checked_by_name:
+          type: string
+          description: Their name.
+          readOnly: true
+        summary:
+          type: string
+          description: "What it found, in one sentence."
+          readOnly: true
+        parked_entries_count:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "`no_parked_entries`: how many parked entries of the company dated in the period (posting date from the leading ledger's period's first to its last day) are `parked` or `pending_approval`; absent for another check."
+          readOnly: true
+        parked_entries:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/CloseCheckParkedEntry"
+          description: "`no_parked_entries`: the first 20 of them by posting date (`parked_entries_count` says how many there are); absent for another check."
+          readOnly: true
+        ledgers:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/CloseCheckLedger"
+          description: "`revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted revaluation run keyed on its period's last day, if it has one; absent for another check."
+          readOnly: true
+      examples:
+        - check: no_parked_entries
+          passed: false
+          checked_at: "2026-11-03T15:00:00Z"
+          checked_by: 0192a000-0000-7000-8000-000000000101
+          checked_by_name: Carla Controller
+          summary: "1 parked entry dated 2026-10-01 to 2026-10-31 is parked or pending approval; post or cancel it."
+          parked_entries_count: 1
+          parked_entries:
+            - id: 0192a000-0000-7000-8000-000000000c01
+              document_type: SA
+              posting_date: "2026-10-30"
+              status: parked
+              header_text: Office rent accrual
+              created_by: 0192a000-0000-7000-8000-000000000101
+              created_by_kind: human
+              created_by_name: Carla Controller
+    CloseCheckParkedEntry:
+      type: object
+      description: "A parked entry a `no_parked_entries` check found (`GET /v1/parked-journal-entries/{id}`), as it was when the check ran."
+      required:
+        - id
+        - document_type
+        - posting_date
+        - status
+        - created_by
+        - created_by_kind
+        - created_by_name
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: "The parked entry."
+          readOnly: true
+        document_type:
+          type: string
+          description: Its document type.
+          readOnly: true
+        posting_date:
+          type: string
+          format: date
+          description: Its posting date.
+          readOnly: true
+        status:
+          type: string
+          description: "Its status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [parked, pending_approval]
+          readOnly: true
+        reference:
+          type: string
+          description: "Its reference; absent without one."
+          readOnly: true
+        header_text:
+          type: string
+          description: "Its header text; absent without one."
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: Who parked it.
+          readOnly: true
+        created_by_kind:
+          type: string
+          description: "Whether a person, an agent or a service parked it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [human, agent, service]
+          readOnly: true
+        created_by_name:
+          type: string
+          description: Their name.
+          readOnly: true
+    CloseCheckLedger:
+      type: object
+      description: "A covered ledger as a `revaluation_posted` check found it."
+      required:
+        - ledger_id
+        - ledger_code
+        - ledger_name
+        - key_date
+        - posted
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: The ledger.
+          readOnly: true
+        ledger_code:
+          type: string
+          description: Its code.
+          readOnly: true
+        ledger_name:
+          type: string
+          description: Its name.
+          readOnly: true
+        key_date:
+          type: string
+          format: date
+          description: "Its period's last day, the key date its revaluation run is keyed on."
+          readOnly: true
+        posted:
+          type: boolean
+          description: "Whether it has a posted revaluation run at the key date."
+          readOnly: true
+        revaluation_run_id:
+          type: string
+          format: uuid
+          description: "The posted run (`GET /v1/revaluation-runs/{id}`); absent without one."
+          readOnly: true
     CloseTaskPage:
       type: object
       description: One page of close tasks.
