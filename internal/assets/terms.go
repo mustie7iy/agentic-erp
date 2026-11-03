@@ -68,7 +68,7 @@ func (e *Endpoints) changeAsset(ctx context.Context, id uuid.UUID, ifMatch func(
 	}
 	description := a.Description
 	if ch.Description != nil {
-		if err := checkDescription(*ch.Description); err != nil {
+		if err := problem.RequireText("description", *ch.Description); err != nil {
 			return Asset{}, err
 		}
 		description = *ch.Description
@@ -286,13 +286,4 @@ func equalPtr[T comparable](a, b *T) bool {
 // validation is a 422 request.validation_failed on one field.
 func validation(field, message string) *problem.Problem {
 	return invalid("request.validation_failed", "The request is not valid: "+field+": "+message+".", field, message)
-}
-
-// checkDescription refuses a description of spaces alone, which the
-// database refuses too (asset_description_check).
-func checkDescription(d string) error {
-	if strings.TrimSpace(d) == "" {
-		return validation("description", "a text, not only spaces")
-	}
-	return nil
 }

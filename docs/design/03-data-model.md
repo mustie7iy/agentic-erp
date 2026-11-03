@@ -371,7 +371,7 @@ names the company's weekend (`calendars[company].weekend`, T64a, ADR-0058
 Saturday and Sunday. A business day is neither a weekend day nor a holiday
 (`config.Config.BusinessDay`), the one rule the cash position and the close
 calendar count days by. The `close` section is the close template
-(`close.tasks`, T64a; §3.21).
+(`close.tasks`, T64a; §3.22).
 `POST /v1/country-pack-applications` (T62d) stores the draft as a change
 request in status `draft` on the active version, with the merge's notes in
 `change_request.notes` (an array of path and message, `[]` for requests
