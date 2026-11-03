@@ -793,6 +793,10 @@ type ListLegalEntitiesRes interface {
 	listLegalEntitiesRes()
 }
 
+type ListLiquidityForecastFlowsRes interface {
+	listLiquidityForecastFlowsRes()
+}
+
 type ListMatchResultsRes interface {
 	listMatchResultsRes()
 }

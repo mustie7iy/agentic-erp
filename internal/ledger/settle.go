@@ -45,6 +45,13 @@ type PayableItem struct {
 	// them: an unposted invoice's items, as payables reads them for the
 	// liquidity forecast (T53e3); a posted item's are read by Offsetting.
 	Lines []OffsettingLine
+	// Document and Number are the document it is an item of and its
+	// number: a posted item's journal entry; an unposted invoice, as
+	// payables reads it for the liquidity forecast, or a down payment
+	// request, as payments gives it, theirs: what the forecast's
+	// drill-down names (T53e4).
+	Document uuid.UUID
+	Number   string
 }
 
 // Payable returns the legal entity's open supplier items in the currency
@@ -77,7 +84,7 @@ func payable(ctx context.Context, what, filter string, args ...any) ([]PayableIt
 		return nil, err
 	}
 	rows, _ := tx.Query(ctx, `SELECT l.fiscal_year, l.journal_entry_id, l.line_no, l.account_id, l.partner_id, e.document_date, e.currency_tc, l.amount_tc,
-			`+termsColumns+`, `+withholdingColumn+`
+			e.document_number, `+termsColumns+`, `+withholdingColumn+`
 		FROM ledger.journal_line l
 		LEFT JOIN ledger.open_item_terms t ON t.tenant_id = l.tenant_id AND t.fiscal_year = l.fiscal_year AND t.journal_entry_id = l.journal_entry_id
 			AND t.line_no = l.line_no
@@ -95,9 +102,9 @@ func payable(ctx context.Context, what, filter string, args ...any) ([]PayableIt
 	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (PayableItem, error) {
 		var p PayableItem
 		var t storedTerms
-		err := errs.Wrapf(r.Scan(append([]any{&p.FiscalYear, &p.EntryID, &p.LineNo, &p.AccountID, &p.PartnerID, &p.DocumentDate, &p.Currency, &p.Amount},
-			append(t.fields(), &p.Withholding)...)...), "scan payable item")
-		p.Terms = t.terms()
+		err := errs.Wrapf(r.Scan(append([]any{&p.FiscalYear, &p.EntryID, &p.LineNo, &p.AccountID, &p.PartnerID, &p.DocumentDate, &p.Currency, &p.Amount,
+			&p.Number}, append(t.fields(), &p.Withholding)...)...), "scan payable item")
+		p.Terms, p.Document = t.terms(), p.EntryID
 		return p, err
 	})
 	if err != nil {

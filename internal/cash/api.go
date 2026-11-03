@@ -7,6 +7,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 )
 
 // GetCashPosition implements GET /v1/cash-position.
@@ -81,13 +82,19 @@ func flowsToAPI(flows []FlowTotal, amount func(money.Minor) gen.Money) []gen.Cas
 
 func convertedToAPI(c Converted) gen.CashPositionConverted {
 	amount := amounts(c.Currency, c.Exponent)
-	out := gen.CashPositionConverted{Currency: c.Currency, Rates: make([]gen.CashPositionRate, len(c.Rates)), IncompleteCurrencies: c.Incomplete,
+	out := gen.CashPositionConverted{Currency: c.Currency, Rates: ratesToAPI(c.Rates), IncompleteCurrencies: c.Incomplete,
 		Days: make([]gen.CashPositionTotal, len(c.Days))}
-	for i, r := range c.Rates {
-		out.Rates[i] = gen.CashPositionRate{Currency: r.Currency, RateType: r.RateType, Rate: gen.Decimal(r.Rate), ValidFrom: r.ValidFrom, Stale: r.Stale}
-	}
 	for i, d := range c.Days {
 		out.Days[i] = gen.CashPositionTotal{Date: d.Date, Opening: amount(d.Opening), Closing: amount(d.Closing), Available: amount(d.Available)}
+	}
+	return out
+}
+
+// ratesToAPI shows the rates totals are converted at.
+func ratesToAPI(rates []CurrencyRate) []gen.CashPositionRate {
+	out := make([]gen.CashPositionRate, len(rates))
+	for i, r := range rates {
+		out[i] = gen.CashPositionRate{Currency: r.Currency, RateType: r.RateType, Rate: gen.Decimal(r.Rate), ValidFrom: r.ValidFrom, Stale: r.Stale}
 	}
 	return out
 }
@@ -95,7 +102,7 @@ func convertedToAPI(c Converted) gen.CashPositionConverted {
 // GetLiquidityForecast implements GET /v1/liquidity-forecast.
 func (e *Endpoints) GetLiquidityForecast(ctx context.Context, params gen.GetLiquidityForecastParams) (gen.GetLiquidityForecastRes, error) {
 	f, err := e.Forecast(ctx, ForecastQuery{LegalEntity: params.LegalEntityID, MinCertainty: params.MinCertainty.Value,
-		IncludeBlocked: params.IncludeBlocked.Value})
+		IncludeBlocked: params.IncludeBlocked.Value, Grain: params.Grain.Value, To: apitypes.Ptr[time.Time](params.To), Display: params.DisplayCurrency.Value})
 	if err != nil {
 		return nil, err
 	}
@@ -107,13 +114,60 @@ func (e *Endpoints) GetLiquidityForecast(ctx context.Context, params gen.GetLiqu
 	for i, c := range f.Currencies {
 		amount := amounts(c.Currency, c.Exponent)
 		cur := gen.LiquidityForecastCurrency{Currency: c.Currency, Buckets: make([]gen.LiquidityForecastBucketFlows, len(c.Buckets)), Total: amount(c.Total),
+			Opening: gen.LiquidityForecastOpening{Amount: amount(c.Opening.Amount), Banks: int32(c.Opening.Banks), Stale: c.Opening.Stale, Gap: c.Opening.Gap},
 			Beyond:  gen.LiquidityForecastBeyond{Amount: amount(c.Beyond.Amount), Count: int32(c.Beyond.Count)},
 			Blocked: gen.LiquidityForecastBlocked{Amount: amount(c.Blocked.Amount), Count: int32(c.Blocked.Count)}}
 		for j, b := range c.Buckets {
-			cur.Buckets[j] = gen.LiquidityForecastBucketFlows{Start: f.Buckets[j].Start, Flows: flowsToAPI(b.Flows, amount), Total: amount(b.Total)}
+			cur.Buckets[j] = gen.LiquidityForecastBucketFlows{Start: f.Buckets[j].Start, Flows: flowsToAPI(b.Flows, amount), Total: amount(b.Total),
+				Closing: amount(b.Closing)}
 		}
 		cur.Items = itemsToAPI(c.Items, amount)
 		out.Currencies[i] = cur
+	}
+	if c := f.Converted; c != nil {
+		out.Converted.SetTo(forecastConvertedToAPI(*c, f.Buckets))
+	}
+	return &out, nil
+}
+
+// forecastConvertedToAPI shows a forecast's converted figures.
+func forecastConvertedToAPI(c ForecastConverted, bs []Bucket) gen.LiquidityForecastConverted {
+	amount := amounts(c.Currency, c.Exponent)
+	out := gen.LiquidityForecastConverted{Currency: c.Currency, Rates: ratesToAPI(c.Rates), IncompleteCurrencies: c.Incomplete, Opening: amount(c.Opening),
+		Buckets: make([]gen.LiquidityForecastConvertedBucket, len(bs)), Total: amount(c.Total), Beyond: amount(c.Beyond)}
+	for i, b := range bs {
+		out.Buckets[i] = gen.LiquidityForecastConvertedBucket{Start: b.Start, Total: amount(c.Totals[i]), Closing: amount(c.Closing[i])}
+	}
+	return out
+}
+
+// ListLiquidityForecastFlows implements GET /v1/liquidity-forecast-flows.
+func (e *Endpoints) ListLiquidityForecastFlows(ctx context.Context, params gen.ListLiquidityForecastFlowsParams) (gen.ListLiquidityForecastFlowsRes, error) {
+	size, err := pagination.Size(params.PageSize.Value, params.PageSize.Set)
+	if err != nil {
+		return nil, err
+	}
+	p, err := e.Flows(ctx, FlowsQuery{LegalEntity: params.LegalEntityID, Currency: params.Currency, From: apitypes.Ptr[time.Time](params.From),
+		To: apitypes.Ptr[time.Time](params.To), Item: params.LiquidityItem.Value, Unclassified: params.Unclassified.Value, MinCertainty: params.MinCertainty.Value,
+		IncludeBlocked: params.IncludeBlocked.Value, PageSize: size, PageToken: params.PageToken.Value})
+	if err != nil {
+		return nil, err
+	}
+	amount := amounts(p.Currency, p.Exponent)
+	out := gen.LiquidityForecastFlowPage{LegalEntityID: p.LegalEntity, ReadDate: p.ReadDate, TimeZone: p.TimeZone, Currency: p.Currency, From: p.From,
+		To: params.To, LiquidityItem: params.LiquidityItem, Unclassified: params.Unclassified.Value, MinCertainty: p.MinCertainty,
+		IncludeBlocked: params.IncludeBlocked.Value, Total: amount(p.Total), Count: int32(p.Count), Items: make([]gen.LiquidityForecastFlow, len(p.Flows)),
+		NextPageToken: apitypes.OptText(p.Next)}
+	for i, f := range p.Flows {
+		lf := gen.LiquidityForecastFlow{Date: f.Date, Source: f.Source, Certainty: f.Certainty, Late: f.Late, Counted: f.Counted, Amount: amount(f.Amount),
+			Share: amount(f.Share), DocumentCount: int32(f.DocumentCount), Documents: make([]gen.LiquidityForecastDocument, len(f.Documents))}
+		if s := f.Supplier; s != nil {
+			lf.Supplier.SetTo(gen.PartnerName{ID: s.ID, Number: s.Number, Name: s.Name})
+		}
+		for j, d := range f.Documents {
+			lf.Documents[j] = gen.LiquidityForecastDocument{Kind: d.Kind, ID: d.ID, Number: apitypes.OptText(d.Number), Amount: amount(d.Amount)}
+		}
+		out.Items[i] = lf
 	}
 	return &out, nil
 }

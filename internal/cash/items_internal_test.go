@@ -71,9 +71,15 @@ func TestClassify(t *testing.T) {
 		{"an outflow, a credit memo in it", -900, []part{{amount: -1000, lines: []DocumentLine{{Account: "530000", Amount: 1000}}},
 			{amount: 100, lines: []DocumentLine{{Account: "530000", Amount: -100}}}, {amount: 0}}, "[{RENT -900} {SUPPLIERS 0}]"},
 		{"an inflow", 50, []part{{amount: 50}}, "[{RECEIPTS 50}]"},
+		// A line in transit of part of a payment: its items' parts are
+		// shared out over the line's amount (T53e4).
+		{"parts of a payment, a line of it", -10, []part{{amount: -80, lines: []DocumentLine{{Account: "530000", Amount: 80}}}, {amount: -20}},
+			"[{RENT -8} {SUPPLIERS -2}]"},
+		{"parts adding up to nothing", -10, []part{{amount: -5}, {amount: 5}}, "[{SUPPLIERS -10}]"},
+		{"no parts", -10, nil, "[]"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := classify(d, &sums{}, c.amount, c.parts)
+			got, err := classify(newRules(d), &sums{}, c.amount, c.parts)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -83,14 +89,16 @@ func TestClassify(t *testing.T) {
 		})
 	}
 	for _, c := range []struct {
-		name  string
-		parts []part
+		name   string
+		amount money.Minor
+		parts  []part
 	}{
-		{"lines out of range", []part{{amount: -1, lines: []DocumentLine{{"A", math.MaxInt64, "V1", ""}, {"T", 1, "V1", "input"}}}}},
-		{"an amount out of range", []part{{amount: math.MinInt64, lines: []DocumentLine{{Account: "530000", Amount: 1}, {Account: "1", Amount: 1}}}}},
+		{"lines out of range", -1, []part{{amount: -1, lines: []DocumentLine{{"A", math.MaxInt64, "V1", ""}, {"T", 1, "V1", "input"}}}}},
+		{"an amount out of range", math.MinInt64, []part{{amount: math.MinInt64, lines: []DocumentLine{{Account: "530000", Amount: 1}, {Account: "1", Amount: 1}}}}},
+		{"parts shared out of range", math.MaxInt64, []part{{amount: 1}, {amount: -2}}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			if _, err := classify(d, &sums{}, -1, c.parts); !errors.Is(err, money.ErrOverflow) {
+			if _, err := classify(newRules(d), &sums{}, c.amount, c.parts); !errors.Is(err, money.ErrOverflow) {
 				t.Errorf("got %v, want money.ErrOverflow", err)
 			}
 		})

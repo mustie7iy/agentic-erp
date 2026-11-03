@@ -204,6 +204,7 @@ const (
 	ListLedgerReconciliationEntriesOperation  OperationName = "ListLedgerReconciliationEntries"
 	ListLedgersOperation                      OperationName = "ListLedgers"
 	ListLegalEntitiesOperation                OperationName = "ListLegalEntities"
+	ListLiquidityForecastFlowsOperation       OperationName = "ListLiquidityForecastFlows"
 	ListMatchResultsOperation                 OperationName = "ListMatchResults"
 	ListMemoRecordsOperation                  OperationName = "ListMemoRecords"
 	ListMigrationRunsOperation                OperationName = "ListMigrationRuns"

@@ -13,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -61,7 +62,29 @@ type Payable struct {
 	// payment request has no lines.
 	Lines         []DocumentLine
 	PlanningGroup string
+	// Document is the document it is: a posted item's journal entry, an
+	// unposted invoice, or a down payment request (T53e4).
+	Document Document
 }
+
+// Document is a document a forecast flow pays, as the drill-down names it
+// (ADR-0051 §9, T53e4): its kind (DocJournalEntry, DocSupplierInvoice,
+// DocDownPaymentRequest, DocPaymentRun or DocMemoRecord), its id in its
+// own context and its number, "" when it has none.
+type Document struct {
+	Kind   string
+	ID     uuid.UUID
+	Number string
+}
+
+// Kinds of document a forecast flow pays.
+const (
+	DocJournalEntry       = "journal_entry"
+	DocSupplierInvoice    = "supplier_invoice"
+	DocDownPaymentRequest = "down_payment_request"
+	DocPaymentRun         = "payment_run"
+	DocMemoRecord         = "memo_record"
+)
 
 // Paying is what a payment of a run not yet released pays (ADR-0051 §4,
 // T53e3): its supplier's planning group in the company, and what it pays
@@ -95,12 +118,17 @@ const (
 var certainties = []string{CertaintyActual, CertaintyConfirmed, CertaintyExpected, CertaintyPlanned}
 
 // ForecastQuery is what a forecast covers: the legal entity, the least
-// certain flows it counts ("": every flow, planned), and whether what
-// blocked suppliers are owed counts in the totals.
+// certain flows it counts ("": every flow, planned), whether what blocked
+// suppliers are owed counts in the totals, one grain over a range (Grain
+// with To; "" and nil: the company's buckets), and the currency the totals
+// are converted into ("": none, T53e4).
 type ForecastQuery struct {
 	LegalEntity    uuid.UUID
 	MinCertainty   string
 	IncludeBlocked bool
+	Grain          string
+	To             *time.Time
+	Display        string
 }
 
 // Forecast is a legal entity's liquidity forecast.
@@ -112,6 +140,9 @@ type Forecast struct {
 	IncludeBlocked bool
 	Buckets        []Bucket
 	Currencies     []ForecastCurrency
+	// Converted are the currencies in the display currency, nil when none
+	// was asked for (ADR-0051 §10, T53e4).
+	Converted *ForecastConverted
 }
 
 // Bucket is a column of the forecast: the days from Start to End.
@@ -127,19 +158,34 @@ type Bucket struct {
 type ForecastCurrency struct {
 	Currency string
 	Exponent int
-	Buckets  []BucketFlows
-	Total    money.Minor
-	Beyond   Beyond
-	Blocked  Beyond
+	// Opening is what the read date opens at: the cash position's opening
+	// of the first day (T53e4).
+	Opening ForecastOpening
+	Buckets []BucketFlows
+	Total   money.Minor
+	Beyond  Beyond
+	Blocked Beyond
 	// Items are its rows by liquidity item and its hierarchy (T53e3).
 	Items []ItemRow
 }
 
-// BucketFlows is a bucket's flows by source, certainty and lateness, and
-// their total.
+// BucketFlows is a bucket's flows by source, certainty and lateness,
+// their total, and the balance after them: the opening plus the totals so
+// far (T53e4).
 type BucketFlows struct {
-	Flows []FlowTotal
-	Total money.Minor
+	Flows   []FlowTotal
+	Total   money.Minor
+	Closing money.Minor
+}
+
+// ForecastOpening is a currency's opening: the sum of its active house
+// banks' latest statement closing balances before the read date, how many
+// banks it sums, and whether one is stale or in gap, as the cash position
+// marks them.
+type ForecastOpening struct {
+	Amount     money.Minor
+	Banks      int
+	Stale, Gap bool
 }
 
 // Beyond is a sum of flows and their count: what is expected after the
@@ -150,59 +196,148 @@ type Beyond struct {
 }
 
 // datedFlow is a flow in its currency, with the documents it pays, from
-// which its liquidity items are derived, and its shares by item.
+// which its liquidity items are derived, and its shares by item; the
+// supplier it pays (nil for a memo record) and the documents it pays with
+// what it pays of each, which the drill-down names (T53e4).
 type datedFlow struct {
 	flow
-	currency string
-	parts    []part
-	shares   []Share
+	currency  string
+	parts     []part
+	shares    []Share
+	supplier  *uuid.UUID
+	documents []paidDocument
+	// identity tells a flow from others of its day, source and documents
+	// (a run's payments, a payment's lines in transit, a series'
+	// occurrences) in the drill-down's keys; "" when its documents do.
+	identity string
+}
+
+// paidDocument is a document a flow pays and what the flow pays of it.
+type paidDocument struct {
+	Document
+	amount money.Minor
 }
 
 // Forecast computes the legal entity's liquidity forecast. A legal entity
 // the caller cannot act in is not found, as one that does not exist.
 func (e *Endpoints) Forecast(ctx context.Context, q ForecastQuery) (Forecast, error) {
+	var bs []Bucket
+	fr, err := e.readForecast(ctx, q.LegalEntity, q.MinCertainty, func(r reader) (time.Time, error) {
+		var err error
+		bs, err = forecastBuckets(r, q.Grain, q.To)
+		if err != nil {
+			return time.Time{}, err
+		}
+		return bs[len(bs)-1].End, nil
+	})
+	if err != nil {
+		return Forecast{}, err
+	}
+	f := Forecast{LegalEntity: q.LegalEntity, ReadDate: fr.r.read, TimeZone: fr.zone, MinCertainty: fr.minCertainty, IncludeBlocked: q.IncludeBlocked,
+		Buckets: bs}
+	if f.Currencies, err = fr.r.byCurrency(ctx, fr.tx, bs, fr.flows, fr.banks, q.IncludeBlocked); err != nil {
+		return Forecast{}, err
+	}
+	if q.Display != "" {
+		c, err := e.convertForecast(ctx, fr.tx, fr.r, f.Currencies, q.Display, len(bs))
+		if err != nil {
+			return Forecast{}, err
+		}
+		f.Converted = &c
+	}
+	if fr.r.sums.overflow {
+		return Forecast{}, errForecastTooLarge
+	}
+	return f, nil
+}
+
+// forecastRead is a forecast's flows as read, before they are summed: the
+// request's transaction, the company's reader, its zone, the certainty
+// cut, the flows from the read date, each classified by liquidity item,
+// and the company's active house banks, whose statements open it.
+type forecastRead struct {
+	tx           pgx.Tx
+	r            reader
+	zone         string
+	minCertainty string
+	flows        []datedFlow
+	banks        []Bank
+}
+
+// readForecast reads the legal entity's forecast flows up to the horizon
+// last gives for the company's reader (the last day a memo series is
+// expanded to), the less certain than minCertainty cut, and classifies
+// them by the active derivation: what the forecast sums and the drill-down
+// lists alike.
+func (e *Endpoints) readForecast(ctx context.Context, legalEntity uuid.UUID, minCertainty string, last func(reader) (time.Time, error)) (forecastRead, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
-		return Forecast{}, err
+		return forecastRead{}, err
 	}
-	co, err := e.company(ctx, q.LegalEntity)
+	co, err := e.company(ctx, legalEntity)
 	if err != nil {
-		return Forecast{}, err
+		return forecastRead{}, err
 	}
-	minCertainty := cmp.Or(q.MinCertainty, CertaintyPlanned)
-	keep := slices.Index(certainties, minCertainty)
+	fr := forecastRead{tx: tx, minCertainty: cmp.Or(minCertainty, CertaintyPlanned)}
+	keep := slices.Index(certainties, fr.minCertainty)
 	if keep < 0 {
-		return Forecast{}, problem.Unprocessable("request.validation_failed", "The least certain flows counted must be a certainty level.",
+		return forecastRead{}, problem.Unprocessable("request.validation_failed", "The least certain flows counted must be a certainty level.",
 			problem.FieldError{Field: "min_certainty", Code: "invalid", Message: "actual, confirmed, expected or planned"})
 	}
 	doc, _, err := e.Settings.Document(ctx)
 	if err != nil {
-		return Forecast{}, fmt.Errorf("cash: configuration: %w", err)
+		return forecastRead{}, fmt.Errorf("cash: configuration: %w", err)
 	}
 	read, zone, err := e.readDate(doc, co.Code)
 	if err != nil {
-		return Forecast{}, err
+		return forecastRead{}, err
 	}
-	r := reader{doc: doc, company: co.Code, settings: companyCash(doc, co.Code), read: read, sums: &sums{}}
-	f := Forecast{LegalEntity: q.LegalEntity, ReadDate: read, TimeZone: zone, MinCertainty: minCertainty, IncludeBlocked: q.IncludeBlocked,
-		Buckets: buckets(read, r.settings.BucketsOrDefault())}
-	flows, err := e.forecastFlows(ctx, r, q.LegalEntity)
+	fr.zone, fr.r = zone, reader{doc: doc, company: co.Code, settings: companyCash(doc, co.Code), read: read, sums: &sums{}}
+	horizon, err := last(fr.r)
 	if err != nil {
-		return Forecast{}, err
+		return forecastRead{}, err
 	}
-	flows = slices.DeleteFunc(flows, func(d datedFlow) bool { return slices.Index(certainties, d.certainty) > keep })
-	for i := range flows {
-		if flows[i].shares, err = classify(doc.Cash.Derivation, r.sums, flows[i].amount, flows[i].parts); err != nil {
-			return Forecast{}, err
+	if fr.flows, fr.banks, err = e.forecastFlows(ctx, tx, fr.r, legalEntity, horizon); err != nil {
+		return forecastRead{}, err
+	}
+	fr.flows = slices.DeleteFunc(fr.flows, func(d datedFlow) bool { return slices.Index(certainties, d.certainty) > keep })
+	d := newRules(doc.Cash.Derivation)
+	for i := range fr.flows {
+		if fr.flows[i].shares, err = classify(d, fr.r.sums, fr.flows[i].amount, fr.flows[i].parts); err != nil {
+			return forecastRead{}, err
 		}
 	}
-	if f.Currencies, err = r.byCurrency(ctx, tx, f.Buckets, flows, q.IncludeBlocked); err != nil {
-		return Forecast{}, err
+	return fr, nil
+}
+
+// forecastBuckets are the forecast's columns: the company's buckets, or,
+// asked for one grain over a range, the periods of the grain from the read
+// date up to the one holding the last day, within the grain's limit of the
+// company's buckets (config.MaxPeriods). One without the other, a grain
+// not known, a last day before the read date or more periods are refused.
+func forecastBuckets(r reader, grain string, to *time.Time) ([]Bucket, error) {
+	if grain == "" && to == nil {
+		return buckets(r.read, r.settings.BucketsOrDefault()), nil
 	}
-	if r.sums.overflow {
-		return Forecast{}, errForecastTooLarge
+	invalid := func(field, message string) error {
+		return problem.Unprocessable("request.validation_failed", "One grain over a range takes a grain and the last day it reaches.",
+			problem.FieldError{Field: field, Code: "invalid", Message: message})
 	}
-	return f, nil
+	limit, known := config.MaxPeriods(grain)
+	switch {
+	case !known:
+		return nil, invalid("grain", "day, week or month, with to")
+	case to == nil:
+		return nil, invalid("to", "the last day, with grain")
+	case clock.Day(*to).Before(r.read):
+		return nil, invalid("to", "on or after "+r.read.Format(time.DateOnly))
+	}
+	bs := buckets(r.read, []config.Bucket{{Grain: grain, Count: limit}})
+	n := slices.IndexFunc(bs, func(b Bucket) bool { return !b.End.Before(clock.Day(*to)) })
+	if n < 0 {
+		return nil, invalid("to", fmt.Sprintf("at most %d periods of a %s from %s", limit, grain, r.read.Format(time.DateOnly)))
+	}
+	return bs[:n+1], nil
 }
 
 // errForecastTooLarge refuses a forecast whose sums are out of the range
@@ -211,40 +346,86 @@ var errForecastTooLarge = problem.Unprocessable("cash.amount_too_large", "The am
 
 // forecastFlows are the legal entity's supplier payments on their
 // expected days (supplierFlows: payable, invoice_unposted, down_payment,
-// and payable_blocked apart) and the payments of runs not yet released
+// and payable_blocked apart), the payments of runs not yet released
 // (payment_run, confirmed), whose items and requests the payables port
-// leaves out: never both.
-func (e *Endpoints) forecastFlows(ctx context.Context, r reader, legalEntity uuid.UUID) ([]datedFlow, error) {
+// leaves out (never both), the payments in transit from its active house
+// banks (in_transit, confirmed) and its memo records' occurrences up to the
+// last day (memo, T53e4); and those banks, whose statements open the
+// forecast.
+func (e *Endpoints) forecastFlows(ctx context.Context, tx pgx.Tx, r reader, legalEntity uuid.UUID, last time.Time) ([]datedFlow, []Bank, error) {
 	payables, err := e.Payments.Payables(ctx, legalEntity, r.read)
 	if err != nil {
-		return nil, fmt.Errorf("cash: supplier open items of %s: %w", legalEntity, err)
+		return nil, nil, fmt.Errorf("cash: supplier open items of %s: %w", legalEntity, err)
 	}
 	out, err := r.supplierFlows(payables)
 	if err != nil {
-		return nil, fmt.Errorf("cash: supplier open items of %s: %w", legalEntity, err)
+		return nil, nil, fmt.Errorf("cash: supplier open items of %s: %w", legalEntity, err)
 	}
+	banks, err := e.Payments.Banks(ctx, legalEntity, r.read)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cash: house banks of %s: %w", legalEntity, err)
+	}
+	payments, err := e.paymentFlows(ctx, r, legalEntity, banks)
+	if err != nil {
+		return nil, nil, err
+	}
+	memos, err := memoForecast(ctx, tx, r, legalEntity, last)
+	if err != nil {
+		return nil, nil, err
+	}
+	return append(append(out, payments...), memos...), banks, nil
+}
+
+// paymentFlows are the payments of runs not yet released, on the run
+// date plus the paying bank's value days, and the payments in transit from
+// the banks, each line on its bank's clearing account on its day at the
+// bank as the cash position has it; each classified by the open items it
+// pays (paymentParts).
+func (e *Endpoints) paymentFlows(ctx context.Context, r reader, legalEntity uuid.UUID, banks []Bank) ([]datedFlow, error) {
 	pending, err := e.Payments.Pending(ctx, legalEntity)
 	if err != nil {
 		return nil, fmt.Errorf("cash: payments of runs not released of %s: %w", legalEntity, err)
 	}
-	bankIDs := make([]uuid.UUID, len(pending))
+	transit, err := e.inTransit(ctx, r, legalEntity, banks)
+	if err != nil {
+		return nil, err
+	}
+	bankIDs, payIDs := make([]uuid.UUID, len(pending)), ids(pending)
 	for i, p := range pending {
 		bankIDs[i] = p.HouseBankID
 	}
-	banks, err := e.Payments.HouseBankCodes(ctx, bankIDs)
+	for _, t := range transit {
+		payIDs = append(payIDs, t.payment.ID)
+	}
+	codes, err := e.Payments.HouseBankCodes(ctx, bankIDs)
 	if err != nil {
 		return nil, fmt.Errorf("cash: house banks of %s: %w", legalEntity, err)
 	}
-	paying, err := e.Payments.Paying(ctx, legalEntity, ids(pending), r.read)
+	paying, err := e.Payments.Paying(ctx, legalEntity, payIDs, r.read)
 	if err != nil {
 		return nil, fmt.Errorf("cash: what the payments of runs not released of %s pay: %w", legalEntity, err)
 	}
+	var out []datedFlow
 	for _, p := range pending {
-		d, late := r.valueDate(banks[p.HouseBankID], p)
-		out = append(out, datedFlow{flow: flow{date: d, source: SourcePaymentRun, certainty: CertaintyConfirmed, late: late, amount: -p.Amount}, currency: p.Currency,
-			parts: paymentParts(p, paying[p.ID])})
+		d, late := r.valueDate(codes[p.HouseBankID], p)
+		out = append(out, paymentFlow(flow{date: d, source: SourcePaymentRun, certainty: CertaintyConfirmed, late: late, amount: -p.Amount}, p, paying[p.ID],
+			p.ID.String()))
+	}
+	for _, t := range transit {
+		for i, f := range t.flows {
+			out = append(out, paymentFlow(f, t.payment, paying[t.payment.ID], fmt.Sprintf("%s#%d", t.payment.ID, i)))
+		}
 	}
 	return out, nil
+}
+
+// paymentFlow is a payment's flow in its currency, classified by what it
+// pays, its supplier and its run as the document it pays; identity tells
+// it from the run's other payments (and a payment's other lines in
+// transit) in the drill-down's keys.
+func paymentFlow(f flow, p Payment, paying Paying, identity string) datedFlow {
+	return datedFlow{flow: f, currency: p.Currency, parts: paymentParts(f.amount, paying), supplier: &p.SupplierID, identity: identity,
+		documents: []paidDocument{{Document: Document{Kind: DocPaymentRun, ID: p.RunID, Number: p.RunNumber}, amount: f.amount}}}
 }
 
 // ids are the payments' ids.
@@ -256,13 +437,15 @@ func ids(ps []Payment) []uuid.UUID {
 	return out
 }
 
-// paymentParts are the documents a payment pays: each open item it
-// settles at what it pays of it, which add up to the payment (a run pays
-// a supplier the sum of its items, netted); a payment of no item (a down
-// payment request's) whole, by its supplier's planning group.
-func paymentParts(p Payment, paying Paying) []part {
+// paymentParts are the documents a payment of the amount (negative: paid
+// out) pays: each open item it settles at what it pays of it, which add up
+// to the payment (a run pays a supplier the sum of its items, netted), and
+// classify shares a line in transit of part of it out over them; a payment
+// of no item (a down payment request's) whole, by its supplier's planning
+// group.
+func paymentParts(amount money.Minor, paying Paying) []part {
 	if len(paying.Items) == 0 {
-		return []part{{amount: -p.Amount, planningGroup: paying.PlanningGroup}}
+		return []part{{amount: amount, planningGroup: paying.PlanningGroup}}
 	}
 	out := make([]part, len(paying.Items))
 	for i, it := range paying.Items {
@@ -284,7 +467,7 @@ type netting struct {
 // planned is a document on the day a run is expected to pay it.
 type planned struct {
 	day time.Time
-	p   Payable
+	p   *Payable
 }
 
 // supplierFlows are the payments the runs on the suppliers' expected
@@ -302,8 +485,9 @@ type planned struct {
 func (r reader) supplierFlows(payables []Payable) ([]datedFlow, error) {
 	groups := map[netting][]planned{}
 	var order []netting
-	for i, p := range payables {
-		k, day := r.expected(p)
+	for i := range payables {
+		p := &payables[i]
+		k, day := r.expected(*p)
 		if p.Source == SourceDownPayment {
 			k.request = i + 1
 		}
@@ -351,7 +535,7 @@ func (r reader) expected(p Payable) (netting, time.Time) {
 func (r reader) netted(k netting, items []planned) ([]datedFlow, error) {
 	slices.SortStableFunc(items, func(a, b planned) int { return a.day.Compare(b.day) })
 	var out []datedFlow
-	var carried []Payable
+	var carried []*Payable
 	for i, it := range items {
 		carried = append(carried, it.p)
 		if i+1 < len(items) && items[i+1].day.Equal(it.day) {
@@ -365,8 +549,12 @@ func (r reader) netted(k netting, items []planned) ([]datedFlow, error) {
 			continue
 		}
 		at, late := r.atBankOn(k.source, it)
+		docs := make([]paidDocument, len(parts))
+		for j, pt := range parts {
+			docs[j] = paidDocument{Document: carried[j].Document, amount: pt.amount}
+		}
 		out = append(out, datedFlow{flow: flow{date: at, source: k.source, certainty: k.certainty, late: late, amount: -paid}, currency: k.currency,
-			parts: parts})
+			parts: parts, supplier: &k.supplier, documents: docs})
 		carried = nil
 	}
 	return out, nil
@@ -390,7 +578,7 @@ func (r reader) atBankOn(source string, it planned) (time.Time, bool) {
 // pays is what a run on the day pays for the items: each at what it pays
 // then, summed, with each item as a part of the payment (negative: paid
 // out) to derive its liquidity items from.
-func (r reader) pays(items []Payable, day time.Time) (money.Minor, []part, error) {
+func (r reader) pays(items []*Payable, day time.Time) (money.Minor, []part, error) {
 	var total money.Minor
 	parts := make([]part, len(items))
 	for i, p := range items {
@@ -480,30 +668,44 @@ func buckets(read time.Time, bs []config.Bucket) []Bucket {
 // buckets their days fall in; a flow after the last bucket is beyond. The
 // blocked suppliers' flows are listed in the buckets and summed in
 // Blocked, and counted in the totals and Beyond only with includeBlocked.
-func (r reader) byCurrency(ctx context.Context, tx pgx.Tx, bs []Bucket, flows []datedFlow, includeBlocked bool) ([]ForecastCurrency, error) {
-	var out []ForecastCurrency
-	at := map[string]int{}
-	var rows []*itemRows
+// Each currency of a flow or of a bank opens at its banks' opening
+// balances, and each bucket closes at the opening plus the totals so far.
+func (r reader) byCurrency(ctx context.Context, tx pgx.Tx, bs []Bucket, flows []datedFlow, banks []Bank, includeBlocked bool) ([]ForecastCurrency, error) {
+	var codes []string
+	for _, b := range banks {
+		codes = append(codes, b.Currency)
+	}
 	for _, f := range flows {
-		i, ok := at[f.currency]
-		if !ok {
-			exp, err := currency.Exponent(ctx, tx, f.currency, fmt.Errorf("cash: currency %s of a forecast flow is not known", f.currency))
-			if err != nil {
-				return nil, err
-			}
-			i, at[f.currency] = len(out), len(out)
-			out = append(out, ForecastCurrency{Currency: f.currency, Exponent: exp, Buckets: make([]BucketFlows, len(bs))})
-			for b := range out[i].Buckets {
-				out[i].Buckets[b].Flows = []FlowTotal{}
-			}
-			rows = append(rows, newItemRows(r.doc.Cash.LiquidityItems, len(bs)))
+		codes = append(codes, f.currency)
+	}
+	slices.Sort(codes)
+	codes = slices.Compact(codes)
+	out, at, rows := make([]ForecastCurrency, len(codes)), map[string]int{}, make([]*itemRows, len(codes))
+	for i, code := range codes {
+		exp, err := currency.Exponent(ctx, tx, code, fmt.Errorf("cash: currency %s of a forecast flow is not known", code))
+		if err != nil {
+			return nil, err
 		}
-		r.into(&out[i], rows[i], bs, f, includeBlocked)
+		out[i], at[code], rows[i] = ForecastCurrency{Currency: code, Exponent: exp, Buckets: make([]BucketFlows, len(bs))}, i, newItemRows(r.doc.Cash.LiquidityItems, len(bs))
+		for b := range out[i].Buckets {
+			out[i].Buckets[b].Flows = []FlowTotal{}
+		}
+	}
+	for _, b := range banks {
+		o, op := r.opening(b), &out[at[b.Currency]].Opening
+		op.Amount, op.Banks, op.Stale, op.Gap = r.sums.add(op.Amount, o.Balance), op.Banks+1, op.Stale || o.Stale, op.Gap || o.Gap
+	}
+	for _, f := range flows {
+		r.into(&out[at[f.currency]], rows[at[f.currency]], bs, f, includeBlocked)
 	}
 	for i := range out {
 		out[i].Items = rows[i].ordered()
+		closing := out[i].Opening.Amount
+		for b := range out[i].Buckets {
+			closing = r.sums.add(closing, out[i].Buckets[b].Total)
+			out[i].Buckets[b].Closing = closing
+		}
 	}
-	slices.SortFunc(out, func(a, b ForecastCurrency) int { return cmp.Compare(a.Currency, b.Currency) })
 	return out, nil
 }
 

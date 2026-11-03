@@ -23758,8 +23758,32 @@ func (s *Server) handleGetLegalEntityTodayRequest(args [1]string, argsEscaped bo
 // them, so the top rows add up to each bucket's `total`, and the item's own flows by source and
 // certainty; a row without `liquidity_item` holds what no rule assigns and no default covers.
 // `min_certainty` cuts the less certain flows (actual, confirmed, expected, planned; default planned,
-// every flow). Memo records, converted totals, the opening position and drill-down are a later step
-// (T53e4). A legal entity the caller cannot act in is 404.
+// every flow). T53e4 adds two sources, the opening position, one grain over a range, conversion and
+// drill-down. `in_transit` (`confirmed`): the payments released from the company's active house banks
+// whose line on the bank's clearing account is still open and that no statement line up to the bank's
+// opening statement matches, as in the cash position (`getCashPosition`), on their run date plus the
+// bank's value days moved to the next working day, `late` before the read date. `memo`: the `active`
+// memo records of the legal entity, with or without a house bank, at their own certainty and liquidity
+// item, each on its value date moved to the next working day (`late` before the read date) and not
+// after it expires; a series' occurrences up to the last bucket's end, each once (an override
+// replacing its occurrence), a one-off record also after the last bucket (`beyond`). Each currency
+// gives its `opening`, the cash position's opening of the read date: the sum of its active house
+// banks' latest statement closing balances before the read date (zero without a bank; a currency with
+// a bank and no flow is listed too), and each bucket its `closing`, the opening plus the bucket's
+// `total` and those of every bucket before it. `grain` with `to` asks for one grain over a range
+// instead of the company's buckets: periods of the grain from the read date up to the one holding
+// `to`, at most 92 days, 104 weeks or 36 months (the configuration's limits); one without the other, a
+// `to` before the read date or more periods are 422. `display_currency` adds `converted` (ADR-0051
+// §10): each currency's opening, buckets' totals and `beyond` converted into it at one rate for every
+// bucket, the latest of the company's `cash.rate_type` valid on the read date (default `planning`;
+// with no planning rate, `average`), each amount rounded once to the display currency's minor unit,
+// half away from zero, then summed over the currencies; the converted `closing` is the converted
+// opening plus the converted totals so far, so it adds up as the currencies' own do. A rate valid from
+// more than `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`; a
+// currency without a rate is left out of the converted figures and listed in `incomplete_currencies`
+// (its own figures stand), never counted as zero. A display currency the reference data does not know
+// is 422 `cash.unknown_currency`. The flows and documents behind a bucket and liquidity item are
+// `listLiquidityForecastFlows`. A legal entity the caller cannot act in is 404.
 //
 // GET /v1/liquidity-forecast
 func (s *Server) handleGetLiquidityForecastRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -23904,6 +23928,18 @@ func (s *Server) handleGetLiquidityForecastRequest(args [0]string, argsEscaped b
 					Name: "legal_entity_id",
 					In:   "query",
 				}: params.LegalEntityID,
+				{
+					Name: "grain",
+					In:   "query",
+				}: params.Grain,
+				{
+					Name: "to",
+					In:   "query",
+				}: params.To,
+				{
+					Name: "display_currency",
+					In:   "query",
+				}: params.DisplayCurrency,
 				{
 					Name: "min_certainty",
 					In:   "query",
@@ -40192,6 +40228,242 @@ func (s *Server) handleListLegalEntitiesRequest(args [0]string, argsEscaped bool
 	}
 
 	if err := encodeListLegalEntitiesResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleListLiquidityForecastFlowsRequest handles listLiquidityForecastFlows operation.
+//
+// The drill-down of the liquidity forecast (ADR-0051 §9, T53e4): the flows of one currency whose day
+// is from `from` (default the read date) to `to` (default no end, so the flows after the last bucket
+// are reached too), computed as `getLiquidityForecast` computes them from one database state, by day;
+// with `liquidity_item`, only the flows with a share of that item or its descendants, each with that
+// `share` (as the item's row adds them up); with `unclassified=true`, only the shares no rule assigns
+// and no default covers; else every flow, its `share` its whole amount. A memo series' occurrences are
+// listed up to `to`, else up to the last of the company's buckets. `total` adds up the shares of every
+// page's flows that the forecast counts (a `payable_blocked` one only with `include_blocked`), so a
+// bucket's drill-down totals its cell of the item's row; `count` counts the flows of every page. Each
+// flow names its supplier (number and name) only to a caller who may use `partner.supplier.read`, and
+// each document only to one who may use its context's read permission (`ledger.entry.read`,
+// `payables.invoice.read`, `payments.run.read`, `cash.memo.read`); for others it is left out, never
+// refused, and `document_count` still counts it. A liquidity item the configuration does not have
+// lists nothing. A legal entity the caller cannot act in is 404.
+//
+// GET /v1/liquidity-forecast-flows
+func (s *Server) handleListLiquidityForecastFlowsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listLiquidityForecastFlows"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/liquidity-forecast-flows"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListLiquidityForecastFlowsOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListLiquidityForecastFlowsOperation,
+			ID:   "listLiquidityForecastFlows",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListLiquidityForecastFlowsOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListLiquidityForecastFlowsParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListLiquidityForecastFlowsRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListLiquidityForecastFlowsOperation,
+			OperationSummary: "List the flows and documents behind a liquidity forecast's bucket and item",
+			OperationID:      "listLiquidityForecastFlows",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "legal_entity_id",
+					In:   "query",
+				}: params.LegalEntityID,
+				{
+					Name: "currency",
+					In:   "query",
+				}: params.Currency,
+				{
+					Name: "from",
+					In:   "query",
+				}: params.From,
+				{
+					Name: "to",
+					In:   "query",
+				}: params.To,
+				{
+					Name: "liquidity_item",
+					In:   "query",
+				}: params.LiquidityItem,
+				{
+					Name: "unclassified",
+					In:   "query",
+				}: params.Unclassified,
+				{
+					Name: "min_certainty",
+					In:   "query",
+				}: params.MinCertainty,
+				{
+					Name: "include_blocked",
+					In:   "query",
+				}: params.IncludeBlocked,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListLiquidityForecastFlowsParams
+			Response = ListLiquidityForecastFlowsRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListLiquidityForecastFlowsParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListLiquidityForecastFlows(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListLiquidityForecastFlows(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListLiquidityForecastFlowsResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)

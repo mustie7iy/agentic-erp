@@ -25265,8 +25265,9 @@ type LiquidityForecast struct {
 	IncludeBlocked bool `json:"include_blocked"`
 	// The columns, in order: consecutive periods from the read date.
 	Buckets []LiquidityForecastBucket `json:"buckets"`
-	// The flows of each currency with any, by currency code.
-	Currencies []LiquidityForecastCurrency `json:"currencies"`
+	// The flows of each currency with any flow or an active house bank, by currency code.
+	Currencies []LiquidityForecastCurrency   `json:"currencies"`
+	Converted  OptLiquidityForecastConverted `json:"converted"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -25304,6 +25305,11 @@ func (s *LiquidityForecast) GetCurrencies() []LiquidityForecastCurrency {
 	return s.Currencies
 }
 
+// GetConverted returns the value of Converted.
+func (s *LiquidityForecast) GetConverted() OptLiquidityForecastConverted {
+	return s.Converted
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *LiquidityForecast) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -25337,6 +25343,11 @@ func (s *LiquidityForecast) SetBuckets(val []LiquidityForecastBucket) {
 // SetCurrencies sets the value of Currencies.
 func (s *LiquidityForecast) SetCurrencies(val []LiquidityForecastCurrency) {
 	s.Currencies = val
+}
+
+// SetConverted sets the value of Converted.
+func (s *LiquidityForecast) SetConverted(val OptLiquidityForecastConverted) {
+	s.Converted = val
 }
 
 func (*LiquidityForecast) getLiquidityForecastRes() {}
@@ -25442,15 +25453,17 @@ func (s *LiquidityForecastBucket) SetEnd(val time.Time) {
 	s.End = val
 }
 
-// A bucket's flows in one currency by source, certainty and lateness, and their total.
+// A bucket's flows in one currency by source, certainty and lateness, their total, and the closing
+// balance after them.
 // Ref: #/components/schemas/LiquidityForecastBucketFlows
 type LiquidityForecastBucketFlows struct {
 	// The bucket's first day.
 	Start time.Time `json:"start"`
 	// The bucket's flows by source, certainty and whether late; empty when none. The bucket's `total`
 	// counts its `payable_blocked` flows only with `include_blocked`.
-	Flows []CashFlowTotal `json:"flows"`
-	Total Money           `json:"total"`
+	Flows   []CashFlowTotal `json:"flows"`
+	Total   Money           `json:"total"`
+	Closing Money           `json:"closing"`
 }
 
 // GetStart returns the value of Start.
@@ -25468,6 +25481,11 @@ func (s *LiquidityForecastBucketFlows) GetTotal() Money {
 	return s.Total
 }
 
+// GetClosing returns the value of Closing.
+func (s *LiquidityForecastBucketFlows) GetClosing() Money {
+	return s.Closing
+}
+
 // SetStart sets the value of Start.
 func (s *LiquidityForecastBucketFlows) SetStart(val time.Time) {
 	s.Start = val
@@ -25483,13 +25501,147 @@ func (s *LiquidityForecastBucketFlows) SetTotal(val Money) {
 	s.Total = val
 }
 
+// SetClosing sets the value of Closing.
+func (s *LiquidityForecastBucketFlows) SetClosing(val Money) {
+	s.Closing = val
+}
+
+// The forecast's currencies converted into the display currency (ADR-0051 §10, T53e4) at one rate per
+// currency for every bucket, each amount rounded once to the display currency's minor unit, half away
+// from zero, and summed; the currencies without a rate are left out and listed.
+// Ref: #/components/schemas/LiquidityForecastConverted
+type LiquidityForecastConverted struct {
+	// The display currency (ISO 4217).
+	Currency string `json:"currency"`
+	// The rates used, by currency.
+	Rates []CashPositionRate `json:"rates"`
+	// The currencies without a rate into the display currency, left out of every converted figure; empty
+	// when the figures are complete.
+	IncompleteCurrencies []string `json:"incomplete_currencies"`
+	Opening              Money    `json:"opening"`
+	// One per bucket of the forecast, in the same order.
+	Buckets []LiquidityForecastConvertedBucket `json:"buckets"`
+	Total   Money                              `json:"total"`
+	Beyond  Money                              `json:"beyond"`
+}
+
+// GetCurrency returns the value of Currency.
+func (s *LiquidityForecastConverted) GetCurrency() string {
+	return s.Currency
+}
+
+// GetRates returns the value of Rates.
+func (s *LiquidityForecastConverted) GetRates() []CashPositionRate {
+	return s.Rates
+}
+
+// GetIncompleteCurrencies returns the value of IncompleteCurrencies.
+func (s *LiquidityForecastConverted) GetIncompleteCurrencies() []string {
+	return s.IncompleteCurrencies
+}
+
+// GetOpening returns the value of Opening.
+func (s *LiquidityForecastConverted) GetOpening() Money {
+	return s.Opening
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *LiquidityForecastConverted) GetBuckets() []LiquidityForecastConvertedBucket {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *LiquidityForecastConverted) GetTotal() Money {
+	return s.Total
+}
+
+// GetBeyond returns the value of Beyond.
+func (s *LiquidityForecastConverted) GetBeyond() Money {
+	return s.Beyond
+}
+
+// SetCurrency sets the value of Currency.
+func (s *LiquidityForecastConverted) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetRates sets the value of Rates.
+func (s *LiquidityForecastConverted) SetRates(val []CashPositionRate) {
+	s.Rates = val
+}
+
+// SetIncompleteCurrencies sets the value of IncompleteCurrencies.
+func (s *LiquidityForecastConverted) SetIncompleteCurrencies(val []string) {
+	s.IncompleteCurrencies = val
+}
+
+// SetOpening sets the value of Opening.
+func (s *LiquidityForecastConverted) SetOpening(val Money) {
+	s.Opening = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *LiquidityForecastConverted) SetBuckets(val []LiquidityForecastConvertedBucket) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *LiquidityForecastConverted) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetBeyond sets the value of Beyond.
+func (s *LiquidityForecastConverted) SetBeyond(val Money) {
+	s.Beyond = val
+}
+
+// A bucket's converted total, and the converted opening plus the converted totals up to it.
+// Ref: #/components/schemas/LiquidityForecastConvertedBucket
+type LiquidityForecastConvertedBucket struct {
+	// The bucket's first day.
+	Start   time.Time `json:"start"`
+	Total   Money     `json:"total"`
+	Closing Money     `json:"closing"`
+}
+
+// GetStart returns the value of Start.
+func (s *LiquidityForecastConvertedBucket) GetStart() time.Time {
+	return s.Start
+}
+
+// GetTotal returns the value of Total.
+func (s *LiquidityForecastConvertedBucket) GetTotal() Money {
+	return s.Total
+}
+
+// GetClosing returns the value of Closing.
+func (s *LiquidityForecastConvertedBucket) GetClosing() Money {
+	return s.Closing
+}
+
+// SetStart sets the value of Start.
+func (s *LiquidityForecastConvertedBucket) SetStart(val time.Time) {
+	s.Start = val
+}
+
+// SetTotal sets the value of Total.
+func (s *LiquidityForecastConvertedBucket) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetClosing sets the value of Closing.
+func (s *LiquidityForecastConvertedBucket) SetClosing(val Money) {
+	s.Closing = val
+}
+
 // The flows of one currency: per bucket, in the buckets' order, their total over the horizon, what is
 // expected after it, and what suppliers no run pays are owed; and the same flows by liquidity item and
 // its hierarchy.
 // Ref: #/components/schemas/LiquidityForecastCurrency
 type LiquidityForecastCurrency struct {
 	// The currency (ISO 4217).
-	Currency string `json:"currency"`
+	Currency string                   `json:"currency"`
+	Opening  LiquidityForecastOpening `json:"opening"`
 	// One per bucket of the forecast, in the same order.
 	Buckets []LiquidityForecastBucketFlows `json:"buckets"`
 	Total   Money                          `json:"total"`
@@ -25505,6 +25657,11 @@ type LiquidityForecastCurrency struct {
 // GetCurrency returns the value of Currency.
 func (s *LiquidityForecastCurrency) GetCurrency() string {
 	return s.Currency
+}
+
+// GetOpening returns the value of Opening.
+func (s *LiquidityForecastCurrency) GetOpening() LiquidityForecastOpening {
+	return s.Opening
 }
 
 // GetBuckets returns the value of Buckets.
@@ -25537,6 +25694,11 @@ func (s *LiquidityForecastCurrency) SetCurrency(val string) {
 	s.Currency = val
 }
 
+// SetOpening sets the value of Opening.
+func (s *LiquidityForecastCurrency) SetOpening(val LiquidityForecastOpening) {
+	s.Opening = val
+}
+
 // SetBuckets sets the value of Buckets.
 func (s *LiquidityForecastCurrency) SetBuckets(val []LiquidityForecastBucketFlows) {
 	s.Buckets = val
@@ -25561,6 +25723,372 @@ func (s *LiquidityForecastCurrency) SetBlocked(val LiquidityForecastBlocked) {
 func (s *LiquidityForecastCurrency) SetItems(val []LiquidityForecastItem) {
 	s.Items = val
 }
+
+// A document a forecast flow pays, to read through its own context's API: a posted supplier open
+// item's journal entry (`getJournalEntry`), a parked or held supplier invoice (`getSupplierInvoice`),
+// a down payment request (`getDownPaymentRequest`), a payment run (`getPaymentRun`) or a memo record
+// (`getMemoRecord`).
+// Ref: #/components/schemas/LiquidityForecastDocument
+type LiquidityForecastDocument struct {
+	// What the document is. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Kind string `json:"kind"`
+	// The document's id in its context.
+	ID uuid.UUID `json:"id"`
+	// Its document number (a memo record's reference); absent for a memo record without one, or an invoice
+	// not numbered yet.
+	Number OptString `json:"number"`
+	Amount Money     `json:"amount"`
+}
+
+// GetKind returns the value of Kind.
+func (s *LiquidityForecastDocument) GetKind() string {
+	return s.Kind
+}
+
+// GetID returns the value of ID.
+func (s *LiquidityForecastDocument) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetNumber returns the value of Number.
+func (s *LiquidityForecastDocument) GetNumber() OptString {
+	return s.Number
+}
+
+// GetAmount returns the value of Amount.
+func (s *LiquidityForecastDocument) GetAmount() Money {
+	return s.Amount
+}
+
+// SetKind sets the value of Kind.
+func (s *LiquidityForecastDocument) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetID sets the value of ID.
+func (s *LiquidityForecastDocument) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *LiquidityForecastDocument) SetNumber(val OptString) {
+	s.Number = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *LiquidityForecastDocument) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// A flow of the liquidity forecast (ADR-0051 §4): one supplier payment as a run would make it, a
+// run's payment, a payment in transit, a down payment request or a memo record's occurrence, with the
+// documents it pays. Its supplier and each document are given only to a caller who may read them in
+// their own context (`partner.supplier.read`; `ledger.entry.read` for a journal entry,
+// `payables.invoice.read` for a supplier invoice or down payment request, `payments.run.read` for a
+// payment run, `cash.memo.read` for a memo record), as an expansion is (04 §4.4); `document_count`
+// counts them all.
+// Ref: #/components/schemas/LiquidityForecastFlow
+type LiquidityForecastFlow struct {
+	// The day the flow is expected at the bank (a blocked supplier's on its due date).
+	Date time.Time `json:"date"`
+	// Where the flow comes from (ADR-0051 §4). Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	Source string `json:"source"`
+	// How certain the flow is. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Certainty string `json:"certainty"`
+	// True when it was due at the bank before the read date and is expected the working day after it.
+	Late bool `json:"late"`
+	// Whether the forecast's totals count it: false for a `payable_blocked` flow without
+	// `include_blocked`.
+	Counted  bool           `json:"counted"`
+	Amount   Money          `json:"amount"`
+	Share    Money          `json:"share"`
+	Supplier OptPartnerName `json:"supplier"`
+	// How many documents the flow pays, those not shown included.
+	DocumentCount int32 `json:"document_count"`
+	// The documents the flow pays that the caller may read, each with what the flow pays of it; empty when
+	// it may read none.
+	Documents []LiquidityForecastDocument `json:"documents"`
+}
+
+// GetDate returns the value of Date.
+func (s *LiquidityForecastFlow) GetDate() time.Time {
+	return s.Date
+}
+
+// GetSource returns the value of Source.
+func (s *LiquidityForecastFlow) GetSource() string {
+	return s.Source
+}
+
+// GetCertainty returns the value of Certainty.
+func (s *LiquidityForecastFlow) GetCertainty() string {
+	return s.Certainty
+}
+
+// GetLate returns the value of Late.
+func (s *LiquidityForecastFlow) GetLate() bool {
+	return s.Late
+}
+
+// GetCounted returns the value of Counted.
+func (s *LiquidityForecastFlow) GetCounted() bool {
+	return s.Counted
+}
+
+// GetAmount returns the value of Amount.
+func (s *LiquidityForecastFlow) GetAmount() Money {
+	return s.Amount
+}
+
+// GetShare returns the value of Share.
+func (s *LiquidityForecastFlow) GetShare() Money {
+	return s.Share
+}
+
+// GetSupplier returns the value of Supplier.
+func (s *LiquidityForecastFlow) GetSupplier() OptPartnerName {
+	return s.Supplier
+}
+
+// GetDocumentCount returns the value of DocumentCount.
+func (s *LiquidityForecastFlow) GetDocumentCount() int32 {
+	return s.DocumentCount
+}
+
+// GetDocuments returns the value of Documents.
+func (s *LiquidityForecastFlow) GetDocuments() []LiquidityForecastDocument {
+	return s.Documents
+}
+
+// SetDate sets the value of Date.
+func (s *LiquidityForecastFlow) SetDate(val time.Time) {
+	s.Date = val
+}
+
+// SetSource sets the value of Source.
+func (s *LiquidityForecastFlow) SetSource(val string) {
+	s.Source = val
+}
+
+// SetCertainty sets the value of Certainty.
+func (s *LiquidityForecastFlow) SetCertainty(val string) {
+	s.Certainty = val
+}
+
+// SetLate sets the value of Late.
+func (s *LiquidityForecastFlow) SetLate(val bool) {
+	s.Late = val
+}
+
+// SetCounted sets the value of Counted.
+func (s *LiquidityForecastFlow) SetCounted(val bool) {
+	s.Counted = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *LiquidityForecastFlow) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetShare sets the value of Share.
+func (s *LiquidityForecastFlow) SetShare(val Money) {
+	s.Share = val
+}
+
+// SetSupplier sets the value of Supplier.
+func (s *LiquidityForecastFlow) SetSupplier(val OptPartnerName) {
+	s.Supplier = val
+}
+
+// SetDocumentCount sets the value of DocumentCount.
+func (s *LiquidityForecastFlow) SetDocumentCount(val int32) {
+	s.DocumentCount = val
+}
+
+// SetDocuments sets the value of Documents.
+func (s *LiquidityForecastFlow) SetDocuments(val []LiquidityForecastDocument) {
+	s.Documents = val
+}
+
+// A page of the liquidity forecast's flows of one currency in a range of days (ADR-0051 §9
+// drill-down, T53e4), with what the whole range adds up to.
+// Ref: #/components/schemas/LiquidityForecastFlowPage
+type LiquidityForecastFlowPage struct {
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's date when the forecast was read, in `time_zone`.
+	ReadDate time.Time `json:"read_date"`
+	// The IANA time zone the read date is in.
+	TimeZone string `json:"time_zone"`
+	// The currency (ISO 4217).
+	Currency string `json:"currency"`
+	// The first day of the range.
+	From time.Time `json:"from"`
+	// The last day of the range; absent when it has no end.
+	To OptDate `json:"to"`
+	// The liquidity item asked for, its descendants included; absent when every flow is listed.
+	LiquidityItem OptString `json:"liquidity_item"`
+	// Whether only the shares no derivation rule assigns and no default covers are listed.
+	Unclassified bool `json:"unclassified"`
+	// The least certain flows listed. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	MinCertainty string `json:"min_certainty"`
+	// Whether the `payable_blocked` flows count in `total`; they are listed either way, marked
+	// `counted: false` without it.
+	IncludeBlocked bool  `json:"include_blocked"`
+	Total          Money `json:"total"`
+	// How many flows the range lists, over every page.
+	Count int32 `json:"count"`
+	// The flows on this page, by day.
+	Items []LiquidityForecastFlow `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *LiquidityForecastFlowPage) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *LiquidityForecastFlowPage) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *LiquidityForecastFlowPage) GetTimeZone() string {
+	return s.TimeZone
+}
+
+// GetCurrency returns the value of Currency.
+func (s *LiquidityForecastFlowPage) GetCurrency() string {
+	return s.Currency
+}
+
+// GetFrom returns the value of From.
+func (s *LiquidityForecastFlowPage) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *LiquidityForecastFlowPage) GetTo() OptDate {
+	return s.To
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *LiquidityForecastFlowPage) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetUnclassified returns the value of Unclassified.
+func (s *LiquidityForecastFlowPage) GetUnclassified() bool {
+	return s.Unclassified
+}
+
+// GetMinCertainty returns the value of MinCertainty.
+func (s *LiquidityForecastFlowPage) GetMinCertainty() string {
+	return s.MinCertainty
+}
+
+// GetIncludeBlocked returns the value of IncludeBlocked.
+func (s *LiquidityForecastFlowPage) GetIncludeBlocked() bool {
+	return s.IncludeBlocked
+}
+
+// GetTotal returns the value of Total.
+func (s *LiquidityForecastFlowPage) GetTotal() Money {
+	return s.Total
+}
+
+// GetCount returns the value of Count.
+func (s *LiquidityForecastFlowPage) GetCount() int32 {
+	return s.Count
+}
+
+// GetItems returns the value of Items.
+func (s *LiquidityForecastFlowPage) GetItems() []LiquidityForecastFlow {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *LiquidityForecastFlowPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *LiquidityForecastFlowPage) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *LiquidityForecastFlowPage) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *LiquidityForecastFlowPage) SetTimeZone(val string) {
+	s.TimeZone = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *LiquidityForecastFlowPage) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetFrom sets the value of From.
+func (s *LiquidityForecastFlowPage) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *LiquidityForecastFlowPage) SetTo(val OptDate) {
+	s.To = val
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *LiquidityForecastFlowPage) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetUnclassified sets the value of Unclassified.
+func (s *LiquidityForecastFlowPage) SetUnclassified(val bool) {
+	s.Unclassified = val
+}
+
+// SetMinCertainty sets the value of MinCertainty.
+func (s *LiquidityForecastFlowPage) SetMinCertainty(val string) {
+	s.MinCertainty = val
+}
+
+// SetIncludeBlocked sets the value of IncludeBlocked.
+func (s *LiquidityForecastFlowPage) SetIncludeBlocked(val bool) {
+	s.IncludeBlocked = val
+}
+
+// SetTotal sets the value of Total.
+func (s *LiquidityForecastFlowPage) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetCount sets the value of Count.
+func (s *LiquidityForecastFlowPage) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetItems sets the value of Items.
+func (s *LiquidityForecastFlowPage) SetItems(val []LiquidityForecastFlow) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *LiquidityForecastFlowPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*LiquidityForecastFlowPage) listLiquidityForecastFlowsRes() {}
 
 // A row of a currency's liquidity forecast by liquidity item (ADR-0051 §4, §9, T53e3): the shares of
 // the flows its item derives, with its descendants', per bucket, counted as the buckets' totals count
@@ -25733,6 +26261,62 @@ func (s *LiquidityForecastItemFlows) SetTotal(val Money) {
 // SetBeyond sets the value of Beyond.
 func (s *LiquidityForecastItemFlows) SetBeyond(val Money) {
 	s.Beyond = val
+}
+
+// What a currency's forecast opens at (ADR-0051 §9, T53e4): the cash position's opening of the read
+// date, the sum of the currency's active house banks' latest statement closing balances before it;
+// zero without a bank.
+// Ref: #/components/schemas/LiquidityForecastOpening
+type LiquidityForecastOpening struct {
+	Amount Money `json:"amount"`
+	// How many active house banks of the currency it sums.
+	Banks int32 `json:"banks"`
+	// True when one of the banks has no statement, or its latest closes before the working day before the
+	// read date, as the cash position marks it.
+	Stale bool `json:"stale"`
+	// True when a statement of one of the banks up to its opening one does not open at its previous one's
+	// closing balance (ADR-0047).
+	Gap bool `json:"gap"`
+}
+
+// GetAmount returns the value of Amount.
+func (s *LiquidityForecastOpening) GetAmount() Money {
+	return s.Amount
+}
+
+// GetBanks returns the value of Banks.
+func (s *LiquidityForecastOpening) GetBanks() int32 {
+	return s.Banks
+}
+
+// GetStale returns the value of Stale.
+func (s *LiquidityForecastOpening) GetStale() bool {
+	return s.Stale
+}
+
+// GetGap returns the value of Gap.
+func (s *LiquidityForecastOpening) GetGap() bool {
+	return s.Gap
+}
+
+// SetAmount sets the value of Amount.
+func (s *LiquidityForecastOpening) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetBanks sets the value of Banks.
+func (s *LiquidityForecastOpening) SetBanks(val int32) {
+	s.Banks = val
+}
+
+// SetStale sets the value of Stale.
+func (s *LiquidityForecastOpening) SetStale(val bool) {
+	s.Stale = val
+}
+
+// SetGap sets the value of Gap.
+func (s *LiquidityForecastOpening) SetGap(val bool) {
+	s.Gap = val
 }
 
 type ListAccountsBadRequest Problem
@@ -26110,6 +26694,22 @@ func (*ListLegalEntitiesBadRequest) listLegalEntitiesRes() {}
 type ListLegalEntitiesForbidden Problem
 
 func (*ListLegalEntitiesForbidden) listLegalEntitiesRes() {}
+
+type ListLiquidityForecastFlowsBadRequest Problem
+
+func (*ListLiquidityForecastFlowsBadRequest) listLiquidityForecastFlowsRes() {}
+
+type ListLiquidityForecastFlowsForbidden Problem
+
+func (*ListLiquidityForecastFlowsForbidden) listLiquidityForecastFlowsRes() {}
+
+type ListLiquidityForecastFlowsNotFound Problem
+
+func (*ListLiquidityForecastFlowsNotFound) listLiquidityForecastFlowsRes() {}
+
+type ListLiquidityForecastFlowsUnprocessableEntity Problem
+
+func (*ListLiquidityForecastFlowsUnprocessableEntity) listLiquidityForecastFlowsRes() {}
 
 type ListMatchResultsBadRequest Problem
 
@@ -31999,6 +32599,52 @@ func (o OptJournalEntryReverse) Or(d JournalEntryReverse) JournalEntryReverse {
 	return d
 }
 
+// NewOptLiquidityForecastConverted returns new OptLiquidityForecastConverted with value set to v.
+func NewOptLiquidityForecastConverted(v LiquidityForecastConverted) OptLiquidityForecastConverted {
+	return OptLiquidityForecastConverted{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptLiquidityForecastConverted is optional LiquidityForecastConverted.
+type OptLiquidityForecastConverted struct {
+	Value LiquidityForecastConverted
+	Set   bool
+}
+
+// IsSet returns true if OptLiquidityForecastConverted was set.
+func (o OptLiquidityForecastConverted) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptLiquidityForecastConverted) Reset() {
+	var v LiquidityForecastConverted
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptLiquidityForecastConverted) SetTo(v LiquidityForecastConverted) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptLiquidityForecastConverted) Get() (v LiquidityForecastConverted, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptLiquidityForecastConverted) Or(d LiquidityForecastConverted) LiquidityForecastConverted {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptMatchDecision returns new OptMatchDecision with value set to v.
 func NewOptMatchDecision(v MatchDecision) OptMatchDecision {
 	return OptMatchDecision{
@@ -32929,6 +33575,52 @@ func (o OptParkedEntryLimit) Get() (v ParkedEntryLimit, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptParkedEntryLimit) Or(d ParkedEntryLimit) ParkedEntryLimit {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptPartnerName returns new OptPartnerName with value set to v.
+func NewOptPartnerName(v PartnerName) OptPartnerName {
+	return OptPartnerName{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptPartnerName is optional PartnerName.
+type OptPartnerName struct {
+	Value PartnerName
+	Set   bool
+}
+
+// IsSet returns true if OptPartnerName was set.
+func (o OptPartnerName) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptPartnerName) Reset() {
+	var v PartnerName
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptPartnerName) SetTo(v PartnerName) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptPartnerName) Get() (v PartnerName, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptPartnerName) Or(d PartnerName) PartnerName {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -49572,6 +50264,7 @@ func (*TooManyRequestsHeaders) listLedgerReconciliationEntriesRes()  {}
 func (*TooManyRequestsHeaders) listLedgerReconciliationRes()         {}
 func (*TooManyRequestsHeaders) listLedgersRes()                      {}
 func (*TooManyRequestsHeaders) listLegalEntitiesRes()                {}
+func (*TooManyRequestsHeaders) listLiquidityForecastFlowsRes()       {}
 func (*TooManyRequestsHeaders) listMatchResultsRes()                 {}
 func (*TooManyRequestsHeaders) listMemoRecordsRes()                  {}
 func (*TooManyRequestsHeaders) listMigrationRunsRes()                {}
@@ -49955,6 +50648,7 @@ func (*UnauthorizedHeaders) listLedgerReconciliationEntriesRes()  {}
 func (*UnauthorizedHeaders) listLedgerReconciliationRes()         {}
 func (*UnauthorizedHeaders) listLedgersRes()                      {}
 func (*UnauthorizedHeaders) listLegalEntitiesRes()                {}
+func (*UnauthorizedHeaders) listLiquidityForecastFlowsRes()       {}
 func (*UnauthorizedHeaders) listMatchResultsRes()                 {}
 func (*UnauthorizedHeaders) listMemoRecordsRes()                  {}
 func (*UnauthorizedHeaders) listMigrationRunsRes()                {}

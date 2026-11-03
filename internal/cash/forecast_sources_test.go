@@ -141,7 +141,7 @@ func TestLiquidityForecastSources(t *testing.T) {
 		"CAD week 2026-05-08..2026-05-14: invoice_unposted/planned/late=false -300.00 CAD x1 = -300.00 CAD",
 	}
 	f := e.forecastOf(t, "")
-	want(t, "flows", flowsOf(t, f), append(cad, "CAD total -4130.00 CAD, beyond 0.00 CAD x0, blocked -1650.00 CAD x4"))
+	want(t, "flows", flowsOf(t, f), append(cad, "CAD total -4130.00 CAD, beyond 0.00 CAD x0, blocked -1650.00 CAD x4", noUSD))
 
 	t.Run("with the blocked suppliers", func(t *testing.T) {
 		f := e.forecastOf(t, "&include_blocked=true")
@@ -151,7 +151,7 @@ func TestLiquidityForecastSources(t *testing.T) {
 			cad[1], cad[2], cad[3], cad[4],
 			"CAD week 2026-05-01..2026-05-07: invoice_unposted/planned/late=false -1000.00 CAD x1, payable_blocked/planned/late=false -600.00 CAD x1 = -1600.00 CAD",
 			cad[6],
-			"CAD total -4880.00 CAD, beyond -900.00 CAD x1, blocked -1650.00 CAD x4",
+			"CAD total -4880.00 CAD, beyond -900.00 CAD x1, blocked -1650.00 CAD x4", noUSD,
 		}
 		want(t, "flows", flowsOf(t, f), with)
 	})
@@ -159,7 +159,7 @@ func TestLiquidityForecastSources(t *testing.T) {
 		want(t, "expected and above", flowsOf(t, e.forecastOf(t, "&min_certainty=expected")), []string{
 			"CAD day 2026-04-17..2026-04-17: payable_blocked/expected/late=false -100.00 CAD x1 = 0.00 CAD",
 			cad[1], cad[2], cad[3],
-			"CAD total -1350.00 CAD, beyond 0.00 CAD x0, blocked -1000.00 CAD x2",
+			"CAD total -1350.00 CAD, beyond 0.00 CAD x0, blocked -1000.00 CAD x2", noUSD,
 		})
 	})
 }
