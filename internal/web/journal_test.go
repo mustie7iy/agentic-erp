@@ -342,7 +342,7 @@ func TestEntryForm(t *testing.T) {
 	id := parkedIn(t, parked)
 	pe := b.get(parkedPath(id) + "?done=parked").page(t).mainText()
 	holds(t, "the entry parked", pe, "The entry is parked.", "Status Parked", "Reference ACCR-3", "Header text March accrual", "Debits EUR 1,200.50",
-		"520000 Office Supplies EUR 1,200.50 CC100 PC10 SEG1 None V0 Paper", d.f.Supplier.String(), "Owner accountant")
+		"520000 Office Supplies EUR 1,200.50 CC100 PC10 SEG1 None V0 Paper", "BP90000001 BP90000001", "Owner accountant")
 	status(t, "a form that is not the page's", b.do(http.MethodPost, "/journal/new", url.Values{"csrf_token": {b.csrf()}}), http.StatusBadRequest)
 	switched := newEntryForm(b, d, nil)
 	switched.Set("legal_entity_id", d.f.US.String())

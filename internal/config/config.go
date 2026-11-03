@@ -57,6 +57,10 @@ type Config struct {
 	// Cash is the tenant's liquidity items, planning groups and the rules
 	// assigning flows their items (ADR-0051 §4).
 	Cash Cash `yaml:"cash,omitempty" json:"cash,omitzero"`
+	// AssetClasses are the tenant's asset classes with their default
+	// depreciation terms per ledger (ADR-0057 §3); each company names the
+	// accounts of the classes it uses (Company.AssetAccounts).
+	AssetClasses []AssetClass `yaml:"asset_classes,omitempty" json:"asset_classes,omitempty"`
 }
 
 // Calendar is a company's holidays, each date once.
@@ -255,6 +259,9 @@ type Company struct {
 	// Cash is how the company's cash position and liquidity forecast are
 	// computed (ADR-0051 §5, §8-§10).
 	Cash CompanyCash `yaml:"cash,omitempty" json:"cash,omitzero"`
+	// AssetAccounts are the accounts of each asset class the company uses
+	// (SAP's account determination of asset classes; ADR-0057 §3).
+	AssetAccounts []AssetAccounts `yaml:"asset_accounts,omitempty" json:"asset_accounts,omitempty"`
 }
 
 // FXValuation is the company's foreign-currency valuation (ADR-0042): the
@@ -370,6 +377,12 @@ type Account struct {
 	// (ADR-0047). It is turned on only for an account without postings and
 	// never turned off.
 	OpenItems bool `yaml:"open_items,omitempty" json:"open_items,omitempty"`
+	// AssetReconciliation makes the account an asset reconciliation account
+	// (ADR-0057 §3): only the assets context (and a migration's balances)
+	// posts to it, so its balance is the assets' acquisition cost or
+	// accumulated depreciation. It is set only on an account the
+	// activation creates and never removed (ledger.Setup).
+	AssetReconciliation bool `yaml:"asset_reconciliation,omitempty" json:"asset_reconciliation,omitempty"`
 	// CostElement says which cost object a line on the account needs
 	// (ADR-0050 §4); empty takes the default of the account's type
 	// (CostElementOrDefault).

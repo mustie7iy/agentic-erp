@@ -85,7 +85,9 @@ type Invoker interface {
 	// replica's version does not know, which it would ignore (a company's `release_dual_limit`), is
 	// refused: 409 `config.replica_lacks_key`, each such key in `errors` (`field` the key's path, e.g.
 	// `companies[].release_dual_limit`, and the versions lacking it in `message`); activate it once every
-	// replica runs a version that knows the key (ADR-0038).
+	// replica runs a version that knows the key (ADR-0038). An account flagged `asset_reconciliation` that
+	// the chart already has is refused (409 `ledger.asset_reconciliation_not_new`, ADR-0057): only a new
+	// account becomes an asset reconciliation account.
 	//
 	// POST /v1/change-requests/{id}:activate
 	ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (ActivateChangeRequestRes, error)
@@ -1016,7 +1018,9 @@ type Invoker interface {
 	GetHierarchyNode(ctx context.Context, params GetHierarchyNodeParams) (GetHierarchyNodeRes, error)
 	// GetJournalEntry invokes getJournalEntry operation.
 	//
-	// Returns one journal entry with its lines.
+	// Returns one journal entry with its lines. Expandable: `partners`, the business partners its lines
+	// name (`expanded.partners`), to a caller who may read business partners (`partner.supplier.read`);
+	// for another caller, and when no line names a partner, `expanded` is left out.
 	//
 	// GET /v1/journal-entries/{id}
 	GetJournalEntry(ctx context.Context, params GetJournalEntryParams) (GetJournalEntryRes, error)
@@ -1041,6 +1045,55 @@ type Invoker interface {
 	//
 	// GET /v1/legal-entities/{id}/today
 	GetLegalEntityToday(ctx context.Context, params GetLegalEntityTodayParams) (GetLegalEntityTodayRes, error)
+	// GetLiquidityForecast invokes getLiquidityForecast operation.
+	//
+	// The liquidity forecast of a legal entity (ADR-0051 §9, T53e), computed at the read from one
+	// database state (a repeatable-read snapshot): the flows expected from the read date (the company's
+	// date in its configured time zone, shown as `time_zone`) in the company's buckets (`cash.buckets`;
+	// default 14 days, 11 weeks and 9 months: each grain's periods follow the previous grain's, a week
+	// being seven days and a month running to the same day of the next month, its last day when shorter),
+	// per currency, never converted. Flows: `payable` (`expected`), the posted supplier open items (not
+	// special G/L items such as down payments) that no live payment run holds, each expected when a
+	// payment run would pay it (ADR-0051 §5, P5): while the company takes cash discounts
+	// (`cash.take_discounts`, default true), the last day of the earliest discount tier still open, else
+	// the net due date (by the terms the item was posted with, else its supplier's net days; a credit
+	// memo's is its document date), moved back to the company's last payment day (`cash.payment_days`;
+	// none: any day) on or before it but not before the read date (a tier that would be is passed over for
+	// the next, or the net due date), an overdue item on the next payment day; then the value days
+	// (`cash.value_days`) of the house bank the supplier's first payment method ranks for the item's
+	// currency, moved to the next working day of the company's calendar (weekends and its holidays). Its
+	// amount is what a run on that payment day pays: what the item owes less the cash discount it then
+	// takes and the withholding tax deducted at payment, as the proposer computes them (one rule,
+	// `ledger.ItemTerms`), netted per supplier and currency as a run nets them: one flow per supplier
+	// payment; a day whose items owe nothing net pays nothing and its items are carried to the supplier's
+	// next payment day, and a debit balance left after the last is no flow. `payment_run` (`confirmed`),
+	// the payments of runs `proposed` or `releasing` not posted yet, whose items they hold, on their run
+	// date plus their bank's value days moved to the next working day, `late` when that is before the read
+	// date (then expected the working day after it), as in the cash position. `invoice_unposted`
+	// (`planned`, T53e2), the supplier invoices, credit memos and subsequent debits and credits `parked`
+	// or `on_hold`, which are no open items yet: each at what it would be owed posted now, by the payment
+	// terms and withholding tax codes it would post with (its order's term, else its supplier's, from its
+	// invoice date; a correction naming an invoice that invoice's terms; a credit memo none), expected by
+	// the same rule as `payable` and netted per supplier and currency among themselves (not with the
+	// posted items, which are more certain); what would refuse its posting does not refuse the forecast: a
+	// term not configured gives way to its supplier's net days, and withholding tax codes that would
+	// refuse it are left out. `down_payment` (`expected`, T53e2), the open down payment requests that no
+	// live run pays, each whole and never netted (a run pays a request on its own), on its due date moved
+	// to the next working day, `late` when that is before the read date. A supplier blocked for payment or
+	// posting, inactive, or not set up in the company is paid by no run: its items, unposted invoices and
+	// requests are `payable_blocked` (each keeping its own certainty), on their net due date (a request's
+	// due date; an overdue one on the read date), at what they owe then, netted as a run would, apart from
+	// the totals: listed in each bucket's flows and summed per currency in `blocked`, but counted in the
+	// buckets' `total`s, the currency's `total` and `beyond` only with `include_blocked=true`. Amounts are
+	// signed: a payment out is negative. Each currency gives its flows per bucket by source, certainty and
+	// lateness with the bucket's total, the total over the horizon, and what is expected after the last
+	// bucket (`beyond`, in no bucket). `min_certainty` cuts the less certain flows (actual, confirmed,
+	// expected, planned; default planned, every flow). Memo records, liquidity items, converted totals,
+	// the opening position and drill-down are later steps (T53e3, T53e4). A legal entity the caller cannot
+	// act in is 404.
+	//
+	// GET /v1/liquidity-forecast
+	GetLiquidityForecast(ctx context.Context, params GetLiquidityForecastParams) (GetLiquidityForecastRes, error)
 	// GetMatchResult invokes getMatchResult operation.
 	//
 	// Returns one three-way match evaluation.
@@ -1083,7 +1136,10 @@ type Invoker interface {
 	GetOrgUnit(ctx context.Context, params GetOrgUnitParams) (GetOrgUnitRes, error)
 	// GetParkedJournalEntry invokes getParkedJournalEntry operation.
 	//
-	// Returns one parked journal entry with its lines.
+	// Returns one parked journal entry with its lines. Expandable: `partners`, the business partners its
+	// lines name (`expanded.partners`), to a caller who may read business partners
+	// (`partner.supplier.read`); for another caller, and when no line names a partner, `expanded` is left
+	// out.
 	//
 	// GET /v1/parked-journal-entries/{id}
 	GetParkedJournalEntry(ctx context.Context, params GetParkedJournalEntryParams) (GetParkedJournalEntryRes, error)
@@ -1119,7 +1175,8 @@ type Invoker interface {
 	GetProfitCenter(ctx context.Context, params GetProfitCenterParams) (GetProfitCenterRes, error)
 	// GetPurchaseOrder invokes getPurchaseOrder operation.
 	//
-	// Returns one purchase order. Expandable: `supplier`.
+	// Returns one purchase order. Expandable: `supplier`, for a caller who may read business partners
+	// (`partner.supplier.read`); another is answered without `expanded`, not refused.
 	//
 	// GET /v1/purchase-orders/{id}
 	GetPurchaseOrder(ctx context.Context, params GetPurchaseOrderParams) (GetPurchaseOrderRes, error)
@@ -1157,7 +1214,8 @@ type Invoker interface {
 	GetRegressionSuite(ctx context.Context, params GetRegressionSuiteParams) (GetRegressionSuiteRes, error)
 	// GetRequisition invokes getRequisition operation.
 	//
-	// Returns one requisition. Expandable: `supplier`.
+	// Returns one requisition. Expandable: `supplier`, for a caller who may read business partners
+	// (`partner.supplier.read`); another is answered without `expanded`, not refused.
 	//
 	// GET /v1/requisitions/{id}
 	GetRequisition(ctx context.Context, params GetRequisitionParams) (GetRequisitionRes, error)
@@ -1211,7 +1269,8 @@ type Invoker interface {
 	// GetSupplierInvoice invokes getSupplierInvoice operation.
 	//
 	// Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`).
-	// Expandable: `supplier`.
+	// Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`);
+	// another is answered without `expanded`, not refused.
 	//
 	// GET /v1/supplier-invoices/{id}
 	GetSupplierInvoice(ctx context.Context, params GetSupplierInvoiceParams) (GetSupplierInvoiceRes, error)
@@ -1334,6 +1393,20 @@ type Invoker interface {
 	//
 	// GET /v1/approval-requests
 	ListApprovalRequests(ctx context.Context, params ListApprovalRequestsParams) (ListApprovalRequestsRes, error)
+	// ListAssetClasses invokes listAssetClasses operation.
+	//
+	// The asset classes of the active configuration (ADR-0057 §3, T57a): each class's code and name, its
+	// default depreciation terms per ledger (method, useful life in months and, for the declining balance
+	// method, its factor), and, per company that uses the class and that the caller may act in, the
+	// accounts its assets post to, by number and name: acquisition cost and accumulated depreciation
+	// (asset reconciliation accounts, which only assets post to: a manual entry or another context's
+	// posting on one is 422 `ledger.asset_reconciliation_account`), depreciation, the asset clearing
+	// account acquisitions settle, gain, loss and the sale clearing account. Classes, terms and accounts
+	// change only through the configuration's approval loop. With `legal_entity_id`, only the classes that
+	// legal entity uses, with its accounts alone; one the caller cannot act in has none. Ordered by code.
+	//
+	// GET /v1/asset-classes
+	ListAssetClasses(ctx context.Context, params ListAssetClassesParams) (ListAssetClassesRes, error)
 	// ListAuditEvents invokes listAuditEvents operation.
 	//
 	// Audit trail entries, newest first by default. Sortable by: `occurred_at`.
@@ -1783,7 +1856,9 @@ type Invoker interface {
 	ListPurchaseOrderChanges(ctx context.Context, params ListPurchaseOrderChangesParams) (ListPurchaseOrderChangesRes, error)
 	// ListPurchaseOrders invokes listPurchaseOrders operation.
 	//
-	// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`.
+	// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`, for a caller
+	// who may read business partners (`partner.supplier.read`); another is answered without `expanded`,
+	// not refused.
 	//
 	// GET /v1/purchase-orders
 	ListPurchaseOrders(ctx context.Context, params ListPurchaseOrdersParams) (ListPurchaseOrdersRes, error)
@@ -1802,7 +1877,9 @@ type Invoker interface {
 	ListRegressionSuites(ctx context.Context, params ListRegressionSuitesParams) (ListRegressionSuitesRes, error)
 	// ListRequisitions invokes listRequisitions operation.
 	//
-	// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`.
+	// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`, for a
+	// caller who may read business partners (`partner.supplier.read`); another is answered without
+	// `expanded`, not refused.
 	//
 	// GET /v1/requisitions
 	ListRequisitions(ctx context.Context, params ListRequisitionsParams) (ListRequisitionsRes, error)
@@ -1845,7 +1922,9 @@ type Invoker interface {
 	ListSodRules(ctx context.Context, params ListSodRulesParams) (ListSodRulesRes, error)
 	// ListSupplierInvoices invokes listSupplierInvoices operation.
 	//
-	// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`.
+	// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a
+	// caller who may read business partners (`partner.supplier.read`); another is answered without
+	// `expanded`, not refused.
 	//
 	// GET /v1/supplier-invoices
 	ListSupplierInvoices(ctx context.Context, params ListSupplierInvoicesParams) (ListSupplierInvoicesRes, error)
@@ -3612,7 +3691,9 @@ func (c *Client) sendAcceptMemoRecordProposal(ctx context.Context, request OptMe
 // replica's version does not know, which it would ignore (a company's `release_dual_limit`), is
 // refused: 409 `config.replica_lacks_key`, each such key in `errors` (`field` the key's path, e.g.
 // `companies[].release_dual_limit`, and the versions lacking it in `message`); activate it once every
-// replica runs a version that knows the key (ADR-0038).
+// replica runs a version that knows the key (ADR-0038). An account flagged `asset_reconciliation` that
+// the chart already has is refused (409 `ledger.asset_reconciliation_not_new`, ADR-0057): only a new
+// account becomes an asset reconciliation account.
 //
 // POST /v1/change-requests/{id}:activate
 func (c *Client) ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (ActivateChangeRequestRes, error) {
@@ -18641,7 +18722,9 @@ func (c *Client) sendGetHierarchyNode(ctx context.Context, params GetHierarchyNo
 
 // GetJournalEntry invokes getJournalEntry operation.
 //
-// Returns one journal entry with its lines.
+// Returns one journal entry with its lines. Expandable: `partners`, the business partners its lines
+// name (`expanded.partners`), to a caller who may read business partners (`partner.supplier.read`);
+// for another caller, and when no line names a partner, `expanded` is left out.
 //
 // GET /v1/journal-entries/{id}
 func (c *Client) GetJournalEntry(ctx context.Context, params GetJournalEntryParams) (GetJournalEntryRes, error) {
@@ -18707,6 +18790,36 @@ func (c *Client) sendGetJournalEntry(ctx context.Context, params GetJournalEntry
 		pathParts[1] = encoded
 	}
 	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "expand" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "expand",
+			Style:   uri.QueryStyleForm,
+			Explode: false,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if params.Expand != nil {
+				return e.EncodeArray(func(e uri.Encoder) error {
+					for i, item := range params.Expand {
+						if err := func() error {
+							return e.EncodeValue(conv.StringToString(item))
+						}(); err != nil {
+							return errors.Wrapf(err, "[%d]", i)
+						}
+					}
+					return nil
+				})
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
 
 	stage = "EncodeRequest"
 	r, err := ht.NewRequest(ctx, "GET", u)
@@ -19035,6 +19148,214 @@ func (c *Client) sendGetLegalEntityToday(ctx context.Context, params GetLegalEnt
 
 	stage = "DecodeResponse"
 	result, err := decodeGetLegalEntityTodayResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetLiquidityForecast invokes getLiquidityForecast operation.
+//
+// The liquidity forecast of a legal entity (ADR-0051 §9, T53e), computed at the read from one
+// database state (a repeatable-read snapshot): the flows expected from the read date (the company's
+// date in its configured time zone, shown as `time_zone`) in the company's buckets (`cash.buckets`;
+// default 14 days, 11 weeks and 9 months: each grain's periods follow the previous grain's, a week
+// being seven days and a month running to the same day of the next month, its last day when shorter),
+// per currency, never converted. Flows: `payable` (`expected`), the posted supplier open items (not
+// special G/L items such as down payments) that no live payment run holds, each expected when a
+// payment run would pay it (ADR-0051 §5, P5): while the company takes cash discounts
+// (`cash.take_discounts`, default true), the last day of the earliest discount tier still open, else
+// the net due date (by the terms the item was posted with, else its supplier's net days; a credit
+// memo's is its document date), moved back to the company's last payment day (`cash.payment_days`;
+// none: any day) on or before it but not before the read date (a tier that would be is passed over for
+// the next, or the net due date), an overdue item on the next payment day; then the value days
+// (`cash.value_days`) of the house bank the supplier's first payment method ranks for the item's
+// currency, moved to the next working day of the company's calendar (weekends and its holidays). Its
+// amount is what a run on that payment day pays: what the item owes less the cash discount it then
+// takes and the withholding tax deducted at payment, as the proposer computes them (one rule,
+// `ledger.ItemTerms`), netted per supplier and currency as a run nets them: one flow per supplier
+// payment; a day whose items owe nothing net pays nothing and its items are carried to the supplier's
+// next payment day, and a debit balance left after the last is no flow. `payment_run` (`confirmed`),
+// the payments of runs `proposed` or `releasing` not posted yet, whose items they hold, on their run
+// date plus their bank's value days moved to the next working day, `late` when that is before the read
+// date (then expected the working day after it), as in the cash position. `invoice_unposted`
+// (`planned`, T53e2), the supplier invoices, credit memos and subsequent debits and credits `parked`
+// or `on_hold`, which are no open items yet: each at what it would be owed posted now, by the payment
+// terms and withholding tax codes it would post with (its order's term, else its supplier's, from its
+// invoice date; a correction naming an invoice that invoice's terms; a credit memo none), expected by
+// the same rule as `payable` and netted per supplier and currency among themselves (not with the
+// posted items, which are more certain); what would refuse its posting does not refuse the forecast: a
+// term not configured gives way to its supplier's net days, and withholding tax codes that would
+// refuse it are left out. `down_payment` (`expected`, T53e2), the open down payment requests that no
+// live run pays, each whole and never netted (a run pays a request on its own), on its due date moved
+// to the next working day, `late` when that is before the read date. A supplier blocked for payment or
+// posting, inactive, or not set up in the company is paid by no run: its items, unposted invoices and
+// requests are `payable_blocked` (each keeping its own certainty), on their net due date (a request's
+// due date; an overdue one on the read date), at what they owe then, netted as a run would, apart from
+// the totals: listed in each bucket's flows and summed per currency in `blocked`, but counted in the
+// buckets' `total`s, the currency's `total` and `beyond` only with `include_blocked=true`. Amounts are
+// signed: a payment out is negative. Each currency gives its flows per bucket by source, certainty and
+// lateness with the bucket's total, the total over the horizon, and what is expected after the last
+// bucket (`beyond`, in no bucket). `min_certainty` cuts the less certain flows (actual, confirmed,
+// expected, planned; default planned, every flow). Memo records, liquidity items, converted totals,
+// the opening position and drill-down are later steps (T53e3, T53e4). A legal entity the caller cannot
+// act in is 404.
+//
+// GET /v1/liquidity-forecast
+func (c *Client) GetLiquidityForecast(ctx context.Context, params GetLiquidityForecastParams) (GetLiquidityForecastRes, error) {
+	res, err := c.sendGetLiquidityForecast(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetLiquidityForecast(ctx context.Context, params GetLiquidityForecastParams) (res GetLiquidityForecastRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getLiquidityForecast"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/liquidity-forecast"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetLiquidityForecastOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/liquidity-forecast"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "min_certainty" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "min_certainty",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MinCertainty.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include_blocked" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include_blocked",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.IncludeBlocked.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetLiquidityForecastOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetLiquidityForecastResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -19834,7 +20155,10 @@ func (c *Client) sendGetOrgUnit(ctx context.Context, params GetOrgUnitParams) (r
 
 // GetParkedJournalEntry invokes getParkedJournalEntry operation.
 //
-// Returns one parked journal entry with its lines.
+// Returns one parked journal entry with its lines. Expandable: `partners`, the business partners its
+// lines name (`expanded.partners`), to a caller who may read business partners
+// (`partner.supplier.read`); for another caller, and when no line names a partner, `expanded` is left
+// out.
 //
 // GET /v1/parked-journal-entries/{id}
 func (c *Client) GetParkedJournalEntry(ctx context.Context, params GetParkedJournalEntryParams) (GetParkedJournalEntryRes, error) {
@@ -19900,6 +20224,36 @@ func (c *Client) sendGetParkedJournalEntry(ctx context.Context, params GetParked
 		pathParts[1] = encoded
 	}
 	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "expand" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "expand",
+			Style:   uri.QueryStyleForm,
+			Explode: false,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if params.Expand != nil {
+				return e.EncodeArray(func(e uri.Encoder) error {
+					for i, item := range params.Expand {
+						if err := func() error {
+							return e.EncodeValue(conv.StringToString(item))
+						}(); err != nil {
+							return errors.Wrapf(err, "[%d]", i)
+						}
+					}
+					return nil
+				})
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
 
 	stage = "EncodeRequest"
 	r, err := ht.NewRequest(ctx, "GET", u)
@@ -20620,7 +20974,8 @@ func (c *Client) sendGetProfitCenter(ctx context.Context, params GetProfitCenter
 
 // GetPurchaseOrder invokes getPurchaseOrder operation.
 //
-// Returns one purchase order. Expandable: `supplier`.
+// Returns one purchase order. Expandable: `supplier`, for a caller who may read business partners
+// (`partner.supplier.read`); another is answered without `expanded`, not refused.
 //
 // GET /v1/purchase-orders/{id}
 func (c *Client) GetPurchaseOrder(ctx context.Context, params GetPurchaseOrderParams) (GetPurchaseOrderRes, error) {
@@ -21333,7 +21688,8 @@ func (c *Client) sendGetRegressionSuite(ctx context.Context, params GetRegressio
 
 // GetRequisition invokes getRequisition operation.
 //
-// Returns one requisition. Expandable: `supplier`.
+// Returns one requisition. Expandable: `supplier`, for a caller who may read business partners
+// (`partner.supplier.read`); another is answered without `expanded`, not refused.
 //
 // GET /v1/requisitions/{id}
 func (c *Client) GetRequisition(ctx context.Context, params GetRequisitionParams) (GetRequisitionRes, error) {
@@ -22453,7 +22809,8 @@ func (c *Client) sendGetSodRule(ctx context.Context, params GetSodRuleParams) (r
 // GetSupplierInvoice invokes getSupplierInvoice operation.
 //
 // Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`).
-// Expandable: `supplier`.
+// Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`);
+// another is answered without `expanded`, not refused.
 //
 // GET /v1/supplier-invoices/{id}
 func (c *Client) GetSupplierInvoice(ctx context.Context, params GetSupplierInvoiceParams) (GetSupplierInvoiceRes, error) {
@@ -24822,6 +25179,182 @@ func (c *Client) sendListApprovalRequests(ctx context.Context, params ListApprov
 
 	stage = "DecodeResponse"
 	result, err := decodeListApprovalRequestsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListAssetClasses invokes listAssetClasses operation.
+//
+// The asset classes of the active configuration (ADR-0057 §3, T57a): each class's code and name, its
+// default depreciation terms per ledger (method, useful life in months and, for the declining balance
+// method, its factor), and, per company that uses the class and that the caller may act in, the
+// accounts its assets post to, by number and name: acquisition cost and accumulated depreciation
+// (asset reconciliation accounts, which only assets post to: a manual entry or another context's
+// posting on one is 422 `ledger.asset_reconciliation_account`), depreciation, the asset clearing
+// account acquisitions settle, gain, loss and the sale clearing account. Classes, terms and accounts
+// change only through the configuration's approval loop. With `legal_entity_id`, only the classes that
+// legal entity uses, with its accounts alone; one the caller cannot act in has none. Ordered by code.
+//
+// GET /v1/asset-classes
+func (c *Client) ListAssetClasses(ctx context.Context, params ListAssetClassesParams) (ListAssetClassesRes, error) {
+	res, err := c.sendListAssetClasses(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListAssetClasses(ctx context.Context, params ListAssetClassesParams) (res ListAssetClassesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listAssetClasses"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/asset-classes"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListAssetClassesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/asset-classes"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListAssetClassesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListAssetClassesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -38034,7 +38567,9 @@ func (c *Client) sendListPurchaseOrderChanges(ctx context.Context, params ListPu
 
 // ListPurchaseOrders invokes listPurchaseOrders operation.
 //
-// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`.
+// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`, for a caller
+// who may read business partners (`partner.supplier.read`); another is answered without `expanded`,
+// not refused.
 //
 // GET /v1/purchase-orders
 func (c *Client) ListPurchaseOrders(ctx context.Context, params ListPurchaseOrdersParams) (ListPurchaseOrdersRes, error) {
@@ -38803,7 +39338,9 @@ func (c *Client) sendListRegressionSuites(ctx context.Context, params ListRegres
 
 // ListRequisitions invokes listRequisitions operation.
 //
-// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`.
+// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`, for a
+// caller who may read business partners (`partner.supplier.read`); another is answered without
+// `expanded`, not refused.
 //
 // GET /v1/requisitions
 func (c *Client) ListRequisitions(ctx context.Context, params ListRequisitionsParams) (ListRequisitionsRes, error) {
@@ -40297,7 +40834,9 @@ func (c *Client) sendListSodRules(ctx context.Context, params ListSodRulesParams
 
 // ListSupplierInvoices invokes listSupplierInvoices operation.
 //
-// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`.
+// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a
+// caller who may read business partners (`partner.supplier.read`); another is answered without
+// `expanded`, not refused.
 //
 // GET /v1/supplier-invoices
 func (c *Client) ListSupplierInvoices(ctx context.Context, params ListSupplierInvoicesParams) (ListSupplierInvoicesRes, error) {

@@ -196,19 +196,16 @@ func (c candidate) total() (money.Minor, error) {
 // ledger posts it (ledger.PaymentWithholding).
 func (c *candidate) takeDiscounts(on time.Time) error {
 	for i, it := range c.items {
-		d, err := discountOn(it.terms, it.Amount, on)
+		d, withheld, err := deductionsOn(it.terms, it.withholding, it.Amount, on)
 		if err == nil {
-			c.items[i].Withholding, err = ledger.PaymentWithholding(it.withholding, it.Amount, d)
-		}
-		if err == nil {
-			err = withholdingWithin(it, d, c.items[i].Withholding)
+			err = withholdingWithin(it, d, withheld)
 		}
 		if err != nil {
 			return fmt.Errorf("payments: the discount on item %d/%s/%d: %w", it.FiscalYear, it.EntryID, it.LineNo, err)
 		}
-		c.items[i].Discount = d
+		c.items[i].Discount, c.items[i].Withholding = d, withheld
 		if d != 0 {
-			until := it.terms.Until(it.terms.Discounts[tierOn(it.terms, on)])
+			until := it.terms.Until(it.terms.Discounts[it.terms.TierOn(on)])
 			c.items[i].until = &until
 		}
 	}
@@ -245,13 +242,26 @@ func (c candidate) deductions() (discount, withholding money.Minor, err error) {
 	return discount, withholding, err
 }
 
-// exclusion is why a supplier cannot be paid on the run date, or "".
-func exclusion(p partner.Payee, found bool, runDate time.Time, holdDays int) string {
+// blockedReason is why no run pays the supplier at all, whatever the
+// date, or "": not set up in the legal entity, inactive or blocked for
+// posting (SupplierBlocked), or blocked for payment (PaymentBlocked). The
+// liquidity forecast leaves such a supplier's items out of its totals.
+func blockedReason(p partner.Payee, found bool) string {
 	switch {
 	case !found || p.Status != partner.Active || p.PostingBlocked:
 		return SupplierBlocked
 	case p.PaymentBlocked:
 		return PaymentBlocked
+	}
+	return ""
+}
+
+// exclusion is why a supplier cannot be paid on the run date, or "".
+func exclusion(p partner.Payee, found bool, runDate time.Time, holdDays int) string {
+	if reason := blockedReason(p, found); reason != "" {
+		return reason
+	}
+	switch {
 	case p.BankAccountID == nil:
 		return NoBankAccount
 	case p.BankChangePending:
@@ -271,14 +281,9 @@ func (e *Endpoints) candidates(ctx context.Context, tx pgx.Tx, r Run, requests [
 	if err != nil {
 		return nil, nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT i.item_fiscal_year, i.item_entry_id, i.item_line_no FROM payments.payment_item i
-		JOIN payments.payment p ON p.tenant_id = i.tenant_id AND p.id = i.payment_id
-		JOIN payments.payment_run r ON r.tenant_id = p.tenant_id AND r.id = p.payment_run_id
-		WHERE r.legal_entity_id = $1 AND i.is_active`, r.LegalEntityID)
-	reserved := map[ledger.ItemRef]bool{}
-	var ref ledger.ItemRef
-	if _, err := pgx.ForEachRow(rows, []any{&ref.FiscalYear, &ref.EntryID, &ref.LineNo}, func() error { reserved[ref] = true; return nil }); err != nil {
-		return nil, nil, fmt.Errorf("payments: read the reserved items of legal entity %s: %w", r.LegalEntityID, err)
+	reserved, err := reservedItems(ctx, tx, r.LegalEntityID)
+	if err != nil {
+		return nil, nil, err
 	}
 	var suppliers []uuid.UUID
 	for i, it := range open {
@@ -295,8 +300,8 @@ func (e *Endpoints) candidates(ctx context.Context, tx pgx.Tx, r Run, requests [
 	}
 	var out []candidate
 	for _, it := range open {
-		due := dueDate(it, payees[it.PartnerID])
-		if (due.After(r.DueBy) && !losesDiscount(it.Terms, r.RunDate, r.DueBy)) || reserved[it.ItemRef] {
+		due := it.DueDate(payees[it.PartnerID].NetDays)
+		if (due.After(r.DueBy) && !it.Terms.LosesDiscount(r.RunDate, r.DueBy)) || reserved[it.ItemRef] {
 			continue
 		}
 		if len(out) == 0 || out[len(out)-1].supplier != it.PartnerID {
@@ -307,6 +312,22 @@ func (e *Endpoints) candidates(ctx context.Context, tx pgx.Tx, r Run, requests [
 			DueDate: partner.Date{Time: due}, Active: true, terms: it.Terms, withholding: it.Withholding})
 	}
 	return out, payees, nil
+}
+
+// reservedItems are the legal entity's open items a live run holds (its
+// payment items still active): another run does not take them, and the
+// liquidity forecast counts the run's payment rather than the item.
+func reservedItems(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID) (map[ledger.ItemRef]bool, error) {
+	rows, _ := tx.Query(ctx, `SELECT i.item_fiscal_year, i.item_entry_id, i.item_line_no FROM payments.payment_item i
+		JOIN payments.payment p ON p.tenant_id = i.tenant_id AND p.id = i.payment_id
+		JOIN payments.payment_run r ON r.tenant_id = p.tenant_id AND r.id = p.payment_run_id
+		WHERE r.legal_entity_id = $1 AND i.is_active`, legalEntity)
+	reserved := map[ledger.ItemRef]bool{}
+	var ref ledger.ItemRef
+	if _, err := pgx.ForEachRow(rows, []any{&ref.FiscalYear, &ref.EntryID, &ref.LineNo}, func() error { reserved[ref] = true; return nil }); err != nil {
+		return nil, fmt.Errorf("payments: read the reserved items of legal entity %s: %w", legalEntity, err)
+	}
+	return reserved, nil
 }
 
 // build computes a proposing run's payments and exclusions, reserves the
@@ -468,27 +489,6 @@ type proposal struct {
 	houseBanks                             []*uuid.UUID // the bank that pays a payment, or nil for the run's (via)
 	methods                                []*string
 	route                                  router
-}
-
-// dueDate is when an open item is due: an invoice (a credit on the supplier
-// account) its supplier's net days after its document date; every debit on
-// the supplier account (a credit memo, whether or not it names an invoice,
-// a subsequent credit, a manual or migrated debit) on its document date, so
-// it nets with the next run that pays the supplier (T34d). SAP has a credit
-// memo without an invoice reference due at once and gives one naming an
-// invoice that invoice's due date; netting earlier never pays more than is
-// owed. A credit posted with payment terms (T36b) is due on its net due
-// date by the terms it was posted with, so a later change to the term does
-// not move it; one posted without them (before T36, manual, migrated) by
-// its supplier's net days now.
-func dueDate(it ledger.PayableItem, payee partner.Payee) time.Time {
-	switch {
-	case it.Amount > 0:
-		return it.DocumentDate
-	case it.Terms != nil:
-		return it.Terms.NetDueDate()
-	}
-	return it.DocumentDate.AddDate(0, 0, payee.NetDays)
 }
 
 // propose pays each candidate supplier its open items in one payment, or

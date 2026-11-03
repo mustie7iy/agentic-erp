@@ -375,8 +375,13 @@ func ledgerCalls(t *testing.T, e env, h *ledger.Endpoints, d ledgerDocs) map[str
 			_, err := setup.Check(ctx, document(t), withOpenItems(t))
 			return err
 		},
-		"setup apply":            func(ctx context.Context) error { return setup.Apply(ctx, document(t)) },
-		"setup apply open items": func(ctx context.Context) error { return setup.Apply(ctx, with102000OpenItems(t)) },
+		"setup check asset reconciliation": func(ctx context.Context) error {
+			_, err := setup.Check(ctx, document(t), withAssetAccount(t))
+			return err
+		},
+		"setup apply":                      func(ctx context.Context) error { return setup.Apply(ctx, document(t)) },
+		"setup apply open items":           func(ctx context.Context) error { return setup.Apply(ctx, with102000OpenItems(t)) },
+		"setup apply asset reconciliation": func(ctx context.Context) error { return setup.Apply(ctx, withAssetAccount(t)) },
 		"setup check parallel ledgers": func(ctx context.Context) error {
 			_, err := setup.Check(ctx, parallel(t), parallel(t))
 			return err

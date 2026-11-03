@@ -318,7 +318,9 @@ start() {
   say "  - the GST34's lines (T61j-T61l): step 2 configures one"
   say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
-  say "  - the liquidity forecast (T53e-T53k): step 13 shows the daily cash position with a memo record"
+  say "  - the liquidity forecast's liquidity items, conversion, drill-down and other sources (T53e3-T53k): step 13 shows"
+  say "    the daily cash position with a memo record and the forecast of the supplier open items, payment runs, parked"
+  say "    invoices, down payment requests and blocked suppliers"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - accounts receivable, fixed assets (T57), period-end close (T64), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
@@ -989,6 +991,7 @@ PILOT_SETTINGS='
        "gl_account": "1020", "main_gl_account": "1030", "incoming_gl_account": "1040", "currency": "USD"}])
     | .tax_registrations = [{"code": "GSTHST", "authority": "CRA", "number": "123456789 RT 0001", "return_type": "GST34",
         "frequency": "quarterly", "first_period_start": "@TAXFIRST@"}]
+    | .cash = {"payment_days": ["tue", "thu"]}
     | .release_dual_limit = "4000.00"
     | .service_posting_limit = "1000.00"
     | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
@@ -1491,6 +1494,26 @@ recurring_rent() {
   expect "the rent entry's status" "$(field .status)" posted
 }
 
+# partners_named reads a posted and a parked entry with the partners
+# their lines name (expand=partners, T73h3): by number and name, with no
+# call per partner, as the workspace's entry pages read them. The parked
+# entry is cancelled, so it books nothing.
+partners_named() {
+  say "A journal line names its partner by id. Read with its partners (expand=partners), an entry names each"
+  say "by number and name, as the workspace's entry pages read it, with no call of their own (T73h3):"
+  api 200 '.expanded.partners[] | "TY-5001'"'"'s entry: partner \(.number) \(.name)"' getJournalEntry -p "id=$INVOICE_ENTRY" -p expand=partners
+  expect "the partner TY-5001's entry names" "$(field '[.expanded.partners[].name] | join(", ")')" "Tyrell Office Products"
+  say "So does a parked entry: Tom parks an accrual for Tyrell, reads it with its partner, and cancels it."
+  local accrual
+  api 201 '"parked entry \(.id[0:8])…: \(.status)"' parkJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Accrual for Tyrell, shown and cancelled\", \"lines\": [{\"account_id\": \"$(account 6000)\", \"amount\": {\"amount\": \"75.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$(account 211000)\", \"amount\": {\"amount\": \"-75.00\", \"currency\": \"CAD\"}, \"partner_id\": \"$SUPPLIER\"}]}"
+  accrual=$(field .id)
+  api 200 '.expanded.partners[] | "the accrual: partner \(.number) \(.name)"' getParkedJournalEntry -p "id=$accrual" -p expand=partners
+  expect "the partner the parked accrual names" "$(field '[.expanded.partners[].name] | join(", ")')" "Tyrell Office Products"
+  api 200 '"parked entry: \(.status)"' cancelParkedJournalEntry -p "id=$accrual" -if-match "$ETAG" -body '{"reason": "Shown, not booked"}'
+  expect "the accrual's status" "$(field .status)" cancelled
+}
+
 step_statement() {
   heading "Step 8 — The bank statement: imported, a gap accepted, matched by rules and by hand, posted with approval, reconciled"
   as tom
@@ -1510,6 +1533,7 @@ step_statement() {
   api 200 '"parked entry: \(.status), journal entry \(.journal_entry_id)"' getParkedJournalEntry -p "id=$parked"
   expect "parked entry status" "$(field .status)" posted
   recurring_rent
+  partners_named
   local yesterday
   yesterday=$(date_add "$TODAY" -1)
   say "RBC's statement of $yesterday, before the funding, closes the empty account at 0.00. Tom imports it:"
@@ -2027,7 +2051,116 @@ step_cash() {
     getCashPosition -p "legal_entity_id=$LE" -p days=7
   counted=$(field '[.banks[] | select(.house_bank_code == "RBC") | .days[].flows[]? | select(.source == "memo" and .amount.amount == "1000.00")] | length')
   [ "$(field .read_date)" != "$toronto" ] || expect "the record listed active and counted in the position on Toronto's date" "$listed $counted" "1 1"
+  forecast
+  forecast_sources
   passed
+}
+
+# forecast has Tom read the liquidity forecast (T53e): the supplier open
+# items still owed after step 7's run, each on the day a payment run
+# would pay it. Maple runs payments on Tuesdays and Thursdays (step 2), so
+# SAP's USD invoice migrated in step 3, overdue once its NT30 from 15 June
+# has passed, is expected on the first of them from today.
+forecast() {
+  say "The liquidity forecast (T53e): what Maple will pay its suppliers, per currency in its buckets (14 days, 11"
+  say "weeks, 9 months), each open item on the day a payment run would pay it and at what it would pay then. Maple"
+  say "runs payments on Tuesdays and Thursdays: an overdue item is expected on the next of them, an item in a discount"
+  say "tier on the tier's last payment day, else on the last payment day before it is due; step 7's run paid the rest."
+  local before after
+  before=$(company_day)
+  api 200 '"read on \(.read_date) in \(.time_zone), \(.buckets | length) buckets from \(.buckets[0].start) to \(.buckets[-1].end)",
+    (.currencies[] | .currency as $c | "  \($c): total \(.total.amount), beyond the last bucket \(.beyond.amount.amount) (\(.beyond.count))",
+      (.buckets[] | select(.flows | length > 0) | "    from \(.start): \([.flows[] | "\(.source) \(.certainty) \(.amount.amount) x\(.count)"] | join(", "))"))' \
+    getLiquidityForecast -p "legal_entity_id=$LE"
+  after=$(company_day)
+  expect "the zone the forecast is read in" "$(field .time_zone)" America/Toronto
+  [ "$(field .read_date)" = "$before" ] || expect "the forecast's read date, Toronto's" "$(field .read_date)" "$after"
+  expect "the first bucket, the read date" "$(field '.buckets[0].start')" "$(field .read_date)"
+  # A day's bucket starts on the day expected: the first Tuesday or Thursday
+  # from today, or, when that is one of Maple's holidays, the next working
+  # day (at most four days later: Christmas on a Thursday, Boxing Day on
+  # the Friday); a week's or a month's bucket may start on another day.
+  expect "SAP's USD invoice (step 3), on the next payment day" \
+    "$(field 'def epoch: strptime("%Y-%m-%d") | mktime;
+      . as $f | ([$f.buckets[] | select(.grain == "day") | .start | select(epoch | strftime("%a") | IN("Tue", "Thu"))][0] | epoch) as $pay
+      | [.currencies[] | select(.currency == "USD") | .buckets | to_entries[] | select(any(.value.flows[]; .source == "payable"))
+      | "\(.value.total.amount) \(if $f.buckets[.key].grain == "day" then (.value.start | epoch) - $pay | (. >= 0 and . <= 4 * 86400) else true end)"]
+      | join(", ")')" "-1000.00 true"
+  expect "each currency's total, its buckets' totals added up" \
+    "$(field '[.currencies[] | (.total.amount | sub("\\."; "") | tonumber) == ([.buckets[].total.amount | sub("\\."; "") | tonumber] | add)] | all')" true
+}
+
+# cad_cents SOURCE is the sum of the CAD flows of the source in the last
+# forecast's buckets, in cents.
+cad_cents() {
+  jq -r --arg s "$1" '[.currencies[] | select(.currency == "CAD") | .buckets[].flows[] | select(.source == $s)
+    | .amount.amount | sub("[.]"; "") | tonumber] | add // 0' "$WORK/last.json"
+}
+
+# cad_sum FIELDS... is the sum of the CAD figures at the paths (amounts
+# under a currency, such as .total or .blocked.amount) in the last
+# forecast, in cents.
+cad_sum() {
+  local paths
+  paths=$(printf '(%s.amount | sub("[.]"; "") | tonumber), ' "$@")
+  jq -r "[.currencies[] | select(.currency == \"CAD\") | ${paths%, }] | add // 0" "$WORK/last.json"
+}
+
+# forecast_sources has Tom read what the forecast takes beside the posted
+# items (T53e2): Alex parks an invoice from Tyrell and requests a down
+# payment to Tyrell, which the forecast shows as planned and expected; the
+# items of Massive Dynamic, which no run pays (step 7), are shown apart;
+# both documents are cancelled again, and leave the forecast.
+forecast_sources() {
+  say "What the forecast takes beside the posted items (T53e2): invoices parked or on hold (invoice_unposted,"
+  say "planned) at what a run would pay once they are posted, by the terms they would post with; open down payment"
+  say "requests (down_payment, expected) whole on their due dates; and what the suppliers no run pays are owed"
+  say "(payable_blocked), apart from the totals unless Tom asks for it (include_blocked)."
+  local due parked parked_etag request request_etag before parked0 requests0 cents
+  due=$(date_add "$TODAY" 5)
+  QUIET=1 api 200 '' getLiquidityForecast -p "legal_entity_id=$LE"
+  before=$(field .read_date)
+  parked0=$(cad_cents invoice_unposted)
+  requests0=$(cad_cents down_payment)
+  as alex
+  say "Alex parks Tyrell's invoice TY-5009 for one more chair, CAD 470.00 on the order's 2/10 net 30, and requests a"
+  say "down payment of CAD 300.00 to Tyrell, due $due:"
+  invoice TY-5009 1 470.00
+  parked=$(field .id)
+  parked_etag=$ETAG
+  api 201 '"down payment request \(.document_number): \(.status), \(.amount.amount) \(.amount.currency) due \(.due_date)"' createDownPaymentRequest \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"due_date\": \"$due\", \"reference\": \"Chairs for the second floor\"}"
+  request=$(field .id)
+  request_etag=$ETAG
+  as tom
+  api 200 '.currencies[] | select(.currency == "CAD") | "CAD: total \(.total.amount), blocked suppliers \(.blocked.amount.amount) (\(.blocked.count), not in the total)",
+    (.buckets[] | select(any(.flows[]; .source == "invoice_unposted" or .source == "down_payment" or .source == "payable_blocked"))
+      | "    from \(.start): \([.flows[] | select(.source == "invoice_unposted" or .source == "down_payment" or .source == "payable_blocked")
+        | "\(.source) \(.certainty)\(if .late then " late" else "" end) \(.amount.amount) x\(.count)"] | join(", "))")' \
+    getLiquidityForecast -p "legal_entity_id=$LE"
+  if [ "$(field .read_date)" = "$before" ]; then # the same day: the same payment days and discount tiers
+    expect "TY-5009, planned at what a run in its discount tier pays (470.00 less 2%)" "$(($(cad_cents invoice_unposted) - parked0))" -46060
+  fi
+  expect "the down payment request, expected whole" "$(($(cad_cents down_payment) - requests0))" -30000
+  expect "Massive Dynamic's open items, shown apart" "$(field '[.currencies[] | select(.currency == "CAD") | .blocked.count > 0] | any')" true
+  expect "blocked flows counted" "$(field .include_blocked)" false
+  cents=$(cad_sum .total .beyond.amount .blocked.amount)
+  say "With include_blocked the blocked suppliers' flows count in the totals (and beyond the last bucket):"
+  api 200 '.currencies[] | select(.currency == "CAD") | "CAD: total \(.total.amount), beyond \(.beyond.amount.amount), of which blocked \(.blocked.amount.amount)"' \
+    getLiquidityForecast -p "legal_entity_id=$LE" -p include_blocked=true
+  expect "blocked flows counted" "$(field .include_blocked)" true
+  expect "the total and beyond with the blocked suppliers', the total and beyond without them plus what they are owed" "$(cad_sum .total .beyond.amount)" "$cents"
+  say "Alex cancels the invoice and the request again; the forecast no longer has them:"
+  as alex
+  api 200 '"\(.document_number): \(.status)"' cancelSupplierInvoice -p "id=$parked" -if-match "$parked_etag" -body '{"reason": "Entered twice; the forecast walkthrough"}'
+  api 200 '"down payment request \(.document_number): \(.status)"' cancelDownPaymentRequest -p "id=$request" -if-match "$request_etag" \
+    -body '{"reason": "Tyrell needs no down payment"}'
+  as tom
+  QUIET=1 api 200 '' getLiquidityForecast -p "legal_entity_id=$LE"
+  if [ "$(field .read_date)" = "$before" ]; then
+    expect "the parked invoices after TY-5009 was cancelled" "$(cad_cents invoice_unposted)" "$parked0"
+  fi
+  expect "the down payment requests after the request was cancelled" "$(cad_cents down_payment)" "$requests0"
 }
 
 step_reports() {
@@ -2280,6 +2413,87 @@ step_capture() {
   passed
 }
 
+# ASSET_SETTINGS gives company @CC@ the asset class MACHINES (ADR-0057 §3,
+# T57a): straight-line over ten years in the leading ledger and declining
+# balance at twice the rate in every other ledger it keeps; its accounts,
+# the acquisition cost and accumulated depreciation flagged as asset
+# reconciliation accounts; and this fiscal year's number ranges for assets
+# and their entries (AA, AF). @YEAR@ is replaced with this year.
+ASSET_SETTINGS='
+.asset_classes = [{"code": "MACHINES", "name": "Machinery and equipment",
+    "terms": [(.companies[] | select(.code == "@CC@") | .ledgers // ["0L"])[] |
+      if . == "0L" then {"ledger": ., "method": "straight_line", "useful_life_months": 120}
+      else {"ledger": ., "method": "declining_balance", "useful_life_months": 120, "declining_factor": "2"} end]}]
+| (.companies[] | select(.code == "@CC@")) |= (
+    .chart_of_accounts += [
+      {"number": "1600", "name": "Machinery", "type": "asset", "asset_reconciliation": true},
+      {"number": "1609", "name": "Machinery, accumulated depreciation", "type": "asset", "asset_reconciliation": true},
+      {"number": "1690", "name": "Asset clearing", "type": "asset"},
+      {"number": "1695", "name": "Asset sale clearing", "type": "asset"},
+      {"number": "4950", "name": "Gain on asset retirements", "type": "revenue"},
+      {"number": "6250", "name": "Depreciation of machinery", "type": "expense"},
+      {"number": "6950", "name": "Loss on asset retirements", "type": "expense"}]
+    | .asset_accounts = [{"class": "MACHINES", "acquisition_cost": "1600", "accumulated_depreciation": "1609", "depreciation": "6250",
+        "clearing": "1690", "gain": "4950", "loss": "6950", "sale_clearing": "1695"}])
+| .number_ranges += (["asset", "journal_aa", "journal_af"] | map({"company": "@CC@", "document_type": ., "fiscal_year": @YEAR@, "first": 1, "last": 999999}))'
+
+step_assets() {
+  heading "Step 19 — Asset accounting: an asset class and its accounts through a governed change; the cost account takes only assets' postings"
+  as ada
+  say "Ada proposes the pilot's first asset class (ADR-0057 §3): machinery, depreciated straight-line over ten"
+  say "years in the leading ledger and at twice the declining rate in 2L, with its accounts. The acquisition cost"
+  say "and accumulated depreciation accounts are asset reconciliation accounts, which only the assets context"
+  say "posts to, so their balances are the assets' values. The company numbers its assets and their entries"
+  say "(AA, AF) in this fiscal year's ranges."
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  local base settings cr request
+  base=$(field '.items[0].number')
+  settings=${ASSET_SETTINGS//@YEAR@/$YEAR}
+  settings=${settings//@CC@/$CC}
+  jq "{title: \"Asset class MACHINES and its accounts\", rationale: \"Asset accounting for the pilot (T57a)\", base_version: $base,
+    proposed: (.items[0].document | $settings)}" "$WORK/last.json" >"$WORK/assets.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @assets.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier) (structural): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 4
+  expect "the asset class among the changes" "$(field '[.items[] | select(.path == "asset_classes[MACHINES]")] | length')" 1
+  say "New accounts change the chart, a tier 4 change: the invoices of the last year are replayed under it."
+  api 201 '"regression suite \(.number): \(.case_count) cases"' createRegressionSuite -body '{"name": "Before asset accounting", "window_days": 366}'
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
+  expect "status after the evidence" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve sam "$request" "Asset class and accounts checked"
+  approve carla "$request" "The asset accounts are new and unposted"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as carla
+  say "Carla reads the class as the assets context gives it: its terms per ledger and Maple's accounts, named:"
+  api 200 '.items[] | "class \(.code) \(.name):", (.terms[] | "  \(.ledger_code) \(.ledger_name): \(.method), \(.useful_life_months) months\(if .declining_factor then ", factor \(.declining_factor)" else "" end)"),
+    (.companies[] | "  company \(.company_code) \(.company_name): cost \(.accounts.acquisition_cost.number) \(.accounts.acquisition_cost.name), accumulated depreciation \(.accounts.accumulated_depreciation.number), depreciation \(.accounts.depreciation.number), clearing \(.accounts.clearing.number)")' \
+    listAssetClasses -p "legal_entity_id=$LE"
+  expect "the classes of $CC" "$(field '[.items[] | .code] | join(" ")')" MACHINES
+  expect "the class's cost account in $CC" "$(field '.items[0].companies[] | select(.company_code == "'"$CC"'") | "\(.accounts.acquisition_cost.number) \(.accounts.acquisition_cost.name)"')" \
+    "1600 Machinery"
+  expect "the leading ledger's terms" "$(field '.items[0].terms[] | select(.ledger_code == "0L") | "\(.method) \(.useful_life_months)"')" "straight_line 120"
+  accounts
+  local cost clearing
+  cost=$(account 1600)
+  clearing=$(account 1690)
+  api 200 '"account \(.number) \(.name): reconciliation kind \(.reconciliation_kind)"' getAccount -p "id=$cost"
+  expect "the cost account's reconciliation kind" "$(field .reconciliation_kind)" asset
+  say "A manual entry moving a machine's cost from the clearing account onto the cost account is refused: only an"
+  say "acquisition of an asset (T57c) posts there, so the account's balance stays the assets' cost."
+  refused 422 ledger.asset_reconciliation_account postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Machine bought in error by hand\", \"lines\": [{\"account_id\": \"$cost\", \"amount\": {\"amount\": \"5000.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$clearing\", \"amount\": {\"amount\": \"-5000.00\", \"currency\": \"CAD\"}}]}"
+  expect "the refused line" "$(field '[.errors[].field] | join(" ")')" "lines[0].account_id"
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -2301,7 +2515,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets'
 
 main() {
   start

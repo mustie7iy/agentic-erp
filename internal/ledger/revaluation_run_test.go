@@ -111,6 +111,16 @@ func TestRevaluationRun(t *testing.T) {
 				t.Errorf("%s: the open item named %s, want %s", name, g, w)
 			}
 		}
+		// An agent who may not read business partners reads the run with
+		// the item's partner unnamed (04 §4.4), its id and entry kept.
+		agent := e.in(t)
+		agent.As = e.ten.Agent
+		read, _ := agent.Must(200, "GET", "/v1/revaluation-runs/"+id, "", "")
+		it := apitest.List(t, read, "items")[1].(map[string]any)
+		if g, w := fmt.Sprint(it["partner_id"], " ", it["partner_number"], " ", it["partner_name"], " ", it["document_number"]),
+			e.supplier.String()+" <nil> <nil> "+invoice; g != w {
+			t.Errorf("read by the agent: the open item named %s, want %s", g, w)
+		}
 		page, _ := e.in(t).Must(200, "GET", "/v1/revaluation-runs?legal_entity_id="+e.de.String(), "", "")
 		listed := apitest.List(t, page, "items")
 		if len(listed) != 1 || listed[0].(map[string]any)["id"] != id || listed[0].(map[string]any)["items"] != nil {

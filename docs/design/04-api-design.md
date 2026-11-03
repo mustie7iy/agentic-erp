@@ -101,7 +101,10 @@ The requester, human or agent, may
   version numbers) are fields and filters, never the path.
 - References to other resources are ids (`supplier_id`). `?expand=supplier`
   may embed a read-only copy for a fixed list of fields; expansion never
-  crosses tenants or permissions.
+  crosses tenants or permissions. A caller without the permission to read
+  what an expansion, or a name embedded beside an id, would copy gets the
+  resource with the id alone, never a 403 for the whole resource
+  (`authz.Expansions`, review:batch44).
 - Custom fields (ADR-0009) appear under `extensions`, validated against the
   tenant's published schema for that resource.
 - Sensitive values are never returned in full: bank accounts expose
@@ -569,7 +572,7 @@ with the month's total against the tenant's cap.
 | procurement | `requisitions`, `purchase-orders` (with `{id}/document`, the order's plain-text document for the supplier, ADR-0054), `contracts`, `goods-receipts` | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse` |
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:submit`, `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
-| cash | `cash-position` (computed on read, ADR-0051), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
+| cash | `cash-position`, `liquidity-forecast` (computed on read, ADR-0051), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
 | controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual`, `profit-center-plan-actual` (computed on read, ADR-0050 §8) | `:lock`, `:unlock` |
 | tax | `tax-registrations` (from the configuration), `tax-registrations/{id}/periods`, `tax-registrations/{id}/draft-return` and its `items` (computed on read, ADR-0049 §10-§11), `tax-registrations/{id}/returns`, `tax-returns/{id}` | `:file`, `:withdraw` (T61i) |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |

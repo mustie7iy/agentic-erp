@@ -2,6 +2,7 @@ package payables_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -9,6 +10,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -67,5 +69,52 @@ func TestExpandWithoutTheSupplier(t *testing.T) {
 	}
 	if got := ok.Response; got.Expanded.Set {
 		t.Errorf("expanded: got %+v, want no expansion", got.Expanded.Value)
+	}
+}
+
+// TestExpandNeedsPartnerRead: expand=supplier embeds the supplier only for
+// a caller who may read business partners, person or agent; without the
+// permission the invoice and the page are answered with supplier_id alone,
+// never refused, as an expansion never crosses permissions (04 §4.4).
+func TestExpandNeedsPartnerRead(t *testing.T) {
+	e := setup(t)
+	e.Tenant.AllCompanies(t, e.Tenant.Agent)
+	inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Vendor, "V-1", "119.00", "19.00", accountItem(e.expense, "100.00")), "")
+	paths := map[string]string{
+		"get":  "/v1/supplier-invoices/" + id(inv) + "?expand=supplier",
+		"list": "/v1/supplier-invoices?supplier_id=" + e.Vendor.String() + "&expand=supplier",
+	}
+	read := func(t *testing.T, as pgtest.Actor, path string) map[string]any {
+		t.Helper()
+		got, _ := e.As(as).In(t).Must(200, "GET", path, "", "")
+		if got["id"] == nil { // a page: its one invoice
+			items := got["items"].([]any)
+			if len(items) != 1 {
+				t.Fatalf("page: got %d invoices, want 1", len(items))
+			}
+			got = items[0].(map[string]any)
+		}
+		if got["supplier_id"] != e.Vendor.String() {
+			t.Errorf("supplier_id: got %v, want %v", got["supplier_id"], e.Vendor)
+		}
+		return got
+	}
+	for _, held := range []bool{true, false} {
+		if !held {
+			e.Tenant.Revoke(t, partner.ReadPermission, e.Tenant.Human, e.Tenant.Agent)
+		}
+		for _, as := range []pgtest.Actor{e.Tenant.Human, e.Tenant.Agent} {
+			for op, path := range paths {
+				t.Run(fmt.Sprintf("%s by %s, permission held %v", op, as.Kind, held), func(t *testing.T) {
+					exp, expanded := read(t, as, path)["expanded"].(map[string]any)
+					if expanded != held {
+						t.Fatalf("expanded: got %v, want %v", expanded, held)
+					}
+					if held && exp["supplier"].(map[string]any)["number"] != "BP90000002" {
+						t.Errorf("expanded supplier: got %v, want BP90000002", exp["supplier"])
+					}
+				})
+			}
+		}
 	}
 }

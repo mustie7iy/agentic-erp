@@ -1116,37 +1116,107 @@
     "ph": 2,
     "c": [
      {
+      "s": "P",
+      "t": "Asset accounting designed (ADR-0057, decided by default under ADR-0053 d): a leaf assets context; classes and asset accounts in configuration; acquisitions settling an asset clearing account's lines; depreciation per ledger as planned less booked by a Temporal run; retirements and transfers per ledger; the history sheet from movements",
+      "r": "ADR-0057 · T57 (split T57a-T57i)",
+      "c": [
+       {
+        "s": "D",
+        "t": "Classes and asset accounts in configuration; asset reconciliation enforced: asset_classes (terms per ledger), companies[].asset_accounts (acquisition cost, accumulated depreciation, depreciation, clearing, gain, loss, sale clearing), chart_of_accounts[].asset_reconciliation (only on an account without postings, never removed), number ranges asset, journal_aa, journal_af, validated with tiers 3/4; ledger.Setup sets reconciliation_kind asset; ledger.check_line and every posting path refuse an asset reconciliation line outside source contexts assets and integration (422 ledger.asset_reconciliation_account, schema test); is_open_item_managed for supplier and customer accounts only, open_items and revalue_foreign_currency refused on asset reconciliation, clearing and sale clearing accounts; GET /v1/asset-classes; walkthrough step_assets: the class activated, a manual entry on the cost account refused",
+        "r": "internal/config/assets.go (AssetClass, AssetTerms, AssetAccounts, Account.AssetReconciliation, AssetRanges; tiers in diff.go) · ledger.Setup (reconciliation_kind asset on new accounts only, checkAssetReconciliationNew, checkAssetRanges, applyAssetReconciliation: 409 ledger.asset_reconciliation_not_new; is_open_item_managed for supplier and customer accounts) · ledger refuseAssetReconciliation in prepareFor (manual, parked, templates, Postings.Post) · migration 000190 (ledger.check_line: journal_line_asset_reconciliation; assets.asset.read) · GET /v1/asset-classes (assets.Endpoints.ListAssetClasses; assets leaf with ports Settings and Companies wired in internal/app/assets.go; internal/layout) · TestAssetClassesValid, TestAssetClassesDiff, TestAssetReconciliationSetup, TestAssetRanges, TestAssetReconciliationPostings, TestAssetReconciliationAccounts, TestListAssetClasses · walkthrough step_assets (step 19) · ADR-0057 (as built, T57a) · 02 §2.2 · 03-data-model · T57a",
+        "src": "adr:ADR-0057",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Asset master: schema assets (asset, asset_terms, asset_assignment keyed by a per-asset seq, the highest seq naming the asset's centers, with a schema test; the profit center derived from the cost center on the creation date (ledger.profit_center_mismatch for another); RLS, tenant_id first, state trigger, schema tests); asset.last_seq for posting order; the assets leaf and its ports, assets.Runs included (internal/layout leaves); /v1/assets create, list, get, PATCH (description, terms, depreciation start), :cancel; numbers from the asset range; terms per kept ledger from the class; assets.cost_center_required; permissions assets.asset.read/change; AssetChanged; audit; walkthrough: an asset created with a cost center and read with its class name and terms per ledger, a second cancelled",
+        "r": "ADR-0057 · T57b",
+        "src": "adr:ADR-0057",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Acquisition from a posted line on the asset clearing account (supplier invoice, goods receipt or manual entry): ledger PostingLine.GC; acquisition, clearing_use, movement, document_entry; POST/GET /v1/asset-acquisitions full and partial, a source line only if its entry is in every kept ledger (assets.source_not_in_every_ledger), nothing dated after its posting date's period (assets.value_date_in_future), one line split across assets, credit lines as negative acquisitions, schema tests of the movement rules (a reversal row with its original's kind and negated amounts, an original reversed at most once, a depreciation movement changing accumulated and accumulated_gc only (cost, cost_gc, residual and proceeds zero), a negative acquisition accepted), no acquisition dated before the asset's latest assignment row (assets.posting_before_center_transfer), capitalisation date, the rest of a line taking the rest of its local and group amounts; GET /v1/asset-clearing-items with its budget; AssetMovementPosted; walkthrough: an invoice item on the clearing account split onto two assets, the clearing account at zero in all three currencies",
+        "r": "ADR-0057 · T57c",
+        "src": "adr:ADR-0057",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Manual acquisition against an offset account and acquisition reversal: assets.offset_account_invalid; :reverse with assets.later_movements (a retirement or transfer of any kind posted after it, by seq, not reversed) and assets.reversal_before_original (test: dated before the acquisition's posting date), the line given back, refused with assets.cost_negative where it would leave the cost below zero; a reversed source line's reversal line offered on the worklist per asset with its bound and capitalised as a negative acquisition only onto an asset holding unreversed acquisitions from the reversed line, at most those less what the reversal's line already took from it (assets.source_reversed, assets.amount_exceeds_line, assets.cost_negative; tests: a partly capitalised line, a second take-off beyond the bound), the asset's acquisition from the reversed line then refused (assets.reversal_line_capitalised), the correction when the acquisition can no longer be reversed; status and capitalised_on derived from the acquisitions and transfers in left (back to planned when none); AssetMovementReversed; the ledger's entry_owned_elsewhere names the assets path (04 §4.9); walkthrough: an acquisition against an offset account, one reversed, a reversed supplier invoice's reversal line taken off the asset",
+        "r": "ADR-0057 · T57d",
+        "src": "adr:ADR-0057",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Depreciation schedule and preview: the planned schedule walk (straight-line; declining balance with the switch to straight-line), rounding with d_k = max(0, min(d_k, B_k - R_k)), late acquisitions (one valued before a retirement posted earlier), retirements applied by their recorded amounts, a transfer in's residual value, end of life, planned less booked for a run and a catch-up (negative when the period's own run is posted), table tests per method including two retirements in one period; GET /v1/assets/{id}/schedule; POST /v1/depreciation-runs/preview with totals per account and center; walkthrough: the preview of the asset's first period in each ledger",
+        "r": "ADR-0057 · T57e",
+        "src": "adr:ADR-0057",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Depreciation run: ledger Posting.LedgerID (ledger-specific postings for contexts); depreciation_run, depreciation_batch; POST/GET /v1/depreciation-runs (202 Operation), started by the workflows dispatcher from its queued assets.depreciate operation; booked_through per asset and ledger, never lowered by a run or catch-up (only a catch-up's reversal returns it, T57g, T57h); an asset with an assignment row valid from after the period's last day passed over; the selection re-checked under each asset's lock in the batch (assets_skipped, no seq taken); group amounts per asset and line; lines on each asset's latest assignment, a seq for each asset a batch processes; workflow DepreciationRun through the workflows.Depreciation port with PlanDepreciationRun, PostDepreciationBatch, FinishDepreciationRun, FailDepreciationRun (run-twice test each, replay test), in process without an engine; one run at a time, order, special periods, a locked period failing the run and the next catching up; DepreciationRunCompleted; the 01 §1.3 budget for 100,000 assets; walkthrough: the period's run posted in the leading ledger, a repeat run posting nothing",
+        "r": "ADR-0057 · T57f",
+        "src": "adr:ADR-0057",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Retirements: sale with proceeds on the sale clearing account and scrapping, full and partial, valued in the posting period only (assets.value_date_outside_period, assets.later_value_date), depreciation caught up through the period before the posting period (negative after that period's run), the share of the asset's balances in seq order, gain (profit center only) or loss (cost and profit center) per ledger, residual value shared, group amounts by the three rules of §8 (a test of a zero local amount left with a group amount, taken in full); retired derived from the balances, a zero-cost asset retired by a full retirement (assets.share_of_zero_cost for a share given as cost); assets.later_value_date also for an asset booked through a later period; :reverse refused with assets.later_movements once anything followed on the asset, runs included, returning booked_through to its value before the catch-up; tests: a retirement reversed on a given later date, and a reversal dated before the retirement's posting date refused with assets.reversal_before_original; assets.share_exceeds, assets.asset_retired, assets.value_date_before_capitalisation; walkthrough: half an asset sold with a gain, the rest scrapped, the asset retired, a retirement valued in the previous period refused",
+        "r": "ADR-0057 · T57g",
+        "src": "adr:ADR-0057",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Transfers: to another cost center (its profit center derived, ledger.profit_center_mismatch for another) or profit center, valued on the posting period's first day (per ledger a catch-up through the period before on the previous row's centers, booked_through raised to it; a profit center change reposting all booked balances after the catch-up at local and group amounts, no movement but the catch-up's; every later posting on the latest assignment's centers; the catch-up dated the previous period's last day while that period is open, the asset is not booked through the transfer's period and the previous row's valid_from is on or before that day, else in the transfer's period on the old centers (also when the previous row is valid from the transfer's period: test, two center transfers valued 1 April with a February-valued acquisition capitalised between them, the second transfer's catch-up posted in April on the first transfer's centers); test: March open, a transfer valued 1 April posting March's depreciation on the old centers dated 31 March, then the March run posting nothing for the asset, a March-dated acquisition refused with assets.posting_before_center_transfer (a March-dated acquisition reversal with assets.reversal_before_original or assets.later_movements), and the April run posting on the new centers; the reversal reversing the catch-up, returning booked_through, and restoring the previous centers with the previous row's valid_from, so a March run and a March-dated acquisition are accepted again; test: a transfer whose catch-up was dated 31 March reversed after March closed, the catch-up's reversal posted in April on the old centers and booked_through back) and to another asset of the same company (share, residual value carried, receiver activated, sender retired by a full transfer, reclassification across classes; the receiver checked with assets.later_value_date and with assets.posting_before_center_transfer for a posting date before its latest assignment row; a reversed invoice's reversal line refused onto the receiver with assets.source_reversed); :reverse for both kinds, refused with assets.later_movements once anything followed on the sender or receiver, and with assets.reversal_before_original when an asset transfer's reversal or a center transfer's main part is dated before the transfer's posting date (tests); assets.transfer_other_company, transfer_same_asset, transfer_mid_period, value_date_outside_period, later_value_date, value_date_before_capitalisation; walkthrough: an asset moved to a cost center of another profit center from this period, its balances reposted, and part of it to an asset of another class; a test of a `center` transfer's `main` part reversed on a later date, its lines on the restoring row's centers (review round 10)",
+        "r": "ADR-0057 · T57h",
+        "src": "adr:ADR-0057",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Asset history sheet: year_total and class_year_total kept with every movement, upserted in key order (schema test of their sums, a two-transaction deadlock test); GET /v1/asset-history-sheet per company, ledger and fiscal year, by class or by asset, every column (cost, acquisitions, retirements, transfers, accumulated depreciation, depreciation of the year, net book values) with the totals; closing values equal the asset accounts' ledger balances (test); the 01 §1.3 budget; walkthrough: the year's sheet of the steps before, its totals matching the trial balance's asset accounts",
+        "r": "ADR-0057 · T57i",
+        "src": "adr:ADR-0057",
+        "c": []
+       }
+      ]
+     },
+     {
       "s": "T",
       "t": "Asset master and classes",
-      "r": "T57",
+      "r": "T57 · ADR-0057 §3, §5 · T57a, T57b",
       "src": "baseline",
       "c": []
      },
      {
       "s": "T",
       "t": "Acquisitions from AP and settlement",
-      "r": "T57",
+      "r": "T57 · ADR-0057 §6 · T57c, T57d",
       "src": "baseline",
       "c": []
      },
      {
       "s": "T",
       "t": "Depreciation runs (straight-line, declining balance)",
-      "r": "T57",
+      "r": "T57 · ADR-0057 §7 · T57e, T57f",
       "src": "baseline",
       "c": []
      },
      {
       "s": "T",
       "t": "Retirements and transfers",
-      "r": "T57",
+      "r": "T57 · ADR-0057 §8 · T57g, T57h",
       "src": "baseline",
       "c": []
      },
      {
       "s": "T",
       "t": "Asset history sheet",
-      "r": "T57",
+      "r": "T57 · ADR-0057 §9 · T57i",
       "src": "baseline",
       "c": []
      }
@@ -1313,10 +1383,31 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Forecast from payables and payments (P5): ports for supplier open items (terms, discount tiers, supplier blocks, withholding, credit memos, items in runs excluded), parked and held invoices, down payment requests; the proposer's due-date and tier logic moved to ledger.ItemTerms and used by both; expected-date rule with payment days, value days and the company calendar; liquidity item derivation with proportional split (cash.Derive, T53b) and the derivation simulation listing the open flows whose item a rule change moves (moved from T53b); self-assessment pairs (T61e's self_output/self_input, reverse charge) netted out of the offsetting lines before derivation, since they are not cash (batch 6 review); GET /v1/liquidity-forecast with buckets, certainty cut, per currency and converted, drill-down; performance budget measured at 100,000 open items",
-        "r": "T53e",
+        "s": "D",
+        "t": "Forecast from payables and payments (P5), first slice: ports for supplier open items (terms, discount tiers, supplier blocks, withholding, credit memos, items in runs excluded); the proposer's due-date and tier logic moved to ledger.ItemTerms and used by both; expected-date rule with payment days, value days and the company calendar; GET /v1/liquidity-forecast with buckets, certainty cut, per currency: supplier open items (payable, expected) at what a run on their payment day pays (cash discount and withholding at payment deducted, credit memos netted), the payments of runs not released (payment_run, confirmed) instead of the items they hold, items of blocked suppliers left out of the totals, what falls after the last bucket shown as beyond",
+        "r": "GET /v1/liquidity-forecast (cash.Endpoints.Forecast, x-snapshot) · cash.Payments.Payables · payments.CashPosition.Payables, CashPayable (Dates, Pays), deductionsOn, reservedItems, rankedRouter, blockedReason · ledger.ItemTerms.TierOn, LosesDiscount, DiscountOn, PayableItem.DueDate, OpenItems.Owed · migration 000189 (cash.forecast.read) · TestLiquidityForecast*, TestCashPayable, TestDiscountRounding, TestDueDate · walkthrough step 13 · ADR-0051 (as built, T53e) · 03-data-model §3.18 · 04-api-design · T53e",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Forecast from parked and held invoices and down payment requests (P5): ports for parked and held invoices, down payment requests; supplier blocks: the items of a supplier blocked for payment shown apart on their net due date (payable_blocked, ADR-0051 §4, §5), not in the totals unless asked (include_blocked)",
+        "r": "GET /v1/liquidity-forecast include_blocked, LiquidityForecastCurrency.blocked, sources invoice_unposted, down_payment, payable_blocked · payments.CashPosition.Payables (Kind; ports Unposted, Requests), heldRequests · payables.Endpoints.Unposted, DownPaymentRequests.Open · internal/app cash and down payment adapters · TestLiquidityForecastSources, TestLiquidityForecastSourcesFailures, TestLiquidityForecastUnpostedFailure, TestDownPaymentRequestPorts · walkthrough step 13 · ADR-0051 (as built, T53e2) · 03-data-model §3.18 · T53e2",
+        "src": "split:T53e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Liquidity items in the forecast: liquidity item derivation with proportional split (cash.Derive, T53b) and the derivation simulation listing the open flows whose item a rule change moves (moved from T53b); self-assessment pairs (T61e's self_output/self_input, reverse charge) netted out of the offsetting lines before derivation, since they are not cash (batch 6 review); rows by liquidity item and its hierarchy (ADR-0051 §9)",
+        "r": "T53e3",
+        "src": "split:T53e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Forecast converted and drilled down: GET /v1/liquidity-forecast per currency and converted (ADR-0051 §10), with the opening position (the cash position's total of the first day), a cumulative closing per bucket, payments in transit and memo records with and without a house bank as sources, one grain over a range on request (ADR-0051 §7, §9), drill-down; performance budget measured at 100,000 open items",
+        "r": "T53e4",
+        "src": "split:T53e · adr:ADR-0051",
         "c": []
        },
        {
@@ -5711,9 +5802,25 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Manual journal entries beyond T73h2: partners named by number and name on a parked and a posted entry's lines, read with the entry (contract first: expand=partners on getJournalEntry and getParkedJournalEntry, expanded.partners, only for a caller who may read business partners; the posted entry's ETag unchanged), so each page still makes six calls; a line without a partner unchanged, a person who may not read partners shown the id; EN and FR; Arabic-Indic digits and the pilot walk-through split into T73h4 and T73h5",
+        "r": "api/openapi.yaml expand=partners · JournalEntryExpanded · PartnerName · internal/ledger entry_partners.go · internal/web parked.go · journal_entries.go · TestEntryPartners · TestEntryPartnersFailures · TestPartnersNamedOnEntries · TestEntryPagesNamePartners · walkthrough step 8 (partners_named) · ADR-0052 Built in T73h3 · T73h3",
+        "src": "split:T73h2",
+        "pilot": "po:2026-10-31 · split:T73h2 · adr:ADR-0052",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Manual journal entries beyond T73h2: amounts typed in Arabic-Indic digits (T73l reads digits per locale; not built, so amounts stay ASCII); partners named on a parked or posted entry's lines (listBusinessPartners ids exists since T73h2, but those pages read six already: an expansion, or names in place of another read); walked through by a pilot GL accountant and controller",
-        "r": "T73h3 (split from T73h2, 2026-11-01)",
+        "t": "Manual journal entries' amounts typed in Arabic-Indic digits, read with T73l's reading of digits per locale (not built, so amounts stay ASCII): the entry form, the change form and the CSV upload",
+        "r": "T73h4 (split from T73h3, 2026-11-02)",
+        "src": "split:T73h2",
+        "pilot": "po:2026-10-31 · split:T73h2 · adr:ADR-0052",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Manual journal entries walked through by a pilot GL accountant and controller (human acceptance): the parked entries, the entry form, park, change, post at once and with approval, the journal and an entry's page with its partners named, the reversal",
+        "r": "T73h5 (split from T73h3, 2026-11-02)",
         "src": "split:T73h2",
         "pilot": "po:2026-10-31 · split:T73h2 · adr:ADR-0052",
         "c": []
@@ -6624,6 +6731,13 @@
         "t": "API rules enforced by tests: permissions seeded, idempotency, If-Match, no deletes, human-only approvals",
         "r": "api/spec_test.go",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "An expansion or an embedded partner name never crosses permissions (04 §4.4; found in the batch 44 review of T73h3): expand=supplier on supplier invoices, requisitions and purchase orders (get and list) and a revaluation's open items' partner_number and partner_name (preview, run, read back) returned a business partner's details to a caller without partner.supplier.read; now left out for such a caller, person or agent, the resource answered with its partner id rather than refused (403 would refuse what the caller may read)",
+        "r": "internal/platform/authz MayUse (held and not SoD-barred), Expansions · payables api.go mayExpand · procurement api.go mayExpand · ledger revaluation_names.go partnerNames · partner.ReadPermission · TestExpandNeedsPartnerRead (payables, procurement), TestRevaluationPreview, TestRevaluationRun, TestExpansions · api/openapi.yaml descriptions · ADR-0052 (expansions and partner names within permissions) · 04 §4.4",
+        "src": "review:batch44",
         "c": []
        },
        {

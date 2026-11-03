@@ -58,7 +58,9 @@ tags:
   - name: payments
     description: Payment runs, payments and bank files.
   - name: cash
-    description: "Cash management (ADR-0051): the daily cash position, computed from statements, payments, runs and memo records, and the memo records of expected receipts and payments."
+    description: "Cash management (ADR-0051): the daily cash position, computed from statements, payments, runs and memo records, the liquidity forecast from supplier open items and runs, and the memo records of expected receipts and payments."
+  - name: assets
+    description: "Asset accounting (ADR-0057): asset classes with their depreciation terms and accounts."
   - name: controlling
     description: "Controlling (ADR-0050): plan categories, plan lines by batch and plan against actual by cost center."
   - name: tax
@@ -2453,7 +2455,7 @@ paths:
       tags:
         - configuration
       summary: Activate a change request
-      description: "Creates and activates a new configuration version from an approved change request; each context applies its part. Human-only. Requires status `approved`; a change of validation rules also needs a passed simulation of this exact proposal (409 `config.rules_not_simulated`). The ledger checks the controlling rules again against its data, which may have changed since submission (a default cost or profit center no longer usable, postings in the year a center accounting switch turns on, a removed cost center category in use): 409 `ledger.controlling_invalid`, naming each finding (ADR-0050 §4). A tax registration whose company, group, authority, number, return type, frequency or first period changed under its code since submission is refused: 409 `tax.registration_fixed` (ADR-0049 §10). While replicas of several versions run (a rolling upgrade), a proposal setting a key that a running replica's version does not know, which it would ignore (a company's `release_dual_limit`), is refused: 409 `config.replica_lacks_key`, each such key in `errors` (`field` the key's path, e.g. `companies[].release_dual_limit`, and the versions lacking it in `message`); activate it once every replica runs a version that knows the key (ADR-0038)."
+      description: "Creates and activates a new configuration version from an approved change request; each context applies its part. Human-only. Requires status `approved`; a change of validation rules also needs a passed simulation of this exact proposal (409 `config.rules_not_simulated`). The ledger checks the controlling rules again against its data, which may have changed since submission (a default cost or profit center no longer usable, postings in the year a center accounting switch turns on, a removed cost center category in use): 409 `ledger.controlling_invalid`, naming each finding (ADR-0050 §4). A tax registration whose company, group, authority, number, return type, frequency or first period changed under its code since submission is refused: 409 `tax.registration_fixed` (ADR-0049 §10). While replicas of several versions run (a rolling upgrade), a proposal setting a key that a running replica's version does not know, which it would ignore (a company's `release_dual_limit`), is refused: 409 `config.replica_lacks_key`, each such key in `errors` (`field` the key's path, e.g. `companies[].release_dual_limit`, and the versions lacking it in `message`); activate it once every replica runs a version that knows the key (ADR-0038). An account flagged `asset_reconciliation` that the chart already has is refused (409 `ledger.asset_reconciliation_not_new`, ADR-0057): only a new account becomes an asset reconciliation account."
       x-permission: config.change.activate
       x-agent: false
       x-problem-codes:
@@ -2465,6 +2467,7 @@ paths:
         - config.rules_not_simulated
         - config.unknown_base_version
         - config.unknown_keys
+        - ledger.asset_reconciliation_not_new
         - ledger.controlling_invalid
         - ledger.down_payment_account_fixed
         - ledger.gr_ir_account_fixed
@@ -5902,6 +5905,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -6072,11 +6076,12 @@ paths:
       tags:
         - ledger
       summary: Get a journal entry
-      description: Returns one journal entry with its lines.
+      description: "Returns one journal entry with its lines. Expandable: `partners`, the business partners its lines name (`expanded.partners`), to a caller who may read business partners (`partner.supplier.read`); for another caller, and when no line names a partner, `expanded` is left out."
       x-permission: ledger.entry.read
       x-problem-codes: []
       parameters:
         - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/Expand"
       responses:
         "200":
           description: The journal entry.
@@ -6112,6 +6117,7 @@ paths:
         - ledger.account_not_postable
         - ledger.already_reversed
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cannot_reverse_reversal
         - ledger.cost_center_invalid
@@ -6317,6 +6323,7 @@ paths:
       x-problem-codes:
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -6419,11 +6426,12 @@ paths:
       tags:
         - ledger
       summary: Get a parked journal entry
-      description: Returns one parked journal entry with its lines.
+      description: "Returns one parked journal entry with its lines. Expandable: `partners`, the business partners its lines name (`expanded.partners`), to a caller who may read business partners (`partner.supplier.read`); for another caller, and when no line names a partner, `expanded` is left out."
       x-permission: ledger.entry.read
       x-problem-codes: []
       parameters:
         - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/Expand"
       responses:
         "200":
           description: The parked journal entry.
@@ -6455,6 +6463,7 @@ paths:
       x-problem-codes:
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -6607,6 +6616,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -6744,6 +6754,7 @@ paths:
         - config.not_bootstrapped
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -6863,6 +6874,7 @@ paths:
         - config.not_bootstrapped
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -7006,6 +7018,7 @@ paths:
       x-problem-codes:
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -7217,6 +7230,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -7331,6 +7345,7 @@ paths:
         - ledger.account_not_postable
         - ledger.already_reversed
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cannot_reverse_reversal
         - ledger.cost_center_invalid
@@ -8670,6 +8685,7 @@ paths:
         - config.no_number_range
         - config.number_range_exhausted
         - ledger.account_not_postable
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.clearing_not_balanced
         - ledger.cost_center_invalid
@@ -8769,7 +8785,7 @@ paths:
       tags:
         - procurement
       summary: List requisitions
-      description: "Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`."
+      description: "Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`); another is answered without `expanded`, not refused."
       x-permission: procurement.requisition.read
       x-problem-codes:
         - request.invalid_order_by
@@ -8891,7 +8907,7 @@ paths:
       tags:
         - procurement
       summary: Get a requisition
-      description: "Returns one requisition. Expandable: `supplier`."
+      description: "Returns one requisition. Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`); another is answered without `expanded`, not refused."
       x-permission: procurement.requisition.read
       x-problem-codes: []
       parameters:
@@ -9098,7 +9114,7 @@ paths:
       tags:
         - procurement
       summary: List purchase orders
-      description: "Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`."
+      description: "Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`); another is answered without `expanded`, not refused."
       x-permission: procurement.order.read
       x-problem-codes:
         - request.invalid_order_by
@@ -9238,7 +9254,7 @@ paths:
       tags:
         - procurement
       summary: Get a purchase order
-      description: "Returns one purchase order. Expandable: `supplier`."
+      description: "Returns one purchase order. Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`); another is answered without `expanded`, not refused."
       x-permission: procurement.order.read
       x-problem-codes: []
       parameters:
@@ -10510,6 +10526,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -10650,6 +10667,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -10751,7 +10769,7 @@ paths:
       tags:
         - payables
       summary: List supplier invoices
-      description: "Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`."
+      description: "Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`); another is answered without `expanded`, not refused."
       x-permission: payables.invoice.read
       x-problem-codes:
         - request.invalid_order_by
@@ -11183,7 +11201,7 @@ paths:
       tags:
         - payables
       summary: Get a supplier invoice
-      description: "Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`). Expandable: `supplier`."
+      description: "Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`). Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`); another is answered without `expanded`, not refused."
       x-permission: payables.invoice.read
       x-problem-codes:
         - config.not_bootstrapped
@@ -11368,6 +11386,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -11652,6 +11671,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -11802,6 +11822,7 @@ paths:
         - ledger.account_not_postable
         - ledger.already_reversed
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cannot_reverse_reversal
         - ledger.cost_center_invalid
@@ -12681,6 +12702,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.clearing_not_balanced
         - ledger.cost_center_invalid
@@ -12839,6 +12861,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.clearing_not_balanced
         - ledger.cost_center_invalid
@@ -13236,6 +13259,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.clearing_not_balanced
         - ledger.cost_center_invalid
@@ -13641,6 +13665,43 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/asset-classes:
+    get:
+      operationId: listAssetClasses
+      tags:
+        - assets
+      summary: List asset classes
+      description: "The asset classes of the active configuration (ADR-0057 §3, T57a): each class's code and name, its default depreciation terms per ledger (method, useful life in months and, for the declining balance method, its factor), and, per company that uses the class and that the caller may act in, the accounts its assets post to, by number and name: acquisition cost and accumulated depreciation (asset reconciliation accounts, which only assets post to: a manual entry or another context's posting on one is 422 `ledger.asset_reconciliation_account`), depreciation, the asset clearing account acquisitions settle, gain, loss and the sale clearing account. Classes, terms and accounts change only through the configuration's approval loop. With `legal_entity_id`, only the classes that legal entity uses, with its accounts alone; one the caller cannot act in has none. Ordered by code."
+      x-permission: assets.asset.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: false
+          description: Only the classes this legal entity uses, with its accounts.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of asset classes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetClassPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/cash-position:
     get:
       operationId: getCashPosition
@@ -13695,6 +13756,65 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CashPosition"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/liquidity-forecast:
+    get:
+      operationId: getLiquidityForecast
+      tags:
+        - cash
+      summary: Get a company's liquidity forecast
+      description: "The liquidity forecast of a legal entity (ADR-0051 §9, T53e), computed at the read from one database state (a repeatable-read snapshot): the flows expected from the read date (the company's date in its configured time zone, shown as `time_zone`) in the company's buckets (`cash.buckets`; default 14 days, 11 weeks and 9 months: each grain's periods follow the previous grain's, a week being seven days and a month running to the same day of the next month, its last day when shorter), per currency, never converted. Flows: `payable` (`expected`), the posted supplier open items (not special G/L items such as down payments) that no live payment run holds, each expected when a payment run would pay it (ADR-0051 §5, P5): while the company takes cash discounts (`cash.take_discounts`, default true), the last day of the earliest discount tier still open, else the net due date (by the terms the item was posted with, else its supplier's net days; a credit memo's is its document date), moved back to the company's last payment day (`cash.payment_days`; none: any day) on or before it but not before the read date (a tier that would be is passed over for the next, or the net due date), an overdue item on the next payment day; then the value days (`cash.value_days`) of the house bank the supplier's first payment method ranks for the item's currency, moved to the next working day of the company's calendar (weekends and its holidays). Its amount is what a run on that payment day pays: what the item owes less the cash discount it then takes and the withholding tax deducted at payment, as the proposer computes them (one rule, `ledger.ItemTerms`), netted per supplier and currency as a run nets them: one flow per supplier payment; a day whose items owe nothing net pays nothing and its items are carried to the supplier's next payment day, and a debit balance left after the last is no flow. `payment_run` (`confirmed`), the payments of runs `proposed` or `releasing` not posted yet, whose items they hold, on their run date plus their bank's value days moved to the next working day, `late` when that is before the read date (then expected the working day after it), as in the cash position. `invoice_unposted` (`planned`, T53e2), the supplier invoices, credit memos and subsequent debits and credits `parked` or `on_hold`, which are no open items yet: each at what it would be owed posted now, by the payment terms and withholding tax codes it would post with (its order's term, else its supplier's, from its invoice date; a correction naming an invoice that invoice's terms; a credit memo none), expected by the same rule as `payable` and netted per supplier and currency among themselves (not with the posted items, which are more certain); what would refuse its posting does not refuse the forecast: a term not configured gives way to its supplier's net days, and withholding tax codes that would refuse it are left out. `down_payment` (`expected`, T53e2), the open down payment requests that no live run pays, each whole and never netted (a run pays a request on its own), on its due date moved to the next working day, `late` when that is before the read date. A supplier blocked for payment or posting, inactive, or not set up in the company is paid by no run: its items, unposted invoices and requests are `payable_blocked` (each keeping its own certainty), on their net due date (a request's due date; an overdue one on the read date), at what they owe then, netted as a run would, apart from the totals: listed in each bucket's flows and summed per currency in `blocked`, but counted in the buckets' `total`s, the currency's `total` and `beyond` only with `include_blocked=true`. Amounts are signed: a payment out is negative. Each currency gives its flows per bucket by source, certainty and lateness with the bucket's total, the total over the horizon, and what is expected after the last bucket (`beyond`, in no bucket). `min_certainty` cuts the less certain flows (actual, confirmed, expected, planned; default planned, every flow). Memo records, liquidity items, converted totals, the opening position and drill-down are later steps (T53e3, T53e4). A legal entity the caller cannot act in is 404."
+      x-permission: cash.forecast.read
+      x-slo-class: report
+      x-snapshot: true
+      x-problem-codes:
+        - cash.amount_too_large
+        - config.not_bootstrapped
+        - payables.unknown_payment_term
+        - payables.withholding_exceeds_invoice
+        - payables.withholding_tax_code_unknown
+        - request.validation_failed
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: min_certainty
+          in: query
+          required: false
+          description: "The least certain flows counted: `actual`, `confirmed`, `expected` or `planned` (default, every flow); another value is 422."
+          schema:
+            type: string
+            description: "A certainty level. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [actual, confirmed, expected, planned]
+        - name: include_blocked
+          in: query
+          required: false
+          description: "Count the `payable_blocked` flows (what suppliers no run pays are owed) in the totals and `beyond` too; by default (false) they are listed and summed in `blocked` only."
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: The liquidity forecast.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiquidityForecast"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -15099,6 +15219,7 @@ paths:
         - config.unknown_base_version
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.center_change_pending
         - ledger.clearing_not_balanced
@@ -16704,6 +16825,7 @@ paths:
         - integration.secret_unavailable
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.clearing_not_balanced
         - ledger.cost_center_invalid
@@ -18970,7 +19092,7 @@ components:
           updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
     PartnerSummary:
       type: object
-      description: "Read-only copy of selected business partner fields, embedded by `expand=supplier`."
+      description: "Read-only copy of selected business partner fields, embedded by `expand=supplier` for a caller who may read business partners (`partner.supplier.read`)."
       required:
         - id
         - number
@@ -19018,7 +19140,7 @@ components:
       properties:
         supplier:
           $ref: "#/components/schemas/PartnerSummary"
-          description: "The supplier, when `expand=supplier` was requested and the supplier is found; otherwise `expanded` is left out."
+          description: "The supplier, when `expand=supplier` was requested, the caller may read business partners (`partner.supplier.read`) and the supplier is found; otherwise `expanded` is left out (an expansion never crosses permissions)."
           readOnly: true
       examples:
         - supplier:
@@ -19027,6 +19149,49 @@ components:
             name: Muster Industrie GmbH
             country_code: DE
             status: pending
+    JournalEntryExpanded:
+      type: object
+      description: "Read-only copies of what a journal entry's lines reference, requested with `expand`."
+      required:
+        - partners
+      properties:
+        partners:
+          type: array
+          items:
+            $ref: "#/components/schemas/PartnerName"
+          description: "Each business partner the lines name (`partner_id`), once, in the order of the lines that first name it; a partner the tenant no longer has is left out."
+          maxItems: 10000
+          readOnly: true
+      examples:
+        - partners:
+            - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"
+              number: "100001"
+              name: Muster Industrie GmbH
+    PartnerName:
+      type: object
+      description: "A business partner by its number and name, as they are now."
+      required:
+        - id
+        - number
+        - name
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Business partner id.
+          readOnly: true
+        number:
+          type: string
+          description: Business partner number.
+          readOnly: true
+        name:
+          type: string
+          description: Name.
+          readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"
+          number: "100001"
+          name: Muster Industrie GmbH
     DecisionInput:
       type: object
       description: Body of an approval decision.
@@ -24107,7 +24272,7 @@ components:
             currency: EUR
     JournalEntry:
       type: object
-      description: "A posted journal entry. Insert-only: it never changes; corrections are reversals. The ETag is derived from the representation (it changes when the entry is reversed)."
+      description: "A posted journal entry. Insert-only: it never changes; corrections are reversals. The ETag is derived from the representation without `expanded` (it changes when the entry is reversed, not when a partner it names is renamed)."
       required:
         - id
         - legal_entity_id
@@ -24273,6 +24438,10 @@ components:
           type: string
           format: uuid
           description: Principal that posted.
+          readOnly: true
+        expanded:
+          $ref: "#/components/schemas/JournalEntryExpanded"
+          description: "The business partners its lines name, when `getJournalEntry` was asked `expand=partners`; absent otherwise."
           readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"
@@ -25148,6 +25317,10 @@ components:
               format: date
               description: "The due date of the template's schedule the ERP parked it for, owned by the template's owner (`created_by_kind` `system`); absent when a principal parked it."
               readOnly: true
+            expanded:
+              $ref: "#/components/schemas/JournalEntryExpanded"
+              description: "The business partners its lines name, when `getParkedJournalEntry` was asked `expand=partners`; absent otherwise."
+              readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
           version: 1
@@ -26012,11 +26185,11 @@ components:
           readOnly: true
         partner_number:
           type: string
-          description: "The partner's number (its business partner's `number`), as it is now; absent for a balance."
+          description: "The partner's number (its business partner's `number`), as it is now; absent for a balance, and for a caller who may not read business partners (`partner.supplier.read`), who gets `partner_id` alone."
           readOnly: true
         partner_name:
           type: string
-          description: "The partner's name (its business partner's `name`), as it is now; absent for a balance."
+          description: "The partner's name (its business partner's `name`), as it is now; absent for a balance, and for a caller who may not read business partners (`partner.supplier.read`)."
           readOnly: true
         fiscal_year:
           type: integer
@@ -31600,6 +31773,220 @@ components:
               lines:
                 - {line_no: 1, booking_date: "2026-04-17", amount: {amount: "-10.50", currency: EUR}, is_reversal: false, transaction_code: NCHG, status: posted, match_id: 0192a000-0000-7000-8000-000000000b40, match_kind: rule, match_rule: transaction_code, match_status: matched, posting_date: "2026-04-17", journal_entry_id: 0192a000-0000-7000-8000-000000000d01, journal_entry_year: 2026}
                 - {line_no: 2, booking_date: "2026-04-17", amount: {amount: "-60.00", currency: EUR}, is_reversal: false, transaction_code: NTRF, status: unmatched, proposal_outcome: rejected}
+    AssetClassPage:
+      type: object
+      description: One page of asset classes.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetClass"
+          description: The asset classes on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items:
+            - code: MACHINES
+              name: Machinery and equipment
+              terms:
+                - ledger_code: 0L
+                  ledger_name: Leading ledger
+                  method: straight_line
+                  useful_life_months: 120
+              companies:
+                - legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+                  company_code: "1000"
+                  company_name: Maple Manufacturing Ltd.
+                  accounts:
+                    acquisition_cost: {number: "1600", name: Machinery}
+                    accumulated_depreciation: {number: "1609", name: "Machinery, accumulated depreciation"}
+                    depreciation: {number: "6250", name: Depreciation of machinery}
+                    clearing: {number: "1690", name: Asset clearing}
+                    gain: {number: "4950", name: Gain on asset retirements}
+                    loss: {number: "6950", name: Loss on asset retirements}
+                    sale_clearing: {number: "1695", name: Asset sale clearing}
+    AssetClass:
+      type: object
+      description: "An asset class (ADR-0057 §3, SAP's asset class): its default depreciation terms per ledger and, per company using it, the accounts its assets post to. From the active configuration."
+      required:
+        - code
+        - name
+        - terms
+        - companies
+      properties:
+        code:
+          type: string
+          description: "The class's code: 1-20 upper-case letters, digits or underscores."
+          pattern: "^[A-Z0-9_]{1,20}$"
+          readOnly: true
+        name:
+          type: string
+          description: The class's name.
+          readOnly: true
+        terms:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetClassTerms"
+          description: "The depreciation terms an asset of the class starts with, one per ledger the class has terms in, by ledger code."
+          readOnly: true
+        companies:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetClassCompany"
+          description: "The companies that use the class and that the caller may act in, by company code, with their accounts."
+          readOnly: true
+      examples:
+        - code: VEHICLES
+          name: Vehicles
+          terms:
+            - ledger_code: 0L
+              ledger_name: Leading ledger
+              method: declining_balance
+              useful_life_months: 60
+              declining_factor: "2"
+          companies: []
+    AssetClassTerms:
+      type: object
+      description: "A class's default depreciation terms in one ledger (ADR-0057 §7)."
+      required:
+        - ledger_code
+        - ledger_name
+        - method
+        - useful_life_months
+      properties:
+        ledger_code:
+          type: string
+          description: "The ledger's code (`GET /v1/ledgers`)."
+          pattern: "^[0-9A-Z]{2}$"
+          readOnly: true
+        ledger_name:
+          type: string
+          description: The ledger's name.
+          readOnly: true
+        method:
+          type: string
+          x-extensible-enum: [straight_line, declining_balance]
+          description: "The depreciation method: `straight_line`, or `declining_balance` (switching to straight-line when that gives more). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        useful_life_months:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 1200
+          description: The useful life in months.
+          readOnly: true
+        declining_factor:
+          type: string
+          description: "The declining balance factor, a plain decimal above 1 and at most 10; only with `declining_balance`."
+          pattern: "^[0-9]+(\\.[0-9]{1,4})?$"
+          readOnly: true
+      examples:
+        - ledger_code: 2L
+          ledger_name: Local GAAP
+          method: declining_balance
+          useful_life_months: 120
+          declining_factor: "2"
+    AssetClassCompany:
+      type: object
+      description: "The accounts a company posts one class's assets to (ADR-0057 §3)."
+      required:
+        - legal_entity_id
+        - company_code
+        - company_name
+        - accounts
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The company's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The company's name.
+          readOnly: true
+        accounts:
+          $ref: "#/components/schemas/AssetClassAccounts"
+          description: The class's accounts in the company.
+          readOnly: true
+      examples:
+        - legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+          company_code: "1000"
+          company_name: Maple Manufacturing Ltd.
+          accounts:
+            acquisition_cost: {number: "1600", name: Machinery}
+            accumulated_depreciation: {number: "1609", name: "Machinery, accumulated depreciation"}
+            depreciation: {number: "6250", name: Depreciation of machinery}
+            clearing: {number: "1690", name: Asset clearing}
+            gain: {number: "4950", name: Gain on asset retirements}
+            loss: {number: "6950", name: Loss on asset retirements}
+            sale_clearing: {number: "1695", name: Asset sale clearing}
+    AssetClassAccounts:
+      type: object
+      description: "A class's accounts in a company, each by number and name in the company's chart of accounts."
+      required:
+        - acquisition_cost
+        - accumulated_depreciation
+        - depreciation
+        - clearing
+        - gain
+        - loss
+        - sale_clearing
+      properties:
+        acquisition_cost:
+          $ref: "#/components/schemas/AssetAccountRef"
+          description: "The acquisition cost: an asset reconciliation account, which only assets post to."
+        accumulated_depreciation:
+          $ref: "#/components/schemas/AssetAccountRef"
+          description: "The accumulated depreciation: an asset reconciliation account, which only assets post to."
+        depreciation:
+          $ref: "#/components/schemas/AssetAccountRef"
+          description: The depreciation expense.
+        clearing:
+          $ref: "#/components/schemas/AssetAccountRef"
+          description: "The asset clearing account a supplier invoice, goods receipt or manual entry posts to and an acquisition settles."
+        gain:
+          $ref: "#/components/schemas/AssetAccountRef"
+          description: The gain on retirements.
+        loss:
+          $ref: "#/components/schemas/AssetAccountRef"
+          description: The loss on retirements.
+        sale_clearing:
+          $ref: "#/components/schemas/AssetAccountRef"
+          description: "The clearing account a sale's proceeds wait on until they are billed."
+      examples:
+        - acquisition_cost: {number: "1600", name: Machinery}
+          accumulated_depreciation: {number: "1609", name: "Machinery, accumulated depreciation"}
+          depreciation: {number: "6250", name: Depreciation of machinery}
+          clearing: {number: "1690", name: Asset clearing}
+          gain: {number: "4950", name: Gain on asset retirements}
+          loss: {number: "6950", name: Loss on asset retirements}
+          sale_clearing: {number: "1695", name: Asset sale clearing}
+    AssetAccountRef:
+      type: object
+      description: "An account of a company's chart of accounts, by number and name (`GET /v1/accounts?number=` gives its id)."
+      required:
+        - number
+        - name
+      properties:
+        number:
+          type: string
+          description: The account number.
+          readOnly: true
+        name:
+          type: string
+          description: The account's name.
+          readOnly: true
+      examples:
+        - number: "1600"
+          name: Machinery
     CashPosition:
       type: object
       description: "A legal entity's daily cash position (ADR-0051 §8, T53c): per house bank and per currency first, then the converted total. Amounts are signed: money in the bank is positive, a payment out negative."
@@ -31714,13 +32101,13 @@ components:
         available: {$ref: "#/components/schemas/Money"}
     CashFlowTotal:
       type: object
-      description: "The flows of a day of one source and certainty."
+      description: "The flows of a day, or of a forecast's bucket, of one source and certainty."
       required: [source, certainty, late, amount, count]
       properties:
         source:
           type: string
           description: "Where the flows come from (ADR-0051 §4). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-          x-extensible-enum: [in_transit, payment_run, memo]
+          x-extensible-enum: [in_transit, payment_run, memo, payable, payable_blocked, invoice_unposted, down_payment]
           readOnly: true
         certainty:
           type: string
@@ -31729,7 +32116,7 @@ components:
           readOnly: true
         late: {type: boolean, description: "True for payments and memo records dated before the read date and still not at the bank, expected the working day after it.", readOnly: true}
         amount: {$ref: "#/components/schemas/Money"}
-        count: {type: integer, format: int32, minimum: 1, description: How many flows., readOnly: true}
+        count: {type: integer, format: int32, minimum: 1, description: "How many flows: payments, memo records' occurrences, or in the liquidity forecast for `payable`, `payable_blocked` and `invoice_unposted` supplier payments (a supplier's documents netted into one payment, as a run nets them), not documents, and for `down_payment` requests.", readOnly: true}
     CashPositionCurrency:
       type: object
       description: "The banks of one currency summed."
@@ -31786,6 +32173,105 @@ components:
         opening: {$ref: "#/components/schemas/Money"}
         closing: {$ref: "#/components/schemas/Money"}
         available: {$ref: "#/components/schemas/Money"}
+    LiquidityForecast:
+      type: object
+      description: "A legal entity's liquidity forecast (ADR-0051 §9, T53e): the flows expected per currency and bucket from the read date. Amounts are signed: a payment out is negative."
+      required: [legal_entity_id, read_date, time_zone, min_certainty, include_blocked, buckets, currencies]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        read_date: {type: string, format: date, description: "The company's date when the forecast was read, in `time_zone`: the first bucket starts on it, and what is late is judged by it.", readOnly: true}
+        time_zone: {type: string, description: "The IANA time zone the read date is in: the company's configured `time_zone`, or `UTC` when a document activated before the zone was required (2026-10-31) sets none.", readOnly: true}
+        min_certainty:
+          type: string
+          description: "The least certain flows counted. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [actual, confirmed, expected, planned]
+          readOnly: true
+        include_blocked: {type: boolean, description: "Whether the `payable_blocked` flows are counted in the totals and `beyond` (`include_blocked`); they are listed in the buckets' flows and summed in each currency's `blocked` either way.", readOnly: true}
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastBucket"}
+          description: "The columns, in order: consecutive periods from the read date."
+          readOnly: true
+        currencies:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastCurrency"}
+          description: "The flows of each currency with any, by currency code."
+          readOnly: true
+      examples:
+        - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          read_date: "2026-04-17"
+          time_zone: America/Toronto
+          min_certainty: planned
+          include_blocked: false
+          buckets:
+            - {grain: day, start: "2026-04-17", end: "2026-04-17"}
+            - {grain: week, start: "2026-04-18", end: "2026-04-24"}
+          currencies:
+            - currency: CAD
+              buckets:
+                - start: "2026-04-17"
+                  flows: [{source: payment_run, certainty: confirmed, late: false, amount: {amount: "-500.00", currency: CAD}, count: 1}]
+                  total: {amount: "-500.00", currency: CAD}
+                - start: "2026-04-18"
+                  flows:
+                    - {source: payable, certainty: expected, late: false, amount: {amount: "-1176.00", currency: CAD}, count: 2}
+                    - {source: payable_blocked, certainty: expected, late: false, amount: {amount: "-300.00", currency: CAD}, count: 1}
+                  total: {amount: "-1176.00", currency: CAD}
+              total: {amount: "-1676.00", currency: CAD}
+              beyond: {amount: {amount: "-2000.00", currency: CAD}, count: 1}
+              blocked: {amount: {amount: "-300.00", currency: CAD}, count: 1}
+    LiquidityForecastBucket:
+      type: object
+      description: "A column of the forecast: the days from `start` to `end`."
+      required: [grain, start, end]
+      properties:
+        grain:
+          type: string
+          description: "The bucket's length: a day, seven days, or a month. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [day, week, month]
+          readOnly: true
+        start: {type: string, format: date, description: The first day., readOnly: true}
+        end: {type: string, format: date, description: The last day., readOnly: true}
+    LiquidityForecastCurrency:
+      type: object
+      description: "The flows of one currency: per bucket, in the buckets' order, their total over the horizon, what is expected after it, and what suppliers no run pays are owed."
+      required: [currency, buckets, total, beyond, blocked]
+      properties:
+        currency: {type: string, description: The currency (ISO 4217)., readOnly: true}
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastBucketFlows"}
+          description: "One per bucket of the forecast, in the same order."
+          readOnly: true
+        total: {$ref: "#/components/schemas/Money"}
+        beyond: {$ref: "#/components/schemas/LiquidityForecastBeyond"}
+        blocked: {$ref: "#/components/schemas/LiquidityForecastBlocked"}
+    LiquidityForecastBucketFlows:
+      type: object
+      description: "A bucket's flows in one currency by source, certainty and lateness, and their total."
+      required: [start, flows, total]
+      properties:
+        start: {type: string, format: date, description: "The bucket's first day.", readOnly: true}
+        flows:
+          type: array
+          items: {$ref: "#/components/schemas/CashFlowTotal"}
+          description: "The bucket's flows by source, certainty and whether late; empty when none. The bucket's `total` counts its `payable_blocked` flows only with `include_blocked`."
+          readOnly: true
+        total: {$ref: "#/components/schemas/Money"}
+    LiquidityForecastBeyond:
+      type: object
+      description: "The flows of one currency expected after the last bucket, counted in no bucket nor in the total; `payable_blocked` flows only with `include_blocked`."
+      required: [amount, count]
+      properties:
+        amount: {$ref: "#/components/schemas/Money"}
+        count: {type: integer, format: int32, minimum: 0, description: How many flows., readOnly: true}
+    LiquidityForecastBlocked:
+      type: object
+      description: "The `payable_blocked` flows of one currency (ADR-0051 §5): what suppliers blocked for payment or posting, inactive or not set up in the company are owed, which no payment run pays, in the buckets and after the last, summed whether or not `include_blocked` counts them in the totals."
+      required: [amount, count]
+      properties:
+        amount: {$ref: "#/components/schemas/Money"}
+        count: {type: integer, format: int32, minimum: 0, description: "How many flows (a blocked supplier's documents netted per day, as a run would net them).", readOnly: true}
     MemoRecord:
       description: "A memo record (ADR-0051 §7, SAP's memo records): an expected receipt or payment entered by a person, uploaded or proposed by an agent, one-off or recurring, counting in the cash position on its house bank and in the liquidity forecast until it expires or is realised, cancelled or rejected."
       allOf:

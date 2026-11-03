@@ -258,6 +258,83 @@ func TestRequireGrantedPermission(t *testing.T) {
 	})
 }
 
+// TestExpansions keeps an expansion for a principal holding the permission
+// it needs, unbarred, and drops it otherwise (04 §4.4), the other expansions kept
+// either way and the permissions not read unless the expansion was asked.
+func TestExpansions(t *testing.T) {
+	ten := pgtest.NewTenant(t, "partner.supplier.read")
+	ten.Revoke(t, "partner.supplier.read", ten.Agent)
+	for _, c := range []struct {
+		name   string
+		as     pgtest.Actor
+		expand []string
+		want   string
+	}{
+		{"held", ten.Human, []string{"supplier", "other"}, "[supplier other]"},
+		{"not held", ten.Agent, []string{"other", "supplier"}, "[other]"},
+		{"not asked", ten.Agent, []string{"other"}, "[other]"},
+		{"nothing asked", ten.Agent, nil, "[]"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			as(t, ten, c.as, func(ctx context.Context) {
+				got, err := authz.Expansions(ctx, c.expand, "supplier", "partner.supplier.read")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if fmt.Sprint(got) != c.want {
+					t.Errorf("expansions: got %v, want %s", got, c.want)
+				}
+			})
+		})
+	}
+	t.Run("outside a request", func(t *testing.T) {
+		if _, err := authz.Expansions(context.Background(), []string{"supplier"}, "supplier", "partner.supplier.read"); err == nil {
+			t.Error("expansions without a transaction: got no error, want one")
+		}
+		if _, err := authz.MayUse(context.Background(), "partner.supplier.read"); err == nil {
+			t.Error("may use without a transaction: got no error, want one")
+		}
+	})
+	t.Run("held but barred by a segregation-of-duties rule", func(t *testing.T) {
+		// As Authorize would refuse listBusinessPartners to this person,
+		// the expansion is dropped too.
+		barred := pgtest.NewTenant(t, "partner.supplier.read", "payables.invoice.post")
+		pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
+			VALUES ($1, gen_random_uuid(), 'partner.supplier.read', 'payables.invoice.post', 'd', current_date, $2)`, barred.ID, barred.Human.ID)
+		as(t, barred, barred.Human, func(ctx context.Context) {
+			got, err := authz.Expansions(ctx, []string{"supplier"}, "supplier", "partner.supplier.read")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 0 {
+				t.Errorf("expansions: got %v, want none", got)
+			}
+			may, err := authz.MayUse(ctx, "partner.supplier.read")
+			if err != nil || may {
+				t.Errorf("may use: got %v, %v, want false, no error", may, err)
+			}
+		})
+	})
+	for n := 1; n <= 2; n++ {
+		t.Run(fmt.Sprintf("statement %d fails", n), func(t *testing.T) {
+			// Either read failing leaves the caller without the copy.
+			var may bool
+			err := pgtest.Pool(t).InTx(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID, ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+				ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, &pgtest.FailingTx{Tx: tx, FailAt: n}), reqctx.Principal{ID: ten.Human.ID, Kind: "human", TenantID: ten.ID})
+				var err error
+				may, err = authz.MayUse(ctx, "partner.supplier.read")
+				return err
+			})
+			if !errors.Is(err, pgtest.ErrInjected) {
+				t.Errorf("error: got %v, want %v", err, pgtest.ErrInjected)
+			}
+			if may {
+				t.Error("may use: got true, want false")
+			}
+		})
+	}
+}
+
 func TestCompanies(t *testing.T) {
 	ten := pgtest.NewTenant(t)
 	le, ended := uuid.New(), uuid.New()

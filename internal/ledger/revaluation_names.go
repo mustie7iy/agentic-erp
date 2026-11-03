@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 )
 
 // PartnerNames names business partners by number and name (partner
@@ -22,7 +23,9 @@ type PartnerName struct{ Number, Name string }
 
 // nameItems names a revaluation's open items: each partner by its number
 // and name as they are now, and each entry by its document number, read
-// once for all the items. An id that names nothing is left unnamed.
+// once for all the items. An id that names nothing is left unnamed, and
+// so is every partner for a caller who may not read business partners
+// (partnerNames).
 func (e *Endpoints) nameItems(ctx context.Context, items []gen.RevaluationItem) error {
 	var partners, entries []uuid.UUID
 	for _, it := range items {
@@ -36,9 +39,9 @@ func (e *Endpoints) nameItems(ctx context.Context, items []gen.RevaluationItem) 
 	if len(entries) == 0 {
 		return nil // balances alone: an open item is all that has a partner or an entry
 	}
-	names, err := e.PartnerNames.PartnerNames(ctx, distinct(partners))
+	names, err := e.partnerNames(ctx, partners)
 	if err != nil {
-		return fmt.Errorf("ledger: names of the revaluation's partners: %w", err)
+		return err
 	}
 	numbers, err := OpenItems{}.Numbers(ctx, distinct(entries))
 	if err != nil {
@@ -55,6 +58,31 @@ func (e *Endpoints) nameItems(ctx context.Context, items []gen.RevaluationItem) 
 	}
 	return nil
 }
+
+// partnerNames are the partners' numbers and names, none for a caller who
+// may not read business partners: a name embedded in another context's
+// resource is a copy of the partner, and a copy never crosses permissions
+// (04 §4.4). The item keeps its partner_id, which is the revaluation's
+// own; the run is answered, not refused, as it is the caller's to read.
+func (e *Endpoints) partnerNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]PartnerName, error) {
+	may, err := authz.MayUse(ctx, partnerReadPermission)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: may the caller read the revaluation's partners: %w", err)
+	}
+	if !may {
+		return nil, nil
+	}
+	names, err := e.PartnerNames.PartnerNames(ctx, distinct(ids))
+	if err != nil {
+		return nil, fmt.Errorf("ledger: names of the revaluation's partners: %w", err)
+	}
+	return names, nil
+}
+
+// partnerReadPermission is the permission reading business partners
+// requires (the partner context's ReadPermission, which the ledger may not
+// import), for a revaluation's partners and an entry's alike.
+const partnerReadPermission = "partner.supplier.read"
 
 // distinct is ids sorted, each once.
 func distinct(ids []uuid.UUID) []uuid.UUID {

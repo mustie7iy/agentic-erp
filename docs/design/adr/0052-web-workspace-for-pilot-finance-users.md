@@ -3393,6 +3393,113 @@ the contract or T73j's downloads settled it:
   runs axe on both pages with their links. The walkthrough reads the
   reconciliation as the download does (step 10).
 
+## Built in T73h3: partners named on an entry's lines (2026-11-02)
+The part of the tracker leaf T73h3 agents build, for the GL accountant
+and the controller reading a manual entry: a parked and a posted entry's
+lines name their partners by number and name, where they gave the
+partner's id. What it settled, each decided by default where this ADR,
+04 §4.4 or T73i2 settled it (for the product owner to overrule):
+- **An expansion, not a seventh read nor one in place of another.** Both
+  pages read six already (§10): the parked entry's page the entry, the
+  companies, the company's accounts, who parked and owns it and, while
+  it waits for the person's own approval request, the request; the
+  posted entry's page the entry, the companies, the ledgers, the
+  accounts and who posted it; each with `getCurrentPrincipal`. Every
+  other read names something the page shows, so none could give way
+  without losing it, and the ids filter of `listBusinessPartners`
+  (T73h2) would be a seventh. So the entry's own read names them:
+  `getJournalEntry` and `getParkedJournalEntry` take `expand=partners`
+  (04 §4.4's convention, as `getSupplierInvoice` takes
+  `expand=supplier`), and the entry carries `expanded.partners`
+  (`JournalEntryExpanded`): each business partner its lines name
+  (`PartnerName`: id, number, name, as they are now), once, in the order
+  of the lines that first name it, read once for all the lines through
+  `internal/app`'s `LedgerPartners`, as T73i2's revaluation items are,
+  so the ledger imports no other context. Names on every line (T73i2's
+  form) were not chosen: `JournalLine` is in every answer that gives an
+  entry (lists, posts, reversals, other contexts' postings), and each
+  would pay a read nobody asked for.
+- **Never across permissions** (04 §4.4). The partners are given only to
+  a caller who holds `partner.supplier.read`, the permission
+  `listBusinessPartners` requires; another caller, an entry whose lines
+  name no partner and a read that did not ask get no `expanded`. Held
+  means usable as `Authorize` decides it, segregation-of-duties rules
+  included (`authz.MayUse`, the ledger's one `partnerReadPermission`;
+  batch 44's integration, review:batch44). A
+  partner the tenant no longer has is left out of the list. The
+  workspace asks for the expansion only for a person who may read
+  partners (advisory, §7); for anyone else, and for a line whose partner
+  the expansion does not name, the line shows the partner's id, as
+  before.
+- **The ETag stays the entry's.** A posted entry's ETag is a hash of its
+  representation (04 §4.4): it is taken before the names are added, so a
+  partner renamed does not change it and a reversal sent at it is not
+  refused for that; a parked entry's ETag is its version.
+- **Calls.** Six on each page, as before (`TestScreensAgainstTheContract`
+  and, counted against a stub, `TestEntryPagesNamePartners`); the
+  expansion costs the API's read two more queries (the caller's
+  permissions and the names), not a call.
+- **Contract.** Additions only (oasdiff): the `expand` parameter on both
+  reads, `expanded` on `JournalEntry` and `ParkedJournalEntry`, the
+  schemas `JournalEntryExpanded` and `PartnerName`.
+- **Not built here, split:** amounts typed in Arabic-Indic digits, which
+  belong with T73l's reading of digits per locale (T73h4), and the
+  walk-through by a pilot GL accountant and controller, human acceptance
+  (T73h5).
+- **Tests.** The ledger against the real API (`TestEntryPartners`): a
+  posted and a parked entry naming two partners on three lines, each
+  named once in the lines' order; nothing embedded when not asked, when
+  asked for another expansion, for an agent who may not read partners,
+  and for an entry without partners; the posted entry's ETag the same
+  with and without; a partner the tenant does not have left out; every
+  statement failing (`TestEntryPartnersFailures`). The workspace against
+  the real API (`TestPartnersNamedOnEntries`): an entry parked with a
+  partner names it `BP90000001 BP90000001` on its line, the other line
+  unchanged; posted, its journal entry the same, in English and French;
+  the viewer, who may not read partners, sees the id on both pages.
+  `TestEntryForm`'s parked entry now names its partner too. From the
+  stub (`TestEntryPagesNamePartners`): each page at its most calls, six,
+  the entry read with `expand=partners`, a partner the expansion does not
+  name by its id, and no expansion asked for a person who may not read
+  partners. The walkthrough (step 8) reads TY-5001's entry and an
+  accrual Tom parks for Tyrell with their partners, and cancels the
+  accrual.
+
+## Expansions and partner names within permissions (2026-11-02, review:batch44)
+The batch 44 review of T73h3, which gives an entry's partners only to a
+caller who may read business partners, found the rule broken elsewhere:
+`expand=supplier` on supplier invoices, requisitions and purchase orders
+(get and list) and a revaluation's items' `partner_number` and
+`partner_name` (T73i2, above) gave a business partner's number, name,
+country and status to a caller without `partner.supplier.read`. 04 §4.4
+says an expansion never crosses permissions. Decided by default, from
+T73h3's behaviour and 04 §4.4:
+- **Left out, never refused.** For a caller without the permission,
+  person or agent, `expanded` is left out and an item's partner is given
+  by `partner_id` alone; `document_number`, the ledger's own, stays. A
+  403 would refuse an invoice, order or run the caller may read. The
+  ETag is the resource's either way.
+- **Checked once a request, as an operation is.** `authz.Expansions`
+  drops an expansion whose permission the caller may not use, reading the
+  permissions only when it was asked for, so a page checks once for all
+  its items; `authz.MayUse` answers the revaluation's names. May use is
+  as `Authorize` decides: held, and not barred by a segregation-of-duties
+  rule in force (a person barred from `listBusinessPartners` gets no copy
+  either). The permission is the partner context's
+  `partner.ReadPermission`; the ledger, which may not import that
+  context, names it in a constant of its own.
+- **The workspace** already showed a supplier or partner by id where the
+  API names none, so its pages need no change.
+- **Not changed, one question for the product owner (security
+  posture):** a payment's and a payment exclusion's `supplier_name` and a
+  payment's bank account fields, required fields of the payment run under
+  `payments.run.read`; the payment problems that name a supplier by number
+  and name (a release's and a proposal's refusals); and the migration
+  reconciliation report's partner keys `partner <id> (<name>)` under
+  `integration.migration.*`. They are the resource's own content rather
+  than copies, so whether they too need `partner.supplier.read` is not
+  decided here.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF

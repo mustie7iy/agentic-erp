@@ -96,6 +96,7 @@ func Validate(c *Config, exponents currency.Exponents) []Finding {
 	v.calendars(c)
 	v.controlling(c)
 	v.cash(c)
+	v.assetClasses(c)
 	switch c.Output.PurchaseOrderChannel {
 	case "email", "edi", "print":
 	default:
@@ -545,6 +546,7 @@ func (v *validator) chartOfAccounts(p string, co *Company) {
 				v.err(ap, "a vendor reconciliation account must be a liability, or the company's down payment account, an asset")
 			}
 		}
+		v.assetReconciliation(ap, &a)
 	}
 	if len(co.ChartOfAccounts) == 0 {
 		v.err(p+".chart_of_accounts", "chart of accounts is empty")

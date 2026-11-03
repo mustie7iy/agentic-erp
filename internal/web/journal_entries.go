@@ -20,8 +20,9 @@ import (
 // invoice's, a goods receipt's) and explains by its code. The list
 // makes, with getCurrentPrincipal, listLegalEntities, listLedgers and
 // the company's cost and profit centers, six calls; an entry's page
-// reads the entry, the companies, the ledgers, the company's accounts and
-// who posted it: six too.
+// reads the entry with the partners its lines name (expand=partners,
+// T73h3: no call of their own), the companies, the ledgers, the company's
+// accounts and who posted it: six too.
 
 // entryPageSize is how many entries a journal page shows.
 const entryPageSize = 25
@@ -186,7 +187,7 @@ type reverseTyped struct {
 // reversal's form fresh (the entry's current ETag, a new idempotency key)
 // holding what the person typed, and the API's refusal of it.
 func (s *Server) showEntry(w http.ResponseWriter, r *http.Request, p *person, m me, id uuid.UUID, status int, t reverseTyped, refused *ui.Refusal) {
-	res, err := s.API.GetJournalEntry(r.Context(), gen.GetJournalEntryParams{ID: id})
+	res, err := s.API.GetJournalEntry(r.Context(), gen.GetJournalEntryParams{ID: id, Expand: m.partnersExpanded()})
 	got, ok := res.(*gen.GetJournalEntryOKHeaders)
 	if !ok {
 		s.pageRefused(w, r, p, m, "getJournalEntry", res, err, i18n.EntryTitle, i18n.EntriesRefusedTitle, ui.EntriesPath, i18n.EntryBack)
@@ -196,7 +197,7 @@ func (s *Server) showEntry(w http.ResponseWriter, r *http.Request, p *person, m 
 	ctx := r.Context()
 	companies, ledgers, accounts := s.companies(ctx, m), s.ledgers(ctx, m), s.accounts(ctx, m, e.LegalEntityID)
 	names := s.names(ctx, p, []uuid.UUID{e.PostedBy})
-	ep := ui.EntryPage{Number: e.DocumentNumber, Header: entryHeader(e, companies, ledgers, names), Lines: postedLines(e.Lines, accounts),
+	ep := ui.EntryPage{Number: e.DocumentNumber, Header: entryHeader(e, companies, ledgers, names), Lines: postedLines(e.Lines, accounts, partnerNames(e.Expanded)),
 		Done: entryDone[r.URL.Query().Get("done")], Refusal: refused, Audit: auditLink(m, e.ID),
 		Back: ui.EntriesFor(url.Values{ui.FieldCompany: {e.LegalEntityID.String()}, ui.FieldLedger: {e.LedgerID.String()}})}
 	switch {
@@ -249,12 +250,13 @@ func entryHeader(e gen.JournalEntry, companies map[uuid.UUID]string, ledgers []g
 	return h
 }
 
-// postedLines are a posted entry's lines, their accounts named.
-func postedLines(lines []gen.JournalLine, accounts map[uuid.UUID]string) []ui.JournalLine {
+// postedLines are a posted entry's lines, their accounts and partners
+// named.
+func postedLines(lines []gen.JournalLine, accounts, partners map[uuid.UUID]string) []ui.JournalLine {
 	out := make([]ui.JournalLine, 0, len(lines))
 	for _, l := range lines {
 		out = append(out, ui.JournalLine{No: l.LineNo, Account: accountText(accounts, l.AccountID), Amount: moneyOf(l.Amount), AmountLC: new(moneyOf(l.AmountLc)),
-			CostCenter: l.CostCenterCode.Or(""), ProfitCenter: l.ProfitCenterCode.Or(""), Segment: l.SegmentCode.Or(""), Partner: idText(l.PartnerID),
+			CostCenter: l.CostCenterCode.Or(""), ProfitCenter: l.ProfitCenterCode.Or(""), Segment: l.SegmentCode.Or(""), Partner: partnerText(partners, l.PartnerID),
 			TaxCode: l.TaxCode.Or(""), Text: l.LineText.Or("")})
 	}
 	return out

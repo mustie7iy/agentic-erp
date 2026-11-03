@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -23,6 +24,29 @@ import (
 // context imports the other.
 type CashPosition struct {
 	Accounts Accounts // the main bank account's balance on the statement's date
+	Owed     Owed     // the supplier open items the liquidity forecast expects to pay (T53e)
+	Payees   Payees   // their suppliers' blocks, net days and payment methods
+	Unposted Unposted // the invoices not posted yet (T53e2)
+	Requests Requests // the open down payment requests (T53e2)
+}
+
+// Unposted is what the liquidity forecast reads of the invoices parked or
+// on hold: each as the supplier open item it would post (payables
+// context, T53e2).
+type Unposted interface {
+	Unposted(ctx context.Context, legalEntity uuid.UUID) ([]ledger.PayableItem, error)
+}
+
+// Requests is what the liquidity forecast reads of the open down payment
+// requests, in every currency (payables context, T53e2).
+type Requests interface {
+	Open(ctx context.Context, legalEntity uuid.UUID) ([]DownPayment, error)
+}
+
+// Owed is what the liquidity forecast reads of the ledger's supplier open
+// items (ledger.OpenItems.Owed).
+type Owed interface {
+	Owed(ctx context.Context, legalEntity uuid.UUID) ([]ledger.PayableItem, error)
 }
 
 // CashBank is a house bank as the cash position reads it.

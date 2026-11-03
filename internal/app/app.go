@@ -27,6 +27,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/analytics/endpoint"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/store"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
+	"github.com/mustie7iy/agentic-erp/internal/assets"
 	"github.com/mustie7iy/agentic-erp/internal/audit"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/cash"
@@ -79,6 +80,7 @@ type (
 	agentsAPI      = agents.Endpoints
 	analyticsAPI   = endpoint.Endpoints
 	cashAPI        = cash.Endpoints
+	assetsAPI      = assets.Endpoints
 	controllingAPI = controlling.Endpoints
 	taxfilingAPI   = taxfiling.Endpoints
 )
@@ -101,6 +103,7 @@ type handler struct {
 	*agentsAPI
 	*analyticsAPI
 	*cashAPI
+	*assetsAPI
 	*controllingAPI
 	*taxfilingAPI
 }
@@ -204,6 +207,7 @@ func New(cfg Config) (http.Handler, error) {
 		agentsAPI:      &agents.Endpoints{Pages: cfg.Pages, Countries: tenancy.Countries, Certifications: certifications(cfg)},
 		analyticsAPI:   analyticsEndpoints(cfg, loopback).Init(),
 		cashAPI:        Cash(cfg),
+		assetsAPI:      Assets(cfg),
 		controllingAPI: &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{}},
 		taxfilingAPI: &taxfiling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now,
 			Items: ledger.TaxItems{}, Packs: library, Approvals: opener(), Periods: ledger.ReturnPeriods{}},

@@ -437,6 +437,10 @@ type GetLegalEntityTodayRes interface {
 	getLegalEntityTodayRes()
 }
 
+type GetLiquidityForecastRes interface {
+	getLiquidityForecastRes()
+}
+
 type GetMatchResultRes interface {
 	getMatchResultRes()
 }
@@ -591,6 +595,10 @@ type ListAgentToolCallsRes interface {
 
 type ListApprovalRequestsRes interface {
 	listApprovalRequestsRes()
+}
+
+type ListAssetClassesRes interface {
+	listAssetClassesRes()
 }
 
 type ListAuditEventsRes interface {

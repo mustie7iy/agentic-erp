@@ -78,7 +78,9 @@ func (UnimplementedHandler) AcceptMemoRecordProposal(ctx context.Context, req Op
 // replica's version does not know, which it would ignore (a company's `release_dual_limit`), is
 // refused: 409 `config.replica_lacks_key`, each such key in `errors` (`field` the key's path, e.g.
 // `companies[].release_dual_limit`, and the versions lacking it in `message`); activate it once every
-// replica runs a version that knows the key (ADR-0038).
+// replica runs a version that knows the key (ADR-0038). An account flagged `asset_reconciliation` that
+// the chart already has is refused (409 `ledger.asset_reconciliation_not_new`, ADR-0057): only a new
+// account becomes an asset reconciliation account.
 //
 // POST /v1/change-requests/{id}:activate
 func (UnimplementedHandler) ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (r ActivateChangeRequestRes, _ error) {
@@ -1318,7 +1320,9 @@ func (UnimplementedHandler) GetHierarchyNode(ctx context.Context, params GetHier
 
 // GetJournalEntry implements getJournalEntry operation.
 //
-// Returns one journal entry with its lines.
+// Returns one journal entry with its lines. Expandable: `partners`, the business partners its lines
+// name (`expanded.partners`), to a caller who may read business partners (`partner.supplier.read`);
+// for another caller, and when no line names a partner, `expanded` is left out.
 //
 // GET /v1/journal-entries/{id}
 func (UnimplementedHandler) GetJournalEntry(ctx context.Context, params GetJournalEntryParams) (r GetJournalEntryRes, _ error) {
@@ -1349,6 +1353,58 @@ func (UnimplementedHandler) GetLegalEntity(ctx context.Context, params GetLegalE
 //
 // GET /v1/legal-entities/{id}/today
 func (UnimplementedHandler) GetLegalEntityToday(ctx context.Context, params GetLegalEntityTodayParams) (r GetLegalEntityTodayRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetLiquidityForecast implements getLiquidityForecast operation.
+//
+// The liquidity forecast of a legal entity (ADR-0051 §9, T53e), computed at the read from one
+// database state (a repeatable-read snapshot): the flows expected from the read date (the company's
+// date in its configured time zone, shown as `time_zone`) in the company's buckets (`cash.buckets`;
+// default 14 days, 11 weeks and 9 months: each grain's periods follow the previous grain's, a week
+// being seven days and a month running to the same day of the next month, its last day when shorter),
+// per currency, never converted. Flows: `payable` (`expected`), the posted supplier open items (not
+// special G/L items such as down payments) that no live payment run holds, each expected when a
+// payment run would pay it (ADR-0051 §5, P5): while the company takes cash discounts
+// (`cash.take_discounts`, default true), the last day of the earliest discount tier still open, else
+// the net due date (by the terms the item was posted with, else its supplier's net days; a credit
+// memo's is its document date), moved back to the company's last payment day (`cash.payment_days`;
+// none: any day) on or before it but not before the read date (a tier that would be is passed over for
+// the next, or the net due date), an overdue item on the next payment day; then the value days
+// (`cash.value_days`) of the house bank the supplier's first payment method ranks for the item's
+// currency, moved to the next working day of the company's calendar (weekends and its holidays). Its
+// amount is what a run on that payment day pays: what the item owes less the cash discount it then
+// takes and the withholding tax deducted at payment, as the proposer computes them (one rule,
+// `ledger.ItemTerms`), netted per supplier and currency as a run nets them: one flow per supplier
+// payment; a day whose items owe nothing net pays nothing and its items are carried to the supplier's
+// next payment day, and a debit balance left after the last is no flow. `payment_run` (`confirmed`),
+// the payments of runs `proposed` or `releasing` not posted yet, whose items they hold, on their run
+// date plus their bank's value days moved to the next working day, `late` when that is before the read
+// date (then expected the working day after it), as in the cash position. `invoice_unposted`
+// (`planned`, T53e2), the supplier invoices, credit memos and subsequent debits and credits `parked`
+// or `on_hold`, which are no open items yet: each at what it would be owed posted now, by the payment
+// terms and withholding tax codes it would post with (its order's term, else its supplier's, from its
+// invoice date; a correction naming an invoice that invoice's terms; a credit memo none), expected by
+// the same rule as `payable` and netted per supplier and currency among themselves (not with the
+// posted items, which are more certain); what would refuse its posting does not refuse the forecast: a
+// term not configured gives way to its supplier's net days, and withholding tax codes that would
+// refuse it are left out. `down_payment` (`expected`, T53e2), the open down payment requests that no
+// live run pays, each whole and never netted (a run pays a request on its own), on its due date moved
+// to the next working day, `late` when that is before the read date. A supplier blocked for payment or
+// posting, inactive, or not set up in the company is paid by no run: its items, unposted invoices and
+// requests are `payable_blocked` (each keeping its own certainty), on their net due date (a request's
+// due date; an overdue one on the read date), at what they owe then, netted as a run would, apart from
+// the totals: listed in each bucket's flows and summed per currency in `blocked`, but counted in the
+// buckets' `total`s, the currency's `total` and `beyond` only with `include_blocked=true`. Amounts are
+// signed: a payment out is negative. Each currency gives its flows per bucket by source, certainty and
+// lateness with the bucket's total, the total over the horizon, and what is expected after the last
+// bucket (`beyond`, in no bucket). `min_certainty` cuts the less certain flows (actual, confirmed,
+// expected, planned; default planned, every flow). Memo records, liquidity items, converted totals,
+// the opening position and drill-down are later steps (T53e3, T53e4). A legal entity the caller cannot
+// act in is 404.
+//
+// GET /v1/liquidity-forecast
+func (UnimplementedHandler) GetLiquidityForecast(ctx context.Context, params GetLiquidityForecastParams) (r GetLiquidityForecastRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1412,7 +1468,10 @@ func (UnimplementedHandler) GetOrgUnit(ctx context.Context, params GetOrgUnitPar
 
 // GetParkedJournalEntry implements getParkedJournalEntry operation.
 //
-// Returns one parked journal entry with its lines.
+// Returns one parked journal entry with its lines. Expandable: `partners`, the business partners its
+// lines name (`expanded.partners`), to a caller who may read business partners
+// (`partner.supplier.read`); for another caller, and when no line names a partner, `expanded` is left
+// out.
 //
 // GET /v1/parked-journal-entries/{id}
 func (UnimplementedHandler) GetParkedJournalEntry(ctx context.Context, params GetParkedJournalEntryParams) (r GetParkedJournalEntryRes, _ error) {
@@ -1466,7 +1525,8 @@ func (UnimplementedHandler) GetProfitCenter(ctx context.Context, params GetProfi
 
 // GetPurchaseOrder implements getPurchaseOrder operation.
 //
-// Returns one purchase order. Expandable: `supplier`.
+// Returns one purchase order. Expandable: `supplier`, for a caller who may read business partners
+// (`partner.supplier.read`); another is answered without `expanded`, not refused.
 //
 // GET /v1/purchase-orders/{id}
 func (UnimplementedHandler) GetPurchaseOrder(ctx context.Context, params GetPurchaseOrderParams) (r GetPurchaseOrderRes, _ error) {
@@ -1519,7 +1579,8 @@ func (UnimplementedHandler) GetRegressionSuite(ctx context.Context, params GetRe
 
 // GetRequisition implements getRequisition operation.
 //
-// Returns one requisition. Expandable: `supplier`.
+// Returns one requisition. Expandable: `supplier`, for a caller who may read business partners
+// (`partner.supplier.read`); another is answered without `expanded`, not refused.
 //
 // GET /v1/requisitions/{id}
 func (UnimplementedHandler) GetRequisition(ctx context.Context, params GetRequisitionParams) (r GetRequisitionRes, _ error) {
@@ -1597,7 +1658,8 @@ func (UnimplementedHandler) GetSodRule(ctx context.Context, params GetSodRulePar
 // GetSupplierInvoice implements getSupplierInvoice operation.
 //
 // Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`).
-// Expandable: `supplier`.
+// Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`);
+// another is answered without `expanded`, not refused.
 //
 // GET /v1/supplier-invoices/{id}
 func (UnimplementedHandler) GetSupplierInvoice(ctx context.Context, params GetSupplierInvoiceParams) (r GetSupplierInvoiceRes, _ error) {
@@ -1759,6 +1821,23 @@ func (UnimplementedHandler) ListAgentToolCalls(ctx context.Context, params ListA
 //
 // GET /v1/approval-requests
 func (UnimplementedHandler) ListApprovalRequests(ctx context.Context, params ListApprovalRequestsParams) (r ListApprovalRequestsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListAssetClasses implements listAssetClasses operation.
+//
+// The asset classes of the active configuration (ADR-0057 §3, T57a): each class's code and name, its
+// default depreciation terms per ledger (method, useful life in months and, for the declining balance
+// method, its factor), and, per company that uses the class and that the caller may act in, the
+// accounts its assets post to, by number and name: acquisition cost and accumulated depreciation
+// (asset reconciliation accounts, which only assets post to: a manual entry or another context's
+// posting on one is 422 `ledger.asset_reconciliation_account`), depreciation, the asset clearing
+// account acquisitions settle, gain, loss and the sale clearing account. Classes, terms and accounts
+// change only through the configuration's approval loop. With `legal_entity_id`, only the classes that
+// legal entity uses, with its accounts alone; one the caller cannot act in has none. Ordered by code.
+//
+// GET /v1/asset-classes
+func (UnimplementedHandler) ListAssetClasses(ctx context.Context, params ListAssetClassesParams) (r ListAssetClassesRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -2379,7 +2458,9 @@ func (UnimplementedHandler) ListPurchaseOrderChanges(ctx context.Context, params
 
 // ListPurchaseOrders implements listPurchaseOrders operation.
 //
-// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`.
+// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`, for a caller
+// who may read business partners (`partner.supplier.read`); another is answered without `expanded`,
+// not refused.
 //
 // GET /v1/purchase-orders
 func (UnimplementedHandler) ListPurchaseOrders(ctx context.Context, params ListPurchaseOrdersParams) (r ListPurchaseOrdersRes, _ error) {
@@ -2407,7 +2488,9 @@ func (UnimplementedHandler) ListRegressionSuites(ctx context.Context, params Lis
 
 // ListRequisitions implements listRequisitions operation.
 //
-// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`.
+// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`, for a
+// caller who may read business partners (`partner.supplier.read`); another is answered without
+// `expanded`, not refused.
 //
 // GET /v1/requisitions
 func (UnimplementedHandler) ListRequisitions(ctx context.Context, params ListRequisitionsParams) (r ListRequisitionsRes, _ error) {
@@ -2471,7 +2554,9 @@ func (UnimplementedHandler) ListSodRules(ctx context.Context, params ListSodRule
 
 // ListSupplierInvoices implements listSupplierInvoices operation.
 //
-// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`.
+// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a
+// caller who may read business partners (`partner.supplier.read`); another is answered without
+// `expanded`, not refused.
 //
 // GET /v1/supplier-invoices
 func (UnimplementedHandler) ListSupplierInvoices(ctx context.Context, params ListSupplierInvoicesParams) (r ListSupplierInvoicesRes, _ error) {

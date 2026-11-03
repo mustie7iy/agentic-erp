@@ -42,6 +42,11 @@ const (
 	Inactive = "inactive"
 )
 
+// ReadPermission is the permission reading business partners requires
+// (listBusinessPartners), and so another context's copy of one: an
+// expansion never crosses permissions (04 §4.4).
+const ReadPermission = "partner.supplier.read"
+
 // Partner change kinds and statuses.
 const (
 	KindCreate     = "create"

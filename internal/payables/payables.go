@@ -16,6 +16,10 @@
 // Down payment requests (ADR-0037) are payables documents outside the
 // ledger: a payment run pays them, which posts the special G/L item.
 //
+// The liquidity forecast (ADR-0051 §4, T53e2) reads the invoices not posted
+// yet as the open items posting would give and the open down payment
+// requests, through the payments context's port (forecast.go).
+//
 // Simulations of configuration changes replay the invoices of every
 // company and are recorded by company; each reader of the change request is
 // shown those of the companies they may access alone (Disclosure, ADR-0010).

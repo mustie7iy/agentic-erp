@@ -1110,6 +1110,22 @@ beside its tax lines, and recorded as a `paid` `down_payment_request`
 naming that entry, its reference the source document, so it behaves as one
 a run paid (ADR-0037, As built).
 
+Asset reconciliation accounts (T57a, ADR-0057 §3, migration 000190).
+`gl_account.reconciliation_kind = 'asset'` marks an asset account whose
+balance is the assets' acquisition cost or accumulated depreciation
+(`chart_of_accounts[].asset_reconciliation`). A line on one posts only in
+an entry whose `source_context` is `assets`, or `integration` (a migration's
+balances): `ledger.check_line` refuses every other
+(`journal_line_asset_reconciliation`, 422
+`ledger.asset_reconciliation_account`), and the posting paths refuse it
+first, naming the line. Only an account the activation creates becomes
+one, and it never stops being one (`ledger.Setup`);
+it is not open-item managed: `company_account.is_open_item_managed` starts
+true for supplier and customer reconciliation accounts only. The asset
+classes and each company's asset accounts are configuration
+(`asset_classes`, `companies[].asset_accounts`), read by
+`GET /v1/asset-classes`.
+
 Foreign-currency revaluation (T48, ADR-0042, migration 000107). The
 document currency is the entry's `currency_tc`; lines carry no currency of
 their own. `company_account.revalue_foreign_currency` flags an asset or
@@ -2693,6 +2709,31 @@ for a payment count, never a revaluation's) and rates of a type
 active memo records on the banks not expired at the read (T53d), each
 occurrence on its value date moved to the next working day. Migration
 000152 seeds `cash.memo.read`, `cash.memo.write` and `cash.memo.propose`.
+
+The liquidity forecast (T53e, `GET /v1/liquidity-forecast`) stores nothing
+either: it is computed at the read from the ledger's open supplier items in
+every currency (`ledger.OpenItems.Owed`: leading ledger, not special G/L,
+neither cleared, reversed nor held by an item reservation) with the terms
+and withholding kept beside them (`open_item_terms`,
+`open_item_withholding`), less the items a live run's active payment items
+hold (`payments.payment_item`), whose run's payment counts instead, and the
+suppliers' blocks, net days and payment methods (`partner.Payees`). Due
+dates and discount tiers are computed by `ledger.ItemTerms`, as the payment
+proposer computes them; nothing is indexed for them yet (the budget at
+100,000 open items is T53e4's). Migration 000189 seeds its permission,
+`cash.forecast.read`.
+
+T53e2 adds what is not posted yet, still stored nowhere new: the invoices
+`parked` or `on_hold` (`payables.supplier_invoice`), each as the open item
+its posting would give, with the terms posting would keep in
+`supplier_invoice_terms` (the order's term, else the supplier's, from the
+invoice date) and the supplier's withholding tax codes (read from
+`partner.supplier_withholding`, each resolved against the legal entity's
+withholding tax codes the ledger keeps); the `open` down payment requests
+(`payables.down_payment_request`) less those a live run's
+`down_payment` payment pays (`payments.payment.down_payment_request_id`);
+and the items of suppliers no run pays (`partner.supplier_company`'s
+blocks, or not set up in the company) shown apart. No migration.
 
 ## 3.19 Controlling (`controlling`)
 

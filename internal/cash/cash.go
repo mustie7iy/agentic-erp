@@ -13,7 +13,13 @@
 // is computed (T53c, T53e). T53d adds memo records (ADR-0051 §7): expected
 // receipts and payments entered, uploaded by batch or proposed by an agent
 // for a person to accept, one-off or a series expanded at read time, which
-// count in the position on their house bank until they expire.
+// count in the position on their house bank until they expire. T53e adds
+// the liquidity forecast (ADR-0051 §5, §9): supplier open items expected
+// when a payment run would pay them, by the proposer's own rules, and the
+// payments of runs not yet released, per currency in the company's
+// buckets. T53e2 adds the invoices parked or on hold and the down payment
+// requests, and shows what suppliers no run pays are owed apart from the
+// totals unless asked.
 package cash
 
 import (

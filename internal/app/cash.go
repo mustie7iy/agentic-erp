@@ -10,16 +10,20 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/cash"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Cash is the cash context as the API wires it (ADR-0051 §2): a leaf that
-// reads the tenancy, payments, ledger and agents contexts through the
+// reads the tenancy, payments, ledger, payables and agents contexts through the
 // adapters below, so none of them imports it and it imports none of them.
 func Cash(cfg Config) *cash.Endpoints {
 	return &cash.Endpoints{LegalEntities: cashCompanies{}, Settings: configuration.Settings{},
-		Payments: cashPayments{position: payments.CashPosition{Accounts: ledger.Accounts{}}}, Ledger: cashLedger{}, Sessions: agents.Sessions{},
+		Payments: cashPayments{position: payments.CashPosition{Accounts: ledger.Accounts{}, Owed: ledger.OpenItems{}, Payees: partner.Payees{},
+			Unposted: payablesEndpoints(cfg, nil), // posting's own dependencies: the forecast reads an invoice as posting would
+			Requests: downPayments{}}},
+		Ledger: cashLedger{}, Sessions: agents.Sessions{},
 		Pages: cfg.Pages, Now: cfg.Now}
 }
 
@@ -83,6 +87,24 @@ func (c cashPayments) StatementLine(ctx context.Context, statement uuid.UUID, li
 func (c cashPayments) HouseBankCodes(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
 	return c.position.HouseBankCodes(ctx, ids)
 }
+
+// Payables gives the forecast the supplier open items, the unposted
+// invoices and the down payment requests with the payments context's
+// routing and the ledger's due-date and discount rules.
+func (c cashPayments) Payables(ctx context.Context, legalEntity uuid.UUID, on time.Time) ([]cash.Payable, error) {
+	ps, err := c.position.Payables(ctx, legalEntity, on)
+	out := make([]cash.Payable, len(ps))
+	for i, p := range ps {
+		out[i] = cash.Payable{Source: cashSources[p.Kind], Supplier: p.PartnerID, Currency: p.Currency, Due: p.Due, Blocked: p.Blocked != "",
+			BankCode: p.HouseBankCode, Method: p.Method, Dates: p.Dates(), Pays: p.Pays}
+	}
+	return out, err
+}
+
+// cashSources are the forecast's sources of the payments context's kinds
+// of payable (ADR-0051 §4).
+var cashSources = map[string]string{payments.CashItem: cash.SourcePayable, payments.CashUnposted: cash.SourceInvoiceUnposted,
+	payments.CashDownPayment: cash.SourceDownPayment}
 
 func cashPaymentsOf(ps []payments.CashPayment) []cash.Payment {
 	out := make([]cash.Payment, len(ps))
