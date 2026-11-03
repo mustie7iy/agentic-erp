@@ -154,7 +154,10 @@ func MayUse(ctx context.Context, permission string) (bool, error) {
 	}
 	tx, _ := reqctx.TxFrom(ctx) // Permissions found it
 	other, err := barredBy(ctx, tx, permission, set)
-	return other == "", err
+	if err != nil {
+		return false, err // fails closed: an unread rule may bar it
+	}
+	return other == "", nil
 }
 
 // Expansions is expand without the expansion name when the principal may

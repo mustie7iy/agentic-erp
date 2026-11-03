@@ -309,8 +309,30 @@ func TestExpansions(t *testing.T) {
 			if len(got) != 0 {
 				t.Errorf("expansions: got %v, want none", got)
 			}
+			may, err := authz.MayUse(ctx, "partner.supplier.read")
+			if err != nil || may {
+				t.Errorf("may use: got %v, %v, want false, no error", may, err)
+			}
 		})
 	})
+	for n := 1; n <= 2; n++ {
+		t.Run(fmt.Sprintf("statement %d fails", n), func(t *testing.T) {
+			// Either read failing leaves the caller without the copy.
+			var may bool
+			err := pgtest.Pool(t).InTx(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID, ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+				ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, &pgtest.FailingTx{Tx: tx, FailAt: n}), reqctx.Principal{ID: ten.Human.ID, Kind: "human", TenantID: ten.ID})
+				var err error
+				may, err = authz.MayUse(ctx, "partner.supplier.read")
+				return err
+			})
+			if !errors.Is(err, pgtest.ErrInjected) {
+				t.Errorf("error: got %v, want %v", err, pgtest.ErrInjected)
+			}
+			if may {
+				t.Error("may use: got true, want false")
+			}
+		})
+	}
 }
 
 func TestCompanies(t *testing.T) {
