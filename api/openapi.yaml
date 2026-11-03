@@ -31778,7 +31778,7 @@ components:
           readOnly: true
         late: {type: boolean, description: "True for payments and memo records dated before the read date and still not at the bank, expected the working day after it.", readOnly: true}
         amount: {$ref: "#/components/schemas/Money"}
-        count: {type: integer, format: int32, minimum: 1, description: How many flows., readOnly: true}
+        count: {type: integer, format: int32, minimum: 1, description: "How many flows: payments, memo records' occurrences, or in the liquidity forecast for `payable` supplier payments (a supplier's items a run nets into one payment), not open items.", readOnly: true}
     CashPositionCurrency:
       type: object
       description: "The banks of one currency summed."

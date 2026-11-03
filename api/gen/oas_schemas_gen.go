@@ -6797,7 +6797,8 @@ type CashFlowTotal struct {
 	// the working day after it.
 	Late   bool  `json:"late"`
 	Amount Money `json:"amount"`
-	// How many flows.
+	// How many flows: payments, memo records' occurrences, or in the liquidity forecast for `payable`
+	// supplier payments (a supplier's items a run nets into one payment), not open items.
 	Count int32 `json:"count"`
 }
 
