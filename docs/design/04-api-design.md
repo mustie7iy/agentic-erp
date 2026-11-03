@@ -110,7 +110,10 @@ The requester, human or agent, may
 - Sensitive values are never returned in full: bank accounts expose
   `account_last4` and `account_scheme` only, and for a Canadian account
   (scheme `ca`, T45d) the bank's `institution_number` and `transit_number`,
-  which name the bank as a BIC does.
+  which name the bank as a BIC does. A payment gives its supplier's bank
+  account in those masked fields only to a caller who may read business
+  partners (`partner.supplier.read`); any other caller gets
+  `bank_account_id` alone (product owner 2026-11-02, T45e).
 
 ## 4.5 Lists, filters and pagination
 

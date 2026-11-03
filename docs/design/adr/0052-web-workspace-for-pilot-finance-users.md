@@ -3499,6 +3499,15 @@ T73h3's behaviour and 04 §4.4:
   `integration.migration.*`. They are the resource's own content rather
   than copies, so whether they too need `partner.supplier.read` is not
   decided here.
+- **Answered (product owner, 2026-11-02, T45e).** A payment's bank account
+  details (`bank_account_last4`, `_scheme`, `_holder_name`, `_bic`,
+  `_institution_number`, `_transit_number`) are given only to a caller who
+  may use `partner.supplier.read`, SoD rules included, and otherwise left
+  out, as an expansion is; `bank_account_id` stays. Supplier names, the
+  problems that name a supplier and the migration reconciliation report's
+  partner keys stay as they are, the record's own content. As built in
+  ADR-0038 ("a payment's bank details only with partner.supplier.read");
+  the workspace's found payment already shows its account only when given.
 
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
