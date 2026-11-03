@@ -32748,10 +32748,11 @@ components:
     CashSnapshot:
       type: object
       description: "A snapshot of a legal entity's liquidity forecast as it was at `taken_at` (ADR-0051 §6, T53f), in transaction currency, with its totals per currency."
-      required: [id, legal_entity_id, kind, snapshot_date, time_zone, horizon_end, document_level_until, config_version, taken_at, currencies]
+      required: [id, legal_entity_id, company_code, kind, snapshot_date, time_zone, horizon_end, document_level_until, config_version, taken_at, currencies]
       properties:
         id: {type: string, format: uuid, description: Snapshot id., readOnly: true}
         legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        company_code: {type: string, description: "The legal entity's company code.", readOnly: true}
         kind:
           type: string
           description: "`daily` (taken by the TakeCashSnapshot workflow, once per company and date) or `on_demand` (taken by a person, named). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -32772,6 +32773,7 @@ components:
       examples:
         - id: 0192a000-0000-7000-8000-000000000e01
           legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "3000"
           kind: on_demand
           name: Board meeting April
           snapshot_date: "2026-04-17"
@@ -32814,10 +32816,11 @@ components:
     CashSnapshotFlowPage:
       type: object
       description: "A page of the lines a snapshot of the liquidity forecast kept in one currency, with what the selected lines of every page add up to."
-      required: [snapshot_id, legal_entity_id, snapshot_date, currency, unclassified, total, count, items]
+      required: [snapshot_id, legal_entity_id, company_code, snapshot_date, currency, unclassified, total, count, items]
       properties:
         snapshot_id: {type: string, format: uuid, description: The snapshot., readOnly: true}
         legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        company_code: {type: string, description: "The legal entity's company code.", readOnly: true}
         snapshot_date: {type: string, format: date, description: "The snapshot's date.", readOnly: true}
         currency: {type: string, description: "The currency (ISO 4217).", readOnly: true}
         liquidity_item: {type: string, description: "The liquidity item asked for; absent when none was.", readOnly: true}
@@ -32837,6 +32840,7 @@ components:
       examples:
         - snapshot_id: 0192a000-0000-7000-8000-000000000e01
           legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "3000"
           snapshot_date: "2026-04-17"
           currency: CAD
           unclassified: false

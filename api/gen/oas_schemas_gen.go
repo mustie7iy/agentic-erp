@@ -8447,6 +8447,8 @@ type CashSnapshot struct {
 	ID uuid.UUID `json:"id"`
 	// The legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
 	// `daily` (taken by the TakeCashSnapshot workflow, once per company and date) or `on_demand` (taken by
 	// a person, named). Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
@@ -8478,6 +8480,11 @@ func (s *CashSnapshot) GetID() uuid.UUID {
 // GetLegalEntityID returns the value of LegalEntityID.
 func (s *CashSnapshot) GetLegalEntityID() uuid.UUID {
 	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CashSnapshot) GetCompanyCode() string {
+	return s.CompanyCode
 }
 
 // GetKind returns the value of Kind.
@@ -8533,6 +8540,11 @@ func (s *CashSnapshot) SetID(val uuid.UUID) {
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *CashSnapshot) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CashSnapshot) SetCompanyCode(val string) {
+	s.CompanyCode = val
 }
 
 // SetKind sets the value of Kind.
@@ -8916,6 +8928,8 @@ type CashSnapshotFlowPage struct {
 	SnapshotID uuid.UUID `json:"snapshot_id"`
 	// The legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
 	// The snapshot's date.
 	SnapshotDate time.Time `json:"snapshot_date"`
 	// The currency (ISO 4217).
@@ -8941,6 +8955,11 @@ func (s *CashSnapshotFlowPage) GetSnapshotID() uuid.UUID {
 // GetLegalEntityID returns the value of LegalEntityID.
 func (s *CashSnapshotFlowPage) GetLegalEntityID() uuid.UUID {
 	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CashSnapshotFlowPage) GetCompanyCode() string {
+	return s.CompanyCode
 }
 
 // GetSnapshotDate returns the value of SnapshotDate.
@@ -8991,6 +9010,11 @@ func (s *CashSnapshotFlowPage) SetSnapshotID(val uuid.UUID) {
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *CashSnapshotFlowPage) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CashSnapshotFlowPage) SetCompanyCode(val string) {
+	s.CompanyCode = val
 }
 
 // SetSnapshotDate sets the value of SnapshotDate.

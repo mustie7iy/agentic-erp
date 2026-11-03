@@ -57,7 +57,7 @@ func (e *Endpoints) ListCashSnapshotFlows(ctx context.Context, params gen.ListCa
 		return nil, err
 	}
 	amount := amounts(params.Currency, p.Exponent)
-	out := gen.CashSnapshotFlowPage{SnapshotID: p.Snapshot.ID, LegalEntityID: p.Snapshot.LegalEntity, SnapshotDate: p.Snapshot.Date, Currency: params.Currency,
+	out := gen.CashSnapshotFlowPage{SnapshotID: p.Snapshot.ID, LegalEntityID: p.Snapshot.LegalEntity, CompanyCode: p.Snapshot.CompanyCode, SnapshotDate: p.Snapshot.Date, Currency: params.Currency,
 		LiquidityItem: params.LiquidityItem, Unclassified: params.Unclassified.Value, Total: amount(p.Total), Count: int32(p.Count),
 		Items: make([]gen.CashSnapshotFlow, len(p.Lines)), NextPageToken: apitypes.OptText(p.Next)}
 	for i, l := range p.Lines {
@@ -80,7 +80,7 @@ func (e *Endpoints) ListCashSnapshotFlows(ctx context.Context, params gen.ListCa
 
 // snapshotToAPI shows a snapshot with its totals per currency.
 func snapshotToAPI(s Snapshot) gen.CashSnapshot {
-	out := gen.CashSnapshot{ID: s.ID, LegalEntityID: s.LegalEntity, Kind: s.Kind, Name: apitypes.OptString(s.Name), SnapshotDate: s.Date, TimeZone: s.TimeZone,
+	out := gen.CashSnapshot{ID: s.ID, LegalEntityID: s.LegalEntity, CompanyCode: s.CompanyCode, Kind: s.Kind, Name: apitypes.OptString(s.Name), SnapshotDate: s.Date, TimeZone: s.TimeZone,
 		HorizonEnd: s.HorizonEnd, DocumentLevelUntil: s.DocumentLevelUntil(), ConfigVersion: s.ConfigVersion, TakenAt: s.TakenAt,
 		Currencies: make([]gen.CashSnapshotCurrency, len(s.Currencies))}
 	for i, c := range s.Currencies {

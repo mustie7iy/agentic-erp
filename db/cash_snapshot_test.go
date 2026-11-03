@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -11,13 +12,14 @@ import (
 // snapshotRow is a cash snapshot to insert: a daily one of the fixture's
 // company on 2026-04-17, with the columns of set changed.
 func snapshotRow(f fixture, sid uuid.UUID, set map[string]any) stmt {
-	row := map[string]any{"kind": "daily", "name": nil, "snapshot_date": "2026-04-17", "horizon_end": "2027-04-02", "config_version": 1}
+	row := map[string]any{"kind": "daily", "name": nil, "snapshot_date": "2026-04-17", "horizon_end": "2027-04-02", "config_version": 1,
+		"time_zone": "America/Toronto"}
 	for k, v := range set {
 		row[k] = v
 	}
 	return step(`INSERT INTO cash.snapshot (tenant_id, id, legal_entity_id, kind, name, snapshot_date, time_zone, horizon_end, config_version, taken_by)
-		VALUES ($1, $2, $3, $4, $5, $6, 'America/Toronto', $7, $8, $9)`,
-		f.tenant, sid, f.entity, row["kind"], row["name"], row["snapshot_date"], row["horizon_end"], row["config_version"], f.actor)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		f.tenant, sid, f.entity, row["kind"], row["name"], row["snapshot_date"], row["time_zone"], row["horizon_end"], row["config_version"], f.actor)
 }
 
 // flowRow is a line of the snapshot: a document-level outflow of a journal
@@ -25,15 +27,15 @@ func snapshotRow(f fixture, sid uuid.UUID, set map[string]any) stmt {
 func flowRow(f fixture, sid uuid.UUID, line int, set map[string]any) stmt {
 	row := map[string]any{"value_date": "2026-04-21", "bucket_end": nil, "certainty": "expected", "liquidity_item": "PAY", "flow_count": 1,
 		"supplier_id": f.supplier, "payment_id": nil, "document_kind": "journal_entry", "document_id": id(), "document_number": "5100000012", "late": false,
-		"source": "payable"}
+		"source": "payable", "flow_no": 1, "currency": "EUR"}
 	for k, v := range set {
 		row[k] = v
 	}
 	return step(`INSERT INTO cash.snapshot_flow (tenant_id, snapshot_id, line_no, flow_no, value_date, bucket_end, currency, source, certainty, late,
 			liquidity_item, amount, flow_count, supplier_id, payment_id, document_kind, document_id, document_number)
-		VALUES ($1, $2, $3, 1, $4, $5, 'EUR', $6, $7, $8, $9, -78400, $10, $11, $12, $13, $14, $15)`,
-		f.tenant, sid, line, row["value_date"], row["bucket_end"], row["source"], row["certainty"], row["late"], row["liquidity_item"], row["flow_count"],
-		row["supplier_id"], row["payment_id"], row["document_kind"], row["document_id"], row["document_number"])
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, -78400, $12, $13, $14, $15, $16, $17)`,
+		f.tenant, sid, line, row["flow_no"], row["value_date"], row["bucket_end"], row["currency"], row["source"], row["certainty"], row["late"],
+		row["liquidity_item"], row["flow_count"], row["supplier_id"], row["payment_id"], row["document_kind"], row["document_id"], row["document_number"])
 }
 
 // TestCashSnapshotRules: every rule the database enforces on snapshots of
@@ -68,6 +70,37 @@ func TestCashSnapshotRules(t *testing.T) {
 		{"a name with a space around it", func(f fixture, sid uuid.UUID) []stmt {
 			return []stmt{snapshotRow(f, sid, map[string]any{"kind": "on_demand", "name": " Board"})}
 		}, "snapshot_name_check"},
+		{"a name of 200 characters", func(f fixture, sid uuid.UUID) []stmt {
+			return []stmt{snapshotRow(f, sid, map[string]any{"kind": "on_demand", "name": strings.Repeat("B", 200)})}
+		}, ""},
+		{"a name of 201 characters", func(f fixture, sid uuid.UUID) []stmt {
+			return []stmt{snapshotRow(f, sid, map[string]any{"kind": "on_demand", "name": strings.Repeat("B", 201)})}
+		}, "snapshot_name_check"},
+		{"no time zone", func(f fixture, sid uuid.UUID) []stmt {
+			return []stmt{snapshotRow(f, sid, map[string]any{"time_zone": ""})}
+		}, "snapshot_time_zone_check"},
+		{"a time zone of 65 characters", func(f fixture, sid uuid.UUID) []stmt {
+			return []stmt{snapshotRow(f, sid, map[string]any{"time_zone": strings.Repeat("Z", 65)})}
+		}, "snapshot_time_zone_check"},
+		{"a line number", func(f fixture, sid uuid.UUID) []stmt {
+			return []stmt{snapshotRow(f, sid, nil), flowRow(f, sid, 0, nil)}
+		}, "snapshot_flow_line_no_check"},
+		{"a flow number", func(f fixture, sid uuid.UUID) []stmt {
+			return []stmt{snapshotRow(f, sid, nil), flowRow(f, sid, 1, map[string]any{"flow_no": 0})}
+		}, "snapshot_flow_flow_no_check"},
+		{"a count of no flow", func(f fixture, sid uuid.UUID) []stmt {
+			return []stmt{snapshotRow(f, sid, nil), flowRow(f, sid, 1, map[string]any{"value_date": "2026-05-18", "bucket_end": "2026-05-24", "flow_count": 0,
+				"supplier_id": nil, "document_kind": nil, "document_id": nil, "document_number": nil})}
+		}, "snapshot_flow_flow_count_check"},
+		{"an unknown currency", func(f fixture, sid uuid.UUID) []stmt {
+			return []stmt{snapshotRow(f, sid, nil), flowRow(f, sid, 1, map[string]any{"currency": "XYZ"})}
+		}, "snapshot_flow_currency_fkey"},
+		{"no document number", func(f fixture, sid uuid.UUID) []stmt {
+			return []stmt{snapshotRow(f, sid, nil), flowRow(f, sid, 1, map[string]any{"document_number": ""})}
+		}, "snapshot_flow_document_number_check"},
+		{"a document number of 101 characters", func(f fixture, sid uuid.UUID) []stmt {
+			return []stmt{snapshotRow(f, sid, nil), flowRow(f, sid, 1, map[string]any{"document_number": strings.Repeat("5", 101)})}
+		}, "snapshot_flow_document_number_check"},
 		{"a kind", func(f fixture, sid uuid.UUID) []stmt {
 			return []stmt{snapshotRow(f, sid, map[string]any{"kind": "weekly"})}
 		}, "snapshot_kind_check"},

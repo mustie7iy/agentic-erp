@@ -42,9 +42,10 @@ type CashSnapshots interface {
 	// DueSnapshots are the tenant's companies whose snapshot is due at now,
 	// by legal entity, with the company's date.
 	DueSnapshots(ctx context.Context, now time.Time) (map[uuid.UUID]time.Time, error)
-	// TakeDailySnapshot takes the legal entity's snapshot of the date once,
-	// and says what it did (taken, exists, skipped).
-	TakeDailySnapshot(ctx context.Context, legalEntity uuid.UUID, date time.Time) (string, error)
+	// ReadDailySnapshot reads the legal entity's snapshot of the date in
+	// the context's transaction and returns what writes it in another, or
+	// none with the outcome (exists, skipped).
+	ReadDailySnapshot(ctx context.Context, legalEntity uuid.UUID, date time.Time) (func(ctx context.Context) (string, error), string, error)
 	// PruneSnapshots deletes the legal entity's snapshots past their
 	// retention at the date and says how many.
 	PruneSnapshots(ctx context.Context, legalEntity uuid.UUID, date time.Time) (int, error)
@@ -100,10 +101,23 @@ func (s *Snapshots) begin(ctx context.Context, sc database.Scope) (pgx.Tx, error
 
 // as runs fn in one transaction of the tenant as the snapshotter.
 func (s *Snapshots) as(ctx context.Context, tenant uuid.UUID, name string, fn func(ctx context.Context) error) error {
-	return uow.Job{Begin: s.begin, Scope: database.Scope{Role: s.AppRole, TenantID: tenant}, Now: s.Now, Name: name}.As(ctx,
+	return s.job(database.Scope{Role: s.AppRole, TenantID: tenant}, name).As(ctx,
 		func(context.Context, pgx.Tx) (reqctx.Principal, bool, error) {
 			return s.Cash.Snapshotter(tenant), true, nil
 		}, fn)
+}
+
+// reading runs fn as the snapshotter in a read-only transaction of the
+// tenant at REPEATABLE READ: one database state for the forecast's reads.
+func (s *Snapshots) reading(ctx context.Context, tenant uuid.UUID, name string, fn func(ctx context.Context) error) error {
+	return s.job(database.Scope{Role: s.AppRole, TenantID: tenant, ReadOnly: true, Isolation: pgx.RepeatableRead}, name).As(ctx,
+		func(context.Context, pgx.Tx) (reqctx.Principal, bool, error) {
+			return s.Cash.Snapshotter(tenant), true, nil
+		}, fn)
+}
+
+func (s *Snapshots) job(scope database.Scope, name string) uow.Job {
+	return uow.Job{Begin: s.begin, Scope: scope, Now: s.Now, Name: name}
 }
 
 // date parses the input's date; one that does not parse is not retried.
@@ -116,17 +130,29 @@ func (in SnapshotInput) date() (time.Time, error) {
 }
 
 // TakeSnapshot takes the company's snapshot of the date and says what it
-// did. Run twice, the second run finds the first snapshot and writes and
-// publishes nothing.
+// did: it reads the forecast in a read-only transaction of one database
+// state, ends it, then writes in a transaction of its own, so it never
+// holds a connection while it waits for another. Run twice, the second run
+// finds the first snapshot and writes and publishes nothing.
 func (s *Snapshots) TakeSnapshot(ctx context.Context, in SnapshotInput) (string, error) {
 	date, err := in.date()
 	if err != nil {
 		return "", err
 	}
+	name := fmt.Sprintf("workflows: snapshot of legal entity %s on %s", in.LegalEntityID, in.Date)
+	var write func(ctx context.Context) (string, error)
 	var outcome string
-	err = s.as(ctx, in.TenantID, fmt.Sprintf("workflows: snapshot of legal entity %s on %s", in.LegalEntityID, in.Date), func(ctx context.Context) error {
+	err = s.reading(ctx, in.TenantID, name, func(ctx context.Context) error {
 		var err error
-		outcome, err = s.Cash.TakeDailySnapshot(ctx, in.LegalEntityID, date)
+		write, outcome, err = s.Cash.ReadDailySnapshot(ctx, in.LegalEntityID, date)
+		return err
+	})
+	if err != nil || write == nil {
+		return outcome, asProblem(err)
+	}
+	err = s.as(ctx, in.TenantID, name, func(ctx context.Context) error {
+		var err error
+		outcome, err = write(ctx)
 		return err
 	})
 	return outcome, asProblem(err)

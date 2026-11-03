@@ -300,3 +300,4 @@ func TestSnapshotter(t *testing.T) {
 		<-done
 	})
 }
+

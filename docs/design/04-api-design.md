@@ -318,9 +318,11 @@ Per ADR-0008:
   §6); the contract allows the mark on `GET` only (`api/spec.go`). A write
   that records such a report, as taking a snapshot of the liquidity
   forecast does (`takeCashSnapshot`, ADR-0051 §6, T53f), reads it in a
-  read-only `REPEATABLE READ` transaction of its own (`uow.Consistent`)
-  and writes in its request's: run whole at `REPEATABLE READ`, the write
-  would fail whenever another write of the tenant committed meanwhile.
+  read-only `REPEATABLE READ` transaction of its own (`uow.Consistent`,
+  on a small pool of its own, so a request never waits for a second
+  connection of the pool it holds one of) and writes in its request's:
+  run whole at `REPEATABLE READ`, the write would fail whenever another
+  write of the tenant committed meanwhile.
 
 ## 4.8 Long-running operations
 

@@ -33,7 +33,7 @@ const (
 	SnapshotOnDemand = "on_demand"
 )
 
-// What TakeDailySnapshot did.
+// What reading and writing a daily snapshot did.
 const (
 	SnapshotTaken   = "taken"   // written
 	SnapshotExists  = "exists"  // the company's snapshot of the date was taken before
@@ -52,8 +52,8 @@ const retentionMonths = 25
 // tenant: a system actor, never a token holder.
 var SnapshotterActor = uuid.NewSHA1(uuid.NameSpaceURL, []byte("urn:agentic-erp:cash-snapshotter"))
 
-// Snapshotter is the principal the daily snapshots are taken as in the
-// tenant (workflows.CashSnapshots).
+// Snapshotter is the principal the daily snapshots are read and taken as
+// in the tenant (workflows.CashSnapshots).
 func (*Endpoints) Snapshotter(tenant uuid.UUID) reqctx.Principal {
 	return reqctx.Principal{ID: SnapshotterActor, Kind: reqctx.KindSystem, TenantID: tenant}
 }
@@ -62,6 +62,7 @@ func (*Endpoints) Snapshotter(tenant uuid.UUID) reqctx.Principal {
 // currency.
 type Snapshot struct {
 	ID, LegalEntity uuid.UUID
+	CompanyCode     string // its legal entity's company code, as the directory has it
 	Kind            string
 	Name            *string
 	Date            time.Time // the company's date at the read, in TimeZone
@@ -102,9 +103,10 @@ type snapshotLine struct {
 	doc                         *Document
 }
 
-// taken is a forecast read for a snapshot: its date, zone, horizon,
-// configuration version and lines.
+// taken is a forecast read for a snapshot: its company's code, date,
+// zone, horizon, configuration version and lines.
 type taken struct {
+	company       string
 	date, horizon time.Time
 	zone          string
 	version       int32
@@ -112,7 +114,9 @@ type taken struct {
 }
 
 // TakeSnapshot takes a named snapshot of the legal entity's forecast on
-// demand. A legal entity the caller cannot act in is not found.
+// demand, the forecast read in a consistent read of its own (Consistent)
+// and written in the request's transaction. A legal entity the caller
+// cannot act in is not found.
 func (e *Endpoints) TakeSnapshot(ctx context.Context, legalEntity uuid.UUID, name string) (Snapshot, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -122,7 +126,16 @@ func (e *Endpoints) TakeSnapshot(ctx context.Context, legalEntity uuid.UUID, nam
 	if err != nil {
 		return Snapshot{}, err
 	}
-	t, err := e.readSnapshot(ctx, co, legalEntity)
+	if e.Consistent == nil {
+		return Snapshot{}, errors.New("cash: snapshots need a consistent read, which the composition root wires")
+	}
+	rctx, rtx, err := e.Consistent.Read(ctx)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	t, err := e.readSnapshot(rctx, rtx, co, legalEntity)
+	// Read only: nothing to keep, and its connection goes back before the write.
+	_ = rtx.Rollback(context.WithoutCancel(ctx))
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -133,36 +146,57 @@ func (e *Endpoints) TakeSnapshot(ctx context.Context, legalEntity uuid.UUID, nam
 	return e.Snapshot(ctx, id)
 }
 
-// TakeDailySnapshot takes the legal entity's daily snapshot of the date,
-// as the workflow's principal, who acts in every company: once, so run
-// again it finds the first and writes nothing. When the company's date is
-// no longer the date (the workflow ran past midnight), it is skipped: the
-// forecast of a past day cannot be read again.
-func (e *Endpoints) TakeDailySnapshot(ctx context.Context, legalEntity uuid.UUID, date time.Time) (string, error) {
+// ReadDailySnapshot reads the legal entity's daily snapshot of the date in
+// the caller's transaction, which the workflow begins read-only at
+// REPEATABLE READ as its principal, who acts in every company, and returns
+// what writes it: run in a transaction of its own after this one ends, so
+// the workflow never holds one connection while it waits for another. It
+// returns no writer, with the outcome, when there is nothing to write: the
+// snapshot of the date exists (run again, it finds the first), the legal
+// entity is not known, or the company's date is no longer the date (the
+// workflow ran past midnight; a past day's forecast cannot be read again).
+func (e *Endpoints) ReadDailySnapshot(ctx context.Context, legalEntity uuid.UUID, date time.Time) (func(ctx context.Context) (string, error), string, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	co, ok, err := e.LegalEntities.Company(ctx, legalEntity)
+	if err != nil {
+		return nil, "", fmt.Errorf("cash: legal entity %s: %w", legalEntity, err)
+	}
+	if !ok {
+		return nil, SnapshotSkipped, nil
+	}
+	found, err := dailyTaken(ctx, tx, legalEntity, date)
+	if err != nil {
+		return nil, "", err
+	}
+	if found {
+		return nil, SnapshotExists, nil
+	}
+	t, err := e.readSnapshot(ctx, tx, co, legalEntity)
+	if err != nil {
+		return nil, "", err
+	}
+	if !t.date.Equal(date) {
+		return nil, SnapshotSkipped, nil
+	}
+	return func(ctx context.Context) (string, error) { return storeDaily(ctx, legalEntity, t) }, "", nil
+}
+
+// storeDaily writes a daily snapshot read before: taken, or, when another
+// run wrote the company's snapshot of the date meanwhile, nothing.
+func storeDaily(ctx context.Context, legalEntity uuid.UUID, t taken) (string, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return "", err
 	}
-	co, ok, err := e.LegalEntities.Company(ctx, legalEntity)
-	if err != nil {
-		return "", fmt.Errorf("cash: legal entity %s: %w", legalEntity, err)
-	}
-	if !ok {
-		return SnapshotSkipped, nil
-	}
-	if found, err := dailyTaken(ctx, tx, legalEntity, date); err != nil || found {
-		return SnapshotExists, err
-	}
-	t, err := e.readSnapshot(ctx, co, legalEntity)
-	if err != nil {
-		return "", err
-	}
-	if !t.date.Equal(date) {
-		return SnapshotSkipped, nil
-	}
 	_, written, err := store(ctx, tx, p, legalEntity, SnapshotDaily, nil, t)
-	if err != nil || !written {
-		return SnapshotExists, err
+	switch {
+	case err != nil:
+		return "", err
+	case !written:
+		return SnapshotExists, nil
 	}
 	return SnapshotTaken, nil
 }
@@ -179,18 +213,10 @@ func dailyTaken(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, date time
 	return found, nil
 }
 
-// readSnapshot reads the legal entity's forecast in one database state, in
-// the company's buckets, every certainty, and gives its lines.
-func (e *Endpoints) readSnapshot(ctx context.Context, co Company, legalEntity uuid.UUID) (taken, error) {
-	if e.Consistent == nil {
-		return taken{}, errors.New("cash: snapshots need a consistent read, which the composition root wires")
-	}
-	ctx, tx, err := e.Consistent.Read(ctx)
-	if err != nil {
-		return taken{}, err
-	}
-	// Read only: nothing to keep.
-	defer tx.Rollback(context.WithoutCancel(ctx))
+// readSnapshot reads the legal entity's forecast in tx, which reads one
+// database state, in the company's buckets, every certainty, and gives its
+// lines.
+func (e *Endpoints) readSnapshot(ctx context.Context, tx pgx.Tx, co Company, legalEntity uuid.UUID) (taken, error) {
 	var bs []Bucket
 	fr, err := e.readForecastOf(ctx, tx, co, legalEntity, CertaintyPlanned, func(r reader) (time.Time, error) {
 		bs = buckets(r.read, r.settings.BucketsOrDefault())
@@ -199,7 +225,7 @@ func (e *Endpoints) readSnapshot(ctx context.Context, co Company, legalEntity uu
 	if err != nil {
 		return taken{}, err
 	}
-	t := taken{date: fr.r.read, horizon: bs[len(bs)-1].End, zone: fr.zone, version: fr.version, lines: fr.snapshotLines(bs)}
+	t := taken{company: co.Code, date: fr.r.read, horizon: bs[len(bs)-1].End, zone: fr.zone, version: fr.version, lines: fr.snapshotLines(bs)}
 	if fr.r.sums.overflow {
 		return taken{}, errForecastTooLarge
 	}
@@ -303,6 +329,9 @@ func (b *bucketSums) add(s *sums, f datedFlow) {
 		bank = *f.bank
 	}
 	for _, sh := range f.shares {
+		if sh.Amount == 0 { // a share of nothing is no line, as at document level
+			continue
+		}
 		k := bucketKey{bucket: at, currency: f.currency, source: f.source, certainty: f.certainty, item: sh.Item, bank: bank}
 		l, ok := b.sum[k]
 		if !ok {
@@ -355,15 +384,15 @@ func store(ctx context.Context, tx pgx.Tx, p reqctx.Principal, legalEntity uuid.
 	if err := insertLines(ctx, tx, id, t.lines); err != nil {
 		return uuid.Nil, false, err
 	}
-	detail := map[string]any{"legal_entity_id": legalEntity, "kind": kind, "snapshot_date": t.date.Format(time.DateOnly), "config_version": t.version,
-		"line_count": len(t.lines)}
+	detail := map[string]any{"legal_entity_id": legalEntity, "company_code": t.company, "kind": kind, "snapshot_date": t.date.Format(time.DateOnly),
+		"config_version": t.version, "line_count": len(t.lines)}
 	if name != nil {
 		detail["name"] = *name
 	}
 	return id, true, audit.Record(ctx, "cash.snapshot.take", "cash.snapshot", id, detail,
 		outbox.Event{Context: "cash", Name: "cash_snapshot_taken", AggregateType: "cash.snapshot", AggregateID: id,
-			Payload: map[string]any{"cash_snapshot_id": id, "legal_entity_id": legalEntity, "kind": kind, "snapshot_date": t.date.Format(time.DateOnly),
-				"line_count": len(t.lines)}})
+			Payload: map[string]any{"cash_snapshot_id": id, "legal_entity_id": legalEntity, "company_code": t.company, "kind": kind,
+				"snapshot_date": t.date.Format(time.DateOnly), "line_count": len(t.lines)}})
 }
 
 // insertLines writes a snapshot's lines in one statement, numbered from 1.

@@ -27,7 +27,16 @@ func Cash(cfg Config) *cash.Endpoints {
 			Unposted: payablesEndpoints(cfg, nil), // posting's own dependencies: the forecast reads an invoice as posting would
 			Requests: downPayments{}}},
 		Ledger: cashLedger{}, Sessions: agents.Sessions{}, Partners: cashPartners{},
-		Pages: cfg.Pages, Now: cfg.Now, Consistent: uow.Consistent{Begin: cfg.Pool.Begin, Role: cfg.AppRole}}
+		Pages: cfg.Pages, Now: cfg.Now, Consistent: consistent(cfg)}
+}
+
+// consistent is the snapshots' consistent read on its own pool, none
+// without one.
+func consistent(cfg Config) cash.Consistency {
+	if cfg.Consistent == nil {
+		return nil
+	}
+	return uow.Consistent{Begin: cfg.Consistent.Begin, Role: cfg.AppRole}
 }
 
 // cashPartners names the suppliers of the forecast's drill-down, as the

@@ -52,10 +52,29 @@ func (e *Endpoints) Snapshot(ctx context.Context, id uuid.UUID) (Snapshot, error
 		return Snapshot{}, fmt.Errorf("cash: snapshot %s: %w", id, err)
 	}
 	ss := []Snapshot{s}
-	if err := totals(ctx, tx, ss); err != nil {
+	if err := e.complete(ctx, tx, ss); err != nil {
 		return Snapshot{}, err
 	}
 	return ss[0], nil
+}
+
+// complete gives each snapshot its company's code and its totals.
+func (e *Endpoints) complete(ctx context.Context, tx pgx.Tx, ss []Snapshot) error {
+	codes := map[uuid.UUID]string{}
+	for i, s := range ss {
+		if _, ok := codes[s.LegalEntity]; !ok {
+			co, found, err := e.LegalEntities.Company(ctx, s.LegalEntity)
+			if err != nil {
+				return fmt.Errorf("cash: legal entity %s of snapshot %s: %w", s.LegalEntity, s.ID, err)
+			}
+			if !found {
+				return fmt.Errorf("cash: legal entity %s of snapshot %s is not held by the tenancy context", s.LegalEntity, s.ID)
+			}
+			codes[s.LegalEntity] = co.Code
+		}
+		ss[i].CompanyCode = codes[s.LegalEntity]
+	}
+	return totals(ctx, tx, ss)
 }
 
 // totals gives each snapshot its totals per currency, by currency code.
@@ -119,7 +138,7 @@ func (e *Endpoints) Snapshots(ctx context.Context, q SnapshotsQuery) ([]Snapshot
 		return nil, "", fmt.Errorf("cash: list snapshots: %w", err)
 	}
 	ss, next := pagination.Page(ks, ss, func(s Snapshot) (string, uuid.UUID) { return s.Date.Format(time.DateOnly), s.ID })
-	return ss, next, totals(ctx, tx, ss)
+	return ss, next, e.complete(ctx, tx, ss)
 }
 
 // SnapshotLinesQuery is what a snapshot's lines are listed by: the

@@ -2795,8 +2795,8 @@ migration.
 
 T53f stores the forecast as it was (000192, `cash.snapshot`,
 `cash.snapshot_flow` above): read in a read-only repeatable-read
-transaction of its own (`uow.Consistent`) and written in the request's or
-the workflow activity's. The dispatcher finds the tenants that manage cash
+transaction (the workflow activity's first, a request's on a pool of its
+own, `uow.Consistent`) and written in a read-committed one. The dispatcher finds the tenants that manage cash
 as the worker role, from their active `cash.liquidity_item` rows (000192
 grants `erp_worker` those two columns), and asks each, in its own scope,
 which companies are due. Migration 000192 seeds `cash.snapshot.take`;

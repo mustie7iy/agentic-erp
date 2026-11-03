@@ -22774,6 +22774,10 @@ func (s *CashSnapshot) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.LegalEntityID)
 	}
 	{
+		e.FieldStart("company_code")
+		e.Str(s.CompanyCode)
+	}
+	{
 		e.FieldStart("kind")
 		e.Str(s.Kind)
 	}
@@ -22817,18 +22821,19 @@ func (s *CashSnapshot) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCashSnapshot = [11]string{
+var jsonFieldsNameOfCashSnapshot = [12]string{
 	0:  "id",
 	1:  "legal_entity_id",
-	2:  "kind",
-	3:  "name",
-	4:  "snapshot_date",
-	5:  "time_zone",
-	6:  "horizon_end",
-	7:  "document_level_until",
-	8:  "config_version",
-	9:  "taken_at",
-	10: "currencies",
+	2:  "company_code",
+	3:  "kind",
+	4:  "name",
+	5:  "snapshot_date",
+	6:  "time_zone",
+	7:  "horizon_end",
+	8:  "document_level_until",
+	9:  "config_version",
+	10: "taken_at",
+	11: "currencies",
 }
 
 // Decode decodes CashSnapshot from json.
@@ -22864,8 +22869,20 @@ func (s *CashSnapshot) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"legal_entity_id\"")
 			}
-		case "kind":
+		case "company_code":
 			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.CompanyCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_code\"")
+			}
+		case "kind":
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.Kind = string(v)
@@ -22887,7 +22904,7 @@ func (s *CashSnapshot) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"name\"")
 			}
 		case "snapshot_date":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.SnapshotDate = v
@@ -22899,7 +22916,7 @@ func (s *CashSnapshot) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"snapshot_date\"")
 			}
 		case "time_zone":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.TimeZone = string(v)
@@ -22911,7 +22928,7 @@ func (s *CashSnapshot) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"time_zone\"")
 			}
 		case "horizon_end":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.HorizonEnd = v
@@ -22923,7 +22940,7 @@ func (s *CashSnapshot) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"horizon_end\"")
 			}
 		case "document_level_until":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.DocumentLevelUntil = v
@@ -22935,7 +22952,7 @@ func (s *CashSnapshot) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"document_level_until\"")
 			}
 		case "config_version":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				v, err := d.Int32()
 				s.ConfigVersion = int32(v)
@@ -22947,7 +22964,7 @@ func (s *CashSnapshot) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"config_version\"")
 			}
 		case "taken_at":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.TakenAt = v
@@ -22959,7 +22976,7 @@ func (s *CashSnapshot) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"taken_at\"")
 			}
 		case "currencies":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				s.Currencies = make([]CashSnapshotCurrency, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -22986,8 +23003,8 @@ func (s *CashSnapshot) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b11110111,
-		0b00000111,
+		0b11101111,
+		0b00001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -23787,6 +23804,10 @@ func (s *CashSnapshotFlowPage) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.LegalEntityID)
 	}
 	{
+		e.FieldStart("company_code")
+		e.Str(s.CompanyCode)
+	}
+	{
 		e.FieldStart("snapshot_date")
 		json.EncodeDate(e, s.SnapshotDate)
 	}
@@ -23828,17 +23849,18 @@ func (s *CashSnapshotFlowPage) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCashSnapshotFlowPage = [10]string{
-	0: "snapshot_id",
-	1: "legal_entity_id",
-	2: "snapshot_date",
-	3: "currency",
-	4: "liquidity_item",
-	5: "unclassified",
-	6: "total",
-	7: "count",
-	8: "items",
-	9: "next_page_token",
+var jsonFieldsNameOfCashSnapshotFlowPage = [11]string{
+	0:  "snapshot_id",
+	1:  "legal_entity_id",
+	2:  "company_code",
+	3:  "snapshot_date",
+	4:  "currency",
+	5:  "liquidity_item",
+	6:  "unclassified",
+	7:  "total",
+	8:  "count",
+	9:  "items",
+	10: "next_page_token",
 }
 
 // Decode decodes CashSnapshotFlowPage from json.
@@ -23874,8 +23896,20 @@ func (s *CashSnapshotFlowPage) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"legal_entity_id\"")
 			}
-		case "snapshot_date":
+		case "company_code":
 			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.CompanyCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_code\"")
+			}
+		case "snapshot_date":
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.SnapshotDate = v
@@ -23887,7 +23921,7 @@ func (s *CashSnapshotFlowPage) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"snapshot_date\"")
 			}
 		case "currency":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.Currency = string(v)
@@ -23909,7 +23943,7 @@ func (s *CashSnapshotFlowPage) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"liquidity_item\"")
 			}
 		case "unclassified":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Bool()
 				s.Unclassified = bool(v)
@@ -23921,7 +23955,7 @@ func (s *CashSnapshotFlowPage) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"unclassified\"")
 			}
 		case "total":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				if err := s.Total.Decode(d); err != nil {
 					return err
@@ -23931,7 +23965,7 @@ func (s *CashSnapshotFlowPage) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"total\"")
 			}
 		case "count":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := d.Int32()
 				s.Count = int32(v)
@@ -23943,7 +23977,7 @@ func (s *CashSnapshotFlowPage) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"count\"")
 			}
 		case "items":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				s.Items = make([]CashSnapshotFlow, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -23980,8 +24014,8 @@ func (s *CashSnapshotFlowPage) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b11101111,
-		0b00000001,
+		0b11011111,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

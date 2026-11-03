@@ -19,14 +19,18 @@ import (
 // the tenant committed during the read (every write moves the tenant's
 // audit chain head), and x-snapshot keeps that level for safe requests.
 type Consistent struct {
+	// Begin begins on a pool of its own (app.Config.Consistent), not the
+	// one whose connection the caller's transaction holds: a request
+	// waiting for a second connection of the pool it holds one of could
+	// wait on every other request doing the same.
 	Begin database.BeginFunc
 	Role  string // erp_app: in the tenant's scope
 }
 
 // Read begins the consistent read and returns a context that carries its
 // transaction, the principal kept, and the transaction, which the caller
-// rolls back once it has read (it only reads). It holds a second
-// connection until then.
+// rolls back once it has read (it only reads). It holds a connection of
+// Begin's pool until then.
 func (c Consistent) Read(ctx context.Context) (context.Context, pgx.Tx, error) {
 	_, p, err := reqctx.Request(ctx)
 	if err != nil {

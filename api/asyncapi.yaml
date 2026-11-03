@@ -2854,7 +2854,7 @@ components:
       examples:
         - name: daily
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000601, source: /erp/eu-1/cash, type: com.example.erp.cash.cash_snapshot_taken.v1, subject: 0192a000-0000-7000-8000-000000000e01, time: '2026-10-21T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {cash_snapshot_id: 0192a000-0000-7000-8000-000000000e01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, kind: daily, snapshot_date: '2026-10-21', line_count: 42}
+          payload: {cash_snapshot_id: 0192a000-0000-7000-8000-000000000e01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: '3000', kind: daily, snapshot_date: '2026-10-21', line_count: 42}
     AssetChanged:
       name: AssetChanged
       title: Asset changed
@@ -3436,10 +3436,11 @@ components:
         version: {type: integer, description: The record's version after the change.}
     CashSnapshotTakenV1:
       type: object
-      required: [cash_snapshot_id, legal_entity_id, kind, snapshot_date, line_count]
+      required: [cash_snapshot_id, legal_entity_id, company_code, kind, snapshot_date, line_count]
       properties:
         cash_snapshot_id: {$ref: '#/components/schemas/Uuid', description: '`cash.snapshot.id`.'}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        company_code: {type: string, description: "The legal entity's company code."}
         kind: {type: string, description: 'Open enum: daily, on_demand.'}
         snapshot_date: {$ref: '#/components/schemas/Date'}
         line_count: {type: integer, description: The lines the snapshot kept.}

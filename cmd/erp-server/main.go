@@ -242,6 +242,8 @@ type server struct {
 	// replica is the cell's read replica, which the analytics extract
 	// reads (DATABASE_REPLICA_URL); nil: the primary.
 	replica *database.Pool
+	// consistent is the consistent reads' pool (openConsistent).
+	consistent *database.Pool
 
 	static       []authn.Static
 	dev          *authn.DevIssuer
@@ -294,7 +296,12 @@ func (s *server) openPools(ctx context.Context) (func(), error) {
 	if s.pool, err = openPool(ctx, s.cfg); err != nil {
 		return nil, err
 	}
+	if s.consistent, err = openConsistent(ctx, s.cfg); err != nil {
+		s.pool.Close()
+		return nil, err
+	}
 	if s.replica, err = openReplica(ctx, s.cfg, s.cfg.Objects.Enabled()); err != nil {
+		s.consistent.Close()
 		s.pool.Close()
 		return nil, err
 	}
@@ -302,8 +309,23 @@ func (s *server) openPools(ctx context.Context) (func(), error) {
 		if s.replica != nil {
 			s.replica.Close()
 		}
+		s.consistent.Close()
 		s.pool.Close()
 	}, nil
+}
+
+// openConsistent opens the primary's pool of consistent reads beside a
+// request's transaction (app.Config.Consistent: a cash snapshot taken on
+// demand), two connections: its reads wait on nothing, so a request
+// holding the main pool's connection while it waits here always gets one.
+func openConsistent(ctx context.Context, cfg config.Config) (*database.Pool, error) {
+	settings := database.DefaultSettings
+	settings.MaxConns = 2
+	pool, err := database.Open(ctx, cfg.DatabaseURL, settings)
+	if err != nil {
+		return nil, fmt.Errorf("the consistent reads' pool: %w", err)
+	}
+	return pool, nil
 }
 
 // openReplica opens the read replica's pool when one is configured and
@@ -639,7 +661,7 @@ const analyticsTimeout = 30 * time.Second
 func (s *server) newAPI() error {
 	cfg := s.cfg
 	s.apiCfg = app.Config{
-		Pool: s.pool, AppRole: cfg.AppRole, Verifier: s.verifier, Pages: s.pages, FieldKeys: s.keys, Extractor: s.extractor, Connector: s.connector, ExtractDir: cfg.ExtractDir, Objects: s.store, Retention: cfg.Objects.Retention, Secrets: cfg.Secrets, Log: s.log,
+		Pool: s.pool, Consistent: s.consistent, AppRole: cfg.AppRole, Verifier: s.verifier, Pages: s.pages, FieldKeys: s.keys, Extractor: s.extractor, Connector: s.connector, ExtractDir: cfg.ExtractDir, Objects: s.store, Retention: cfg.Objects.Retention, Secrets: cfg.Secrets, Log: s.log,
 		UploadKey: uploadKey(cfg.PageTokenKey), PublicURL: cfg.PublicURL, Workflows: s.engineClient,
 		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
 		Metrics: s.metrics, Tracer: s.tp, Meter: otel.GetMeterProvider(), Now: time.Now,

@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"go.temporal.io/sdk/activity"
 	sdkworkflow "go.temporal.io/sdk/workflow"
 
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
@@ -338,5 +339,8 @@ func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a
 	r.RegisterWorkflowWithOptions(ParkRecurringEntry, sdkworkflow.RegisterOptions{Name: RecurWorkflow})
 	r.RegisterActivity(rc)
 	r.RegisterWorkflowWithOptions(TakeCashSnapshot, sdkworkflow.RegisterOptions{Name: SnapshotWorkflow})
-	r.RegisterActivity(sn)
+	// By name: Snapshots.Due is the dispatcher's question, not an activity,
+	// and Recurrences registers a "Due" already.
+	r.RegisterActivityWithOptions(sn.TakeSnapshot, activity.RegisterOptions{Name: "TakeSnapshot"})
+	r.RegisterActivityWithOptions(sn.PruneSnapshots, activity.RegisterOptions{Name: "PruneSnapshots"})
 }

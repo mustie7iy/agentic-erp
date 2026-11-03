@@ -518,15 +518,23 @@ T53f2-T53f4 in the tracker, src `split:T53f`; decided by default where §6,
   as the forecast does. The snapshot's totals per currency (`total`,
   without `payable_blocked`, as the forecast's default; `blocked`;
   `line_count`) are summed at the read from its lines.
-- **One database state.** The forecast is read in a read-only `REPEATABLE
-  READ` transaction of its own (`uow.Consistent`, wired in
-  `internal/app`), as the caller, and the snapshot written in the
-  request's (or the activity's) `READ COMMITTED` transaction. A write
-  cannot run whole at `REPEATABLE READ`: every write of a tenant moves its
-  audit chain head, so any write committed during the read would fail it.
-  `x-snapshot` stays on `GET`s (04 §4.7). The read holds a second
-  connection while it runs; a snapshot is taken once a day per company or
-  by a person, so the pool is not at risk.
+- **One database state, and no connection waited for while one is
+  held** (review round 1). A write cannot run whole at `REPEATABLE READ`:
+  every write of a tenant moves its audit chain head, so any write
+  committed during the read would fail it; and `x-snapshot` stays on
+  `GET`s (04 §4.7). So the forecast is read in a read-only `REPEATABLE
+  READ` transaction and the snapshot written in a `READ COMMITTED` one.
+  The workflow's activity reads first (`ReadDailySnapshot`, which returns
+  what writes it), ends that transaction, then writes in a transaction of
+  its own: it never holds a connection while it waits for another, however
+  many companies are due in one minute. A request taking a snapshot on
+  demand already holds the request's transaction, so its read
+  (`uow.Consistent`) takes a connection of a pool of its own
+  (`app.Config.Consistent`, two connections, opened by erp-server beside
+  the main pool): those reads wait on nothing, so a request holding a
+  main connection while it waits there always gets one, and the main
+  pool is never waited on twice. Without that pool, snapshots on demand
+  fail (500) rather than read inconsistently.
 - **The daily snapshot.** A company is due once its local time in its
   zone reaches its `cash.snapshot_time` (default 07:00) and its daily
   snapshot of that date is not taken (`cash.Endpoints.DueSnapshots`). The
@@ -536,7 +544,8 @@ T53f2-T53f4 in the tracker, src `split:T53f`; decided by default where §6,
   `{tenant}-legal_entity-{legal entity}-cash_snapshot-{date}`, so replicas
   and rounds start it once. Its two activities take the snapshot as the
   system principal `cash-snapshotter`, who acts in every company of the
-  tenant, then delete the old ones. Taken twice it finds the first and
+  tenant, then delete the old ones (the take is read, then written, as
+  above). Taken twice it finds the first and
   writes and publishes nothing (`TestTakeSnapshotTwice`); two replicas at
   once leave one (`ON CONFLICT` on `snapshot_daily`,
   `TestCashSnapshotDailyRace`). An activity that runs after the company's
@@ -561,8 +570,13 @@ T53f2-T53f4 in the tracker, src `split:T53f`; decided by default where §6,
   (T53e4: `partner.supplier.read`, `payments.run.read` and each document's
   context's read permission, `authz.MayUse`), else left out, with
   `has_document` saying whether it names one; its house bank by its code.
-  The write is audited (`cash.snapshot.take`) and published as
-  `CashSnapshotTaken`; its webhook (`x-webhook`) is T53h's.
+  A snapshot, its page of lines and the event give the legal entity's
+  `company_code` beside its id (review round 1), read once per legal
+  entity of a page. The write is audited (`cash.snapshot.take`) and
+  published as `CashSnapshotTaken`; its webhook (`x-webhook`) is T53h's.
+  The activities are registered by name (`TakeSnapshot`,
+  `PruneSnapshots`): `Snapshots.Due`, the dispatcher's question, is no
+  activity, and `Recurrences` registers a `Due` already.
 - **Budget.** §6 names none for snapshots: the read is the forecast's
   (01 §Performance, p95 3 s at 100,000 open items), and the lines are
   written in one statement.
@@ -572,7 +586,7 @@ T53f2-T53f4 in the tracker, src `split:T53f`; decided by default where §6,
   memo records, a down payment request, two supplier items summed in
   their weeks after the 31st day and a series' occurrences in their
   months), `TestCashSnapshotLines`, `TestCashSnapshotList`,
-  `TestCashSnapshotDaily`, `TestCashSnapshotDailyRace`,
+  `TestCashSnapshotDaily`, `TestCashSnapshotDailyRace`, `TestBucketSums`,
   `TestCashSnapshotRefusals`, `TestCashSnapshotRetention`,
   `TestCashSnapshotFailures`; `uow.TestConsistentRead`;
   `workflows.TestTakeCashSnapshot`, `TestTakeSnapshotTwice`,

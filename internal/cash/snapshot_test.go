@@ -99,8 +99,8 @@ func TestCashSnapshotOnDemand(t *testing.T) {
 	e := setupSnapshot(t)
 	f := e.forecastOf(t, "")
 	s := e.take(t, "Board meeting April")
-	want(t, "header", fmt.Sprint(s["kind"], " ", s["name"], " ", s["snapshot_date"], " ", s["time_zone"], " ", s["horizon_end"], " ", s["document_level_until"]),
-		"on_demand Board meeting April 2026-04-17 UTC 2027-04-16 2026-05-17")
+	want(t, "header", fmt.Sprint(s["company_code"], " ", s["kind"], " ", s["name"], " ", s["snapshot_date"], " ", s["time_zone"], " ", s["horizon_end"], " ", s["document_level_until"]),
+		"3000 on_demand Board meeting April 2026-04-17 UTC 2027-04-16 2026-05-17")
 	var totals []string
 	for _, c := range s["currencies"].([]any) {
 		cm := c.(map[string]any)
@@ -138,42 +138,64 @@ func TestCashSnapshotOnDemand(t *testing.T) {
 	l, _ := e.Must(200, "GET", "/v1/cash-snapshots?legal_entity_id="+e.le.String(), "", "")
 	want(t, "listed", len(l["items"].([]any)), 1)
 	events := apitest.Published(t, e.Tenant, outbox.Event{Context: "cash", Name: "cash_snapshot_taken"})
-	want(t, "published", fmt.Sprint(len(events), " ", events[0]["kind"], " ", events[0]["line_count"]), "1 on_demand 16")
+	want(t, "published", fmt.Sprint(len(events), " ", events[0]["company_code"], " ", events[0]["kind"], " ", events[0]["line_count"]), "1 3000 on_demand 16")
 	var actions int
 	pgtest.Scan(t, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'cash.snapshot.take' AND object_id = $2`,
 		[]any{e.Tenant.ID, id}, &actions)
 	want(t, "audited", actions, 1)
 }
 
-// TestCashSnapshotDaily: the daily snapshot of a date is taken once; taken
-// again it finds the first and writes nothing; one whose date the company
-// is no longer on is skipped, as is one of no legal entity; it is due once
-// the company's local time reaches its snapshot time and until it is
-// taken. (The workflow's run-twice test commits each run:
-// workflows.TestTakeSnapshotTwice.)
+// TestCashSnapshotDaily: the daily snapshot of a date is read, then
+// written; read again it finds the first and gives nothing to write; one
+// whose date the company is no longer on is skipped, as is one of no legal
+// entity; it is due once the company's local time reaches its snapshot
+// time and until it is taken. (The workflow's run-twice test commits each
+// run: workflows.TestTakeSnapshotTwice.)
 func TestCashSnapshotDaily(t *testing.T) {
 	e := setupSnapshot(t)
 	c := app.Cash(app.Config{Now: func() time.Time { return readAt }})
-	c.Consistent = inRequest{}
 	day := time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC)
 	err := apitest.InRequest(t, e.Tenant, pgtest.Actor{ID: cash.SnapshotterActor}, func(ctx context.Context) error {
 		due, err := c.DueSnapshots(ctx, readAt)
-		want(t, "due at 15:00, after 07:00", due[e.le], day)
-		early, _ := c.DueSnapshots(ctx, time.Date(2026, 4, 17, 6, 59, 0, 0, time.UTC))
-		_, found := early[e.le]
-		want(t, "not due before 07:00", found, false)
-		for i, wanted := range []string{cash.SnapshotTaken, cash.SnapshotExists} {
-			got, _ := c.TakeDailySnapshot(ctx, e.le, day)
-			want(t, fmt.Sprintf("run %d", i+1), got, wanted)
+		if err != nil {
+			return err
 		}
-		got, _ := c.TakeDailySnapshot(ctx, e.le, day.AddDate(0, 0, -1))
-		want(t, "a date past", got, cash.SnapshotSkipped)
-		got, _ = c.TakeDailySnapshot(ctx, uuid.New(), day)
-		want(t, "no such legal entity", got, cash.SnapshotSkipped)
-		due, _ = c.DueSnapshots(ctx, readAt)
+		want(t, "due at 15:00, after 07:00", due[e.le], day)
+		if due, err = c.DueSnapshots(ctx, time.Date(2026, 4, 17, 6, 59, 0, 0, time.UTC)); err != nil {
+			return err
+		}
+		_, found := due[e.le]
+		want(t, "not due before 07:00", found, false)
+		write, outcome, err := c.ReadDailySnapshot(ctx, e.le, day)
+		if err != nil {
+			return err
+		}
+		want(t, "read: something to write", fmt.Sprint(write != nil, " ", outcome), "true ")
+		if _, err := write(context.Background()); !errors.Is(err, reqctx.ErrOutsideRequest) {
+			t.Errorf("written outside a unit of work: got %v, want reqctx.ErrOutsideRequest", err)
+		}
+		if outcome, err = write(ctx); err != nil {
+			return err
+		}
+		want(t, "written", outcome, cash.SnapshotTaken)
+		for what, c2 := range map[string]struct {
+			le   uuid.UUID
+			day  time.Time
+			want string
+		}{"read again": {e.le, day, cash.SnapshotExists}, "a date past": {e.le, day.AddDate(0, 0, -1), cash.SnapshotSkipped},
+			"no such legal entity": {uuid.New(), day, cash.SnapshotSkipped}} {
+			write, outcome, err := c.ReadDailySnapshot(ctx, c2.le, c2.day)
+			if err != nil {
+				return err
+			}
+			want(t, what, fmt.Sprint(write == nil, " ", outcome), "true "+c2.want)
+		}
+		if due, err = c.DueSnapshots(ctx, readAt); err != nil {
+			return err
+		}
 		_, found = due[e.le]
 		want(t, "taken: not due", found, false)
-		return err
+		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -189,24 +211,17 @@ func (inRequest) Read(ctx context.Context) (context.Context, pgx.Tx, error) {
 	return ctx, kept{tx}, err
 }
 
+// notBegun is a consistent read that cannot begin.
+type notBegun struct{}
+
+func (notBegun) Read(context.Context) (context.Context, pgx.Tx, error) {
+	return nil, nil, errors.New("pool exhausted")
+}
+
 // kept is a transaction its reader's rollback leaves open.
 type kept struct{ pgx.Tx }
 
 func (kept) Rollback(context.Context) error { return nil }
-
-// raced is inRequest after another replica committed the company's daily
-// snapshot of the date.
-type raced struct {
-	t      *testing.T
-	tenant uuid.UUID
-	le     uuid.UUID
-}
-
-func (r raced) Read(ctx context.Context) (context.Context, pgx.Tx, error) {
-	pgtest.Exec(r.t, `INSERT INTO cash.snapshot (tenant_id, id, legal_entity_id, kind, snapshot_date, time_zone, horizon_end, config_version, taken_by)
-		VALUES ($1, $2, $3, 'daily', '2026-04-17', 'UTC', '2027-04-16', 1, $4)`, r.tenant, uuid.Must(uuid.NewV7()), r.le, cash.SnapshotterActor)
-	return inRequest{}.Read(ctx)
-}
 
 // TestCashSnapshotLines: a snapshot's lines by liquidity item, what no rule
 // assigned, source and value dates, in pages; refusals; and a caller who
@@ -303,9 +318,15 @@ func TestCashSnapshotList(t *testing.T) {
 func TestCashSnapshotDailyRace(t *testing.T) {
 	e := setupSnapshot(t)
 	c := app.Cash(app.Config{Now: func() time.Time { return readAt }})
-	c.Consistent = raced{t: t, tenant: e.Tenant.ID, le: e.le}
 	err := apitest.InRequest(t, e.Tenant, pgtest.Actor{ID: cash.SnapshotterActor}, func(ctx context.Context) error {
-		got, err := c.TakeDailySnapshot(ctx, e.le, time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC))
+		write, _, err := c.ReadDailySnapshot(ctx, e.le, time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC))
+		if err != nil {
+			return err
+		}
+		// The other replica commits its snapshot between this one's read and write.
+		pgtest.Exec(t, `INSERT INTO cash.snapshot (tenant_id, id, legal_entity_id, kind, snapshot_date, time_zone, horizon_end, config_version, taken_by)
+			VALUES ($1, $2, $3, 'daily', '2026-04-17', 'UTC', '2027-04-16', 1, $4)`, e.Tenant.ID, uuid.Must(uuid.NewV7()), e.le, cash.SnapshotterActor)
+		got, err := write(ctx)
 		want(t, "the second", got, cash.SnapshotExists)
 		return err
 	})
@@ -415,8 +436,15 @@ func TestCashSnapshotFailures(t *testing.T) {
 			_, err := endpoints().SnapshotLines(ctx, cash.SnapshotLinesQuery{Snapshot: id, Currency: "EUR", PageSize: 50})
 			return err
 		},
-		"daily": func(ctx context.Context) error { _, err := endpoints().TakeDailySnapshot(ctx, e.le, day); return err },
-		"due":   func(ctx context.Context) error { _, err := endpoints().DueSnapshots(ctx, readAt); return err },
+		"daily": func(ctx context.Context) error {
+			write, _, err := endpoints().ReadDailySnapshot(ctx, e.le, day)
+			if err != nil {
+				return err
+			}
+			_, err = write(ctx)
+			return err
+		},
+		"due": func(ctx context.Context) error { _, err := endpoints().DueSnapshots(ctx, readAt); return err },
 		"prune": func(ctx context.Context) error {
 			_, err := endpoints().PruneSnapshots(ctx, e.le, day.AddDate(3, 0, 0))
 			return err
@@ -445,9 +473,14 @@ func TestCashSnapshotFailures(t *testing.T) {
 			}, "consistent read"},
 		"the directory down for the daily": {func(c *cash.Endpoints) { c.LegalEntities = failingEntities{} },
 			func(c *cash.Endpoints, ctx context.Context) error {
-				_, err := c.TakeDailySnapshot(ctx, e.le, day)
+				_, _, err := c.ReadDailySnapshot(ctx, e.le, day)
 				return err
 			}, "directory down"},
+		"the consistent read not begun": {func(c *cash.Endpoints) { c.Consistent = notBegun{} },
+			func(c *cash.Endpoints, ctx context.Context) error {
+				_, err := c.TakeSnapshot(ctx, e.le, "Board")
+				return err
+			}, "pool exhausted"},
 		"the directory down for the due": {func(c *cash.Endpoints) { c.LegalEntities = failingEntities{} },
 			func(c *cash.Endpoints, ctx context.Context) error { _, err := c.DueSnapshots(ctx, readAt); return err }, "directory down"},
 		"a zone lost": {func(c *cash.Endpoints) { c.Settings = zoneLost{c.Settings} },
@@ -476,6 +509,14 @@ func TestCashSnapshotFailures(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a snapshot of a legal entity the directory does not hold", func(t *testing.T) {
+		pgtest.Exec(t, `INSERT INTO cash.snapshot (tenant_id, id, legal_entity_id, kind, snapshot_date, time_zone, horizon_end, config_version, taken_by)
+			VALUES ($1, $2, $3, 'daily', '2026-04-16', 'UTC', '2027-04-15', 1, $4)`, e.Tenant.ID, uuid.Must(uuid.NewV7()), uuid.New(), cash.SnapshotterActor)
+		err := inRequestAs(func(ctx context.Context) error { _, _, err := endpoints().Snapshots(ctx, cash.SnapshotsQuery{}); return err })
+		if err == nil || !strings.Contains(err.Error(), "not held by the tenancy context") {
+			t.Errorf("got %v, want the list refused as broken data", err)
+		}
+	})
 	t.Run("a tenant without a configuration has none due", func(t *testing.T) {
 		bare := pgtest.NewTenant(t)
 		err := apitest.InRequest(t, bare, bare.Human, func(ctx context.Context) error {

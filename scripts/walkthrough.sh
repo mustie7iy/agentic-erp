@@ -2705,7 +2705,7 @@ step_cash_snapshot() {
   say "The snapshots of Maple, newest first. The daily one is taken once a day after Maple's snapshot time (07:00 in"
   say "America/Toronto) by the TakeCashSnapshot workflow, here the server's in-process snapshotter; it shows up once"
   say "the walkthrough runs after that time:"
-  api 200 '.items[] | "  \(.snapshot_date) \(.kind) \(.name // "")"' listCashSnapshots -p "legal_entity_id=$LE"
+  api 200 '.items[] | "  \(.company_code) \(.snapshot_date) \(.kind) \(.name // "")"' listCashSnapshots -p "legal_entity_id=$LE"
   expect "the board meeting's snapshot listed" "$(field "[.items[].id] | index(\"$snap\") != null")" true
   as rita
   say "Rita holds the forecast's read alone: she reads the same lines without their documents or suppliers."

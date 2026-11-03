@@ -72,7 +72,7 @@ func NewWith(tb testing.TB, configure func(*app.Config)) *API {
 	}
 	a := &API{t: tb, Issuer: is, Metrics: telemetry.NewMetrics(), logs: &pgtest.SyncBuffer{Limit: logLimit}}
 	cfg := app.Config{
-		Pool: pool, AppRole: "erp_app", Verifier: v, Pages: pages, FieldKeys: FieldKeys(), UploadKey: []byte(strings.Repeat("u", 32)),
+		Pool: pool, Consistent: pgtest.Pool(tb), AppRole: "erp_app", Verifier: v, Pages: pages, FieldKeys: FieldKeys(), UploadKey: []byte(strings.Repeat("u", 32)),
 		Log: telemetry.NewLogger(a.logs, -4), Metrics: a.Metrics,
 		Tracer: tracenoop.NewTracerProvider(), Meter: noop.NewMeterProvider(), Now: time.Now,
 	}
