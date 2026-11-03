@@ -24285,7 +24285,8 @@ func (s *Server) handleGetProfitCenterRequest(args [1]string, argsEscaped bool, 
 
 // handleGetPurchaseOrderRequest handles getPurchaseOrder operation.
 //
-// Returns one purchase order. Expandable: `supplier`.
+// Returns one purchase order. Expandable: `supplier`, for a caller who may read business partners
+// (`partner.supplier.read`); another is answered without `expanded`, not refused.
 //
 // GET /v1/purchase-orders/{id}
 func (s *Server) handleGetPurchaseOrderRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -25236,7 +25237,8 @@ func (s *Server) handleGetRegressionSuiteRequest(args [1]string, argsEscaped boo
 
 // handleGetRequisitionRequest handles getRequisition operation.
 //
-// Returns one requisition. Expandable: `supplier`.
+// Returns one requisition. Expandable: `supplier`, for a caller who may read business partners
+// (`partner.supplier.read`); another is answered without `expanded`, not refused.
 //
 // GET /v1/requisitions/{id}
 func (s *Server) handleGetRequisitionRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -26750,7 +26752,8 @@ func (s *Server) handleGetSodRuleRequest(args [1]string, argsEscaped bool, w htt
 // handleGetSupplierInvoiceRequest handles getSupplierInvoice operation.
 //
 // Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`).
-// Expandable: `supplier`.
+// Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`);
+// another is answered without `expanded`, not refused.
 //
 // GET /v1/supplier-invoices/{id}
 func (s *Server) handleGetSupplierInvoiceRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -41469,7 +41472,9 @@ func (s *Server) handleListPurchaseOrderChangesRequest(args [1]string, argsEscap
 
 // handleListPurchaseOrdersRequest handles listPurchaseOrders operation.
 //
-// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`.
+// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`, for a caller
+// who may read business partners (`partner.supplier.read`); another is answered without `expanded`,
+// not refused.
 //
 // GET /v1/purchase-orders
 func (s *Server) handleListPurchaseOrdersRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -42115,7 +42120,9 @@ func (s *Server) handleListRegressionSuitesRequest(args [0]string, argsEscaped b
 
 // handleListRequisitionsRequest handles listRequisitions operation.
 //
-// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`.
+// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`, for a
+// caller who may read business partners (`partner.supplier.read`); another is answered without
+// `expanded`, not refused.
 //
 // GET /v1/requisitions
 func (s *Server) handleListRequisitionsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -43553,7 +43560,9 @@ func (s *Server) handleListSodRulesRequest(args [0]string, argsEscaped bool, w h
 
 // handleListSupplierInvoicesRequest handles listSupplierInvoices operation.
 //
-// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`.
+// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a
+// caller who may read business partners (`partner.supplier.read`); another is answered without
+// `expanded`, not refused.
 //
 // GET /v1/supplier-invoices
 func (s *Server) handleListSupplierInvoicesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

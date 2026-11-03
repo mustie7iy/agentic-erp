@@ -275,6 +275,31 @@ func NewTenant(tb testing.TB, permissions ...string) Tenant {
 	return ten
 }
 
+// Grant gives the roles of the actors the permission from yesterday (a
+// role holding it already keeps its grant), and Revoke takes it from them. The agent and the service share a role, so
+// either changes both.
+func (ten Tenant) Grant(tb testing.TB, permission string, actors ...Actor) {
+	tb.Helper()
+	Exec(tb, `INSERT INTO identity.role_permission (tenant_id, id, role_id, permission_code, valid_from, created_by)
+		SELECT DISTINCT ON (role_id) $1::uuid, gen_random_uuid(), role_id, $2, current_date - 1, $4::uuid FROM identity.principal_role
+		WHERE tenant_id = $1 AND principal_id = ANY($3) ON CONFLICT DO NOTHING`, ten.ID, permission, actorIDs(actors), ten.Human.ID)
+}
+
+// Revoke takes the permission from the roles of the actors (Grant).
+func (ten Tenant) Revoke(tb testing.TB, permission string, actors ...Actor) {
+	tb.Helper()
+	Exec(tb, `DELETE FROM identity.role_permission WHERE tenant_id = $1 AND permission_code = $2 AND role_id IN
+		(SELECT role_id FROM identity.principal_role WHERE tenant_id = $1 AND principal_id = ANY($3))`, ten.ID, permission, actorIDs(actors))
+}
+
+func actorIDs(actors []Actor) []uuid.UUID {
+	ids := make([]uuid.UUID, len(actors))
+	for i, a := range actors {
+		ids[i] = a.ID
+	}
+	return ids
+}
+
 // AllCompanies lets the actor act in every legal entity.
 func (ten Tenant) AllCompanies(tb testing.TB, a Actor) {
 	tb.Helper()

@@ -6628,6 +6628,13 @@
        },
        {
         "s": "D",
+        "t": "An expansion or an embedded partner name never crosses permissions (04 §4.4; found in the batch 44 review of T73h3): expand=supplier on supplier invoices, requisitions and purchase orders (get and list) and a revaluation's open items' partner_number and partner_name (preview, run, read back) returned a business partner's details to a caller without partner.supplier.read; now left out for such a caller, person or agent, the resource answered with its partner id rather than refused (403 would refuse what the caller may read)",
+        "r": "internal/platform/authz Holds, Expansions · payables api.go mayExpand · procurement api.go mayExpand · ledger revaluation_names.go partnerNames · partner.ReadPermission · TestExpandNeedsPartnerRead (payables, procurement), TestRevaluationPreview, TestRevaluationRun, TestExpansions · api/openapi.yaml descriptions · ADR-0052 (expansions and partner names within permissions) · 04 §4.4",
+        "src": "review:batch44",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "Breaking-change check against main (oasdiff)",
         "r": ".github/workflows/ci.yml",
         "src": "baseline",

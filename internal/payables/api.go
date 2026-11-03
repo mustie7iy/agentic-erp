@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
@@ -77,7 +78,21 @@ func toAPI(v Invoice) gen.SupplierInvoice {
 	return out
 }
 
-// expand adds the supplier summary when the caller asked for it.
+// mayExpand is the expansions asked for that the caller may read: a
+// supplier only for one who may read business partners, as an expansion
+// never crosses permissions (04 §4.4). Without it the invoice is answered
+// with its supplier_id alone, never refused, as the invoice is the
+// caller's to read.
+func mayExpand(ctx context.Context, expand []string) ([]string, error) {
+	out, err := authz.Expansions(ctx, expand, "supplier", partner.ReadPermission)
+	if err != nil {
+		return nil, fmt.Errorf("payables: may the caller read an invoice's supplier: %w", err)
+	}
+	return out, nil
+}
+
+// expand adds the supplier summary when the caller asked for it and may
+// read it (mayExpand).
 func (e *Endpoints) expand(ctx context.Context, v Invoice, expand []string) (gen.SupplierInvoice, error) {
 	out := toAPI(v)
 	if !slices.Contains(expand, "supplier") {
@@ -182,7 +197,11 @@ func (e *Endpoints) GetSupplierInvoice(ctx context.Context, params gen.GetSuppli
 	if err != nil {
 		return nil, err
 	}
-	rep, err := e.expand(ctx, v, params.Expand)
+	expand, err := mayExpand(ctx, params.Expand)
+	if err != nil {
+		return nil, err
+	}
+	rep, err := e.expand(ctx, v, expand)
 	if err != nil {
 		return nil, err
 	}
@@ -231,9 +250,13 @@ func (e *Endpoints) ListSupplierInvoices(ctx context.Context, params gen.ListSup
 		}
 		return v.InvoiceDate.Format(time.DateOnly), v.ID
 	})
+	expand, err := mayExpand(ctx, params.Expand)
+	if err != nil {
+		return nil, err
+	}
 	page := gen.SupplierInvoicePage{Items: make([]gen.SupplierInvoice, len(invoices))}
 	for i, v := range invoices {
-		if page.Items[i], err = e.expand(ctx, v, params.Expand); err != nil {
+		if page.Items[i], err = e.expand(ctx, v, expand); err != nil {
 			return nil, err
 		}
 	}

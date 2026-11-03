@@ -8769,7 +8769,7 @@ paths:
       tags:
         - procurement
       summary: List requisitions
-      description: "Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`."
+      description: "Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`); another is answered without `expanded`, not refused."
       x-permission: procurement.requisition.read
       x-problem-codes:
         - request.invalid_order_by
@@ -8891,7 +8891,7 @@ paths:
       tags:
         - procurement
       summary: Get a requisition
-      description: "Returns one requisition. Expandable: `supplier`."
+      description: "Returns one requisition. Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`); another is answered without `expanded`, not refused."
       x-permission: procurement.requisition.read
       x-problem-codes: []
       parameters:
@@ -9098,7 +9098,7 @@ paths:
       tags:
         - procurement
       summary: List purchase orders
-      description: "Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`."
+      description: "Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`); another is answered without `expanded`, not refused."
       x-permission: procurement.order.read
       x-problem-codes:
         - request.invalid_order_by
@@ -9238,7 +9238,7 @@ paths:
       tags:
         - procurement
       summary: Get a purchase order
-      description: "Returns one purchase order. Expandable: `supplier`."
+      description: "Returns one purchase order. Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`); another is answered without `expanded`, not refused."
       x-permission: procurement.order.read
       x-problem-codes: []
       parameters:
@@ -10751,7 +10751,7 @@ paths:
       tags:
         - payables
       summary: List supplier invoices
-      description: "Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`."
+      description: "Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`); another is answered without `expanded`, not refused."
       x-permission: payables.invoice.read
       x-problem-codes:
         - request.invalid_order_by
@@ -11183,7 +11183,7 @@ paths:
       tags:
         - payables
       summary: Get a supplier invoice
-      description: "Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`). Expandable: `supplier`."
+      description: "Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`). Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`); another is answered without `expanded`, not refused."
       x-permission: payables.invoice.read
       x-problem-codes:
         - config.not_bootstrapped
@@ -18970,7 +18970,7 @@ components:
           updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
     PartnerSummary:
       type: object
-      description: "Read-only copy of selected business partner fields, embedded by `expand=supplier`."
+      description: "Read-only copy of selected business partner fields, embedded by `expand=supplier` for a caller who may read business partners (`partner.supplier.read`)."
       required:
         - id
         - number
@@ -19018,7 +19018,7 @@ components:
       properties:
         supplier:
           $ref: "#/components/schemas/PartnerSummary"
-          description: "The supplier, when `expand=supplier` was requested and the supplier is found; otherwise `expanded` is left out."
+          description: "The supplier, when `expand=supplier` was requested, the caller may read business partners (`partner.supplier.read`) and the supplier is found; otherwise `expanded` is left out (an expansion never crosses permissions)."
           readOnly: true
       examples:
         - supplier:
@@ -26012,11 +26012,11 @@ components:
           readOnly: true
         partner_number:
           type: string
-          description: "The partner's number (its business partner's `number`), as it is now; absent for a balance."
+          description: "The partner's number (its business partner's `number`), as it is now; absent for a balance, and for a caller who may not read business partners (`partner.supplier.read`), who gets `partner_id` alone."
           readOnly: true
         partner_name:
           type: string
-          description: "The partner's name (its business partner's `name`), as it is now; absent for a balance."
+          description: "The partner's name (its business partner's `name`), as it is now; absent for a balance, and for a caller who may not read business partners (`partner.supplier.read`)."
           readOnly: true
         fiscal_year:
           type: integer

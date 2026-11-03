@@ -1098,7 +1098,8 @@ type Handler interface {
 	GetProfitCenter(ctx context.Context, params GetProfitCenterParams) (GetProfitCenterRes, error)
 	// GetPurchaseOrder implements getPurchaseOrder operation.
 	//
-	// Returns one purchase order. Expandable: `supplier`.
+	// Returns one purchase order. Expandable: `supplier`, for a caller who may read business partners
+	// (`partner.supplier.read`); another is answered without `expanded`, not refused.
 	//
 	// GET /v1/purchase-orders/{id}
 	GetPurchaseOrder(ctx context.Context, params GetPurchaseOrderParams) (GetPurchaseOrderRes, error)
@@ -1136,7 +1137,8 @@ type Handler interface {
 	GetRegressionSuite(ctx context.Context, params GetRegressionSuiteParams) (GetRegressionSuiteRes, error)
 	// GetRequisition implements getRequisition operation.
 	//
-	// Returns one requisition. Expandable: `supplier`.
+	// Returns one requisition. Expandable: `supplier`, for a caller who may read business partners
+	// (`partner.supplier.read`); another is answered without `expanded`, not refused.
 	//
 	// GET /v1/requisitions/{id}
 	GetRequisition(ctx context.Context, params GetRequisitionParams) (GetRequisitionRes, error)
@@ -1190,7 +1192,8 @@ type Handler interface {
 	// GetSupplierInvoice implements getSupplierInvoice operation.
 	//
 	// Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`).
-	// Expandable: `supplier`.
+	// Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`);
+	// another is answered without `expanded`, not refused.
 	//
 	// GET /v1/supplier-invoices/{id}
 	GetSupplierInvoice(ctx context.Context, params GetSupplierInvoiceParams) (GetSupplierInvoiceRes, error)
@@ -1762,7 +1765,9 @@ type Handler interface {
 	ListPurchaseOrderChanges(ctx context.Context, params ListPurchaseOrderChangesParams) (ListPurchaseOrderChangesRes, error)
 	// ListPurchaseOrders implements listPurchaseOrders operation.
 	//
-	// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`.
+	// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`, for a caller
+	// who may read business partners (`partner.supplier.read`); another is answered without `expanded`,
+	// not refused.
 	//
 	// GET /v1/purchase-orders
 	ListPurchaseOrders(ctx context.Context, params ListPurchaseOrdersParams) (ListPurchaseOrdersRes, error)
@@ -1781,7 +1786,9 @@ type Handler interface {
 	ListRegressionSuites(ctx context.Context, params ListRegressionSuitesParams) (ListRegressionSuitesRes, error)
 	// ListRequisitions implements listRequisitions operation.
 	//
-	// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`.
+	// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`, for a
+	// caller who may read business partners (`partner.supplier.read`); another is answered without
+	// `expanded`, not refused.
 	//
 	// GET /v1/requisitions
 	ListRequisitions(ctx context.Context, params ListRequisitionsParams) (ListRequisitionsRes, error)
@@ -1824,7 +1831,9 @@ type Handler interface {
 	ListSodRules(ctx context.Context, params ListSodRulesParams) (ListSodRulesRes, error)
 	// ListSupplierInvoices implements listSupplierInvoices operation.
 	//
-	// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`.
+	// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a
+	// caller who may read business partners (`partner.supplier.read`); another is answered without
+	// `expanded`, not refused.
 	//
 	// GET /v1/supplier-invoices
 	ListSupplierInvoices(ctx context.Context, params ListSupplierInvoicesParams) (ListSupplierInvoicesRes, error)

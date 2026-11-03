@@ -3393,6 +3393,34 @@ the contract or T73j's downloads settled it:
   runs axe on both pages with their links. The walkthrough reads the
   reconciliation as the download does (step 10).
 
+## Expansions and partner names within permissions (2026-11-02, review:batch44)
+The batch 44 review of T73h3, which gives an entry's partners only to a
+caller who may read business partners, found the rule broken elsewhere:
+`expand=supplier` on supplier invoices, requisitions and purchase orders
+(get and list) and a revaluation's items' `partner_number` and
+`partner_name` (T73i2, above) gave a business partner's number, name,
+country and status to a caller without `partner.supplier.read`. 04 §4.4
+says an expansion never crosses permissions. Decided by default, from
+T73h3's behaviour and 04 §4.4:
+- **Left out, never refused.** For a caller without the permission,
+  person or agent, `expanded` is left out and an item's partner is given
+  by `partner_id` alone; `document_number`, the ledger's own, stays. A
+  403 would refuse an invoice, order or run the caller may read. The
+  ETag is the resource's either way.
+- **Checked once a request.** `authz.Expansions` drops an expansion whose
+  permission the caller lacks, reading the permissions only when it was
+  asked for, so a page checks once for all its items; `authz.Holds`
+  answers the revaluation's names. The permission is the partner
+  context's `partner.ReadPermission`; the ledger, which may not import
+  that context, names it in a constant of its own.
+- **The workspace** already showed a supplier or partner by id where the
+  API names none, so its pages need no change.
+- **Not changed:** a payment's and a payment exclusion's `supplier_name`
+  and a payment's bank account fields are required fields of the payment
+  run under `payments.run.read`, not copies; whether they too need
+  `partner.supplier.read` is a question for the product owner (security
+  posture), not decided here.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF

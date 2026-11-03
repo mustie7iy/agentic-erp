@@ -1466,7 +1466,8 @@ func (UnimplementedHandler) GetProfitCenter(ctx context.Context, params GetProfi
 
 // GetPurchaseOrder implements getPurchaseOrder operation.
 //
-// Returns one purchase order. Expandable: `supplier`.
+// Returns one purchase order. Expandable: `supplier`, for a caller who may read business partners
+// (`partner.supplier.read`); another is answered without `expanded`, not refused.
 //
 // GET /v1/purchase-orders/{id}
 func (UnimplementedHandler) GetPurchaseOrder(ctx context.Context, params GetPurchaseOrderParams) (r GetPurchaseOrderRes, _ error) {
@@ -1519,7 +1520,8 @@ func (UnimplementedHandler) GetRegressionSuite(ctx context.Context, params GetRe
 
 // GetRequisition implements getRequisition operation.
 //
-// Returns one requisition. Expandable: `supplier`.
+// Returns one requisition. Expandable: `supplier`, for a caller who may read business partners
+// (`partner.supplier.read`); another is answered without `expanded`, not refused.
 //
 // GET /v1/requisitions/{id}
 func (UnimplementedHandler) GetRequisition(ctx context.Context, params GetRequisitionParams) (r GetRequisitionRes, _ error) {
@@ -1597,7 +1599,8 @@ func (UnimplementedHandler) GetSodRule(ctx context.Context, params GetSodRulePar
 // GetSupplierInvoice implements getSupplierInvoice operation.
 //
 // Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`).
-// Expandable: `supplier`.
+// Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`);
+// another is answered without `expanded`, not refused.
 //
 // GET /v1/supplier-invoices/{id}
 func (UnimplementedHandler) GetSupplierInvoice(ctx context.Context, params GetSupplierInvoiceParams) (r GetSupplierInvoiceRes, _ error) {
@@ -2379,7 +2382,9 @@ func (UnimplementedHandler) ListPurchaseOrderChanges(ctx context.Context, params
 
 // ListPurchaseOrders implements listPurchaseOrders operation.
 //
-// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`.
+// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`, for a caller
+// who may read business partners (`partner.supplier.read`); another is answered without `expanded`,
+// not refused.
 //
 // GET /v1/purchase-orders
 func (UnimplementedHandler) ListPurchaseOrders(ctx context.Context, params ListPurchaseOrdersParams) (r ListPurchaseOrdersRes, _ error) {
@@ -2407,7 +2412,9 @@ func (UnimplementedHandler) ListRegressionSuites(ctx context.Context, params Lis
 
 // ListRequisitions implements listRequisitions operation.
 //
-// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`.
+// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`, for a
+// caller who may read business partners (`partner.supplier.read`); another is answered without
+// `expanded`, not refused.
 //
 // GET /v1/requisitions
 func (UnimplementedHandler) ListRequisitions(ctx context.Context, params ListRequisitionsParams) (r ListRequisitionsRes, _ error) {
@@ -2471,7 +2478,9 @@ func (UnimplementedHandler) ListSodRules(ctx context.Context, params ListSodRule
 
 // ListSupplierInvoices implements listSupplierInvoices operation.
 //
-// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`.
+// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a
+// caller who may read business partners (`partner.supplier.read`); another is answered without
+// `expanded`, not refused.
 //
 // GET /v1/supplier-invoices
 func (UnimplementedHandler) ListSupplierInvoices(ctx context.Context, params ListSupplierInvoicesParams) (r ListSupplierInvoicesRes, _ error) {

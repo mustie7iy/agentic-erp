@@ -15254,8 +15254,9 @@ func (*ExcludeBankStatementLineUnprocessableEntity) excludeBankStatementLineRes(
 // Read-only copies of referenced resources requested with `expand`.
 // Ref: #/components/schemas/Expanded
 type Expanded struct {
-	// The supplier, when `expand=supplier` was requested and the supplier is found; otherwise `expanded`
-	// is left out.
+	// The supplier, when `expand=supplier` was requested, the caller may read business partners
+	// (`partner.supplier.read`) and the supplier is found; otherwise `expanded` is left out (an expansion
+	// never crosses permissions).
 	Supplier OptPartnerSummary `json:"supplier"`
 }
 
@@ -31073,7 +31074,8 @@ func (s *PartnerChangeWarning) SetMessage(val string) {
 	s.Message = val
 }
 
-// Read-only copy of selected business partner fields, embedded by `expand=supplier`.
+// Read-only copy of selected business partner fields, embedded by `expand=supplier` for a caller who
+// may read business partners (`partner.supplier.read`).
 // Ref: #/components/schemas/PartnerSummary
 type PartnerSummary struct {
 	// Business partner id.
@@ -38264,9 +38266,11 @@ type RevaluationItem struct {
 	AccountID uuid.UUID `json:"account_id"`
 	// The open item's supplier or customer; absent for a balance.
 	PartnerID OptUUID `json:"partner_id"`
-	// The partner's number (its business partner's `number`), as it is now; absent for a balance.
+	// The partner's number (its business partner's `number`), as it is now; absent for a balance, and for
+	// a caller who may not read business partners (`partner.supplier.read`), who gets `partner_id` alone.
 	PartnerNumber OptString `json:"partner_number"`
-	// The partner's name (its business partner's `name`), as it is now; absent for a balance.
+	// The partner's name (its business partner's `name`), as it is now; absent for a balance, and for a
+	// caller who may not read business partners (`partner.supplier.read`).
 	PartnerName OptString `json:"partner_name"`
 	// The open item's entry's fiscal year; absent for a balance.
 	FiscalYear OptInt32 `json:"fiscal_year"`

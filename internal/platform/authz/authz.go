@@ -142,6 +142,34 @@ func Require(ctx context.Context, permission string) error {
 	return nil
 }
 
+// Holds reports whether the principal holds the permission, for what a
+// response embeds only for a caller who may read it (04 §4.4: an
+// expansion never crosses permissions), where Require's 403 would refuse
+// the whole resource.
+func Holds(ctx context.Context, permission string) (bool, error) {
+	set, err := Permissions(ctx)
+	if err != nil {
+		return false, err
+	}
+	return set[permission], nil
+}
+
+// Expansions is expand without the expansion name when the principal does
+// not hold permission, the one reading what it embeds requires (04 §4.4):
+// the resource is answered without the copy rather than refused. The
+// permissions are read only when name was asked for, so a page checks
+// once for all its items.
+func Expansions(ctx context.Context, expand []string, name, permission string) ([]string, error) {
+	if !slices.Contains(expand, name) {
+		return expand, nil
+	}
+	may, err := Holds(ctx, permission)
+	if err != nil || may {
+		return expand, err
+	}
+	return slices.DeleteFunc(slices.Clone(expand), func(s string) bool { return s == name }), nil
+}
+
 // Authorize checks the operation's agent rule, permissions and the
 // segregation-of-duties rules that involve them.
 func (a *Authorizer) Authorize(ctx context.Context, operationID string) error {

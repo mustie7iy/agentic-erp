@@ -258,6 +258,45 @@ func TestRequireGrantedPermission(t *testing.T) {
 	})
 }
 
+// TestExpansions keeps an expansion for a principal holding the permission
+// it needs and drops it otherwise (04 §4.4), the other expansions kept
+// either way and the permissions not read unless the expansion was asked.
+func TestExpansions(t *testing.T) {
+	ten := pgtest.NewTenant(t, "partner.supplier.read")
+	ten.Revoke(t, "partner.supplier.read", ten.Agent)
+	for _, c := range []struct {
+		name   string
+		as     pgtest.Actor
+		expand []string
+		want   string
+	}{
+		{"held", ten.Human, []string{"supplier", "other"}, "[supplier other]"},
+		{"not held", ten.Agent, []string{"other", "supplier"}, "[other]"},
+		{"not asked", ten.Agent, []string{"other"}, "[other]"},
+		{"nothing asked", ten.Agent, nil, "[]"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			as(t, ten, c.as, func(ctx context.Context) {
+				got, err := authz.Expansions(ctx, c.expand, "supplier", "partner.supplier.read")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if fmt.Sprint(got) != c.want {
+					t.Errorf("expansions: got %v, want %s", got, c.want)
+				}
+			})
+		})
+	}
+	t.Run("outside a request", func(t *testing.T) {
+		if _, err := authz.Expansions(context.Background(), []string{"supplier"}, "supplier", "partner.supplier.read"); err == nil {
+			t.Error("expansions without a transaction: got no error, want one")
+		}
+		if _, err := authz.Holds(context.Background(), "partner.supplier.read"); err == nil {
+			t.Error("holds without a transaction: got no error, want one")
+		}
+	})
+}
+
 func TestCompanies(t *testing.T) {
 	ten := pgtest.NewTenant(t)
 	le, ended := uuid.New(), uuid.New()

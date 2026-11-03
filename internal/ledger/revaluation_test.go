@@ -27,6 +27,10 @@ import (
 func revaluationSetup(t *testing.T, e env, payables bool) {
 	t.Helper()
 	applyRevaluation(t, e, revaluationDoc(document(t), payables))
+	// The human may read the partners its items name; the agent may not
+	// (04 §4.4), but may act in every company to read the run without them.
+	e.ten.Grant(t, "partner.supplier.read", e.ten.Human)
+	e.ten.AllCompanies(t, e.ten.Agent)
 }
 
 // revaluationDoc adds revaluationSetup's valuation to a document.
@@ -186,6 +190,24 @@ func TestRevaluationPreview(t *testing.T) {
 			"BP00000001 BP00000001 " + inv6.DocumentNumber}
 		if strings.Join(named, "\n") != strings.Join(want, "\n") {
 			t.Errorf("items named:\ngot  %s\nwant %s", strings.Join(named, "\n     "), strings.Join(want, "\n     "))
+		}
+	})
+	t.Run("partners unnamed for an agent who may not read them", func(t *testing.T) {
+		// A partner's number and name are a copy of the partner, which never
+		// crosses permissions (04 §4.4): the item keeps its partner_id and
+		// its entry's number, and the preview is answered, not refused.
+		cl := e.in(t)
+		cl.As = e.ten.Agent
+		got, _ := cl.Must(200, "POST", path, preview(e.de, "2026-03-31"), "")
+		var named []string
+		for _, x := range got["items"].([]any) {
+			it := x.(map[string]any)
+			named = append(named, fmt.Sprint(it["partner_id"] != nil, " ", it["partner_number"], " ", it["partner_name"], " ", it["document_number"]))
+		}
+		want := []string{"false <nil> <nil> <nil>", "true <nil> <nil> " + inv1.DocumentNumber, "true <nil> <nil> " + inv3.DocumentNumber,
+			"true <nil> <nil> " + inv6.DocumentNumber}
+		if strings.Join(named, "\n") != strings.Join(want, "\n") {
+			t.Errorf("items named for the agent:\ngot  %s\nwant %s", strings.Join(named, "\n     "), strings.Join(want, "\n     "))
 		}
 	})
 	t.Run("group currency valued on its own", func(t *testing.T) {

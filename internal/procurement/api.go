@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
@@ -53,7 +54,20 @@ func contractInputs(items []gen.ContractItem) []ItemInput {
 	return out
 }
 
-// expanded fills expanded.supplier when expand=supplier was requested.
+// mayExpand is the expansions asked for that the caller may read: a
+// supplier only for one who may read business partners, as an expansion
+// never crosses permissions (04 §4.4). Without it a requisition or order
+// is answered with its supplier_id alone, never refused.
+func mayExpand(ctx context.Context, expand []string) ([]string, error) {
+	out, err := authz.Expansions(ctx, expand, "supplier", partner.ReadPermission)
+	if err != nil {
+		return nil, fmt.Errorf("procurement: may the caller read a supplier: %w", err)
+	}
+	return out, nil
+}
+
+// expanded fills expanded.supplier when expand=supplier was requested and
+// the caller may read it (mayExpand).
 func (e *Endpoints) expanded(ctx context.Context, expand []string, supplier *uuid.UUID, le uuid.UUID) (gen.OptExpanded, error) {
 	if supplier == nil || !slices.Contains(expand, "supplier") {
 		return gen.OptExpanded{}, nil
@@ -196,7 +210,11 @@ func (e *Endpoints) GetRequisition(ctx context.Context, params gen.GetRequisitio
 	if err != nil {
 		return nil, err
 	}
-	out, err := e.requisitionOut(ctx, r, params.Expand)
+	expand, err := mayExpand(ctx, params.Expand)
+	if err != nil {
+		return nil, err
+	}
+	out, err := e.requisitionOut(ctx, r, expand)
 	if err != nil {
 		return nil, err
 	}
@@ -239,9 +257,13 @@ func (e *Endpoints) ListRequisitions(ctx context.Context, params gen.ListRequisi
 		}
 		return timestamp(r.CreatedAt), r.ID
 	})
+	expand, err := mayExpand(ctx, params.Expand)
+	if err != nil {
+		return nil, err
+	}
 	page := gen.RequisitionPage{Items: make([]gen.Requisition, len(list))}
 	for i, r := range list {
-		if page.Items[i], err = e.requisitionOut(ctx, r, params.Expand); err != nil {
+		if page.Items[i], err = e.requisitionOut(ctx, r, expand); err != nil {
 			return nil, err
 		}
 	}
@@ -442,7 +464,11 @@ func (e *Endpoints) GetPurchaseOrder(ctx context.Context, params gen.GetPurchase
 	if err != nil {
 		return nil, err
 	}
-	out, err := e.orderOut(ctx, o, params.Expand)
+	expand, err := mayExpand(ctx, params.Expand)
+	if err != nil {
+		return nil, err
+	}
+	out, err := e.orderOut(ctx, o, expand)
 	if err != nil {
 		return nil, err
 	}
@@ -485,9 +511,13 @@ func (e *Endpoints) ListPurchaseOrders(ctx context.Context, params gen.ListPurch
 		}
 		return o.OrderDate.Format(time.DateOnly), o.ID
 	})
+	expand, err := mayExpand(ctx, params.Expand)
+	if err != nil {
+		return nil, err
+	}
 	page := gen.PurchaseOrderPage{Items: make([]gen.PurchaseOrder, len(list))}
 	for i, o := range list {
-		if page.Items[i], err = e.orderOut(ctx, o, params.Expand); err != nil {
+		if page.Items[i], err = e.orderOut(ctx, o, expand); err != nil {
 			return nil, err
 		}
 	}
