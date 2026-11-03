@@ -314,10 +314,10 @@ start() {
   say "  - the GST34's lines (T61j-T61l): step 2 configures one"
   say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
-  say "  - the liquidity forecast's purchase orders, actuals and variance (T53f2-T53k): step 13 shows the daily cash"
+  say "  - the liquidity forecast's purchase orders and variance (T53f3-T53k): step 13 shows the daily cash"
   say "    position with a memo record and the forecast of the supplier open items, payment runs, parked invoices, down"
   say "    payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening, memo records"
-  say "    and payments in transit, conversion and drill-down; step 26 its snapshots"
+  say "    and payments in transit, conversion and drill-down; step 26 its snapshots; step 27 the cash actuals"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - asset depreciation runs, retirements, transfers and the rest of asset accounting (T57f-T57i): steps 19 and 20 show the"
   say "    classes and the master, steps 22 and 24 acquisitions and their corrections, step 25 the depreciation schedule and preview"
@@ -3102,6 +3102,44 @@ close_sign_off() {
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"A late courier charge\", \"lines\": [{\"account_id\": \"$(account 6000)\", \"amount\": {\"amount\": \"40.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$(account 211000)\", \"amount\": {\"amount\": \"-40.00\", \"currency\": \"CAD\"}, \"partner_id\": \"$SUPPLIER\"}]}"
 }
 
+# step_cash_actuals is the statement lines of the week classified by
+# their matches, by liquidity item and bucket, and the lines behind them
+# as each reader may see them (T53f2, ADR-0051 §4, §11).
+step_cash_actuals() {
+  heading "Step 27 — Cash actuals: the week's statement lines by liquidity item, classified by what they were matched to"
+  as tom
+  local from moved payments
+  from=$(date_add "$TODAY" -6)
+  moved=$(amount $(($(cents "$CLOSING") - $(cents 500000.00))))
+  payments=$(jq '.items | length' "$WORK/payments.json")
+  say "Tom reads what actually moved on Maple's accounts from $from to $TODAY, in one bucket of a week (T53f2): step 8's"
+  say "statement lines by value date, each classified as its match says; a line matched to payments takes the liquidity"
+  say "items of the supplier items they settled, a line not matched yet its direction's default, counted unclassified."
+  api 200 '"\(.from)..\(.to) by \(.grain), read on \(.read_date) in \(.time_zone)", (.currencies[] | .currency as $c
+      | "  \($c): in \(.inflow.amount), out \(.outflow.amount), total \(.total.amount) of \(.count) lines, unclassified \(.unclassified.amount.amount) (\(.unclassified.count))",
+      (.banks[] | "    bank \(.house_bank_code): \(.total.amount) of \(.count) lines"),
+      (.items[] | "    \("  " * .level)\(.liquidity_item // "unclassified") \(.name // ""): \(.total.amount)\([.matches[] | ", \(.match) \(.total.amount)"] | join(""))"))' \
+    getCashActuals -p "legal_entity_id=$LE" -p "from=$from" -p "to=$TODAY" -p grain=week
+  expect "the CAD total, what step 8's statement moved" "$(field '.currencies[] | select(.currency == "CAD") | .total.amount')" "$moved"
+  expect "the CAD lines, one per payment of the run" "$(field '.currencies[] | select(.currency == "CAD") | .count')" "$payments"
+  expect "the unclassified lines once reconciled" "$(field '.currencies[] | select(.currency == "CAD") | .unclassified.count')" 0
+  expect "RBC's total, the currency's" "$(field '.currencies[] | select(.currency == "CAD") | .banks[] | select(.house_bank_code == "RBC") | .total.amount')" "$moved"
+  expect "the top rows add up to the total" \
+    "$(field '.currencies[] | select(.currency == "CAD") | ([.items[] | select(.level == 0) | .total.amount | sub("\\."; "") | tonumber] | add) == (.total.amount | sub("\\."; "") | tonumber)')" true
+  say "The lines behind them, each with its statement, the payment it was matched to and its supplier:"
+  api 200 '"  \(.count) lines, total \(.total.amount) \(.total.currency)", (.items[0:5][] | "  \(.value_date) \(.house_bank_code) line \(.statement.line_no // "-") of \(.statement.statement_ref // "-") \(.status) by \(.match): \(.amount.amount)\([.shares[] | ", \(.liquidity_item // "unclassified") \(.amount.amount)"] | join(""));\([.payments[] | " run \(.payment_run_number) \(.amount.amount) to \(.supplier.name // "-")"] | join(""))")' \
+    listCashActualLines -p "legal_entity_id=$LE" -p currency=CAD -p "from=$from" -p "to=$TODAY" -p page_size=500
+  expect "every line matched to a payment" "$(field '[.items[] | select(.match == "payment" and .payment_count == 1)] | length')" "$payments"
+  expect "each payment and its supplier shown to Tom" "$(field '[.items[] | select((.payments | length) == 1 and .payments[0].supplier and (.suppliers | length) == 1 and .statement.statement_ref)] | length')" "$payments"
+  as rita
+  say "Rita holds the forecast's read alone: she reads the same lines without their statements, payments or suppliers."
+  api 200 '"  \(.count) lines; statements shown \([.items[] | select(.statement)] | length), payments \([.items[].payments[]] | length), suppliers \([.items[].suppliers[]] | length)"' \
+    listCashActualLines -p "legal_entity_id=$LE" -p currency=CAD -p "from=$from" -p "to=$TODAY" -p page_size=500
+  expect "what Rita is shown of other contexts" "$(field '[.items[] | select(.statement or (.payments | length) > 0 or (.suppliers | length) > 0)] | length')" 0
+  as tom
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -3123,7 +3161,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_close'
 
 main() {
   start

@@ -2841,6 +2841,15 @@ grants `erp_worker` those two columns), and asks each, in its own scope,
 which companies are due. Migration 000198 seeds `cash.snapshot.take`;
 reading a snapshot is `cash.forecast.read`.
 
+T53f2 reads the actuals, storing nothing: the legal entity's
+`payments.bank_statement_line`s by `value_date`, their statements' house
+bank and currency (`payments.bank_statement`), and each line's live
+`payments.statement_match` that is `matched` or `excluded` with its
+`statement_match_target`s (payments, a posting rule's transaction code,
+or the incoming payments clearing account), through the payments
+context's port; a matched payment's settled items as T53e3 reads a run's
+payment's. No migration; reading the actuals is `cash.forecast.read`.
+
 ## 3.19 Controlling (`controlling`)
 
 Plan values and plan against actual (ADR-0050 §2, §8, decision P5; T56g).
