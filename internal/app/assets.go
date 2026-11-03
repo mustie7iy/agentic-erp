@@ -10,6 +10,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/assets"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
@@ -130,9 +131,10 @@ func (assetLedger) ClearingLines(ctx context.Context, q assets.ClearingQuery) ([
 // per ledger.
 func (assetLedger) Post(ctx context.Context, p assets.Posting) ([]assets.PostedEntry, error) {
 	in := ledger.Posting{LegalEntityID: p.LegalEntityID, DocumentType: p.DocumentType, DocumentDate: p.DocumentDate, PostingDate: p.PostingDate,
-		Currency: p.Currency, HeaderText: p.HeaderText, SourceContext: "assets", SourceDocumentID: p.DocumentID}
+		Currency: p.Currency, HeaderText: p.HeaderText, SourceContext: "assets", SourceDocumentID: p.DocumentID, LedgerID: p.LedgerID}
 	for _, l := range p.Lines {
-		in.Lines = append(in.Lines, ledger.PostingLine{AccountID: l.AccountID, Amount: l.Amount, LC: l.LC, GC: l.GC, ProfitCenterID: l.ProfitCenterID, Text: l.Text})
+		in.Lines = append(in.Lines, ledger.PostingLine{AccountID: l.AccountID, Amount: l.Amount, LC: l.LC, GC: l.GC, CostCenterID: l.CostCenterID,
+			ProfitCenterID: l.ProfitCenterID, Text: l.Text})
 	}
 	posted, err := postings().Post(ctx, in)
 	if err != nil {
@@ -174,6 +176,14 @@ func (assetLedger) AccountNames(ctx context.Context, ids []uuid.UUID) (map[uuid.
 		out[id] = assets.AccountRef{ID: a.ID, Number: a.Number, Name: a.Name}
 	}
 	return out, err
+}
+
+func (assetLedger) PeriodOpen(ctx context.Context, legalEntity, ledgerID uuid.UUID, year, period int16) error {
+	return ledger.AssetReads{}.PeriodOpen(ctx, legalEntity, ledgerID, year, period)
+}
+
+func (assetLedger) GroupAmounts(ctx context.Context, from, to string, date time.Time, amounts []money.Minor) ([]money.Minor, error) {
+	return ledger.AssetReads{}.GroupAmounts(ctx, from, to, date, amounts)
 }
 
 // assetInvoices names the supplier invoices acquisitions come from, with
@@ -226,6 +236,10 @@ func (assetRuns) Start(ctx context.Context, resource string, request any) (gen.O
 		return gen.Operation{}, err
 	}
 	return operations.ToAPI(o), nil
+}
+
+func (assetRuns) Report(ctx context.Context, id uuid.UUID, done, total int64) error {
+	return operations.Report(ctx, id, done, total)
 }
 
 func (assetRuns) Succeed(ctx context.Context, id uuid.UUID, resource string, result any) error {

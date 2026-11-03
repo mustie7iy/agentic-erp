@@ -70,14 +70,21 @@ func (s releaseSteps) run() error {
 	if err == nil {
 		err = s.finish()
 	}
-	var app *temporal.ApplicationError
-	if errors.As(err, &app) && app.Type() == ProblemError {
-		var why problem.Problem
-		if app.Details(&why) == nil {
-			return s.fail(why)
-		}
+	if why, ok := problemOf(err); ok {
+		return s.fail(why)
 	}
 	return err
+}
+
+// problemOf is the business problem an activity failed with (asProblem),
+// ok false for any other error.
+func problemOf(err error) (problem.Problem, bool) {
+	var app *temporal.ApplicationError
+	var why problem.Problem
+	if errors.As(err, &app) && app.Type() == ProblemError && app.Details(&why) == nil {
+		return why, true
+	}
+	return problem.Problem{}, false
 }
 
 // ReleasePaymentRun posts the run's payments one activity each and ends

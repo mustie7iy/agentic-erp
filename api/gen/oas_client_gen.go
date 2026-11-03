@@ -1080,6 +1080,15 @@ type Invoker interface {
 	//
 	// GET /v1/me
 	GetCurrentPrincipal(ctx context.Context) (GetCurrentPrincipalRes, error)
+	// GetDepreciationRun invokes getDepreciationRun operation.
+	//
+	// One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it
+	// planned, posted and skipped, the depreciation it posted, the problem that failed it, and its batches
+	// with their journal entries and document numbers. One of a legal entity the caller cannot act in is
+	// not found.
+	//
+	// GET /v1/depreciation-runs/{id}
+	GetDepreciationRun(ctx context.Context, params GetDepreciationRunParams) (GetDepreciationRunRes, error)
 	// GetDownPaymentRequest invokes getDownPaymentRequest operation.
 	//
 	// Returns one down payment request.
@@ -1730,6 +1739,14 @@ type Invoker interface {
 	//
 	// GET /v1/country-packs
 	ListCountryPacks(ctx context.Context, params ListCountryPacksParams) (ListCountryPacksRes, error)
+	// ListDepreciationRuns invokes listDepreciationRuns operation.
+	//
+	// The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
+	// its batches and their journal entries' document numbers. Filters: company, ledger, fiscal year and
+	// status. Sortable by: `created_at` (default).
+	//
+	// GET /v1/depreciation-runs
+	ListDepreciationRuns(ctx context.Context, params ListDepreciationRunsParams) (ListDepreciationRunsRes, error)
 	// ListDownPaymentRequests invokes listDownPaymentRequests operation.
 	//
 	// Down payment requests (SAP F-47, ADR-0037). Sortable by: `due_date`.
@@ -3007,6 +3024,38 @@ type Invoker interface {
 	//
 	// POST /v1/agent-sessions
 	StartAgentSession(ctx context.Context, request *AgentSessionStart, params StartAgentSessionParams) (StartAgentSessionRes, error)
+	// StartDepreciationRun invokes startDepreciationRun operation.
+	//
+	// Starts the depreciation run of a company, ledger and regular period (ADR-0057 §7, T57f; SAP's
+	// AFAB): the run is written `queued` with its Operation (kind `assets.depreciate`, its `resource` the
+	// run) and carried out as a workflow, or in process in a cell without a workflow engine. It selects
+	// the assets the preview shows (`POST /v1/depreciation-runs/preview`), in batches of 500 by asset
+	// number, and posts per batch one journal entry in the run's ledger alone (document type AF, dated the
+	// period's last day, source context `assets`), per asset the planned depreciation through the period
+	// less what is booked in the ledger: the period's depreciation, a catch-up of earlier periods, or
+	// depreciation posted back (negative) after an acquisition's reversal. Each asset's lines take its
+	// latest center assignment: the expense per depreciation account, cost center and profit center, the
+	// credit per accumulated depreciation account and profit center, debits and credits on separate lines;
+	// each line's group amount is the sum of its assets' local amounts translated at the posting date's
+	// rate. Each batch re-checks its assets under their locks: one retired, cancelled, booked through a
+	// later period or moved to centers valid after the period's last day since the plan is skipped and
+	// counted. Each asset a batch processes is booked through the period in the ledger (its terms are
+	// fixed from then on) and gets a depreciation movement when it had a difference. A period already run
+	// posts only what changed since. `ledger_id` defaults to the leading ledger; one the company does not
+	// keep is 422 `ledger.ledger_not_kept`; a special period (13-16) is 422 `assets.special_period`; a
+	// fiscal year or period not set up is 422 `ledger.no_fiscal_period`; a period not open in the ledger
+	// is 409 `ledger.period_not_open`; a period before the latest posted run's in the ledger is 409
+	// `assets.run_out_of_order`; a run of the company and ledger already queued or running is 409
+	// `assets.run_in_progress`, whose detail names it. A business problem while posting (the period closed
+	// or locked meanwhile, an account blocked, a center invalid, a class no longer the company's, a
+	// missing exchange rate) fails the run and its Operation with the problem; batches already posted stay
+	// posted, and a new run of the period, or the next period's run, posts what is left. Cancelling the
+	// Operation does not stop the run: it is carried out to its end. The run is published as
+	// DepreciationRunCompleted when it ends, posted or failed, and audited. A legal entity the caller
+	// cannot act in is 404. Human-only.
+	//
+	// POST /v1/depreciation-runs
+	StartDepreciationRun(ctx context.Context, request *DepreciationRunStart, params StartDepreciationRunParams) (StartDepreciationRunRes, error)
 	// StartMigrationRun invokes startMigrationRun operation.
 	//
 	// Extracts, transforms and loads the scope; the run becomes `loaded`, or `failed`. Requires status
@@ -18814,6 +18863,140 @@ func (c *Client) sendGetCurrentPrincipal(ctx context.Context) (res GetCurrentPri
 	return result, nil
 }
 
+// GetDepreciationRun invokes getDepreciationRun operation.
+//
+// One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it
+// planned, posted and skipped, the depreciation it posted, the problem that failed it, and its batches
+// with their journal entries and document numbers. One of a legal entity the caller cannot act in is
+// not found.
+//
+// GET /v1/depreciation-runs/{id}
+func (c *Client) GetDepreciationRun(ctx context.Context, params GetDepreciationRunParams) (GetDepreciationRunRes, error) {
+	res, err := c.sendGetDepreciationRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetDepreciationRun(ctx context.Context, params GetDepreciationRunParams) (res GetDepreciationRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getDepreciationRun"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/depreciation-runs/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetDepreciationRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/depreciation-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetDepreciationRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetDepreciationRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetDownPaymentRequest invokes getDownPaymentRequest operation.
 //
 // Returns one down payment request.
@@ -32137,6 +32320,244 @@ func (c *Client) sendListCountryPacks(ctx context.Context, params ListCountryPac
 
 	stage = "DecodeResponse"
 	result, err := decodeListCountryPacksResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListDepreciationRuns invokes listDepreciationRuns operation.
+//
+// The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
+// its batches and their journal entries' document numbers. Filters: company, ledger, fiscal year and
+// status. Sortable by: `created_at` (default).
+//
+// GET /v1/depreciation-runs
+func (c *Client) ListDepreciationRuns(ctx context.Context, params ListDepreciationRunsParams) (ListDepreciationRunsRes, error) {
+	res, err := c.sendListDepreciationRuns(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListDepreciationRuns(ctx context.Context, params ListDepreciationRunsParams) (res ListDepreciationRunsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listDepreciationRuns"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/depreciation-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListDepreciationRunsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/depreciation-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "ledger_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "ledger_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LedgerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalYear.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListDepreciationRunsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListDepreciationRunsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -54361,6 +54782,162 @@ func (c *Client) sendStartAgentSession(ctx context.Context, request *AgentSessio
 
 	stage = "DecodeResponse"
 	result, err := decodeStartAgentSessionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// StartDepreciationRun invokes startDepreciationRun operation.
+//
+// Starts the depreciation run of a company, ledger and regular period (ADR-0057 §7, T57f; SAP's
+// AFAB): the run is written `queued` with its Operation (kind `assets.depreciate`, its `resource` the
+// run) and carried out as a workflow, or in process in a cell without a workflow engine. It selects
+// the assets the preview shows (`POST /v1/depreciation-runs/preview`), in batches of 500 by asset
+// number, and posts per batch one journal entry in the run's ledger alone (document type AF, dated the
+// period's last day, source context `assets`), per asset the planned depreciation through the period
+// less what is booked in the ledger: the period's depreciation, a catch-up of earlier periods, or
+// depreciation posted back (negative) after an acquisition's reversal. Each asset's lines take its
+// latest center assignment: the expense per depreciation account, cost center and profit center, the
+// credit per accumulated depreciation account and profit center, debits and credits on separate lines;
+// each line's group amount is the sum of its assets' local amounts translated at the posting date's
+// rate. Each batch re-checks its assets under their locks: one retired, cancelled, booked through a
+// later period or moved to centers valid after the period's last day since the plan is skipped and
+// counted. Each asset a batch processes is booked through the period in the ledger (its terms are
+// fixed from then on) and gets a depreciation movement when it had a difference. A period already run
+// posts only what changed since. `ledger_id` defaults to the leading ledger; one the company does not
+// keep is 422 `ledger.ledger_not_kept`; a special period (13-16) is 422 `assets.special_period`; a
+// fiscal year or period not set up is 422 `ledger.no_fiscal_period`; a period not open in the ledger
+// is 409 `ledger.period_not_open`; a period before the latest posted run's in the ledger is 409
+// `assets.run_out_of_order`; a run of the company and ledger already queued or running is 409
+// `assets.run_in_progress`, whose detail names it. A business problem while posting (the period closed
+// or locked meanwhile, an account blocked, a center invalid, a class no longer the company's, a
+// missing exchange rate) fails the run and its Operation with the problem; batches already posted stay
+// posted, and a new run of the period, or the next period's run, posts what is left. Cancelling the
+// Operation does not stop the run: it is carried out to its end. The run is published as
+// DepreciationRunCompleted when it ends, posted or failed, and audited. A legal entity the caller
+// cannot act in is 404. Human-only.
+//
+// POST /v1/depreciation-runs
+func (c *Client) StartDepreciationRun(ctx context.Context, request *DepreciationRunStart, params StartDepreciationRunParams) (StartDepreciationRunRes, error) {
+	res, err := c.sendStartDepreciationRun(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendStartDepreciationRun(ctx context.Context, request *DepreciationRunStart, params StartDepreciationRunParams) (res StartDepreciationRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("startDepreciationRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/depreciation-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, StartDepreciationRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/depreciation-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeStartDepreciationRunRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, StartDepreciationRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeStartDepreciationRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

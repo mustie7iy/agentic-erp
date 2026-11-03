@@ -2862,8 +2862,9 @@ by `ledger.tax_item_reported_in`, built concurrently by migration 000180).
 ## 3.21 Asset accounting (`assets`)
 
 The asset master (ADR-0057 §5, §7, §8, T57b), its acquisitions and
-their reversals (§6, T57c, T57d) and its depreciation schedule, read from
-them (§7, T57e, no table of its own), owned by the assets context
+their reversals (§6, T57c, T57d), its depreciation schedule, read from
+them (§7, T57e, no table of its own), and the depreciation runs that post
+it (§7, T57f, migration 000194), owned by the assets context
 (`internal/assets`, a leaf). Migration 000191 creates the schema, its
 outbox (`assets.outbox`, AssetChanged) and the permission
 `assets.asset.change` (`assets.asset.read` came with T57a). The classes and
@@ -2879,6 +2880,8 @@ erDiagram
   asset ||--o{ movement : "per ledger and effect"
   acquisition }o--|| clearing_use : "takes from a line"
   acquisition ||--|{ document_entry : "one per ledger"
+  depreciation_run ||--o{ depreciation_batch : "500 assets each"
+  depreciation_batch ||--o{ movement : "a depreciation movement per asset"
   asset { uuid id PK
     uuid legal_entity_id "tenancy context"
     text asset_number "unique in the company"
@@ -2928,6 +2931,21 @@ erDiagram
     text part PK "main | catch_up"
     uuid journal_entry_id "ledger context"
     uuid reversal_entry_id "ledger context (T57d)" }
+  depreciation_run { uuid id PK
+    uuid legal_entity_id "tenancy context"
+    uuid ledger_id "ledger context"
+    smallint fiscal_year
+    smallint fiscal_period "regular, 1-12"
+    text status "queued | running | posted | failed"
+    uuid operation_id "platform.operation"
+    bigint amount "local currency, once posted"
+    jsonb error "once failed" }
+  depreciation_batch { uuid run_id PK
+    int batch_no PK
+    uuid_array asset_ids "1-500"
+    text status "pending | posted"
+    uuid journal_entry_id "ledger context, once posted"
+    text document_number }
 ```
 
 | Table | Purpose |
@@ -2939,3 +2957,5 @@ erDiagram
 | `assets.clearing_use` | What acquisitions used of a capitalised line, keyed by the line: its amounts in its currency, local and group currency, and what is used of each, which stays between zero and the line's amount (the mirror for a credit line, `clearing_use_within_line`); the line's amounts never change (`clearing_use_line_fixed`). Read FOR UPDATE by every acquisition from the line, and given back by its reversal. A reversal's line names the line it reverses (`reverses_entry_year`, `reverses_entry_id`, both or neither, `clearing_use_reverses`; T57d), which never changes, so an asset's take-off through it is bounded by what it holds from that line |
 | `assets.movement` | The subledger (ADR-0057 §5): one append-only row per asset, ledger and effect (`acquisition`, `depreciation`, `retirement`, `transfer_out`, `transfer_in`) with the signed change of cost and accumulated depreciation in local and group currency, of residual value (negative when a retirement or transfer out took it, positive when a transfer in brought it, T57e), proceeds and share, its document and journal entry. The depreciation schedule and a run's preview (T57e) are computed from these rows and `asset_terms` at the read, never stored (ADR-0057 §7), and `GET /v1/assets/{id}/movements` lists them. A reversal row has its original's kind, asset and ledger and exactly the negated amounts (`movement_reversal`), each original is reversed at most once (`movement_reversed_once`), and depreciation changes accumulated depreciation alone (`movement_depreciation`) |
 | `assets.document_entry` | The journal entry of each assets document per ledger and part (`main`, or a center transfer's `catch_up`), with its document number; the reversal records its reversal entry and that entry's number once (`document_entry_reversal`, `document_entry_reversal_number`, `document_entry_reversed_once`; T57d), the only update granted |
+| `assets.depreciation_run` | A depreciation run (T57f, migration 000194; ADR-0057 §7) of a company, ledger and regular period (`depreciation_run_fiscal_period_check`), dated the period's last day, with its Operation. It starts `queued` and moves queued -> running -> posted, or to failed from queued or running; posted and failed are final (`depreciation_run_transition`), and what it runs never changes, nor its plan once running nor its outcome once ended (`depreciation_run_fixed`). It is planned (`assets_planned`) once running (`depreciation_run_planned`), has its totals (`amount`, `assets_posted`, `assets_skipped`) exactly when posted (`depreciation_run_totals`) and its problem exactly when failed (`depreciation_run_error`). One run of a company and ledger is queued or running at a time (`depreciation_run_one_at_a_time`, a partial unique index; 409 `assets.run_in_progress`) |
+| `assets.depreciation_batch` | A run's batch of 1-500 assets by asset number (`depreciation_batch_asset_ids_check`), `pending` until posted once in one transaction (`depreciation_batch_transition`, which keeps its assets), with its totals exactly when posted (`depreciation_batch_posted`) and its journal entry and document number only then, all or none (`depreciation_batch_entry`; none when no asset of it had a difference). A run's depreciation movements (`document_kind` `depreciation_run`) carry the batch's entry, whose document number the movements list reads from here |

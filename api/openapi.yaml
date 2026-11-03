@@ -14428,6 +14428,154 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/depreciation-runs:
+    post:
+      operationId: startDepreciationRun
+      tags:
+        - assets
+      summary: Start a depreciation run
+      description: "Starts the depreciation run of a company, ledger and regular period (ADR-0057 §7, T57f; SAP's AFAB): the run is written `queued` with its Operation (kind `assets.depreciate`, its `resource` the run) and carried out as a workflow, or in process in a cell without a workflow engine. It selects the assets the preview shows (`POST /v1/depreciation-runs/preview`), in batches of 500 by asset number, and posts per batch one journal entry in the run's ledger alone (document type AF, dated the period's last day, source context `assets`), per asset the planned depreciation through the period less what is booked in the ledger: the period's depreciation, a catch-up of earlier periods, or depreciation posted back (negative) after an acquisition's reversal. Each asset's lines take its latest center assignment: the expense per depreciation account, cost center and profit center, the credit per accumulated depreciation account and profit center, debits and credits on separate lines; each line's group amount is the sum of its assets' local amounts translated at the posting date's rate. Each batch re-checks its assets under their locks: one retired, cancelled, booked through a later period or moved to centers valid after the period's last day since the plan is skipped and counted. Each asset a batch processes is booked through the period in the ledger (its terms are fixed from then on) and gets a depreciation movement when it had a difference. A period already run posts only what changed since. `ledger_id` defaults to the leading ledger; one the company does not keep is 422 `ledger.ledger_not_kept`; a special period (13-16) is 422 `assets.special_period`; a fiscal year or period not set up is 422 `ledger.no_fiscal_period`; a period not open in the ledger is 409 `ledger.period_not_open`; a period before the latest posted run's in the ledger is 409 `assets.run_out_of_order`; a run of the company and ledger already queued or running is 409 `assets.run_in_progress`, whose detail names it. A business problem while posting (the period closed or locked meanwhile, an account blocked, a center invalid, a class no longer the company's, a missing exchange rate) fails the run and its Operation with the problem; batches already posted stay posted, and a new run of the period, or the next period's run, posts what is left. Cancelling the Operation does not stop the run: it is carried out to its end. The run is published as DepreciationRunCompleted when it ends, posted or failed, and audited. A legal entity the caller cannot act in is 404. Human-only."
+      x-permission: assets.depreciation.run
+      x-agent: false
+      x-problem-codes:
+        - assets.run_in_progress
+        - assets.run_out_of_order
+        - assets.special_period
+        - ledger.ledger_not_kept
+        - ledger.no_fiscal_period
+        - ledger.period_not_open
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The run to start.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DepreciationRunStart"
+            examples:
+              march:
+                summary: Post March's depreciation in the leading ledger
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  fiscal_year: 2026
+                  period: 3
+      responses:
+        "202":
+          description: "Accepted; the run continues as a long-running operation. Poll the Operation at `Location`; its `resource` is the run (`GET /v1/depreciation-runs/{id}`)."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Operation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    get:
+      operationId: listDepreciationRuns
+      tags:
+        - assets
+      summary: List depreciation runs
+      description: "The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with its batches and their journal entries' document numbers. Filters: company, ledger, fiscal year and status. Sortable by: `created_at` (default)."
+      x-permission: assets.asset.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: ledger_id
+          in: query
+          required: false
+          description: Only the runs of this ledger.
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: false
+          description: Only the runs of this fiscal year.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: status
+          in: query
+          required: false
+          description: Only runs in this status.
+          schema:
+            type: string
+            description: "Depreciation run status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [queued, running, posted, failed]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of depreciation runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepreciationRunPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/depreciation-runs/{id}":
+    get:
+      operationId: getDepreciationRun
+      tags:
+        - assets
+      summary: Get a depreciation run
+      description: "One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it planned, posted and skipped, the depreciation it posted, the problem that failed it, and its batches with their journal entries and document numbers. One of a legal entity the caller cannot act in is not found."
+      x-permission: assets.asset.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The run.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepreciationRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/depreciation-runs/preview:
     post:
       operationId: previewDepreciationRun
@@ -33060,10 +33208,10 @@ components:
           x-extensible-enum: [acquisition, retirement, transfer, depreciation_run]
           description: "The kind of document it belongs to. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
-        document_id: {type: string, format: uuid, description: "The document (an acquisition: `GET /v1/asset-acquisitions/{id}`).", readOnly: true}
+        document_id: {type: string, format: uuid, description: "The document (an acquisition: `GET /v1/asset-acquisitions/{id}`; a depreciation run: `GET /v1/depreciation-runs/{id}`).", readOnly: true}
         journal_entry_id: {type: string, format: uuid, description: "That ledger's journal entry (`GET /v1/journal-entries/{id}`); absent for a catch-up of zero.", readOnly: true}
         journal_entry_fiscal_year: {type: integer, format: int32, description: "The journal entry's fiscal year.", readOnly: true}
-        document_number: {type: string, description: "The journal entry's document number, for an acquisition's, retirement's or transfer's entry.", readOnly: true}
+        document_number: {type: string, description: "The journal entry's document number: an acquisition's, retirement's or transfer's entry, or a depreciation run's batch entry.", readOnly: true}
         reverses_id: {type: string, format: uuid, description: "For a reversal: the movement it reverses.", readOnly: true}
         reversed_by_id: {type: string, format: uuid, description: "For a reversed movement: the movement reversing it.", readOnly: true}
       examples:
@@ -33099,6 +33247,115 @@ components:
           items:
             $ref: "#/components/schemas/AssetMovement"
           description: The movements on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
+    DepreciationRunStart:
+      type: object
+      description: "The depreciation run to start: a company, a ledger and a regular period."
+      required: [legal_entity_id, fiscal_year, period]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company's legal entity.", example: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01}
+        ledger_id: {type: string, format: uuid, description: The ledger (one depreciation area); default the leading ledger.}
+        fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2999, description: The fiscal year.}
+        period: {type: integer, format: int32, minimum: 1, maximum: 16, description: "The period; a regular one (1-12)."}
+    DepreciationRun:
+      type: object
+      description: "A depreciation run (ADR-0057 §7): what it posted in its ledger for its period, in the company's local currency, and its batches."
+      required: [id, legal_entity_id, company_code, ledger_id, ledger_code, ledger_name, fiscal_year, period, posting_date, currency, status, operation_id, batches, version, created_at, created_by, updated_at]
+      properties:
+        id: {type: string, format: uuid, description: The run., readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The company's legal entity.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        ledger_id: {type: string, format: uuid, description: The ledger., readOnly: true}
+        ledger_code: {type: string, description: "The ledger's code.", readOnly: true}
+        ledger_name: {type: string, description: "The ledger's name.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: The fiscal year., readOnly: true}
+        period: {type: integer, format: int32, description: The regular period., readOnly: true}
+        posting_date: {type: string, format: date, description: "The period's last day, its entries' posting date.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's local currency, every amount's.", readOnly: true}
+        status:
+          type: string
+          x-extensible-enum: [queued, running, posted, failed]
+          description: "queued until its workflow plans it, running while its batches post, then posted or failed. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        operation_id: {type: string, format: uuid, description: "Its Operation (`GET /v1/operations/{id}`).", readOnly: true}
+        assets_planned: {type: integer, format: int32, description: "The assets it selected, once planned.", readOnly: true}
+        assets_posted: {type: integer, format: int32, description: "The assets it posted a difference for, once posted; for a failed run, what its posted batches posted.", readOnly: true}
+        assets_skipped: {type: integer, format: int32, description: "The assets its batches skipped under their locks (retired, cancelled, booked through a later period or moved to centers valid after the period since the plan), once posted; for a failed run, its posted batches'.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "The depreciation it posted, once posted; for a failed run, what its posted batches posted, which stays posted. Negative where depreciation was posted back (after an acquisition's reversal) more than posted."}
+        error: {$ref: "#/components/schemas/DepreciationRunError"}
+        batches:
+          type: array
+          description: "Its batches in order, once planned."
+          items: {$ref: "#/components/schemas/DepreciationRunBatch"}
+        version: {type: integer, format: int32, description: "The run's version (ETag).", readOnly: true}
+        created_at: {type: string, format: date-time, description: When it was started., readOnly: true}
+        created_by: {type: string, format: uuid, description: Who started it., readOnly: true}
+        updated_at: {type: string, format: date-time, description: When it last changed., readOnly: true}
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000f31
+          legal_entity_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01
+          company_code: "1000"
+          ledger_id: 0192a000-0000-7000-8000-000000000301
+          ledger_code: 0L
+          ledger_name: Leading ledger
+          fiscal_year: 2026
+          period: 11
+          posting_date: "2026-11-30"
+          currency: CAD
+          status: posted
+          operation_id: 0192a000-0000-7000-8000-000000000f32
+          assets_planned: 2
+          assets_posted: 2
+          assets_skipped: 0
+          amount: {amount: "112.50", currency: CAD}
+          batches:
+            - {batch_no: 1, status: posted, assets: 2, assets_posted: 2, assets_skipped: 0, amount: {amount: "112.50", currency: CAD}, journal_entry_id: 0192a000-0000-7000-8000-000000000f33, journal_entry_fiscal_year: 2026, document_number: "AF-2026-000001"}
+          version: 3
+          created_at: "2026-11-30T17:00:00Z"
+          created_by: 0192a000-0000-7000-8000-000000000101
+          updated_at: "2026-11-30T17:00:04Z"
+    DepreciationRunError:
+      type: object
+      description: "The problem that failed a run (its code and detail, as the Operation's error gives them)."
+      required: [code, detail]
+      properties:
+        code: {type: string, description: "The problem's code, such as `ledger.period_not_open`.", readOnly: true}
+        detail: {type: string, description: "The problem's detail.", readOnly: true}
+    DepreciationRunBatch:
+      type: object
+      description: "A batch of a depreciation run: at most 500 assets posted as one journal entry in the run's ledger (none when no asset of it had a difference)."
+      required: [batch_no, status, assets]
+      properties:
+        batch_no: {type: integer, format: int32, description: "The batch's number in the run, from 1.", readOnly: true}
+        status:
+          type: string
+          x-extensible-enum: [pending, posted]
+          description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        assets: {type: integer, format: int32, description: The assets the run planned in it., readOnly: true}
+        assets_posted: {type: integer, format: int32, description: "The assets it posted a difference for, once posted.", readOnly: true}
+        assets_skipped: {type: integer, format: int32, description: "The assets it skipped under their locks, once posted.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "The depreciation it posted, once posted; negative where depreciation was posted back more than posted."}
+
+        journal_entry_id: {type: string, format: uuid, description: "Its journal entry (`GET /v1/journal-entries/{id}`), once posted with a difference.", readOnly: true}
+        journal_entry_fiscal_year: {type: integer, format: int32, description: "The entry's fiscal year.", readOnly: true}
+        document_number: {type: string, description: "The entry's document number.", readOnly: true}
+    DepreciationRunPage:
+      type: object
+      description: One page of depreciation runs.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DepreciationRun"
+          description: The runs on this page.
         next_page_token:
           type: string
           description: "Opaque cursor for the next page; absent on the last page."
@@ -33188,7 +33445,7 @@ components:
         difference: {$ref: "#/components/schemas/Money"}
         lines:
           type: array
-          description: "The lines a run would post, the expense lines by depreciation account, cost center and profit center, then the credit lines by accumulated depreciation account and profit center, by account number; a line summing to zero is left out."
+          description: "The lines a run would post, the expense lines by depreciation account, cost center and profit center, then the credit lines by accumulated depreciation account and profit center, by account number, each with its debits and its credits on separate lines (an asset's negative difference, depreciation posted back, is a credit of expense and a debit of accumulated depreciation)."
           items: {$ref: "#/components/schemas/DepreciationPreviewLine"}
     DepreciationPreviewLine:
       type: object

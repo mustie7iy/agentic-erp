@@ -118,6 +118,12 @@ type Posting struct {
 	// one with GR/IR items only when it takes positions over
 	// (GRIRItem.TakesOverLC).
 	Rate *big.Rat
+	// LedgerID posts the entry to that one ledger its company keeps (422
+	// ledger.ledger_not_kept otherwise), as a manual entry's ledger_id
+	// does: a ledger-specific posting, refused on a supplier or customer
+	// reconciliation account (ADR-0057 §4, T57f: a depreciation run posts
+	// in its ledger alone). nil: every ledger the company keeps.
+	LedgerID *uuid.UUID
 }
 
 // ItemTerms are the payment terms an open item was posted with, as SAP
@@ -379,7 +385,7 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 	entry := NewEntry{LegalEntityID: in.LegalEntityID, DocumentType: in.DocumentType, DocumentDate: in.DocumentDate, PostingDate: in.PostingDate,
 		TaxDate: in.TaxDate, Currency: in.Currency, Reference: in.Reference, HeaderText: in.HeaderText, SourceContext: in.SourceContext,
 		SourceDocumentID: &in.SourceDocumentID, Lines: make([]NewLine, len(in.Lines)), taxItems: in.TaxItems, rate: in.Rate,
-		taxDateChosen: in.TaxDateChosen}
+		taxDateChosen: in.TaxDateChosen, LedgerID: in.LedgerID}
 	for i, l := range in.Lines {
 		entry.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.Amount.Plain(exps[in.Currency]), Currency: in.Currency,
 			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, SpecialGL: l.SpecialGL, lc: l.LC, gc: l.GC,

@@ -47,6 +47,15 @@
 // a ledger, in minor units, so the schedule read, a run's preview and the
 // run (T57f) never disagree with the movements; the movements are listed
 // as the asset's subledger.
+//
+// T57f builds the depreciation run (ADR-0057 §4, §7): a run of a company,
+// ledger and regular period is queued with its Operation and carried out
+// by the workflow DepreciationRun through the workflows.Depreciation
+// port, which these endpoints implement: the plan writes the selected
+// assets in batches of 500, each batch posts its assets' differences as
+// one entry in the run's ledger alone (ledger.Posting.LedgerID), with a
+// depreciation movement per asset, under the assets' locks, and the run
+// ends posted or failed, published as DepreciationRunCompleted.
 package assets
 
 import (
@@ -101,7 +110,10 @@ type LedgerRef struct {
 // through the ledger's posting API, and the reversal of such an entry
 // (its posting group's first) on a date, their entries returned per
 // ledger; an account a manual acquisition may credit in a company (ok
-// false for any other); and accounts' numbers and names by id.
+// false for any other); accounts' numbers and names by id; whether a
+// regular period is open in a ledger (409 ledger.period_not_open
+// otherwise); and amounts of a local currency in the group currency on a
+// date, as a posting dated then translates them (ADR-0057 §7, T57f).
 type Ledger interface {
 	Ledgers(ctx context.Context, legalEntity *uuid.UUID) ([]LedgerRef, error)
 	FiscalYear(ctx context.Context, legalEntity uuid.UUID, date time.Time) (int16, error)
@@ -114,6 +126,8 @@ type Ledger interface {
 	Reverse(ctx context.Context, entry uuid.UUID, postingDate time.Time) ([]PostedEntry, error)
 	OffsetAccount(ctx context.Context, legalEntity, account uuid.UUID) (AccountRef, bool, error)
 	AccountNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]AccountRef, error)
+	PeriodOpen(ctx context.Context, legalEntity, ledger uuid.UUID, year, period int16) error
+	GroupAmounts(ctx context.Context, from, to string, date time.Time, amounts []money.Minor) ([]money.Minor, error)
 }
 
 // AccountRef is a G/L account by its number and name.
@@ -186,9 +200,11 @@ type ClearingKey struct {
 }
 
 // Posting is an entry an assets document posts to every ledger its
-// company keeps (ADR-0057 §4, §6).
+// company keeps (ADR-0057 §4, §6), or to the one ledger LedgerID names (a
+// depreciation run's, §7).
 type Posting struct {
 	LegalEntityID             uuid.UUID
+	LedgerID                  *uuid.UUID
 	DocumentType              string
 	PostingDate, DocumentDate time.Time
 	Currency                  string
@@ -200,13 +216,13 @@ type Posting struct {
 // PostingLine is a line in the posting's currency, debit positive, with
 // the local and group amounts it keeps (PostingLine.LC and GC; both nil:
 // converted at the posting date's rate, as a manual acquisition's lines
-// are) and its profit center.
+// are) and its cost and profit center.
 type PostingLine struct {
-	AccountID      uuid.UUID
-	Amount         money.Minor
-	LC, GC         *money.Minor
-	ProfitCenterID *uuid.UUID
-	Text           *string
+	AccountID                    uuid.UUID
+	Amount                       money.Minor
+	LC, GC                       *money.Minor
+	CostCenterID, ProfitCenterID *uuid.UUID
+	Text                         *string
 }
 
 // PostedEntry is one ledger's entry of a posting.
@@ -262,10 +278,12 @@ const KindDepreciate = "assets.depreciate"
 // Runs keeps a depreciation run's Operation (operations context, ADR-0057
 // §2, §7): Start writes it queued, for the run's resource path, in the
 // request's transaction, which the workflows dispatcher then starts;
-// Succeed and Fail finish it from the run's activities. assets imports
-// neither operations nor the workflow engine.
+// Report records the batches posted of all; Succeed and Fail finish it
+// from the run's activities. assets imports neither operations nor the
+// workflow engine.
 type Runs interface {
 	Start(ctx context.Context, resource string, request any) (gen.Operation, error)
+	Report(ctx context.Context, id uuid.UUID, done, total int64) error
 	Succeed(ctx context.Context, id uuid.UUID, resource string, result any) error
 	Fail(ctx context.Context, id uuid.UUID, p *problem.Problem) error
 }
@@ -281,4 +299,5 @@ type Endpoints struct {
 	Invoices  Invoices
 	Pages     *pagination.Codec
 	Now       func() time.Time // the clock of an asset's creation date; nil: the wall clock
+	BatchSize int              // the most assets a depreciation run's batch takes; 0: 500
 }

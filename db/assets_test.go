@@ -384,3 +384,90 @@ func TestAcquisitionReversalRules(t *testing.T) {
 	failsWith(t, f.try(t, record, doc, "3"), "is reversed once")
 	failsWith(t, f.try(t, `UPDATE assets.document_entry SET journal_entry_year = 2027 WHERE document_id = $1`, doc), "permission denied")
 }
+
+// Depreciation runs (T57f, migration 000194).
+const (
+	depreciationRunSQL = `INSERT INTO assets.depreciation_run (tenant_id, id, legal_entity_id, ledger_id, fiscal_year, fiscal_period, posting_date, currency, status,
+		operation_id, created_by, updated_by) VALUES ($1, $2, $3, $4, 2026, $5, '2026-06-30', 'EUR', $6, gen_random_uuid(), $7, $7)`
+	depreciationBatchSQL = `INSERT INTO assets.depreciation_batch (tenant_id, run_id, batch_no, asset_ids, status) VALUES ($1, $2, $3, $4, $5)`
+)
+
+// TestDepreciationRunRules: a run starts queued and moves queued ->
+// running -> posted, or to failed from queued or running, posted and
+// failed being final; it is planned once running, has its totals exactly
+// when posted and its problem exactly when failed, and keeps what it
+// runs; one run of a company and ledger is queued or running at a time; a
+// batch holds 1 to 500 assets, starts pending, is posted once with its
+// totals, has its entry only when posted, and keeps its assets.
+func TestDepreciationRunRules(t *testing.T) {
+	need(t)
+	f := newAssetFixture(t)
+	run, other := id(), id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, depreciationRunSQL, f.tenant, run, f.entity, f.ledger, 6, "queued", f.actor)
+	})
+	running := `UPDATE assets.depreciation_run SET status = 'running', assets_planned = $2, version = version + 1 WHERE id = $1`
+	for name, c := range map[string]struct {
+		sql  string
+		args []any
+		want string
+	}{
+		"a run starting running":          {depreciationRunSQL, []any{f.tenant, id(), f.entity, f.ledger2, 6, "running", f.actor}, "starts queued"},
+		"a second run of the ledger":      {depreciationRunSQL, []any{f.tenant, other, f.entity, f.ledger, 7, "queued", f.actor}, "depreciation_run_one_at_a_time"},
+		"a special period":                {depreciationRunSQL, []any{f.tenant, id(), f.entity, f.ledger2, 13, "queued", f.actor}, "depreciation_run_fiscal_period_check"},
+		"running without a plan":          {`UPDATE assets.depreciation_run SET status = 'running', version = version + 1 WHERE id = $1`, []any{run}, "depreciation_run_planned"},
+		"posted from queued":              {`UPDATE assets.depreciation_run SET status = 'posted', amount = 0, assets_posted = 0, assets_skipped = 0, version = version + 1 WHERE id = $1`, []any{run}, "cannot change from queued to posted"},
+		"failed without its problem":      {`UPDATE assets.depreciation_run SET status = 'failed', version = version + 1 WHERE id = $1`, []any{run}, "depreciation_run_error"},
+		"a problem while queued":          {`UPDATE assets.depreciation_run SET error = '{}', version = version + 1 WHERE id = $1`, []any{run}, "depreciation_run_error"},
+		"totals while queued":             {`UPDATE assets.depreciation_run SET amount = 0, assets_posted = 0, assets_skipped = 0, version = version + 1 WHERE id = $1`, []any{run}, "depreciation_run_totals"},
+		"its period changed":              {`UPDATE assets.depreciation_run SET fiscal_period = 7, version = version + 1 WHERE id = $1`, []any{run}, "keeps what it runs"},
+		"a run deleted":                   {`DELETE FROM assets.depreciation_run WHERE id = $1`, []any{run}, "permission denied"},
+		"a batch of no assets":            {depreciationBatchSQL, []any{f.tenant, run, 1, []uuid.UUID{}, "pending"}, "depreciation_batch_asset_ids_check"},
+		"a batch of 501 assets":           {depreciationBatchSQL, []any{f.tenant, run, 1, make([]uuid.UUID, 501), "pending"}, "depreciation_batch_asset_ids_check"},
+		"a batch starting posted":         {depreciationBatchSQL, []any{f.tenant, run, 1, []uuid.UUID{f.active}, "posted"}, "starts pending"},
+		"a batch of another tenant's run": {depreciationBatchSQL, []any{f.tenant, id(), 1, []uuid.UUID{f.active}, "pending"}, "depreciation_batch_tenant_id_run_id_fkey"},
+	} {
+		t.Run(name, func(t *testing.T) { failsWith(t, f.try(t, c.sql, c.args...), c.want) })
+	}
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, running, run, 1); err != nil {
+			return err
+		}
+		return exec(tx, depreciationBatchSQL, f.tenant, run, 1, []uuid.UUID{f.active}, "pending")
+	})
+	post := `UPDATE assets.depreciation_batch SET status = 'posted', amount = 1000, assets_posted = 1, assets_skipped = 0, journal_entry_year = $2,
+		journal_entry_id = $3, document_number = $4, version = version + 1 WHERE run_id = $1`
+	for name, c := range map[string]struct {
+		sql  string
+		args []any
+		want string
+	}{
+		"planned again":                 {running, []any{run, 2}, "keeps what it runs, its plan"},
+		"a batch posted without totals": {`UPDATE assets.depreciation_batch SET status = 'posted', version = version + 1 WHERE run_id = $1`, []any{run}, "depreciation_batch_posted"},
+		"an entry without its number":   {post, []any{run, 2026, id(), nil}, "depreciation_batch_entry"},
+		"its assets changed":            {`UPDATE assets.depreciation_batch SET asset_ids = $2, version = version + 1 WHERE run_id = $1`, []any{run, []uuid.UUID{f.planned}}, "keeps its assets"},
+		"an entry while pending":        {`UPDATE assets.depreciation_batch SET journal_entry_year = 2026, journal_entry_id = gen_random_uuid(), document_number = '1', version = version + 1 WHERE run_id = $1`, []any{run}, "depreciation_batch_entry"},
+	} {
+		t.Run(name, func(t *testing.T) { failsWith(t, f.try(t, c.sql, c.args...), c.want) })
+	}
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, post, run, 2026, id(), "AF-1"); err != nil {
+			return err
+		}
+		return exec(tx, `UPDATE assets.depreciation_run SET status = 'posted', amount = 1000, assets_posted = 1, assets_skipped = 0, version = version + 1 WHERE id = $1`, run)
+	})
+	failsWith(t, f.try(t, post, run, 2026, id(), "AF-2"), "is posted once")
+	failsWith(t, f.try(t, `UPDATE assets.depreciation_run SET amount = 2000, version = version + 1 WHERE id = $1`, run), "its outcome")
+	failsWith(t, f.try(t, `UPDATE assets.depreciation_run SET status = 'failed', error = '{}', amount = NULL, assets_posted = NULL, assets_skipped = NULL,
+		version = version + 1 WHERE id = $1`, run), "cannot change from posted to failed")
+	// The run posted, another of the ledger may start; one failed is final.
+	failed := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, depreciationRunSQL, f.tenant, failed, f.entity, f.ledger, 7, "queued", f.actor); err != nil {
+			return err
+		}
+		return exec(tx, `UPDATE assets.depreciation_run SET status = 'failed', error = '{"code": "x"}', version = version + 1 WHERE id = $1`, failed)
+	})
+	failsWith(t, f.try(t, `UPDATE assets.depreciation_run SET status = 'running', assets_planned = 0, error = NULL, version = version + 1 WHERE id = $1`, failed),
+		"cannot change from failed to running")
+}

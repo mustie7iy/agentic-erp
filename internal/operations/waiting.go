@@ -1,6 +1,8 @@
 package operations
 
 import (
+	"context"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
@@ -29,4 +31,31 @@ func ScanWaiting(r pgx.CollectableRow) (Waiting, error) {
 	var w Waiting
 	err := r.Scan(&w.Kind, &w.TenantID, &w.ID, &w.Resource, &w.LegalEntity, &w.Number, &w.Attempt)
 	return w, errs.Wrapf(err, "scan waiting operation")
+}
+
+// QueuedOf lists, across tenants and in the order they were queued, the
+// operations of a kind waiting for a workflow whose resource is the path
+// of what they work on (/v1/depreciation-runs/{id}), the resource being
+// the path's last part: queued, or cancelled before any workflow took
+// them, since cancelling such an operation does not stop its work (a
+// depreciation run is carried to its end, ADR-0057 §7). It serves a leaf
+// context (ADR-0057 §2), whose tables the workflows dispatcher may not
+// read: the operation alone is the hand-off.
+func QueuedOf(ctx context.Context, tx pgx.Tx, kind string) ([]Waiting, error) {
+	rows, _ := tx.Query(ctx, `SELECT kind, tenant_id, id, substring(resource from '[^/]+$')::uuid, '00000000-0000-0000-0000-000000000000'::uuid, '', 0
+		FROM platform.operation WHERE kind = $1 AND status IN ('queued', 'cancelled') AND workflow_id IS NULL AND resource IS NOT NULL ORDER BY id`, kind)
+	waiting, err := pgx.CollectRows(rows, ScanWaiting)
+	return waiting, errs.Wrapf(err, "operations: list the %s operations waiting for a workflow", kind)
+}
+
+// TenantsOf lists the tenants with operations of a kind queued, running or
+// cancelled: those an in-process worker of a cell without a workflow
+// engine asks, in each tenant's scope, for the work still to do
+// (ADR-0057 §7, a depreciation run carried to its end however its
+// operation ended).
+func TenantsOf(ctx context.Context, tx pgx.Tx, kind string) ([]uuid.UUID, error) {
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM platform.operation WHERE kind = $1 AND status IN ('queued', 'running', 'cancelled')
+		ORDER BY tenant_id`, kind)
+	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	return tenants, errs.Wrapf(err, "operations: tenants with %s operations", kind)
 }

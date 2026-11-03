@@ -2732,6 +2732,54 @@ step_asset_depreciation() {
   passed
 }
 
+step_depreciation_run() {
+  heading "Step 24 — The depreciation run: this period's depreciation posted in the leading ledger, one entry per batch; a repeat run posts nothing"
+  as carla
+  say "Carla runs this period's depreciation in the leading ledger (ADR-0057 §7, T57f). The run is a long-running"
+  say "operation: it selects the assets the preview shows, in batches of 500, and posts each batch as one entry in"
+  say "that ledger alone (document type AF, dated the period's last day), each asset's planned depreciation less what is"
+  say "booked, on its class's accounts and its centers."
+  local period lathe run expected entry number
+  QUIET=1 api 200 '' listAssets -p "legal_entity_id=$LE" -p status=active
+  lathe=$(field '[.items[] | select(.description == "CNC lathe") | .id][0]')
+  QUIET=1 api 200 '' getAssetSchedule -p "id=$lathe" -p "fiscal_year=$YEAR"
+  period=$(field ".periods[] | select(.start_date <= \"$TODAY\" and .end_date >= \"$TODAY\") | .period")
+  api 200 '"the preview of \(.fiscal_year)/\(.period) in \(.ledger_code): \(.totals.assets) assets, difference \(.totals.difference.amount) \(.totals.difference.currency)"' \
+    previewDepreciationRun -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"period\": $period}"
+  expected=$(field .totals.difference.amount)
+  api 202 '"\(.kind) \(.status): \(.resource)"' startDepreciationRun -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"period\": $period}"
+  run=$(field .resource)
+  run=${run##*/}
+  wait_op
+  api 200 '"run \(.fiscal_year)/\(.period) in \(.ledger_code) dated \(.posting_date): \(.status), \(.assets_planned) assets planned, \(.assets_posted) posted, \(.amount.amount) \(.amount.currency)",
+    (.batches[] | "  batch \(.batch_no): \(.assets) assets, \(.amount.amount), entry \(.document_number)")' getDepreciationRun -p "id=$run"
+  expect "the run's status" "$(field .status)" posted
+  expect "what the run posted, the preview's difference" "$(field .amount.amount)" "$expected"
+  entry=$(field '.batches[0].journal_entry_id')
+  number=$(field '.batches[0].document_number')
+  api 200 '"entry \(.document_number) on \(.posting_date), in the leading ledger: \(.leading_ledger); lines \([.lines[] | .amount.amount] | join(", "))"' \
+    getJournalEntry -p "id=$entry"
+  expect "the batch's entry's ledger" "$(field '"\(.leading_ledger) \(.document_number)"')" "true $number"
+  say "The lathe's movements name the batch's entry, in the leading ledger alone; it is booked through the period there,"
+  say "so its terms in that ledger are fixed now:"
+  api 200 '.items[] | "  \(.seq) \(.kind) \(.ledger_code) \(.posting_date): accumulated \(.accumulated.amount) \(.accumulated.currency), entry \(.document_number)"' \
+    listAssetMovements -p "id=$lathe" -p kind=depreciation
+  expect "the lathe's depreciation in 0L" "$(field '[.items[] | "\(.ledger_code) \(.accumulated.amount) \(.document_number)"] | join(", ")')" "0L -41.67 $number"
+  say "A second run of the period posts only what changed since: nothing."
+  api 202 '"\(.kind) \(.status)"' startDepreciationRun -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"period\": $period}"
+  run=$(field .resource)
+  run=${run##*/}
+  wait_op
+  api 200 '"repeat run: \(.status), \(.assets_planned) assets, \(.assets_posted) posted, \(.amount.amount) \(.amount.currency), entries \([.batches[] | .document_number // "none"] | join(", "))"' \
+    getDepreciationRun -p "id=$run"
+  expect "the repeat run" "$(field '"\(.status) \(.assets_posted) \(.amount.amount) \([.batches[].journal_entry_id] | map(select(. != null)) | length)"')" "posted 0 0.00 0"
+  say "A run of an earlier period is refused while this one's is posted:"
+  if [ "$period" -gt 1 ]; then
+    refused 409 assets.run_out_of_order startDepreciationRun -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"period\": $((period - 1))}"
+  fi
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -2753,7 +2801,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_asset_acquisitions step_asset_reversal step_asset_depreciation'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_asset_acquisitions step_asset_reversal step_asset_depreciation step_depreciation_run'
 
 main() {
   start

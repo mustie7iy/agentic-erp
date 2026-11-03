@@ -162,7 +162,9 @@ func TestPreviewDepreciationRun(t *testing.T) {
 		p["period_end"], " ", p["currency"]), "2000 0L 2026/6 2026-06-01..2026-06-30 EUR")
 	want(t, "June in 0L", previewItems(p), "Mill: 10.00 0.00 10.00 Machinery and equipment 1000 PC1 620000 160900; "+
 		"Lathe: 10.00 0.00 10.00 Machinery and equipment 1000 PC1 620000 160900; Press: 0.00 10.00 -10.00 Machinery and equipment 1000 PC1 620000 160900")
-	want(t, "June's totals in 0L", previewTotals(p), "3 20.00 10.00 10.00; 620000 Depreciation 1000 PC1 10.00; 160900 Machinery, accumulated depreciation <nil> PC1 -10.00")
+	// The press's depreciation posted back is a line of its own on each side.
+	want(t, "June's totals in 0L", previewTotals(p), "3 20.00 10.00 10.00; 620000 Depreciation 1000 PC1 20.00; 620000 Depreciation 1000 PC1 -10.00; "+
+		"160900 Machinery, accumulated depreciation <nil> PC1 10.00; 160900 Machinery, accumulated depreciation <nil> PC1 -20.00")
 	p = e.preview(t, e.Client, e.l2, 6, "")
 	want(t, "June in 2L", previewItems(p)+" | "+previewTotals(p), "Mill: 20.00 0.00 20.00 Machinery and equipment 1000 PC1 620000 160900; "+
 		"Lathe: 20.00 0.00 20.00 Machinery and equipment 1000 PC1 620000 160900 | 2 40.00 0.00 40.00; 620000 Depreciation 1000 PC1 40.00; "+
@@ -172,7 +174,8 @@ func TestPreviewDepreciationRun(t *testing.T) {
 		"Lathe: 10.00 0.00 10.00 Machinery and equipment 1000 PC1 620000 160900")
 	p = e.preview(t, e.Client, e.l0, 6, "?page_size=2&page_token="+p["next_page_token"].(string))
 	want(t, "the second page", previewItems(p)+" | "+previewTotals(p), "Press: 0.00 10.00 -10.00 Machinery and equipment 1000 PC1 620000 160900 | "+
-		"3 20.00 10.00 10.00; 620000 Depreciation 1000 PC1 10.00; 160900 Machinery, accumulated depreciation <nil> PC1 -10.00")
+		"3 20.00 10.00 10.00; 620000 Depreciation 1000 PC1 20.00; 620000 Depreciation 1000 PC1 -10.00; "+
+		"160900 Machinery, accumulated depreciation <nil> PC1 10.00; 160900 Machinery, accumulated depreciation <nil> PC1 -20.00")
 	want(t, "the last page's token", p["next_page_token"], nil)
 	want(t, "centers to a reader of assets alone", previewItems(e.preview(t, e.assetsOnly(t), e.l0, 6, "?page_size=1")),
 		"Mill: 10.00 0.00 10.00 Machinery and equipment <nil> <nil> 620000 160900")
