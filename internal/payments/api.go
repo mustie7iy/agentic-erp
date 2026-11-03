@@ -554,24 +554,16 @@ func lineToAPI(l StatementLine, s Statement, masked bool) gen.BankStatementLine 
 		OwnerReference: l.OwnerReference, Text: l.Text, Status: l.Status, Transactions: make([]gen.BankStatementTransaction, len(l.Details))}
 	for i, d := range l.Details {
 		t := gen.BankStatementTransaction{Amount: apitypes.Money(d.Amount, s.Currency, s.Exponent),
-			MessageID: optText(d.MessageID), PaymentInformationID: optText(d.PaymentInfoID), InstructionID: optText(d.InstructionID),
-			EndToEndID: optText(d.EndToEndID), TransactionCode: optText(d.TransactionCode), CounterpartyName: optText(d.CounterpartyName),
-			CounterpartyIban: optText(d.CounterpartyIBAN), CounterpartyAccount: optText(d.CounterpartyAccount), CounterpartyBic: optText(d.CounterpartyBIC),
-			Remittance: optText(d.Remittance), CounterpartyAccountLast4: optText(fieldcrypt.Last4(d.counterpartyAccount()))}
+			MessageID: apitypes.OptText(d.MessageID), PaymentInformationID: apitypes.OptText(d.PaymentInfoID), InstructionID: apitypes.OptText(d.InstructionID),
+			EndToEndID: apitypes.OptText(d.EndToEndID), TransactionCode: apitypes.OptText(d.TransactionCode), CounterpartyName: apitypes.OptText(d.CounterpartyName),
+			CounterpartyIban: apitypes.OptText(d.CounterpartyIBAN), CounterpartyAccount: apitypes.OptText(d.CounterpartyAccount), CounterpartyBic: apitypes.OptText(d.CounterpartyBIC),
+			Remittance: apitypes.OptText(d.Remittance), CounterpartyAccountLast4: apitypes.OptText(fieldcrypt.Last4(d.counterpartyAccount()))}
 		if masked {
 			t.CounterpartyIban, t.CounterpartyAccount = gen.OptString{}, gen.OptString{}
 		}
 		line.Transactions[i] = t
 	}
 	return line
-}
-
-// optText is a text the bank may not give: absent when empty.
-func optText(s string) gen.OptString {
-	if s == "" {
-		return gen.OptString{}
-	}
-	return gen.NewOptString(s)
 }
 
 // statementOut is statement s as the caller sees it (statementToAPI), its
@@ -847,7 +839,7 @@ func (e *Endpoints) GetBankStatementRules(ctx context.Context, params gen.GetBan
 		out.PostingRules = append(out.PostingRules, gen.BankStatementRulesPostingRulesItem{TransactionCode: r.TransactionCode, Description: r.Description, Account: r.Account})
 	}
 	for _, r := range co.BankStatements.MatchingRules {
-		m := gen.BankStatementRulesMatchingRulesItem{Kind: r.Kind, AmountTolerance: optText(r.AmountTolerance)}
+		m := gen.BankStatementRulesMatchingRulesItem{Kind: r.Kind, AmountTolerance: apitypes.OptText(r.AmountTolerance)}
 		if r.Kind == config.MatchAmount {
 			m.DateWindowDays, m.Counterparty = gen.NewOptInt32(int32(r.DateWindowDays)), gen.NewOptBool(r.Counterparty)
 		}

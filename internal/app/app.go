@@ -286,13 +286,13 @@ func Configuration(cfg Config) configuration.Dependencies {
 		Approvals: opener(),
 		Simulator: configuration.Simulators{payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
 			endpoint.Simulation{Endpoints: analyticsEndpoints(cfg, nil), Now: cfg.Now},
-			ledger.AssignmentSimulation{LegalEntities: tenancy.Directory{}, Now: cfg.Now}},
+			ledger.AssignmentSimulation{LegalEntities: tenancy.Directory{}, Now: cfg.Now}, cashSimulation{cash.Simulation{Endpoints: Cash(cfg)}}},
 		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
 		Actors:    identity.Actors{},
 		RuleSamplers: map[string]rules.Sampler{"supplier_invoice": payables.RuleSamples{}, "purchase_order": procurement.RuleSamples{},
 			"business_partner": partner.RuleSamples{}},
 		Disclosures: []configuration.Disclosure{payables.Disclosure{}, endpoint.Disclosure{Endpoints: analyticsEndpoints(cfg, nil)},
-			ledger.AssignmentDisclosure{}},
+			ledger.AssignmentDisclosure{}, cashDisclosure{}},
 	}
 }
 

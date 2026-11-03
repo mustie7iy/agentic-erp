@@ -1397,9 +1397,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Liquidity items in the forecast: liquidity item derivation with proportional split (cash.Derive, T53b) and the derivation simulation listing the open flows whose item a rule change moves (moved from T53b); self-assessment pairs (T61e's self_output/self_input, reverse charge) netted out of the offsetting lines before derivation, since they are not cash (batch 6 review); rows by liquidity item and its hierarchy (ADR-0051 §9)",
-        "r": "T53e3",
+        "r": "GET /v1/liquidity-forecast items (LiquidityForecastItem, LiquidityForecastItemFlows) · cash.offsetting, classify, itemRows, Simulation, Disclose · ledger.OpenItems.Offsetting, OffsettingLine, PayableItem.Lines · payments.CashPosition.Paying, CashPayable.PlanningGroup · payables.Endpoints.Unposted item lines · partner.Payee.PlanningGroup · config.Evidence (cash.derivation needs a simulation) · internal/app cashSimulation, cashDisclosure · TestLiquidityForecastItems, TestLiquidityForecastUnclassified, TestLiquidityForecastItemsFailures, TestDerivationSimulation, TestDerivationSimulationFailures, TestOffsetting, TestClassify, TestCashDerivationChanges · walkthrough step 20 · ADR-0051 (as built, T53e3) · T53e3",
         "src": "split:T53e",
         "c": []
        },

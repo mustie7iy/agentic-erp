@@ -22665,7 +22665,8 @@ func (s *LiquidityForecastBucketFlows) SetTotal(val Money) {
 }
 
 // The flows of one currency: per bucket, in the buckets' order, their total over the horizon, what is
-// expected after it, and what suppliers no run pays are owed.
+// expected after it, and what suppliers no run pays are owed; and the same flows by liquidity item and
+// its hierarchy.
 // Ref: #/components/schemas/LiquidityForecastCurrency
 type LiquidityForecastCurrency struct {
 	// The currency (ISO 4217).
@@ -22675,6 +22676,11 @@ type LiquidityForecastCurrency struct {
 	Total   Money                          `json:"total"`
 	Beyond  LiquidityForecastBeyond        `json:"beyond"`
 	Blocked LiquidityForecastBlocked       `json:"blocked"`
+	// The rows by liquidity item (T53e3), depth first: each item followed by its children, siblings by
+	// code, an item listed when it or a descendant has a flow; the row of what no rule assigns (without
+	// `liquidity_item`) last. The top rows (`level` 0) add up to each bucket's `total`, the currency's
+	// `total` and `beyond`.
+	Items []LiquidityForecastItem `json:"items"`
 }
 
 // GetCurrency returns the value of Currency.
@@ -22702,6 +22708,11 @@ func (s *LiquidityForecastCurrency) GetBlocked() LiquidityForecastBlocked {
 	return s.Blocked
 }
 
+// GetItems returns the value of Items.
+func (s *LiquidityForecastCurrency) GetItems() []LiquidityForecastItem {
+	return s.Items
+}
+
 // SetCurrency sets the value of Currency.
 func (s *LiquidityForecastCurrency) SetCurrency(val string) {
 	s.Currency = val
@@ -22725,6 +22736,184 @@ func (s *LiquidityForecastCurrency) SetBeyond(val LiquidityForecastBeyond) {
 // SetBlocked sets the value of Blocked.
 func (s *LiquidityForecastCurrency) SetBlocked(val LiquidityForecastBlocked) {
 	s.Blocked = val
+}
+
+// SetItems sets the value of Items.
+func (s *LiquidityForecastCurrency) SetItems(val []LiquidityForecastItem) {
+	s.Items = val
+}
+
+// A row of a currency's liquidity forecast by liquidity item (ADR-0051 §4, §9, T53e3): the shares of
+// the flows its item derives, with its descendants', per bucket, counted as the buckets' totals count
+// them (a `payable_blocked` share only with `include_blocked`), and the item's own flows by source and
+// certainty.
+// Ref: #/components/schemas/LiquidityForecastItem
+type LiquidityForecastItem struct {
+	// The liquidity item's code (`cash.liquidity_items`); absent on the row of the flows no derivation
+	// rule assigns and no default covers.
+	LiquidityItem OptString `json:"liquidity_item"`
+	// The liquidity item's name; absent with `liquidity_item`.
+	Name OptString `json:"name"`
+	// The code of the item's parent in the hierarchy; absent for a top item and the row without
+	// `liquidity_item`.
+	Parent OptString `json:"parent"`
+	// The item's depth in the hierarchy: 0 for a top item (and the row without `liquidity_item`), its
+	// parent's plus one below.
+	Level int32 `json:"level"`
+	// The item's and its descendants' shares per bucket, one per bucket of the forecast in the same order.
+	Buckets []Money `json:"buckets"`
+	Total   Money   `json:"total"`
+	Beyond  Money   `json:"beyond"`
+	// The item's own shares (not its descendants') by source and certainty, sorted by both; empty for an
+	// item listed for its descendants alone. Listed whether or not the totals count them: a
+	// `payable_blocked` row's amounts are its own.
+	Flows []LiquidityForecastItemFlows `json:"flows"`
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *LiquidityForecastItem) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetName returns the value of Name.
+func (s *LiquidityForecastItem) GetName() OptString {
+	return s.Name
+}
+
+// GetParent returns the value of Parent.
+func (s *LiquidityForecastItem) GetParent() OptString {
+	return s.Parent
+}
+
+// GetLevel returns the value of Level.
+func (s *LiquidityForecastItem) GetLevel() int32 {
+	return s.Level
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *LiquidityForecastItem) GetBuckets() []Money {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *LiquidityForecastItem) GetTotal() Money {
+	return s.Total
+}
+
+// GetBeyond returns the value of Beyond.
+func (s *LiquidityForecastItem) GetBeyond() Money {
+	return s.Beyond
+}
+
+// GetFlows returns the value of Flows.
+func (s *LiquidityForecastItem) GetFlows() []LiquidityForecastItemFlows {
+	return s.Flows
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *LiquidityForecastItem) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetName sets the value of Name.
+func (s *LiquidityForecastItem) SetName(val OptString) {
+	s.Name = val
+}
+
+// SetParent sets the value of Parent.
+func (s *LiquidityForecastItem) SetParent(val OptString) {
+	s.Parent = val
+}
+
+// SetLevel sets the value of Level.
+func (s *LiquidityForecastItem) SetLevel(val int32) {
+	s.Level = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *LiquidityForecastItem) SetBuckets(val []Money) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *LiquidityForecastItem) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetBeyond sets the value of Beyond.
+func (s *LiquidityForecastItem) SetBeyond(val Money) {
+	s.Beyond = val
+}
+
+// SetFlows sets the value of Flows.
+func (s *LiquidityForecastItem) SetFlows(val []LiquidityForecastItemFlows) {
+	s.Flows = val
+}
+
+// A liquidity item's own shares of the flows of one source and certainty, per bucket, over the horizon
+// and after the last bucket.
+// Ref: #/components/schemas/LiquidityForecastItemFlows
+type LiquidityForecastItemFlows struct {
+	// Where the flows come from (ADR-0051 §4). Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	Source string `json:"source"`
+	// How certain the flows are. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Certainty string `json:"certainty"`
+	// The shares per bucket, one per bucket of the forecast in the same order.
+	Buckets []Money `json:"buckets"`
+	Total   Money   `json:"total"`
+	Beyond  Money   `json:"beyond"`
+}
+
+// GetSource returns the value of Source.
+func (s *LiquidityForecastItemFlows) GetSource() string {
+	return s.Source
+}
+
+// GetCertainty returns the value of Certainty.
+func (s *LiquidityForecastItemFlows) GetCertainty() string {
+	return s.Certainty
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *LiquidityForecastItemFlows) GetBuckets() []Money {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *LiquidityForecastItemFlows) GetTotal() Money {
+	return s.Total
+}
+
+// GetBeyond returns the value of Beyond.
+func (s *LiquidityForecastItemFlows) GetBeyond() Money {
+	return s.Beyond
+}
+
+// SetSource sets the value of Source.
+func (s *LiquidityForecastItemFlows) SetSource(val string) {
+	s.Source = val
+}
+
+// SetCertainty sets the value of Certainty.
+func (s *LiquidityForecastItemFlows) SetCertainty(val string) {
+	s.Certainty = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *LiquidityForecastItemFlows) SetBuckets(val []Money) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *LiquidityForecastItemFlows) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetBeyond sets the value of Beyond.
+func (s *LiquidityForecastItemFlows) SetBeyond(val Money) {
+	s.Beyond = val
 }
 
 type ListAccountsBadRequest Problem
