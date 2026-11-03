@@ -260,7 +260,10 @@ type ClearingKey struct {
 }
 
 // ClearingLines reads the lines the query selects (ADR-0057 §6's
-// worklist): one fiscal year's partition, by the account index.
+// worklist): one fiscal year's partition, by the account index. The page
+// is chosen first and only its lines are joined to their reversal pair:
+// joining every line of the year before the limit doubled the query's
+// time (TestClearingItemsBudget in batch 48).
 func (AssetReads) ClearingLines(ctx context.Context, q ClearingQuery) ([]AssetLine, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -272,12 +275,18 @@ func (AssetReads) ClearingLines(ctx context.Context, q ClearingQuery) ([]AssetLi
 	}
 	sy, se, sl := columns(q.Skip)
 	ky, ke, kl := columns(q.Keep)
-	rows, _ := tx.Query(ctx, assetLineSelect+` WHERE l.legal_entity_id = $1 AND l.account_id = ANY($2) AND l.fiscal_year = $3 AND g.is_leading AND e.source_context <> $15
-			AND ($4 OR (l.posting_date, l.journal_entry_id, l.line_no) > ($5, $6, $7))
-			AND (CASE WHEN e.reversal_of_id IS NULL AND rv.reversal_entry_id IS NULL
-				THEN (l.fiscal_year, l.journal_entry_id, l.line_no) NOT IN (SELECT * FROM unnest($9::smallint[], $10::uuid[], $11::integer[]))
-				ELSE (l.fiscal_year, l.journal_entry_id, l.line_no) IN (SELECT * FROM unnest($12::smallint[], $13::uuid[], $14::integer[])) END)
-		ORDER BY l.posting_date, l.journal_entry_id, l.line_no LIMIT $8`,
+	rows, _ := tx.Query(ctx, assetLineSelect+` JOIN (SELECT l.tenant_id, l.fiscal_year, l.journal_entry_id, l.line_no FROM ledger.journal_line l
+			JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
+			JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id
+			WHERE l.legal_entity_id = $1 AND l.account_id = ANY($2) AND l.fiscal_year = $3 AND g.is_leading AND e.source_context <> $15
+				AND ($4 OR (l.posting_date, l.journal_entry_id, l.line_no) > ($5, $6, $7))
+				AND (CASE WHEN e.reversal_of_id IS NULL AND NOT EXISTS (SELECT FROM ledger.reversal x WHERE x.tenant_id = e.tenant_id
+						AND x.original_year = e.fiscal_year AND x.original_entry_id = e.id)
+					THEN (l.fiscal_year, l.journal_entry_id, l.line_no) NOT IN (SELECT * FROM unnest($9::smallint[], $10::uuid[], $11::integer[]))
+					ELSE (l.fiscal_year, l.journal_entry_id, l.line_no) IN (SELECT * FROM unnest($12::smallint[], $13::uuid[], $14::integer[])) END)
+			ORDER BY l.posting_date, l.journal_entry_id, l.line_no LIMIT $8) p
+			ON p.tenant_id = l.tenant_id AND p.fiscal_year = l.fiscal_year AND p.journal_entry_id = l.journal_entry_id AND p.line_no = l.line_no
+		ORDER BY l.posting_date, l.journal_entry_id, l.line_no`,
 		q.LegalEntityID, q.Accounts, q.FiscalYear, q.After == nil, after.PostingDate, after.EntryID, after.LineNo, q.Limit, sy, se, sl, ky, ke, kl, q.ExceptContext)
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (AssetLine, error) { return scanAssetLine(r) })
 	return out, errs.Wrapf(err, "ledger: clearing lines of %s in %d", q.LegalEntityID, q.FiscalYear)

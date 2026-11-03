@@ -29,16 +29,26 @@ type used struct {
 }
 
 // usesOf reads what acquisitions used of the company's lines of a fiscal
-// year, by line.
+// year, by line. Whether a line offers something is read in one pass over
+// the company's lines, its own acquisitions and those through its
+// reversal's line as two index-friendly halves, rather than per line with
+// an OR across both: that form scanned every acquisition for every line
+// (9 s over 10,000 used lines, TestClearingItemsBudget in batch 48).
 func usesOf(ctx context.Context, tx pgx.Tx, le uuid.UUID, year int16) (map[LineRef]used, error) {
 	rows, _ := tx.Query(ctx, `SELECT u.entry_year, u.entry_id, u.line_no, u.used, u.used_lc, u.used_gc, u.used = u.line_amount,
 			EXISTS (SELECT FROM assets.acquisition q WHERE q.tenant_id = u.tenant_id AND q.source_entry_id = u.entry_id AND q.source_line_no = u.line_no
 				AND q.status = 'posted'),
 			u.reverses_entry_id IS NOT NULL,
-			EXISTS (SELECT FROM assets.acquisition q WHERE q.tenant_id = u.tenant_id AND q.source_line_no = u.line_no AND q.status = 'posted'
-				AND (q.source_entry_id = u.entry_id OR q.source_entry_id IN (SELECT r.entry_id FROM assets.clearing_use r WHERE r.tenant_id = u.tenant_id
-					AND r.reverses_entry_id = u.entry_id AND r.line_no = u.line_no))
-				GROUP BY q.asset_id HAVING sum(q.amount) <> 0)
+			(u.entry_year, u.entry_id, u.line_no) IN (SELECT h.entry_year, h.entry_id, h.line_no FROM (
+					SELECT v.entry_year, v.entry_id, v.line_no, q.asset_id, q.amount FROM assets.clearing_use v
+						JOIN assets.acquisition q ON q.tenant_id = v.tenant_id AND q.source_entry_id = v.entry_id AND q.source_line_no = v.line_no AND q.status = 'posted'
+						WHERE v.legal_entity_id = $1 AND v.entry_year = $2
+					UNION ALL SELECT v.entry_year, v.entry_id, v.line_no, q.asset_id, q.amount FROM assets.clearing_use v
+						JOIN assets.acquisition q ON q.tenant_id = v.tenant_id AND q.source_line_no = v.line_no AND q.status = 'posted'
+							AND q.source_entry_id IN (SELECT r.entry_id FROM assets.clearing_use r WHERE r.tenant_id = v.tenant_id
+								AND r.reverses_entry_id = v.entry_id AND r.line_no = v.line_no)
+						WHERE v.legal_entity_id = $1 AND v.entry_year = $2) h
+				GROUP BY h.entry_year, h.entry_id, h.line_no, h.asset_id HAVING sum(h.amount) <> 0)
 		FROM assets.clearing_use u WHERE u.legal_entity_id = $1 AND u.entry_year = $2`, le, year)
 	out := map[LineRef]used{}
 	var r LineRef
