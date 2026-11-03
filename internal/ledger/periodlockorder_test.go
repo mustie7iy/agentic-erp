@@ -135,9 +135,10 @@ func TestControllingSwitchAndPostingLockInOneOrder(t *testing.T) {
 // per ledger in the one order, as closing's sign-off takes them) at once.
 // The clearing entry's row is moved behind its copies', as a heap with
 // free space left by deleted rows can store them, and the clearing reads
-// them in heap order (bitmapScans): a clearing that locked
-// in the order of the rows took 0A's period and waited for 0L's, which
-// the sign-off held while it waited for 0A's: a deadlock (40P01). A third
+// the rows in heap order (bitmapScans: a bitmap or sequential scan).
+// Locking in that order, the clearing took 0A's period and waited for
+// 0L's, which the sign-off held while it waited for 0A's: a deadlock
+// (40P01). A third
 // transaction holds the periods of the ledgers after the first k in the
 // one order FOR SHARE, so the sign-off locks the first k and waits.
 func TestMigratedClearingAndSignOffLockInOneOrder(t *testing.T) {
@@ -195,10 +196,10 @@ func migratedPairOf(t *testing.T, e fixture.Env) migratedPair {
 }
 
 // bitmapScans makes the request's transaction read rows through bitmap
-// scans, in heap order, as the planner reads a posting group by its id and
-// posting group indexes once the tenant has more entries than a test
-// posts; with few, it reads the tenant's entries through an index whose
-// order happens to be the entries' creation order.
+// or sequential scans, in heap order, as the planner reads a posting
+// group through its id and posting group indexes once the tenant has more
+// entries than a test posts; with few, it reads the tenant's entries
+// through an index whose order happens to be the entries' creation order.
 func bitmapScans(ctx context.Context) error {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {

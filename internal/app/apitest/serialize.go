@@ -13,8 +13,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// errSetup is what Serialized reports for a transaction whose setup
-// failed: Committed then fails the test and ends its goroutine, which
+// errSetup is what Serialized and Started report for a transaction whose
+// setup failed: Committed then fails the test and ends its goroutine, which
 // still has to answer, or Serialized would wait for it forever.
 var errSetup = errors.New("apitest: transaction setup failed")
 
@@ -92,13 +92,15 @@ func Serialized(tb testing.TB, ten pgtest.Tenant, a pgtest.Actor, first, second 
 // background. It sends the transaction's backend pid before work starts,
 // and work's result once the transaction ends: a test that drives an
 // interleaving waits for the pid to block (WaitBlocked) before it starts
-// the next transaction.
+// the next transaction. The pid channel is closed when the transaction
+// ends, so a transaction whose setup failed reads as pid 0 rather than
+// leaving the test waiting, and WaitBlocked then reports its error.
 func Started(tb testing.TB, ten pgtest.Tenant, a pgtest.Actor, work func(ctx context.Context) error) (<-chan int32, <-chan error) {
 	tb.Helper()
 	pid, done := make(chan int32, 1), make(chan error, 1)
 	go func() {
 		err := errSetup
-		defer func() { done <- err }()
+		defer func() { close(pid); done <- err }()
 		err = Committed(tb, ten, a, func(ctx context.Context) error {
 			var n atomic.Int32
 			if err := backend(ctx, &n); err != nil {
