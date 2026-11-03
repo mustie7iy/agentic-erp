@@ -58,11 +58,14 @@ func paymentKeys(id uuid.UUID, p Paying) [][]string {
 
 // keptKey is the key a snapshot's line at document level names its
 // document by: the payment of a run's or an in-transit flow, a series'
-// occurrence by the series and its day, else the document.
+// occurrence by the series and its day, else the document; "" for a
+// line naming none, which nothing can match.
 func keptKey(l keptLine, series map[uuid.UUID]bool) string {
 	switch {
 	case l.payment != nil:
 		return paymentKey(*l.payment)
+	case l.doc == nil:
+		return ""
 	case l.doc.Kind == DocMemoRecord && series[l.doc.ID]:
 		return docKey(DocMemoRecord, l.doc.ID) + "@" + l.date.Format(time.DateOnly)
 	}
@@ -88,7 +91,9 @@ func memoMatches(ctx context.Context, tx pgx.Tx, at reader, lines []keptLine, ac
 		}
 	}
 	for _, a := range actuals {
-		statements = append(statements, a.StatementID)
+		if !slices.Contains(statements, a.StatementID) {
+			statements = append(statements, a.StatementID)
+		}
 	}
 	rows, _ := tx.Query(ctx, `SELECT id, recurrence IS NOT NULL, recurrence_of, occurrence_date, realised_statement_id, realised_line_no
 		FROM cash.memo_record WHERE id = ANY($1) OR (status = 'realised' AND realised_statement_id = ANY($2)) ORDER BY id`, ids, statements)
@@ -163,16 +168,19 @@ func mark(in map[string]map[int]bool, key string, b int) {
 }
 
 // newMatching matches the snapshot's document lines (its lines naming no
-// bucket) to the actuals' pieces.
+// bucket) to the actuals' pieces; a line naming no document is kept, and
+// counts as missing.
 func newMatching(bs []Bucket, lines []keptLine, actuals []actual, series map[uuid.UUID]bool, realised map[lineRef][]string) *matching {
 	m := &matching{bs: bs, forecast: map[string]map[int]bool{}, paid: map[string]map[int]bool{}}
 	for _, l := range lines {
-		if l.end != nil || (l.doc == nil && l.payment == nil) {
+		if l.end != nil {
 			continue
 		}
 		k := keptKey(l, series)
 		m.kept, m.keys = append(m.kept, l), append(m.keys, k)
-		mark(m.forecast, k, m.bucket(l.date))
+		if k != "" {
+			mark(m.forecast, k, m.bucket(l.date))
+		}
 	}
 	for _, a := range actuals {
 		memo := realised[lineRef{a.StatementID, a.LineNo}]

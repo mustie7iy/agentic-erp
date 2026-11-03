@@ -1752,7 +1752,10 @@ leave it open):
   it (id, kind, name, date, `document_level_until`, configuration
   version). Its lines are read as kept, without `payable_blocked`, as the
   forecast's totals and the snapshot's `total` leave blocked suppliers
-  out; every certainty counts.
+  out; every certainty counts. Its document lines are read whatever the
+  period's end, so a document forecast after `to` and paid in the period
+  is `timing`, as it is with a later `to` (review round 1); its bucket
+  sums up to `to`.
 - **The actuals** are T53f2's lines (`readActuals`, classified by
   `actualShares`), read from the snapshot's date to the later of `to` and
   the document level's end, so a document forecast in the period and paid
@@ -1775,7 +1778,8 @@ leave it open):
   the bank as the snapshot dated it (its value date moved to the next
   working day, `atBank` on the snapshot's date). Each piece is matched to
   the first key the snapshot names; a line whose payments' items net to
-  nothing is one piece known by its payments.
+  nothing is one piece known by its payments. A snapshot line naming no
+  document (none is written so today) matches nothing and is `missing`.
 - **Attribution** (within the document level: `from` to the earlier of
   `to` and `document_level_until`, in buckets of the grain). Each forecast
   line and each paid piece contributes to its currency, bucket and
@@ -1835,7 +1839,9 @@ leave it open):
   snapshot new, a receipt not matched unclassified, a payment in transit,
   the days after the document level per item; then by day),
   `TestForecastVarianceLags` (the daily snapshot before one on demand, a
-  lag of 30 days, a bucket holding `to`), `TestForecastVarianceNettedPayment`,
+  lag of 30 days, a bucket holding `to`), `TestForecastVarianceEarly` (a
+  memo record forecast after `to` realised in the period; a line naming no
+  document), `TestForecastVarianceNettedPayment`,
   `TestForecastVarianceRefusals`, `TestForecastVarianceTooLarge`,
   `TestForecastVarianceFailures` (every database failure);
   `apitypes.TestPercent`; the walkthrough's step 25: step 23's day

@@ -17,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/cash"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -325,8 +326,8 @@ func TestForecastVarianceFailures(t *testing.T) {
 			gen.GetLiquidityForecastVarianceParams{LegalEntityID: e.le, From: from, To: to, Lag: gen.NewOptInt32(5)})
 		return err
 	})
-	if err == nil || !strings.Contains(err.Error(), "lag") {
-		t.Errorf("a lag not offered: got %v, want it refused", err)
+	if p := problem.From(err); p == nil || p.Code != "request.validation_failed" || len(p.Errors) != 1 || p.Errors[0].Field != "lag" {
+		t.Errorf("a lag not offered: got %v, want request.validation_failed on lag", err)
 	}
 }
 
@@ -343,4 +344,29 @@ func TestForecastVarianceNettedPayment(t *testing.T) {
 	v := e.varianceOf(t, "&from=2026-04-17&to=2026-05-21&lag=0&grain=week")
 	want(t, "the week of the netted payment", varianceLines(v)[3], "CAD 2026-05-08 -500.00 -5.00 495.00 99.00% 0.00/0.00/-5.00/500.00/0.00")
 	checkAdds(t, v)
+}
+
+// TestForecastVarianceEarly: a document forecast after the period's end
+// and paid in it is timing, whatever the period's end, as it is with a
+// later end; a line the snapshot keeps naming no document matches
+// nothing and is missing.
+func TestForecastVarianceEarly(t *testing.T) {
+	e := setupVariance(t)
+	lines := e.statement(t, e.main, "CAD", "2026-04-21", "2026-04-21", 0, -50000, nil, "imported")
+	actualsEnv{forecastEnv: e.forecastEnv}.actualLine(t, lines, 1, "2026-04-21", -50000, "unmatched", "", target{})
+	var planned uuid.UUID
+	pgtest.Scan(t, `SELECT id FROM cash.memo_record WHERE legal_entity_id = $1 AND amount = -50000`, []any{e.le}, &planned)
+	e.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Now = func() time.Time { return readAt } })
+	e.realise(t, planned, "", lines, 1)
+	e.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Now = func() time.Time { return varianceAt } })
+	short := e.varianceOf(t, "&from=2026-04-17&to=2026-04-21&lag=0")
+	want(t, "paid early, the period ending before its forecast", varianceLines(short)[4], "CAD 2026-04-21 0.00 -500.00 -500.00 <nil>% -500.00/0.00/0.00/0.00/0.00")
+	long := e.varianceOf(t, "&from=2026-04-17&to=2026-05-21&lag=0")
+	want(t, "paid early, the period holding its forecast", fmt.Sprint(varianceLines(long)[4], " ", varianceLines(long)[25]), "CAD 2026-04-21 0.00 -500.00 -500.00 <nil>% -500.00/0.00/0.00/0.00/0.00"+
+		" CAD 2026-05-12 -500.00 0.00 500.00 100.00% 500.00/0.00/0.00/0.00/0.00")
+	e.exec(t, `INSERT INTO cash.snapshot_flow (tenant_id, snapshot_id, line_no, flow_no, value_date, currency, source, certainty, late, liquidity_item, amount, flow_count)
+		VALUES ($1, $2, 999, 999, '2026-04-21', 'CAD', 'memo', 'planned', false, 'OP_SUPPLIERS', -100, 1)`, e.Tenant.ID, uuid.MustParse(e.snapshot))
+	short = e.varianceOf(t, "&from=2026-04-17&to=2026-04-21&lag=0")
+	want(t, "a line naming no document", varianceLines(short)[4], "CAD 2026-04-21 -1.00 -500.00 -499.00 49900.00% -500.00/0.00/0.00/1.00/0.00")
+	checkAdds(t, short)
 }
