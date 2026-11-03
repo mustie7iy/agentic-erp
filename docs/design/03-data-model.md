@@ -2711,8 +2711,9 @@ T53e2 adds what is not posted yet, still stored nowhere new: the invoices
 `parked` or `on_hold` (`payables.supplier_invoice`), each as the open item
 its posting would give, with the terms posting would keep in
 `supplier_invoice_terms` (the order's term, else the supplier's, from the
-invoice date) and the supplier's withholding codes (`partner.supplier_withholding`
-through the ledger's kept codes); the `open` down payment requests
+invoice date) and the supplier's withholding tax codes (read from
+`partner.supplier_withholding`, each resolved against the legal entity's
+withholding tax codes the ledger keeps); the `open` down payment requests
 (`payables.down_payment_request`) less those a live run's
 `down_payment` payment pays (`payments.payment.down_payment_request_id`);
 and the items of suppliers no run pays (`partner.supplier_company`'s

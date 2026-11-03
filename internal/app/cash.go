@@ -11,9 +11,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
-	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
-	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -23,7 +21,7 @@ import (
 func Cash(cfg Config) *cash.Endpoints {
 	return &cash.Endpoints{LegalEntities: cashCompanies{}, Settings: configuration.Settings{},
 		Payments: cashPayments{position: payments.CashPosition{Accounts: ledger.Accounts{}, Owed: ledger.OpenItems{}, Payees: partner.Payees{},
-			Unposted: &payables.Endpoints{Suppliers: partner.Suppliers{}, Orders: procurement.Orders{}, Accounts: ledger.Accounts{}},
+			Unposted: payablesEndpoints(cfg, nil), // posting's own dependencies: the forecast reads an invoice as posting would
 			Requests: downPayments{}}},
 		Ledger: cashLedger{}, Sessions: agents.Sessions{},
 		Pages: cfg.Pages, Now: cfg.Now}
