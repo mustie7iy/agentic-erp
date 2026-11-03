@@ -251,6 +251,15 @@ func TestCashSnapshotRetentionRule(t *testing.T) {
 		if deleted, err = pgx.CollectRows(rows, pgx.RowTo[uuid.UUID]); err != nil {
 			return err
 		}
+		// Named by its legal entity, another tenant's old snapshot is still
+		// out of reach: the function runs as the owner under row-level security.
+		var theirs int
+		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM cash.delete_expired_snapshots($1, '2026-03-31')`, other.entity).Scan(&theirs); err != nil {
+			return err
+		}
+		if theirs != 0 {
+			t.Errorf("another tenant's snapshots deleted: got %d, want none", theirs)
+		}
 		return tx.QueryRow(context.Background(), `SELECT count(*) FROM cash.snapshot_flow WHERE snapshot_id = $1`, old).Scan(&lines)
 	})
 	if len(deleted) != 1 || deleted[0] != old {
