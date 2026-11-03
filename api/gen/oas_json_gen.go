@@ -35354,15 +35354,29 @@ func (s *CloseCheckLedger) encodeFields(e *jx.Encoder) {
 			s.RevaluationRunID.Encode(e)
 		}
 	}
+	{
+		if s.DepreciationRunID.Set {
+			e.FieldStart("depreciation_run_id")
+			s.DepreciationRunID.Encode(e)
+		}
+	}
+	{
+		if s.AssetsToDepreciate.Set {
+			e.FieldStart("assets_to_depreciate")
+			s.AssetsToDepreciate.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfCloseCheckLedger = [6]string{
+var jsonFieldsNameOfCloseCheckLedger = [8]string{
 	0: "ledger_id",
 	1: "ledger_code",
 	2: "ledger_name",
 	3: "key_date",
 	4: "posted",
 	5: "revaluation_run_id",
+	6: "depreciation_run_id",
+	7: "assets_to_depreciate",
 }
 
 // Decode decodes CloseCheckLedger from json.
@@ -35443,6 +35457,26 @@ func (s *CloseCheckLedger) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"revaluation_run_id\"")
+			}
+		case "depreciation_run_id":
+			if err := func() error {
+				s.DepreciationRunID.Reset()
+				if err := s.DepreciationRunID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"depreciation_run_id\"")
+			}
+		case "assets_to_depreciate":
+			if err := func() error {
+				s.AssetsToDepreciate.Reset()
+				if err := s.AssetsToDepreciate.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"assets_to_depreciate\"")
 			}
 		default:
 			return d.Skip()

@@ -13984,7 +13984,7 @@ func (s *CloseCalendarPeriod) SetClose(val OptCloseCalendarClose) {
 	s.Close = val
 }
 
-// A covered ledger as a `revaluation_posted` check found it.
+// A covered ledger as a `revaluation_posted` or a `depreciation_posted` check found it.
 // Ref: #/components/schemas/CloseCheckLedger
 type CloseCheckLedger struct {
 	// The ledger.
@@ -13993,12 +13993,23 @@ type CloseCheckLedger struct {
 	LedgerCode string `json:"ledger_code"`
 	// Its name.
 	LedgerName string `json:"ledger_name"`
-	// Its period's last day, the key date its revaluation run is keyed on.
+	// Its period's last day: the key date a revaluation run is keyed on, the posting date of a
+	// depreciation run.
 	KeyDate time.Time `json:"key_date"`
-	// Whether it has a posted revaluation run at the key date.
+	// Whether it has a posted run of the check's kind: a revaluation run at the key date, or a
+	// depreciation run of the period. A ledger without a posted depreciation run still passes
+	// `depreciation_posted` when `assets_to_depreciate` is 0.
 	Posted bool `json:"posted"`
-	// The posted run (`GET /v1/revaluation-runs/{id}`); absent without one.
+	// `revaluation_posted`: the posted run (`GET /v1/revaluation-runs/{id}`); absent without one and for
+	// another check.
 	RevaluationRunID OptUUID `json:"revaluation_run_id"`
+	// `depreciation_posted`: the latest posted depreciation run of the period in this ledger
+	// (`GET /v1/depreciation-runs/{id}`); absent without one and for another check.
+	DepreciationRunID OptUUID `json:"depreciation_run_id"`
+	// `depreciation_posted` without a posted run: how many of the company's assets a run of the period in
+	// this ledger would select (`POST /v1/depreciation-runs/preview`); 0, nothing to depreciate, passes.
+	// Absent with a posted run and for another check.
+	AssetsToDepreciate OptInt32 `json:"assets_to_depreciate"`
 }
 
 // GetLedgerID returns the value of LedgerID.
@@ -14031,6 +14042,16 @@ func (s *CloseCheckLedger) GetRevaluationRunID() OptUUID {
 	return s.RevaluationRunID
 }
 
+// GetDepreciationRunID returns the value of DepreciationRunID.
+func (s *CloseCheckLedger) GetDepreciationRunID() OptUUID {
+	return s.DepreciationRunID
+}
+
+// GetAssetsToDepreciate returns the value of AssetsToDepreciate.
+func (s *CloseCheckLedger) GetAssetsToDepreciate() OptInt32 {
+	return s.AssetsToDepreciate
+}
+
 // SetLedgerID sets the value of LedgerID.
 func (s *CloseCheckLedger) SetLedgerID(val uuid.UUID) {
 	s.LedgerID = val
@@ -14059,6 +14080,16 @@ func (s *CloseCheckLedger) SetPosted(val bool) {
 // SetRevaluationRunID sets the value of RevaluationRunID.
 func (s *CloseCheckLedger) SetRevaluationRunID(val OptUUID) {
 	s.RevaluationRunID = val
+}
+
+// SetDepreciationRunID sets the value of DepreciationRunID.
+func (s *CloseCheckLedger) SetDepreciationRunID(val OptUUID) {
+	s.DepreciationRunID = val
+}
+
+// SetAssetsToDepreciate sets the value of AssetsToDepreciate.
+func (s *CloseCheckLedger) SetAssetsToDepreciate(val OptInt32) {
+	s.AssetsToDepreciate = val
 }
 
 // A parked entry a `no_parked_entries` check found (`GET /v1/parked-journal-entries/{id}`), as it was
@@ -14204,7 +14235,9 @@ type CloseCheckResult struct {
 	// there are); absent for another check.
 	ParkedEntries []CloseCheckParkedEntry `json:"parked_entries"`
 	// `revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted
-	// revaluation run keyed on its period's last day, if it has one; absent for another check.
+	// revaluation run keyed on its period's last day, if it has one; `depreciation_posted`: each covered
+	// ledger, in the same order, with its latest posted depreciation run of the period, if it has one, or
+	// how many assets a run would select; absent for another check.
 	Ledgers []CloseCheckLedger `json:"ledgers"`
 }
 

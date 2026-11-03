@@ -11,7 +11,7 @@ import (
 // the ones run runs, so no template accepts a check task that then fails
 // as one this build does not run.
 func TestChecksRun(t *testing.T) {
-	if runs := []string{CheckNoParked, CheckRevaluation}; !slices.Equal(config.CloseChecks, runs) {
+	if runs := []string{CheckNoParked, CheckRevaluation, CheckDepreciation}; !slices.Equal(config.CloseChecks, runs) {
 		t.Errorf("config.CloseChecks: got %v, want %v, the checks run runs", config.CloseChecks, runs)
 	}
 }

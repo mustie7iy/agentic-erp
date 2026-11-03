@@ -1651,8 +1651,8 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Depreciation check (after T57f): closing.Depreciation over assets; depreciation_posted per covered ledger, passing for a company with nothing to depreciate; walkthrough: the check fails before the period's depreciation run and passes after it",
+        "s": "D",
+        "t": "Depreciation check: depreciation_posted per covered ledger (the latest posted run of the period, or nothing the run's own selection would select; failed, cancelled, queued and running runs do not count), the result naming each ledger with its run or its assets to depreciate; closing.Depreciation over the new assets.CloseChecks, adapted in internal/app; walkthrough: the check fails naming 2L before the period's run there (step 29 ran 0L's) and passes after it",
         "r": "ADR-0058 · T64k",
         "src": "adr:ADR-0058",
         "c": []

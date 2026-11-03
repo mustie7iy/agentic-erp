@@ -2880,14 +2880,16 @@ step_asset_depreciation() {
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
 # the process owner approves; Carla reads the year's close calendar, each
 # period's planned first and last due dates on the company's business days.
-# Then the close's checklist (T64b), its checks (T64c), its variances
-# (T64h) and, last, its sign-off (T64d), which locks the period.
+# Then the close's checklist (T64b), its depreciation check (T64k), its
+# other checks (T64c), its variances (T64h) and, last, its sign-off
+# (T64d), which locks the period.
 step_close() {
   heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off"
   as ada
   say "Ada proposes the close template (ADR-0058 §3): the tasks every company's period close is given, each due"
   say "a number of business days after the period's last day (negative: before it), some waiting for others:"
-  say "manual tasks a person completes, and a check the system runs (no entry of the period left parked). The"
+  say "manual tasks a person completes, and checks the system runs (no entry of the period left parked, and the"
+  say "period's depreciation posted in every ledger). The"
   say "template decides what a sign-off requires, so it is configuration, approved as a tier 2 change."
   api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
   local base cr request
@@ -2897,13 +2899,14 @@ step_close() {
       {\"code\": \"CUTOFF_NOTICE\", \"name\": \"Cut-off reminder sent to the team\", \"kind\": \"manual\", \"due_day\": -2},
       {\"code\": \"AP_CUTOFF\", \"name\": \"Supplier invoices of the period entered\", \"kind\": \"manual\", \"due_day\": 1, \"depends_on\": [\"CUTOFF_NOTICE\"]},
       {\"code\": \"TB_REVIEW\", \"name\": \"Trial balance reviewed\", \"kind\": \"manual\", \"due_day\": 3, \"depends_on\": [\"AP_CUTOFF\"]},
-      {\"code\": \"NO_PARKED\", \"name\": \"No entry of the period left parked\", \"kind\": \"check\", \"check\": \"no_parked_entries\", \"due_day\": 3, \"depends_on\": [\"AP_CUTOFF\"]}])}" \
+      {\"code\": \"NO_PARKED\", \"name\": \"No entry of the period left parked\", \"kind\": \"check\", \"check\": \"no_parked_entries\", \"due_day\": 3, \"depends_on\": [\"AP_CUTOFF\"]},
+      {\"code\": \"DEPRECIATED\", \"name\": \"Depreciation of the period posted in every ledger\", \"kind\": \"check\", \"check\": \"depreciation_posted\", \"due_day\": 2}])}" \
     "$WORK/last.json" >"$WORK/close.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @close.json
   cr=$(field .id)
   api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
   expect "the change's tier" "$(field .tier)" 2
-  expect "the tasks among the changes" "$(field '[.items[] | select(.path | startswith("close.tasks["))] | length')" 4
+  expect "the tasks among the changes" "$(field '[.items[] | select(.path | startswith("close.tasks["))] | length')" 5
   expect "status after submit" "$(field .status)" pending_approval
   request=$(field .workflow_request_id)
   approve priya "$request" "The monthly close checklist, as agreed with the controller"
@@ -2929,6 +2932,7 @@ step_close() {
   expect "the cut-off reminder before each period's end, the review after it" \
     "$(field '[.periods[] | .first_due_on < .end_date and .last_due_on > .end_date] | all')" true
   close_checklist
+  close_depreciation
   close_checks
   close_variances
   close_sign_off
@@ -2951,7 +2955,7 @@ close_checklist() {
     createPeriodClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
   close=$(field .id)
   tag=$ETAG
-  expect "the close's tasks" "$(field '[.tasks[].code] | join(" ")')" "CUTOFF_NOTICE AP_CUTOFF TB_REVIEW NO_PARKED"
+  expect "the close's tasks" "$(field '[.tasks[].code] | join(" ")')" "CUTOFF_NOTICE AP_CUTOFF TB_REVIEW NO_PARKED DEPRECIATED"
   expect "the leading ledger first" "$(field '.ledgers[0].ledger_code')" 0L
   say "A second close of the period is refused, and names the first:"
   refused 409 closing.close_exists createPeriodClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
@@ -2985,6 +2989,48 @@ close_checklist() {
   api 200 ".periods[] | select(.period == $period) | \"  period \\(.period): close \\(.close.status), \\(.close.tasks_done) of \\(.close.tasks_total) done\"" \
     getCloseCalendar -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
   expect "the calendar's close" "$(field ".periods[] | select(.period == $period) | .close.id")" "$close"
+}
+
+# close_depreciation is T64k's part of step_close (ADR-0058 §6): the
+# depreciation check names each covered ledger without a posted run of the
+# period. Step 29 ran the period's depreciation in the leading ledger
+# alone, so the check fails naming 2L, where the lathe still waits for
+# its depreciation; Carla runs the period's depreciation in 2L and the
+# check passes, naming each ledger's run.
+close_depreciation() {
+  local period close tag l2 run
+  period=$((10#${TODAY:5:2}))
+  as carla
+  QUIET=1 api 200 '' listPeriodCloses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  close=$(field ".items[] | select(.fiscal_period == $period) | .id")
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  tag=$ETAG
+  say "DEPRECIATED checks that each ledger the close covers has a posted depreciation run of the period, or no asset"
+  say "a run would select. Step 29 posted the period's run in the leading ledger alone; Carla runs the check:"
+  api 200 '"  \(.code) \(.status): \(.check_result.summary)",
+    (.check_result.ledgers[] | "    \(.ledger_code) \(.ledger_name): \(if .posted then "posted run \(.depreciation_run_id[0:8])…" else "no posted run, \(.assets_to_depreciate) assets a run would select" end)")' \
+    checkCloseTask -p "id=$close" -p code=DEPRECIATED -if-match "$tag"
+  tag=$ETAG
+  expect "the check's verdict before 2L's run" "$(field '.check_result.passed')" false
+  expect "the ledgers without a posted run" "$(field '[.check_result.ledgers[] | select(.posted | not) | .ledger_code] | join(" ")')" 2L
+  expect "2L's assets to depreciate" "$(field '.check_result.ledgers[] | select(.ledger_code == "2L") | .assets_to_depreciate > 0')" true
+  expect "the task after a failing check" "$(field .status)" open
+  l2=$(field '.check_result.ledgers[] | select(.ledger_code == "2L") | .ledger_id')
+  say "Carla runs the period's depreciation in 2L:"
+  api 202 '"\(.kind) \(.status): \(.resource)"' startDepreciationRun \
+    -body "{\"legal_entity_id\": \"$LE\", \"ledger_id\": \"$l2\", \"fiscal_year\": $YEAR, \"period\": $period}"
+  run=$(field .resource)
+  run=${run##*/}
+  wait_op
+  api 200 '"  run \(.fiscal_year)/\(.period) in \(.ledger_code): \(.status), \(.assets_posted) assets posted, \(.amount.amount) \(.amount.currency)"' getDepreciationRun -p "id=$run"
+  expect "2L's run" "$(field .status)" posted
+  say "and runs the check again: it passes, naming each ledger's run, and the task is done."
+  api 200 '"  \(.code) \(.status) by \(.completed_by_name): \(.check_result.summary)",
+    (.check_result.ledgers[] | "    \(.ledger_code): posted run \(.depreciation_run_id[0:8])…")' \
+    checkCloseTask -p "id=$close" -p code=DEPRECIATED -if-match "$tag"
+  expect "the check's verdict after 2L's run" "$(field '.check_result.passed')" true
+  expect "2L's run named" "$(field '.check_result.ledgers[] | select(.ledger_code == "2L") | .depreciation_run_id')" "$run"
+  expect "the task after a passing check" "$(field .status)" done
 }
 
 # close_checks is T64c's part of step_close (ADR-0058 §6): the close's

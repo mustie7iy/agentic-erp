@@ -14162,7 +14162,7 @@ paths:
       tags:
         - closing
       summary: Run a close task's check
-      description: "Runs a check task's check now and records its result on the task (ADR-0058 §6, T64c): `check_result` says whether it passed, when, who ran it and what it found, each with its id and name; the task is set done when it passed (who ran it and when become its completion; a task already done keeps its completion) and open when it did not. `no_parked_entries` passes when no parked entry of the company dated in the period (the leading ledger's period's first to last day) is `parked` or `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted` passes when each covered ledger has a posted revaluation run keyed on its period's last day, and names each ledger with its run. A check is a statement about the moment it ran: run it again to refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_checked`, with `check_passed`). A signed-off close whose covered periods are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d)."
+      description: "Runs a check task's check now and records its result on the task (ADR-0058 §6, T64c): `check_result` says whether it passed, when, who ran it and what it found, each with its id and name; the task is set done when it passed (who ran it and when become its completion; a task already done keeps its completion) and open when it did not. `no_parked_entries` passes when no parked entry of the company dated in the period (the leading ledger's period's first to last day) is `parked` or `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted` passes when each covered ledger has a posted revaluation run keyed on its period's last day, and names each ledger with its run; `depreciation_posted` (T64k) passes when each covered ledger has a posted depreciation run of the close's fiscal year and period (`GET /v1/depreciation-runs`; a failed or cancelled run, or one still queued or running, does not count) or has no asset a run of that period in that ledger would select (the selection `POST /v1/depreciation-runs/preview` shows), and names each ledger with its latest posted run or, without one, how many assets a run would select. A check is a statement about the moment it ran: run it again to refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_checked`, with `check_passed`). A signed-off close whose covered periods are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
@@ -34710,7 +34710,7 @@ components:
         check:
           type: string
           description: "The check run. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-          x-extensible-enum: [no_parked_entries, revaluation_posted]
+          x-extensible-enum: [no_parked_entries, revaluation_posted, depreciation_posted]
           readOnly: true
         passed:
           type: boolean
@@ -34752,7 +34752,7 @@ components:
           maxItems: 20
           items:
             $ref: "#/components/schemas/CloseCheckLedger"
-          description: "`revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted revaluation run keyed on its period's last day, if it has one; absent for another check."
+          description: "`revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted revaluation run keyed on its period's last day, if it has one; `depreciation_posted`: each covered ledger, in the same order, with its latest posted depreciation run of the period, if it has one, or how many assets a run would select; absent for another check."
           readOnly: true
       examples:
         - check: no_parked_entries
@@ -34826,7 +34826,7 @@ components:
           readOnly: true
     CloseCheckLedger:
       type: object
-      description: "A covered ledger as a `revaluation_posted` check found it."
+      description: "A covered ledger as a `revaluation_posted` or a `depreciation_posted` check found it."
       required:
         - ledger_id
         - ledger_code
@@ -34850,16 +34850,27 @@ components:
         key_date:
           type: string
           format: date
-          description: "Its period's last day, the key date its revaluation run is keyed on."
+          description: "Its period's last day: the key date a revaluation run is keyed on, the posting date of a depreciation run."
           readOnly: true
         posted:
           type: boolean
-          description: "Whether it has a posted revaluation run at the key date."
+          description: "Whether it has a posted run of the check's kind: a revaluation run at the key date, or a depreciation run of the period. A ledger without a posted depreciation run still passes `depreciation_posted` when `assets_to_depreciate` is 0."
           readOnly: true
         revaluation_run_id:
           type: string
           format: uuid
-          description: "The posted run (`GET /v1/revaluation-runs/{id}`); absent without one."
+          description: "`revaluation_posted`: the posted run (`GET /v1/revaluation-runs/{id}`); absent without one and for another check."
+          readOnly: true
+        depreciation_run_id:
+          type: string
+          format: uuid
+          description: "`depreciation_posted`: the latest posted depreciation run of the period in this ledger (`GET /v1/depreciation-runs/{id}`); absent without one and for another check."
+          readOnly: true
+        assets_to_depreciate:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "`depreciation_posted` without a posted run: how many of the company's assets a run of the period in this ledger would select (`POST /v1/depreciation-runs/preview`); 0, nothing to depreciate, passes. Absent with a posted run and for another check."
           readOnly: true
     CloseTaskPage:
       type: object
@@ -35040,7 +35051,7 @@ components:
         check:
           type: string
           description: "The check. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-          x-extensible-enum: [no_parked_entries, revaluation_posted]
+          x-extensible-enum: [no_parked_entries, revaluation_posted, depreciation_posted]
         summary:
           type: string
           description: "What it found, in one sentence; `:check` on the task records it whole."
