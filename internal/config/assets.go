@@ -124,9 +124,9 @@ func (v *validator) assetClasses(c *Config) {
 
 // notAutomatic refuses an asset reconciliation account wherever the
 // company names an account the system posts to automatically (account
-// determination, tax codes and their components, withholding taxes, foreign-currency valuation,
-// house banks, statement posting rules): only assets post to it
-// (ADR-0057 §3), so every such posting would be refused.
+// determination, tax codes and their components, withholding taxes,
+// foreign-currency valuation, house banks, statement posting rules): only
+// assets post to it (ADR-0057 §3), so every such posting would be refused.
 func (v *validator) notAutomatic(p string, co *Company) {
 	uses := co.AutomaticAccounts()
 	// A tax code's components post to their own accounts (T61a), which
