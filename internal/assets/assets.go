@@ -56,6 +56,13 @@
 // one entry in the run's ledger alone (ledger.Posting.LedgerID), with a
 // depreciation movement per asset, under the assets' locks, and the run
 // ends posted or failed, published as DepreciationRunCompleted.
+//
+// T57g builds retirements (ADR-0057 §8): a sale or scrapping of a share
+// of an asset, valued in its posting period, catches up each ledger's
+// depreciation through the period before, takes the share of the asset's
+// balances in local and group currency and posts one ledger-specific
+// entry per ledger with the gain or loss; it is reversed while it is the
+// asset's latest posting, and a full one retires the asset.
 package assets
 
 import (

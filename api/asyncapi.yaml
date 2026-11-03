@@ -2866,12 +2866,15 @@ components:
       title: Asset movement posted
       summary: An acquisition, retirement or transfer of an asset was posted.
       description: |
-        Emitted by `asset-acquisitions` (POST, `acquisition`), ADR-0057
-        §6, §10; retirements and transfers add their kinds with their
-        slices. It carries the asset, its status and version after the
-        posting, and per ledger the change of acquisition cost in local and
-        group currency with the journal entry, so a consumer need not read
-        the document. Subject is the document id.
+        Emitted by `asset-acquisitions` (POST, `acquisition`) and
+        `asset-retirements` (POST, `retirement`, T57g), ADR-0057 §6, §8,
+        §10; transfers add their kind with their slice. It carries the
+        asset, its status and version after the posting, and per ledger the
+        change of acquisition cost in local and group currency with the
+        journal entry, a retirement also the change of accumulated
+        depreciation (its catch-up included) and its gain or loss, so a
+        consumer need not read the document. A retirement lists the ledgers
+        it posted an entry in. Subject is the document id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -2888,9 +2891,9 @@ components:
       title: Asset movement reversed
       summary: An acquisition, retirement or transfer of an asset was reversed.
       description: |
-        Emitted by `asset-acquisitions/{id}:reverse` (`acquisition`),
-        ADR-0057 §6, §10; retirements and transfers add their kinds with
-        their slices. It carries the asset, its status and version after
+        Emitted by `asset-acquisitions/{id}:reverse` (`acquisition`) and
+        `asset-retirements/{id}:reverse` (`retirement`, T57g), ADR-0057 §6,
+        §8, §10; transfers add their kind with their slice. It carries the asset, its status and version after
         the reversal, the reversal's posting date and reason, and per
         ledger the change of acquisition cost the reversal made (the
         original's negated) in local and group currency with the reversal
@@ -3597,15 +3600,15 @@ components:
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
         asset_number: {type: string}
         class_code: {type: string}
-        change: {type: string, description: 'Open enum: created, changed, cancelled.'}
+        change: {type: string, description: 'Open enum: created, changed, cancelled, retired (a retirement retired it, T57g), reactivated (the reversal of the retirement that retired it).'}
         status: {type: string, description: 'The status after the change. Open enum: planned, active, retired, cancelled.'}
         version: {type: integer, description: "The asset's version after the change."}
     AssetMovementPostedV1:
       type: object
       required: [document_kind, document_id, asset_id, legal_entity_id, asset_number, class_code, value_date, posting_date, currency_lc, currency_gc, ledgers, asset_status, asset_version]
       properties:
-        document_kind: {type: string, description: 'Open enum: acquisition.'}
-        document_id: {$ref: '#/components/schemas/Uuid', description: '`assets.acquisition.id` for an acquisition.'}
+        document_kind: {type: string, description: 'Open enum: acquisition, retirement.'}
+        document_id: {$ref: '#/components/schemas/Uuid', description: '`assets.acquisition.id` for an acquisition, `assets.retirement.id` for a retirement.'}
         asset_id: {$ref: '#/components/schemas/Uuid'}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
         asset_number: {type: string}
@@ -3622,8 +3625,12 @@ components:
             required: [ledger_id, cost, cost_gc, journal_entry_id, fiscal_year, document_number]
             properties:
               ledger_id: {$ref: '#/components/schemas/Uuid'}
-              cost: {$ref: '#/components/schemas/SignedMoney', description: In local currency; negative for a reduction.}
+              cost: {$ref: '#/components/schemas/SignedMoney', description: In local currency; negative for a reduction or a retirement.}
               cost_gc: {$ref: '#/components/schemas/SignedMoney', description: In group currency.}
+              accumulated: {$ref: '#/components/schemas/SignedMoney', description: 'A retirement''s change of accumulated depreciation in local currency, its catch-up and the share taken off (positive: a debit).'}
+              accumulated_gc: {$ref: '#/components/schemas/SignedMoney', description: 'The same in group currency (a retirement).'}
+              gain: {$ref: '#/components/schemas/SignedMoney', description: 'A retirement''s gain (positive) or loss (negative) in local currency.'}
+              gain_gc: {$ref: '#/components/schemas/SignedMoney', description: 'The same in group currency (a retirement).'}
               journal_entry_id: {$ref: '#/components/schemas/Uuid'}
               fiscal_year: {type: integer}
               document_number: {type: string}
@@ -3633,8 +3640,8 @@ components:
       type: object
       required: [document_kind, document_id, asset_id, legal_entity_id, asset_number, class_code, posting_date, reason, currency_lc, currency_gc, ledgers, asset_status, asset_version]
       properties:
-        document_kind: {type: string, description: 'Open enum: acquisition.'}
-        document_id: {$ref: '#/components/schemas/Uuid', description: '`assets.acquisition.id` for an acquisition.'}
+        document_kind: {type: string, description: 'Open enum: acquisition, retirement.'}
+        document_id: {$ref: '#/components/schemas/Uuid', description: '`assets.acquisition.id` for an acquisition, `assets.retirement.id` for a retirement.'}
         asset_id: {$ref: '#/components/schemas/Uuid'}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
         asset_number: {type: string}
@@ -3653,6 +3660,10 @@ components:
               ledger_id: {$ref: '#/components/schemas/Uuid'}
               cost: {$ref: '#/components/schemas/SignedMoney', description: In local currency; the original's negated.}
               cost_gc: {$ref: '#/components/schemas/SignedMoney', description: In group currency; the original's negated.}
+              accumulated: {$ref: '#/components/schemas/SignedMoney', description: 'A retirement''s change of accumulated depreciation negated, in local currency.'}
+              accumulated_gc: {$ref: '#/components/schemas/SignedMoney', description: 'The same in group currency (a retirement).'}
+              gain: {$ref: '#/components/schemas/SignedMoney', description: 'A retirement''s gain or loss negated, in local currency.'}
+              gain_gc: {$ref: '#/components/schemas/SignedMoney', description: 'The same in group currency (a retirement).'}
               journal_entry_id: {$ref: '#/components/schemas/Uuid', description: The reversal entry.}
               fiscal_year: {type: integer, description: "The reversal entry's fiscal year."}
               document_number: {type: string, description: "The reversal entry's document number."}

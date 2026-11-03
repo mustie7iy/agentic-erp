@@ -427,6 +427,48 @@ type Invoker interface {
 	//
 	// POST /v1/asset-acquisitions
 	CreateAssetAcquisition(ctx context.Context, request *AssetAcquisitionCreate, params CreateAssetAcquisitionParams) (CreateAssetAcquisitionRes, error)
+	// CreateAssetRetirement invokes createAssetRetirement operation.
+	//
+	// Retires a share of an active asset (ADR-0057 §8, T57g; SAP's retirement with revenue or scrapping):
+	// `kind` `sale` with its `proceeds` (required, zero or more, in the company's local currency) or
+	// `scrapping` (no proceeds). `share` is the share of cost retired, as a `percent` (above 0, at most
+	// 100, up to four decimals) or as a `cost` in local currency (at most the asset's cost: 422
+	// `assets.share_exceeds`), one of the two; without it, all of it (a full retirement). The posting date
+	// defaults to the company's date today and the value date to the posting date; a retirement is not
+	// backdated: its value date lies in its posting date's period, on or before the posting date (422
+	// `assets.value_date_outside_period`), and on or after the asset's capitalisation date (422
+	// `assets.value_date_before_capitalisation`), and the asset may have no movement or center assignment
+	// valued in a later period nor depreciation booked through a later period in any ledger, a
+	// depreciation run of a later period included, even one that posted nothing for it (409
+	// `assets.later_value_date`). Per ledger the company keeps (the leading ledger first, then by code) it
+	// first catches up the depreciation through the period before the posting period: the planned
+	// depreciation through that period less what is booked, negative when the posting period's run already
+	// posted (its depreciation is posted back: the share retired depreciates for none of its period); the
+	// asset is then booked through that period, unless it is already booked through the posting period. It
+	// then takes the share of the asset's balances in that ledger as posted so far, the catch-up included:
+	// the cost, accumulated depreciation and residual value, each rounded half away from zero, all of them
+	// for a full share; with no cost left in a ledger (a credit memo took it all) only a full share is
+	// accepted (422 `assets.share_of_zero_cost`). Each ledger gets one entry of its own (document type AA,
+	// source context `assets`): Dr depreciation / Cr accumulated depreciation for the catch-up (the other
+	// way round when negative), Dr accumulated depreciation for the share taken, Cr acquisition cost for
+	// the cost taken, Dr the sale clearing account for the proceeds, and the difference, Cr gain or Dr
+	// loss (the gain on the asset's profit center, the depreciation and loss on its cost center and profit
+	// center, the balance sheet lines on its profit center). In group currency the catch-up and the
+	// proceeds are translated at the posting date's rate (422 `ledger.no_exchange_rate` without one), the
+	// cost and accumulated depreciation taken carry their booked group amounts (all of them when nothing
+	// is left locally; the translated amount when the booked group amount has the other sign; else in
+	// proportion), and the gain or loss takes the group difference, so each entry balances in both
+	// currencies; a ledger in which every amount is zero gets no entry. Proceeds are the same in every
+	// ledger; the gain or loss differs as the book values do. A share that leaves no cost in every ledger,
+	// or a full one, retires the asset; the buyer's invoice and any tax on the sale are posted as a manual
+	// entry that clears the sale clearing account. A planned asset is 422 `assets.asset_not_capitalised`;
+	// a retired or cancelled one 422 `assets.asset_retired` or `assets.asset_cancelled`; an asset without
+	// terms in a ledger its company keeps 422 `assets.ledger_terms_missing`; an asset the caller cannot
+	// act in is 404. Audited, and published as AssetMovementPosted (and AssetChanged `retired` when it
+	// retires the asset). Human-only.
+	//
+	// POST /v1/asset-retirements
+	CreateAssetRetirement(ctx context.Context, request *AssetRetirementCreate, params CreateAssetRetirementParams) (CreateAssetRetirementRes, error)
 	// CreateBusinessPartner invokes createBusinessPartner operation.
 	//
 	// Creates the partner in status `pending` together with a partner change of kind `create` (see
@@ -889,6 +931,13 @@ type Invoker interface {
 	//
 	// GET /v1/asset-acquisitions/{id}
 	GetAssetAcquisition(ctx context.Context, params GetAssetAcquisitionParams) (GetAssetAcquisitionRes, error)
+	// GetAssetRetirement invokes getAssetRetirement operation.
+	//
+	// One retirement with its asset, what it took per ledger and its journal entries (ADR-0057 §8). One
+	// of a legal entity the caller cannot act in is not found.
+	//
+	// GET /v1/asset-retirements/{id}
+	GetAssetRetirement(ctx context.Context, params GetAssetRetirementParams) (GetAssetRetirementRes, error)
 	// GetAssetSchedule invokes getAssetSchedule operation.
 	//
 	// The asset's planned and booked depreciation in one ledger for each regular period of a fiscal year
@@ -1575,6 +1624,14 @@ type Invoker interface {
 	//
 	// GET /v1/assets/{id}/movements
 	ListAssetMovements(ctx context.Context, params ListAssetMovementsParams) (ListAssetMovementsRes, error)
+	// ListAssetRetirements invokes listAssetRetirements operation.
+	//
+	// The asset retirements of the legal entities the caller may act in (ADR-0057 §8, T57g), each with
+	// its asset, what it took per ledger and its journal entries. Filters: company, asset, kind, posting
+	// dates and status. Sortable by: `posting_date` (default), `created_at`.
+	//
+	// GET /v1/asset-retirements
+	ListAssetRetirements(ctx context.Context, params ListAssetRetirementsParams) (ListAssetRetirementsRes, error)
 	// ListAssets invokes listAssets operation.
 	//
 	// The assets of the legal entities the caller may act in (ADR-0057 §5, T57b), each with its class,
@@ -2934,6 +2991,23 @@ type Invoker interface {
 	//
 	// POST /v1/asset-acquisitions/{id}:reverse
 	ReverseAssetAcquisition(ctx context.Context, request *AssetAcquisitionReverse, params ReverseAssetAcquisitionParams) (ReverseAssetAcquisitionRes, error)
+	// ReverseAssetRetirement invokes reverseAssetRetirement operation.
+	//
+	// Reverses a posted retirement (ADR-0057 §8, T57g): each ledger's entry, catch-up included, through
+	// the ledger's reversal path, on `posting_date` (default the retirement's posting date), never before
+	// the retirement's posting date (422 `assets.reversal_before_original`) and in a period open in every
+	// ledger it posted in (409 `ledger.period_not_open`); each entry's reversal is shown beside it in
+	// `entries`. It writes the asset's movements negated, returns the asset's depreciation booked-through
+	// period in each ledger to what it was before the catch-up (so a run of the period before posts that
+	// period's depreciation again), and derives the asset's status again: a retired asset becomes active.
+	// Only the asset's latest posting is reversed: once anything was posted on it after the retirement (a
+	// depreciation run, an acquisition, a reversal), whether reversed or not, it is refused (409
+	// `assets.later_movements`). One already reversed is 409 `assets.retirement_not_posted`. The If-Match
+	// is the retirement's ETag; a retirement the caller cannot act in is 404. Audited, and published as
+	// AssetMovementReversed (and AssetChanged `reactivated` when the asset was retired). Human-only.
+	//
+	// POST /v1/asset-retirements/{id}:reverse
+	ReverseAssetRetirement(ctx context.Context, request *AssetRetirementReverse, params ReverseAssetRetirementParams) (ReverseAssetRetirementRes, error)
 	// ReverseGoodsReceipt invokes reverseGoodsReceipt operation.
 	//
 	// Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
@@ -2960,10 +3034,10 @@ type Invoker interface {
 	// `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with
 	// `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. An assets document's entry
 	// (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is
-	// reversed with `POST /v1/asset-acquisitions/{id}:reverse` (retirements and transfers with their own
-	// `:reverse`, a depreciation run's entries never one by one). Entries of any other context are 409
-	// `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal
-	// entry. Human-only.
+	// reversed with `POST /v1/asset-acquisitions/{id}:reverse`, a retirement with
+	// `POST /v1/asset-retirements/{id}:reverse` (transfers with their own `:reverse`, a depreciation run's
+	// entries never one by one). Entries of any other context are 409 `ledger.entry_owned_elsewhere` too:
+	// no reversal path exists for them yet. Returns the new reversal entry. Human-only.
 	//
 	// POST /v1/journal-entries/{id}:reverse
 	ReverseJournalEntry(ctx context.Context, request OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error)
@@ -8795,6 +8869,172 @@ func (c *Client) sendCreateAssetAcquisition(ctx context.Context, request *AssetA
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateAssetAcquisitionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateAssetRetirement invokes createAssetRetirement operation.
+//
+// Retires a share of an active asset (ADR-0057 §8, T57g; SAP's retirement with revenue or scrapping):
+// `kind` `sale` with its `proceeds` (required, zero or more, in the company's local currency) or
+// `scrapping` (no proceeds). `share` is the share of cost retired, as a `percent` (above 0, at most
+// 100, up to four decimals) or as a `cost` in local currency (at most the asset's cost: 422
+// `assets.share_exceeds`), one of the two; without it, all of it (a full retirement). The posting date
+// defaults to the company's date today and the value date to the posting date; a retirement is not
+// backdated: its value date lies in its posting date's period, on or before the posting date (422
+// `assets.value_date_outside_period`), and on or after the asset's capitalisation date (422
+// `assets.value_date_before_capitalisation`), and the asset may have no movement or center assignment
+// valued in a later period nor depreciation booked through a later period in any ledger, a
+// depreciation run of a later period included, even one that posted nothing for it (409
+// `assets.later_value_date`). Per ledger the company keeps (the leading ledger first, then by code) it
+// first catches up the depreciation through the period before the posting period: the planned
+// depreciation through that period less what is booked, negative when the posting period's run already
+// posted (its depreciation is posted back: the share retired depreciates for none of its period); the
+// asset is then booked through that period, unless it is already booked through the posting period. It
+// then takes the share of the asset's balances in that ledger as posted so far, the catch-up included:
+// the cost, accumulated depreciation and residual value, each rounded half away from zero, all of them
+// for a full share; with no cost left in a ledger (a credit memo took it all) only a full share is
+// accepted (422 `assets.share_of_zero_cost`). Each ledger gets one entry of its own (document type AA,
+// source context `assets`): Dr depreciation / Cr accumulated depreciation for the catch-up (the other
+// way round when negative), Dr accumulated depreciation for the share taken, Cr acquisition cost for
+// the cost taken, Dr the sale clearing account for the proceeds, and the difference, Cr gain or Dr
+// loss (the gain on the asset's profit center, the depreciation and loss on its cost center and profit
+// center, the balance sheet lines on its profit center). In group currency the catch-up and the
+// proceeds are translated at the posting date's rate (422 `ledger.no_exchange_rate` without one), the
+// cost and accumulated depreciation taken carry their booked group amounts (all of them when nothing
+// is left locally; the translated amount when the booked group amount has the other sign; else in
+// proportion), and the gain or loss takes the group difference, so each entry balances in both
+// currencies; a ledger in which every amount is zero gets no entry. Proceeds are the same in every
+// ledger; the gain or loss differs as the book values do. A share that leaves no cost in every ledger,
+// or a full one, retires the asset; the buyer's invoice and any tax on the sale are posted as a manual
+// entry that clears the sale clearing account. A planned asset is 422 `assets.asset_not_capitalised`;
+// a retired or cancelled one 422 `assets.asset_retired` or `assets.asset_cancelled`; an asset without
+// terms in a ledger its company keeps 422 `assets.ledger_terms_missing`; an asset the caller cannot
+// act in is 404. Audited, and published as AssetMovementPosted (and AssetChanged `retired` when it
+// retires the asset). Human-only.
+//
+// POST /v1/asset-retirements
+func (c *Client) CreateAssetRetirement(ctx context.Context, request *AssetRetirementCreate, params CreateAssetRetirementParams) (CreateAssetRetirementRes, error) {
+	res, err := c.sendCreateAssetRetirement(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateAssetRetirement(ctx context.Context, request *AssetRetirementCreate, params CreateAssetRetirementParams) (res CreateAssetRetirementRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createAssetRetirement"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/asset-retirements"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateAssetRetirementOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/asset-retirements"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateAssetRetirementRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateAssetRetirementOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateAssetRetirementResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -16098,6 +16338,138 @@ func (c *Client) sendGetAssetAcquisition(ctx context.Context, params GetAssetAcq
 
 	stage = "DecodeResponse"
 	result, err := decodeGetAssetAcquisitionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetAssetRetirement invokes getAssetRetirement operation.
+//
+// One retirement with its asset, what it took per ledger and its journal entries (ADR-0057 §8). One
+// of a legal entity the caller cannot act in is not found.
+//
+// GET /v1/asset-retirements/{id}
+func (c *Client) GetAssetRetirement(ctx context.Context, params GetAssetRetirementParams) (GetAssetRetirementRes, error) {
+	res, err := c.sendGetAssetRetirement(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetAssetRetirement(ctx context.Context, params GetAssetRetirementParams) (res GetAssetRetirementRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAssetRetirement"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/asset-retirements/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAssetRetirementOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/asset-retirements/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAssetRetirementOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAssetRetirementResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -27438,6 +27810,278 @@ func (c *Client) sendListAssetMovements(ctx context.Context, params ListAssetMov
 
 	stage = "DecodeResponse"
 	result, err := decodeListAssetMovementsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListAssetRetirements invokes listAssetRetirements operation.
+//
+// The asset retirements of the legal entities the caller may act in (ADR-0057 §8, T57g), each with
+// its asset, what it took per ledger and its journal entries. Filters: company, asset, kind, posting
+// dates and status. Sortable by: `posting_date` (default), `created_at`.
+//
+// GET /v1/asset-retirements
+func (c *Client) ListAssetRetirements(ctx context.Context, params ListAssetRetirementsParams) (ListAssetRetirementsRes, error) {
+	res, err := c.sendListAssetRetirements(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListAssetRetirements(ctx context.Context, params ListAssetRetirementsParams) (res ListAssetRetirementsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listAssetRetirements"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/asset-retirements"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListAssetRetirementsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/asset-retirements"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "asset_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "asset_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.AssetID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "kind" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Kind.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "posting_date_from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "posting_date_from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PostingDateFrom.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "posting_date_to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "posting_date_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PostingDateTo.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListAssetRetirementsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListAssetRetirementsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -53693,6 +54337,177 @@ func (c *Client) sendReverseAssetAcquisition(ctx context.Context, request *Asset
 	return result, nil
 }
 
+// ReverseAssetRetirement invokes reverseAssetRetirement operation.
+//
+// Reverses a posted retirement (ADR-0057 §8, T57g): each ledger's entry, catch-up included, through
+// the ledger's reversal path, on `posting_date` (default the retirement's posting date), never before
+// the retirement's posting date (422 `assets.reversal_before_original`) and in a period open in every
+// ledger it posted in (409 `ledger.period_not_open`); each entry's reversal is shown beside it in
+// `entries`. It writes the asset's movements negated, returns the asset's depreciation booked-through
+// period in each ledger to what it was before the catch-up (so a run of the period before posts that
+// period's depreciation again), and derives the asset's status again: a retired asset becomes active.
+// Only the asset's latest posting is reversed: once anything was posted on it after the retirement (a
+// depreciation run, an acquisition, a reversal), whether reversed or not, it is refused (409
+// `assets.later_movements`). One already reversed is 409 `assets.retirement_not_posted`. The If-Match
+// is the retirement's ETag; a retirement the caller cannot act in is 404. Audited, and published as
+// AssetMovementReversed (and AssetChanged `reactivated` when the asset was retired). Human-only.
+//
+// POST /v1/asset-retirements/{id}:reverse
+func (c *Client) ReverseAssetRetirement(ctx context.Context, request *AssetRetirementReverse, params ReverseAssetRetirementParams) (ReverseAssetRetirementRes, error) {
+	res, err := c.sendReverseAssetRetirement(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendReverseAssetRetirement(ctx context.Context, request *AssetRetirementReverse, params ReverseAssetRetirementParams) (res ReverseAssetRetirementRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("reverseAssetRetirement"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/asset-retirements/{id}:reverse"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ReverseAssetRetirementOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/asset-retirements/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":reverse"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeReverseAssetRetirementRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ReverseAssetRetirementOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeReverseAssetRetirementResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ReverseGoodsReceipt invokes reverseGoodsReceipt operation.
 //
 // Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
@@ -53873,10 +54688,10 @@ func (c *Client) sendReverseGoodsReceipt(ctx context.Context, request OptGoodsRe
 // `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with
 // `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. An assets document's entry
 // (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is
-// reversed with `POST /v1/asset-acquisitions/{id}:reverse` (retirements and transfers with their own
-// `:reverse`, a depreciation run's entries never one by one). Entries of any other context are 409
-// `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal
-// entry. Human-only.
+// reversed with `POST /v1/asset-acquisitions/{id}:reverse`, a retirement with
+// `POST /v1/asset-retirements/{id}:reverse` (transfers with their own `:reverse`, a depreciation run's
+// entries never one by one). Entries of any other context are 409 `ledger.entry_owned_elsewhere` too:
+// no reversal path exists for them yet. Returns the new reversal entry. Human-only.
 //
 // POST /v1/journal-entries/{id}:reverse
 func (c *Client) ReverseJournalEntry(ctx context.Context, request OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error) {

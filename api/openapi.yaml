@@ -6108,7 +6108,7 @@ paths:
       tags:
         - ledger
       summary: Reverse a journal entry
-      description: "Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a copy in a parallel ledger is reversed only through its group's first entry (409 `ledger.entry_is_copy`). Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. An assets document's entry (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is reversed with `POST /v1/asset-acquisitions/{id}:reverse` (retirements and transfers with their own `:reverse`, a depreciation run's entries never one by one). Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry. Human-only."
+      description: "Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a copy in a parallel ledger is reversed only through its group's first entry (409 `ledger.entry_is_copy`). Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. An assets document's entry (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is reversed with `POST /v1/asset-acquisitions/{id}:reverse`, a retirement with `POST /v1/asset-retirements/{id}:reverse` (transfers with their own `:reverse`, a depreciation run's entries never one by one). Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry. Human-only."
       x-permission: ledger.entry.post
       x-agent: false
       x-problem-codes:
@@ -14354,6 +14354,305 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AssetAcquisition"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/asset-retirements:
+    get:
+      operationId: listAssetRetirements
+      tags:
+        - assets
+      summary: List asset retirements
+      description: "The asset retirements of the legal entities the caller may act in (ADR-0057 §8, T57g), each with its asset, what it took per ledger and its journal entries. Filters: company, asset, kind, posting dates and status. Sortable by: `posting_date` (default), `created_at`."
+      x-permission: assets.asset.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: asset_id
+          in: query
+          required: false
+          description: Only this asset's retirements.
+          schema:
+            type: string
+            format: uuid
+        - name: kind
+          in: query
+          required: false
+          description: Only retirements of this kind.
+          schema:
+            type: string
+            description: "Retirement kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [sale, scrapping]
+        - name: posting_date_from
+          in: query
+          required: false
+          description: Only retirements posted on or after this date.
+          schema:
+            type: string
+            format: date
+        - name: posting_date_to
+          in: query
+          required: false
+          description: Only retirements posted on or before this date.
+          schema:
+            type: string
+            format: date
+        - name: status
+          in: query
+          required: false
+          description: Only retirements in this status.
+          schema:
+            type: string
+            description: "Retirement status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [posted, reversed]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of retirements.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetRetirementPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createAssetRetirement
+      tags:
+        - assets
+      summary: Retire an asset, in full or in part, by sale or scrapping
+      description: "Retires a share of an active asset (ADR-0057 §8, T57g; SAP's retirement with revenue or scrapping): `kind` `sale` with its `proceeds` (required, zero or more, in the company's local currency) or `scrapping` (no proceeds). `share` is the share of cost retired, as a `percent` (above 0, at most 100, up to four decimals) or as a `cost` in local currency (at most the asset's cost: 422 `assets.share_exceeds`), one of the two; without it, all of it (a full retirement). The posting date defaults to the company's date today and the value date to the posting date; a retirement is not backdated: its value date lies in its posting date's period, on or before the posting date (422 `assets.value_date_outside_period`), and on or after the asset's capitalisation date (422 `assets.value_date_before_capitalisation`), and the asset may have no movement or center assignment valued in a later period nor depreciation booked through a later period in any ledger, a depreciation run of a later period included, even one that posted nothing for it (409 `assets.later_value_date`). Per ledger the company keeps (the leading ledger first, then by code) it first catches up the depreciation through the period before the posting period: the planned depreciation through that period less what is booked, negative when the posting period's run already posted (its depreciation is posted back: the share retired depreciates for none of its period); the asset is then booked through that period, unless it is already booked through the posting period. It then takes the share of the asset's balances in that ledger as posted so far, the catch-up included: the cost, accumulated depreciation and residual value, each rounded half away from zero, all of them for a full share; with no cost left in a ledger (a credit memo took it all) only a full share is accepted (422 `assets.share_of_zero_cost`). Each ledger gets one entry of its own (document type AA, source context `assets`): Dr depreciation / Cr accumulated depreciation for the catch-up (the other way round when negative), Dr accumulated depreciation for the share taken, Cr acquisition cost for the cost taken, Dr the sale clearing account for the proceeds, and the difference, Cr gain or Dr loss (the gain on the asset's profit center, the depreciation and loss on its cost center and profit center, the balance sheet lines on its profit center). In group currency the catch-up and the proceeds are translated at the posting date's rate (422 `ledger.no_exchange_rate` without one), the cost and accumulated depreciation taken carry their booked group amounts (all of them when nothing is left locally; the translated amount when the booked group amount has the other sign; else in proportion), and the gain or loss takes the group difference, so each entry balances in both currencies; a ledger in which every amount is zero gets no entry. Proceeds are the same in every ledger; the gain or loss differs as the book values do. A share that leaves no cost in every ledger, or a full one, retires the asset; the buyer's invoice and any tax on the sale are posted as a manual entry that clears the sale clearing account. A planned asset is 422 `assets.asset_not_capitalised`; a retired or cancelled one 422 `assets.asset_retired` or `assets.asset_cancelled`; an asset without terms in a ledger its company keeps 422 `assets.ledger_terms_missing`; an asset the caller cannot act in is 404. Audited, and published as AssetMovementPosted (and AssetChanged `retired` when it retires the asset). Human-only."
+      x-permission: assets.asset.post
+      x-agent: false
+      x-problem-codes:
+        - assets.asset_cancelled
+        - assets.asset_not_capitalised
+        - assets.asset_retired
+        - assets.class_not_in_company
+        - assets.class_unknown
+        - assets.later_value_date
+        - assets.ledger_terms_missing
+        - assets.share_exceeds
+        - assets.share_of_zero_cost
+        - assets.value_date_before_capitalisation
+        - assets.value_date_outside_period
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The retirement.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssetRetirementCreate"
+      responses:
+        "201":
+          description: "Posted; the retirement with what it took and its journal entry per ledger."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetRetirement"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/asset-retirements/{id}":
+    get:
+      operationId: getAssetRetirement
+      tags:
+        - assets
+      summary: Get an asset retirement
+      description: "One retirement with its asset, what it took per ledger and its journal entries (ADR-0057 §8). One of a legal entity the caller cannot act in is not found."
+      x-permission: assets.asset.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The retirement.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetRetirement"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/asset-retirements/{id}:reverse":
+    post:
+      operationId: reverseAssetRetirement
+      tags:
+        - assets
+      summary: Reverse an asset retirement
+      description: "Reverses a posted retirement (ADR-0057 §8, T57g): each ledger's entry, catch-up included, through the ledger's reversal path, on `posting_date` (default the retirement's posting date), never before the retirement's posting date (422 `assets.reversal_before_original`) and in a period open in every ledger it posted in (409 `ledger.period_not_open`); each entry's reversal is shown beside it in `entries`. It writes the asset's movements negated, returns the asset's depreciation booked-through period in each ledger to what it was before the catch-up (so a run of the period before posts that period's depreciation again), and derives the asset's status again: a retired asset becomes active. Only the asset's latest posting is reversed: once anything was posted on it after the retirement (a depreciation run, an acquisition, a reversal), whether reversed or not, it is refused (409 `assets.later_movements`). One already reversed is 409 `assets.retirement_not_posted`. The If-Match is the retirement's ETag; a retirement the caller cannot act in is 404. Audited, and published as AssetMovementReversed (and AssetChanged `reactivated` when the asset was retired). Human-only."
+      x-permission: assets.asset.post
+      x-agent: false
+      x-problem-codes:
+        - assets.later_movements
+        - assets.retirement_not_posted
+        - assets.reversal_before_original
+        - config.no_number_range
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.already_reversed
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cannot_reverse_reversal
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.entry_cleared
+        - ledger.entry_is_copy
+        - ledger.entry_owned_elsewhere
+        - ledger.gr_ir_currency_mismatch
+        - ledger.item_already_cleared
+        - ledger.item_reserved
+        - ledger.legal_entity_not_active
+        - ledger.no_fiscal_period
+        - ledger.no_price_difference_account
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.unknown_unit
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The reversal.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssetRetirementReverse"
+      responses:
+        "200":
+          description: "The retirement, `reversed`, with each entry's reversal."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetRetirement"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -33208,7 +33507,7 @@ components:
           x-extensible-enum: [acquisition, retirement, transfer, depreciation_run]
           description: "The kind of document it belongs to. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
-        document_id: {type: string, format: uuid, description: "The document (an acquisition: `GET /v1/asset-acquisitions/{id}`; a depreciation run: `GET /v1/depreciation-runs/{id}`).", readOnly: true}
+        document_id: {type: string, format: uuid, description: "The document (an acquisition: `GET /v1/asset-acquisitions/{id}`; a retirement: `GET /v1/asset-retirements/{id}`; a depreciation run: `GET /v1/depreciation-runs/{id}`).", readOnly: true}
         journal_entry_id: {type: string, format: uuid, description: "That ledger's journal entry (`GET /v1/journal-entries/{id}`); absent for a catch-up of zero.", readOnly: true}
         journal_entry_fiscal_year: {type: integer, format: int32, description: "The journal entry's fiscal year.", readOnly: true}
         document_number: {type: string, description: "The journal entry's document number: an acquisition's, retirement's or transfer's entry, or a depreciation run's batch entry.", readOnly: true}
@@ -33586,6 +33885,174 @@ components:
         source_context: {type: string, description: "The context that posted the entry: `payables` for a supplier invoice, `procurement` for a goods receipt, `ledger` for a manual entry. Open enumeration.", readOnly: true}
         source_document_id: {type: string, format: uuid, description: "Its document there (a supplier invoice's id); absent for a manual entry.", readOnly: true}
         supplier_invoice: {$ref: "#/components/schemas/AssetSupplierInvoiceRef"}
+    AssetRetirementCreate:
+      type: object
+      description: "A retirement of an asset by sale or scrapping, in full or in part (ADR-0057 §8)."
+      required: [asset_id, kind]
+      properties:
+        asset_id: {type: string, format: uuid, description: "The asset retired (an active one)."}
+        kind:
+          type: string
+          x-extensible-enum: [sale, scrapping]
+          description: "`sale`, with `proceeds`, or `scrapping`, without. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        proceeds:
+          $ref: "#/components/schemas/Money"
+          description: "A sale's proceeds, zero or more, in the company's local currency; required for a sale, none for a scrapping. They are posted on the class's sale clearing account."
+        share: {$ref: "#/components/schemas/AssetRetirementShare"}
+        value_date: {type: string, format: date, description: "The date the share leaves from (the start of its period for depreciation); default the posting date. In the posting date's period, on or before the posting date."}
+        posting_date: {type: string, format: date, description: "The retirement's posting date; default the company's date today."}
+        text: {type: string, minLength: 1, maxLength: 200, description: "A text for the retirement and its entries."}
+      additionalProperties: false
+      examples:
+        - asset_id: 0192a000-0000-7000-8000-000000000f01
+          kind: sale
+          proceeds: {amount: "4000.00", currency: CAD}
+          share: {percent: "50"}
+    AssetRetirementShare:
+      type: object
+      description: "The share of the asset's cost retired, one of `percent` and `cost`; absent: all of it."
+      properties:
+        percent: {type: string, pattern: "^[0-9]{1,3}(\\.[0-9]{1,4})?$", description: "A percentage of the cost in each ledger, above 0 and at most 100, up to four decimals; 100 is a full retirement."}
+        cost:
+          $ref: "#/components/schemas/Money"
+          description: "A cost in the company's local currency, above zero and at most the asset's cost; all of it is a full retirement."
+      additionalProperties: false
+    AssetRetirementReverse:
+      type: object
+      description: "The reversal of an asset retirement (ADR-0057 §8)."
+      required: [reason]
+      properties:
+        reason: {type: string, minLength: 1, maxLength: 2000, description: Why the retirement is reversed.}
+        posting_date: {type: string, format: date, description: "The reversal's posting date; default the retirement's. On or after the retirement's posting date, in a period open in every ledger."}
+      additionalProperties: false
+      examples:
+        - reason: The buyer withdrew.
+    AssetRetirement:
+      description: "An asset retirement (ADR-0057 §8, T57g): a sale with proceeds or a scrapping of a share of an asset, with what it took and its gain or loss per ledger, its journal entries per ledger and, once reversed, the reversal. Amounts in local currency are in the company's currency (`proceeds.currency`), those in group currency in the tenant's."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [legal_entity_id, company_code, asset_id, asset_number, asset_description, kind, value_date, posting_date, fiscal_year, period, full, proceeds, proceeds_gc, status, ledgers, entries]
+          properties:
+            legal_entity_id: {type: string, format: uuid, description: "The company's legal entity.", readOnly: true}
+            company_code: {type: string, description: The company code., readOnly: true}
+            asset_id: {type: string, format: uuid, description: The asset., readOnly: true}
+            asset_number: {type: string, description: "The asset's number in its company.", readOnly: true}
+            asset_description: {type: string, description: "The asset's description.", readOnly: true}
+            kind:
+              type: string
+              description: "`sale` or `scrapping`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [sale, scrapping]
+              readOnly: true
+            value_date: {type: string, format: date, description: "The date the share left from.", readOnly: true}
+            posting_date: {type: string, format: date, description: The posting date of its entries., readOnly: true}
+            fiscal_year: {type: integer, format: int32, description: "The posting date's fiscal year.", readOnly: true}
+            period: {type: integer, format: int32, description: "The posting date's regular period.", readOnly: true}
+            full: {type: boolean, description: "Whether it was given no share or 100 %: all of the asset's balances.", readOnly: true}
+            share_percent: {type: string, description: "The share given as a percentage of cost, as a plain decimal.", readOnly: true}
+            share_cost: {$ref: "#/components/schemas/Money", description: "The share given as a cost, in local currency."}
+            proceeds: {$ref: "#/components/schemas/Money", description: "The sale's proceeds in local currency; zero for a scrapping."}
+            proceeds_gc: {$ref: "#/components/schemas/Money", description: "The proceeds in group currency, at the posting date's rate."}
+            text: {type: string, description: "The retirement's text.", readOnly: true}
+            status:
+              type: string
+              description: "`posted`, or `reversed`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [posted, reversed]
+              readOnly: true
+            ledgers:
+              type: array
+              items: {$ref: "#/components/schemas/AssetRetirementLedger"}
+              description: "What it took per ledger the company keeps, the leading ledger first and then by ledger code."
+              readOnly: true
+            entries:
+              type: array
+              items: {$ref: "#/components/schemas/AssetDocumentEntry"}
+              description: "Its journal entries, one per ledger it posted in (none in a ledger where every amount was zero), each with its reversal once reversed."
+              readOnly: true
+            reversal: {$ref: "#/components/schemas/AssetRetirementReversal"}
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000a21
+          version: 1
+          created_at: "2026-11-03T09:00:00Z"
+          created_by: 0192a000-0000-7000-8000-000000000101
+          updated_at: "2026-11-03T09:00:00Z"
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "1000"
+          asset_id: 0192a000-0000-7000-8000-000000000f01
+          asset_number: "1"
+          asset_description: CNC milling machine
+          kind: sale
+          value_date: "2026-11-03"
+          posting_date: "2026-11-03"
+          fiscal_year: 2026
+          period: 11
+          full: false
+          share_percent: "50"
+          proceeds: {amount: "4000.00", currency: CAD}
+          proceeds_gc: {amount: "2920.00", currency: USD}
+          status: posted
+          ledgers:
+            - ledger_id: 0192a000-0000-7000-8000-000000000301
+              ledger_code: 0L
+              ledger_name: Leading ledger
+              share: "0.5"
+              catch_up: {amount: "-62.50", currency: CAD}
+              catch_up_gc: {amount: "-45.63", currency: USD}
+              cost: {amount: "3750.00", currency: CAD}
+              cost_gc: {amount: "2737.50", currency: USD}
+              accumulated: {amount: "0.00", currency: CAD}
+              accumulated_gc: {amount: "0.00", currency: USD}
+              residual: {amount: "0.00", currency: CAD}
+              net_book_value: {amount: "3750.00", currency: CAD}
+              net_book_value_gc: {amount: "2737.50", currency: USD}
+              gain: {amount: "250.00", currency: CAD}
+              gain_gc: {amount: "182.50", currency: USD}
+          entries:
+            - {ledger_id: 0192a000-0000-7000-8000-000000000301, ledger_code: 0L, ledger_name: Leading ledger, fiscal_year: 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000e21, document_number: "100007"}
+    AssetRetirementLedger:
+      type: object
+      description: "What a retirement took in one ledger (ADR-0057 §8): its depreciation catch-up, then its share of the asset's balances, and its gain or loss."
+      required: [ledger_id, ledger_code, ledger_name, share, catch_up, catch_up_gc, cost, cost_gc, accumulated, accumulated_gc, residual, net_book_value, net_book_value_gc, gain, gain_gc]
+      properties:
+        ledger_id: {type: string, format: uuid, description: The ledger., readOnly: true}
+        ledger_code: {type: string, description: "The ledger's code.", readOnly: true}
+        ledger_name: {type: string, description: "The ledger's name.", readOnly: true}
+        share: {type: string, description: "The fraction of the asset's cost in this ledger it took, as a plain decimal (1: all of it).", readOnly: true}
+        catch_up: {$ref: "#/components/schemas/Money", description: "The depreciation it caught up through the period before its posting period, an expense; negative when it posted the posting period's run back."}
+        catch_up_gc: {$ref: "#/components/schemas/Money", description: "The catch-up in group currency, at the posting date's rate."}
+        cost: {$ref: "#/components/schemas/Money", description: "The acquisition cost it took off, in local currency."}
+        cost_gc: {$ref: "#/components/schemas/Money", description: "The acquisition cost it took off, at its booked group amount."}
+        accumulated: {$ref: "#/components/schemas/Money", description: "The accumulated depreciation it took off, after the catch-up, negative as the credit it was."}
+        accumulated_gc: {$ref: "#/components/schemas/Money", description: "The accumulated depreciation it took off, at its booked group amount."}
+        residual: {$ref: "#/components/schemas/Money", description: "The residual value it took off, in local currency."}
+        net_book_value: {$ref: "#/components/schemas/Money", description: "The book value it took off: `cost` plus `accumulated`."}
+        net_book_value_gc: {$ref: "#/components/schemas/Money", description: "The book value it took off in group currency."}
+        gain: {$ref: "#/components/schemas/Money", description: "The proceeds less the book value taken: a gain when positive (on the gain account), a loss when negative (on the loss account)."}
+        gain_gc: {$ref: "#/components/schemas/Money", description: "The gain or loss in group currency: the proceeds' group amount less the book value's."}
+    AssetRetirementReversal:
+      type: object
+      description: "The reversal of a retirement; its entries are shown beside the retirement's in `entries`."
+      required: [posting_date, reason]
+      properties:
+        posting_date: {type: string, format: date, description: "The reversal's posting date.", readOnly: true}
+        reason: {type: string, description: Why it was reversed., readOnly: true}
+    AssetRetirementPage:
+      type: object
+      description: One page of asset retirements.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetRetirement"
+          description: The retirements on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
     AssetSupplierInvoiceRef:
       type: object
       description: "A supplier invoice as an asset's acquisition names it."
