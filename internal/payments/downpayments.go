@@ -26,12 +26,9 @@ func (e *Endpoints) dueRequests(ctx context.Context, tx pgx.Tx, r Run) ([]DownPa
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT p.down_payment_request_id FROM payments.payment p
-		JOIN payments.payment_run r ON r.tenant_id = p.tenant_id AND r.id = p.payment_run_id
-		WHERE r.legal_entity_id = $1 AND p.kind = 'down_payment' AND `+liveRun, r.LegalEntityID)
-	held, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	held, err := heldRequests(ctx, tx, r.LegalEntityID)
 	if err != nil {
-		return nil, fmt.Errorf("payments: read the down payment requests live runs of %s pay: %w", r.LegalEntityID, err)
+		return nil, err
 	}
 	out := make([]DownPayment, 0, len(due))
 	for _, d := range due {
@@ -40,6 +37,20 @@ func (e *Endpoints) dueRequests(ctx context.Context, tx pgx.Tx, r Run) ([]DownPa
 		}
 	}
 	return out, nil
+}
+
+// heldRequests are the legal entity's down payment requests a live run
+// pays (liveRun): another run does not pay them, and the liquidity
+// forecast counts the run's payment rather than the request.
+func heldRequests(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID) ([]uuid.UUID, error) {
+	rows, _ := tx.Query(ctx, `SELECT p.down_payment_request_id FROM payments.payment p
+		JOIN payments.payment_run r ON r.tenant_id = p.tenant_id AND r.id = p.payment_run_id
+		WHERE r.legal_entity_id = $1 AND p.kind = 'down_payment' AND `+liveRun, legalEntity)
+	held, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return nil, fmt.Errorf("payments: read the down payment requests live runs of %s pay: %w", legalEntity, err)
+	}
+	return held, nil
 }
 
 // payRequests adds a payment per due request, whole and never netted with

@@ -205,6 +205,7 @@ type DownPayment struct {
 	ID, SupplierID uuid.UUID
 	DocumentNumber string
 	Reference      *string
+	Currency       string
 	Amount         money.Minor
 	TaxCode        *string
 	Tax            money.Minor

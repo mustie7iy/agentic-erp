@@ -318,8 +318,9 @@ start() {
   say "  - the GST34's lines (T61j-T61l): step 2 configures one"
   say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
-  say "  - the liquidity forecast's other sources, liquidity items, conversion and drill-down (T53e2-T53k): step 13 shows the"
-  say "    daily cash position with a memo record and the forecast of the supplier open items and payment runs"
+  say "  - the liquidity forecast's liquidity items, conversion, drill-down and other sources (T53e3-T53k): step 13 shows"
+  say "    the daily cash position with a memo record and the forecast of the supplier open items, payment runs, parked"
+  say "    invoices, down payment requests and blocked suppliers"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - accounts receivable, fixed assets (T57), period-end close (T64), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
@@ -2051,6 +2052,7 @@ step_cash() {
   counted=$(field '[.banks[] | select(.house_bank_code == "RBC") | .days[].flows[]? | select(.source == "memo" and .amount.amount == "1000.00")] | length')
   [ "$(field .read_date)" != "$toronto" ] || expect "the record listed active and counted in the position on Toronto's date" "$listed $counted" "1 1"
   forecast
+  forecast_sources
   passed
 }
 
@@ -2086,6 +2088,79 @@ forecast() {
       | join(", ")')" "-1000.00 true"
   expect "each currency's total, its buckets' totals added up" \
     "$(field '[.currencies[] | (.total.amount | sub("\\."; "") | tonumber) == ([.buckets[].total.amount | sub("\\."; "") | tonumber] | add)] | all')" true
+}
+
+# cad_cents SOURCE is the sum of the CAD flows of the source in the last
+# forecast's buckets, in cents.
+cad_cents() {
+  jq -r --arg s "$1" '[.currencies[] | select(.currency == "CAD") | .buckets[].flows[] | select(.source == $s)
+    | .amount.amount | sub("[.]"; "") | tonumber] | add // 0' "$WORK/last.json"
+}
+
+# cad_sum FIELDS... is the sum of the CAD figures at the paths (amounts
+# under a currency, such as .total or .blocked.amount) in the last
+# forecast, in cents.
+cad_sum() {
+  local paths
+  paths=$(printf '(%s.amount | sub("[.]"; "") | tonumber), ' "$@")
+  jq -r "[.currencies[] | select(.currency == \"CAD\") | ${paths%, }] | add // 0" "$WORK/last.json"
+}
+
+# forecast_sources has Tom read what the forecast takes beside the posted
+# items (T53e2): Alex parks an invoice from Tyrell and requests a down
+# payment to Tyrell, which the forecast shows as planned and expected; the
+# items of Massive Dynamic, which no run pays (step 7), are shown apart;
+# both documents are cancelled again, and leave the forecast.
+forecast_sources() {
+  say "What the forecast takes beside the posted items (T53e2): invoices parked or on hold (invoice_unposted,"
+  say "planned) at what a run would pay once they are posted, by the terms they would post with; open down payment"
+  say "requests (down_payment, expected) whole on their due dates; and what the suppliers no run pays are owed"
+  say "(payable_blocked), apart from the totals unless Tom asks for it (include_blocked)."
+  local due parked parked_etag request request_etag before parked0 requests0 cents
+  due=$(date_add "$TODAY" 5)
+  QUIET=1 api 200 '' getLiquidityForecast -p "legal_entity_id=$LE"
+  before=$(field .read_date)
+  parked0=$(cad_cents invoice_unposted)
+  requests0=$(cad_cents down_payment)
+  as alex
+  say "Alex parks Tyrell's invoice TY-5009 for one more chair, CAD 470.00 on the order's 2/10 net 30, and requests a"
+  say "down payment of CAD 300.00 to Tyrell, due $due:"
+  invoice TY-5009 1 470.00
+  parked=$(field .id)
+  parked_etag=$ETAG
+  api 201 '"down payment request \(.document_number): \(.status), \(.amount.amount) \(.amount.currency) due \(.due_date)"' createDownPaymentRequest \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"due_date\": \"$due\", \"reference\": \"Chairs for the second floor\"}"
+  request=$(field .id)
+  request_etag=$ETAG
+  as tom
+  api 200 '.currencies[] | select(.currency == "CAD") | "CAD: total \(.total.amount), blocked suppliers \(.blocked.amount.amount) (\(.blocked.count), not in the total)",
+    (.buckets[] | select(any(.flows[]; .source == "invoice_unposted" or .source == "down_payment" or .source == "payable_blocked"))
+      | "    from \(.start): \([.flows[] | select(.source == "invoice_unposted" or .source == "down_payment" or .source == "payable_blocked")
+        | "\(.source) \(.certainty)\(if .late then " late" else "" end) \(.amount.amount) x\(.count)"] | join(", "))")' \
+    getLiquidityForecast -p "legal_entity_id=$LE"
+  if [ "$(field .read_date)" = "$before" ]; then # the same day: the same payment days and discount tiers
+    expect "TY-5009, planned at what a run in its discount tier pays (470.00 less 2%)" "$(($(cad_cents invoice_unposted) - parked0))" -46060
+  fi
+  expect "the down payment request, expected whole" "$(($(cad_cents down_payment) - requests0))" -30000
+  expect "Massive Dynamic's open items, shown apart" "$(field '[.currencies[] | select(.currency == "CAD") | .blocked.count > 0] | any')" true
+  expect "blocked flows counted" "$(field .include_blocked)" false
+  cents=$(cad_sum .total .beyond.amount .blocked.amount)
+  say "With include_blocked the blocked suppliers' flows count in the totals (and beyond the last bucket):"
+  api 200 '.currencies[] | select(.currency == "CAD") | "CAD: total \(.total.amount), beyond \(.beyond.amount.amount), of which blocked \(.blocked.amount.amount)"' \
+    getLiquidityForecast -p "legal_entity_id=$LE" -p include_blocked=true
+  expect "blocked flows counted" "$(field .include_blocked)" true
+  expect "the total and beyond with the blocked suppliers', the total and beyond without them plus what they are owed" "$(cad_sum .total .beyond.amount)" "$cents"
+  say "Alex cancels the invoice and the request again; the forecast no longer has them:"
+  as alex
+  api 200 '"\(.document_number): \(.status)"' cancelSupplierInvoice -p "id=$parked" -if-match "$parked_etag" -body '{"reason": "Entered twice; the forecast walkthrough"}'
+  api 200 '"down payment request \(.document_number): \(.status)"' cancelDownPaymentRequest -p "id=$request" -if-match "$request_etag" \
+    -body '{"reason": "Tyrell needs no down payment"}'
+  as tom
+  QUIET=1 api 200 '' getLiquidityForecast -p "legal_entity_id=$LE"
+  if [ "$(field .read_date)" = "$before" ]; then
+    expect "the parked invoices after TY-5009 was cancelled" "$(cad_cents invoice_unposted)" "$parked0"
+  fi
+  expect "the down payment requests after the request was cancelled" "$(cad_cents down_payment)" "$requests0"
 }
 
 step_reports() {

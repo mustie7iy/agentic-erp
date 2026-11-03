@@ -26,6 +26,21 @@ type CashPosition struct {
 	Accounts Accounts // the main bank account's balance on the statement's date
 	Owed     Owed     // the supplier open items the liquidity forecast expects to pay (T53e)
 	Payees   Payees   // their suppliers' blocks, net days and payment methods
+	Unposted Unposted // the invoices not posted yet (T53e2)
+	Requests Requests // the open down payment requests (T53e2)
+}
+
+// Unposted is what the liquidity forecast reads of the invoices parked or
+// on hold: each as the supplier open item it would post (payables
+// context, T53e2).
+type Unposted interface {
+	Unposted(ctx context.Context, legalEntity uuid.UUID) ([]ledger.PayableItem, error)
+}
+
+// Requests is what the liquidity forecast reads of the open down payment
+// requests, in every currency (payables context, T53e2).
+type Requests interface {
+	Open(ctx context.Context, legalEntity uuid.UUID) ([]DownPayment, error)
 }
 
 // Owed is what the liquidity forecast reads of the ledger's supplier open

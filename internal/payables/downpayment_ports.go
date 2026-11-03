@@ -38,6 +38,22 @@ func (DownPaymentRequests) Due(ctx context.Context, legalEntity uuid.UUID, curre
 	return requests, nil
 }
 
+// Open returns the legal entity's open requests in every currency, by due
+// date: what the liquidity forecast expects runs to pay (ADR-0051 §4,
+// T53e2).
+func (DownPaymentRequests) Open(ctx context.Context, legalEntity uuid.UUID) ([]DownPaymentRequest, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, requestSelect+` WHERE r.legal_entity_id = $1 AND r.status = 'open' ORDER BY r.due_date, r.id`, legalEntity)
+	requests, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (DownPaymentRequest, error) { return scanRequest(r) })
+	if err != nil {
+		return nil, fmt.Errorf("payables: the open down payment requests of %s: %w", legalEntity, err)
+	}
+	return requests, nil
+}
+
 // Request returns a request.
 func (DownPaymentRequests) Request(ctx context.Context, id uuid.UUID) (DownPaymentRequest, error) {
 	tx, _, err := reqctx.Request(ctx)

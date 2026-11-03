@@ -203,8 +203,8 @@ func TestDownPaymentDatabaseFailures(t *testing.T) {
 }
 
 // TestDownPaymentRequestPorts: what the payments context reads and records
-// through DownPaymentRequests (T46c): the open requests due by a date, one
-// request, the requests' numbers (an unknown id left out), and that an
+// through DownPaymentRequests (T46c): the open requests due by a date, the
+// open requests in every currency (T53e2), one request, the requests' numbers (an unknown id left out), and that an
 // entry paid one, which is recorded once; a request paid by another entry,
 // or no longer open, is refused, and a paid request is not cancelled.
 func TestDownPaymentRequestPorts(t *testing.T) {
@@ -228,6 +228,13 @@ func TestDownPaymentRequestPorts(t *testing.T) {
 		}
 		if len(due) != 1 || due[0].ID.String() != id(open) {
 			t.Errorf("due: got %v, want only the open request", due)
+		}
+		all, err := ports.Open(ctx, e.DE)
+		if err != nil {
+			return err
+		}
+		if len(all) != 1 || all[0].ID.String() != id(open) || all[0].Currency != "EUR" {
+			t.Errorf("open: got %v, want only the open request, in EUR", all)
 		}
 		r, err := ports.Request(ctx, uuid.MustParse(id(paid)))
 		if err != nil {
@@ -256,6 +263,7 @@ func TestDownPaymentRequestPorts(t *testing.T) {
 	e.Problem(409, "payables.invalid_status", "POST", "/v1/down-payment-requests/"+id(paid)+":cancel", `{"reason": "x"}`, `"2"`)
 	for name, call := range map[string]func(ctx context.Context) error{
 		"due":     func(ctx context.Context) error { _, err := ports.Due(ctx, e.DE, "EUR", date("2026-03-31")); return err },
+		"open":    func(ctx context.Context) error { _, err := ports.Open(ctx, e.DE); return err },
 		"request": func(ctx context.Context) error { _, err := ports.Request(ctx, uuid.MustParse(id(open))); return err },
 		"numbers": func(ctx context.Context) error { _, err := ports.Numbers(ctx, []uuid.UUID{uuid.New()}); return err },
 		"paid":    func(ctx context.Context) error { return ports.Paid(ctx, uuid.MustParse(id(open)), 2026, uuid.New()) },
