@@ -50,6 +50,11 @@ type Owed interface {
 	// Offsetting are the entries' offsetting lines, from which the
 	// forecast derives the liquidity items of their items (T53e3).
 	Offsetting(ctx context.Context, entries []ledger.EntryRef) (map[ledger.EntryRef][]ledger.OffsettingLine, error)
+	// Sources are the documents the entries were posted for in a context:
+	// the supplier invoices of the items a payment settled, which the
+	// forecast variance matches to the invoices it forecast before they
+	// were posted (T53f3).
+	Sources(ctx context.Context, sourceContext string, entries []ledger.EntryRef) (map[ledger.EntryRef]uuid.UUID, error)
 }
 
 // CashBank is a house bank as the cash position reads it.

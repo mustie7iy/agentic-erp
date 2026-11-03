@@ -8,6 +8,7 @@ package apitypes
 
 import (
 	"encoding/json"
+	"math/big"
 	"time"
 
 	"github.com/go-faster/jx"
@@ -124,6 +125,35 @@ func EncodeObject(m map[string]any) map[string]jx.Raw {
 // Money is an amount in the API's representation (ADR-0005).
 func Money(amount money.Minor, currency string, exp int) gen.Money {
 	return gen.Money{Amount: amount.Plain(exp), Currency: currency}
+}
+
+// Percent is part in percent of whole, computed exactly (no floats,
+// ADR-0005) and rounded to two decimals half away from zero; none when
+// whole is zero. A negative part below half a hundredth of a percent rounds
+// to zero, without a sign.
+func Percent(part, whole money.Minor) gen.OptDecimal {
+	if whole == 0 {
+		return gen.OptDecimal{}
+	}
+	return percent(new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(part)), big.NewInt(100)), big.NewInt(int64(whole))))
+}
+
+// AbsPercent is Percent of the parts' magnitudes: how far part is from
+// nothing, in percent of whole's size, whatever their signs.
+func AbsPercent(part, whole money.Minor) gen.OptDecimal {
+	if whole == 0 {
+		return gen.OptDecimal{}
+	}
+	p := new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(part)), big.NewInt(100)), big.NewInt(int64(whole)))
+	return percent(p.Abs(p))
+}
+
+func percent(p *big.Rat) gen.OptDecimal {
+	s := p.FloatString(2)
+	if s == "-0.00" {
+		s = "0.00"
+	}
+	return gen.NewOptDecimal(gen.Decimal(s))
 }
 
 // Page is a list request's paging parameters (04-api-design §4.5).

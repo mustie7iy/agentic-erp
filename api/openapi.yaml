@@ -15824,6 +15824,80 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/liquidity-forecast-variance:
+    get:
+      operationId: getLiquidityForecastVariance
+      tags:
+        - cash
+      summary: Get a company's forecast variance for a period, attributed
+      description: "What the liquidity forecast said of a period against what the bank statements show (ADR-0051 §11, T53f3), computed at the read from one database state (a repeatable-read snapshot), per currency, liquidity item and bucket: the forecast is that of the legal entity's snapshot taken `lag` days before `from` (its daily snapshot of that date, else the last taken on demand that day; 409 `cash.snapshot_not_taken` when none was), without what blocked suppliers were owed, as the forecast's totals leave them out; the actuals are the statement lines by value date as `getCashActuals` classifies them; the variance is the actual less the forecast, and `variance_percent` its size in percent of the forecast's size. A snapshot keeps each document it forecast for 31 days from its date (`document_level_until`) and bucket sums after (T53f), so the period's days up to that day are in `buckets` (of `grain` from `from`, the last ending on `to` or on that day) with the variance attributed: each document the snapshot forecast is matched to the statement lines that paid it (a run's payment or a payment in transit by the payment, a supplier item by its journal entry, an invoice forecast before it was posted by the entry it posted, a down payment request by its payment, a memo record by the line that realised it, a series' occurrence by its override), and its part of the variance is `timing` when it was forecast in one bucket and paid in another (paid before or after the period included), `amount` when paid in the bucket it was forecast in, `missing` when nothing paid it; a statement line's part that pays no document the snapshot forecast is `new`, or `unclassified` when the line has no decided match. The five add up to the variance. The days after the document level up to `to` are compared per item only (`beyond`), up to the day before a snapshot bucket that ends after `to` (its sum cannot be told apart by day). The variance names no document or supplier, so `cash.forecast.read` is all it needs."
+      x-permission: cash.forecast.read
+      x-slo-class: report
+      x-snapshot: true
+      x-problem-codes:
+        - cash.amount_too_large
+        - cash.snapshot_not_taken
+        - config.not_bootstrapped
+        - request.validation_failed
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: true
+          description: "The period's first day."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: "The period's last day: on or after `from`, on or before the company's date (`read_date`) and the snapshot's `horizon_end`, else 422."
+          schema:
+            type: string
+            format: date
+        - name: lag
+          in: query
+          required: false
+          description: "How many days before `from` the snapshot compared against was taken: 0, 7 (default) or 30; another value is 422."
+          schema:
+            type: integer
+            format: int32
+            default: 7
+        - name: grain
+          in: query
+          required: false
+          description: "The buckets' length: `day` (default), `week` (seven days) or `month` (to the same day of the next month, its last day when shorter), from `from`; at most 92 days, 104 weeks or 36 months from `from` to `to`."
+          schema:
+            type: string
+            description: "A bucket's length. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [day, week, month]
+      responses:
+        "200":
+          description: The forecast variance.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiquidityForecastVariance"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/memo-records:
     get:
       operationId: listMemoRecords
@@ -36743,6 +36817,189 @@ components:
               documents:
                 - {kind: journal_entry, id: 0192a000-0000-7000-8000-000000000401, number: "5100000012", amount: {amount: "-784.00", currency: CAD}}
                 - {kind: journal_entry, id: 0192a000-0000-7000-8000-000000000402, number: "5100000013", amount: {amount: "-392.00", currency: CAD}}
+    LiquidityForecastVariance:
+      type: object
+      description: "A legal entity's forecast variance over a period (ADR-0051 §11, T53f3): the forecast of a snapshot against the bank statements' actuals, per currency, liquidity item and bucket, attributed within the days the snapshot keeps per document. Amounts are signed as the flows: money into the bank positive, a payment out negative; the variance is the actual less the forecast."
+      required: [legal_entity_id, company_code, read_date, time_zone, from, to, lag, grain, snapshot, buckets, currencies]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        company_code: {type: string, description: "The legal entity's company code.", readOnly: true}
+        read_date: {type: string, format: date, description: "The company's date when the variance was read, in `time_zone`.", readOnly: true}
+        time_zone: {type: string, description: "The IANA time zone the read date is in.", readOnly: true}
+        from: {type: string, format: date, description: "The period's first day.", readOnly: true}
+        to: {type: string, format: date, description: "The period's last day.", readOnly: true}
+        lag: {type: integer, format: int32, minimum: 0, description: "How many days before `from` the snapshot was taken.", readOnly: true}
+        grain:
+          type: string
+          description: "The buckets' length. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [day, week, month]
+          readOnly: true
+        snapshot: {$ref: "#/components/schemas/LiquidityForecastVarianceSnapshot"}
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastBucket"}
+          description: "The attributed columns: periods of `grain` from `from`, the last ending on `to` or on the snapshot's `document_level_until`, whichever is first."
+          readOnly: true
+        beyond: {$ref: "#/components/schemas/LiquidityForecastVariancePeriod"}
+        currencies:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastVarianceCurrency"}
+          description: "Per currency of a flow forecast or paid in the days compared, by currency code."
+          readOnly: true
+      examples:
+        - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "3000"
+          read_date: "2026-04-17"
+          time_zone: America/Toronto
+          from: "2026-04-13"
+          to: "2026-04-16"
+          lag: 7
+          grain: week
+          snapshot: {id: 0192a000-0000-7000-8000-000000000f01, kind: daily, snapshot_date: "2026-04-06", taken_at: "2026-04-06T11:00:04Z", horizon_end: "2027-01-05", document_level_until: "2026-05-06", config_version: 4}
+          buckets: [{grain: week, start: "2026-04-13", end: "2026-04-16"}]
+          currencies:
+            - currency: CAD
+              buckets:
+                - forecast: {amount: "-1000.00", currency: CAD}
+                  actual: {amount: "-800.00", currency: CAD}
+                  variance: {amount: "200.00", currency: CAD}
+                  variance_percent: "20.00"
+                  attribution:
+                    timing: {amount: "0.00", currency: CAD}
+                    amount: {amount: "200.00", currency: CAD}
+                    new: {amount: "0.00", currency: CAD}
+                    missing: {amount: "0.00", currency: CAD}
+                    unclassified: {amount: "0.00", currency: CAD}
+              total:
+                forecast: {amount: "-1000.00", currency: CAD}
+                actual: {amount: "-800.00", currency: CAD}
+                variance: {amount: "200.00", currency: CAD}
+                variance_percent: "20.00"
+                attribution:
+                  timing: {amount: "0.00", currency: CAD}
+                  amount: {amount: "200.00", currency: CAD}
+                  new: {amount: "0.00", currency: CAD}
+                  missing: {amount: "0.00", currency: CAD}
+                  unclassified: {amount: "0.00", currency: CAD}
+              items:
+                - liquidity_item: OP_SUPPLIERS
+                  name: Supplier payments
+                  level: 0
+                  buckets:
+                    - forecast: {amount: "-1000.00", currency: CAD}
+                      actual: {amount: "-800.00", currency: CAD}
+                      variance: {amount: "200.00", currency: CAD}
+                      variance_percent: "20.00"
+                      attribution:
+                        timing: {amount: "0.00", currency: CAD}
+                        amount: {amount: "200.00", currency: CAD}
+                        new: {amount: "0.00", currency: CAD}
+                        missing: {amount: "0.00", currency: CAD}
+                        unclassified: {amount: "0.00", currency: CAD}
+                  total:
+                    forecast: {amount: "-1000.00", currency: CAD}
+                    actual: {amount: "-800.00", currency: CAD}
+                    variance: {amount: "200.00", currency: CAD}
+                    variance_percent: "20.00"
+                    attribution:
+                      timing: {amount: "0.00", currency: CAD}
+                      amount: {amount: "200.00", currency: CAD}
+                      new: {amount: "0.00", currency: CAD}
+                      missing: {amount: "0.00", currency: CAD}
+                      unclassified: {amount: "0.00", currency: CAD}
+    LiquidityForecastVarianceSnapshot:
+      type: object
+      description: "The snapshot a variance compares against (`getCashSnapshot`)."
+      required: [id, kind, snapshot_date, taken_at, horizon_end, document_level_until, config_version]
+      properties:
+        id: {type: string, format: uuid, description: The snapshot., readOnly: true}
+        kind:
+          type: string
+          description: "`daily` or `on_demand`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [daily, on_demand]
+          readOnly: true
+        name: {type: string, description: "The name an on-demand snapshot was taken under; absent for a daily one.", readOnly: true}
+        snapshot_date: {type: string, format: date, description: "The company's date it was taken on, `lag` days before `from`.", readOnly: true}
+        taken_at: {type: string, format: date-time, description: When it was taken., readOnly: true}
+        horizon_end: {type: string, format: date, description: "The last day it forecast.", readOnly: true}
+        document_level_until: {type: string, format: date, description: "The last day it kept per document: the variance is attributed up to it.", readOnly: true}
+        config_version: {type: integer, format: int32, description: "The configuration version whose derivation classified its flows.", readOnly: true}
+    LiquidityForecastVariancePeriod:
+      type: object
+      description: "The days after the snapshot's document level compared per liquidity item only, without attribution; absent when the period has none that can be compared."
+      required: [from, to]
+      properties:
+        from: {type: string, format: date, description: "The first day: the day after `document_level_until`.", readOnly: true}
+        to: {type: string, format: date, description: "The last day: `to`, or the day before a snapshot bucket that ends after it.", readOnly: true}
+    LiquidityForecastVarianceCurrency:
+      type: object
+      description: "The variance of one currency: per bucket, in the buckets' order, over them, beyond them, and by liquidity item and its hierarchy."
+      required: [currency, buckets, total, items]
+      properties:
+        currency: {type: string, description: The currency (ISO 4217)., readOnly: true}
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastVarianceCell"}
+          description: "One per bucket, in the same order."
+          readOnly: true
+        total: {$ref: "#/components/schemas/LiquidityForecastVarianceCell"}
+        beyond: {$ref: "#/components/schemas/LiquidityForecastVarianceFigures"}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastVarianceItem"}
+          description: "The rows by liquidity item, depth first: each item followed by its children, siblings by code, an item listed when it or a descendant has a forecast or actual share; the row of what no rule assigns and no default covers (without `liquidity_item`) last. The top rows (`level` 0) add up to the currency's figures. A snapshot's items are those of the configuration it was taken with (`config_version`); the hierarchy and names are today's, an item no longer configured a top row without a name."
+          readOnly: true
+    LiquidityForecastVarianceItem:
+      type: object
+      description: "A row of a currency's variance by liquidity item: the item's and its descendants' figures per bucket, over the buckets and beyond them."
+      required: [level, buckets, total]
+      properties:
+        liquidity_item: {type: string, description: "The liquidity item's code (`cash.liquidity_items`); absent on the row of the shares no derivation rule assigns and no default covers.", readOnly: true}
+        name: {type: string, description: "The liquidity item's name; absent without `liquidity_item`, or for an item no longer configured.", readOnly: true}
+        parent: {type: string, description: "The code of the item's parent in the hierarchy; absent for a top item.", readOnly: true}
+        level: {type: integer, format: int32, minimum: 0, maximum: 3, description: "The item's depth in the hierarchy: 0 for a top item (and the row without `liquidity_item`), its parent's plus one below.", readOnly: true}
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastVarianceCell"}
+          description: "One per bucket, in the buckets' order."
+          readOnly: true
+        total: {$ref: "#/components/schemas/LiquidityForecastVarianceCell"}
+        beyond: {$ref: "#/components/schemas/LiquidityForecastVarianceFigures"}
+    LiquidityForecastVarianceFigures:
+      type: object
+      description: "What was forecast and what was actual over some days, and the variance (the actual less the forecast); present beyond the document level only when the variance has `beyond`."
+      required: [forecast, actual, variance]
+      properties:
+        forecast: {$ref: "#/components/schemas/Money"}
+        actual: {$ref: "#/components/schemas/Money"}
+        variance: {$ref: "#/components/schemas/Money"}
+        variance_percent:
+          $ref: "#/components/schemas/Decimal"
+          description: "The variance's size in percent of the forecast's size (absolute), two decimals, rounded half away from zero; absent when the forecast is zero."
+          readOnly: true
+    LiquidityForecastVarianceCell:
+      type: object
+      description: "A bucket's figures, or the buckets' together, with the variance attributed."
+      required: [forecast, actual, variance, attribution]
+      properties:
+        forecast: {$ref: "#/components/schemas/Money"}
+        actual: {$ref: "#/components/schemas/Money"}
+        variance: {$ref: "#/components/schemas/Money"}
+        variance_percent:
+          $ref: "#/components/schemas/Decimal"
+          description: "The variance's size in percent of the forecast's size (absolute), two decimals, rounded half away from zero; absent when the forecast is zero."
+          readOnly: true
+        attribution: {$ref: "#/components/schemas/LiquidityForecastVarianceAttribution"}
+    LiquidityForecastVarianceAttribution:
+      type: object
+      description: "The variance by its cause (ADR-0051 §11); the five add up to the variance: `timing`, documents forecast in one bucket and paid in another (a run moved, a discount not taken); `amount`, documents paid in the bucket they were forecast in at another amount (a discount, a partial payment, a bank charge); `new`, statement lines paying nothing the snapshot forecast (an invoice posted after it, an unforecast receipt); `missing`, documents forecast and not paid (blocked later, a memo record not realised); `unclassified`, statement lines with no decided match that pay nothing the snapshot forecast."
+      required: [timing, amount, new, missing, unclassified]
+      properties:
+        timing: {$ref: "#/components/schemas/Money"}
+        amount: {$ref: "#/components/schemas/Money"}
+        new: {$ref: "#/components/schemas/Money"}
+        missing: {$ref: "#/components/schemas/Money"}
+        unclassified: {$ref: "#/components/schemas/Money"}
     LiquidityForecastFlow:
       type: object
       description: "A flow of the liquidity forecast (ADR-0051 §4): one supplier payment as a run would make it, a run's payment, a payment in transit, a down payment request or a memo record's occurrence, with the documents it pays. Its supplier and each document are given only to a caller who may read them in their own context (`partner.supplier.read`; `ledger.entry.read` for a journal entry, `payables.invoice.read` for a supplier invoice or down payment request, `payments.run.read` for a payment run, `cash.memo.read` for a memo record), as an expansion is (04 §4.4); `document_count` counts them all."

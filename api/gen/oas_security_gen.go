@@ -175,6 +175,7 @@ var operationRolesOidc = map[string][]string{
 	GetLegalEntityOperation:                   []string{},
 	GetLegalEntityTodayOperation:              []string{},
 	GetLiquidityForecastOperation:             []string{},
+	GetLiquidityForecastVarianceOperation:     []string{},
 	GetMatchResultOperation:                   []string{},
 	GetMemoRecordOperation:                    []string{},
 	GetMigrationRunOperation:                  []string{},
