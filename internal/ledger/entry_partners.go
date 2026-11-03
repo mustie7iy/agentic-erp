@@ -15,9 +15,10 @@ import (
 // (T73h3): the business partners its lines name, once each in the order
 // of the lines that first name them, so a reader shows a line's partner
 // by number and name without another call. An expansion never crosses
-// permissions (04 §4.4): a caller who may not read business partners
-// gets none, as do an entry whose lines name none and a read that did
-// not ask. The names are as they are now, not the entry's, so the
+// permissions (04 §4.4): a caller who may not read business partners,
+// as Authorize decides it for listBusinessPartners (segregation-of-duties
+// rules included), gets none, as do an entry whose lines name none and a
+// read that did not ask. The names are as they are now, not the entry's, so the
 // entry's ETag is taken before they are added.
 func (e *Endpoints) expandPartners(ctx context.Context, expand []string, ids []gen.OptUUID) (gen.OptJournalEntryExpanded, error) {
 	var none gen.OptJournalEntryExpanded
@@ -28,11 +29,11 @@ func (e *Endpoints) expandPartners(ctx context.Context, expand []string, ids []g
 	if len(ordered) == 0 {
 		return none, nil
 	}
-	held, err := authz.Permissions(ctx)
+	may, err := authz.MayUse(ctx, partnerReadPermission)
 	if err != nil {
 		return none, fmt.Errorf("ledger: may the caller read an entry's partners: %w", err)
 	}
-	if !held[permReadPartners] {
+	if !may {
 		return none, nil
 	}
 	names, err := e.PartnerNames.PartnerNames(ctx, ordered)
@@ -47,10 +48,6 @@ func (e *Endpoints) expandPartners(ctx context.Context, expand []string, ids []g
 	}
 	return gen.NewOptJournalEntryExpanded(gen.JournalEntryExpanded{Partners: partners}), nil
 }
-
-// permReadPartners is the permission listBusinessPartners requires, the
-// one an expansion of partners requires too.
-const permReadPartners = "partner.supplier.read"
 
 // firstSeen is the ids set, each once, in the order first given.
 func firstSeen(ids []gen.OptUUID) []uuid.UUID {

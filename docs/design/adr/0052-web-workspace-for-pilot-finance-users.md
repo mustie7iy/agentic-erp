@@ -3422,7 +3422,10 @@ partner's id. What it settled, each decided by default where this ADR,
 - **Never across permissions** (04 §4.4). The partners are given only to
   a caller who holds `partner.supplier.read`, the permission
   `listBusinessPartners` requires; another caller, an entry whose lines
-  name no partner and a read that did not ask get no `expanded`. A
+  name no partner and a read that did not ask get no `expanded`. Held
+  means usable as `Authorize` decides it, segregation-of-duties rules
+  included (`authz.MayUse`, the ledger's one `partnerReadPermission`;
+  batch 44's integration, review:batch44). A
   partner the tenant no longer has is left out of the list. The
   workspace asks for the expansion only for a person who may read
   partners (advisory, §7); for anyone else, and for a line whose partner

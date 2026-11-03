@@ -81,8 +81,7 @@ func (e *Endpoints) partnerNames(ctx context.Context, ids []uuid.UUID) (map[uuid
 
 // partnerReadPermission is the permission reading business partners
 // requires (the partner context's ReadPermission, which the ledger may not
-// import). T73h3's permReadPartners names the same: whichever merges
-// second keeps one of the two.
+// import), for a revaluation's partners and an entry's alike.
 const partnerReadPermission = "partner.supplier.read"
 
 // distinct is ids sorted, each once.

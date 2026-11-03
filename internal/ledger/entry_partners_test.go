@@ -39,8 +39,9 @@ func partnersOf(doc map[string]any) ([]string, bool) {
 // TestEntryPartners reads posted and parked entries with expand=partners
 // (T73h3): each partner the lines name once, in the order of the lines,
 // by number and name; nothing embedded when not asked, for a caller who
-// may not read partners, or for lines naming none; the posted entry's
-// ETag the same either way.
+// may not read partners, one a segregation-of-duties rule bars from
+// reading them, or for lines naming none; the posted entry's ETag the
+// same either way.
 func TestEntryPartners(t *testing.T) {
 	e := setup(t)
 	grantPartners(t, e.ten)
@@ -86,6 +87,19 @@ func TestEntryPartners(t *testing.T) {
 		_, expandedTag := e.Must(200, "GET", "/v1/journal-entries/"+je["id"].(string)+"?expand=partners", "", "")
 		if plainTag != expandedTag {
 			t.Errorf("ETag: got %s expanded, want %s as without", expandedTag, plainTag)
+		}
+	})
+	t.Run("a person a segregation-of-duties rule bars from reading partners", func(t *testing.T) {
+		// Authorize would refuse them listBusinessPartners, so the entry
+		// carries no copy of a partner either (04 §4.4).
+		pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
+			VALUES ($1, gen_random_uuid(), 'ledger.entry.post', 'partner.supplier.read', 'Read partners or post', '2000-01-01', $2)`, e.ten.ID, e.ten.Human.ID)
+		defer pgtest.Exec(t, `DELETE FROM identity.sod_rule WHERE tenant_id = $1 AND description = 'Read partners or post'`, e.ten.ID)
+		for _, path := range []string{"/v1/journal-entries/" + je["id"].(string), "/v1/parked-journal-entries/" + pe["id"].(string)} {
+			doc, _ := e.Must(200, "GET", path+"?expand=partners", "", "")
+			if got, expanded := partnersOf(doc); expanded {
+				t.Errorf("%s: got partners %v, want no expanded", path, got)
+			}
 		}
 	})
 	t.Run("a partner the tenant does not have is left out", func(t *testing.T) {
