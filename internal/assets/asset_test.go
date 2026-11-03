@@ -47,7 +47,8 @@ func withLedgers(doc *config.Config) {
 
 // assetEnv is a tenant with withLedgers, company 2000's centers
 // (fixture.CostCenters, cost center accounting on), a profit center PC2
-// of company 1000 alone, and a client creating assets on assetDay.
+// of company 1000 alone, and a client creating assets on assetDay; its
+// people hold the permissions besides reading and changing assets.
 type assetEnv struct {
 	fixture.Env
 	c       fixture.Centers
@@ -57,9 +58,9 @@ type assetEnv struct {
 	clocked apitest.Client
 }
 
-func newAssets(t *testing.T) assetEnv {
+func newAssets(t *testing.T, permissions ...string) assetEnv {
 	t.Helper()
-	e := assetEnv{Env: fixture.NewWith(t, nil, withLedgers, "assets.asset.read", "assets.asset.change")}
+	e := assetEnv{Env: fixture.NewWith(t, nil, withLedgers, append(permissions, "assets.asset.read", "assets.asset.change")...)}
 	e.c = e.CostCenters(t, withLedgers)
 	pc, _ := e.Must(201, "POST", "/v1/profit-centers", fmt.Sprintf(`{"code": "PC2", "name": "PC 2", "responsible": "Jane Doe",
 		"legal_entity_ids": [%q], "valid_from": "2026-01-01", "reason": "r"}`, e.US), "")

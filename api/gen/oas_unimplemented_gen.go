@@ -255,9 +255,11 @@ func (UnimplementedHandler) CancelApprovalRequest(ctx context.Context, req *Comm
 
 // CancelAsset implements cancelAsset operation.
 //
-// Cancels a `planned` asset, one created in error (ADR-0057 §5): it keeps its number and is final. An
-// asset that is not planned is 409 `assets.asset_not_planned` (one that holds value is retired, not
-// cancelled). Audited, and published as AssetChanged (`cancelled`).
+// Cancels a `planned` asset without movements, one created in error (ADR-0057 §5): it keeps its
+// number and is final. An asset that is not planned, or a planned one with movements (an acquisition
+// onto it reversed), is 409 `assets.asset_not_planned` (one that holds value is retired, not
+// cancelled; one with movements keeps them as its history). Audited, and published as AssetChanged
+// (`cancelled`).
 //
 // POST /v1/assets/{id}:cancel
 func (UnimplementedHandler) CancelAsset(ctx context.Context, params CancelAssetParams) (r CancelAssetRes, _ error) {
@@ -452,6 +454,40 @@ func (UnimplementedHandler) ClosePurchaseOrder(ctx context.Context, params Close
 //
 // POST /v1/assets
 func (UnimplementedHandler) CreateAsset(ctx context.Context, req *AssetCreate, params CreateAssetParams) (r CreateAssetRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateAssetAcquisition implements createAssetAcquisition operation.
+//
+// Capitalises a posted journal line on an asset clearing account onto an asset (ADR-0057 §6, T57c;
+// SAP's acquisition with automatic offsetting entry): a supplier invoice item, a goods receipt or a
+// manual entry posted on the clearing account of the asset's class in the asset's company. The line is
+// named by its leading-ledger entry and line number (`GET /v1/asset-clearing-items` lists them); one
+// that is not such a line is 422 `assets.not_clearing_line`, a line of a reversed entry or of a
+// reversal 422 `assets.source_reversed`, and a line whose entry has no copy in every ledger the
+// company keeps (a ledger-specific entry) 422 `assets.source_not_in_every_ledger`. `amount` is in the
+// line's currency, all that is left of the line by default; it has the line's sign (a credit line, a
+// supplier credit memo, is capitalised as a negative acquisition, which reduces cost) and is at most
+// what is left (422 `assets.amount_exceeds_line`); a negative acquisition that would leave the asset's
+// cost below zero in a ledger, or one onto an asset holding no cost, is 422 `assets.cost_negative`.
+// One line may be split across several assets, and an asset acquired by several acquisitions. Its
+// local and group amounts are the line's in proportion, rounded half away from zero, the acquisition
+// that uses the rest of the line taking the rest of its local and group amounts, so a line capitalised
+// in full leaves the clearing account at zero in all three currencies. The value date defaults to the
+// line's posting date and may lie in any period up to the end of the posting date's (422
+// `assets.value_date_in_future` after it); the posting date defaults to the company's date today, and
+// lies on or after the start of the asset's latest center assignment (409
+// `assets.posting_before_center_transfer`). It posts in the line's currency, to every ledger the
+// company keeps, Dr the class's acquisition cost account on the asset's profit center, Cr the clearing
+// account on the line's profit center (document type AA, source context `assets`; 422
+// `ledger.period_not_open` when the period is not open in a ledger), writes the asset's movements per
+// ledger, and makes a `planned` asset `active` with its capitalisation date the earliest value date of
+// its acquisitions. A cancelled or retired asset is 422 `assets.asset_cancelled` or
+// `assets.asset_retired`; an asset the caller cannot act in is 404. Audited, and published as
+// AssetMovementPosted.
+//
+// POST /v1/asset-acquisitions
+func (UnimplementedHandler) CreateAssetAcquisition(ctx context.Context, req *AssetAcquisitionCreate, params CreateAssetAcquisitionParams) (r CreateAssetAcquisitionRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1060,6 +1096,16 @@ func (UnimplementedHandler) GetApprovalRequest(ctx context.Context, params GetAp
 //
 // GET /v1/assets/{id}
 func (UnimplementedHandler) GetAsset(ctx context.Context, params GetAssetParams) (r GetAssetRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetAssetAcquisition implements getAssetAcquisition operation.
+//
+// One acquisition with its asset, its source line and the supplier invoice behind it, and its journal
+// entries per ledger (ADR-0057 §6). One of a legal entity the caller cannot act in is not found.
+//
+// GET /v1/asset-acquisitions/{id}
+func (UnimplementedHandler) GetAssetAcquisition(ctx context.Context, params GetAssetAcquisitionParams) (r GetAssetAcquisitionRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1869,6 +1915,18 @@ func (UnimplementedHandler) ListApprovalRequests(ctx context.Context, params Lis
 	return r, ht.ErrNotImplemented
 }
 
+// ListAssetAcquisitions implements listAssetAcquisitions operation.
+//
+// The asset acquisitions of the legal entities the caller may act in (ADR-0057 §6, T57c), each with
+// its asset, its source line and the supplier invoice behind it, and its journal entries per ledger.
+// Filters: company, asset, source entry, posting dates and status. Sortable by: `posting_date`
+// (default), `created_at`.
+//
+// GET /v1/asset-acquisitions
+func (UnimplementedHandler) ListAssetAcquisitions(ctx context.Context, params ListAssetAcquisitionsParams) (r ListAssetAcquisitionsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListAssetClasses implements listAssetClasses operation.
 //
 // The asset classes of the active configuration (ADR-0057 §3, T57a): each class's code and name, its
@@ -1883,6 +1941,24 @@ func (UnimplementedHandler) ListApprovalRequests(ctx context.Context, params Lis
 //
 // GET /v1/asset-classes
 func (UnimplementedHandler) ListAssetClasses(ctx context.Context, params ListAssetClassesParams) (r ListAssetClassesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListAssetClearingItems implements listAssetClearingItems operation.
+//
+// The worklist of acquisitions (ADR-0057 §6, T57c): the leading ledger's lines on the company's asset
+// clearing accounts in one fiscal year, each with its amounts in its currency, local and group
+// currency, what acquisitions used of it and what is left, its document and origin (for a supplier
+// invoice its number, the supplier's reference and the supplier's name), and the acquisitions made
+// from it. The lines of a reversed entry and of its reversal are left out while nothing was
+// capitalised from the reversed one; a reversed line with acquisitions is shown with
+// `source_reversed`. With `remaining=true`, only lines an acquisition can still take something from
+// (not reversed, something left). A legal entity the caller cannot act in has none. Ordered by posting
+// date, entry and line. The lines are ledger amounts, so besides `assets.asset.read` the caller needs
+// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/asset-clearing-items
+func (UnimplementedHandler) ListAssetClearingItems(ctx context.Context, params ListAssetClearingItemsParams) (r ListAssetClearingItemsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

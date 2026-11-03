@@ -25,6 +25,13 @@
 // below are the leaf's to the ledger, tenancy, configuration and
 // operations contexts, assets.Runs (a depreciation run's Operation, T57f)
 // among them.
+//
+// T57c builds acquisitions from posted lines on an asset clearing account
+// (ADR-0057 §4, §5, §6): a line, read under its clearing_use lock, is
+// capitalised in full or in parts onto assets through the ledger's
+// posting API in every ledger the company keeps, each part keeping its
+// local and group amounts (ledger.PostingLine.GC), with the assets'
+// movements, AssetMovementPosted and the worklist of the lines.
 package assets
 
 import (
@@ -35,6 +42,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -65,13 +73,115 @@ type LedgerRef struct {
 	Code, Name string
 }
 
-// Ledger reads the ledger context: the tenant's ledgers (leading first,
-// then by code), those a company keeps when legalEntity is given, and the
-// fiscal year a company's date falls in (422 ledger.no_fiscal_period
-// outside every one).
+// Ledger reads and posts in the ledger context: the tenant's ledgers
+// (leading first, then by code), those a company keeps when legalEntity is
+// given; the fiscal year and the regular period a company's date falls in
+// (422 ledger.no_fiscal_period outside every one); a company's accounts by
+// number; a journal line and the leading ledger's lines on accounts in a
+// year (ADR-0057 §6); and an entry posted to every ledger the company
+// keeps through the ledger's posting API, its entries returned per ledger.
 type Ledger interface {
 	Ledgers(ctx context.Context, legalEntity *uuid.UUID) ([]LedgerRef, error)
 	FiscalYear(ctx context.Context, legalEntity uuid.UUID, date time.Time) (int16, error)
+	Period(ctx context.Context, legalEntity uuid.UUID, date time.Time) (Period, error)
+	Accounts(ctx context.Context, legalEntity uuid.UUID, numbers []string) (map[string]uuid.UUID, error)
+	Line(ctx context.Context, entry uuid.UUID, lineNo int32) (Line, bool, error)
+	ClearingLines(ctx context.Context, q ClearingQuery) ([]Line, error)
+	Post(ctx context.Context, p Posting) ([]PostedEntry, error)
+}
+
+// Period is a regular posting period with its dates.
+type Period struct {
+	FiscalYear, Number int16
+	Start, End         time.Time
+}
+
+// LineRef names a journal line.
+type LineRef struct {
+	FiscalYear int16
+	EntryID    uuid.UUID
+	LineNo     int32
+}
+
+// Line is a journal line as an acquisition reads its source (ADR-0057
+// §6): amounts debit positive in its entry's currency, local and group
+// currency, and whether its entry is the leading ledger's, has a copy in
+// every ledger the company keeps, was reversed or reverses another.
+type Line struct {
+	LineRef
+	LegalEntityID, AccountID         uuid.UUID
+	Currency, CurrencyLC, CurrencyGC string
+	Amount, LC, GC                   money.Minor
+	PostingDate                      time.Time
+	DocumentNumber, SourceContext    string
+	SourceDocumentID, ProfitCenterID *uuid.UUID
+	Leading, InEveryLedger           bool
+	Reversed, Reversal               bool
+}
+
+// ClearingQuery selects the leading ledger's lines on Accounts of a
+// company in a fiscal year by (posting date, entry, line) after After, at
+// most Limit, leaving out Skip, the lines of entries ExceptContext posted,
+// and the lines of reversed entries and reversals that Keep does not name.
+type ClearingQuery struct {
+	LegalEntityID uuid.UUID
+	Accounts      []uuid.UUID
+	ExceptContext string
+	FiscalYear    int16
+	After         *ClearingKey
+	Limit         int
+	Skip, Keep    []LineRef
+}
+
+// ClearingKey is a line's place in the worklist's order.
+type ClearingKey struct {
+	PostingDate time.Time `json:"d"`
+	EntryID     uuid.UUID `json:"e"`
+	LineNo      int32     `json:"l"`
+}
+
+// Posting is an entry an assets document posts to every ledger its
+// company keeps (ADR-0057 §4, §6).
+type Posting struct {
+	LegalEntityID             uuid.UUID
+	DocumentType              string
+	PostingDate, DocumentDate time.Time
+	Currency                  string
+	HeaderText                *string
+	DocumentID                uuid.UUID
+	Lines                     []PostingLine
+}
+
+// PostingLine is a line in the posting's currency, debit positive, with
+// the local and group amounts it keeps (PostingLine.LC and GC) and its
+// profit center.
+type PostingLine struct {
+	AccountID      uuid.UUID
+	Amount, LC, GC money.Minor
+	ProfitCenterID *uuid.UUID
+	Text           *string
+}
+
+// PostedEntry is one ledger's entry of a posting.
+type PostedEntry struct {
+	ID, LedgerID   uuid.UUID
+	FiscalYear     int16
+	Period         int16
+	DocumentNumber string
+}
+
+// InvoiceSource is a supplier invoice as an acquisition names its source
+// (ADR-0057 §2): its number, the supplier's reference and the supplier.
+type InvoiceSource struct {
+	DocumentNumber, SupplierReference string
+	SupplierID                        uuid.UUID
+	SupplierName                      string
+}
+
+// Invoices reads supplier invoices (payables and partner contexts) by id;
+// an id of none is left out.
+type Invoices interface {
+	Sources(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]InvoiceSource, error)
 }
 
 // Assignment is an asset's centers as Centers derives them: its profit
@@ -121,6 +231,7 @@ type Endpoints struct {
 	Centers   Centers
 	Numbers   Numbers
 	Runs      Runs
+	Invoices  Invoices
 	Pages     *pagination.Codec
 	Now       func() time.Time // the clock of an asset's creation date; nil: the wall clock
 }

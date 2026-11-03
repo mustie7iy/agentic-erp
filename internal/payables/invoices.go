@@ -449,6 +449,32 @@ func (Invoices) Invoiced(ctx context.Context, purchaseOrder uuid.UUID) (map[int3
 	return invoicedQuantities(ctx, tx, purchaseOrder, uuid.Nil)
 }
 
+// InvoiceSource is what an asset acquisition shows of the supplier
+// invoice it came from (ADR-0057 §2, T57c): its number, the supplier's
+// reference and the supplier.
+type InvoiceSource struct {
+	DocumentNumber, SupplierReference string
+	SupplierID                        uuid.UUID
+}
+
+// Sources reads the supplier invoices among ids, by id; an id of none is
+// left out.
+func (Invoices) Sources(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]InvoiceSource, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, document_number, supplier_reference, supplier_id FROM payables.supplier_invoice WHERE id = ANY($1)`, ids)
+	out := map[uuid.UUID]InvoiceSource{}
+	var id uuid.UUID
+	var s InvoiceSource
+	_, err = pgx.ForEachRow(rows, []any{&id, &s.DocumentNumber, &s.SupplierReference, &s.SupplierID}, func() error { out[id] = s; return nil })
+	if err != nil {
+		return nil, fmt.Errorf("payables: sources of %d supplier invoices: %w", len(ids), err)
+	}
+	return out, nil
+}
+
 // Resources is where the API reads each supplier invoice (approvals.Locator).
 func (Approvals) Resources(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
 	return approvals.Paths("/v1/supplier-invoices/%s", ids), nil

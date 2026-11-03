@@ -1571,3 +1571,68 @@ published as AssetChanged (`created`, `changed`, `cancelled`) on the new
   `request.validation_failed`), at most 200 characters. Asset
   numbers are unique per company, as other documents' are; the
   configuration keeps a range from repeating another year's numbers.
+
+**T57c (acquisition from a posted line).** Built as §4 (`PostingLine.GC`),
+§5 and §6 for acquisitions from a line: migration 000192 creates
+`assets.acquisition` (`acquisition_transition`, `acquisition_fixed`,
+`acquisition_source`, `acquisition_seq_once`), `assets.clearing_use`
+(`clearing_use_within_line`, `clearing_use_line_fixed`), `assets.movement`
+(append-only; `movement_reversal`, `movement_reversed_once`,
+`movement_depreciation`) and `assets.document_entry`, and the permission
+`assets.asset.post` (schema tests `TestAssetMovementRules`,
+`TestAssetAcquisitionRules`, `TestClearingUseRules`,
+`TestDocumentEntryRules`). `POST`, `GET /v1/asset-acquisitions`, `GET
+/v1/asset-acquisitions/{id}` and `GET /v1/asset-clearing-items`
+(`createAssetAcquisition`, `listAssetAcquisitions`, `getAssetAcquisition`,
+`listAssetClearingItems`), audited (`assets.acquisition.post`) and
+published as AssetMovementPosted; `:cancel` now also refuses a planned
+asset with movements (409 `assets.asset_not_planned`, the code it already
+had). The worklist's budget is 01 §1.3's list budget (p95 150 ms),
+measured at 20,000 clearing lines of a company's year, half capitalised
+(`TestClearingItemsBudget`). Decided by default, for the product owner to
+overrule:
+- **Ports.** `assets.Ledger` gains `Period` (the regular period of a date,
+  `ledger.Calendar.Period`), `Accounts` (a company's accounts by number),
+  `Line`, `ClearingLines` and `Post` (through `ledger.Postings.Post`, source
+  context `assets`, every line keeping its local and group amounts, the
+  posting group's entries read back per ledger by
+  `ledger.AssetReads.Entries`); `assets.Invoices` reads a supplier
+  invoice's number, reference and supplier (a new published read,
+  `payables.Invoices.Sources`, with `partner.Payees.Names`). No dependency
+  direction changes.
+- **`PostingLine.GC`** is kept only beside `LC`; a group amount without a
+  local one is refused as a programming error.
+- **The proportion is cumulative**: what is used of a line after an
+  acquisition is the line's local (group) amount times the share of its
+  amount then used, rounded half away from zero, and the acquisition takes
+  the difference from what was used before. So what is used never exceeds
+  the line in any currency (a database rule) and the acquisition taking
+  the rest takes the rest of its local and group amounts, as §6 asks;
+  rounding each part on its own could exceed the line after several small
+  parts.
+- **Sources.** A line of an `assets` entry (an acquisition's own credit on
+  the clearing account) is no source (`assets.not_clearing_line`), and the
+  worklist leaves those lines out. The acquisition keeps its source line's
+  entry number, origin and document as posted, so reads need no ledger
+  call. A reversal's line is `assets.source_reversed` until T57d; on the
+  worklist, a reversed line with posted acquisitions shows
+  `source_reversed`, and with `remaining=true` only lines that are not
+  reversed and have something left are listed.
+- **Amounts and dates.** The amount is in the line's currency (another is
+  `request.validation_failed` on `amount.currency`); zero or the other sign
+  is `assets.amount_exceeds_line`. The posting and document dates are the
+  same; the entries' header text is the acquisition's text, or "Asset
+  <number> <description>". The value date is checked against the end of
+  the posting date's regular period.
+- **`assets.cost_negative`** refuses a negative acquisition onto an asset
+  without movements, or one that would bring the sum of its movements'
+  cost in a ledger below zero.
+- **Status.** An acquisition sets the asset's `last_seq` to its `seq` and
+  derives its status and `capitalised_on` from its posted acquisitions
+  (`planned` without any, else `active` with the earliest value date);
+  transfers in and retirements join the rule with T57g and T57h.
+- **`document_entry`** keeps each entry's document number and is
+  insert-only; the reversal columns are written by T57d, which grants the
+  update.
+- **No totals on the worklist**: it is a worklist of lines, not a report;
+  each line carries its amount, used and left in all three currencies.

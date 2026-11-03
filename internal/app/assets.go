@@ -11,6 +11,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -21,7 +23,7 @@ import (
 // none of them.
 func Assets(cfg Config) *assets.Endpoints {
 	return &assets.Endpoints{Settings: configuration.Settings{}, Companies: assetCompanies{}, Ledger: assetLedger{}, Centers: assetCenters{},
-		Numbers: configuration.Numbers{}, Runs: assetRuns{}, Pages: cfg.Pages, Now: cfg.Now}
+		Numbers: configuration.Numbers{}, Runs: assetRuns{}, Invoices: assetInvoices{}, Pages: cfg.Pages, Now: cfg.Now}
 }
 
 // assetCompanies gives the assets context a legal entity by company code
@@ -56,6 +58,94 @@ func (assetLedger) Ledgers(ctx context.Context, legalEntity *uuid.UUID) ([]asset
 
 func (assetLedger) FiscalYear(ctx context.Context, legalEntity uuid.UUID, date time.Time) (int16, error) {
 	return ledger.Calendar{LegalEntities: tenancy.Directory{}}.FiscalYear(ctx, legalEntity, date)
+}
+
+func (assetLedger) Period(ctx context.Context, legalEntity uuid.UUID, date time.Time) (assets.Period, error) {
+	p, err := ledger.Calendar{LegalEntities: tenancy.Directory{}}.Period(ctx, legalEntity, date)
+	return assets.Period{FiscalYear: p.FiscalYear, Number: p.Number, Start: p.Start, End: p.End}, err
+}
+
+func (assetLedger) Accounts(ctx context.Context, legalEntity uuid.UUID, numbers []string) (map[string]uuid.UUID, error) {
+	return ledger.AssetReads{}.Accounts(ctx, legalEntity, numbers)
+}
+
+func assetLine(l ledger.AssetLine) assets.Line {
+	return assets.Line{LineRef: assets.LineRef{FiscalYear: l.FiscalYear, EntryID: l.EntryID, LineNo: l.LineNo}, LegalEntityID: l.LegalEntityID,
+		AccountID: l.AccountID, Currency: l.Currency, CurrencyLC: l.CurrencyLC, CurrencyGC: l.CurrencyGC, Amount: l.Amount, LC: l.LC, GC: l.GC,
+		PostingDate: l.PostingDate, DocumentNumber: l.DocumentNumber, SourceContext: l.SourceContext, SourceDocumentID: l.SourceDocumentID,
+		ProfitCenterID: l.ProfitCenterID, Leading: l.Leading, InEveryLedger: l.InEveryLedger, Reversed: l.Reversed, Reversal: l.Reversal}
+}
+
+func (assetLedger) Line(ctx context.Context, entry uuid.UUID, lineNo int32) (assets.Line, bool, error) {
+	l, ok, err := ledger.AssetReads{}.Line(ctx, entry, lineNo)
+	return assetLine(l), ok, err
+}
+
+func itemRefs(refs []assets.LineRef) []ledger.ItemRef {
+	out := make([]ledger.ItemRef, len(refs))
+	for i, r := range refs {
+		out[i] = ledger.ItemRef{FiscalYear: r.FiscalYear, EntryID: r.EntryID, LineNo: r.LineNo}
+	}
+	return out
+}
+
+func (assetLedger) ClearingLines(ctx context.Context, q assets.ClearingQuery) ([]assets.Line, error) {
+	in := ledger.ClearingQuery{LegalEntityID: q.LegalEntityID, Accounts: q.Accounts, ExceptContext: q.ExceptContext, FiscalYear: q.FiscalYear, Limit: q.Limit,
+		Skip: itemRefs(q.Skip), Keep: itemRefs(q.Keep)}
+	if q.After != nil {
+		in.After = &ledger.ClearingKey{PostingDate: q.After.PostingDate, EntryID: q.After.EntryID, LineNo: q.After.LineNo}
+	}
+	ls, err := ledger.AssetReads{}.ClearingLines(ctx, in)
+	out := make([]assets.Line, len(ls))
+	for i, l := range ls {
+		out[i] = assetLine(l)
+	}
+	return out, err
+}
+
+// Post posts through the ledger's published posting API (ADR-0057 §4),
+// source context assets, to every ledger the company keeps, each line
+// keeping its local and group amounts, and reads the entries back per
+// ledger.
+func (assetLedger) Post(ctx context.Context, p assets.Posting) ([]assets.PostedEntry, error) {
+	in := ledger.Posting{LegalEntityID: p.LegalEntityID, DocumentType: p.DocumentType, DocumentDate: p.DocumentDate, PostingDate: p.PostingDate,
+		Currency: p.Currency, HeaderText: p.HeaderText, SourceContext: "assets", SourceDocumentID: p.DocumentID}
+	for _, l := range p.Lines {
+		lc, gc := l.LC, l.GC
+		in.Lines = append(in.Lines, ledger.PostingLine{AccountID: l.AccountID, Amount: l.Amount, LC: &lc, GC: &gc, ProfitCenterID: l.ProfitCenterID, Text: l.Text})
+	}
+	posted, err := postings().Post(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	es, err := ledger.AssetReads{}.Entries(ctx, posted.FiscalYear, posted.ID)
+	out := make([]assets.PostedEntry, len(es))
+	for i, e := range es {
+		out[i] = assets.PostedEntry{ID: e.ID, LedgerID: e.LedgerID, FiscalYear: e.FiscalYear, Period: e.Period, DocumentNumber: e.DocumentNumber}
+	}
+	return out, err
+}
+
+// assetInvoices names the supplier invoices acquisitions come from, with
+// their suppliers' names.
+type assetInvoices struct{}
+
+func (assetInvoices) Sources(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]assets.InvoiceSource, error) {
+	srcs, err := payables.Invoices{}.Sources(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	suppliers := make([]uuid.UUID, 0, len(srcs))
+	for _, s := range srcs {
+		suppliers = append(suppliers, s.SupplierID)
+	}
+	names, err := partner.Payees{}.Names(ctx, suppliers)
+	out := make(map[uuid.UUID]assets.InvoiceSource, len(srcs))
+	for id, s := range srcs {
+		out[id] = assets.InvoiceSource{DocumentNumber: s.DocumentNumber, SupplierReference: s.SupplierReference, SupplierID: s.SupplierID,
+			SupplierName: names[s.SupplierID].Name}
+	}
+	return out, err
 }
 
 // assetCenters gives the assets context an asset's centers derived and

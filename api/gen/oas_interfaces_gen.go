@@ -125,6 +125,10 @@ type ClosePurchaseOrderRes interface {
 	closePurchaseOrderRes()
 }
 
+type CreateAssetAcquisitionRes interface {
+	createAssetAcquisitionRes()
+}
+
 type CreateAssetRes interface {
 	createAssetRes()
 }
@@ -327,6 +331,10 @@ type GetAnalyticsModelRes interface {
 
 type GetApprovalRequestRes interface {
 	getApprovalRequestRes()
+}
+
+type GetAssetAcquisitionRes interface {
+	getAssetAcquisitionRes()
 }
 
 type GetAssetRes interface {
@@ -609,8 +617,16 @@ type ListApprovalRequestsRes interface {
 	listApprovalRequestsRes()
 }
 
+type ListAssetAcquisitionsRes interface {
+	listAssetAcquisitionsRes()
+}
+
 type ListAssetClassesRes interface {
 	listAssetClassesRes()
+}
+
+type ListAssetClearingItemsRes interface {
+	listAssetClearingItemsRes()
 }
 
 type ListAssetsRes interface {

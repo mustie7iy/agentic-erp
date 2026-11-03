@@ -2543,6 +2543,63 @@ step_asset_master() {
   passed
 }
 
+step_asset_acquisitions() {
+  heading "Step 21 — Asset acquisitions: an invoice item on the asset clearing account split onto two machines; the clearing account at zero"
+  as alex
+  say "Tyrell invoices two CNC lathes, CAD 12,000.00 plus 600.00 GST on V1. Alex posts the item on the asset"
+  say "clearing account 1690 (ADR-0057 §6): the asset accountant settles it onto the assets, so payables stays as it is."
+  local item invoice entry lathe mill first second l
+  item="{\"account_id\": \"$(account 1690)\", \"description\": \"Two CNC lathes\", \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"12000.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"LATHE-2\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"12600.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"600.00\", \"currency\": \"CAD\"}, \"items\": [$item]}"
+  invoice=$(field .id)
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  entry=$(field .journal_entry_id)
+  as carla
+  say "Carla's worklist shows the line on the clearing account with all of it left, and the invoice it came from:"
+  api 200 '.items[] | "  entry \(.document_number) line \(.line_no), \(.supplier_invoice.supplier_name // .source_context) \(.supplier_invoice.supplier_reference // ""): \(.amount.amount) \(.amount.currency), left \(.remaining.amount) (local \(.remaining_lc.amount) \(.remaining_lc.currency), group \(.remaining_gc.amount) \(.remaining_gc.currency))"' \
+    listAssetClearingItems -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p remaining=true
+  expect "the invoice's line on the worklist" "$(field "[.items[] | select(.entry_id == \"$entry\") | \"\(.supplier_invoice.supplier_reference) \(.remaining.amount)\"] | join(\" \")")" \
+    "LATHE-2 12000.00"
+  l=$(field "[.items[] | select(.entry_id == \"$entry\") | .line_no][0]")
+  say "One lathe is the machine of step 20; she creates the second and splits the line: 7,000.00 onto the first, the"
+  say "rest onto the second, which takes the rest of the line's local and group amounts too."
+  QUIET=1 api 200 '' listAssets -p "legal_entity_id=$LE" -p status=planned
+  lathe=$(field '[.items[] | select(.description == "CNC milling machine") | .id][0]')
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  api 201 '"asset \(.company_code)/\(.asset_number) \(.description): \(.status)"' createAsset \
+    -body "{\"legal_entity_id\": \"$LE\", \"class_code\": \"MACHINES\", \"description\": \"CNC lathe\", \"cost_center_id\": \"$(field '.items[0].id')\"}"
+  mill=$(field .id)
+  api 201 '"acquisition onto asset \(.asset_number): \(.amount.amount) \(.amount.currency), local \(.amount_lc.amount) \(.amount_lc.currency), group \(.amount_gc.amount) \(.amount_gc.currency); entries \([.entries[] | "\(.ledger_code) \(.document_number)"] | join(", "))"' \
+    createAssetAcquisition -body "{\"asset_id\": \"$lathe\", \"source\": {\"entry_id\": \"$entry\", \"line_no\": $l}, \"amount\": {\"amount\": \"7000.00\", \"currency\": \"CAD\"}}"
+  first=$(field .id)
+  expect "the first acquisition's source" "$(field '"\(.source.supplier_invoice.supplier_reference) \(.source.source_context)"')" "LATHE-2 payables"
+  api 201 '"acquisition onto asset \(.asset_number): \(.amount.amount) \(.amount.currency), local \(.amount_lc.amount) \(.amount_lc.currency), group \(.amount_gc.amount) \(.amount_gc.currency); entries \([.entries[] | "\(.ledger_code) \(.document_number)"] | join(", "))"' \
+    createAssetAcquisition -body "{\"asset_id\": \"$mill\", \"source\": {\"entry_id\": \"$entry\", \"line_no\": $l}}"
+  second=$(field .id)
+  expect "the rest of the line" "$(field .amount.amount)" 5000.00
+  expect "an entry in every ledger the company keeps" "$(field '[.entries[].ledger_code] | join(" ")')" "0L 2L"
+  say "Both machines are active now, capitalised on the invoice's posting date:"
+  for asset in "$lathe" "$mill"; do
+    api 200 '"  asset \(.asset_number) \(.description): \(.status), capitalised on \(.capitalised_on)"' getAsset -p "id=$asset"
+    expect "the asset's status" "$(field .status)" active
+  done
+  api 200 '.items[] | "  \(.asset_number): \(.amount.amount) \(.amount.currency) from entry \(.source.document_number) line \(.source.line_no)"' \
+    listAssetAcquisitions -p "legal_entity_id=$LE" -p "source_entry_id=$entry"
+  expect "the line's acquisitions" "$(field '[.items[].id] | sort | join(" ")')" "$(printf '%s\n' "$first" "$second" | sort | paste -sd' ' -)"
+  say "Nothing is left of the line, and the clearing account is at zero in every ledger and in all three currencies:"
+  api 200 '"lines with something left: \([.items[] | select(.entry_id == "'"$entry"'")] | length)"' \
+    listAssetClearingItems -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p remaining=true
+  expect "the line left on the worklist" "$(field "[.items[] | select(.entry_id == \"$entry\")] | length")" 0
+  QUIET=1 api 200 '' listLedgers
+  for l in $(field '.items[] | "\(.code)=\(.id)"'); do
+    api 200 '"  '"${l%%=*}"' clearing 1690: \([.items[] | (.debit.amount | tonumber) - (.credit.amount | tonumber)] | add // 0) in the transaction currency, \([.items[] | (.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)] | add // 0) local, \([.items[] | (.debit_gc.amount | tonumber) - (.credit_gc.amount | tonumber)] | add // 0) group"' \
+      listBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "ledger_id=${l#*=}" -p "account_id=$(account 1690)" -p page_size=500
+    expect "the clearing account in ledger ${l%%=*}" "$(field '[.items[] | (.debit.amount | tonumber) - (.credit.amount | tonumber), (.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber), (.debit_gc.amount | tonumber) - (.credit_gc.amount | tonumber)] | map(. * 100 | round) | unique | join(" ")')" 0
+  done
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -2564,7 +2621,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_asset_acquisitions'
 
 main() {
   start

@@ -207,9 +207,10 @@ func written(ctx context.Context, tx pgx.Tx, id uuid.UUID, action, change string
 	return a, record(ctx, a, action, change)
 }
 
-// cancelAsset cancels a planned asset (ADR-0057 §5): any other is 409
-// assets.asset_not_planned. The movements that would keep a planned asset
-// from cancelling come with them (T57c).
+// cancelAsset cancels a planned asset without movements (ADR-0057 §5):
+// any other is 409 assets.asset_not_planned. A planned asset has
+// movements once an acquisition onto it was reversed (T57d); they stay its
+// history, so it is kept.
 func (e *Endpoints) cancelAsset(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Asset, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -224,6 +225,14 @@ func (e *Endpoints) cancelAsset(ctx context.Context, id uuid.UUID, ifMatch func(
 	}
 	if a.Status != StatusPlanned {
 		return Asset{}, problem.Conflict("assets.asset_not_planned", fmt.Sprintf("Asset %s is %s; only a planned asset is cancelled.", a.Number, a.Status))
+	}
+	var moved bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM assets.movement WHERE asset_id = $1)`, id).Scan(&moved); err != nil {
+		return Asset{}, fmt.Errorf("assets: movements of asset %s: %w", a.Number, err)
+	}
+	if moved {
+		return Asset{}, problem.Conflict("assets.asset_not_planned", fmt.Sprintf("Asset %s has movements; only a planned asset without any is "+
+			"cancelled.", a.Number))
 	}
 	if err := setStatus(ctx, tx, p, id, StatusCancelled); err != nil {
 		return Asset{}, err

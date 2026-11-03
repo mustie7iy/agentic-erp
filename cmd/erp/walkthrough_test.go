@@ -43,7 +43,7 @@ func TestWalkthrough(t *testing.T) {
 		t.Fatalf("walkthrough: %v after %s\n%s", err, time.Since(start).Round(time.Second), tail(string(out), 120))
 	}
 	for _, want := range []string{"Step 15 — GR/IR maintenance", "Step 16 — SAP's open down payment", "Step 17 — The audit trail", "Step 18 — A scanned invoice above the request limit is captured by upload",
-		"Step 19 — Asset accounting", "Step 20 — The asset master", "none failed"} {
+		"Step 19 — Asset accounting", "Step 20 — The asset master", "Step 21 — Asset acquisitions", "none failed"} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("walkthrough output: got\n%s\nwant it to contain %q", tail(string(out), 40), want)
 		}

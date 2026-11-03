@@ -292,7 +292,7 @@ func keepSome(lines []Line, rateGC exchange, expLC, expGC int) (bool, error) {
 	kept := false
 	for i := range lines {
 		if k := lines[i].keptLC; k != nil {
-			g, err := convert(*k, rateGC, expLC, expGC)
+			g, err := keptGroup(lines[i], *k, rateGC, expLC, expGC)
 			if err != nil {
 				return false, err
 			}
@@ -325,6 +325,18 @@ func keepAll(lines []Line, rateGC exchange, expLC, expGC int) error {
 	}
 	for i := range lines {
 		lines[i].LC, lines[i].GC = lcs[i], gcs[i]
+		if g := lines[i].keptGC; g != nil {
+			lines[i].GC = *g
+		}
 	}
 	return nil
+}
+
+// keptGroup is a line's group amount: the one it keeps (keptGC), else its
+// kept local amount lc converted at the posting date's rate.
+func keptGroup(l Line, lc money.Minor, rateGC exchange, expLC, expGC int) (money.Minor, error) {
+	if l.keptGC != nil {
+		return *l.keptGC, nil
+	}
+	return convert(lc, rateGC, expLC, expGC)
 }

@@ -13926,7 +13926,7 @@ paths:
       tags:
         - assets
       summary: Cancel an asset
-      description: "Cancels a `planned` asset, one created in error (ADR-0057 §5): it keeps its number and is final. An asset that is not planned is 409 `assets.asset_not_planned` (one that holds value is retired, not cancelled). Audited, and published as AssetChanged (`cancelled`)."
+      description: "Cancels a `planned` asset without movements, one created in error (ADR-0057 §5): it keeps its number and is final. An asset that is not planned, or a planned one with movements (an acquisition onto it reversed), is 409 `assets.asset_not_planned` (one that holds value is retired, not cancelled; one with movements keeps them as its history). Audited, and published as AssetChanged (`cancelled`)."
       x-permission: assets.asset.change
       x-agent: false
       x-problem-codes:
@@ -13967,6 +13967,272 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/asset-acquisitions:
+    get:
+      operationId: listAssetAcquisitions
+      tags:
+        - assets
+      summary: List asset acquisitions
+      description: "The asset acquisitions of the legal entities the caller may act in (ADR-0057 §6, T57c), each with its asset, its source line and the supplier invoice behind it, and its journal entries per ledger. Filters: company, asset, source entry, posting dates and status. Sortable by: `posting_date` (default), `created_at`."
+      x-permission: assets.asset.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: asset_id
+          in: query
+          required: false
+          description: Only this asset's acquisitions.
+          schema:
+            type: string
+            format: uuid
+        - name: source_entry_id
+          in: query
+          required: false
+          description: "Only the acquisitions from lines of this journal entry (the leading ledger's)."
+          schema:
+            type: string
+            format: uuid
+        - name: posting_date_from
+          in: query
+          required: false
+          description: Only acquisitions posted on or after this date.
+          schema:
+            type: string
+            format: date
+        - name: posting_date_to
+          in: query
+          required: false
+          description: Only acquisitions posted on or before this date.
+          schema:
+            type: string
+            format: date
+        - name: status
+          in: query
+          required: false
+          description: Only acquisitions in this status.
+          schema:
+            type: string
+            description: "Acquisition status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [posted, reversed]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of acquisitions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetAcquisitionPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createAssetAcquisition
+      tags:
+        - assets
+      summary: Capitalise a posted line onto an asset
+      description: "Capitalises a posted journal line on an asset clearing account onto an asset (ADR-0057 §6, T57c; SAP's acquisition with automatic offsetting entry): a supplier invoice item, a goods receipt or a manual entry posted on the clearing account of the asset's class in the asset's company. The line is named by its leading-ledger entry and line number (`GET /v1/asset-clearing-items` lists them); one that is not such a line is 422 `assets.not_clearing_line`, a line of a reversed entry or of a reversal 422 `assets.source_reversed`, and a line whose entry has no copy in every ledger the company keeps (a ledger-specific entry) 422 `assets.source_not_in_every_ledger`. `amount` is in the line's currency, all that is left of the line by default; it has the line's sign (a credit line, a supplier credit memo, is capitalised as a negative acquisition, which reduces cost) and is at most what is left (422 `assets.amount_exceeds_line`); a negative acquisition that would leave the asset's cost below zero in a ledger, or one onto an asset holding no cost, is 422 `assets.cost_negative`. One line may be split across several assets, and an asset acquired by several acquisitions. Its local and group amounts are the line's in proportion, rounded half away from zero, the acquisition that uses the rest of the line taking the rest of its local and group amounts, so a line capitalised in full leaves the clearing account at zero in all three currencies. The value date defaults to the line's posting date and may lie in any period up to the end of the posting date's (422 `assets.value_date_in_future` after it); the posting date defaults to the company's date today, and lies on or after the start of the asset's latest center assignment (409 `assets.posting_before_center_transfer`). It posts in the line's currency, to every ledger the company keeps, Dr the class's acquisition cost account on the asset's profit center, Cr the clearing account on the line's profit center (document type AA, source context `assets`; 422 `ledger.period_not_open` when the period is not open in a ledger), writes the asset's movements per ledger, and makes a `planned` asset `active` with its capitalisation date the earliest value date of its acquisitions. A cancelled or retired asset is 422 `assets.asset_cancelled` or `assets.asset_retired`; an asset the caller cannot act in is 404. Audited, and published as AssetMovementPosted."
+      x-permission: assets.asset.post
+      x-agent: false
+      x-problem-codes:
+        - assets.amount_exceeds_line
+        - assets.asset_cancelled
+        - assets.asset_retired
+        - assets.class_not_in_company
+        - assets.class_unknown
+        - assets.cost_negative
+        - assets.not_clearing_line
+        - assets.posting_before_center_transfer
+        - assets.source_not_in_every_ledger
+        - assets.source_reversed
+        - assets.value_date_in_future
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The acquisition.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssetAcquisitionCreate"
+      responses:
+        "201":
+          description: "Posted; the acquisition with its journal entries per ledger."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetAcquisition"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/asset-acquisitions/{id}":
+    get:
+      operationId: getAssetAcquisition
+      tags:
+        - assets
+      summary: Get an asset acquisition
+      description: "One acquisition with its asset, its source line and the supplier invoice behind it, and its journal entries per ledger (ADR-0057 §6). One of a legal entity the caller cannot act in is not found."
+      x-permission: assets.asset.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The acquisition.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetAcquisition"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/asset-clearing-items:
+    get:
+      operationId: listAssetClearingItems
+      tags:
+        - assets
+      summary: List the lines on asset clearing accounts
+      description: "The worklist of acquisitions (ADR-0057 §6, T57c): the leading ledger's lines on the company's asset clearing accounts in one fiscal year, each with its amounts in its currency, local and group currency, what acquisitions used of it and what is left, its document and origin (for a supplier invoice its number, the supplier's reference and the supplier's name), and the acquisitions made from it. The lines of a reversed entry and of its reversal are left out while nothing was capitalised from the reversed one; a reversed line with acquisitions is shown with `source_reversed`. With `remaining=true`, only lines an acquisition can still take something from (not reversed, something left). A legal entity the caller cannot act in has none. Ordered by posting date, entry and line. The lines are ledger amounts, so besides `assets.asset.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: assets.asset.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: The company's legal entity.
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: The fiscal year of the lines.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: remaining
+          in: query
+          required: false
+          description: "Only lines an acquisition can still take something from; default false."
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of lines.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetClearingItemPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/cash-position:
     get:
       operationId: getCashPosition
@@ -32395,6 +32661,197 @@ components:
           items:
             $ref: "#/components/schemas/Asset"
           description: The assets on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
+    AssetAcquisitionCreate:
+      type: object
+      description: "An acquisition from a posted line on an asset clearing account (ADR-0057 §6)."
+      required: [asset_id, source]
+      properties:
+        asset_id: {type: string, format: uuid, description: "The asset the line's amount is capitalised onto."}
+        source: {$ref: "#/components/schemas/AssetAcquisitionSourceRef"}
+        amount: {$ref: "#/components/schemas/Money"}
+        value_date: {type: string, format: date, description: "The date the cost counts from for depreciation; default the line's posting date. At most the end of the posting date's period."}
+        posting_date: {type: string, format: date, description: "The acquisition's posting date; default the company's date today."}
+        text: {type: string, minLength: 1, maxLength: 200, description: "A text for the acquisition and its entries."}
+      additionalProperties: false
+      examples:
+        - asset_id: 0192a000-0000-7000-8000-000000000f01
+          source: {entry_id: 0192a000-0000-7000-8000-000000000e01, line_no: 2}
+          amount: {amount: "6000.00", currency: CAD}
+    AssetAcquisitionSourceRef:
+      type: object
+      description: "A line of a journal entry of the leading ledger, on an asset clearing account."
+      required: [entry_id, line_no]
+      properties:
+        entry_id: {type: string, format: uuid, description: "The journal entry (the leading ledger's)."}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line's number in the entry."}
+      additionalProperties: false
+    AssetAcquisition:
+      description: "An asset acquisition (ADR-0057 §6, T57c): a posted line's amount capitalised onto an asset, with its local and group amounts, its source line and the supplier invoice behind it, and its journal entries per ledger."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [legal_entity_id, company_code, asset_id, asset_number, asset_description, value_date, posting_date, fiscal_year, amount, amount_lc, amount_gc, status, entries]
+          properties:
+            legal_entity_id: {type: string, format: uuid, description: "The company's legal entity.", readOnly: true}
+            company_code: {type: string, description: The company code., readOnly: true}
+            asset_id: {type: string, format: uuid, description: The asset., readOnly: true}
+            asset_number: {type: string, description: "The asset's number in its company.", readOnly: true}
+            asset_description: {type: string, description: "The asset's description.", readOnly: true}
+            value_date: {type: string, format: date, description: "The date the cost counts from for depreciation.", readOnly: true}
+            posting_date: {type: string, format: date, description: The posting date of its entries., readOnly: true}
+            fiscal_year: {type: integer, format: int32, description: "The posting date's fiscal year.", readOnly: true}
+            amount: {$ref: "#/components/schemas/Money"}
+            amount_lc: {$ref: "#/components/schemas/Money"}
+            amount_gc: {$ref: "#/components/schemas/Money"}
+            source: {$ref: "#/components/schemas/AssetAcquisitionSource"}
+            text: {type: string, description: "The acquisition's text.", readOnly: true}
+            status:
+              type: string
+              description: "`posted`, or `reversed`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [posted, reversed]
+              readOnly: true
+            entries:
+              type: array
+              items: {$ref: "#/components/schemas/AssetDocumentEntry"}
+              description: "Its journal entries, one per ledger, the leading ledger first and then by ledger code."
+              readOnly: true
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000a01
+          version: 1
+          created_at: "2026-11-03T09:00:00Z"
+          created_by: 0192a000-0000-7000-8000-000000000101
+          updated_at: "2026-11-03T09:00:00Z"
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "1000"
+          asset_id: 0192a000-0000-7000-8000-000000000f01
+          asset_number: "1"
+          asset_description: CNC milling machine
+          value_date: "2026-11-03"
+          posting_date: "2026-11-03"
+          fiscal_year: 2026
+          amount: {amount: "6000.00", currency: CAD}
+          amount_lc: {amount: "6000.00", currency: CAD}
+          amount_gc: {amount: "4380.00", currency: USD}
+          source:
+            fiscal_year: 2026
+            entry_id: 0192a000-0000-7000-8000-000000000e01
+            line_no: 2
+            document_number: "5100000042"
+            source_context: payables
+            source_document_id: 0192a000-0000-7000-8000-000000000d11
+            supplier_invoice: {document_number: SI100042, supplier_reference: MILL-77, supplier_id: 0192a000-0000-7000-8000-000000000b01, supplier_name: Tyrell Machines}
+          status: posted
+          entries:
+            - {ledger_id: 0192a000-0000-7000-8000-000000000301, ledger_code: 0L, ledger_name: Leading ledger, fiscal_year: 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000e11, document_number: "1"}
+    AssetAcquisitionSource:
+      type: object
+      description: "The line an acquisition capitalised: its leading-ledger entry and line, the entry's document number and origin, and for a supplier invoice its number, reference and supplier."
+      required: [fiscal_year, entry_id, line_no, document_number, source_context]
+      properties:
+        fiscal_year: {type: integer, format: int32, description: "The entry's fiscal year.", readOnly: true}
+        entry_id: {type: string, format: uuid, description: The journal entry., readOnly: true}
+        line_no: {type: integer, format: int32, description: "The line's number.", readOnly: true}
+        document_number: {type: string, description: "The entry's document number.", readOnly: true}
+        source_context: {type: string, description: "The context that posted the entry: `payables` for a supplier invoice, `procurement` for a goods receipt, `ledger` for a manual entry. Open enumeration.", readOnly: true}
+        source_document_id: {type: string, format: uuid, description: "Its document there (a supplier invoice's id); absent for a manual entry.", readOnly: true}
+        supplier_invoice: {$ref: "#/components/schemas/AssetSupplierInvoiceRef"}
+    AssetSupplierInvoiceRef:
+      type: object
+      description: "A supplier invoice as an asset's acquisition names it."
+      required: [document_number, supplier_reference, supplier_id, supplier_name]
+      properties:
+        document_number: {type: string, description: "The invoice's document number.", readOnly: true}
+        supplier_reference: {type: string, description: "The supplier's reference.", readOnly: true}
+        supplier_id: {type: string, format: uuid, description: The supplier., readOnly: true}
+        supplier_name: {type: string, description: "The supplier's name.", readOnly: true}
+    AssetDocumentEntry:
+      type: object
+      description: "One ledger's journal entry of an assets document."
+      required: [ledger_id, ledger_code, ledger_name, fiscal_year, journal_entry_id, document_number]
+      properties:
+        ledger_id: {type: string, format: uuid, description: The ledger., readOnly: true}
+        ledger_code: {type: string, description: "The ledger's code.", readOnly: true}
+        ledger_name: {type: string, description: "The ledger's name.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "The entry's fiscal year.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        document_number: {type: string, description: "The entry's document number.", readOnly: true}
+    AssetAcquisitionPage:
+      type: object
+      description: One page of asset acquisitions.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetAcquisition"
+          description: The acquisitions on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
+    AssetClearingItem:
+      type: object
+      description: "A line on an asset clearing account (ADR-0057 §6): its amounts, what acquisitions used and what is left, its document and origin, and the acquisitions made from it."
+      required: [fiscal_year, entry_id, line_no, posting_date, document_number, source_context, account_id, account_number, account_name, amount, amount_lc, amount_gc, used, remaining, remaining_lc, remaining_gc, source_reversed, acquisitions]
+      properties:
+        fiscal_year: {type: integer, format: int32, description: "The entry's fiscal year.", readOnly: true}
+        entry_id: {type: string, format: uuid, description: "The journal entry (the leading ledger's).", readOnly: true}
+        line_no: {type: integer, format: int32, description: "The line's number.", readOnly: true}
+        posting_date: {type: string, format: date, description: "The line's posting date.", readOnly: true}
+        document_number: {type: string, description: "The entry's document number.", readOnly: true}
+        source_context: {type: string, description: "The context that posted the entry: `payables`, `procurement`, `ledger`. Open enumeration.", readOnly: true}
+        source_document_id: {type: string, format: uuid, description: "Its document there; absent for a manual entry.", readOnly: true}
+        supplier_invoice: {$ref: "#/components/schemas/AssetSupplierInvoiceRef"}
+        account_id: {type: string, format: uuid, description: The clearing account., readOnly: true}
+        account_number: {type: string, description: "The account's number.", readOnly: true}
+        account_name: {type: string, description: "The account's name.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money"}
+        amount_lc: {$ref: "#/components/schemas/Money"}
+        amount_gc: {$ref: "#/components/schemas/Money"}
+        used: {$ref: "#/components/schemas/Money"}
+        remaining: {$ref: "#/components/schemas/Money"}
+        remaining_lc: {$ref: "#/components/schemas/Money"}
+        remaining_gc: {$ref: "#/components/schemas/Money"}
+        source_reversed: {type: boolean, description: "The line's entry was reversed after acquisitions were made from it; nothing more can be taken from it.", readOnly: true}
+        acquisitions:
+          type: array
+          items: {$ref: "#/components/schemas/AssetClearingAcquisition"}
+          description: "The acquisitions made from the line, by posting order."
+          readOnly: true
+    AssetClearingAcquisition:
+      type: object
+      description: "An acquisition made from a clearing line."
+      required: [id, asset_id, asset_number, amount, status]
+      properties:
+        id: {type: string, format: uuid, description: "The acquisition (`GET /v1/asset-acquisitions/{id}`).", readOnly: true}
+        asset_id: {type: string, format: uuid, description: The asset., readOnly: true}
+        asset_number: {type: string, description: "The asset's number.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money"}
+        status:
+          type: string
+          description: "`posted` or `reversed`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [posted, reversed]
+          readOnly: true
+    AssetClearingItemPage:
+      type: object
+      description: One page of lines on asset clearing accounts.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetClearingItem"
+          description: The lines on this page.
         next_page_token:
           type: string
           description: "Opaque cursor for the next page; absent on the last page."

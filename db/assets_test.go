@@ -173,3 +173,164 @@ func TestAssetTermsInUse(t *testing.T) {
 		return exec(tx, `UPDATE assets.asset_terms SET booked_through_period = 7, version = version + 1 WHERE asset_id = $1`, f.planned)
 	})
 }
+
+// Asset acquisitions (T57c, migration 000192): what the database keeps of
+// acquisitions, the use of capitalised lines, movements and the entries of
+// assets documents (ADR-0057 §5, §6).
+
+const (
+	movementSQL = `INSERT INTO assets.movement (tenant_id, id, asset_id, seq, legal_entity_id, ledger_id, class_code, kind, value_date, posting_date,
+			fiscal_year, fiscal_period, cost, accumulated, cost_gc, accumulated_gc, residual, proceeds, document_kind, document_id, reverses_id, created_by)
+		VALUES ($1, $2, $3, 2, $4, $5, 'MACHINES', $6, '2026-06-01', '2026-06-01', 2026, 6, $7, $8, $9, $10, $11, $12, 'acquisition', gen_random_uuid(), $13, $14)`
+	acquisitionSQL = `INSERT INTO assets.acquisition (tenant_id, id, legal_entity_id, asset_id, seq, value_date, posting_date, fiscal_year, currency, amount,
+			amount_lc, amount_gc, currency_lc, currency_gc, source_entry_year, source_entry_id, source_line_no, source_document_number, source_context,
+			offset_account_id, status, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, '2026-06-01', '2026-06-01', 2026, 'EUR', $6, $6, $6, 'EUR', 'EUR', 2026, $7, 1, '1', 'ledger', $8, $9, $10, $10)`
+	useSQL = `INSERT INTO assets.clearing_use (tenant_id, entry_year, entry_id, line_no, legal_entity_id, currency, line_amount, line_lc, line_gc,
+			used, used_lc, used_gc) VALUES ($1, 2026, gen_random_uuid(), 1, $2, 'EUR', $3, $4, $5, $6, $7, $8)`
+)
+
+// movement inserts a movement of the active asset in the fixture's ledger:
+// kind, amounts (cost, accumulated, cost_gc, accumulated_gc, residual,
+// proceeds) and the movement it reverses (nil for none).
+func (f assetFixture) movement(tx pgx.Tx, id uuid.UUID, kind string, amounts [6]int64, reverses any) error {
+	return exec(tx, movementSQL, f.tenant, id, f.active, f.entity, f.ledger, kind, amounts[0], amounts[1], amounts[2], amounts[3], amounts[4], amounts[5],
+		reverses, f.actor)
+}
+
+// TestAssetMovementRules: movements are append-only; a reversal row has
+// its original's kind, asset and ledger and exactly its negated amounts,
+// an original is reversed at most once and a reversal never; depreciation
+// changes accumulated depreciation alone; an acquisition may be negative
+// (a credit line, ADR-0057 §6).
+func TestAssetMovementRules(t *testing.T) {
+	need(t)
+	f := newAssetFixture(t)
+	original, reversal, deprec := id(), id(), id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		for _, m := range []struct {
+			id       uuid.UUID
+			kind     string
+			amounts  [6]int64
+			reverses any
+		}{
+			{original, "acquisition", [6]int64{1000, 0, 900, 0, 0, 0}, nil},
+			{id(), "acquisition", [6]int64{-300, 0, -270, 0, 0, 0}, nil},
+			{deprec, "depreciation", [6]int64{0, -50, 0, -45, 0, 0}, nil},
+			{reversal, "acquisition", [6]int64{-1000, 0, -900, 0, 0, 0}, original},
+		} {
+			if err := f.movement(tx, m.id, m.kind, m.amounts, m.reverses); err != nil {
+				return fmt.Errorf("%s: %w", m.kind, err)
+			}
+		}
+		return nil
+	})
+	try := func(kind string, amounts [6]int64, reverses any) error {
+		return asApp(t, f.tenant, func(tx pgx.Tx) error { return f.movement(tx, id(), kind, amounts, reverses) })
+	}
+	for name, c := range map[string]struct {
+		err  error
+		want string
+	}{
+		"an unknown kind":                  {try("revaluation", [6]int64{1, 0, 1, 0, 0, 0}, nil), "movement_kind_check"},
+		"depreciation of cost":             {try("depreciation", [6]int64{1, -1, 0, 0, 0, 0}, nil), "movement_depreciation"},
+		"depreciation of group cost":       {try("depreciation", [6]int64{0, -1, 1, 0, 0, 0}, nil), "movement_depreciation"},
+		"depreciation of a residual value": {try("depreciation", [6]int64{0, -1, 0, 0, 1, 0}, nil), "movement_depreciation"},
+		"depreciation with proceeds":       {try("depreciation", [6]int64{0, -1, 0, 0, 0, 1}, nil), "movement_depreciation"},
+		"a reversal of another kind":       {try("retirement", [6]int64{0, 50, 0, 45, 0, 0}, deprec), "does not negate movement"},
+		"a reversal not negating":          {try("depreciation", [6]int64{0, 49, 0, 45, 0, 0}, deprec), "does not negate movement"},
+		"a reversal not negating in group": {try("depreciation", [6]int64{0, 50, 0, 44, 0, 0}, deprec), "does not negate movement"},
+		"a reversal of a reversal":         {try("acquisition", [6]int64{1000, 0, 900, 0, 0, 0}, reversal), "does not negate movement"},
+		"an original reversed twice":       {try("acquisition", [6]int64{-1000, 0, -900, 0, 0, 0}, original), "movement_reversed_once"},
+		"a reversal of nothing":            {try("acquisition", [6]int64{-1, 0, -1, 0, 0, 0}, id()), "does not negate movement"},
+		"a movement changed":               {f.try(t, `UPDATE assets.movement SET cost = 1 WHERE id = $1`, original), "permission denied"},
+		"a movement deleted":               {f.try(t, `DELETE FROM assets.movement WHERE id = $1`, original), "permission denied"},
+		"a movement of an unknown asset": {f.try(t, `INSERT INTO assets.movement (tenant_id, id, asset_id, seq, legal_entity_id, ledger_id, class_code, kind,
+			value_date, posting_date, fiscal_year, fiscal_period, document_kind, document_id, created_by) VALUES ($1, gen_random_uuid(), gen_random_uuid(), 1, $2, $3,
+			'MACHINES', 'acquisition', '2026-06-01', '2026-06-01', 2026, 6, 'acquisition', gen_random_uuid(), $4)`, f.tenant, f.entity, f.ledger, f.actor),
+			"movement_tenant_id_asset_id_fkey"},
+	} {
+		t.Run(name, func(t *testing.T) { failsWith(t, c.err, c.want) })
+	}
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return f.movement(tx, id(), "depreciation", [6]int64{0, 50, 0, 45, 0, 0}, deprec)
+	})
+}
+
+// TestAssetAcquisitionRules: an acquisition starts posted, is reversed at
+// most once and keeps what it posted; it comes from a line or against an
+// offset account, never both nor neither, and takes its asset's seq once.
+func TestAssetAcquisitionRules(t *testing.T) {
+	need(t)
+	f := newAssetFixture(t)
+	acq := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, acquisitionSQL, f.tenant, acq, f.entity, f.active, 2, 1000, id(), nil, "posted", f.actor)
+	})
+	status := `UPDATE assets.acquisition SET status = $2, version = version + 1 WHERE id = $1`
+	for name, c := range map[string]struct {
+		sql  string
+		args []any
+		want string
+	}{
+		"an acquisition starting reversed": {acquisitionSQL, []any{f.tenant, id(), f.entity, f.active, 3, 1000, id(), nil, "reversed", f.actor}, "starts posted"},
+		"an amount of zero":                {acquisitionSQL, []any{f.tenant, id(), f.entity, f.active, 3, 0, id(), nil, "posted", f.actor}, "acquisition_amount_check"},
+		"a seq taken":                      {acquisitionSQL, []any{f.tenant, id(), f.entity, f.active, 2, 1000, id(), nil, "posted", f.actor}, "acquisition_seq_once"},
+		"a line and an offset account":     {acquisitionSQL, []any{f.tenant, id(), f.entity, f.active, 3, 1000, id(), id(), "posted", f.actor}, "acquisition_source"},
+		"neither": {`INSERT INTO assets.acquisition (tenant_id, id, legal_entity_id, asset_id, seq, value_date, posting_date, fiscal_year, currency, amount,
+			amount_lc, amount_gc, currency_lc, currency_gc, status, created_by, updated_by) VALUES ($1, gen_random_uuid(), $2, $3, 3, '2026-06-01', '2026-06-01',
+			2026, 'EUR', 1, 1, 1, 'EUR', 'EUR', 'posted', $4, $4)`, []any{f.tenant, f.entity, f.active, f.actor}, "acquisition_source"},
+		"an amount changed":      {`UPDATE assets.acquisition SET amount = 999, version = version + 1 WHERE id = $1`, []any{acq}, "keeps what it posted"},
+		"an acquisition deleted": {`DELETE FROM assets.acquisition WHERE id = $1`, []any{acq}, "permission denied"},
+	} {
+		t.Run(name, func(t *testing.T) { failsWith(t, f.try(t, c.sql, c.args...), c.want) })
+	}
+	mustApp(t, f.tenant, func(tx pgx.Tx) error { return exec(tx, status, acq, "reversed") })
+	failsWith(t, f.try(t, status, acq, "posted"), "cannot change from reversed to posted")
+}
+
+// TestClearingUseRules: what is used of a line stays between zero and the
+// line's amount in each currency (the mirror for a credit line), and the
+// line's amounts never change.
+func TestClearingUseRules(t *testing.T) {
+	need(t)
+	f := newAssetFixture(t)
+	for name, c := range map[string]struct {
+		amounts [6]int64 // line_amount, line_lc, line_gc, used, used_lc, used_gc
+		want    string
+	}{
+		"more than a debit line":       {[6]int64{100, 90, 80, 101, 90, 80}, "clearing_use_within_line"},
+		"less than nothing of a debit": {[6]int64{100, 90, 80, -1, 0, 0}, "clearing_use_within_line"},
+		"more than a credit line":      {[6]int64{-100, -90, -80, -101, -90, -80}, "clearing_use_within_line"},
+		"a debit of a credit line":     {[6]int64{-100, -90, -80, 1, 0, 0}, "clearing_use_within_line"},
+		"more local amount":            {[6]int64{100, 90, 80, 100, 91, 80}, "clearing_use_within_line"},
+		"more group amount":            {[6]int64{100, 90, 80, 100, 90, 81}, "clearing_use_within_line"},
+		"a line of zero":               {[6]int64{0, 0, 0, 0, 0, 0}, "clearing_use_line_amount_check"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := c.amounts
+			failsWith(t, f.try(t, useSQL, f.tenant, f.entity, a[0], a[1], a[2], a[3], a[4], a[5]), c.want)
+		})
+	}
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, useSQL, f.tenant, f.entity, -100, -90, -80, -100, -90, -80); err != nil {
+			return err
+		}
+		return exec(tx, useSQL, f.tenant, f.entity, 100, 90, 80, 50, 45, 40)
+	})
+	failsWith(t, f.try(t, `UPDATE assets.clearing_use SET line_amount = 200, version = version + 1 WHERE line_amount = 100`), "keeps its amounts")
+}
+
+// TestDocumentEntryRules: an assets document's entry is its main one or a
+// catch-up, once per document, ledger and part, and is written once.
+func TestDocumentEntryRules(t *testing.T) {
+	need(t)
+	f := newAssetFixture(t)
+	doc := id()
+	entrySQL := `INSERT INTO assets.document_entry (tenant_id, document_kind, document_id, ledger_id, part, journal_entry_year, journal_entry_id, document_number)
+		VALUES ($1, 'acquisition', $2, $3, $4, 2026, gen_random_uuid(), '1')`
+	mustApp(t, f.tenant, func(tx pgx.Tx) error { return exec(tx, entrySQL, f.tenant, doc, f.ledger, "main") })
+	failsWith(t, f.try(t, entrySQL, f.tenant, doc, f.ledger, "main"), "document_entry_pkey")
+	failsWith(t, f.try(t, entrySQL, f.tenant, doc, f.ledger, "extra"), "document_entry_part_check")
+	failsWith(t, f.try(t, `UPDATE assets.document_entry SET document_number = '2' WHERE document_id = $1`, doc), "permission denied")
+}
