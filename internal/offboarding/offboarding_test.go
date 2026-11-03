@@ -348,9 +348,31 @@ func (sc *lifecycleScenario) runningWorkerExportsATenantOffboardedMeanwhile(t *t
 	done := make(chan struct{})
 	go func() { sc.w.Run(runCtx); close(done) }()
 	t.Cleanup(func() { cancel(); <-done }) // stops the worker should the wait fail
-	pgtest.Eventually(t, 10*time.Second, func() bool {
+	exported := func() bool {
 		return count(t, `SELECT count(*) FROM tenancy.tenant WHERE id = $1 AND exported_at IS NOT NULL`, third.Tenant.ID) > 0
-	}, "the running worker did not export the tenant")
+	}
+	prefix := "tenants/" + third.Tenant.ID.String() + "/"
+	objects := func() int {
+		keys, err := sc.store.List(sc.ctx, prefix)
+		if err != nil {
+			t.Fatalf("list the export's objects: %v", err)
+		}
+		return len(keys)
+	}
+	// The export writes an object per row (ChunkRows 1), some two hundred
+	// statements, and took more than 10 s in a whole-tree -race run. So the
+	// wait has no fixed end: it fails only when the export stalls, no new
+	// object and no export for stall, and the worker must still finish.
+	const stall = 10 * time.Second
+	for seen := -1; !exported(); {
+		pgtest.Eventually(t, stall, func() bool {
+			if n := objects(); n > seen || exported() {
+				seen = n
+				return true
+			}
+			return false
+		}, "the running worker stopped exporting the tenant: %d objects written, the tenant not exported", seen)
+	}
 	cancel()
 	<-done
 }

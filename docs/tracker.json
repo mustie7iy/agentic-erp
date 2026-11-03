@@ -5102,6 +5102,13 @@
           "r": "offboarding.TakeFingerprint · globalplane.Verify · ADR-0030",
           "src": "baseline",
           "c": []
+         },
+         {
+          "s": "D",
+          "t": "TestOffboardingLifecycle's running-worker step waits while the export makes progress (a new object, or the tenant exported) instead of a fixed 10 s, which a whole-tree -race run under load exceeded; it fails when the export stalls for 10 s",
+          "r": "internal/offboarding/offboarding_test.go runningWorkerExportsATenantOffboardedMeanwhile",
+          "src": "review:batch46",
+          "c": []
          }
         ]
        }
