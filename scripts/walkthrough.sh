@@ -319,7 +319,8 @@ start() {
   say "    payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening, memo records"
   say "    and payments in transit, conversion and drill-down"
   say "  - cost center postings, reports and planning (T56d-T56j)"
-  say "  - asset acquisition, depreciation and the rest of asset accounting (T57c-T57i): steps 19 and 20 show the classes and the master"
+  say "  - asset depreciation, retirements, transfers and the rest of asset accounting (T57e-T57i): steps 19 and 20 show the classes"
+  say "    and the master, steps 22 and 24 acquisitions and their corrections"
   say "  - accounts receivable, the period close beyond its checklist (T64c-T64k), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
