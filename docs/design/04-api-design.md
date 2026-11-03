@@ -121,7 +121,17 @@ The requester, human or agent, may
   `next_page_token` (absent on the last page). `page_size` defaults to 50,
   maximum 500. Tokens are opaque, signed and encode the sort keys, so pages
   stay stable while rows are inserted, and every page is an index range scan
-  whatever the table size (05-scalability).
+  whatever the table size (05-scalability). A token is signed with the
+  listing's scope, its name and the filters' values as text, and refused
+  under other filters. A filter goes into the scope as its value, never as
+  a pointer, whose printed address the next request does not share;
+  `internal/layout`'s `TestPageScopes` traces every scope given to the
+  codec, refuses a formatted value that does not print as itself under its
+  verb, and refuses a scope it cannot follow (an interface's method, a
+  buffer, a function used as a value, a local written through its
+  address); a function outside the module is followed into its string and
+  byte arguments (batch 46, after `listHierarchies`'
+  `is_standard`).
 - No total counts by default. `?include=total_estimate` returns a planner
   estimate where it is cheap.
 - Filters are named query parameters documented per resource

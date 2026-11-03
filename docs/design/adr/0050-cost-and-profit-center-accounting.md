@@ -352,8 +352,11 @@ As built in T56a (migration 000128):
     an alternative hierarchy), and `GET /v1/cost-centers/{id}/hierarchy-paths`,
     `/v1/profit-centers/{id}/hierarchy-paths` (root to leaf per
     hierarchy). Hierarchies are addressed by id rather than
-    `{kind}/{code}`, as every other resource; the list filters by kind and
-    code. A tree lists only the cost centers of companies the caller may act in, as every cost center read; its nodes are tenant-wide. The ETag is the tree's version, so two callers with different access may get different bodies under one ETag: harmless for If-Match (changes are planned against the whole tree), but a shared cache must vary by principal. `/v1/center-changes` filters by `hierarchy_id`. Event
+    `{kind}/{code}`, as every other resource; the list filters by kind,
+    code and `is_standard`. **As built (fix, batch 46):** the list's page
+    token is signed with the `is_standard` filter's value; it was signed
+    with a pointer's address, so a second page under that filter was
+    refused (`request.invalid_page_token`). A tree lists only the cost centers of companies the caller may act in, as every cost center read; its nodes are tenant-wide. The ETag is the tree's version, so two callers with different access may get different bodies under one ETag: harmless for If-Match (changes are planned against the whole tree), but a shared cache must vary by principal. `/v1/center-changes` filters by `hierarchy_id`. Event
     `HierarchyChanged` says what changed, not the tree; audit
     `ledger.hierarchy.create|request|node_create|node_rename|node_move|node_remove|place`.
 - **Default profit center** per company (SAP's dummy profit center), a real

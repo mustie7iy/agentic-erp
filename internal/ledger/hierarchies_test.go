@@ -549,8 +549,43 @@ func TestHierarchyListing(t *testing.T) {
 	if items := page["items"].([]any); len(items) != 1 {
 		t.Errorf("second page: got %v, want one", items)
 	}
+	c.hierarchy(t, "ALT2")
+	// A filter's page token is accepted on the next page with the same
+	// filter: the scope it is signed with holds the filter's value, not a
+	// pointer's address.
+	for query, want := range map[string]string{
+		"is_standard=true":  "[STANDARD STANDARD]",
+		"is_standard=false": "[ALT ALT2]",
+	} {
+		t.Run("paged "+query, func(t *testing.T) {
+			if got := fmt.Sprint(c.in(t).hierarchyCodes(t, query)); got != want {
+				t.Errorf("hierarchies one per page: got %s, want %s", got, want)
+			}
+		})
+	}
 	c.Problem(400, "request.invalid_order_by", "GET", "/v1/hierarchies?order_by=bogus", "", "")
 	c.Problem(400, "request.invalid_order_by", "GET", "/v1/cost-centers/"+c.activeCostCenter(t, "1000")+"/hierarchy-paths?order_by=bogus", "", "")
+}
+
+// hierarchyCodes lists the hierarchies a query selects one per page,
+// following each page's token to the last.
+func (c centers) hierarchyCodes(t *testing.T, query string) []any {
+	t.Helper()
+	var codes []any
+	token := ""
+	for range 10 {
+		page, _ := c.Must(200, "GET", "/v1/hierarchies?page_size=1&"+query+token, "", "")
+		for _, item := range page["items"].([]any) {
+			codes = append(codes, item.(map[string]any)["code"])
+		}
+		next, _ := page["next_page_token"].(string) // absent on the last page
+		if next == "" {
+			return codes
+		}
+		token = "&page_token=" + next
+	}
+	t.Fatalf("hierarchies %s: more than ten pages", query)
+	return nil
 }
 
 // trees are the hierarchies TestCenterDatabaseFailures changes: an empty
