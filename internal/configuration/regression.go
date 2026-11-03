@@ -99,6 +99,9 @@ func CaptureRegressionSuite(ctx context.Context, deps Dependencies, in NewRegres
 	if err != nil {
 		return RegressionSuite{}, err
 	}
+	if err := problem.RequireText("name", in.Name); err != nil {
+		return RegressionSuite{}, err
+	}
 	if in.MaxCases <= 0 {
 		in.MaxCases = 50
 	}

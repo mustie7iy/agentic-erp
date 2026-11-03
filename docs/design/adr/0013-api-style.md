@@ -113,3 +113,31 @@ rule, are recorded here:
   the wire this renames the keys of `report.extract`, which the free-form
   report returned in SAP's spelling before; neither `erp migrate` nor the
   walkthrough reads them, and the run's event carries no extract counts.
+
+## As built: a text of white space alone is a validation failure (review:T57b)
+
+Columns that hold a required text check `btrim(x) <> ''` (or
+`length(trim(x)) > 0`). Where the request reached the write with such a
+text, the check refused it as 409 `request.rule_violated` without naming
+the field, which 04 §4.6 reserves for business-rule conflicts. The context
+now refuses it first with `problem.RequireText`: 422
+`request.validation_failed`, `errors[0].field` naming the field. Settled by
+04 §4.6 (validation is 422 with `errors[]`); T57b did the same for an
+asset's description. Fixed on every path the sweep of the migrations found
+reaching such a check unvalidated: a change request's `title`
+(create, update, country pack application), a regression suite's `name`, a
+legal entity's `name` (create, update), a supplier invoice's
+`supplier_reference` (create, update; a captured document whose number is
+blank is `payables.unreadable_document`, as an empty one was), a business
+partner's `name` (create; `payload.name` of an update change, which
+otherwise failed only on approval), a requisition item's
+`items[i].description` (create, update), a rejection's or cancellation's
+`comment`, and a plan category's `name`. `RequireText` trims Unicode white
+space, so a tab alone is refused too, which the database's `btrim` would
+have stored. Paths already validated, by the contract (an entry template's
+`name`, a plan batch's `batch_key`: 400 `request.invalid_body` by
+`pattern`), by the configuration document's validation (ledgers, ledger
+groups, liquidity items, planning groups, plan categories of the
+document) or by the context (tenant provisioning, down payment and
+migrated documents' references, GR/IR clearing reasons, a tax return's
+confirmation number), are unchanged.

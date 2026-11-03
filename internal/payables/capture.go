@@ -158,7 +158,7 @@ func (e *Endpoints) capturedInput(ctx context.Context, tx pgx.Tx, legalEntity uu
 	if err != nil {
 		return Input{}, "", unreadable("the document date " + ext.InvoiceDate + " is not a date")
 	}
-	if ext.InvoiceNumber == "" {
+	if strings.TrimSpace(ext.InvoiceNumber) == "" {
 		return Input{}, "", unreadable("there is no document number")
 	}
 	if ext.Currency != order.Currency {

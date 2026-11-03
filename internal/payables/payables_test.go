@@ -164,6 +164,8 @@ func TestEntryAndEdits(t *testing.T) {
 		t.Fatalf("expanded: %v", got)
 	}
 	e.Problem(409, "payables.duplicate_invoice", "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "inv 1", "1.00", "0.00", accountItem(e.expense, "1.00")), "")
+	e.Blank("supplier_reference", "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "   ", "1.00", "0.00", accountItem(e.expense, "1.00")), "")
+	e.Blank("supplier_reference", "PATCH", "/v1/supplier-invoices/"+id(inv), `{"supplier_reference": "   "}`, tag)
 
 	// Edits replace the items as a whole; removed items come back as new ones.
 	upd, _ := e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(inv), fmt.Sprintf(`{"supplier_reference": "INV-1A", "posting_date": "2026-03-12",

@@ -365,6 +365,8 @@ func TestSubmitRefusals(t *testing.T) {
 	e.Problem(404, "request.not_found", "POST", "/v1/change-requests/"+uuid.NewString()+":submit", "", `"1"`)
 	cr := e.propose(t, 1, document(t))
 	e.Problem(412, "request.version_mismatch", "POST", "/v1/change-requests/"+cr["id"].(string)+":submit", "", `"9"`)
+	e.Blank("title", "POST", "/v1/change-requests", `{"title": "   ", "base_version": 1, "proposed": {}}`, "")
+	e.Blank("title", "PATCH", "/v1/change-requests/"+cr["id"].(string), `{"title": "   "}`, `"1"`)
 }
 
 func TestTiersEvidenceAndWithdrawal(t *testing.T) {

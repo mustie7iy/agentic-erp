@@ -173,6 +173,19 @@ func ReferenceNotFound(field, what, message string) *Problem {
 		FieldError{Field: field, Code: "not_found", Message: message})
 }
 
+// RequireText refuses a text given as white space alone: 422
+// request.validation_failed naming field, nil for any other text. A
+// column such a text is written to checks btrim(x) <> ”, which would
+// refuse it as 409 request.rule_violated without the field, so a context
+// calls RequireText before the write.
+func RequireText(field, value string) error {
+	if strings.TrimSpace(value) != "" {
+		return nil
+	}
+	return Unprocessable("request.validation_failed", "The request is not valid: "+field+" is a text, not white space alone.",
+		FieldError{Field: field, Code: "invalid", Message: "a text, not white space alone"})
+}
+
 // MissingReference is the 422 request.reference_not_found that every
 // missing reference is reported as, with the caller's detail and field
 // errors.

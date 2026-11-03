@@ -5923,6 +5923,13 @@
         "src": "review:batch27",
         "pilot": "po:2026-10-31 · review:batch27",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "A required text of white space alone is 422 request.validation_failed naming its field, not the 409 request.rule_violated of the column's btrim check (finding of the T57b review, swept over every check on blank text): a change request's title, a regression suite's name, a legal entity's name, a supplier invoice's supplier_reference (a captured document's blank number is payables.unreadable_document), a business partner's name and an update change's payload.name (which failed only on approval), a requisition item's description, a rejection's or cancellation's comment and a plan category's name are checked before the write",
+        "r": "internal/platform/problem RequireText · internal/configuration · internal/tenancy · internal/payables · internal/partner · internal/procurement · internal/approvals · internal/controlling · apitest Client.Blank · api/openapi.yaml x-problem-codes · 04 §4.6 · ADR-0013 As built",
+        "src": "review:T57b",
+        "c": []
        }
       ]
      }

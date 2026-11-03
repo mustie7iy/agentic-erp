@@ -164,6 +164,7 @@ paths:
       x-permission: tenancy.org.manage
       x-problem-codes:
         - request.invalid_extension
+        - request.validation_failed
         - tenancy.legal_entity_code_taken
         - tenancy.unknown_country
         - tenancy.unknown_currency
@@ -246,6 +247,7 @@ paths:
       x-permission: tenancy.org.manage
       x-problem-codes:
         - request.invalid_extension
+        - request.validation_failed
         - request.version_mismatch
         - tenancy.legal_entity_code_taken
         - tenancy.unknown_country
@@ -2160,6 +2162,7 @@ paths:
       x-problem-codes:
         - config.not_bootstrapped
         - config.unknown_base_version
+        - request.validation_failed
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -2242,6 +2245,7 @@ paths:
         - config.invalid_status
         - config.not_author
         - config.unknown_base_version
+        - request.validation_failed
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -2568,6 +2572,7 @@ paths:
         - config.unknown_base_version
         - config.unknown_company
         - config.unknown_keys
+        - request.validation_failed
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -2663,6 +2668,7 @@ paths:
         - payables.legal_entity_not_found
         - payables.no_purchase_order
         - payables.order_not_found
+        - request.validation_failed
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -3058,6 +3064,7 @@ paths:
         - request.invalid_extension
         - request.rule_refused
         - request.rule_unevaluable
+        - request.validation_failed
         - workflow.no_policy
         - workflow.request_pending
         - workflow.unknown_role
@@ -3553,6 +3560,7 @@ paths:
         - request.invalid_extension
         - request.rule_refused
         - request.rule_unevaluable
+        - request.validation_failed
         - workflow.no_policy
         - workflow.request_pending
         - workflow.unknown_role
@@ -7860,6 +7868,7 @@ paths:
       x-agent: false
       x-problem-codes:
         - controlling.plan_category_exists
+        - request.validation_failed
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -8862,6 +8871,7 @@ paths:
         - procurement.unknown_unit
         - request.invalid_amount
         - request.invalid_extension
+        - request.validation_failed
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -8957,6 +8967,7 @@ paths:
         - procurement.unknown_unit
         - request.invalid_amount
         - request.invalid_extension
+        - request.validation_failed
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -10885,6 +10896,7 @@ paths:
         - request.invalid_extension
         - request.rule_refused
         - request.rule_unevaluable
+        - request.validation_failed
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -11043,6 +11055,7 @@ paths:
         - request.invalid_extension
         - request.rule_refused
         - request.rule_unevaluable
+        - request.validation_failed
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -11270,6 +11283,7 @@ paths:
         - request.invalid_extension
         - request.rule_refused
         - request.rule_unevaluable
+        - request.validation_failed
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -15442,6 +15456,7 @@ paths:
         - procurement.gr_ir_clearing_pending
         - procurement.invalid_status
         - procurement.requisition_ordered
+        - request.validation_failed
         - request.version_mismatch
         - tax.return_exists
         - tax.return_in_progress
@@ -15530,6 +15545,7 @@ paths:
         - procurement.gr_ir_clearing_pending
         - procurement.invalid_status
         - procurement.requisition_ordered
+        - request.validation_failed
         - request.version_mismatch
         - tax.return_exists
         - tax.return_in_progress
@@ -16978,6 +16994,7 @@ paths:
         - request.invalid_extension
         - request.rule_refused
         - request.rule_unevaluable
+        - request.validation_failed
         - request.version_mismatch
         - workflow.no_policy
         - workflow.request_pending

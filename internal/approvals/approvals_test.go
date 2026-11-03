@@ -167,6 +167,7 @@ func TestRejectAndCancel(t *testing.T) {
 	f := setup(t)
 	rejected := partnerChange(t, f, "Rejected Partner")
 	f.As(f.Approver).Problem(400, "request.invalid_body", "POST", path(rejected, "reject"), `{}`, tag(rejected))
+	f.As(f.Approver).Blank("comment", "POST", path(rejected, "reject"), `{"comment": "   "}`, tag(rejected))
 	got, _ := f.As(f.Approver).Must(200, "POST", path(rejected, "reject"), `{"comment": "Duplicate"}`, tag(rejected))
 	if got["status"] != "rejected" {
 		t.Fatalf("rejected: %v", got)
@@ -178,6 +179,7 @@ func TestRejectAndCancel(t *testing.T) {
 
 	cancelled := partnerChange(t, f, "Cancelled Partner")
 	f.As(f.Approver).Problem(403, "workflow.not_requester", "POST", path(cancelled, "cancel"), `{"comment": "Mine"}`, tag(cancelled))
+	f.Blank("comment", "POST", path(cancelled, "cancel"), `{"comment": "   "}`, tag(cancelled))
 	got, _ = f.Must(200, "POST", path(cancelled, "cancel"), `{"comment": "Withdrawn"}`, tag(cancelled))
 	if got["status"] != "cancelled" {
 		t.Errorf("status: got %v, want cancelled", got["status"])

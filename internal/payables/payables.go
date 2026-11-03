@@ -446,10 +446,14 @@ func invalid(code, field, message string) error {
 	return problem.Unprocessable(code, message, problem.FieldError{Field: field, Code: "invalid", Message: message})
 }
 
-// validate checks an invoice for entry: a legal entity the caller may act
-// in, a usable supplier, amounts in one currency with its minor-unit
-// digits, items on the order or on postable accounts, known tax codes.
+// validate checks an invoice for entry: a supplier reference that is more
+// than white space, a legal entity the caller may act in, a usable
+// supplier, amounts in one currency with its minor-unit digits, items on
+// the order or on postable accounts, known tax codes.
 func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked, error) {
+	if err := problem.RequireText("supplier_reference", in.SupplierReference); err != nil {
+		return checked{}, err
+	}
 	le, sup, err := e.invoiceParties(ctx, in)
 	if err != nil {
 		return checked{}, err
