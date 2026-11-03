@@ -344,8 +344,8 @@ func TestDepreciationRunFinishesAfterItsBatches(t *testing.T) {
 // TestDepreciationRunBatches: a run's assets are planned in batches by
 // asset number (two a batch here), the last one partial, each posted as
 // its own entry with the progress reported on the Operation and the plan
-// audited; a run failing after its first batch shows what that batch
-// posted, which stays posted.
+// audited; a running run, and one failing after its first batch, shows
+// what that batch posted, which stays posted.
 func TestDepreciationRunBatches(t *testing.T) {
 	e := newRuns(t)
 	for _, d := range []string{"Mill", "Lathe", "Press"} {
@@ -380,7 +380,9 @@ func TestDepreciationRunBatches(t *testing.T) {
 	var progress string
 	pgtest.Scan(t, `SELECT progress_done || '/' || progress_total FROM platform.operation WHERE id = $1`, []any{op["id"]}, &progress)
 	want(t, "the progress", progress, "1/2")
+	r, _ := e.Must(200, "GET", "/v1/depreciation-runs/"+run.String(), "", "")
+	want(t, "a running run after its first batch", runOf(r), "running 3 2 0 20.00; 1 posted 2 2 0 20.00; 2 pending 1 <nil> <nil> -")
 	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE legal_entity_id = $1 AND ledger_id = $2 AND fiscal_year = 2026 AND period = 6`, e.DE, e.l0)
-	r := e.carry(t, run)
+	r = e.carry(t, run)
 	want(t, "a run failed after its first batch", runOf(r), "failed 3 2 0 20.00; 1 posted 2 2 0 20.00; 2 pending 1 <nil> <nil> -")
 }

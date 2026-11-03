@@ -412,20 +412,20 @@ func TestDepreciationRunRules(t *testing.T) {
 		args []any
 		want string
 	}{
-		"a run starting running":          {depreciationRunSQL, []any{f.tenant, id(), f.entity, f.ledger2, 6, "running", f.actor}, "starts queued"},
-		"a second run of the ledger":      {depreciationRunSQL, []any{f.tenant, other, f.entity, f.ledger, 7, "queued", f.actor}, "depreciation_run_one_at_a_time"},
-		"a special period":                {depreciationRunSQL, []any{f.tenant, id(), f.entity, f.ledger2, 13, "queued", f.actor}, "depreciation_run_fiscal_period_check"},
-		"running without a plan":          {`UPDATE assets.depreciation_run SET status = 'running', version = version + 1 WHERE id = $1`, []any{run}, "depreciation_run_planned"},
-		"posted from queued":              {`UPDATE assets.depreciation_run SET status = 'posted', amount = 0, assets_posted = 0, assets_skipped = 0, version = version + 1 WHERE id = $1`, []any{run}, "cannot change from queued to posted"},
-		"failed without its problem":      {`UPDATE assets.depreciation_run SET status = 'failed', version = version + 1 WHERE id = $1`, []any{run}, "depreciation_run_error"},
-		"a problem while queued":          {`UPDATE assets.depreciation_run SET error = '{}', version = version + 1 WHERE id = $1`, []any{run}, "depreciation_run_error"},
-		"totals while queued":             {`UPDATE assets.depreciation_run SET amount = 0, assets_posted = 0, assets_skipped = 0, version = version + 1 WHERE id = $1`, []any{run}, "depreciation_run_totals"},
-		"its period changed":              {`UPDATE assets.depreciation_run SET fiscal_period = 7, version = version + 1 WHERE id = $1`, []any{run}, "keeps what it runs"},
-		"a run deleted":                   {`DELETE FROM assets.depreciation_run WHERE id = $1`, []any{run}, "permission denied"},
-		"a batch of no assets":            {depreciationBatchSQL, []any{f.tenant, run, 1, []uuid.UUID{}, "pending"}, "depreciation_batch_asset_ids_check"},
-		"a batch of 501 assets":           {depreciationBatchSQL, []any{f.tenant, run, 1, make([]uuid.UUID, 501), "pending"}, "depreciation_batch_asset_ids_check"},
-		"a batch starting posted":         {depreciationBatchSQL, []any{f.tenant, run, 1, []uuid.UUID{f.active}, "posted"}, "starts pending"},
-		"a batch of another tenant's run": {depreciationBatchSQL, []any{f.tenant, id(), 1, []uuid.UUID{f.active}, "pending"}, "depreciation_batch_tenant_id_run_id_fkey"},
+		"a run starting running":     {depreciationRunSQL, []any{f.tenant, id(), f.entity, f.ledger2, 6, "running", f.actor}, "starts queued"},
+		"a second run of the ledger": {depreciationRunSQL, []any{f.tenant, other, f.entity, f.ledger, 7, "queued", f.actor}, "depreciation_run_one_at_a_time"},
+		"a special period":           {depreciationRunSQL, []any{f.tenant, id(), f.entity, f.ledger2, 13, "queued", f.actor}, "depreciation_run_fiscal_period_check"},
+		"running without a plan":     {`UPDATE assets.depreciation_run SET status = 'running', version = version + 1 WHERE id = $1`, []any{run}, "depreciation_run_planned"},
+		"posted from queued":         {`UPDATE assets.depreciation_run SET status = 'posted', amount = 0, assets_posted = 0, assets_skipped = 0, version = version + 1 WHERE id = $1`, []any{run}, "cannot change from queued to posted"},
+		"failed without its problem": {`UPDATE assets.depreciation_run SET status = 'failed', version = version + 1 WHERE id = $1`, []any{run}, "depreciation_run_error"},
+		"a problem while queued":     {`UPDATE assets.depreciation_run SET error = '{}', version = version + 1 WHERE id = $1`, []any{run}, "depreciation_run_error"},
+		"totals while queued":        {`UPDATE assets.depreciation_run SET amount = 0, assets_posted = 0, assets_skipped = 0, version = version + 1 WHERE id = $1`, []any{run}, "depreciation_run_totals"},
+		"its period changed":         {`UPDATE assets.depreciation_run SET fiscal_period = 7, version = version + 1 WHERE id = $1`, []any{run}, "keeps what it runs"},
+		"a run deleted":              {`DELETE FROM assets.depreciation_run WHERE id = $1`, []any{run}, "permission denied"},
+		"a batch of no assets":       {depreciationBatchSQL, []any{f.tenant, run, 1, []uuid.UUID{}, "pending"}, "depreciation_batch_asset_ids_check"},
+		"a batch of 501 assets":      {depreciationBatchSQL, []any{f.tenant, run, 1, make([]uuid.UUID, 501), "pending"}, "depreciation_batch_asset_ids_check"},
+		"a batch starting posted":    {depreciationBatchSQL, []any{f.tenant, run, 1, []uuid.UUID{f.active}, "posted"}, "starts pending"},
+		"a batch of no run":          {depreciationBatchSQL, []any{f.tenant, id(), 1, []uuid.UUID{f.active}, "pending"}, "depreciation_batch_tenant_id_run_id_fkey"},
 	} {
 		t.Run(name, func(t *testing.T) { failsWith(t, f.try(t, c.sql, c.args...), c.want) })
 	}

@@ -7,11 +7,14 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/worker"
 	sdkworkflow "go.temporal.io/sdk/workflow"
@@ -39,7 +42,7 @@ type deprScenario struct {
 func deprSetup(t *testing.T) *deprScenario {
 	t.Helper()
 	e := fixture.NewWith(t, nil, fixture.AssetClasses, "assets.asset.read", "assets.asset.change", "assets.asset.post", "assets.depreciation.run",
-		"ledger.entry.post")
+		"ledger.entry.post", "platform.operation.read", "platform.operation.cancel")
 	s := &deprScenario{e: e, d: &workflows.Depreciations{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Runs: app.Assets(app.Config{}),
 		Actors: identity.Actors{}}}
 	s.machine(t, "Mill")
@@ -74,12 +77,23 @@ func (s *deprScenario) close(t *testing.T, period int) {
 		s.e.DE, period)
 }
 
+// cancel cancels the run's Operation as a client does
+// (POST /v1/operations/{id}:cancel).
+func (s *deprScenario) cancel(t *testing.T, in workflows.DepreciationInput) {
+	t.Helper()
+	path := "/v1/operations/" + in.OperationID.String()
+	_, tag := s.e.Must(200, "GET", path, "", "")
+	s.e.Must(200, "POST", path+":cancel", "", tag)
+}
+
 // deprState is what a run's activities change: the run and its
-// Operation (status and version), its batches' statuses, and the
-// tenant's journal entries, assets events and audit records.
+// Operation (status and version), its batches' statuses, the run's
+// problem, the tenant's journal entries, depreciation movements, the sum
+// of its assets' seqs and the periods their terms are booked through, and
+// its assets events and audit records.
 type deprState struct {
-	Run, Operation, Batches  string
-	Entries, Events, Audited int
+	Run, Operation, Batches, Problem, Booked  string
+	Entries, Movements, Seqs, Events, Audited int
 }
 
 func deprStateOf(t *testing.T, in workflows.DepreciationInput) deprState {
@@ -87,23 +101,31 @@ func deprStateOf(t *testing.T, in workflows.DepreciationInput) deprState {
 	var s deprState
 	pgtest.Scan(t, `SELECT r.status || '/' || r.version, o.status || '/' || o.version,
 			coalesce((SELECT string_agg(b.status, ' ' ORDER BY b.batch_no) FROM assets.depreciation_batch b WHERE b.run_id = r.id), ''),
+			coalesce(r.error->>'code', ''),
+			coalesce((SELECT string_agg(t.booked_through_year || '/' || t.booked_through_period, ' ' ORDER BY t.asset_id, t.ledger_id)
+				FROM assets.asset_terms t WHERE t.tenant_id = r.tenant_id), ''),
 			(SELECT count(*) FROM ledger.journal_entry j WHERE j.tenant_id = r.tenant_id),
+			(SELECT count(*) FROM assets.movement m WHERE m.tenant_id = r.tenant_id AND m.kind = 'depreciation'),
+			(SELECT coalesce(sum(a.last_seq), 0) FROM assets.asset a WHERE a.tenant_id = r.tenant_id),
 			(SELECT count(*) FROM assets.outbox x WHERE x.tenant_id = r.tenant_id),
 			(SELECT count(*) FROM audit.audit_event a WHERE a.tenant_id = r.tenant_id)
 		FROM assets.depreciation_run r JOIN platform.operation o ON o.id = r.operation_id WHERE r.id = $1`, []any{in.RunID},
-		&s.Run, &s.Operation, &s.Batches, &s.Entries, &s.Events, &s.Audited)
+		&s.Run, &s.Operation, &s.Batches, &s.Problem, &s.Booked, &s.Entries, &s.Movements, &s.Seqs, &s.Events, &s.Audited)
 	return s
 }
 
 // runDepreciation runs the workflow in the SDK's test environment with
-// the real activities against the package database.
-func (s *deprScenario) runDepreciation(t *testing.T, in workflows.DepreciationInput) error {
+// the real activities against the package database; set, if given,
+// prepares the environment (a cancellation, a listener).
+func (s *deprScenario) runDepreciation(t *testing.T, in workflows.DepreciationInput, set ...func(env *testsuite.TestWorkflowEnvironment)) error {
 	t.Helper()
 	var suite testsuite.WorkflowTestSuite
 	env := workflowEnv(&suite)
 	env.RegisterWorkflowWithOptions(workflows.DepreciationRun, sdkworkflow.RegisterOptions{Name: workflows.DepreciationWorkflow})
 	env.RegisterActivity(s.d)
-	env.RegisterDelayedCallback(env.CancelWorkflow, 0) // a cancelled Operation does not stop the run
+	for _, f := range set {
+		f(env)
+	}
 	env.ExecuteWorkflow(workflows.DepreciationWorkflow, in)
 	if !env.IsWorkflowCompleted() {
 		t.Fatal("workflow did not complete")
@@ -111,10 +133,9 @@ func (s *deprScenario) runDepreciation(t *testing.T, in workflows.DepreciationIn
 	return env.GetWorkflowError()
 }
 
-// TestDepreciationRunWorkflow: the workflow carries a run out, its
-// cancellation notwithstanding: June's run posts and succeeds its
-// Operation; July's, its period closed after the start, fails with the
-// ledger's problem on the run and the Operation.
+// TestDepreciationRunWorkflow: the workflow carries a run out: June's run
+// posts and succeeds its Operation; July's, its period closed after the
+// start, fails with the ledger's problem on the run and the Operation.
 func TestDepreciationRunWorkflow(t *testing.T) {
 	s := deprSetup(t)
 	june := s.start(t, 6)
@@ -134,6 +155,108 @@ func TestDepreciationRunWorkflow(t *testing.T) {
 		WHERE r.id = $1`, []any{july.RunID}, &got)
 	if got != "failed ledger.period_not_open failed" {
 		t.Errorf("July's run: got %s, want it and its Operation failed with ledger.period_not_open", got)
+	}
+}
+
+// TestDepreciationRunCancelled: cancelling a run's Operation stops the
+// run at its next step, which fails it with assets.run_cancelled and
+// frees its company and ledger, the Operation staying cancelled. Cancelled
+// before the plan (the engine's cancellation sent too), nothing is posted;
+// cancelled after its first batch of two, that batch stays posted and the
+// second is not.
+func TestDepreciationRunCancelled(t *testing.T) {
+	s := deprSetup(t)
+	s.machine(t, "Lathe")
+	h := app.Assets(app.Config{})
+	h.BatchSize = 1
+	s.d.Runs = h
+	june := s.start(t, 6)
+	before := deprStateOf(t, june)
+	s.cancel(t, june)
+	if err := s.runDepreciation(t, june, func(env *testsuite.TestWorkflowEnvironment) { env.RegisterDelayedCallback(env.CancelWorkflow, 0) }); err != nil {
+		t.Fatalf("the run cancelled before its plan: %v", err)
+	}
+	got := deprStateOf(t, june)
+	for _, c := range []struct{ what, got, want string }{
+		{"the run", got.Run, "failed/2"}, {"its problem", got.Problem, "assets.run_cancelled"}, {"its Operation", got.Operation, "cancelled/2"},
+		{"its batches", got.Batches, ""},
+		{"the entries, movements and seqs", fmt.Sprint(got.Entries, " ", got.Movements, " ", got.Seqs, " ", got.Booked), fmt.Sprint(before.Entries, " 0 ", before.Seqs, " ")},
+	} {
+		if c.got != c.want {
+			t.Errorf("cancelled before the plan, %s: got %q, want %q", c.what, c.got, c.want)
+		}
+	}
+	again := s.start(t, 6) // the company and ledger are free again
+	cancelAfterFirst := func(env *testsuite.TestWorkflowEnvironment) {
+		env.SetOnActivityCompletedListener(func(info *activity.Info, _ converter.EncodedValue, err error) {
+			if info.ActivityType.Name == "PostDepreciationBatch" && err == nil {
+				s.cancel(t, again) // committed, before the workflow takes the next step
+			}
+		})
+	}
+	if err := s.runDepreciation(t, again, cancelAfterFirst); err != nil {
+		t.Fatalf("the run cancelled after its first batch: %v", err)
+	}
+	got = deprStateOf(t, again)
+	for _, c := range []struct{ what, got, want string }{
+		{"the run", strings.Split(got.Run, "/")[0], "failed"}, {"its problem", got.Problem, "assets.run_cancelled"},
+		{"its Operation", strings.Split(got.Operation, "/")[0], "cancelled"}, {"its batches", got.Batches, "posted pending"},
+		{"the entries, movements and seqs", fmt.Sprint(got.Entries, " ", got.Movements, " ", got.Seqs, " ", got.Booked),
+			fmt.Sprint(before.Entries+1, " 1 ", before.Seqs+1, " 2026/6")},
+	} {
+		if c.got != c.want {
+			t.Errorf("cancelled after the first batch, %s: got %q, want %q", c.what, c.got, c.want)
+		}
+	}
+}
+
+// stuckBatches is the assets context with every batch failing on the
+// machinery, and with stuck, its failure of a run too.
+type stuckBatches struct {
+	workflows.Depreciation
+	tries *atomic.Int32
+	stuck bool
+}
+
+func (s stuckBatches) PostDepreciationBatch(context.Context, uuid.UUID, int32) error {
+	s.tries.Add(1)
+	return errors.New("ledger unreachable")
+}
+
+func (s stuckBatches) FailDepreciationRun(ctx context.Context, run uuid.UUID, why *problem.Problem) error {
+	if s.stuck {
+		return errors.New("audit unreachable")
+	}
+	return s.Depreciation.FailDepreciationRun(ctx, run, why)
+}
+
+// TestDepreciationRunInterrupted: a batch failing on the machinery is
+// tried five times; then the run fails as an internal error, freeing its
+// company and ledger, its Operation fails with it, and so does the
+// workflow, with the batch's error. A run whose failure fails too stays
+// running, its workflow failed with the failure's error.
+func TestDepreciationRunInterrupted(t *testing.T) {
+	s := deprSetup(t)
+	tries := &atomic.Int32{}
+	s.d.Runs = stuckBatches{Depreciation: app.Assets(app.Config{}), tries: tries}
+	in := s.start(t, 6)
+	if err := s.runDepreciation(t, in); err == nil || !strings.Contains(err.Error(), "ledger unreachable") {
+		t.Errorf("the workflow: got %v, want the batch's error", err)
+	}
+	if n := tries.Load(); n != 5 {
+		t.Errorf("the batch's tries: got %d, want 5", n)
+	}
+	got := deprStateOf(t, in)
+	if run := fmt.Sprint(strings.Split(got.Run, "/")[0], " ", got.Problem, " ", strings.Split(got.Operation, "/")[0]); run != "failed platform.internal failed" {
+		t.Errorf("the run: got %s, want it and its Operation failed with platform.internal", run)
+	}
+	s.d.Runs = stuckBatches{Depreciation: app.Assets(app.Config{}), tries: tries, stuck: true}
+	july := s.start(t, 7)
+	if err := s.runDepreciation(t, july); err == nil || !strings.Contains(err.Error(), "audit unreachable") {
+		t.Errorf("the workflow whose failure fails: got %v, want the failure's error", err)
+	}
+	if got := deprStateOf(t, july); !strings.HasPrefix(got.Run, "running/") {
+		t.Errorf("the run whose failure fails: got %s, want it running", got.Run)
 	}
 }
 
@@ -181,8 +304,9 @@ func twiceDepr(t *testing.T, name string, in workflows.DepreciationInput, activi
 }
 
 // TestDispatchDepreciation: a queued run's Operation, or one cancelled
-// before any workflow took it, becomes a DepreciationRun named by the
-// run, once; the id is recorded on the Operation.
+// before any workflow took it (whose plan then fails the run, freeing its
+// company and ledger), becomes a DepreciationRun named by the run, once;
+// the id is recorded on the Operation.
 func TestDispatchDepreciation(t *testing.T) {
 	s := deprSetup(t)
 	june := s.start(t, 6)
@@ -216,20 +340,22 @@ func TestDispatchDepreciation(t *testing.T) {
 }
 
 // TestDepreciator: without a workflow engine the in-process runner
-// carries out every unfinished run, whatever its Operation's status, and
-// a round with none does nothing; failures are reported.
+// carries out every unfinished run, one whose Operation was cancelled
+// included, which it fails with assets.run_cancelled, nothing posted and
+// the Operation left cancelled; failures are reported.
 func TestDepreciator(t *testing.T) {
 	s := deprSetup(t)
 	june := s.start(t, 6)
-	pgtest.Exec(t, `UPDATE platform.operation SET status = 'cancelled', version = version + 1 WHERE id = $1`, june.OperationID)
+	s.cancel(t, june)
 	logs := &pgtest.SyncBuffer{}
 	w := &workflows.Depreciator{Depreciations: s.d, Log: slog.New(slog.NewTextHandler(logs, nil))}
 	ctx := context.Background()
 	if n, err := w.RunOnce(ctx); err != nil || n < 1 {
-		t.Fatalf("round: got %d %v, want the run carried out", n, err)
+		t.Fatalf("round: got %d %v, want the run ended", n, err)
 	}
-	if got := deprStateOf(t, june); got.Run != "posted/3" || !strings.HasPrefix(got.Operation, "cancelled/") {
-		t.Errorf("the run: got %+v, want it posted, its Operation left cancelled", got)
+	got := deprStateOf(t, june)
+	if run := fmt.Sprint(got.Run, " ", got.Problem, " ", got.Operation, " ", got.Batches, "|", got.Movements); run != "failed/2 assets.run_cancelled cancelled/2 |0" {
+		t.Errorf("the run: got %s, want it failed with assets.run_cancelled, nothing posted, its Operation left cancelled", run)
 	}
 	t.Run("failures", func(t *testing.T) {
 		july := s.start(t, 7)
@@ -306,7 +432,9 @@ func TestDepreciationRunReplay(t *testing.T) {
 
 // TestDepreciatorFailsARun: without a workflow engine a run whose period
 // was closed after it started fails at its first batch with the ledger's
-// problem, its later batches left pending.
+// problem, its later batches left pending; a run whose Operation is
+// cancelled after its first batch fails at the second with
+// assets.run_cancelled, the first staying posted.
 func TestDepreciatorFailsARun(t *testing.T) {
 	s := deprSetup(t)
 	s.machine(t, "Lathe")
@@ -321,5 +449,21 @@ func TestDepreciatorFailsARun(t *testing.T) {
 	}
 	if got := deprStateOf(t, in); !strings.HasPrefix(got.Run, "failed/") || got.Batches != "pending pending" {
 		t.Errorf("the run: got %+v, want it failed, both batches pending", got)
+	}
+	july := s.start(t, 7)
+	ctx := context.Background()
+	if _, err := s.d.PlanDepreciationRun(ctx, july); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.d.PostDepreciationBatch(ctx, july, 1); err != nil {
+		t.Fatal(err)
+	}
+	s.cancel(t, july)
+	if err := w.Depreciate(ctx, july); err != nil {
+		t.Fatalf("the run cancelled after its first batch: got %v, want it failed without an error", err)
+	}
+	got := deprStateOf(t, july)
+	if run := fmt.Sprint(strings.Split(got.Run, "/")[0], " ", got.Problem, " ", strings.Split(got.Operation, "/")[0], " ", got.Batches); run != "failed assets.run_cancelled cancelled posted pending" {
+		t.Errorf("the run cancelled after its first batch: got %s, want it failed with assets.run_cancelled, its first batch posted", run)
 	}
 }

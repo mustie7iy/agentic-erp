@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
@@ -69,11 +70,24 @@ type depreciationSteps struct {
 	post   func(batch int32) error
 	finish func() error
 	fail   func(why problem.Problem) error
+	// final is true where a step's error is final: in the workflow, where
+	// it comes back only once the step's retries are spent.
+	final bool
+}
+
+// interrupted is the problem a run fails with when a step's error outlasts
+// its retries: the run then holds its company and ledger no longer.
+func interrupted() problem.Problem {
+	return *problem.New(http.StatusInternalServerError, "platform.internal", "Internal error", "The depreciation run stopped on an error that outlasted "+
+		"its retries; the batches already posted stay posted, and a new run of the period posts what is left.")
 }
 
 // run plans the run, posts its batches in order and finishes it; a
-// business problem fails the run instead. In a workflow it only sequences
-// the steps, so it is deterministic.
+// business problem (a cancelled Operation's assets.run_cancelled
+// included) fails the run instead, and so does, where it is final, any
+// other error, which the run still returns once the run is failed, so the
+// workflow fails with it for the operators. In a workflow it only sequences the steps, so it is
+// deterministic.
 func (s depreciationSteps) run() error {
 	batches, err := s.plan()
 	for _, b := range batches {
@@ -88,15 +102,25 @@ func (s depreciationSteps) run() error {
 	if why, ok := problemOf(err); ok {
 		return s.fail(why)
 	}
+	if err != nil && s.final {
+		if failed := s.fail(interrupted()); failed != nil {
+			return failed
+		}
+	}
 	return err
 }
 
-// DepreciationRun carries out a depreciation run. It is not stopped by a
-// cancellation of its Operation: a run left half posted would hold its
-// company and ledger (one run at a time), so its activities run on a
-// context the cancellation does not reach and the run ends posted or
-// failed. A failure of the machinery is retried without a limit, with
-// backoff, for the same reason; a business problem is not retried.
+// DepreciationRun carries out a depreciation run. A cancellation of its
+// Operation stops it at the next step: each step reads the Operation and
+// refuses once it is cancelled (assets.run_cancelled), which fails the
+// run, so the run frees its company and ledger (one run at a time) and the
+// batches posted before stay posted. The engine's cancellation, which
+// :cancel also sends, does not cut a step off: the activities run on a
+// context it does not reach, so the step under way commits or not as a
+// whole and the failing step still runs. A failure of the machinery is
+// retried five times with backoff, as the other workflows' (ADR-0012);
+// one that outlasts them fails the run as an internal error and fails the
+// workflow with it. A business problem is not retried.
 //
 // The steps return Future.Get's error unwrapped: it is the workflow result,
 // and the engine records Get's ActivityError, which carries the activity
@@ -106,7 +130,8 @@ func DepreciationRun(ctx workflow.Context, in DepreciationInput) error {
 	ctx, cancel := workflow.NewDisconnectedContext(ctx)
 	defer cancel()
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{StartToCloseTimeout: 10 * time.Minute,
-		RetryPolicy: &temporal.RetryPolicy{InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: time.Minute, NonRetryableErrorTypes: []string{ProblemError}}})
+		RetryPolicy: &temporal.RetryPolicy{InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: time.Minute, MaximumAttempts: 5,
+			NonRetryableErrorTypes: []string{ProblemError}}})
 	var a *Depreciations
 	return depreciationSteps{
 		plan: func() ([]int32, error) {
@@ -123,6 +148,7 @@ func DepreciationRun(ctx workflow.Context, in DepreciationInput) error {
 		fail: func(why problem.Problem) error {
 			return workflow.ExecuteActivity(ctx, a.FailDepreciationRun, in, why).Get(ctx, nil)
 		},
+		final: true,
 	}.run()
 }
 
@@ -181,9 +207,11 @@ func (d *Depreciations) FailDepreciationRun(ctx context.Context, in Depreciation
 
 // Depreciator is the in-process depreciation run worker of a cell without
 // a workflow engine: each round it carries out, with the steps the
-// workflow runs, every run of every tenant still queued or running,
-// whatever its Operation's status (a cancelled Operation does not stop a
-// run), until the engine takes over.
+// workflow runs, every run of every tenant still queued or running, until
+// the engine takes over. A run whose Operation was cancelled is taken up
+// too, so that its next step fails it; a step failing on the machinery is
+// tried again the next round, and cancelling the Operation ends a run
+// that keeps failing so.
 type Depreciator struct {
 	Depreciations *Depreciations
 	Interval      time.Duration // between rounds; default 1 second

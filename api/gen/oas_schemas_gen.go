@@ -16764,16 +16764,16 @@ type DepreciationRun struct {
 	OperationID uuid.UUID `json:"operation_id"`
 	// The assets it selected, once planned.
 	AssetsPlanned OptInt32 `json:"assets_planned"`
-	// The assets it posted a difference for, once posted; for a failed run, what its posted batches
-	// posted.
+	// The assets it posted a difference for, once posted; for a running or failed run, what its posted
+	// batches posted so far.
 	AssetsPosted OptInt32 `json:"assets_posted"`
 	// The assets its batches skipped under their locks (retired, cancelled, booked through a later period
-	// or moved to centers valid after the period since the plan), once posted; for a failed run, its
-	// posted batches'.
+	// or moved to centers valid after the period since the plan), once posted; for a running or failed
+	// run, its posted batches' so far.
 	AssetsSkipped OptInt32 `json:"assets_skipped"`
-	// The depreciation it posted, once posted; for a failed run, what its posted batches posted, which
-	// stays posted. Negative where depreciation was posted back (after an acquisition's reversal) more
-	// than posted.
+	// The depreciation it posted, once posted; for a running or failed run, what its posted batches posted
+	// so far, which stays posted. Negative where depreciation was posted back (after an acquisition's
+	// reversal) more than posted.
 	Amount OptMoney                `json:"amount"`
 	Error  OptDepreciationRunError `json:"error"`
 	// Its batches in order, once planned.
@@ -17124,7 +17124,9 @@ func (s *DepreciationRunBatch) SetDocumentNumber(val OptString) {
 	s.DocumentNumber = val
 }
 
-// The problem that failed a run (its code and detail, as the Operation's error gives them).
+// The problem that failed a run: its code and detail, as the Operation's error gives them;
+// `assets.run_cancelled` when its Operation was cancelled, which stays `cancelled` without an error,
+// and `platform.internal` when a step's error outlasted its retries.
 // Ref: #/components/schemas/DepreciationRunError
 type DepreciationRunError struct {
 	// The problem's code, such as `ledger.period_not_open`.

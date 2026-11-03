@@ -108,6 +108,7 @@ func (failingRuns) Start(context.Context, string, any) (gen.Operation, error) {
 	return gen.Operation{}, errRuns
 }
 func (failingRuns) Report(context.Context, uuid.UUID, int64, int64) error   { return errRuns }
+func (failingRuns) Cancelled(context.Context, uuid.UUID) (bool, error)      { return false, nil }
 func (failingRuns) Succeed(context.Context, uuid.UUID, string, any) error   { return errRuns }
 func (failingRuns) Fail(context.Context, uuid.UUID, *problem.Problem) error { return errRuns }
 
@@ -115,7 +116,10 @@ func (failingRuns) Fail(context.Context, uuid.UUID, *problem.Problem) error { re
 // with the cause: the Operation not written or not reported, the
 // configuration lost or without the asset's class, the group currency's
 // rate missing (422 ledger.no_exchange_rate, a business problem that
-// fails the run); an Operation cancelled meanwhile does not stop the run.
+// fails the run), the Operation's cancellation unread; an Operation
+// cancelled meanwhile stops the run at its next step, failing it with
+// assets.run_cancelled, the batch posted staying posted and the Operation
+// cancelled.
 func TestDepreciationRunPortsFail(t *testing.T) {
 	e := newRuns(t)
 	e.depreciable(t, "Mill")
@@ -177,14 +181,36 @@ func TestDepreciationRunPortsFail(t *testing.T) {
 	}); !errors.Is(err, errRuns) {
 		t.Errorf("the failure: got %v, want the operation's failure", err)
 	}
+	unread := app.Assets(app.Config{})
+	unread.Runs = cancelUnread{unread.Runs}
+	for name, fn := range map[string]func(ctx context.Context) error{
+		"a step": func(ctx context.Context) error { return unread.FinishDepreciationRun(ctx, run) },
+		"the failure": func(ctx context.Context) error {
+			return unread.FailDepreciationRun(ctx, run, problem.Conflict("ledger.period_not_open", "Closed."))
+		},
+	} {
+		if err := in(unread, fn); !errors.Is(err, errRuns) {
+			t.Errorf("the cancellation unread by %s: got %v, want the operation's failure", name, err)
+		}
+	}
 	pgtest.Exec(t, `UPDATE platform.operation SET status = 'cancelled', version = version + 1 WHERE id = $1`, op["id"])
-	want(t, "a run whose operation was cancelled", runOf(e.carry(t, run)), "posted 1 1 0 10.00; 1 posted 1 1 0 10.00")
+	r := e.carry(t, run)
+	want(t, "a run whose operation was cancelled", runOf(r), "failed 1 1 0 10.00; 1 posted 1 1 0 10.00")
+	want(t, "its problem", r["error"].(map[string]any)["code"], "assets.run_cancelled")
+	var status string
+	pgtest.Scan(t, `SELECT status FROM platform.operation WHERE id = $1`, []any{op["id"]}, &status)
+	want(t, "its operation", status, "cancelled")
 
 	pgtest.Exec(t, `UPDATE tenancy.tenant SET group_currency = 'GBP', version = version + 1 WHERE id = $1`, e.Tenant.ID)
 	_, july := e.start(t, e.l0, 7)
-	r := e.carry(t, july)
+	r = e.carry(t, july)
 	want(t, "a run without a rate into the group currency", fmt.Sprint(r["status"], " ", r["error"].(map[string]any)["code"]), "failed ledger.no_exchange_rate")
 }
+
+// cancelUnread is the operations port whose read of a cancellation fails.
+type cancelUnread struct{ assets.Runs }
+
+func (cancelUnread) Cancelled(context.Context, uuid.UUID) (bool, error) { return false, errRuns }
 
 // TestRunInProgressConstraint: a second run of a company and ledger
 // queued at the same time as the first meets the database's rule, which

@@ -24,7 +24,12 @@ import (
 // workflow DepreciationRun calls as its activities through the
 // workflows.Depreciation port (or the in-process runner, without a
 // workflow engine). Each is idempotent: run again after a commit whose
-// completion was lost, it finds its effect there and does nothing.
+// completion was lost, it finds its effect there and does nothing. Each
+// of the plan, a batch and the finish first reads the run's Operation
+// under its lock (liveRun): once it is cancelled the step refuses with
+// 409 assets.run_cancelled, which the workflow records by failing the
+// run, so a cancellation stops the run at its next step and the batches
+// already posted stay posted.
 
 // lockRun reads a run FOR UPDATE (FOR SHARE with share), whoever may act
 // in its company: the run's own work, as its requester.
@@ -40,18 +45,39 @@ func lockRun(ctx context.Context, tx pgx.Tx, id uuid.UUID, share bool) (Run, err
 	return r, errs.Wrapf(err, "assets: lock depreciation run %s", id)
 }
 
+// liveRun locks a run as lockRun does and, while it is queued or running,
+// refuses it once its Operation is cancelled (409 assets.run_cancelled).
+// The Operation is read under its lock after the run's, the order every
+// step takes them in, so a :cancel during the step waits for it to commit
+// and stops the run at the next one.
+func (e *Endpoints) liveRun(ctx context.Context, tx pgx.Tx, id uuid.UUID, share bool) (Run, error) {
+	r, err := lockRun(ctx, tx, id, share)
+	if err != nil || (r.Status != RunQueued && r.Status != RunRunning) {
+		return r, err
+	}
+	cancelled, err := e.Runs.Cancelled(ctx, r.OperationID)
+	if err != nil {
+		return Run{}, fmt.Errorf("assets: the operation of depreciation run %s: %w", id, err)
+	}
+	if cancelled {
+		return Run{}, problem.Conflict("assets.run_cancelled", fmt.Sprintf("The operation of depreciation run %s was cancelled: the run stopped "+
+			"before its next step and failed, the batches already posted staying posted; a new run of the period posts what is left.", id))
+	}
+	return r, nil
+}
+
 // PlanDepreciationRun plans a queued run: it selects the assets the run
 // posts (selectDepreciable, as the preview does), writes them in batches
 // of batchSize by asset number, sets the run running with the count and
 // reports the batches on its Operation. It returns the run's batches in
 // order; a run already running returns those it wrote, one posted or
-// failed none.
+// failed none. A run whose Operation was cancelled is refused (liveRun).
 func (e *Endpoints) PlanDepreciationRun(ctx context.Context, id uuid.UUID) ([]int32, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
-	r, err := lockRun(ctx, tx, id, false)
+	r, err := e.liveRun(ctx, tx, id, false)
 	if err != nil || r.Status == RunPosted || r.Status == RunFailed {
 		return nil, err
 	}
@@ -128,7 +154,8 @@ type batchWork struct {
 // movement per asset with a difference, gives each remaining asset its
 // next seq, books it through the run's period, marks the batch posted and
 // reports it on the run's Operation. A batch already posted, or of a run
-// no longer running, is left alone.
+// no longer running, is left alone; a run whose Operation was cancelled
+// is refused (liveRun).
 func (e *Endpoints) PostDepreciationBatch(ctx context.Context, id uuid.UUID, no int32) error {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -160,7 +187,7 @@ func (e *Endpoints) PostDepreciationBatch(ctx context.Context, id uuid.UUID, no 
 // assets locked and still selectable and their differences; ok is false
 // for a batch already posted or a run no longer running.
 func (e *Endpoints) batchOf(ctx context.Context, tx pgx.Tx, id uuid.UUID, no int32) (batchWork, bool, error) {
-	r, err := lockRun(ctx, tx, id, true)
+	r, err := e.liveRun(ctx, tx, id, true)
 	if err != nil || r.Status != RunRunning {
 		return batchWork{}, false, err
 	}
@@ -323,13 +350,15 @@ func (e *Endpoints) recordBatch(ctx context.Context, tx pgx.Tx, w batchWork, ent
 
 // FinishDepreciationRun sets a running run whose batches are all posted
 // posted with its totals, audits it, publishes DepreciationRunCompleted
-// and succeeds its Operation. A run no longer running is left alone.
+// and succeeds its Operation. A run no longer running is left alone; one
+// whose Operation was cancelled is refused (liveRun), so it is failed
+// rather than posted.
 func (e *Endpoints) FinishDepreciationRun(ctx context.Context, id uuid.UUID) error {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return err
 	}
-	r, err := lockRun(ctx, tx, id, false)
+	r, err := e.liveRun(ctx, tx, id, false)
 	if err != nil || r.Status != RunRunning {
 		return err
 	}
@@ -350,13 +379,16 @@ func (e *Endpoints) FinishDepreciationRun(ctx context.Context, id uuid.UUID) err
 	if err != nil {
 		return err
 	}
-	return finished(e.Runs.Succeed(ctx, r.OperationID, runPath(id), map[string]any{"run_id": id, "status": r.Status}))
+	return errs.Wrapf(e.Runs.Succeed(ctx, r.OperationID, runPath(id), map[string]any{"run_id": id, "status": r.Status}),
+		"assets: succeed the operation of depreciation run %s", id)
 }
 
 // FailDepreciationRun sets a queued or running run failed with the
 // problem that stopped it, audits it, publishes DepreciationRunCompleted
 // and fails its Operation with the problem. Batches already posted stay
-// posted. A run already posted or failed is left alone.
+// posted. A run already posted or failed is left alone. An Operation
+// cancelled is left cancelled, its final status (04 §4.8): the run that
+// stopped for it records the cancellation as its problem.
 func (e *Endpoints) FailDepreciationRun(ctx context.Context, id uuid.UUID, why *problem.Problem) error {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -374,18 +406,11 @@ func (e *Endpoints) FailDepreciationRun(ctx context.Context, id uuid.UUID, why *
 	if r, err = e.recordRun(ctx, tx, id, "assets.depreciation_run.fail"); err != nil {
 		return err
 	}
-	return finished(e.Runs.Fail(ctx, r.OperationID, why))
-}
-
-// finished passes a run's Operation's finish on, but an Operation
-// cancelled meanwhile (409 platform.operation_finished): cancelling it does
-// not stop the run, which is carried to its end and keeps its outcome,
-// while the Operation stays cancelled.
-func finished(err error) error {
-	if p := problem.From(err); err != nil && p.Code == "platform.operation_finished" {
-		return nil
+	cancelled, err := e.Runs.Cancelled(ctx, r.OperationID)
+	if err != nil || cancelled {
+		return errs.Wrapf(err, "assets: the operation of depreciation run %s", id)
 	}
-	return errs.Wrapf(err, "assets: finish the operation of a depreciation run")
+	return errs.Wrapf(e.Runs.Fail(ctx, r.OperationID, why), "assets: fail the operation of depreciation run %s", id)
 }
 
 // recordRun reads the run after it ended and audits it under the action,
@@ -442,7 +467,8 @@ func runEvent(r Run, batches []Batch, co Company, l LedgerRef, exp int) map[stri
 
 // postedTotals are what a run's posted batches posted: the depreciation,
 // the assets posted and those skipped. A posted run's own totals are
-// these; a failed run shows them too, its posted batches staying posted.
+// these; a running run shows them as they stand, and a failed run too,
+// its posted batches staying posted.
 func postedTotals(batches []Batch) (money.Minor, int32, int32) {
 	var amount money.Minor
 	var posted, skipped int32
@@ -455,9 +481,9 @@ func postedTotals(batches []Batch) (money.Minor, int32, int32) {
 }
 
 // UnfinishedDepreciationRuns lists the runs queued or running in the
-// transaction's tenant, by run with its Operation: the work
-// of the in-process runner of a cell without a workflow engine, which
-// carries every run to its end whatever its Operation's status.
+// transaction's tenant, by run with its Operation: the work of the
+// in-process runner of a cell without a workflow engine, which takes up a
+// run whose Operation was cancelled too, so that its next step fails it.
 func (e *Endpoints) UnfinishedDepreciationRuns(ctx context.Context, tx pgx.Tx) (map[uuid.UUID]uuid.UUID, error) {
 	rows, _ := tx.Query(ctx, `SELECT id, operation_id FROM assets.depreciation_run WHERE status IN ('queued', 'running')`)
 	out := map[uuid.UUID]uuid.UUID{}

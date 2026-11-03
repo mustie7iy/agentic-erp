@@ -2913,8 +2913,10 @@ components:
       description: |
         Emitted when a depreciation run (`POST /v1/depreciation-runs`,
         ADR-0057 §7, §10) ends: `posted` with what it posted, or `failed`
-        with the problem that stopped it and what its batches posted
-        before (they stay posted). It carries the run's company, ledger,
+        with the problem that stopped it (`assets.run_cancelled` once its
+        Operation was cancelled, `platform.internal` when a step's error
+        outlasted its retries) and what its batches posted before (they
+        stay posted). It carries the run's company, ledger,
         period and posting date, the assets it planned, posted and
         skipped, the depreciation posted in local currency, and its
         batches' journal entries. Subject is the run id.

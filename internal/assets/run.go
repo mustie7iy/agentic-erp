@@ -338,6 +338,8 @@ func (v docView) runAPI(r Run) gen.DepreciationRun {
 	v.nameLedger(r.LedgerID, &out.LedgerCode, &out.LedgerName)
 	if r.Error != nil {
 		out.Error = gen.NewOptDepreciationRunError(gen.DepreciationRunError{Code: r.Error.Code, Detail: r.Error.Detail})
+	}
+	if r.Error != nil || r.Status == RunRunning { // what its posted batches posted (postedTotals); a posted run keeps its own
 		amount, posted, skipped := postedTotals(r.Batches)
 		out.Amount, out.AssetsPosted, out.AssetsSkipped = gen.NewOptMoney(v.money(amount, r.Currency)), gen.NewOptInt32(posted), gen.NewOptInt32(skipped)
 	}

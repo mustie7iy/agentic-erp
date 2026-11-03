@@ -1873,18 +1873,34 @@ Decided by default, for the product owner to overrule:
   decided by default 8), and a batch whose assets have no difference posts
   no entry (the batch shows none). A run whose assets all had nothing to
   post is `posted` with an amount of zero.
-- **Cancelling a run's Operation does not stop the run.** A run left
-  `queued` or `running` would hold its company and ledger for good (one
-  run at a time), so the workflow runs its activities on a context the
-  cancellation does not reach, retries a failure of the machinery without
-  a limit (with backoff to a minute), and the dispatcher starts a run whose
-  Operation was cancelled before any workflow took it; without an engine
-  the in-process runner carries every `queued` or `running` run of every
-  tenant with such an Operation (`operations.TenantsOf`, then the
-  tenant's runs in its scope, `UnfinishedDepreciationRuns`). The run ends
-  `posted` or `failed` and keeps that outcome; the Operation stays
-  `cancelled` (finishing it answers `platform.operation_finished`, which
-  the run's end passes over).
+- **Cancelling a run's Operation stops the run at its next step**
+  (review round 2 replaced round 1's "carried to its end", under which
+  `:cancel` answered `cancelled` while the run went on posting). The plan,
+  each batch and the finish read the Operation under its row lock after
+  the run's (`assets.Runs.Cancelled`, `operations.IsCancelled`), so a
+  `:cancel` during a step waits for it to commit; once it is cancelled the
+  step refuses with 409 `assets.run_cancelled`, a business problem, and
+  the workflow's fail path sets the run `failed` with it, freeing
+  `depreciation_run_one_at_a_time`. Batches already posted stay posted and
+  a new run of the period posts what is left; the Operation stays
+  `cancelled` (the fail leaves a cancelled Operation alone rather than
+  answering `platform.operation_finished`). The engine's cancellation,
+  which `:cancel` also sends, does not cut a step off: the activities run
+  on a context it does not reach, so a batch commits as a whole and the
+  failing step still runs. The dispatcher still starts a run whose
+  Operation was cancelled before any workflow took it
+  (`operations.QueuedOf`), and the in-process runner still takes up a
+  `queued` or `running` run with a cancelled Operation
+  (`operations.TenantsOf`, then `UnfinishedDepreciationRuns`): their first
+  step fails it, so it does not hold its company and ledger.
+- **Retries are bounded** as the other workflows' (ADR-0012: five
+  attempts, backoff from a second to a minute; a business problem is not
+  retried). An error of the machinery that outlasts them fails the run and
+  its Operation with `platform.internal` and fails the workflow with the
+  error, for the operators; a run whose fail itself fails five times stays
+  `running`, its workflow failed, as a release does. The in-process runner
+  tries a failing step again every round; cancelling the Operation ends
+  such a run at its next step.
 - **Who a run acts as**: the person who started it (the Operation's
   requester, as a migration run, `workflows.requester`), so its entries,
   movements and audit records name that person.

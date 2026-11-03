@@ -3916,9 +3916,13 @@ func (UnimplementedHandler) StartAgentSession(ctx context.Context, req *AgentSes
 // or locked meanwhile, an account blocked, a center invalid, a class no longer the company's, a
 // missing exchange rate) fails the run and its Operation with the problem; batches already posted stay
 // posted, and a new run of the period, or the next period's run, posts what is left. Cancelling the
-// Operation does not stop the run: it is carried out to its end. The run is published as
-// DepreciationRunCompleted when it ends, posted or failed, and audited. A legal entity the caller
-// cannot act in is 404. Human-only.
+// Operation (`POST /v1/operations/{id}:cancel`) stops the run at its next step: the batch under way
+// commits as a whole (a cancellation during it waits for it), the run is then `failed` with
+// `assets.run_cancelled`, freeing its company and ledger for a new run, its batches already posted
+// stay posted, and the Operation stays `cancelled`. A step failing on an error of the machinery is
+// retried five times; one that outlasts them fails the run, and its Operation, with
+// `platform.internal`. The run is published as DepreciationRunCompleted when it ends, posted or
+// failed, and audited. A legal entity the caller cannot act in is 404. Human-only.
 //
 // POST /v1/depreciation-runs
 func (UnimplementedHandler) StartDepreciationRun(ctx context.Context, req *DepreciationRunStart, params StartDepreciationRunParams) (r StartDepreciationRunRes, _ error) {
