@@ -33613,7 +33613,7 @@ components:
           checked_at: "2026-11-03T15:00:00Z"
           checked_by: 0192a000-0000-7000-8000-000000000101
           checked_by_name: Carla Controller
-          summary: "1 parked entry of company 1000 dated in 2026/10 is parked or pending approval."
+          summary: "1 parked entry dated 2026-10-01 to 2026-10-31 is parked or pending approval; post or cancel it."
           parked_entries_count: 1
           parked_entries:
             - id: 0192a000-0000-7000-8000-000000000c01
