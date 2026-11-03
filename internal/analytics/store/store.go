@@ -154,13 +154,16 @@ func (s *Source) fromStoreIfFresh(ctx context.Context, m *analytics.Model, p ana
 
 // permitted refuses a caller lacking one of Requires, or barred from one
 // by a segregation-of-duties rule, with the problem the API answers the
-// database path's read with, the first missing in the order that path
-// reads (authz.Require, ADR-0010 As built 2026-11-02).
+// database path's read with: one permission at a time, in the order that
+// path reads, as each of its reads is authorized before the next
+// (authz.Require, ADR-0010 As built 2026-11-02).
 func (s *Source) permitted(ctx context.Context) error {
-	if len(s.Requires) == 0 {
-		return nil
+	for _, p := range s.Requires {
+		if err := authz.Require(ctx, p); err != nil {
+			return err
+		}
 	}
-	return authz.Require(ctx, s.Requires...)
+	return nil
 }
 
 // reason is why the store could not answer, which the database then does.

@@ -229,6 +229,7 @@ func TestParity(t *testing.T) {
 	}
 	t.Run("endpoint", p.endpoint)
 	t.Run("permissions", p.permissions)
+	t.Run("permissions in read order", p.permissionsInReadOrder)
 	t.Run("metric change", p.metricChange) // last: it activates a configuration version
 	t.Run("not vacuous", func(t *testing.T) {
 		m := model(t)
@@ -343,6 +344,24 @@ func (p parity) permissions(t *testing.T) {
 	}
 }
 
+// permissionsInReadOrder: a caller barred from a permission the database
+// path reads first and lacking one it reads later is refused for the first,
+// by the store as by the database (each read is authorized before the
+// next).
+func (p parity) permissionsInReadOrder(t *testing.T) {
+	api := apitest.NewWith(t, func(c *app.Config) { c.Analytics = direct{p.r} })
+	cl := apitest.Client{T: t, API: api, Tenant: p.Tenant, As: p.barredLacking(t, "tenancy.org.read", "partner.supplier.read")}
+	q := `{"measures": ["invoice_count"], "by": ["vendor_name"]%s}`
+	storeStatus, fromStore, _ := cl.Do("POST", "/v1/analytics-queries", fmt.Sprintf(q, ""), "")
+	dbStatus, fromDB, _ := cl.Do("POST", "/v1/analytics-queries", fmt.Sprintf(q, `, "as_of": "2999-01-01T00:00:00Z"`), "")
+	if storeStatus != 403 || fromStore["code"] != "identity.sod_conflict" {
+		t.Errorf("from the store: got %d %v, want 403 identity.sod_conflict", storeStatus, fromStore)
+	}
+	if storeStatus != dbStatus || fromStore["code"] != fromDB["code"] || fromStore["detail"] != fromDB["detail"] {
+		t.Errorf("got %d %v from the store and %d %v from the database, want the same", storeStatus, fromStore, dbStatus, fromDB)
+	}
+}
+
 // nilIfEmpty is code as a decoded body holds it: absent when "".
 func nilIfEmpty(code string) any {
 	if code == "" {
@@ -357,7 +376,13 @@ func nilIfEmpty(code string) any {
 // so the rule bars this person alone.
 func (p parity) barred(t *testing.T, perm string) pgtest.Actor {
 	t.Helper()
-	a := p.person(t, "", nil)
+	return p.barredLacking(t, perm, "")
+}
+
+// barredLacking is barred, lacking the parity permission lacking too.
+func (p parity) barredLacking(t *testing.T, perm, lacking string) pgtest.Actor {
+	t.Helper()
+	a := p.person(t, lacking, nil)
 	pgtest.Exec(t, `INSERT INTO identity.role_permission (tenant_id, id, role_id, permission_code, valid_from, created_by)
 		SELECT tenant_id, gen_random_uuid(), role_id, 'audit.chain.verify', current_date - 1, $2 FROM identity.principal_role WHERE tenant_id = $1 AND principal_id = $2`,
 		p.Tenant.ID, a.ID)

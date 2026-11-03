@@ -108,14 +108,24 @@ against the actor's full permission set") and `Authorize` as built:
     the API would refuse that read", and the database path's reads already
     went through `Authorize`, so a barred person got 403 from the database
     and rows from the store; the store and the database now answer alike.
+    The store checks one permission at a time in the order the database
+    path reads, as each of that path's reads is authorized before the
+    next, so the same problem comes first on either path.
+  - The approvals inbox (`listApprovalRequests decidable_by=me`): it offers
+    the object types whose approval permission is usable, not merely held,
+    so a request is listed exactly when the decision would succeed
+    (ADR-0052 G1).
   - Automatic posting of matched bank statement lines
     (`payments.autoPost`): a person or integration barred from
     `payments.statement.post` imports and runs the rules, and nothing
-    posts, as for one without it. The statement fetcher, a system
+    posts, as for one without it. A rule pairing it with
+    `payments.statement.import` needs nothing more: the person cannot
+    import (the import operation's `Authorize` refuses them), so no rules
+    run for them; any other rule pairing it bars the posting alone
+    (TestAutomaticPostingBarredBySoD). The statement fetcher, a system
     principal, still posts without the check: it acts for
     the bank's company and is no person whose duties SoD separates
     (ADR-0047).
-- **Not changed.** `authz.Effective` (getCurrentPrincipal, the approvals
-  inbox, recurring entries' owner check) already splits usable from
-  barred permissions; `authz.RequireWrites` checks an agent's autonomy
+- **Not changed.** `authz.Effective`'s other callers (getCurrentPrincipal,
+  recurring entries' owner check) already use the usable permissions alone; `authz.RequireWrites` checks an agent's autonomy
   level, not a permission.
