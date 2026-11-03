@@ -101,3 +101,15 @@ func (s *SupplierInvoiceCreate) setDefaults() {
 		s.Source.SetTo(val)
 	}
 }
+
+// setDefaults set default value of fields.
+func (s *VarianceCommentCreate) setDefaults() {
+	{
+		val := int32(7)
+		s.Lag.SetTo(val)
+	}
+	{
+		val := bool(false)
+		s.Unclassified.SetTo(val)
+	}
+}

@@ -31,7 +31,9 @@
 // with the actuals (ADR-0051 §11): the variance per item and bucket, each
 // document the snapshot forecast within its 31 days matched to the lines
 // that paid it and the variance attributed to timing, amount, new,
-// missing and unclassified.
+// missing and unclassified. T53f4 lets people comment on a row of the
+// variance (ADR-0051 §11, §15): each comment keeps the snapshot its
+// variance compares with past the snapshot's retention.
 package cash
 
 import (
@@ -48,8 +50,8 @@ import (
 // Setup is the configuration section of cash management: it keeps the
 // document's liquidity items and planning groups in cash.liquidity_item
 // and cash.planning_group. One the document no longer has becomes
-// inactive, never deleted, since memo records and snapshots name items
-// (T53d, T53f); an item an open memo record names is not taken away nor
+// inactive, never deleted, since memo records, snapshots and variance
+// comments name items (T53d, T53f, T53f4); an item an open memo record names is not taken away nor
 // turned against the record's direction, and
 // the partner context refuses taking away a planning group a supplier has
 // (partner.PlanningGroupCodes).

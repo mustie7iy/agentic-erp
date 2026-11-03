@@ -12254,6 +12254,7 @@ func (*ConflictHeaders) createSegmentRes()                    {}
 func (*ConflictHeaders) createSodRuleRes()                    {}
 func (*ConflictHeaders) createSupplierInvoiceRes()            {}
 func (*ConflictHeaders) createUploadRes()                     {}
+func (*ConflictHeaders) createVarianceCommentRes()            {}
 func (*ConflictHeaders) createWebhookSubscriptionRes()        {}
 func (*ConflictHeaders) decideRecommendationRes()             {}
 func (*ConflictHeaders) deleteWebhookSubscriptionRes()        {}
@@ -15454,6 +15455,26 @@ func (*CreateUploadPreconditionRequired) createUploadRes() {}
 type CreateUploadUnprocessableEntity Problem
 
 func (*CreateUploadUnprocessableEntity) createUploadRes() {}
+
+type CreateVarianceCommentBadRequest Problem
+
+func (*CreateVarianceCommentBadRequest) createVarianceCommentRes() {}
+
+type CreateVarianceCommentForbidden Problem
+
+func (*CreateVarianceCommentForbidden) createVarianceCommentRes() {}
+
+type CreateVarianceCommentNotFound Problem
+
+func (*CreateVarianceCommentNotFound) createVarianceCommentRes() {}
+
+type CreateVarianceCommentPreconditionRequired Problem
+
+func (*CreateVarianceCommentPreconditionRequired) createVarianceCommentRes() {}
+
+type CreateVarianceCommentUnprocessableEntity Problem
+
+func (*CreateVarianceCommentUnprocessableEntity) createVarianceCommentRes() {}
 
 type CreateWebhookSubscriptionBadRequest Problem
 
@@ -20397,6 +20418,18 @@ func (s *GetUploadOKHeaders) SetResponse(val Upload) {
 }
 
 func (*GetUploadOKHeaders) getUploadRes() {}
+
+type GetVarianceCommentBadRequest Problem
+
+func (*GetVarianceCommentBadRequest) getVarianceCommentRes() {}
+
+type GetVarianceCommentForbidden Problem
+
+func (*GetVarianceCommentForbidden) getVarianceCommentRes() {}
+
+type GetVarianceCommentNotFound Problem
+
+func (*GetVarianceCommentNotFound) getVarianceCommentRes() {}
 
 type GetWebhookDeliveryBadRequest Problem
 
@@ -27368,6 +27401,18 @@ func (*ListTaxReturnsForbidden) listTaxReturnsRes() {}
 type ListTaxReturnsNotFound Problem
 
 func (*ListTaxReturnsNotFound) listTaxReturnsRes() {}
+
+type ListVarianceCommentsBadRequest Problem
+
+func (*ListVarianceCommentsBadRequest) listVarianceCommentsRes() {}
+
+type ListVarianceCommentsForbidden Problem
+
+func (*ListVarianceCommentsForbidden) listVarianceCommentsRes() {}
+
+type ListVarianceCommentsUnprocessableEntity Problem
+
+func (*ListVarianceCommentsUnprocessableEntity) listVarianceCommentsRes() {}
 
 type ListWebhookDeliveriesBadRequest Problem
 
@@ -45496,6 +45541,7 @@ func (*ServiceUnavailableHeaders) createSegmentRes()                    {}
 func (*ServiceUnavailableHeaders) createSodRuleRes()                    {}
 func (*ServiceUnavailableHeaders) createSupplierInvoiceRes()            {}
 func (*ServiceUnavailableHeaders) createUploadRes()                     {}
+func (*ServiceUnavailableHeaders) createVarianceCommentRes()            {}
 func (*ServiceUnavailableHeaders) createWebhookSubscriptionRes()        {}
 func (*ServiceUnavailableHeaders) decideRecommendationRes()             {}
 func (*ServiceUnavailableHeaders) deleteWebhookSubscriptionRes()        {}
@@ -49791,6 +49837,7 @@ func (*TooManyRequestsHeaders) createSegmentRes()                    {}
 func (*TooManyRequestsHeaders) createSodRuleRes()                    {}
 func (*TooManyRequestsHeaders) createSupplierInvoiceRes()            {}
 func (*TooManyRequestsHeaders) createUploadRes()                     {}
+func (*TooManyRequestsHeaders) createVarianceCommentRes()            {}
 func (*TooManyRequestsHeaders) createWebhookSubscriptionRes()        {}
 func (*TooManyRequestsHeaders) decideRecommendationRes()             {}
 func (*TooManyRequestsHeaders) deleteWebhookSubscriptionRes()        {}
@@ -49874,6 +49921,7 @@ func (*TooManyRequestsHeaders) getSupplierInvoiceRes()               {}
 func (*TooManyRequestsHeaders) getTaxReturnDraftRes()                {}
 func (*TooManyRequestsHeaders) getTaxReturnRes()                     {}
 func (*TooManyRequestsHeaders) getUploadRes()                        {}
+func (*TooManyRequestsHeaders) getVarianceCommentRes()               {}
 func (*TooManyRequestsHeaders) getWebhookDeliveryRes()               {}
 func (*TooManyRequestsHeaders) getWebhookSubscriptionRes()           {}
 func (*TooManyRequestsHeaders) grantRolePermissionRes()              {}
@@ -49960,6 +50008,7 @@ func (*TooManyRequestsHeaders) listTaxPeriodsRes()                   {}
 func (*TooManyRequestsHeaders) listTaxRegistrationsRes()             {}
 func (*TooManyRequestsHeaders) listTaxReturnDraftItemsRes()          {}
 func (*TooManyRequestsHeaders) listTaxReturnsRes()                   {}
+func (*TooManyRequestsHeaders) listVarianceCommentsRes()             {}
 func (*TooManyRequestsHeaders) listWebhookDeliveriesRes()            {}
 func (*TooManyRequestsHeaders) listWebhookSubscriptionsRes()         {}
 func (*TooManyRequestsHeaders) lockCostCenterRes()                   {}
@@ -50170,6 +50219,7 @@ func (*UnauthorizedHeaders) createSegmentRes()                    {}
 func (*UnauthorizedHeaders) createSodRuleRes()                    {}
 func (*UnauthorizedHeaders) createSupplierInvoiceRes()            {}
 func (*UnauthorizedHeaders) createUploadRes()                     {}
+func (*UnauthorizedHeaders) createVarianceCommentRes()            {}
 func (*UnauthorizedHeaders) createWebhookSubscriptionRes()        {}
 func (*UnauthorizedHeaders) decideRecommendationRes()             {}
 func (*UnauthorizedHeaders) deleteWebhookSubscriptionRes()        {}
@@ -50253,6 +50303,7 @@ func (*UnauthorizedHeaders) getSupplierInvoiceRes()               {}
 func (*UnauthorizedHeaders) getTaxReturnDraftRes()                {}
 func (*UnauthorizedHeaders) getTaxReturnRes()                     {}
 func (*UnauthorizedHeaders) getUploadRes()                        {}
+func (*UnauthorizedHeaders) getVarianceCommentRes()               {}
 func (*UnauthorizedHeaders) getWebhookDeliveryRes()               {}
 func (*UnauthorizedHeaders) getWebhookSubscriptionRes()           {}
 func (*UnauthorizedHeaders) grantRolePermissionRes()              {}
@@ -50339,6 +50390,7 @@ func (*UnauthorizedHeaders) listTaxPeriodsRes()                   {}
 func (*UnauthorizedHeaders) listTaxRegistrationsRes()             {}
 func (*UnauthorizedHeaders) listTaxReturnDraftItemsRes()          {}
 func (*UnauthorizedHeaders) listTaxReturnsRes()                   {}
+func (*UnauthorizedHeaders) listVarianceCommentsRes()             {}
 func (*UnauthorizedHeaders) listWebhookDeliveriesRes()            {}
 func (*UnauthorizedHeaders) listWebhookSubscriptionsRes()         {}
 func (*UnauthorizedHeaders) lockCostCenterRes()                   {}
@@ -52150,6 +52202,381 @@ func (*UploadMemoRecordsPreconditionRequired) uploadMemoRecordsRes() {}
 type UploadMemoRecordsUnprocessableEntity Problem
 
 func (*UploadMemoRecordsUnprocessableEntity) uploadMemoRecordsRes() {}
+
+// A comment on one row of a legal entity's forecast variance (ADR-0051 §11, T53f4), with the snapshot
+// that variance compares with, which is kept as long as the comment.
+// Ref: #/components/schemas/VarianceComment
+type VarianceComment struct {
+	// Comment id.
+	ID uuid.UUID `json:"id"`
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// The period's first day.
+	From time.Time `json:"from"`
+	// The period's last day.
+	To time.Time `json:"to"`
+	// The variance's lag in days.
+	Lag int32 `json:"lag"`
+	// The code of the liquidity item whose row it explains; absent when `unclassified`.
+	LiquidityItem OptString `json:"liquidity_item"`
+	// The liquidity item's name; absent when `unclassified`.
+	LiquidityItemName OptString `json:"liquidity_item_name"`
+	// True: it explains the row of what no rule assigns.
+	Unclassified bool `json:"unclassified"`
+	// The snapshot the variance compares with (`getCashSnapshot`).
+	SnapshotID uuid.UUID `json:"snapshot_id"`
+	// The snapshot's date, `lag` days before `from`.
+	SnapshotDate time.Time `json:"snapshot_date"`
+	// The explanation.
+	Text string `json:"text"`
+	// `accepted` (a person's comment, decided as written, or a proposal a person accepted), `proposed`
+	// (the forecast agent's, until a person decides it) or `rejected` (a proposal a person turned down).
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Status string `json:"status"`
+	// The person who decided it: a person's comment, its author; absent while proposed.
+	DecidedBy OptUUID `json:"decided_by"`
+	// When it was decided; absent while proposed.
+	DecidedAt OptDateTime `json:"decided_at"`
+	// When it was written.
+	CreatedAt time.Time `json:"created_at"`
+	// Its author.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *VarianceComment) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *VarianceComment) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *VarianceComment) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetFrom returns the value of From.
+func (s *VarianceComment) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *VarianceComment) GetTo() time.Time {
+	return s.To
+}
+
+// GetLag returns the value of Lag.
+func (s *VarianceComment) GetLag() int32 {
+	return s.Lag
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *VarianceComment) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetLiquidityItemName returns the value of LiquidityItemName.
+func (s *VarianceComment) GetLiquidityItemName() OptString {
+	return s.LiquidityItemName
+}
+
+// GetUnclassified returns the value of Unclassified.
+func (s *VarianceComment) GetUnclassified() bool {
+	return s.Unclassified
+}
+
+// GetSnapshotID returns the value of SnapshotID.
+func (s *VarianceComment) GetSnapshotID() uuid.UUID {
+	return s.SnapshotID
+}
+
+// GetSnapshotDate returns the value of SnapshotDate.
+func (s *VarianceComment) GetSnapshotDate() time.Time {
+	return s.SnapshotDate
+}
+
+// GetText returns the value of Text.
+func (s *VarianceComment) GetText() string {
+	return s.Text
+}
+
+// GetStatus returns the value of Status.
+func (s *VarianceComment) GetStatus() string {
+	return s.Status
+}
+
+// GetDecidedBy returns the value of DecidedBy.
+func (s *VarianceComment) GetDecidedBy() OptUUID {
+	return s.DecidedBy
+}
+
+// GetDecidedAt returns the value of DecidedAt.
+func (s *VarianceComment) GetDecidedAt() OptDateTime {
+	return s.DecidedAt
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *VarianceComment) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *VarianceComment) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *VarianceComment) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *VarianceComment) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *VarianceComment) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetFrom sets the value of From.
+func (s *VarianceComment) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *VarianceComment) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetLag sets the value of Lag.
+func (s *VarianceComment) SetLag(val int32) {
+	s.Lag = val
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *VarianceComment) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetLiquidityItemName sets the value of LiquidityItemName.
+func (s *VarianceComment) SetLiquidityItemName(val OptString) {
+	s.LiquidityItemName = val
+}
+
+// SetUnclassified sets the value of Unclassified.
+func (s *VarianceComment) SetUnclassified(val bool) {
+	s.Unclassified = val
+}
+
+// SetSnapshotID sets the value of SnapshotID.
+func (s *VarianceComment) SetSnapshotID(val uuid.UUID) {
+	s.SnapshotID = val
+}
+
+// SetSnapshotDate sets the value of SnapshotDate.
+func (s *VarianceComment) SetSnapshotDate(val time.Time) {
+	s.SnapshotDate = val
+}
+
+// SetText sets the value of Text.
+func (s *VarianceComment) SetText(val string) {
+	s.Text = val
+}
+
+// SetStatus sets the value of Status.
+func (s *VarianceComment) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetDecidedBy sets the value of DecidedBy.
+func (s *VarianceComment) SetDecidedBy(val OptUUID) {
+	s.DecidedBy = val
+}
+
+// SetDecidedAt sets the value of DecidedAt.
+func (s *VarianceComment) SetDecidedAt(val OptDateTime) {
+	s.DecidedAt = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *VarianceComment) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *VarianceComment) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+func (*VarianceComment) getVarianceCommentRes() {}
+
+// A person's comment on one row of a legal entity's forecast variance (ADR-0051 §11): a liquidity
+// item or, with `unclassified`, what no rule assigns.
+// Ref: #/components/schemas/VarianceCommentCreate
+type VarianceCommentCreate struct {
+	// The legal entity whose variance it explains.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The period's first day, as the variance's `from`.
+	From time.Time `json:"from"`
+	// The period's last day, as the variance's `to`.
+	To time.Time `json:"to"`
+	// The variance's lag: 0, 7 (default) or 30 days.
+	Lag OptInt32 `json:"lag"`
+	// The code of the liquidity item whose row it explains; absent with `unclassified`.
+	LiquidityItem OptString `json:"liquidity_item"`
+	// True: it explains the row of what no rule assigns, and names no `liquidity_item`.
+	Unclassified OptBool `json:"unclassified"`
+	// The explanation, such as "The run of the 7th was released a week late.".
+	Text string `json:"text"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *VarianceCommentCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFrom returns the value of From.
+func (s *VarianceCommentCreate) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *VarianceCommentCreate) GetTo() time.Time {
+	return s.To
+}
+
+// GetLag returns the value of Lag.
+func (s *VarianceCommentCreate) GetLag() OptInt32 {
+	return s.Lag
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *VarianceCommentCreate) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetUnclassified returns the value of Unclassified.
+func (s *VarianceCommentCreate) GetUnclassified() OptBool {
+	return s.Unclassified
+}
+
+// GetText returns the value of Text.
+func (s *VarianceCommentCreate) GetText() string {
+	return s.Text
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *VarianceCommentCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFrom sets the value of From.
+func (s *VarianceCommentCreate) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *VarianceCommentCreate) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetLag sets the value of Lag.
+func (s *VarianceCommentCreate) SetLag(val OptInt32) {
+	s.Lag = val
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *VarianceCommentCreate) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetUnclassified sets the value of Unclassified.
+func (s *VarianceCommentCreate) SetUnclassified(val OptBool) {
+	s.Unclassified = val
+}
+
+// SetText sets the value of Text.
+func (s *VarianceCommentCreate) SetText(val string) {
+	s.Text = val
+}
+
+// VarianceCommentHeaders wraps VarianceComment with response headers.
+type VarianceCommentHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           VarianceComment
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *VarianceCommentHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *VarianceCommentHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *VarianceCommentHeaders) GetResponse() VarianceComment {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *VarianceCommentHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *VarianceCommentHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *VarianceCommentHeaders) SetResponse(val VarianceComment) {
+	s.Response = val
+}
+
+func (*VarianceCommentHeaders) createVarianceCommentRes() {}
+
+// One page of comments on the forecast variance.
+// Ref: #/components/schemas/VarianceCommentPage
+type VarianceCommentPage struct {
+	// The comments on this page, newest first.
+	Items []VarianceComment `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *VarianceCommentPage) GetItems() []VarianceComment {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *VarianceCommentPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *VarianceCommentPage) SetItems(val []VarianceComment) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *VarianceCommentPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*VarianceCommentPage) listVarianceCommentsRes() {}
 
 type VerifyAuditChainBadRequest Problem
 

@@ -253,6 +253,10 @@ type CreateUploadRes interface {
 	createUploadRes()
 }
 
+type CreateVarianceCommentRes interface {
+	createVarianceCommentRes()
+}
+
 type CreateWebhookSubscriptionRes interface {
 	createWebhookSubscriptionRes()
 }
@@ -583,6 +587,10 @@ type GetTaxReturnRes interface {
 
 type GetUploadRes interface {
 	getUploadRes()
+}
+
+type GetVarianceCommentRes interface {
+	getVarianceCommentRes()
 }
 
 type GetWebhookDeliveryRes interface {
@@ -927,6 +935,10 @@ type ListTaxReturnDraftItemsRes interface {
 
 type ListTaxReturnsRes interface {
 	listTaxReturnsRes()
+}
+
+type ListVarianceCommentsRes interface {
+	listVarianceCommentsRes()
 }
 
 type ListWebhookDeliveriesRes interface {

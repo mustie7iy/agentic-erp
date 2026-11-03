@@ -1446,9 +1446,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Variance comments by people: cash.variance_comment (company, period, item, lag, text, status, author), written by people with cash.variance.comment, audited and published as VarianceCommentDecided; a snapshot a comment refers to is kept past its retention with it (ADR-0051 §6, §11, §15)",
-        "r": "T53f4",
+        "r": "POST/GET /v1/liquidity-forecast-variance/comments, GET /v1/liquidity-forecast-variance/comments/{id} (createVarianceComment, listVarianceComments, getVarianceComment: VarianceCommentCreate, VarianceComment, VarianceCommentPage) · VarianceCommentDecided event · migration 000193 (cash.variance_comment, snapshot_company, cash.delete_expired_snapshots keeping a commented snapshot, cash.variance.comment) · cash.Endpoints.CommentVariance, VarianceCommentOf, VarianceComments, companyCodes, checkLag, checkPassed, checkHorizon · TestCashVarianceCommentRules, TestCashVarianceCommentPrivileges, TestCashSnapshotRetentionKeepsCommented, TestVarianceComments, TestVarianceCommentRefusals, TestVarianceCommentKeepsSnapshot, TestVarianceCommentFailures · walkthrough step 26 · ADR-0051 (as built, T53f4) · 03-data-model §3.18 · 04-api-design §4.14 · T53f4",
         "src": "split:T53f · adr:ADR-0051",
         "c": []
        },

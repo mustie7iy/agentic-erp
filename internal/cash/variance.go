@@ -125,9 +125,8 @@ var errVarianceTooLarge = problem.Unprocessable("cash.amount_too_large", "The am
 // conflict.
 func (e *Endpoints) Variance(ctx context.Context, q VarianceQuery) (Variance, error) {
 	from, to, grain := clock.Day(q.From), clock.Day(q.To), cmp.Or(q.Grain, config.GrainDay)
-	if !slices.Contains(varianceLags, q.Lag) {
-		return Variance{}, problem.Unprocessable("request.validation_failed", "A variance compares at a lag of 0, 7 or 30 days.",
-			problem.FieldError{Field: "lag", Code: "invalid", Message: "0, 7 or 30"})
+	if err := checkLag(q.Lag); err != nil {
+		return Variance{}, err
 	}
 	if _, err := actualBuckets(from, to, grain); err != nil {
 		return Variance{}, err
@@ -138,18 +137,16 @@ func (e *Endpoints) Variance(ctx context.Context, q VarianceQuery) (Variance, er
 	if err != nil {
 		return Variance{}, err
 	}
-	if to.After(ar.r.read) {
-		return Variance{}, problem.Unprocessable("request.validation_failed", "A variance compares days that have passed.",
-			problem.FieldError{Field: "to", Code: "invalid", Message: "on or before " + ar.r.read.Format(time.DateOnly) + ", the company's date"})
+	if err := checkPassed(to, ar.r.read); err != nil {
+		return Variance{}, err
 	}
 	s, err := snapshotOn(ctx, ar.tx, q.LegalEntity, taken)
 	if err != nil {
 		return Variance{}, err
 	}
 	s.CompanyCode = ar.co.Code
-	if to.After(s.HorizonEnd) {
-		return Variance{}, problem.Unprocessable("request.validation_failed", "The snapshot forecast no further than its horizon.",
-			problem.FieldError{Field: "to", Code: "invalid", Message: "on or before " + s.HorizonEnd.Format(time.DateOnly) + ", the snapshot's horizon"})
+	if err := checkHorizon(to, s); err != nil {
+		return Variance{}, err
 	}
 	v := Variance{LegalEntity: q.LegalEntity, CompanyCode: ar.co.Code, ReadDate: ar.r.read, TimeZone: ar.zone, From: from, To: to, Lag: q.Lag,
 		Grain: grain, Snapshot: s}
@@ -163,6 +160,35 @@ func (e *Endpoints) Variance(ctx context.Context, q VarianceQuery) (Variance, er
 		return Variance{}, errVarianceTooLarge
 	}
 	return v, nil
+}
+
+// checkLag refuses a lag a variance does not compare at.
+func checkLag(lag int) error {
+	if !slices.Contains(varianceLags, lag) {
+		return problem.Unprocessable("request.validation_failed", "A variance compares at a lag of 0, 7 or 30 days.",
+			problem.FieldError{Field: "lag", Code: "invalid", Message: "0, 7 or 30"})
+	}
+	return nil
+}
+
+// checkPassed refuses a period ending after the company's date: a day not
+// yet passed would show every flow still due as missing.
+func checkPassed(to, read time.Time) error {
+	if to.After(read) {
+		return problem.Unprocessable("request.validation_failed", "A variance compares days that have passed.",
+			problem.FieldError{Field: "to", Code: "invalid", Message: "on or before " + read.Format(time.DateOnly) + ", the company's date"})
+	}
+	return nil
+}
+
+// checkHorizon refuses a period ending after the snapshot's horizon:
+// nothing was forecast after it.
+func checkHorizon(to time.Time, s Snapshot) error {
+	if to.After(s.HorizonEnd) {
+		return problem.Unprocessable("request.validation_failed", "The snapshot forecast no further than its horizon.",
+			problem.FieldError{Field: "to", Code: "invalid", Message: "on or before " + s.HorizonEnd.Format(time.DateOnly) + ", the snapshot's horizon"})
+	}
+	return nil
 }
 
 // minDay is the earlier day.

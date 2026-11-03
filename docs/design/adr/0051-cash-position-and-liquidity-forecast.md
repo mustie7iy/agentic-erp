@@ -476,8 +476,8 @@ T53f2-T53f4 in the tracker, src `split:T53f`; decided by default where §6,
   built, see As built T53f2 in §11);
   the variance with lag and attribution (T53f3, which needs both; built,
   see As built T53f3 in §11); and
-  variance comments by people (T53f4, which need the variance; an agent's
-  proposals are T53i's).
+  variance comments by people (T53f4, which need the variance; built, see
+  As built T53f4 in §11; an agent's proposals are T53i's).
 - **Tables.** Migration 000192 creates `cash.snapshot` and
   `cash.snapshot_flow` (RLS, `tenant_id` first, insert-only: no version,
   so no update is granted, and no delete; deleted only by retention, the
@@ -564,7 +564,9 @@ T53f2-T53f4 in the tracker, src `split:T53f`; decided by default where §6,
   still under row-level security), which computes the 25 months itself
   and refuses a day after UTC's tomorrow: no caller reaches a snapshot
   younger than its retention. §6's exception, a snapshot
-  a variance comment refers to, is T53f4's to add with the comments.
+  a variance comment refers to, is kept with it: migration 000193 (T53f4)
+  replaces the function with one that skips such a snapshot, and the
+  comment's foreign key refuses deleting it any other way.
 - **API.** `POST /v1/cash-snapshots` (`takeCashSnapshot`,
   `cash.snapshot.take`, Idempotency-Key, `x-agent: false`: §13 gives the
   agent `getCashSnapshot` only), `GET /v1/cash-snapshots` (the companies
@@ -1854,6 +1856,83 @@ leave it open):
 lag, text, status `proposed | accepted | rejected`, author, session) are
 written by people or proposed by the agent (§13); T64's close can ask for
 them on variances above a threshold.
+
+As built (T53f4, variance comments by people; decided by default where
+§11, §13 and §15 leave it open):
+- **Table.** Migration 000193 creates `cash.variance_comment` (RLS,
+  `tenant_id` first): the legal entity, the period (`period_from`,
+  `period_to`, forwards, `variance_comment_period`), the lag (0, 7 or 30,
+  the lags the variance offers), the row it explains (`liquidity_item`, a
+  tenant's item active or not, by foreign key; null for the row of what
+  no rule assigns, as the variance's rows and a snapshot's lines name it),
+  the snapshot that variance compares with (`snapshot_id`, of the
+  comment's company by a foreign key on `(tenant_id, snapshot_id,
+  legal_entity_id)`, for which 000193 adds the unique index
+  `snapshot_company`), `text` (1 to 2,000 characters, not blank, as a memo
+  record's comment), `status`, `decided_by`, `decided_at`, `created_at` and
+  `created_by` (the author). §11's `session` is the agent's, so T53i adds
+  it with the proposals. Insert-only (no version, so no update is
+  granted) and never deleted; T53i's decisions on proposals add the
+  version and its grant.
+- **The status, ready for proposals.** `proposed | accepted | rejected`,
+  all three in the check and in the contract's open enumeration now, so
+  T53i adds proposals without a breaking change; a comment is decided
+  exactly when it is not proposed (`variance_comment_decided`). A
+  person's comment is decided as it is written: `accepted`, decided by
+  its author, and published as `VarianceCommentDecided`, the event §15
+  names; T53i's proposal is `proposed` until a person accepts or rejects
+  it with `cash.variance.comment`, as §13 says.
+- **The snapshot kept.** The comment names the snapshot the variance it
+  explains compares with (`snapshotOn`: the daily one `lag` days before
+  `from`, else the last taken on demand that day) when it is written.
+  `cash.delete_expired_snapshots` skips a snapshot any comment refers to,
+  whatever the comment's status (a rejected proposal is evidence of what
+  the agent said), so the variance a comment explains can be read as long
+  as the comment exists; a snapshot deleted at its retention while a
+  comment naming it is written is the foreign key's
+  (`variance_comment_snapshot`, 409 `cash.snapshot_not_taken`).
+- **API.** `POST /v1/liquidity-forecast-variance/comments`
+  (`createVarianceComment`, `cash.variance.comment`, Idempotency-Key,
+  `x-agent: false`: §13 gives the agent a proposal, never a comment),
+  `GET /v1/liquidity-forecast-variance/comments` (`listVarianceComments`:
+  the companies the caller may act in, newest first by `created_at`, by
+  legal entity, item or the unclassified row, lag, status and periods
+  overlapping `from`..`to`, paged) and `GET …/comments/{id}`
+  (`getVarianceComment`), both read with `cash.forecast.read`, the
+  variance's own (§15 names no read permission for comments). The path is
+  the one §13 names; the agent's proposals take a collection of their own
+  (T53i), as memo records' did (T53d, `/v1/memo-record-proposals`),
+  since one operation has one permission. The request names the row as
+  the snapshot's lines do (`liquidity_item`, or `unclassified: true`,
+  exactly one, else 422) and is checked as the variance's request is
+  (`checkLag`, `checkPassed`, `checkHorizon`, which the variance now
+  calls too): a lag not offered, a period backwards, longer than 36 months
+  (the longest grain's limit) or ending after the company's date or the
+  snapshot's horizon is 422; a period whose snapshot was not taken 409
+  `cash.snapshot_not_taken`; a legal entity the caller cannot act in 404.
+  A comment gives its company's code, its item's code and name, and its
+  snapshot's id and date. Audited (`cash.variance_comment.create`, with
+  the text); the event names the row, period, lag, snapshot, status and
+  who decided, not the text, which the comment's read returns (as
+  `MemoRecordChanged`). No webhook (`x-webhook`): §14 names one for
+  snapshots only.
+- **What it does not do.** A comment does not carry the variance's
+  figures (they are read again from the snapshot it keeps); T64's
+  threshold on which variances need a comment is T64's.
+- **Evidence.** `db.TestCashVarianceCommentRules`,
+  `TestCashVarianceCommentPrivileges`,
+  `TestCashSnapshotRetentionKeepsCommented`; `cash.TestVarianceComments`
+  (an item's row at lag 0 against the snapshot on demand, the unclassified
+  row at lag 7 against the daily one, read again, listed by each filter
+  and in pages, published and audited, hidden from a reader of another
+  company), `TestVarianceCommentRefusals` (every 422, the 409, the 404s,
+  an agent and a person without the permission refused),
+  `TestVarianceCommentKeepsSnapshot` (retention keeps the commented
+  snapshot and deletes one of the same age), `TestVarianceCommentFailures`
+  (every database failure, the directory down, a zone lost, the race's
+  constraint); the walkthrough's step 26: Tom comments on a row of step
+  25's variance, the comment names that variance's snapshot, and Rita
+  reads it and is refused writing one.
 
 ### 12. Out of scope, and where it goes
 - **Receivables and sales orders** as sources: phase 3, as readers of §4;

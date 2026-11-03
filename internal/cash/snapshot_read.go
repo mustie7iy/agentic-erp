@@ -60,21 +60,38 @@ func (e *Endpoints) Snapshot(ctx context.Context, id uuid.UUID) (Snapshot, error
 
 // complete gives each snapshot its company's code and its totals.
 func (e *Endpoints) complete(ctx context.Context, tx pgx.Tx, ss []Snapshot) error {
-	codes := map[uuid.UUID]string{}
+	entities := make([]uuid.UUID, len(ss))
 	for i, s := range ss {
-		if _, ok := codes[s.LegalEntity]; !ok {
-			co, found, err := e.LegalEntities.Company(ctx, s.LegalEntity)
-			if err != nil {
-				return fmt.Errorf("cash: legal entity %s of snapshot %s: %w", s.LegalEntity, s.ID, err)
-			}
-			if !found {
-				return fmt.Errorf("cash: legal entity %s of snapshot %s is not held by the tenancy context", s.LegalEntity, s.ID)
-			}
-			codes[s.LegalEntity] = co.Code
-		}
+		entities[i] = s.LegalEntity
+	}
+	codes, err := e.companyCodes(ctx, entities)
+	if err != nil {
+		return fmt.Errorf("cash: snapshots: %w", err)
+	}
+	for i, s := range ss {
 		ss[i].CompanyCode = codes[s.LegalEntity]
 	}
 	return totals(ctx, tx, ss)
+}
+
+// companyCodes are the company codes of the legal entities, each read
+// once: a stored row's legal entity the directory does not hold fails.
+func (e *Endpoints) companyCodes(ctx context.Context, entities []uuid.UUID) (map[uuid.UUID]string, error) {
+	codes := map[uuid.UUID]string{}
+	for _, le := range entities {
+		if _, ok := codes[le]; ok {
+			continue
+		}
+		co, found, err := e.LegalEntities.Company(ctx, le)
+		if err != nil {
+			return nil, fmt.Errorf("legal entity %s: %w", le, err)
+		}
+		if !found {
+			return nil, fmt.Errorf("legal entity %s is not held by the tenancy context", le)
+		}
+		codes[le] = co.Code
+	}
+	return codes, nil
 }
 
 // totals gives each snapshot its totals per currency, by currency code.
