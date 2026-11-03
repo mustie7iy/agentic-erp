@@ -1118,3 +1118,67 @@ order); the sweep found no other such statement (a filed tax return
 locks the leading ledger's periods one at a time, by legal entity, year
 and period; a period close, lock or unlock locks one row). 03's entry-lock
 paragraph states the rule.
+
+**T64h (the variance report).** Built as §9: `companies[].close.variance`
+(`bases`, `threshold_amount`, `threshold_percent`, `plan_category`,
+`plan_centers`) in `internal/config` (`config.CloseVariance`, validated
+with the problems on their fields; tier 2 by the new rule
+`companies[*].close.variance`), and the closing context's configuration
+section `closing.Setup`, which refuses a plan basis naming a plan category
+the tenant does not have (the document's own validation cannot see
+controlling's master data). `GET /v1/period-closes/{id}/variances`
+(`listPeriodCloseVariances`, `closing.close.read` with `ledger.entry.read`
+as `x-also-permissions`, `x-slo-class: report`) reads the actuals and the
+prior periods' figures through `closing.Ledger.ProfitAndLoss`, over the
+ledger's new published port `ledger.CloseAccounts` (the leading ledger's
+local-currency net per profit and loss account over `balanceRows`, exact
+at the read), and the plan through the new port `closing.Plans`, adapted
+in `internal/app` over controlling's new published `controlling.Plans`
+(a category by code; a category's current plan of a company's period per
+account, over its cost center lines or its profit center lines). The
+percent is `money.PercentOfMagnitude`, which shares its exact rounding
+with the plan/actual reports' `money.PercentOf` (moved out of
+`internal/controlling`) and the forecast variance's `money.AbsPercentOf`
+(T53f3; batch 50's integration). No migration: the report stores nothing and
+`closing.close.read` exists. Walkthrough: `close_variances` in
+`step_close`, before the sign-off. Decided by default, for the product
+owner to overrule:
+- **What T64i adds.** The rows' comments (the accepted one with `stale`,
+  the count proposed), the `unexplained` filter and the `rows explained`
+  total read variance comments, which T64i creates; the report adds them
+  then (additive), and T64i's leaf names them.
+- The configuration: `bases` 1-3 known bases, each once; `threshold_amount`
+  required, more than zero, in the company's currency's digits;
+  `threshold_percent` optional, more than zero, at most two decimals (the
+  report's percents have two); `plan_category` (a category code) and
+  `plan_centers` (`cost` or `profit`) required with the basis `plan` and
+  refused without it. No variance section: every basis is
+  `closing.basis_not_configured`.
+- A basis the company does not configure, one this build does not know
+  included, is 422 `closing.basis_not_configured` on `basis`, naming the
+  bases it configures; `basis` is required.
+- The percent threshold is compared with the percent as shown (two
+  places), so a consumer can tell from the row why it is flagged.
+- `totals` are the whole report's, whatever the `requires_comment` filter
+  and on every page alike, so their actuals stay the period's profit and
+  loss; `requires_comment=false` keeps the rows below the thresholds.
+- The rows are every profit and loss account set up in the company or with
+  a movement in either period, with a non-zero actual or comparison;
+  balance sheet accounts never (a plan amount on one, or on an account not
+  set up in the company, has no row). Accounts are ordered and paged by
+  number as the database orders text byte by byte (`COLLATE "C"`: 4000,
+  4800, 540000, 6000), not by SAP's ALPHA padding.
+- The report names what it compares: the comparison's fiscal year and
+  period (the close's own for `plan`), the leading ledger, the currency, the
+  thresholds and, for the plan, the category (id, code, name) and the kind
+  of center.
+- A configured plan category the controlling context no longer holds, or a
+  threshold that is no amount (only a document written past the
+  configuration context has them), fails the read (500), as other broken
+  data does.
+- No performance budget: §9 asks for none, and the report reads one
+  company's period through the trial balance's statement (`balanceRows`,
+  `period_balance_by_period`) and one plan sum.
+- The balance projector helper the ledger's and controlling's tests each
+  kept is `fixture.Project`, which closing's tests use too.
+

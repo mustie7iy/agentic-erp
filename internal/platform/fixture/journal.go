@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -106,4 +107,21 @@ func (e Env) PostedBy(tb testing.TB, source string, day string, amount money.Min
 		tb.Fatal(err)
 	}
 	return id
+}
+
+// Project runs the balance projector until nothing is pending in any
+// tenant, so balances are read from ledger.period_balance rather than from
+// the entries still queued.
+func Project(tb testing.TB) {
+	tb.Helper()
+	p := &ledger.Projector{Pool: pgtest.Pool(tb), Role: "erp_projector"}
+	for {
+		n, err := p.RunOnce(context.Background())
+		if err != nil {
+			tb.Fatal(err)
+		}
+		if n == 0 {
+			return
+		}
+	}
 }

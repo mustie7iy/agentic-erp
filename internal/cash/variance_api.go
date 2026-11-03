@@ -53,7 +53,7 @@ func cellsToAPI(cs []VarianceCell, amount func(money.Minor) gen.Money) []gen.Liq
 // the forecast's, and its attribution.
 func cellToAPI(c VarianceCell, amount func(money.Minor) gen.Money) gen.LiquidityForecastVarianceCell {
 	return gen.LiquidityForecastVarianceCell{Forecast: amount(c.Forecast), Actual: amount(c.Actual), Variance: amount(c.Variance),
-		VariancePercent: apitypes.AbsPercent(c.Variance, c.Forecast), Attribution: gen.LiquidityForecastVarianceAttribution{Timing: amount(c.Timing),
+		VariancePercent: variancePercent(c.Variance, c.Forecast), Attribution: gen.LiquidityForecastVarianceAttribution{Timing: amount(c.Timing),
 			Amount: amount(c.Amount), New: amount(c.New), Missing: amount(c.Missing), Unclassified: amount(c.Unclassified)}}
 }
 
@@ -64,5 +64,14 @@ func optFigures(beyond bool, f Figures, amount func(money.Minor) gen.Money) gen.
 		return gen.OptLiquidityForecastVarianceFigures{}
 	}
 	return gen.NewOptLiquidityForecastVarianceFigures(gen.LiquidityForecastVarianceFigures{Forecast: amount(f.Forecast), Actual: amount(f.Actual),
-		Variance: amount(f.Variance), VariancePercent: apitypes.AbsPercent(f.Variance, f.Forecast)})
+		Variance: amount(f.Variance), VariancePercent: variancePercent(f.Variance, f.Forecast)})
+}
+
+// variancePercent is the variance's size in percent of the forecast's
+// (money.AbsPercentOf), none when nothing was forecast.
+func variancePercent(variance, forecast money.Minor) gen.OptDecimal {
+	if forecast == 0 {
+		return gen.OptDecimal{}
+	}
+	return gen.NewOptDecimal(gen.Decimal(money.AbsPercentOf(variance, forecast)))
 }

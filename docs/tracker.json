@@ -1462,7 +1462,7 @@
        {
         "s": "D",
         "t": "Forecast variance: GET /v1/liquidity-forecast-variance for a period against the snapshot taken lag days before its start (default 7; 0, 7 and 30), per liquidity item, currency and bucket with forecast, actual, variance and absolute percentage; within the 31 days kept per document attributed to timing, amount, new, missing and unclassified, per item only beyond (ADR-0051 §11)",
-        "r": "GET /v1/liquidity-forecast-variance (getLiquidityForecastVariance: LiquidityForecastVariance, LiquidityForecastVarianceCurrency, LiquidityForecastVarianceItem, LiquidityForecastVarianceCell, LiquidityForecastVarianceAttribution; 409 cash.snapshot_not_taken) · cash.Endpoints.Variance, snapshotOn, keptLines, memoMatches, newMatching, beyondOf, actual.pieces · payments.CashPaying.Request, CashPaid.Entry, CashPaid.Invoice, Owed.Sources · ledger.OpenItems.Sources · apitypes.Percent, AbsPercent (controlling's plan against actual uses it) · no migration · TestForecastVariance, TestForecastVarianceLags, TestForecastVarianceEarly, TestForecastVarianceNettedPayment, TestForecastVarianceRefusals, TestForecastVarianceTooLarge, TestForecastVarianceFailures, TestPercent · walkthrough step 28 · ADR-0051 (as built, T53f3) · 03-data-model §3.18 · 04-api-design §4.7 · T53f3",
+        "r": "GET /v1/liquidity-forecast-variance (getLiquidityForecastVariance: LiquidityForecastVariance, LiquidityForecastVarianceCurrency, LiquidityForecastVarianceItem, LiquidityForecastVarianceCell, LiquidityForecastVarianceAttribution; 409 cash.snapshot_not_taken) · cash.Endpoints.Variance, snapshotOn, keptLines, memoMatches, newMatching, beyondOf, actual.pieces · payments.CashPaying.Request, CashPaid.Entry, CashPaid.Invoice, Owed.Sources · ledger.OpenItems.Sources · money.AbsPercentOf (beside T64h's money.PercentOf, which controlling's plan against actual uses) · no migration · TestForecastVariance, TestForecastVarianceLags, TestForecastVarianceEarly, TestForecastVarianceNettedPayment, TestForecastVarianceRefusals, TestForecastVarianceTooLarge, TestForecastVarianceFailures, money.TestPercentOfSigns · walkthrough step 28 · ADR-0051 (as built, T53f3) · 03-data-model §3.18 · 04-api-design §4.7 · T53f3",
         "src": "split:T53f · adr:ADR-0051",
         "c": []
        },
@@ -1630,7 +1630,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The variance report: companies[].close.variance (bases prior_period, prior_year, plan; threshold amount and percent; plan category and centers; tier 2); GET /v1/period-closes/{id}/variances per profit and loss account of the leading ledger in local currency (actual, comparison, variance, exact percent, requires_comment, filters, paging by account number, totals over the report); closing.Plans over controlling; closing.basis_not_configured; walkthrough: the variances against the prior period, the flagged rows, the totals equal to the period's profit and loss",
         "r": "ADR-0058 · T64h",
         "src": "adr:ADR-0058",
@@ -1638,7 +1638,7 @@
        },
        {
         "s": "T",
-        "t": "Variance comments: variance_comment and variance_citation; POST /v1/variance-comment-proposals (agents, in session, citations checked: closing.citation_invalid), POST /v1/variance-comments (people), :accept with optional edited text, :reject, superseded, stale when the figures change; check variances_explained; VarianceCommentChanged; closing.variance.propose|comment, ledger.entry.read also; walkthrough: the agent principal proposes a comment citing the entry behind a flagged row, Carla accepts it, the check passes, a citation on another account refused",
+        "t": "Variance comments: variance_comment and variance_citation; POST /v1/variance-comment-proposals (agents, in session, citations checked: closing.citation_invalid), POST /v1/variance-comments (people), :accept with optional edited text, :reject, superseded, stale when the figures change; check variances_explained; VarianceCommentChanged; closing.variance.propose|comment, ledger.entry.read also; walkthrough: the agent principal proposes a comment citing the entry behind a flagged row, Carla accepts it, the check passes, a citation on another account refused; the variance report's row comments (the accepted one with stale, the count proposed), its unexplained filter and its rows explained total (ADR-0058 §9, deferred from T64h, which has no comments to read)",
         "r": "ADR-0058 · T64i",
         "src": "adr:ADR-0058",
         "c": []

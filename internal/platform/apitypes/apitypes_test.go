@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
-	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -118,33 +117,6 @@ func TestObjects(t *testing.T) {
 func TestMoney(t *testing.T) {
 	if got := apitypes.Money(-123456, "EUR", 2); got != (gen.Money{Amount: "-1234.56", Currency: "EUR"}) {
 		t.Errorf("got %v, want -1234.56 EUR", got)
-	}
-}
-
-func TestPercent(t *testing.T) {
-	for _, c := range []struct {
-		name        string
-		part, whole money.Minor
-		signed, abs string // "" for none
-	}{
-		{"a fifth", 200, 1000, "20.00", "20.00"},
-		{"signs differ", 200, -1000, "-20.00", "20.00"},
-		{"both negative", -1, -3, "33.33", "33.33"},
-		{"a twentieth of a hundredth", 1, 200000, "0.00", "0.00"},
-		{"a third, negative", -1, 3, "-33.33", "33.33"},
-		{"below half a hundredth, negative", -1, 100000, "0.00", "0.00"},
-		{"half a hundredth, negative, away from zero", -1, 20000, "-0.01", "0.01"},
-		{"of nothing", 5, 0, "", ""},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			text := func(d gen.OptDecimal) string { return string(d.Or("")) }
-			if got := text(apitypes.Percent(c.part, c.whole)); got != c.signed {
-				t.Errorf("Percent(%d, %d): got %q, want %q", c.part, c.whole, got, c.signed)
-			}
-			if got := text(apitypes.AbsPercent(c.part, c.whole)); got != c.abs {
-				t.Errorf("AbsPercent(%d, %d): got %q, want %q", c.part, c.whole, got, c.abs)
-			}
-		})
 	}
 }
 

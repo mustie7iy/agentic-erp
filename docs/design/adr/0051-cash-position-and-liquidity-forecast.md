@@ -1810,8 +1810,10 @@ leave it open):
   names and tree. `variance_percent` is the variance's size in percent of
   the forecast's size (§11: "absolute percentage"), two decimals, half
   away from zero, absent when nothing was forecast, as controlling's plan
-  against actual computes its percent (ADR-0050 §8); the computation moved
-  to one helper (`apitypes.Percent`, `AbsPercent`) both use. A sum out of
+  against actual computes its percent (ADR-0050 §8); both use the one
+  exact computation in `money` (`money.AbsPercentOf` here,
+  `money.PercentOf` there; batch 50's integration kept T64h's home in
+  `money` and dropped T53f3's copy in `apitypes`). A sum out of
   the range of an amount is 422 `cash.amount_too_large`.
 - **Visibility.** The variance names no document, supplier, payment or
   statement, so `cash.forecast.read` is all it needs (T53e4's rule; the
@@ -1844,7 +1846,7 @@ leave it open):
   document), `TestForecastVarianceNettedPayment`,
   `TestForecastVarianceRefusals`, `TestForecastVarianceTooLarge`,
   `TestForecastVarianceFailures` (every database failure);
-  `apitypes.TestPercent`; the walkthrough's step 28: step 26's day
+  `money.TestPercentOfSigns`; the walkthrough's step 28: step 26's day
   against its statement lines, each cell's attribution adding up, the
   actual the actuals' and the forecast the snapshot's lines, Rita shown
   the same figures, a lag of 7 refused for want of a snapshot and one of

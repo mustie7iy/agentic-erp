@@ -2854,6 +2854,36 @@ func (UnimplementedHandler) ListPayments(ctx context.Context, params ListPayment
 	return r, ht.ErrNotImplemented
 }
 
+// ListPeriodCloseVariances implements listPeriodCloseVariances operation.
+//
+// The variance report of a period close (ADR-0058 §9, T64h): one row per profit and loss account of
+// the company's leading ledger with a non-zero actual or comparison, in the company's local currency,
+// debit positive as the trial balance signs it (`GET /v1/balances`). `actual` is the account's net
+// movement in the close's period, exact at the moment of the read; `comparison` is, by `basis`, the
+// net movement of the previous regular period (`prior_period`: period 12 of the previous fiscal year
+// for period 1), of the same period of the previous fiscal year (`prior_year`), or the plan of the
+// company's configured plan category for the period (`plan`: its lines on cost centers or on profit
+// centers, as `companies[].close.variance.plan_centers` says, never both); a comparison period the
+// company has no posting period for compares as zero. `variance` is the actual less the comparison and
+// `variance_percent` the variance in percent of the comparison's absolute value, two places, computed
+// exactly and rounded half away from zero, absent when the comparison is zero. A row
+// `requires_comment` when the variance's absolute value is at least the company's `threshold_amount`
+// and, when a `threshold_percent` is configured and the row has a percent, the percent's absolute
+// value (as shown, two places) is at least it. The bases and thresholds are the active configuration's
+// `companies[].close.variance` (tier 2); a basis the company does not configure is 422
+// `closing.basis_not_configured`. Rows are in account number order (as the database orders text, byte
+// by byte), cursor-paged; `requires_comment` keeps only the rows that do (`true`) or do not (`false`).
+// `totals` sum the whole report, every row whatever the filter and on every page alike: the actuals
+// summed are the period's profit and loss in the trial balance (a loss positive). Variance comments
+// and the rows they explain are T64i's. A close of a legal entity the caller cannot act in is not
+// found. The figures are ledger amounts, so besides `closing.close.read` the caller needs
+// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/period-closes/{id}/variances
+func (UnimplementedHandler) ListPeriodCloseVariances(ctx context.Context, params ListPeriodCloseVariancesParams) (r ListPeriodCloseVariancesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListPeriodCloses implements listPeriodCloses operation.
 //
 // The period closes of the legal entities the caller may act in (ADR-0058 §6, T64b), without their

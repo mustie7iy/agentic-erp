@@ -24,7 +24,11 @@
 // passing when run again, each covered period closed by a person; it then
 // locks each covered period through the ledger's period lock (T32) in the
 // order postings take them, and records the sign-off. A covered period
-// unlocked later reopens the close on its next write.
+// unlocked later reopens the close on its next write. T64h reports a
+// close's variances (ADR-0058 §9): each profit and loss account's actual
+// of the period against the prior period, the prior year's period or a
+// plan category (read through controlling's port), flagged by the
+// company's thresholds.
 package closing
 
 import (
@@ -34,6 +38,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 )
 
@@ -43,11 +48,13 @@ type Settings interface {
 	Document(ctx context.Context) (*config.Config, int32, error)
 }
 
-// Company is a legal entity as the closing context reads it.
+// Company is a legal entity as the closing context reads it, with its
+// local currency, the variance report's.
 type Company struct {
-	ID   uuid.UUID
-	Code string
-	Name string
+	ID            uuid.UUID
+	Code          string
+	Name          string
+	LocalCurrency string
 }
 
 // Companies reads legal entities (tenancy context): the one of an id, ok
@@ -76,6 +83,14 @@ type LedgerPeriod struct {
 	Period     *Period
 }
 
+// AccountNet is a profit and loss account with its net movement of a
+// period in local currency, debit positive.
+type AccountNet struct {
+	AccountID    uuid.UUID
+	Number, Name string
+	Net          money.Minor
+}
+
 // ParkedEntry is a parked entry of the ledger context as a close's check
 // names it: what identifies it to a person, and who parked it.
 type ParkedEntry struct {
@@ -93,9 +108,11 @@ type ParkedEntry struct {
 // their period of a fiscal year and period, the leading one first, then by
 // code; how many of its parked entries with a posting date from from to to
 // are in one of the statuses, and the first limit of them by posting date;
-// and its ledger's posted revaluation run at a key date, ok false when
-// there is none. Each reads nothing of a legal entity the caller may not act
-// in. Lock locks a closed period as the period lock does (T32), refusing
+// its ledger's posted revaluation run at a key date, ok false when there
+// is none; and every profit and loss account of it with its net movement
+// of a fiscal year and period in the leading ledger, by account number.
+// Each reads nothing of a legal entity the caller may not act in. Lock
+// locks a closed period as the period lock does (T32), refusing
 // one whose version is no longer the one read.
 type Ledger interface {
 	LeadingPeriods(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]Period, error)
@@ -103,6 +120,23 @@ type Ledger interface {
 	Parked(ctx context.Context, legalEntity uuid.UUID, from, to time.Time, statuses []string, limit int) (int, []ParkedEntry, error)
 	PostedRevaluation(ctx context.Context, legalEntity, ledger uuid.UUID, keyDate time.Time) (run uuid.UUID, ok bool, err error)
 	Lock(ctx context.Context, period uuid.UUID, version int32) error
+	ProfitAndLoss(ctx context.Context, legalEntity uuid.UUID, fiscalYear, period int16) ([]AccountNet, error)
+}
+
+// PlanCategory is a plan category of the controlling context.
+type PlanCategory struct {
+	ID         uuid.UUID
+	Code, Name string
+}
+
+// Plans reads the controlling context's plans: a plan category by its
+// code, ok false when there is none, and a category's plan of a legal
+// entity's fiscal year and period per account, in local currency, debit
+// positive, summed over its lines on profit centers when profit is true,
+// else on cost centers.
+type Plans interface {
+	Category(ctx context.Context, code string) (PlanCategory, bool, error)
+	Amounts(ctx context.Context, legalEntity, category uuid.UUID, fiscalYear, period int16, profit bool) (map[uuid.UUID]money.Minor, error)
 }
 
 // Person is a principal as the closing context names it: its name, kind
@@ -125,6 +159,7 @@ type Endpoints struct {
 	Companies Companies
 	Ledger    Ledger
 	People    People
+	Plans     Plans
 	Pages     *pagination.Codec
 	Now       func() time.Time
 }

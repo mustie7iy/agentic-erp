@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -48,7 +49,7 @@ func setupReported(t *testing.T) reported {
 			t.Fatalf("post on %s: %v", p.day, err)
 		}
 	}
-	project(t)
+	fixture.Project(t)
 	if _, err := r.post(t, "2026-06-20", centered(r.office, 500, nil, nil, nil), centered(r.bank, -500, nil, nil, nil)); err != nil {
 		t.Fatalf("post the pending entry: %v", err)
 	}
@@ -176,7 +177,7 @@ func TestProfitCenterBalances(t *testing.T) {
 func TestCenterBalancesExactAndPaged(t *testing.T) {
 	r := setupReported(t)
 	before := sorted(r.centerRows(t, "/v1/profit-center-balances", ""))
-	project(t)
+	fixture.Project(t)
 	if after := sorted(r.centerRows(t, "/v1/profit-center-balances", "")); fmt.Sprint(after) != fmt.Sprint(before) {
 		t.Errorf("projection changed the figures: got %v, want %v", after, before)
 	}
@@ -290,7 +291,7 @@ func TestCenterBalancesNeedBothPermissions(t *testing.T) {
 // cannot import.
 func TestAssignmentBalancesAddUp(t *testing.T) {
 	r := setupReported(t)
-	project(t)
+	fixture.Project(t)
 	var compared, differing int
 	pgtest.Scan(t, `WITH pb AS (
 			SELECT b.ledger_id, b.legal_entity_id, b.account_id, b.fiscal_year, b.fiscal_period, b.currency_tc, b.debit_tc, b.credit_tc, b.debit_lc, b.credit_lc,
@@ -351,7 +352,7 @@ func TestAssignmentProjectionRunsOnce(t *testing.T) {
 	if once != lines {
 		t.Errorf("assignment balances after projectors side by side: got %d, want the lines' %d", once, lines)
 	}
-	project(t)
+	fixture.Project(t)
 	if _, twice := sums(); twice != once {
 		t.Errorf("assignment balances after running again: got %d, want %d", twice, once)
 	}

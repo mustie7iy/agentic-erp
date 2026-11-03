@@ -38,7 +38,7 @@ func setupCompared(t *testing.T) compared {
 	c.batch(t, c.budget, "budget", line(c.c.Admin, c.office, 5, "100.00"), line(c.c.Admin, c.office, 6, "50.00"), line(c.c.Sales, c.office, 6, "20.00"))
 	c.batch(t, c.budget, "profit", pcLine(c.c.Profit, c.office, 5, "200.00"), pcLine(c.pc2, c.office, 6, "40.00"))
 	c.post(t, "2026-05-10", on(c.office, 12000, &c.c.Admin), on(c.bank, -12000, nil))
-	project(t)
+	fixture.Project(t)
 	c.post(t, "2026-06-15", on(c.office, 3000, &c.c.Admin), on(c.office, 1000, &c.c.Sales), on(c.revenue, -8000, &c.c.Sales), on(c.bank, 4000, nil))
 	revenue, bank := on(c.revenue, -2500, nil), on(c.bank, 2500, nil)
 	revenue.ProfitCenterID, bank.ProfitCenterID = &c.c.Profit, &c.c.Profit

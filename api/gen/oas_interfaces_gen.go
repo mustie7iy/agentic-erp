@@ -889,6 +889,10 @@ type ListPaymentsRes interface {
 	listPaymentsRes()
 }
 
+type ListPeriodCloseVariancesRes interface {
+	listPeriodCloseVariancesRes()
+}
+
 type ListPeriodClosesRes interface {
 	listPeriodClosesRes()
 }

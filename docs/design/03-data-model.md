@@ -371,7 +371,8 @@ names the company's weekend (`calendars[company].weekend`, T64a, ADR-0058
 Saturday and Sunday. A business day is neither a weekend day nor a holiday
 (`config.Config.BusinessDay`), the one rule the cash position and the close
 calendar count days by. The `close` section is the close template
-(`close.tasks`, T64a; §3.22).
+(`close.tasks`, T64a; §3.22); a company's `close.variance` its variance
+report's settings (T64h; §3.22).
 `POST /v1/country-pack-applications` (T62d) stores the draft as a change
 request in status `draft` on the active version, with the merge's notes in
 `change_request.notes` (an array of path and message, `[]` for requests
@@ -3189,3 +3190,14 @@ is, its latest row is the close's signer. A covered period unlocked later
 off again has a second row. Read by close, oldest first
 (`sign_off_by_close`). Schema tests: `db/closing_test.go`
 (`TestCloseSignOffRules`).
+
+The variance report (T64h) stores nothing. A company's settings are
+configuration (`companies[].close.variance`: bases, amount and percent
+thresholds, the plan category and its kind of center; tier 2), and
+`GET /v1/period-closes/{id}/variances` reads, per profit and loss account
+(`ledger.gl_account.is_balance_sheet` false), the leading ledger's local
+net of the close's period and of the comparison period from the trial
+balance's rows (`ledger.period_balance` and the entries still queued,
+through `ledger.CloseAccounts`), or the plan category's current lines of
+the period (`controlling.plan_line`, `replaced_by_batch_id IS NULL`, on cost
+centers or on profit centers, through `controlling.Plans`).

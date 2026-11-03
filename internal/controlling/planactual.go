@@ -286,6 +286,8 @@ func (q paQuery) toAPI(r planActual) (paRow, error) {
 	}
 	out := paRow{center: r.CenterID, account: r.AccountID, plan: apitypes.Money(r.plan, q.currency, q.exp),
 		actual: apitypes.Money(r.actual, q.currency, q.exp), variance: apitypes.Money(variance, q.currency, q.exp)}
-	out.percent = apitypes.Percent(variance, r.plan)
+	if r.plan != 0 {
+		out.percent.SetTo(gen.Decimal(money.PercentOf(variance, r.plan)))
+	}
 	return out, nil
 }
