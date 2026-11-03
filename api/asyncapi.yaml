@@ -3753,7 +3753,7 @@ components:
         currency_gc: {type: string, description: "The tenant's group currency."}
         ledgers:
           type: array
-          description: Per ledger the change of acquisition cost and its journal entry.
+          description: Per ledger the change of acquisition cost and its journal entry, the leading ledger first and then by ledger code.
           items:
             type: object
             required: [ledger_id, cost, cost_gc, journal_entry_id, fiscal_year, document_number]
@@ -3782,7 +3782,7 @@ components:
         currency_gc: {type: string, description: "The tenant's group currency."}
         ledgers:
           type: array
-          description: Per ledger the change of acquisition cost the reversal made and its reversal entry.
+          description: Per ledger the change of acquisition cost the reversal made and its reversal entry, the leading ledger first and then by ledger code.
           items:
             type: object
             required: [ledger_id, cost, cost_gc, journal_entry_id, fiscal_year, document_number, reversed_entry_id]

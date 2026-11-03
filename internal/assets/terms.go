@@ -82,7 +82,7 @@ func (e *Endpoints) changeAsset(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err := writeTerms(ctx, tx, p, id, changed); err != nil {
 		return Asset{}, err
 	}
-	return written(ctx, tx, id, "change", "changed")
+	return e.written(ctx, tx, id, "change", "changed")
 }
 
 // termsFrame is what a terms entry is checked against: the ledgers the

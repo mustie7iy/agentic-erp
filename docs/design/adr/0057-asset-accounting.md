@@ -1935,3 +1935,17 @@ Decided by default, for the product owner to overrule:
   from one helper (review round 1); the database keeps a run's own totals
   for a posted run alone. The batch size is 500 (decided by default 12),
   a field of the endpoints (`BatchSize`) that tests set lower.
+
+**Fix forward (batch 50, from ci-local).** An asset's terms and an
+acquisition's entries are read from their tables in no order, and an update
+of a row (a PATCH of the terms, a reversal of the entries) can change the
+order they come back in: batch 50's race gate saw `TestUpdateAsset` read
+2L's terms first in the change's audit record. Every list per ledger an
+audit record or event carries (an asset change's `terms`, the `ledgers` of
+AssetMovementPosted and AssetMovementReversed and their audit records) is
+now in the order the API shows terms and entries in, the leading ledger
+first and then by code, from the ledger port's list (`inLedgerOrder`);
+api/asyncapi.yaml says so for the two events. Decided by default: the order
+is taken from the port rather than the database, since the ledgers' codes
+are the ledger context's (ADR-0057 §10); the cost is one read of the
+tenant's ledgers per recorded change.

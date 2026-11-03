@@ -233,3 +233,49 @@ func TestReversalWithoutLeadingEntry(t *testing.T) {
 		t.Errorf("got %v, want the missing leading entry named", err)
 	}
 }
+
+// TestAcquisitionRecordedInLedgerOrder: an acquisition's audit record and
+// AssetMovementPosted (one list, both) give its entries per ledger in the
+// ledgers' order, not in the order the database returns the entries' rows
+// in: posted once with the ledger port's order and once with it reversed,
+// each in a transaction rolled back, on the same line. Its reversal's
+// record, read after the reversal updated the entries' rows, gives them in
+// the ledgers' order too.
+func TestAcquisitionRecordedInLedgerOrder(t *testing.T) {
+	e := newAcquisitions(t)
+	entry := e.post(t, "2000", "2026-06-10", "EUR", nil, line{"169000", "500.00"}, line{"100000", "-500.00"})
+	a, _ := e.create(t, e.body(e.DE, "MACHINES", fmt.Sprintf(`, "cost_center_id": %q`, e.c.Admin)))
+	asset := uuid.MustParse(a["id"].(string))
+	for _, c := range []struct {
+		name     string
+		reversed bool
+		want     string
+	}{
+		{"in the ledgers' order", false, ledgerList(e.l0, e.l2)},
+		{"in the port's order, reversed", true, ledgerList(e.l2, e.l0)},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := app.Assets(app.Config{Now: func() time.Time { return assetDay }})
+			if c.reversed {
+				h.Ledger = ledgersReversed{h.Ledger}
+			}
+			got := recordedLedgers(t, e, "assets.acquisition.post", "$.ledgers[*].ledger_id", func(ctx context.Context) error {
+				_, err := h.CreateAssetAcquisition(ctx, &gen.AssetAcquisitionCreate{AssetID: asset,
+					Source: gen.NewOptAssetAcquisitionSourceRef(gen.AssetAcquisitionSourceRef{EntryID: entry, LineNo: 1})}, gen.CreateAssetAcquisitionParams{})
+				return err
+			})
+			if got != c.want {
+				t.Errorf("the acquisition's entries: got %s, want %s", got, c.want)
+			}
+		})
+	}
+	q := e.acquire(t, a["id"], entry, 1, "")
+	h := app.Assets(app.Config{Now: func() time.Time { return assetDay }})
+	got := recordedLedgers(t, e, "assets.acquisition.reverse", "$.ledgers[*].ledger_id", func(ctx context.Context) error {
+		_, err := h.ReverseAssetAcquisition(ctx, &gen.AssetAcquisitionReverse{Reason: "r"}, gen.ReverseAssetAcquisitionParams{ID: uuid.MustParse(q["id"].(string)), IfMatch: "*"})
+		return err
+	})
+	if want := ledgerList(e.l0, e.l2); got != want {
+		t.Errorf("the reversal's entries: got %s, want %s", got, want)
+	}
+}

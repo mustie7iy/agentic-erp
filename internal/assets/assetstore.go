@@ -1,9 +1,11 @@
 package assets
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -86,7 +88,9 @@ func readValues(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) (map[uuid.UUID]
 	return out, errs.Wrapf(err, "assets: values of %d assets", len(ids))
 }
 
-// readTerms reads the assets' terms, by asset.
+// readTerms reads the assets' terms, by asset, in no particular order:
+// the rows come in the order the plan reads them, which an update of a
+// row changes. What shows or records them orders them (inLedgerOrder).
 func readTerms(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) (map[uuid.UUID][]Terms, error) {
 	rows, _ := tx.Query(ctx, `SELECT asset_id, ledger_id, method, useful_life_months, trim_scale(declining_factor)::text, residual_value,
 			depreciation_start, booked_through_year, booked_through_period
@@ -148,9 +152,28 @@ func setStatus(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID,
 	return errs.Wrapf(err, "assets: asset %s to %s", id, status)
 }
 
-// record audits a change of an asset, with its terms per ledger, and
-// publishes it as AssetChanged, as the asset is after it.
-func record(ctx context.Context, a Asset, action, change string) error {
+// inLedgerOrder sorts items by their ledgers in the order ledgers lists
+// them, the leading ledger first and then by code (Ledger.Ledgers), the
+// order the API shows an asset's terms and a document's entries in, so
+// that an audit record or event lists them the same way whatever order
+// their rows were read in. A ledger not listed sorts first, by id; there
+// is none, since ledgers are all the tenant's.
+func inLedgerOrder[T any](items []T, ledgers []LedgerRef, ledger func(T) uuid.UUID) {
+	rank := make(map[uuid.UUID]int, len(ledgers))
+	for i, l := range ledgers {
+		rank[l.ID] = i + 1
+	}
+	slices.SortFunc(items, func(a, b T) int {
+		x, y := ledger(a), ledger(b)
+		return cmp.Or(cmp.Compare(rank[x], rank[y]), cmp.Compare(x.String(), y.String()))
+	})
+}
+
+// record audits a change of an asset, with its terms per ledger in ledger
+// order (inLedgerOrder), and publishes it as AssetChanged, as the asset is
+// after it.
+func record(ctx context.Context, a Asset, ledgers []LedgerRef, action, change string) error {
+	inLedgerOrder(a.Terms, ledgers, func(t Terms) uuid.UUID { return t.LedgerID })
 	terms := make([]map[string]any, len(a.Terms))
 	for i, t := range a.Terms {
 		terms[i] = map[string]any{"ledger_id": t.LedgerID, "method": t.Method, "useful_life_months": t.UsefulLifeMonths,
