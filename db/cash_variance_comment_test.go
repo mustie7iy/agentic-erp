@@ -60,17 +60,17 @@ func TestCashVarianceCommentRules(t *testing.T) {
 			return []stmt{commentRow(f, sid, map[string]any{"period_to": "2026-04-17"})}
 		}, ""},
 		{"no text", func(f fixture, sid uuid.UUID) []stmt { return []stmt{commentRow(f, sid, map[string]any{"text": ""})} },
-			"variance_comment_text_check"},
+			"variance_comment_text"},
 		{"a blank text", func(f fixture, sid uuid.UUID) []stmt {
 			return []stmt{commentRow(f, sid, map[string]any{"text": " \n\t"})}
 		},
-			"variance_comment_text_check"},
+			"variance_comment_text"},
 		{"a text of 2,000 characters", func(f fixture, sid uuid.UUID) []stmt {
 			return []stmt{commentRow(f, sid, map[string]any{"text": strings.Repeat("é", 2000)})}
 		}, ""},
 		{"a text of 2,001 characters", func(f fixture, sid uuid.UUID) []stmt {
 			return []stmt{commentRow(f, sid, map[string]any{"text": strings.Repeat("é", 2001)})}
-		}, "variance_comment_text_check"},
+		}, "variance_comment_text"},
 		{"a status", func(f fixture, sid uuid.UUID) []stmt {
 			return []stmt{commentRow(f, sid, map[string]any{"status": "draft"})}
 		},

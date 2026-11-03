@@ -1869,7 +1869,9 @@ As built (T53f4, variance comments by people; decided by default where
   comment's company by a foreign key on `(tenant_id, snapshot_id,
   legal_entity_id)`, for which 000193 adds the unique index
   `snapshot_company`), `text` (1 to 2,000 characters, not blank, as a memo
-  record's comment), `status`, `decided_by`, `decided_at`, `created_at` and
+  record's comment, `variance_comment_text`; the application refuses a
+  blank text first, by `unicode.IsSpace`, which is wider than the
+  database's `[:space:]`, review round 1), `status`, `decided_by`, `decided_at`, `created_at` and
   `created_by` (the author). §11's `session` is the agent's, so T53i adds
   it with the proposals. Insert-only (no version, so no update is
   granted) and never deleted; T53i's decisions on proposals add the
@@ -1890,7 +1892,10 @@ As built (T53f4, variance comments by people; decided by default where
   the agent said), so the variance a comment explains can be read as long
   as the comment exists; a snapshot deleted at its retention while a
   comment naming it is written is the foreign key's
-  (`variance_comment_snapshot`, 409 `cash.snapshot_not_taken`).
+  (`variance_comment_snapshot`, 409 `cash.snapshot_not_taken`); the other
+  way round, a retention run racing a comment not yet committed fails on
+  the same key once the comment commits, keeps the snapshot, and on its
+  retry finds the comment and skips it (review round 1).
 - **API.** `POST /v1/liquidity-forecast-variance/comments`
   (`createVarianceComment`, `cash.variance.comment`, Idempotency-Key,
   `x-agent: false`: §13 gives the agent a proposal, never a comment),

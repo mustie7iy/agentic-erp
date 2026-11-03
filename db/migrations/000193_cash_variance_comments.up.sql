@@ -26,7 +26,7 @@ CREATE TABLE cash.variance_comment (
   lag              integer NOT NULL CHECK (lag IN (0, 7, 30)),  -- the lags a variance compares at (ADR-0051 §11)
   liquidity_item   text,              -- null: the row of what no rule assigns
   snapshot_id      uuid NOT NULL,     -- the snapshot the variance compared with, lag days before period_from
-  text             text NOT NULL CHECK (char_length(text) BETWEEN 1 AND 2000 AND text ~ '\S'),
+  text             text NOT NULL,
   status           text NOT NULL CHECK (status IN ('proposed', 'accepted', 'rejected')),
   decided_by       uuid,
   decided_at       timestamptz,
@@ -37,6 +37,9 @@ CREATE TABLE cash.variance_comment (
   CONSTRAINT variance_comment_snapshot FOREIGN KEY (tenant_id, snapshot_id, legal_entity_id)
     REFERENCES cash.snapshot (tenant_id, id, legal_entity_id),
   CONSTRAINT variance_comment_period CHECK (period_to >= period_from),
+  -- 1 to 2,000 characters, not blank: the application refuses a blank text
+  -- by a wider idea of space (unicode.IsSpace) first.
+  CONSTRAINT variance_comment_text CHECK (char_length(text) BETWEEN 1 AND 2000 AND text ~ '\S'),
   -- Only a proposal is undecided; a decided comment says who decided it, and when.
   CONSTRAINT variance_comment_decided CHECK ((status = 'proposed') = (decided_by IS NULL) AND (decided_by IS NULL) = (decided_at IS NULL))
 );
@@ -47,7 +50,11 @@ CREATE INDEX variance_comment_by_snapshot ON cash.variance_comment (tenant_id, s
 SELECT platform.secure_table('cash.variance_comment'::regclass);
 
 -- Retention (ADR-0051 §6) as 000192 defined it, but a snapshot a variance
--- comment refers to is kept with it, past its 25 months.
+-- comment refers to is kept with it, past its 25 months. A comment being
+-- written as the snapshot is deleted (read committed: NOT EXISTS does not
+-- see it uncommitted) makes the DELETE wait on the comment's lock and fail
+-- on variance_comment_snapshot once it commits: the snapshot stays, and the
+-- retention activity, retried, finds the comment and skips it.
 CREATE OR REPLACE FUNCTION cash.delete_expired_snapshots(entity uuid, on_day date)
 RETURNS TABLE (deleted_id uuid, deleted_kind text, deleted_date date)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$

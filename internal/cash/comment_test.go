@@ -119,7 +119,11 @@ func TestVarianceComments(t *testing.T) {
 	first, _ := e.Must(200, "GET", "/v1/liquidity-forecast-variance/comments?page_size=1", "", "")
 	want(t, "the first page", len(first["items"].([]any)), 1)
 	next, _ := e.Must(200, "GET", "/v1/liquidity-forecast-variance/comments?page_size=1&page_token="+fmt.Sprint(first["next_page_token"]), "", "")
-	want(t, "the second page", commentText(next["items"].([]any)[0].(map[string]any)), commentText(item))
+	second := next["items"].([]any)
+	if len(second) != 1 {
+		t.Fatalf("the second page: got %d comments, want 1", len(second))
+	}
+	want(t, "the second page", commentText(second[0].(map[string]any)), commentText(item))
 	want(t, "the last page's token", next["next_page_token"], nil)
 
 	events := apitest.Published(t, e.Tenant, outbox.Event{Context: "cash", Name: "variance_comment_decided"})
@@ -162,6 +166,23 @@ func TestVarianceCommentRefusals(t *testing.T) {
 	}
 	e.Problem(400, "request.invalid_body", "POST", "/v1/liquidity-forecast-variance/comments",
 		e.body(`"from": "2026-04-17", "to": "2026-04-17", "lag": 0, "liquidity_item": "TAX", "text": " \n "`), "")
+	e.Problem(400, "request.invalid_body", "POST", "/v1/liquidity-forecast-variance/comments",
+		e.body(`"from": "2026-04-17", "to": "2026-04-17", "lag": 0, "liquidity_item": "TAX", "text": "\u000b"`), "")
+	e.Problem(400, "request.invalid_body", "POST", "/v1/liquidity-forecast-variance/comments",
+		e.body(`"from": "2026-04-17", "to": "2026-04-17", "lag": 0, "liquidity_item": "TAX", "text": "\u3000"`), "")
+	// Behind the contract's pattern, the endpoint refuses a blank text by
+	// unicode.IsSpace, wider than the database's [:space:].
+	day := time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC)
+	for _, blank := range []string{"\u000b", "\u3000", "\u0085"} {
+		err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+			_, err := app.Cash(app.Config{Now: func() time.Time { return readAt }}).CommentVariance(ctx,
+				cash.CommentInput{LegalEntity: e.le, From: day, To: day, Item: "TAX", Text: blank})
+			return err
+		})
+		if p := problem.From(err); p == nil || p.Code != "request.validation_failed" || len(p.Errors) != 1 || p.Errors[0].Field != "text" {
+			t.Errorf("a text of %q: got %v, want request.validation_failed on text", blank, err)
+		}
+	}
 	e.Problem(409, "cash.snapshot_not_taken", "POST", "/v1/liquidity-forecast-variance/comments",
 		e.body(`"from": "2026-04-16", "to": "2026-04-16", "lag": 0, "liquidity_item": "TAX", `+text), "")
 	fields := `"from": "2026-04-17", "to": "2026-04-17", "lag": 0, "liquidity_item": "TAX", ` + text
@@ -273,5 +294,8 @@ func TestVarianceCommentFailures(t *testing.T) {
 	e.Problem(400, "request.invalid_page_token", "GET", "/v1/liquidity-forecast-variance/comments?page_token=nope", "", "")
 	if got := problem.From(&pgconn.PgError{Code: "23503", ConstraintName: "variance_comment_snapshot"}).Code; got != "cash.snapshot_not_taken" {
 		t.Errorf("the snapshot deleted in a race: got %s, want cash.snapshot_not_taken", got)
+	}
+	if got := problem.From(&pgconn.PgError{Code: "23514", ConstraintName: "variance_comment_text"}).Code; got != "request.validation_failed" {
+		t.Errorf("a text the database finds blank: got %s, want request.validation_failed", got)
 	}
 }

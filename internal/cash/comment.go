@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,6 +36,7 @@ import (
 const CommentAccepted = "accepted"
 
 func init() {
+	problem.RegisterConstraint("variance_comment_text", func() *problem.Problem { return errBlankText })
 	// A snapshot deleted at its retention while the comment naming it was
 	// being written: the variance can no longer be read.
 	problem.RegisterConstraint("variance_comment_snapshot", func() *problem.Problem {
@@ -130,10 +132,19 @@ func (e *Endpoints) CommentVariance(ctx context.Context, in CommentInput) (Varia
 	return c, decided(ctx, c, "cash.variance_comment.create")
 }
 
+// errBlankText refuses a comment of nothing but spaces.
+var errBlankText = problem.Unprocessable("request.validation_failed", "A comment explains the variance in words.",
+	problem.FieldError{Field: "text", Code: "invalid", Message: "not blank"})
+
 // checkComment refuses what the comment says before anything is read: a
-// lag not offered, a period backwards or longer than any grain's limit
-// (36 months), both an item and the unclassified row, or neither.
+// blank text (by unicode.IsSpace, wider than the database's [:space:], so
+// the database's rule is never what refuses it), a lag not offered, a
+// period backwards or longer than any grain's limit (36 months), both an
+// item and the unclassified row, or neither.
 func checkComment(in CommentInput, from, to time.Time) error {
+	if strings.TrimSpace(in.Text) == "" {
+		return errBlankText
+	}
 	if err := checkLag(in.Lag); err != nil {
 		return err
 	}
