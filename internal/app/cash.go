@@ -8,10 +8,12 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/agents"
 	"github.com/mustie7iy/agentic-erp/internal/cash"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -96,9 +98,34 @@ func (c cashPayments) Payables(ctx context.Context, legalEntity uuid.UUID, on ti
 	out := make([]cash.Payable, len(ps))
 	for i, p := range ps {
 		out[i] = cash.Payable{Source: cashSources[p.Kind], Supplier: p.PartnerID, Currency: p.Currency, Due: p.Due, Blocked: p.Blocked != "",
-			BankCode: p.HouseBankCode, Method: p.Method, Dates: p.Dates(), Pays: p.Pays}
+			BankCode: p.HouseBankCode, Method: p.Method, Dates: p.Dates(), Pays: p.Pays, Lines: cashLines(p.Lines), PlanningGroup: p.PlanningGroup}
 	}
 	return out, err
+}
+
+// Paying gives the forecast what the payments of runs not released pay,
+// to derive their liquidity items from (T53e3).
+func (c cashPayments) Paying(ctx context.Context, legalEntity uuid.UUID, ids []uuid.UUID, on time.Time) (map[uuid.UUID]cash.Paying, error) {
+	ps, err := c.position.Paying(ctx, legalEntity, ids, on)
+	out := make(map[uuid.UUID]cash.Paying, len(ps))
+	for id, p := range ps {
+		items := make([]cash.Paid, len(p.Items))
+		for i, it := range p.Items {
+			items[i] = cash.Paid{Amount: it.Amount, Lines: cashLines(it.Lines)}
+		}
+		out[id] = cash.Paying{PlanningGroup: p.PlanningGroup, Items: items}
+	}
+	return out, err
+}
+
+// cashLines are a document's offsetting lines as the cash context reads
+// them.
+func cashLines(ls []ledger.OffsettingLine) []cash.DocumentLine {
+	out := make([]cash.DocumentLine, len(ls))
+	for i, l := range ls {
+		out[i] = cash.DocumentLine{Account: l.Account, Amount: l.Amount, TaxCode: l.TaxCode, TaxKey: l.TaxKey}
+	}
+	return out
 }
 
 // cashSources are the forecast's sources of the payments context's kinds
@@ -130,4 +157,30 @@ func (cashLedger) OpenLines(ctx context.Context, legalEntity uuid.UUID, accounts
 func (cashLedger) Rate(ctx context.Context, rateType, from, to string, date time.Time) (cash.Rate, bool, error) {
 	c, found, err := ledger.Rates{}.OfType(ctx, rateType, from, to, date)
 	return cash.Rate{Rate: c.Rate, ValidFrom: c.ValidFrom, Convert: c.Convert}, found, err
+}
+
+// cashSimulation is the cash context's derivation simulation (ADR-0051
+// §4, T53e3) as a change request's simulation runs it: it classifies the
+// open flows of the forecast, not the window's transactions it is given.
+type cashSimulation struct{ sim cash.Simulation }
+
+func (c cashSimulation) Simulate(ctx context.Context, base, proposed *config.Config, _ time.Duration) (configuration.Simulation, error) {
+	r, err := c.sim.Simulate(ctx, base, proposed)
+	return configuration.Simulation{Passed: r.Passed, Summary: r.Summary, Detail: r.Detail}, err
+}
+
+// cashDisclosure shows a reader of a change request the derivation
+// simulation's companies they may access alone (cash.Disclose).
+type cashDisclosure struct{}
+
+func (cashDisclosure) Disclose(_ context.Context, e configuration.Evidence, access authz.Access) (configuration.Evidence, error) {
+	if e.Kind != "simulation" {
+		return e, nil
+	}
+	detail, summary, err := cash.Disclose(e.Detail, e.Summary, access)
+	if err != nil {
+		return configuration.Evidence{}, err
+	}
+	e.Detail, e.Summary = detail, summary
+	return e, nil
 }

@@ -47,6 +47,9 @@ type Requests interface {
 // items (ledger.OpenItems.Owed).
 type Owed interface {
 	Owed(ctx context.Context, legalEntity uuid.UUID) ([]ledger.PayableItem, error)
+	// Offsetting are the entries' offsetting lines, from which the
+	// forecast derives the liquidity items of their items (T53e3).
+	Offsetting(ctx context.Context, entries []ledger.EntryRef) (map[ledger.EntryRef][]ledger.OffsettingLine, error)
 }
 
 // CashBank is a house bank as the cash position reads it.

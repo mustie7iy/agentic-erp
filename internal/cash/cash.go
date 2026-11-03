@@ -19,7 +19,9 @@
 // payments of runs not yet released, per currency in the company's
 // buckets. T53e2 adds the invoices parked or on hold and the down payment
 // requests, and shows what suppliers no run pays are owed apart from the
-// totals unless asked.
+// totals unless asked. T53e3 splits each flow over the liquidity items its
+// documents' offsetting lines derive, giving rows by item and its
+// hierarchy, and simulates a change of the derivation on the open flows.
 package cash
 
 import (
