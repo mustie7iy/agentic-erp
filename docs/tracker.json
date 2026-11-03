@@ -1513,30 +1513,114 @@
     "ph": 2,
     "c": [
      {
+      "s": "P",
+      "t": "Financial close designed (ADR-0058, decided by default under ADR-0053 d): a leaf closing context; the close template and a company weekend in configuration; one close per company and regular period with its checklist, checks run on demand and at sign-off; sign-off locking each covered period through T32; accrual proposals parked for a person to post; the variance report and comments; the close agent proposing only",
+      "r": "ADR-0058 · T64 (split T64a-T64k)",
+      "c": [
+       {
+        "s": "T",
+        "t": "Close template, company weekend and the close calendar: close.tasks (code, name, kind manual|check, check, due_day in business days, depends_on without cycles, optional companies) and calendars[company].weekend (default Saturday and Sunday) in the configuration, validated with tiers; config.Config.BusinessDay, cash's working calling it unchanged; the closing leaf (internal/layout) with its Companies and Ledger period ports; GET /v1/close-calendar (each regular period with its close, if any, and the planned first and last due dates); closing.close.read; walkthrough step_close: the template proposed, approved and activated, the year's calendar read",
+        "r": "ADR-0058 · T64a",
+        "src": "adr:ADR-0058",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The period close and its manual checklist: schema closing (period_close, close_ledger, close_task; RLS, tenant_id first, state triggers, schema tests); POST/GET/list /v1/period-closes (one per company and regular period, the template copied with its configuration version, ledgers defaulting to every kept one; closing.close_exists, closing.special_period, closing.period_unknown, closing.no_template); task PATCH (assignee with name), :complete, :reopen, dependencies (closing.task_blocked), overdue on the company's today; GET /v1/close-tasks; closing.close.manage (task actions with ledger.entry.read also); PeriodCloseChanged; audit; walkthrough: today's period's close opened (step_close, the story's last step, signed off at its end), a task assigned and completed, a blocked task and a second close refused",
+        "r": "ADR-0058 · T64b",
+        "src": "adr:ADR-0058",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Automatic checks: :check with recorded results (closing.close.manage and ledger.entry.read); no_parked_entries (naming up to 20 entries) and revaluation_posted per covered ledger through the ledger's new reads; closing.task_not_check, closing.task_is_check; walkthrough: the parked-entries check fails naming an entry parked in the period, passes once it is cancelled",
+        "r": "ADR-0058 · T64c",
+        "src": "adr:ADR-0058",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Sign-off locks the period through T32: :sign-off (people only, closing.close.sign_off, ledger.period.lock and ledger.entry.read; 03's entry-lock paragraph updated) refused while a manual task is open (closing.tasks_open), a check fails when re-run (closing.checks_failing, nothing kept), or a covered period is open (closing.period_not_closed); ledger.LockPeriod per covered closed period in the postings' lock order (leading ledger first, then by code; a concurrency test); the sign_off row; PeriodCloseSignedOff; a signed-off close reopened by its first write after an unlock and signed off again (test); closing.close_signed_off; walkthrough, at the end of step_close: sign-off refused while the period is open, the period closed and signed off, a manual entry dated in it refused with ledger.period_not_open",
+        "r": "ADR-0058 · T64d",
+        "src": "adr:ADR-0058",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Accrual proposals: companies[].close.accrual_account (tier 3); ledger.ParkedEntries.Park as the request's principal; accrual_proposal and accrual_evidence; POST /v1/accrual-proposals (agents only, in session, x-autonomy propose, ledger.entry.park also; evidence of supplier invoices, orders and entries checked; duplicate and retry rules; the parked entry Dr expense / Cr accrual account dated the period's last day); GET and list with names, evidence and the parked entry; AccrualProposed; closing.accrual.propose; the walkthrough's first agent principal at level 1; walkthrough: the agent principal proposes an accrual citing last month's invoice, Carla posts its parked entry, a person's proposal refused with agents.not_an_agent",
+        "r": "ADR-0058 · T64e",
+        "src": "adr:ADR-0058",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Deciding accrual proposals: ledger.ParkedEntries.Statuses and Cancel (the ledger's owner rule); the status derived from the parked entry (proposed, pending_approval, posted, modified with the posted amount, reversed, rejected); totals per status and currency; :reject (closing.accrual.decide and ledger.entry.park; closing.accrual_not_open, ledger.not_entry_owner); checks accruals_decided and accruals_reversed; AccrualProposalRejected; walkthrough: the proposal reads posted with its entry's number, a second one rejected with a reason, the totals per status in CAD, accruals_decided passing",
+        "r": "ADR-0058 · T64f",
+        "src": "adr:ADR-0058",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The close agent, accruals: agent type close, internal/closeagent (tools, prompt, untrusted data; internal/layout entry apitools and llm), erp agent close-accruals -close ID, alias erp-close; evals/close with the accrual cases of ADR-0058 §12 replayed in CI; the model stand-in answering from a script of turns; walkthrough: the agent through the stand-in proposes the missing monthly accrual and nothing for a supplier already invoiced",
+        "r": "ADR-0058 · T64g",
+        "src": "adr:ADR-0058",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The variance report: companies[].close.variance (bases prior_period, prior_year, plan; threshold amount and percent; plan category and centers; tier 2); GET /v1/period-closes/{id}/variances per profit and loss account of the leading ledger in local currency (actual, comparison, variance, exact percent, requires_comment, filters, paging by account number, totals over the report); closing.Plans over controlling; closing.basis_not_configured; walkthrough: the variances against the prior period, the flagged rows, the totals equal to the period's profit and loss",
+        "r": "ADR-0058 · T64h",
+        "src": "adr:ADR-0058",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Variance comments: variance_comment and variance_citation; POST /v1/variance-comment-proposals (agents, in session, citations checked: closing.citation_invalid), POST /v1/variance-comments (people), :accept with optional edited text, :reject, superseded, stale when the figures change; check variances_explained; VarianceCommentChanged; closing.variance.propose|comment, ledger.entry.read also; walkthrough: the agent principal proposes a comment citing the entry behind a flagged row, Carla accepts it, the check passes, a citation on another account refused",
+        "r": "ADR-0058 · T64i",
+        "src": "adr:ADR-0058",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The close agent, variances: erp agent close-variances -close ID, the variance tools and prompt, the variance cases of ADR-0058 §12 in evals/close; walkthrough: the agent through the stand-in proposes a comment for the flagged row citing its entry and none for rows below the threshold",
+        "r": "ADR-0058 · T64j",
+        "src": "adr:ADR-0058",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Depreciation check (after T57f): closing.Depreciation over assets; depreciation_posted per covered ledger, passing for a company with nothing to depreciate; walkthrough: the check fails before the period's depreciation run and passes after it",
+        "r": "ADR-0058 · T64k",
+        "src": "adr:ADR-0058",
+        "c": []
+       }
+      ]
+     },
+     {
       "s": "T",
       "t": "Close calendar and checklist",
-      "r": "T64",
+      "r": "T64 · ADR-0058 §3, §6 · T64a, T64b, T64c, T64k",
       "src": "baseline",
       "c": []
      },
      {
       "s": "T",
       "t": "Accrual proposals by agent",
-      "r": "T64",
+      "r": "T64 · ADR-0058 §8, §12 · T64e, T64f, T64g",
       "src": "baseline",
       "c": []
      },
      {
       "s": "T",
       "t": "Variance commentary by agent",
-      "r": "T64",
+      "r": "T64 · ADR-0058 §9, §10, §12 · T64h, T64i, T64j",
       "src": "baseline",
       "c": []
      },
      {
       "s": "T",
       "t": "Period lock after sign-off",
-      "r": "T64",
+      "r": "T64 · ADR-0058 §7 · T64d",
       "src": "baseline",
       "c": []
      }
