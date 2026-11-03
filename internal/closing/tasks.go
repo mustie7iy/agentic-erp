@@ -23,9 +23,10 @@ type act func(ctx context.Context, tx pgx.Tx, p reqctx.Principal, t task) (ch ch
 
 // taskAction runs a change of a close's task (ADR-0058 §5, §6): the close
 // is locked first and its version checked against If-Match, so a change
-// made on a stale view of the checklist is refused; the change moves the
-// close's version, is audited and published, and the answer is the task
-// with the close's new ETag.
+// made on a stale view of the checklist is refused; a signed-off close is
+// reopened first, or refused while its periods are all locked (§7); the
+// change moves the close's version, is audited and published, and the
+// answer is the task with the close's new ETag.
 func (e *Endpoints) taskAction(ctx context.Context, closeID uuid.UUID, code, ifMatch string, do act) (*gen.CloseTaskHeaders, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -38,6 +39,10 @@ func (e *Endpoints) taskAction(ctx context.Context, closeID uuid.UUID, code, ifM
 	if err := etag.IfMatch(ifMatch)(version); err != nil {
 		return nil, err
 	}
+	unlocked, err := e.writable(ctx, tx, closeID)
+	if err != nil {
+		return nil, err
+	}
 	t, err := readTask(ctx, tx, closeID, code)
 	if err != nil {
 		return nil, err
@@ -47,6 +52,9 @@ func (e *Endpoints) taskAction(ctx context.Context, closeID uuid.UUID, code, ifM
 		return nil, err
 	}
 	if ok {
+		if err := reopen(ctx, tx, p, closeID, unlocked); err != nil {
+			return nil, err
+		}
 		if err := e.changed(ctx, tx, p, closeID, ch); err != nil {
 			return nil, err
 		}

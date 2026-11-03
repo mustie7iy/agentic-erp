@@ -1574,10 +1574,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Sign-off locks the period through T32: :sign-off (people only, closing.close.sign_off, ledger.period.lock and ledger.entry.read; 03's entry-lock paragraph updated) refused while a manual task is open (closing.tasks_open), a check fails when re-run (closing.checks_failing, nothing kept), or a covered period is open (closing.period_not_closed); ledger.LockPeriod per covered closed period in the postings' lock order (leading ledger first, then by code; a concurrency test); the sign_off row; PeriodCloseSignedOff; a signed-off close reopened by its first write after an unlock and signed off again (test); closing.close_signed_off; walkthrough, at the end of step_close: sign-off refused while the period is open, the period closed and signed off, a manual entry dated in it refused with ledger.period_not_open",
         "r": "ADR-0058 · T64d",
         "src": "adr:ADR-0058",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Every period lock in one order (pre-existing finding on T64d): a migrated clearing's clearingPeriods locked its posting group's periods FOR SHARE in the scan's order of journal_entry, and the controlling switch locked a company's periods FOR UPDATE with no ORDER BY, each able to deadlock (40P01) with a sign-off or a posting; both now lock by fiscal year and period, the leading ledger first, then by code (concurrency tests on three ledgers whose ids and codes sort differently; 03's entry-lock paragraph)",
+        "r": "internal/ledger/migration.go clearingPeriods · internal/ledger/controlling.go checkSwitches · ADR-0058 As built (review:T64d)",
+        "src": "review:T64d",
         "c": []
        },
        {

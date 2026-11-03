@@ -374,11 +374,12 @@ channels:
   closing:
     address: 'erp.{cell}.closing.{tenant}.{event}'
     title: Financial close events
-    description: Period closes and their checklists (ADR-0058 §13).
+    description: Period closes, their checklists and sign-offs (ADR-0058 §13).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       PeriodCloseChanged: {$ref: '#/components/messages/PeriodCloseChanged'}
+      PeriodCloseSignedOff: {$ref: '#/components/messages/PeriodCloseSignedOff'}
   platform:
     address: 'erp.{cell}.platform.{tenant}.{event}'
     title: Platform operation events
@@ -602,6 +603,7 @@ operations:
     channel: {$ref: '#/channels/closing'}
     messages:
       - $ref: '#/channels/closing/messages/PeriodCloseChanged'
+      - $ref: '#/channels/closing/messages/PeriodCloseSignedOff'
   publishPlatformEvents:
     action: send
     title: Platform publishes
@@ -3072,12 +3074,15 @@ components:
       name: PeriodCloseChanged
       x-webhook: true
       title: Period close changed
-      summary: A period close was opened, or one of its tasks assigned, completed, reopened or checked.
+      summary: A period close was opened, reopened after an unlock, or one of its tasks assigned, completed, reopened or checked.
       description: |
         Emitted by `period-closes` (POST, `created`) and its tasks' PATCH
         (`task_assigned`), `:complete` (`task_completed`), `:reopen`
         (`task_reopened`, with the reason) (ADR-0058 §6, T64b) and `:check`
-        (`task_checked`, with `check_passed`; T64c). It says
+        (`task_checked`, with `check_passed`; T64c); and `reopened` when
+        the first write on a signed-off close whose covered periods are no
+        longer all locked (one was unlocked) sets it open again, before
+        that write's own change (ADR-0058 §7, T64d). It says
         what changed, not the close, which `GET /v1/period-closes/{id}`
         returns at `version`. Subject is the period close id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
@@ -3091,6 +3096,29 @@ components:
         - name: task_completed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000801, source: /erp/eu-1/closing, type: com.example.erp.closing.period_close_changed.v1, subject: 0192a000-0000-7000-8000-000000000f01, time: '2026-11-03T15:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {period_close_id: 0192a000-0000-7000-8000-000000000f01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2026, fiscal_period: 10, change: task_completed, task_code: AP_CUTOFF, reason: null, status: open, version: 3}
+    PeriodCloseSignedOff:
+      name: PeriodCloseSignedOff
+      x-webhook: true
+      title: Period close signed off
+      summary: A period close was signed off, and its covered ledgers' periods locked.
+      description: |
+        Emitted by `period-closes/{id}:signOff` (ADR-0058 §7, T64d): who
+        signed off, and per covered ledger its period and whether this
+        sign-off locked it (each lock is also published by the ledger as
+        PeriodLocked). A close signed off again after an unlock is
+        published again, with its new sign-off. Subject is the period
+        close id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.closing.period_close_signed_off.v1}
+      payload: {$ref: '#/components/schemas/PeriodCloseSignedOffV1'}
+      examples:
+        - name: signed_off
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000802, source: /erp/eu-1/closing, type: com.example.erp.closing.period_close_signed_off.v1, subject: 0192a000-0000-7000-8000-000000000f01, time: '2026-11-05T16:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {period_close_id: 0192a000-0000-7000-8000-000000000f01, sign_off_id: 0192a000-0000-7000-8000-000000000f21, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2026, fiscal_period: 10, signed_by: 0192a000-0000-7000-8000-000000000101, note: null, periods: [{ledger_id: 0192a000-0000-7000-8000-000000000a01, ledger_code: 0L, fiscal_period_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41, locked: true}], status: signed_off, version: 9}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -3641,12 +3669,36 @@ components:
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
         fiscal_year: {type: integer}
         fiscal_period: {type: integer, description: The regular period (1-12).}
-        change: {type: string, description: 'Open enum: created, task_assigned, task_completed, task_reopened, task_checked.'}
-        task_code: {type: [string, 'null'], description: The task changed; null when the close was created.}
+        change: {type: string, description: 'Open enum: created, task_assigned, task_completed, task_reopened, task_checked, reopened.'}
+        task_code: {type: [string, 'null'], description: The task changed; null when the close was created or reopened.}
         reason: {type: [string, 'null'], description: "Why a task was reopened; null for any other change."}
         check_passed: {type: [boolean, 'null'], description: "Whether the task's check passed (T64c); null for any change but task_checked. `GET /v1/period-closes/{id}` shows what it found."}
         status: {type: string, description: "The close's status after the change. Open enum: open, signed_off."}
         version: {type: integer, description: "The close's version after the change."}
+    PeriodCloseSignedOffV1:
+      type: object
+      required: [period_close_id, sign_off_id, legal_entity_id, fiscal_year, fiscal_period, signed_by, note, periods, status, version]
+      properties:
+        period_close_id: {$ref: '#/components/schemas/Uuid', description: '`closing.period_close.id`.'}
+        sign_off_id: {$ref: '#/components/schemas/Uuid', description: '`closing.sign_off.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        fiscal_year: {type: integer}
+        fiscal_period: {type: integer, description: The regular period (1-12).}
+        signed_by: {$ref: '#/components/schemas/Uuid', description: The person who signed it off.}
+        note: {type: [string, 'null'], description: "The sign-off's note; null without one."}
+        periods:
+          type: array
+          description: The covered ledgers, the leading one first, then by code.
+          items:
+            type: object
+            required: [ledger_id, ledger_code, fiscal_period_id, locked]
+            properties:
+              ledger_id: {$ref: '#/components/schemas/Uuid'}
+              ledger_code: {type: string}
+              fiscal_period_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.period_status.id`.'}
+              locked: {type: boolean, description: Whether this sign-off locked the period; false when it was locked already.}
+        status: {type: string, description: "The close's status after the sign-off. Open enum: signed_off."}
+        version: {type: integer, description: "The close's version after the sign-off."}
     AssetChangedV1:
       type: object
       required: [asset_id, legal_entity_id, asset_number, class_code, change, status, version]

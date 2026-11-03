@@ -32480,6 +32480,24 @@ func (s *CloseCalendarClose) encodeFields(e *jx.Encoder) {
 		e.Str(s.Status)
 	}
 	{
+		if s.SignedOffAt.Set {
+			e.FieldStart("signed_off_at")
+			s.SignedOffAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		if s.SignedOffBy.Set {
+			e.FieldStart("signed_off_by")
+			s.SignedOffBy.Encode(e)
+		}
+	}
+	{
+		if s.SignedOffByName.Set {
+			e.FieldStart("signed_off_by_name")
+			s.SignedOffByName.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("tasks_total")
 		e.Int32(s.TasksTotal)
 	}
@@ -32493,12 +32511,15 @@ func (s *CloseCalendarClose) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCloseCalendarClose = [5]string{
+var jsonFieldsNameOfCloseCalendarClose = [8]string{
 	0: "id",
 	1: "status",
-	2: "tasks_total",
-	3: "tasks_done",
-	4: "tasks_overdue",
+	2: "signed_off_at",
+	3: "signed_off_by",
+	4: "signed_off_by_name",
+	5: "tasks_total",
+	6: "tasks_done",
+	7: "tasks_overdue",
 }
 
 // Decode decodes CloseCalendarClose from json.
@@ -32534,8 +32555,38 @@ func (s *CloseCalendarClose) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
+		case "signed_off_at":
+			if err := func() error {
+				s.SignedOffAt.Reset()
+				if err := s.SignedOffAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_off_at\"")
+			}
+		case "signed_off_by":
+			if err := func() error {
+				s.SignedOffBy.Reset()
+				if err := s.SignedOffBy.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_off_by\"")
+			}
+		case "signed_off_by_name":
+			if err := func() error {
+				s.SignedOffByName.Reset()
+				if err := s.SignedOffByName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_off_by_name\"")
+			}
 		case "tasks_total":
-			requiredBitSet[0] |= 1 << 2
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksTotal = int32(v)
@@ -32547,7 +32598,7 @@ func (s *CloseCalendarClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tasks_total\"")
 			}
 		case "tasks_done":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksDone = int32(v)
@@ -32559,7 +32610,7 @@ func (s *CloseCalendarClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tasks_done\"")
 			}
 		case "tasks_overdue":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksOverdue = int32(v)
@@ -32580,7 +32631,7 @@ func (s *CloseCalendarClose) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00011111,
+		0b11100011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -55131,6 +55182,153 @@ func (s Extensions) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *Extensions) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *FailingCheck) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *FailingCheck) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("task_code")
+		e.Str(s.TaskCode)
+	}
+	{
+		e.FieldStart("task_name")
+		e.Str(s.TaskName)
+	}
+	{
+		e.FieldStart("check")
+		e.Str(s.Check)
+	}
+	{
+		e.FieldStart("summary")
+		e.Str(s.Summary)
+	}
+}
+
+var jsonFieldsNameOfFailingCheck = [4]string{
+	0: "task_code",
+	1: "task_name",
+	2: "check",
+	3: "summary",
+}
+
+// Decode decodes FailingCheck from json.
+func (s *FailingCheck) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode FailingCheck to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "task_code":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.TaskCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"task_code\"")
+			}
+		case "task_name":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.TaskName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"task_name\"")
+			}
+		case "check":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.Check = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"check\"")
+			}
+		case "summary":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Str()
+				s.Summary = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"summary\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode FailingCheck")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00001111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfFailingCheck) {
+					name = jsonFieldsNameOfFailingCheck[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *FailingCheck) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *FailingCheck) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -96081,6 +96279,39 @@ func (s *OptPaymentRunReleaseApproval) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes PeriodCloseSignOffInput as json.
+func (o OptPeriodCloseSignOffInput) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes PeriodCloseSignOffInput from json.
+func (o *OptPeriodCloseSignOffInput) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptPeriodCloseSignOffInput to nil")
+	}
+	o.Set = true
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptPeriodCloseSignOffInput) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptPeriodCloseSignOffInput) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes Problem as json.
 func (o OptProblem) Encode(e *jx.Encoder) {
 	if !o.Set {
@@ -102400,6 +102631,24 @@ func (s *PeriodClose) encodeFields(e *jx.Encoder) {
 		e.Str(s.Status)
 	}
 	{
+		if s.SignedOffAt.Set {
+			e.FieldStart("signed_off_at")
+			s.SignedOffAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		if s.SignedOffBy.Set {
+			e.FieldStart("signed_off_by")
+			s.SignedOffBy.Encode(e)
+		}
+	}
+	{
+		if s.SignedOffByName.Set {
+			e.FieldStart("signed_off_by_name")
+			s.SignedOffByName.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("read_date")
 		json.EncodeDate(e, s.ReadDate)
 	}
@@ -102440,6 +102689,14 @@ func (s *PeriodClose) encodeFields(e *jx.Encoder) {
 		e.ArrEnd()
 	}
 	{
+		e.FieldStart("sign_offs")
+		e.ArrStart()
+		for _, elem := range s.SignOffs {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
 		e.FieldStart("version")
 		e.Int32(s.Version)
 	}
@@ -102461,7 +102718,7 @@ func (s *PeriodClose) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPeriodClose = [22]string{
+var jsonFieldsNameOfPeriodClose = [26]string{
 	0:  "id",
 	1:  "legal_entity_id",
 	2:  "company_code",
@@ -102471,19 +102728,23 @@ var jsonFieldsNameOfPeriodClose = [22]string{
 	6:  "period_end",
 	7:  "config_version",
 	8:  "status",
-	9:  "read_date",
-	10: "time_zone",
-	11: "tasks_total",
-	12: "tasks_done",
-	13: "tasks_open",
-	14: "tasks_overdue",
-	15: "ledgers",
-	16: "tasks",
-	17: "version",
-	18: "created_at",
-	19: "created_by",
-	20: "updated_at",
-	21: "updated_by",
+	9:  "signed_off_at",
+	10: "signed_off_by",
+	11: "signed_off_by_name",
+	12: "read_date",
+	13: "time_zone",
+	14: "tasks_total",
+	15: "tasks_done",
+	16: "tasks_open",
+	17: "tasks_overdue",
+	18: "ledgers",
+	19: "tasks",
+	20: "sign_offs",
+	21: "version",
+	22: "created_at",
+	23: "created_by",
+	24: "updated_at",
+	25: "updated_by",
 }
 
 // Decode decodes PeriodClose from json.
@@ -102491,7 +102752,7 @@ func (s *PeriodClose) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode PeriodClose to nil")
 	}
-	var requiredBitSet [3]uint8
+	var requiredBitSet [4]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -102603,8 +102864,38 @@ func (s *PeriodClose) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
+		case "signed_off_at":
+			if err := func() error {
+				s.SignedOffAt.Reset()
+				if err := s.SignedOffAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_off_at\"")
+			}
+		case "signed_off_by":
+			if err := func() error {
+				s.SignedOffBy.Reset()
+				if err := s.SignedOffBy.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_off_by\"")
+			}
+		case "signed_off_by_name":
+			if err := func() error {
+				s.SignedOffByName.Reset()
+				if err := s.SignedOffByName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_off_by_name\"")
+			}
 		case "read_date":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.ReadDate = v
@@ -102616,7 +102907,7 @@ func (s *PeriodClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"read_date\"")
 			}
 		case "time_zone":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.TimeZone = string(v)
@@ -102628,7 +102919,7 @@ func (s *PeriodClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"time_zone\"")
 			}
 		case "tasks_total":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksTotal = int32(v)
@@ -102640,7 +102931,7 @@ func (s *PeriodClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tasks_total\"")
 			}
 		case "tasks_done":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksDone = int32(v)
@@ -102652,7 +102943,7 @@ func (s *PeriodClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tasks_done\"")
 			}
 		case "tasks_open":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksOpen = int32(v)
@@ -102664,7 +102955,7 @@ func (s *PeriodClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tasks_open\"")
 			}
 		case "tasks_overdue":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksOverdue = int32(v)
@@ -102676,7 +102967,7 @@ func (s *PeriodClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tasks_overdue\"")
 			}
 		case "ledgers":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				s.Ledgers = make([]CloseLedger, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -102694,7 +102985,7 @@ func (s *PeriodClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"ledgers\"")
 			}
 		case "tasks":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				s.Tasks = make([]CloseTask, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -102711,8 +103002,26 @@ func (s *PeriodClose) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tasks\"")
 			}
+		case "sign_offs":
+			requiredBitSet[2] |= 1 << 4
+			if err := func() error {
+				s.SignOffs = make([]PeriodCloseSignOff, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem PeriodCloseSignOff
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.SignOffs = append(s.SignOffs, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"sign_offs\"")
+			}
 		case "version":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 5
 			if err := func() error {
 				v, err := d.Int32()
 				s.Version = int32(v)
@@ -102724,7 +103033,7 @@ func (s *PeriodClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"version\"")
 			}
 		case "created_at":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 6
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -102736,7 +103045,7 @@ func (s *PeriodClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_at\"")
 			}
 		case "created_by":
-			requiredBitSet[2] |= 1 << 3
+			requiredBitSet[2] |= 1 << 7
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.CreatedBy = v
@@ -102748,7 +103057,7 @@ func (s *PeriodClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_by\"")
 			}
 		case "updated_at":
-			requiredBitSet[2] |= 1 << 4
+			requiredBitSet[3] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.UpdatedAt = v
@@ -102760,7 +103069,7 @@ func (s *PeriodClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"updated_at\"")
 			}
 		case "updated_by":
-			requiredBitSet[2] |= 1 << 5
+			requiredBitSet[3] |= 1 << 1
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.UpdatedBy = v
@@ -102780,10 +103089,11 @@ func (s *PeriodClose) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [3]uint8{
+	for i, mask := range [4]uint8{
 		0b11111111,
+		0b11110001,
 		0b11111111,
-		0b00111111,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -103035,6 +103345,24 @@ func (s *PeriodCloseItem) encodeFields(e *jx.Encoder) {
 		e.Str(s.Status)
 	}
 	{
+		if s.SignedOffAt.Set {
+			e.FieldStart("signed_off_at")
+			s.SignedOffAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		if s.SignedOffBy.Set {
+			e.FieldStart("signed_off_by")
+			s.SignedOffBy.Encode(e)
+		}
+	}
+	{
+		if s.SignedOffByName.Set {
+			e.FieldStart("signed_off_by_name")
+			s.SignedOffByName.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("read_date")
 		json.EncodeDate(e, s.ReadDate)
 	}
@@ -103080,7 +103408,7 @@ func (s *PeriodCloseItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPeriodCloseItem = [20]string{
+var jsonFieldsNameOfPeriodCloseItem = [23]string{
 	0:  "id",
 	1:  "legal_entity_id",
 	2:  "company_code",
@@ -103090,17 +103418,20 @@ var jsonFieldsNameOfPeriodCloseItem = [20]string{
 	6:  "period_end",
 	7:  "config_version",
 	8:  "status",
-	9:  "read_date",
-	10: "time_zone",
-	11: "tasks_total",
-	12: "tasks_done",
-	13: "tasks_open",
-	14: "tasks_overdue",
-	15: "version",
-	16: "created_at",
-	17: "created_by",
-	18: "updated_at",
-	19: "updated_by",
+	9:  "signed_off_at",
+	10: "signed_off_by",
+	11: "signed_off_by_name",
+	12: "read_date",
+	13: "time_zone",
+	14: "tasks_total",
+	15: "tasks_done",
+	16: "tasks_open",
+	17: "tasks_overdue",
+	18: "version",
+	19: "created_at",
+	20: "created_by",
+	21: "updated_at",
+	22: "updated_by",
 }
 
 // Decode decodes PeriodCloseItem from json.
@@ -103220,8 +103551,38 @@ func (s *PeriodCloseItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
+		case "signed_off_at":
+			if err := func() error {
+				s.SignedOffAt.Reset()
+				if err := s.SignedOffAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_off_at\"")
+			}
+		case "signed_off_by":
+			if err := func() error {
+				s.SignedOffBy.Reset()
+				if err := s.SignedOffBy.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_off_by\"")
+			}
+		case "signed_off_by_name":
+			if err := func() error {
+				s.SignedOffByName.Reset()
+				if err := s.SignedOffByName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_off_by_name\"")
+			}
 		case "read_date":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.ReadDate = v
@@ -103233,7 +103594,7 @@ func (s *PeriodCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"read_date\"")
 			}
 		case "time_zone":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.TimeZone = string(v)
@@ -103245,7 +103606,7 @@ func (s *PeriodCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"time_zone\"")
 			}
 		case "tasks_total":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksTotal = int32(v)
@@ -103257,7 +103618,7 @@ func (s *PeriodCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tasks_total\"")
 			}
 		case "tasks_done":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksDone = int32(v)
@@ -103269,7 +103630,7 @@ func (s *PeriodCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tasks_done\"")
 			}
 		case "tasks_open":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksOpen = int32(v)
@@ -103281,7 +103642,7 @@ func (s *PeriodCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tasks_open\"")
 			}
 		case "tasks_overdue":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksOverdue = int32(v)
@@ -103293,7 +103654,7 @@ func (s *PeriodCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tasks_overdue\"")
 			}
 		case "version":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				v, err := d.Int32()
 				s.Version = int32(v)
@@ -103305,7 +103666,7 @@ func (s *PeriodCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"version\"")
 			}
 		case "created_at":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -103317,7 +103678,7 @@ func (s *PeriodCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_at\"")
 			}
 		case "created_by":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.CreatedBy = v
@@ -103329,7 +103690,7 @@ func (s *PeriodCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_by\"")
 			}
 		case "updated_at":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 5
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.UpdatedAt = v
@@ -103341,7 +103702,7 @@ func (s *PeriodCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"updated_at\"")
 			}
 		case "updated_by":
-			requiredBitSet[2] |= 1 << 3
+			requiredBitSet[2] |= 1 << 6
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.UpdatedBy = v
@@ -103363,8 +103724,8 @@ func (s *PeriodCloseItem) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [3]uint8{
 		0b11111111,
-		0b11111111,
-		0b00001111,
+		0b11110001,
+		0b01111111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -103529,6 +103890,544 @@ func (s *PeriodClosePage) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *PeriodClosePage) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *PeriodCloseSignOff) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *PeriodCloseSignOff) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("id")
+		json.EncodeUUID(e, s.ID)
+	}
+	{
+		e.FieldStart("close_id")
+		json.EncodeUUID(e, s.CloseID)
+	}
+	{
+		e.FieldStart("legal_entity_id")
+		json.EncodeUUID(e, s.LegalEntityID)
+	}
+	{
+		e.FieldStart("company_code")
+		e.Str(s.CompanyCode)
+	}
+	{
+		e.FieldStart("company_name")
+		e.Str(s.CompanyName)
+	}
+	{
+		e.FieldStart("fiscal_year")
+		e.Int32(s.FiscalYear)
+	}
+	{
+		e.FieldStart("fiscal_period")
+		e.Int32(s.FiscalPeriod)
+	}
+	{
+		e.FieldStart("signed_by")
+		json.EncodeUUID(e, s.SignedBy)
+	}
+	{
+		e.FieldStart("signed_by_name")
+		e.Str(s.SignedByName)
+	}
+	{
+		e.FieldStart("signed_at")
+		json.EncodeDateTime(e, s.SignedAt)
+	}
+	{
+		if s.Note.Set {
+			e.FieldStart("note")
+			s.Note.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("ledgers")
+		e.ArrStart()
+		for _, elem := range s.Ledgers {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+}
+
+var jsonFieldsNameOfPeriodCloseSignOff = [12]string{
+	0:  "id",
+	1:  "close_id",
+	2:  "legal_entity_id",
+	3:  "company_code",
+	4:  "company_name",
+	5:  "fiscal_year",
+	6:  "fiscal_period",
+	7:  "signed_by",
+	8:  "signed_by_name",
+	9:  "signed_at",
+	10: "note",
+	11: "ledgers",
+}
+
+// Decode decodes PeriodCloseSignOff from json.
+func (s *PeriodCloseSignOff) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PeriodCloseSignOff to nil")
+	}
+	var requiredBitSet [2]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.ID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"id\"")
+			}
+		case "close_id":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.CloseID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"close_id\"")
+			}
+		case "legal_entity_id":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.LegalEntityID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"legal_entity_id\"")
+			}
+		case "company_code":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Str()
+				s.CompanyCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_code\"")
+			}
+		case "company_name":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := d.Str()
+				s.CompanyName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_name\"")
+			}
+		case "fiscal_year":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Int32()
+				s.FiscalYear = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fiscal_year\"")
+			}
+		case "fiscal_period":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				v, err := d.Int32()
+				s.FiscalPeriod = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fiscal_period\"")
+			}
+		case "signed_by":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.SignedBy = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_by\"")
+			}
+		case "signed_by_name":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.SignedByName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_by_name\"")
+			}
+		case "signed_at":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				v, err := json.DecodeDateTime(d)
+				s.SignedAt = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_at\"")
+			}
+		case "note":
+			if err := func() error {
+				s.Note.Reset()
+				if err := s.Note.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"note\"")
+			}
+		case "ledgers":
+			requiredBitSet[1] |= 1 << 3
+			if err := func() error {
+				s.Ledgers = make([]PeriodCloseSignOffLedger, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem PeriodCloseSignOffLedger
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Ledgers = append(s.Ledgers, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ledgers\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode PeriodCloseSignOff")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [2]uint8{
+		0b11111111,
+		0b00001011,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfPeriodCloseSignOff) {
+					name = jsonFieldsNameOfPeriodCloseSignOff[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PeriodCloseSignOff) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PeriodCloseSignOff) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *PeriodCloseSignOffInput) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *PeriodCloseSignOffInput) encodeFields(e *jx.Encoder) {
+	{
+		if s.Note.Set {
+			e.FieldStart("note")
+			s.Note.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfPeriodCloseSignOffInput = [1]string{
+	0: "note",
+}
+
+// Decode decodes PeriodCloseSignOffInput from json.
+func (s *PeriodCloseSignOffInput) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PeriodCloseSignOffInput to nil")
+	}
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "note":
+			if err := func() error {
+				s.Note.Reset()
+				if err := s.Note.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"note\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode PeriodCloseSignOffInput")
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PeriodCloseSignOffInput) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PeriodCloseSignOffInput) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *PeriodCloseSignOffLedger) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *PeriodCloseSignOffLedger) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("ledger_id")
+		json.EncodeUUID(e, s.LedgerID)
+	}
+	{
+		e.FieldStart("ledger_code")
+		e.Str(s.LedgerCode)
+	}
+	{
+		e.FieldStart("ledger_name")
+		e.Str(s.LedgerName)
+	}
+	{
+		e.FieldStart("is_leading")
+		e.Bool(s.IsLeading)
+	}
+	{
+		e.FieldStart("fiscal_period_id")
+		json.EncodeUUID(e, s.FiscalPeriodID)
+	}
+	{
+		e.FieldStart("locked")
+		e.Bool(s.Locked)
+	}
+}
+
+var jsonFieldsNameOfPeriodCloseSignOffLedger = [6]string{
+	0: "ledger_id",
+	1: "ledger_code",
+	2: "ledger_name",
+	3: "is_leading",
+	4: "fiscal_period_id",
+	5: "locked",
+}
+
+// Decode decodes PeriodCloseSignOffLedger from json.
+func (s *PeriodCloseSignOffLedger) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PeriodCloseSignOffLedger to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "ledger_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.LedgerID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ledger_id\"")
+			}
+		case "ledger_code":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.LedgerCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ledger_code\"")
+			}
+		case "ledger_name":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.LedgerName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ledger_name\"")
+			}
+		case "is_leading":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Bool()
+				s.IsLeading = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"is_leading\"")
+			}
+		case "fiscal_period_id":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.FiscalPeriodID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fiscal_period_id\"")
+			}
+		case "locked":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Bool()
+				s.Locked = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"locked\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode PeriodCloseSignOffLedger")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00111111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfPeriodCloseSignOffLedger) {
+					name = jsonFieldsNameOfPeriodCloseSignOffLedger[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PeriodCloseSignOffLedger) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PeriodCloseSignOffLedger) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -108248,19 +109147,30 @@ func (s *Problem) encodeFields(e *jx.Encoder) {
 			e.ArrEnd()
 		}
 	}
+	{
+		if s.FailingChecks != nil {
+			e.FieldStart("failing_checks")
+			e.ArrStart()
+			for _, elem := range s.FailingChecks {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfProblem = [10]string{
-	0: "type",
-	1: "title",
-	2: "status",
-	3: "code",
-	4: "detail",
-	5: "instance",
-	6: "trace_id",
-	7: "errors",
-	8: "calculated_tax",
-	9: "match_issues",
+var jsonFieldsNameOfProblem = [11]string{
+	0:  "type",
+	1:  "title",
+	2:  "status",
+	3:  "code",
+	4:  "detail",
+	5:  "instance",
+	6:  "trace_id",
+	7:  "errors",
+	8:  "calculated_tax",
+	9:  "match_issues",
+	10: "failing_checks",
 }
 
 // Decode decodes Problem from json.
@@ -108393,6 +109303,23 @@ func (s *Problem) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"match_issues\"")
+			}
+		case "failing_checks":
+			if err := func() error {
+				s.FailingChecks = make([]FailingCheck, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem FailingCheck
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.FailingChecks = append(s.FailingChecks, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"failing_checks\"")
 			}
 		default:
 			return d.Skip()
@@ -126844,6 +127771,234 @@ func (s *SessionEnd) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *SessionEnd) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes SignOffPeriodCloseBadRequest as json.
+func (s *SignOffPeriodCloseBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes SignOffPeriodCloseBadRequest from json.
+func (s *SignOffPeriodCloseBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SignOffPeriodCloseBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = SignOffPeriodCloseBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SignOffPeriodCloseBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SignOffPeriodCloseBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes SignOffPeriodCloseForbidden as json.
+func (s *SignOffPeriodCloseForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes SignOffPeriodCloseForbidden from json.
+func (s *SignOffPeriodCloseForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SignOffPeriodCloseForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = SignOffPeriodCloseForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SignOffPeriodCloseForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SignOffPeriodCloseForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes SignOffPeriodCloseNotFound as json.
+func (s *SignOffPeriodCloseNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes SignOffPeriodCloseNotFound from json.
+func (s *SignOffPeriodCloseNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SignOffPeriodCloseNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = SignOffPeriodCloseNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SignOffPeriodCloseNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SignOffPeriodCloseNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes SignOffPeriodClosePreconditionFailed as json.
+func (s *SignOffPeriodClosePreconditionFailed) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes SignOffPeriodClosePreconditionFailed from json.
+func (s *SignOffPeriodClosePreconditionFailed) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SignOffPeriodClosePreconditionFailed to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = SignOffPeriodClosePreconditionFailed(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SignOffPeriodClosePreconditionFailed) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SignOffPeriodClosePreconditionFailed) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes SignOffPeriodClosePreconditionRequired as json.
+func (s *SignOffPeriodClosePreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes SignOffPeriodClosePreconditionRequired from json.
+func (s *SignOffPeriodClosePreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SignOffPeriodClosePreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = SignOffPeriodClosePreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SignOffPeriodClosePreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SignOffPeriodClosePreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes SignOffPeriodCloseUnprocessableEntity as json.
+func (s *SignOffPeriodCloseUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes SignOffPeriodCloseUnprocessableEntity from json.
+func (s *SignOffPeriodCloseUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SignOffPeriodCloseUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = SignOffPeriodCloseUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SignOffPeriodCloseUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SignOffPeriodCloseUnprocessableEntity) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

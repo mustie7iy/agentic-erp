@@ -248,7 +248,9 @@ type target struct {
 // postingPeriod finds the open posting period of the posting date in each
 // ledger posted to: ledgers, the representative first, or every ledger the
 // company keeps, the leading one first, when nil (ADR-0045). It holds each
-// period's status row FOR SHARE until the transaction ends. A close locks
+// period's status row FOR SHARE until the transaction ends, taking them
+// the leading ledger's first, then by ledger code, as a period close's
+// sign-off locks them (ADR-0058 §5). A close locks
 // the row FOR UPDATE (changePeriod), so a posting waits for a close under
 // way and then reads the committed status, and a close waits for the
 // postings under way: no entry lands in a period whose close committed
@@ -259,11 +261,17 @@ func postingPeriod(ctx context.Context, tx pgx.Tx, e tenancy.Entity, ledgers []u
 	year, number, err := periodOn(ctx, tx, e.FiscalCalendarID, date)
 	var targets []target
 	if err == nil {
-		// FOR SHARE in a lateral subquery: it cannot lock the nullable side of an outer join.
-		rows, _ := tx.Query(ctx, `SELECT l.id, l.code, l.is_leading, s.status FROM ledger.ledger l
+		// FOR SHARE in a lateral subquery: it cannot lock the nullable side
+		// of an outer join. The lateral runs once per ledger in the order of
+		// the ledgers' subquery, which its ORDER BY keeps from being pulled
+		// up: the leading ledger first, then by code, whatever the order of
+		// the rows or of ledgers. A period close's sign-off locks the
+		// periods in that order too (ADR-0058 §5); the outer ORDER BY then
+		// puts the representative first for the caller.
+		rows, _ := tx.Query(ctx, `SELECT l.id, l.code, l.is_leading, s.status FROM (SELECT l.id, l.code, l.is_leading FROM ledger.ledger l
+				WHERE CASE WHEN $4::uuid[] IS NULL THEN ledger.company_keeps($1, l.id) ELSE l.id = ANY($4) END ORDER BY NOT l.is_leading, l.code) l
 			LEFT JOIN LATERAL (SELECT ps.status FROM ledger.period_status ps
 				WHERE ps.legal_entity_id = $1 AND ps.ledger_id = l.id AND ps.fiscal_year = $2 AND ps.period = $3 FOR SHARE) s ON true
-			WHERE CASE WHEN $4::uuid[] IS NULL THEN ledger.company_keeps($1, l.id) ELSE l.id = ANY($4) END
 			ORDER BY array_position($4, l.id), NOT l.is_leading, l.code`, e.ID, year, number, ledgers)
 		var t target
 		_, err = pgx.ForEachRow(rows, []any{&t.ledger, &t.code, &t.leading, &t.status}, func() error { targets = append(targets, t); return nil })

@@ -35,6 +35,24 @@ func Parallel(c *config.Config) {
 	c.Company("2000").Ledgers = []string{config.LeadingLedger, "2L"}
 }
 
+// ThreeLedgers gives the configuration three ledgers that company 2000
+// keeps, for NewWith, created in the order 1L, 0L, 0A: their ids, and the
+// rows of their periods, sort 1L, 0L, 0A, their codes 0A, 0L, 1L, so a
+// statement that locks their periods in the order of its rows or of the
+// ledgers' ids takes neither the one order nor the codes' (ADR-0058 §5).
+func ThreeLedgers(c *config.Config) {
+	c.Ledgers = []config.Ledger{{Code: "1L", Name: "Tax ledger", AccountingPrinciple: "TAX"},
+		{Code: config.LeadingLedger, Name: "Leading ledger", AccountingPrinciple: "IFRS"}, {Code: "0A", Name: "Statutory", AccountingPrinciple: "HGB"}}
+	c.LedgerGroups = []config.LedgerGroup{{Code: "ALL", Name: "Every ledger", Representative: config.LeadingLedger,
+		Ledgers: []string{"1L", config.LeadingLedger, "0A"}}}
+	c.Company("2000").Ledgers = []string{"1L", config.LeadingLedger, "0A"}
+}
+
+// LockOrder is the one order in which every statement locks the periods
+// of ThreeLedgers' ledgers within a fiscal year and period: the leading
+// ledger first, then by code (ADR-0058 §5, ADR-0008).
+var LockOrder = []string{config.LeadingLedger, "0A", "1L"}
+
 // Ledger is the id of a ledger of the tenant by its code.
 func (e Env) Ledger(tb testing.TB, code string) uuid.UUID {
 	tb.Helper()

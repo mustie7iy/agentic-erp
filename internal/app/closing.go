@@ -32,7 +32,8 @@ func (closingCompanies) Company(ctx context.Context, id uuid.UUID) (closing.Comp
 }
 
 // closingLedger gives the closing context the ledger's posting periods,
-// and what a close's checks read: parked entries and revaluation runs.
+// what a close's checks read (parked entries and revaluation runs), and
+// the period lock a sign-off takes.
 type closingLedger struct{}
 
 func (closingLedger) LeadingPeriods(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]closing.Period, error) {
@@ -71,8 +72,13 @@ func (closingLedger) PostedRevaluation(ctx context.Context, legalEntity, ledgerI
 	return ledger.CloseChecks{}.PostedRevaluation(ctx, legalEntity, ledgerID, keyDate)
 }
 
+func (closingLedger) Lock(ctx context.Context, period uuid.UUID, version int32) error {
+	_, err := ledger.ClosePeriods{}.Lock(ctx, period, version)
+	return err
+}
+
 func closingPeriod(p ledger.Period) closing.Period {
-	return closing.Period{ID: p.ID, Number: p.Period, StartDate: p.StartDate, EndDate: p.EndDate, Status: p.Status}
+	return closing.Period{ID: p.ID, Number: p.Period, StartDate: p.StartDate, EndDate: p.EndDate, Status: p.Status, Version: p.Version}
 }
 
 // closingPeople gives the closing context principals' names, kinds and

@@ -32,9 +32,10 @@ type view struct {
 var personRef = idref.Kind{Name: "principal", Context: "identity"}
 
 // view reads the companies of the legal entities and the people the tasks
-// name. A legal entity the tenancy context does not hold, or a principal
-// the identity context does not, is broken data and fails the response.
-func (e *Endpoints) view(ctx context.Context, legalEntities []uuid.UUID, tasks []task) (view, error) {
+// name, and the others named (signers). A legal entity the tenancy context
+// does not hold, or a principal the identity context does not, is broken
+// data and fails the response.
+func (e *Endpoints) view(ctx context.Context, legalEntities []uuid.UUID, tasks []task, others ...uuid.UUID) (view, error) {
 	doc, _, err := e.Settings.Document(ctx)
 	if err != nil {
 		return view{}, fmt.Errorf("closing: configuration: %w", err)
@@ -59,7 +60,7 @@ func (e *Endpoints) view(ctx context.Context, legalEntities []uuid.UUID, tasks [
 		v.companies[id] = companyDay{Company: co, day: day}
 	}
 	ids := append(idref.Of(tasks, func(t task) *uuid.UUID { return t.Assignee }), idref.Of(tasks, func(t task) *uuid.UUID { return t.CompletedBy })...)
-	ids = append(ids, idref.Of(tasks, func(t task) *uuid.UUID { return t.CheckedBy })...)
+	ids = append(append(ids, idref.Of(tasks, func(t task) *uuid.UUID { return t.CheckedBy })...), others...)
 	if v.people, err = idref.Resolve(ctx, e.People.Named, ids, personRef); err != nil {
 		return view{}, fmt.Errorf("closing: people of %d tasks: %w", len(tasks), err)
 	}
@@ -95,22 +96,52 @@ func (v view) taskToAPI(t task) gen.CloseTask {
 // company's date at the read.
 func (v view) itemToAPI(c periodClose) gen.PeriodCloseItem {
 	co := v.companies[c.LegalEntityID]
-	return gen.PeriodCloseItem{ID: c.ID, LegalEntityID: c.LegalEntityID, CompanyCode: co.Code, CompanyName: co.Name, FiscalYear: int32(c.FiscalYear),
+	out := gen.PeriodCloseItem{ID: c.ID, LegalEntityID: c.LegalEntityID, CompanyCode: co.Code, CompanyName: co.Name, FiscalYear: int32(c.FiscalYear),
 		FiscalPeriod: int32(c.FiscalPeriod), PeriodEnd: c.PeriodEnd, ConfigVersion: c.ConfigVersion, Status: c.Status, ReadDate: co.day.Date,
 		TimeZone: co.day.Zone.String(), TasksTotal: c.Total, TasksDone: c.Done, TasksOpen: c.Total - c.Done, TasksOverdue: c.overdue(co.day.Date),
 		Version: c.Version, CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt, UpdatedBy: c.UpdatedBy}
+	if c.SignedBy != nil {
+		// The latest sign-off, read with its close while it is signed off.
+		out.SignedOffAt.SetTo(*c.SignedAt)
+		out.SignedOffBy.SetTo(*c.SignedBy)
+		out.SignedOffByName.SetTo(v.people[*c.SignedBy].Name)
+	}
+	return out
 }
 
-// closeToAPI shows a close with its ledgers and tasks.
-func (v view) closeToAPI(c periodClose, ledgers []gen.CloseLedger, tasks []task) gen.PeriodClose {
+// signers are the people who signed off the closes, for their names.
+func signers(cs ...periodClose) []uuid.UUID {
+	return idref.Of(cs, func(c periodClose) *uuid.UUID { return c.SignedBy })
+}
+
+// signOffToAPI shows a sign-off of a close with the close's company and
+// period.
+func (v view) signOffToAPI(c periodClose, s signOff) gen.PeriodCloseSignOff {
+	co := v.companies[c.LegalEntityID]
+	out := gen.PeriodCloseSignOff{ID: s.ID, CloseID: s.CloseID, LegalEntityID: c.LegalEntityID, CompanyCode: co.Code, CompanyName: co.Name,
+		FiscalYear: int32(c.FiscalYear), FiscalPeriod: int32(c.FiscalPeriod), SignedBy: s.SignedBy, SignedByName: v.people[s.SignedBy].Name,
+		SignedAt: s.SignedAt, Note: apitypes.OptString(s.Note), Ledgers: make([]gen.PeriodCloseSignOffLedger, len(s.Ledgers))}
+	for i, l := range s.Ledgers {
+		out.Ledgers[i] = gen.PeriodCloseSignOffLedger{LedgerID: l.LedgerID, LedgerCode: l.LedgerCode, LedgerName: l.LedgerName, IsLeading: l.Leading,
+			FiscalPeriodID: l.PeriodID, Locked: l.Locked}
+	}
+	return out
+}
+
+// closeToAPI shows a close with its ledgers, tasks and sign-offs.
+func (v view) closeToAPI(c periodClose, ledgers []gen.CloseLedger, tasks []task, offs []signOff) gen.PeriodClose {
 	i := v.itemToAPI(c)
 	out := gen.PeriodClose{ID: i.ID, LegalEntityID: i.LegalEntityID, CompanyCode: i.CompanyCode, CompanyName: i.CompanyName, FiscalYear: i.FiscalYear,
-		FiscalPeriod: i.FiscalPeriod, PeriodEnd: i.PeriodEnd, ConfigVersion: i.ConfigVersion, Status: i.Status, ReadDate: i.ReadDate, TimeZone: i.TimeZone,
-		TasksTotal: i.TasksTotal, TasksDone: i.TasksDone, TasksOpen: i.TasksOpen, TasksOverdue: i.TasksOverdue, Ledgers: ledgers,
-		Tasks: make([]gen.CloseTask, len(tasks)), Version: i.Version, CreatedAt: i.CreatedAt, CreatedBy: i.CreatedBy, UpdatedAt: i.UpdatedAt,
+		FiscalPeriod: i.FiscalPeriod, PeriodEnd: i.PeriodEnd, ConfigVersion: i.ConfigVersion, Status: i.Status, SignedOffAt: i.SignedOffAt,
+		SignedOffBy: i.SignedOffBy, SignedOffByName: i.SignedOffByName, ReadDate: i.ReadDate, TimeZone: i.TimeZone, TasksTotal: i.TasksTotal,
+		TasksDone: i.TasksDone, TasksOpen: i.TasksOpen, TasksOverdue: i.TasksOverdue, Ledgers: ledgers, Tasks: make([]gen.CloseTask, len(tasks)),
+		SignOffs: make([]gen.PeriodCloseSignOff, len(offs)), Version: i.Version, CreatedAt: i.CreatedAt, CreatedBy: i.CreatedBy, UpdatedAt: i.UpdatedAt,
 		UpdatedBy: i.UpdatedBy}
 	for j, t := range tasks {
 		out.Tasks[j] = v.taskToAPI(t)
+	}
+	for j, s := range offs {
+		out.SignOffs[j] = v.signOffToAPI(c, s)
 	}
 	return out
 }

@@ -12759,6 +12759,12 @@ type CloseCalendarClose struct {
 	// Period close status. Open enumeration: clients must accept and preserve values not listed here;
 	// values may be added within /v1.
 	Status string `json:"status"`
+	// When it was signed off (`:signOff`, T64d); absent while it is open.
+	SignedOffAt OptDateTime `json:"signed_off_at"`
+	// Who signed it off; absent while it is open.
+	SignedOffBy OptUUID `json:"signed_off_by"`
+	// Their name; absent while it is open.
+	SignedOffByName OptString `json:"signed_off_by_name"`
 	// Its tasks.
 	TasksTotal int32 `json:"tasks_total"`
 	// Its tasks done.
@@ -12775,6 +12781,21 @@ func (s *CloseCalendarClose) GetID() uuid.UUID {
 // GetStatus returns the value of Status.
 func (s *CloseCalendarClose) GetStatus() string {
 	return s.Status
+}
+
+// GetSignedOffAt returns the value of SignedOffAt.
+func (s *CloseCalendarClose) GetSignedOffAt() OptDateTime {
+	return s.SignedOffAt
+}
+
+// GetSignedOffBy returns the value of SignedOffBy.
+func (s *CloseCalendarClose) GetSignedOffBy() OptUUID {
+	return s.SignedOffBy
+}
+
+// GetSignedOffByName returns the value of SignedOffByName.
+func (s *CloseCalendarClose) GetSignedOffByName() OptString {
+	return s.SignedOffByName
 }
 
 // GetTasksTotal returns the value of TasksTotal.
@@ -12800,6 +12821,21 @@ func (s *CloseCalendarClose) SetID(val uuid.UUID) {
 // SetStatus sets the value of Status.
 func (s *CloseCalendarClose) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetSignedOffAt sets the value of SignedOffAt.
+func (s *CloseCalendarClose) SetSignedOffAt(val OptDateTime) {
+	s.SignedOffAt = val
+}
+
+// SetSignedOffBy sets the value of SignedOffBy.
+func (s *CloseCalendarClose) SetSignedOffBy(val OptUUID) {
+	s.SignedOffBy = val
+}
+
+// SetSignedOffByName sets the value of SignedOffByName.
+func (s *CloseCalendarClose) SetSignedOffByName(val OptString) {
+	s.SignedOffByName = val
 }
 
 // SetTasksTotal sets the value of TasksTotal.
@@ -14579,6 +14615,7 @@ func (*ConflictHeaders) reverseJournalEntryRes()              {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()           {}
 func (*ConflictHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*ConflictHeaders) runAnalyticsQueryRes()                {}
+func (*ConflictHeaders) signOffPeriodCloseRes()               {}
 func (*ConflictHeaders) simulateChangeRequestRes()            {}
 func (*ConflictHeaders) startAgentSessionRes()                {}
 func (*ConflictHeaders) startMigrationRunRes()                {}
@@ -20960,6 +20997,61 @@ func (s *Extensions) init() Extensions {
 		*s = m
 	}
 	return m
+}
+
+// A check task whose check failed when a sign-off ran it again (`closing.checks_failing`), with what
+// it found; nothing was recorded on the task.
+// Ref: #/components/schemas/FailingCheck
+type FailingCheck struct {
+	// The task's code.
+	TaskCode string `json:"task_code"`
+	// The task's name.
+	TaskName string `json:"task_name"`
+	// The check. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Check string `json:"check"`
+	// What it found, in one sentence; `:check` on the task records it whole.
+	Summary string `json:"summary"`
+}
+
+// GetTaskCode returns the value of TaskCode.
+func (s *FailingCheck) GetTaskCode() string {
+	return s.TaskCode
+}
+
+// GetTaskName returns the value of TaskName.
+func (s *FailingCheck) GetTaskName() string {
+	return s.TaskName
+}
+
+// GetCheck returns the value of Check.
+func (s *FailingCheck) GetCheck() string {
+	return s.Check
+}
+
+// GetSummary returns the value of Summary.
+func (s *FailingCheck) GetSummary() string {
+	return s.Summary
+}
+
+// SetTaskCode sets the value of TaskCode.
+func (s *FailingCheck) SetTaskCode(val string) {
+	s.TaskCode = val
+}
+
+// SetTaskName sets the value of TaskName.
+func (s *FailingCheck) SetTaskName(val string) {
+	s.TaskName = val
+}
+
+// SetCheck sets the value of Check.
+func (s *FailingCheck) SetCheck(val string) {
+	s.Check = val
+}
+
+// SetSummary sets the value of Summary.
+func (s *FailingCheck) SetSummary(val string) {
+	s.Summary = val
 }
 
 // One field-level validation error.
@@ -36717,6 +36809,52 @@ func (o OptPaymentRunReleaseApproval) Or(d PaymentRunReleaseApproval) PaymentRun
 	return d
 }
 
+// NewOptPeriodCloseSignOffInput returns new OptPeriodCloseSignOffInput with value set to v.
+func NewOptPeriodCloseSignOffInput(v PeriodCloseSignOffInput) OptPeriodCloseSignOffInput {
+	return OptPeriodCloseSignOffInput{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptPeriodCloseSignOffInput is optional PeriodCloseSignOffInput.
+type OptPeriodCloseSignOffInput struct {
+	Value PeriodCloseSignOffInput
+	Set   bool
+}
+
+// IsSet returns true if OptPeriodCloseSignOffInput was set.
+func (o OptPeriodCloseSignOffInput) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptPeriodCloseSignOffInput) Reset() {
+	var v PeriodCloseSignOffInput
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptPeriodCloseSignOffInput) SetTo(v PeriodCloseSignOffInput) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptPeriodCloseSignOffInput) Get() (v PeriodCloseSignOffInput, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptPeriodCloseSignOffInput) Or(d PeriodCloseSignOffInput) PeriodCloseSignOffInput {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptProblem returns new OptProblem with value set to v.
 func NewOptProblem(v Problem) OptProblem {
 	return OptProblem{
@@ -40036,9 +40174,16 @@ type PeriodClose struct {
 	PeriodEnd time.Time `json:"period_end"`
 	// The configuration version whose close template the checklist was copied from.
 	ConfigVersion int32 `json:"config_version"`
-	// `open` until it is signed off. Open enumeration: clients must accept and preserve values not listed
-	// here; values may be added within /v1.
+	// `open` until it is signed off, and again after a covered period was unlocked and the close written
+	// to (ADR-0058 §7). Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
 	Status string `json:"status"`
+	// When it was signed off (`:signOff`, T64d); absent while it is open.
+	SignedOffAt OptDateTime `json:"signed_off_at"`
+	// Who signed it off; absent while it is open.
+	SignedOffBy OptUUID `json:"signed_off_by"`
+	// Their name; absent while it is open.
+	SignedOffByName OptString `json:"signed_off_by_name"`
 	// The company's date at the read in its time zone, on which `overdue` is judged.
 	ReadDate time.Time `json:"read_date"`
 	// The IANA time zone `read_date` is the company's date in (UTC when its company sets none).
@@ -40055,6 +40200,9 @@ type PeriodClose struct {
 	Ledgers []CloseLedger `json:"ledgers"`
 	// Its tasks, in the template's order.
 	Tasks []CloseTask `json:"tasks"`
+	// Its sign-offs, oldest first (T64d): one per `:signOff`, a second after a covered period was unlocked
+	// and the close signed off again; empty until it is signed off.
+	SignOffs []PeriodCloseSignOff `json:"sign_offs"`
 	// Optimistic-lock version, the ETag; moved by every change to the close or its tasks.
 	Version int32 `json:"version"`
 	// Creation time.
@@ -40112,6 +40260,21 @@ func (s *PeriodClose) GetStatus() string {
 	return s.Status
 }
 
+// GetSignedOffAt returns the value of SignedOffAt.
+func (s *PeriodClose) GetSignedOffAt() OptDateTime {
+	return s.SignedOffAt
+}
+
+// GetSignedOffBy returns the value of SignedOffBy.
+func (s *PeriodClose) GetSignedOffBy() OptUUID {
+	return s.SignedOffBy
+}
+
+// GetSignedOffByName returns the value of SignedOffByName.
+func (s *PeriodClose) GetSignedOffByName() OptString {
+	return s.SignedOffByName
+}
+
 // GetReadDate returns the value of ReadDate.
 func (s *PeriodClose) GetReadDate() time.Time {
 	return s.ReadDate
@@ -40150,6 +40313,11 @@ func (s *PeriodClose) GetLedgers() []CloseLedger {
 // GetTasks returns the value of Tasks.
 func (s *PeriodClose) GetTasks() []CloseTask {
 	return s.Tasks
+}
+
+// GetSignOffs returns the value of SignOffs.
+func (s *PeriodClose) GetSignOffs() []PeriodCloseSignOff {
+	return s.SignOffs
 }
 
 // GetVersion returns the value of Version.
@@ -40222,6 +40390,21 @@ func (s *PeriodClose) SetStatus(val string) {
 	s.Status = val
 }
 
+// SetSignedOffAt sets the value of SignedOffAt.
+func (s *PeriodClose) SetSignedOffAt(val OptDateTime) {
+	s.SignedOffAt = val
+}
+
+// SetSignedOffBy sets the value of SignedOffBy.
+func (s *PeriodClose) SetSignedOffBy(val OptUUID) {
+	s.SignedOffBy = val
+}
+
+// SetSignedOffByName sets the value of SignedOffByName.
+func (s *PeriodClose) SetSignedOffByName(val OptString) {
+	s.SignedOffByName = val
+}
+
 // SetReadDate sets the value of ReadDate.
 func (s *PeriodClose) SetReadDate(val time.Time) {
 	s.ReadDate = val
@@ -40260,6 +40443,11 @@ func (s *PeriodClose) SetLedgers(val []CloseLedger) {
 // SetTasks sets the value of Tasks.
 func (s *PeriodClose) SetTasks(val []CloseTask) {
 	s.Tasks = val
+}
+
+// SetSignOffs sets the value of SignOffs.
+func (s *PeriodClose) SetSignOffs(val []PeriodCloseSignOff) {
+	s.SignOffs = val
 }
 
 // SetVersion sets the value of Version.
@@ -40413,6 +40601,12 @@ type PeriodCloseItem struct {
 	// Period close status. Open enumeration: clients must accept and preserve values not listed here;
 	// values may be added within /v1.
 	Status string `json:"status"`
+	// When it was signed off (`:signOff`, T64d); absent while it is open.
+	SignedOffAt OptDateTime `json:"signed_off_at"`
+	// Who signed it off; absent while it is open.
+	SignedOffBy OptUUID `json:"signed_off_by"`
+	// Their name; absent while it is open.
+	SignedOffByName OptString `json:"signed_off_by_name"`
 	// The company's date at the read in its time zone, on which overdue tasks are judged.
 	ReadDate time.Time `json:"read_date"`
 	// The IANA time zone `read_date` is the company's date in.
@@ -40480,6 +40674,21 @@ func (s *PeriodCloseItem) GetConfigVersion() int32 {
 // GetStatus returns the value of Status.
 func (s *PeriodCloseItem) GetStatus() string {
 	return s.Status
+}
+
+// GetSignedOffAt returns the value of SignedOffAt.
+func (s *PeriodCloseItem) GetSignedOffAt() OptDateTime {
+	return s.SignedOffAt
+}
+
+// GetSignedOffBy returns the value of SignedOffBy.
+func (s *PeriodCloseItem) GetSignedOffBy() OptUUID {
+	return s.SignedOffBy
+}
+
+// GetSignedOffByName returns the value of SignedOffByName.
+func (s *PeriodCloseItem) GetSignedOffByName() OptString {
+	return s.SignedOffByName
 }
 
 // GetReadDate returns the value of ReadDate.
@@ -40582,6 +40791,21 @@ func (s *PeriodCloseItem) SetStatus(val string) {
 	s.Status = val
 }
 
+// SetSignedOffAt sets the value of SignedOffAt.
+func (s *PeriodCloseItem) SetSignedOffAt(val OptDateTime) {
+	s.SignedOffAt = val
+}
+
+// SetSignedOffBy sets the value of SignedOffBy.
+func (s *PeriodCloseItem) SetSignedOffBy(val OptUUID) {
+	s.SignedOffBy = val
+}
+
+// SetSignedOffByName sets the value of SignedOffByName.
+func (s *PeriodCloseItem) SetSignedOffByName(val OptString) {
+	s.SignedOffByName = val
+}
+
 // SetReadDate sets the value of ReadDate.
 func (s *PeriodCloseItem) SetReadDate(val time.Time) {
 	s.ReadDate = val
@@ -40667,6 +40891,290 @@ func (s *PeriodClosePage) SetNextPageToken(val OptString) {
 }
 
 func (*PeriodClosePage) listPeriodClosesRes() {}
+
+// A sign-off of a period close (ADR-0058 §7, T64d): who signed it off, when, and per covered ledger
+// its period and whether this sign-off locked it. Recorded once, never changed; a close signed off
+// again after an unlock has a second.
+// Ref: #/components/schemas/PeriodCloseSignOff
+type PeriodCloseSignOff struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The period close (`GET /v1/period-closes/{id}`).
+	CloseID uuid.UUID `json:"close_id"`
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// Fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// Regular period.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The person who signed it off.
+	SignedBy uuid.UUID `json:"signed_by"`
+	// Their name.
+	SignedByName string `json:"signed_by_name"`
+	// When.
+	SignedAt time.Time `json:"signed_at"`
+	// The note given with it; absent without one.
+	Note OptString `json:"note"`
+	// The covered ledgers, the leading one first, then by code: the order their periods were locked in.
+	Ledgers []PeriodCloseSignOffLedger `json:"ledgers"`
+}
+
+// GetID returns the value of ID.
+func (s *PeriodCloseSignOff) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCloseID returns the value of CloseID.
+func (s *PeriodCloseSignOff) GetCloseID() uuid.UUID {
+	return s.CloseID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *PeriodCloseSignOff) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *PeriodCloseSignOff) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *PeriodCloseSignOff) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *PeriodCloseSignOff) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *PeriodCloseSignOff) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetSignedBy returns the value of SignedBy.
+func (s *PeriodCloseSignOff) GetSignedBy() uuid.UUID {
+	return s.SignedBy
+}
+
+// GetSignedByName returns the value of SignedByName.
+func (s *PeriodCloseSignOff) GetSignedByName() string {
+	return s.SignedByName
+}
+
+// GetSignedAt returns the value of SignedAt.
+func (s *PeriodCloseSignOff) GetSignedAt() time.Time {
+	return s.SignedAt
+}
+
+// GetNote returns the value of Note.
+func (s *PeriodCloseSignOff) GetNote() OptString {
+	return s.Note
+}
+
+// GetLedgers returns the value of Ledgers.
+func (s *PeriodCloseSignOff) GetLedgers() []PeriodCloseSignOffLedger {
+	return s.Ledgers
+}
+
+// SetID sets the value of ID.
+func (s *PeriodCloseSignOff) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCloseID sets the value of CloseID.
+func (s *PeriodCloseSignOff) SetCloseID(val uuid.UUID) {
+	s.CloseID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *PeriodCloseSignOff) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *PeriodCloseSignOff) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *PeriodCloseSignOff) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *PeriodCloseSignOff) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *PeriodCloseSignOff) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetSignedBy sets the value of SignedBy.
+func (s *PeriodCloseSignOff) SetSignedBy(val uuid.UUID) {
+	s.SignedBy = val
+}
+
+// SetSignedByName sets the value of SignedByName.
+func (s *PeriodCloseSignOff) SetSignedByName(val string) {
+	s.SignedByName = val
+}
+
+// SetSignedAt sets the value of SignedAt.
+func (s *PeriodCloseSignOff) SetSignedAt(val time.Time) {
+	s.SignedAt = val
+}
+
+// SetNote sets the value of Note.
+func (s *PeriodCloseSignOff) SetNote(val OptString) {
+	s.Note = val
+}
+
+// SetLedgers sets the value of Ledgers.
+func (s *PeriodCloseSignOff) SetLedgers(val []PeriodCloseSignOffLedger) {
+	s.Ledgers = val
+}
+
+// PeriodCloseSignOffHeaders wraps PeriodCloseSignOff with response headers.
+type PeriodCloseSignOffHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           PeriodCloseSignOff
+}
+
+// GetETag returns the value of ETag.
+func (s *PeriodCloseSignOffHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PeriodCloseSignOffHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *PeriodCloseSignOffHeaders) GetResponse() PeriodCloseSignOff {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *PeriodCloseSignOffHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PeriodCloseSignOffHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PeriodCloseSignOffHeaders) SetResponse(val PeriodCloseSignOff) {
+	s.Response = val
+}
+
+func (*PeriodCloseSignOffHeaders) signOffPeriodCloseRes() {}
+
+// A period close's sign-off.
+// Ref: #/components/schemas/PeriodCloseSignOffInput
+type PeriodCloseSignOffInput struct {
+	// What the signer wants kept with the sign-off; kept on it and in the audit trail.
+	Note OptString `json:"note"`
+}
+
+// GetNote returns the value of Note.
+func (s *PeriodCloseSignOffInput) GetNote() OptString {
+	return s.Note
+}
+
+// SetNote sets the value of Note.
+func (s *PeriodCloseSignOffInput) SetNote(val OptString) {
+	s.Note = val
+}
+
+// A covered ledger as a sign-off found it: its period, and whether this sign-off locked it.
+// Ref: #/components/schemas/PeriodCloseSignOffLedger
+type PeriodCloseSignOffLedger struct {
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code, as it was at the sign-off.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name, as it was at the sign-off.
+	LedgerName string `json:"ledger_name"`
+	// Whether it is the leading ledger.
+	IsLeading bool `json:"is_leading"`
+	// The ledger's posting period of the close (`GET /v1/fiscal-periods/{id}`).
+	FiscalPeriodID uuid.UUID `json:"fiscal_period_id"`
+	// Whether this sign-off locked the period: false when it was locked already.
+	Locked bool `json:"locked"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *PeriodCloseSignOffLedger) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *PeriodCloseSignOffLedger) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *PeriodCloseSignOffLedger) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetIsLeading returns the value of IsLeading.
+func (s *PeriodCloseSignOffLedger) GetIsLeading() bool {
+	return s.IsLeading
+}
+
+// GetFiscalPeriodID returns the value of FiscalPeriodID.
+func (s *PeriodCloseSignOffLedger) GetFiscalPeriodID() uuid.UUID {
+	return s.FiscalPeriodID
+}
+
+// GetLocked returns the value of Locked.
+func (s *PeriodCloseSignOffLedger) GetLocked() bool {
+	return s.Locked
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *PeriodCloseSignOffLedger) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *PeriodCloseSignOffLedger) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *PeriodCloseSignOffLedger) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetIsLeading sets the value of IsLeading.
+func (s *PeriodCloseSignOffLedger) SetIsLeading(val bool) {
+	s.IsLeading = val
+}
+
+// SetFiscalPeriodID sets the value of FiscalPeriodID.
+func (s *PeriodCloseSignOffLedger) SetFiscalPeriodID(val uuid.UUID) {
+	s.FiscalPeriodID = val
+}
+
+// SetLocked sets the value of Locked.
+func (s *PeriodCloseSignOffLedger) SetLocked(val bool) {
+	s.Locked = val
+}
 
 type PingWebhookSubscriptionBadRequest Problem
 
@@ -42124,6 +42632,9 @@ type Problem struct {
 	// finds that the clean match, or the match its exception was approved on, did not show (ADR-0052,
 	// decision D3).
 	MatchIssues []MatchIssue `json:"match_issues"`
+	// With `closing.checks_failing` only: each check task whose check failed when the sign-off ran it
+	// again, with what it found (ADR-0058 §7).
+	FailingChecks []FailingCheck `json:"failing_checks"`
 }
 
 // GetType returns the value of Type.
@@ -42176,6 +42687,11 @@ func (s *Problem) GetMatchIssues() []MatchIssue {
 	return s.MatchIssues
 }
 
+// GetFailingChecks returns the value of FailingChecks.
+func (s *Problem) GetFailingChecks() []FailingCheck {
+	return s.FailingChecks
+}
+
 // SetType sets the value of Type.
 func (s *Problem) SetType(val string) {
 	s.Type = val
@@ -42224,6 +42740,11 @@ func (s *Problem) SetCalculatedTax(val OptCalculatedTax) {
 // SetMatchIssues sets the value of MatchIssues.
 func (s *Problem) SetMatchIssues(val []MatchIssue) {
 	s.MatchIssues = val
+}
+
+// SetFailingChecks sets the value of FailingChecks.
+func (s *Problem) SetFailingChecks(val []FailingCheck) {
+	s.FailingChecks = val
 }
 
 // Merged schema.
@@ -49008,6 +49529,7 @@ func (*ServiceUnavailableHeaders) reverseJournalEntryRes()              {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()           {}
 func (*ServiceUnavailableHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*ServiceUnavailableHeaders) runAnalyticsQueryRes()                {}
+func (*ServiceUnavailableHeaders) signOffPeriodCloseRes()               {}
 func (*ServiceUnavailableHeaders) simulateChangeRequestRes()            {}
 func (*ServiceUnavailableHeaders) startAgentSessionRes()                {}
 func (*ServiceUnavailableHeaders) startMigrationRunRes()                {}
@@ -49105,6 +49627,30 @@ func (s *SessionEndHeaders) SetResponse(val SessionEnd) {
 }
 
 func (*SessionEndHeaders) endCurrentSessionRes() {}
+
+type SignOffPeriodCloseBadRequest Problem
+
+func (*SignOffPeriodCloseBadRequest) signOffPeriodCloseRes() {}
+
+type SignOffPeriodCloseForbidden Problem
+
+func (*SignOffPeriodCloseForbidden) signOffPeriodCloseRes() {}
+
+type SignOffPeriodCloseNotFound Problem
+
+func (*SignOffPeriodCloseNotFound) signOffPeriodCloseRes() {}
+
+type SignOffPeriodClosePreconditionFailed Problem
+
+func (*SignOffPeriodClosePreconditionFailed) signOffPeriodCloseRes() {}
+
+type SignOffPeriodClosePreconditionRequired Problem
+
+func (*SignOffPeriodClosePreconditionRequired) signOffPeriodCloseRes() {}
+
+type SignOffPeriodCloseUnprocessableEntity Problem
+
+func (*SignOffPeriodCloseUnprocessableEntity) signOffPeriodCloseRes() {}
 
 type SimulateChangeRequestBadRequest Problem
 
@@ -53472,6 +54018,7 @@ func (*TooManyRequestsHeaders) reverseJournalEntryRes()              {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()           {}
 func (*TooManyRequestsHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*TooManyRequestsHeaders) runAnalyticsQueryRes()                {}
+func (*TooManyRequestsHeaders) signOffPeriodCloseRes()               {}
 func (*TooManyRequestsHeaders) simulateChangeRequestRes()            {}
 func (*TooManyRequestsHeaders) startAgentSessionRes()                {}
 func (*TooManyRequestsHeaders) startMigrationRunRes()                {}
@@ -53865,6 +54412,7 @@ func (*UnauthorizedHeaders) reverseJournalEntryRes()              {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()           {}
 func (*UnauthorizedHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*UnauthorizedHeaders) runAnalyticsQueryRes()                {}
+func (*UnauthorizedHeaders) signOffPeriodCloseRes()               {}
 func (*UnauthorizedHeaders) simulateChangeRequestRes()            {}
 func (*UnauthorizedHeaders) startAgentSessionRes()                {}
 func (*UnauthorizedHeaders) startMigrationRunRes()                {}

@@ -12,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
+	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -59,7 +60,7 @@ func (e *Endpoints) GetCloseCalendar(ctx context.Context, params gen.GetCloseCal
 	if err != nil {
 		return nil, fmt.Errorf("closing: close calendar of %s: %w", params.LegalEntityID, err)
 	}
-	closes, err := closesOf(ctx, tx, params.LegalEntityID, int16(params.FiscalYear))
+	closes, people, err := e.closesOf(ctx, tx, params.LegalEntityID, int16(params.FiscalYear))
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +72,7 @@ func (e *Endpoints) GetCloseCalendar(ctx context.Context, params gen.GetCloseCal
 	for _, p := range periods {
 		row := gen.CloseCalendarPeriod{FiscalPeriodID: p.ID, Period: int32(p.Number), StartDate: p.StartDate, EndDate: p.EndDate, Status: p.Status}
 		if c, ok := closes[p.Number]; ok {
-			row.Close.SetTo(gen.CloseCalendarClose{ID: c.ID, Status: c.Status, TasksTotal: c.Total, TasksDone: c.Done, TasksOverdue: c.overdue(day.Date)})
+			row.Close.SetTo(calendarClose(c, day.Date, people))
 			// A close has at least one task: one is opened only from a
 			// template that gives the company some.
 			row.FirstDueOn.SetTo(*c.FirstDue)
@@ -85,18 +86,35 @@ func (e *Endpoints) GetCloseCalendar(ctx context.Context, params gen.GetCloseCal
 	return out, nil
 }
 
-// closesOf are a company's closes of a fiscal year, by period.
-func closesOf(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, year int16) (map[int16]periodClose, error) {
+// calendarClose is a close as its period's calendar row shows it, its
+// overdue tasks judged on day, its signer named from people.
+func calendarClose(c periodClose, day time.Time, people map[uuid.UUID]Person) gen.CloseCalendarClose {
+	out := gen.CloseCalendarClose{ID: c.ID, Status: c.Status, TasksTotal: c.Total, TasksDone: c.Done, TasksOverdue: c.overdue(day)}
+	if c.SignedBy != nil {
+		out.SignedOffAt.SetTo(*c.SignedAt)
+		out.SignedOffBy.SetTo(*c.SignedBy)
+		out.SignedOffByName.SetTo(people[*c.SignedBy].Name)
+	}
+	return out
+}
+
+// closesOf are a company's closes of a fiscal year, by period, and the
+// people who signed them off.
+func (e *Endpoints) closesOf(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, year int16) (map[int16]periodClose, map[uuid.UUID]Person, error) {
 	rows, _ := tx.Query(ctx, closeSelect+` WHERE c.legal_entity_id = $1 AND c.fiscal_year = $2`, legalEntity, year)
 	cs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (periodClose, error) { return scanClose(r) })
 	if err != nil {
-		return nil, fmt.Errorf("closing: close calendar: closes of %s in %d: %w", legalEntity, year, err)
+		return nil, nil, fmt.Errorf("closing: close calendar: closes of %s in %d: %w", legalEntity, year, err)
+	}
+	people, err := idref.Resolve(ctx, e.People.Named, signers(cs...), personRef)
+	if err != nil {
+		return nil, nil, fmt.Errorf("closing: close calendar: signers of %d closes: %w", len(cs), err)
 	}
 	out := make(map[int16]periodClose, len(cs))
 	for _, c := range cs {
 		out[c.FiscalPeriod] = c
 	}
-	return out, nil
+	return out, people, nil
 }
 
 // leadingName is the leading ledger's name in the document, which
