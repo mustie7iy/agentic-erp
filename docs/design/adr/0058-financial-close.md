@@ -1096,3 +1096,25 @@ overrule:
   person holding `closing.close.sign_off` and `ledger.period.lock`, one who
   completed tasks included, as built above and as §7 and the open question
   below state.
+
+**review:T64d (one lock order for every period lock).** T64d's review found
+two more statements that locked periods of several ledgers in the order a
+scan found them, each able to deadlock (40P01, a 503 to the caller) with a
+sign-off or a posting: a migrated clearing's `clearingPeriods`
+(`internal/ledger/migration.go`, a lateral `FOR SHARE` per entry of the
+clearing entry's posting group, in the scan's order of `journal_entry`)
+and the controlling switch's lock of a company's periods from the current
+fiscal year on (`internal/ledger/controlling.go`, `FOR UPDATE` with no
+`ORDER BY`). The rule §5 sets for sign-off and postings now holds for every
+statement that locks `ledger.period_status` rows of several ledgers or
+periods: by legal entity, fiscal year and period, then the leading ledger
+first, then by ledger code, sorted in the statement itself. The clearing's
+entries come from a subquery so ordered, as `postingPeriod`'s ledgers do;
+the switch sorts under its `FOR UPDATE OF ps`. Each has a concurrency test
+that deadlocked before (`TestMigratedClearingAndSignOffLockInOneOrder`,
+`TestControllingSwitchAndPostingLockInOneOrder`, on
+`fixture.ThreeLedgers`, whose ledgers' ids and rows sort out of code
+order); the sweep found no other such statement (a filed tax return
+locks the leading ledger's periods one at a time, by legal entity, year
+and period; a period close, lock or unlock locks one row). 03's entry-lock
+paragraph states the rule.

@@ -179,19 +179,25 @@ func clearingPeriod(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, by It
 }
 
 // clearingPeriods checks the clearing date's period open in the ledger of
-// the clearing entry by and of each of its copies, the entry's first.
+// the clearing entry by and of each of its copies, the entry's (the
+// leading ledger's) first, then by ledger code.
 func clearingPeriods(ctx context.Context, tx pgx.Tx, entity uuid.UUID, by ItemRef, date time.Time) error {
 	day := date.Format(time.DateOnly)
-	// FOR SHARE in a lateral subquery: it cannot lock the nullable side of an outer join.
-	rows, _ := tx.Query(ctx, `SELECT g.code, g.is_leading, s.fiscal_year, s.period, s.status FROM ledger.journal_entry c
-		JOIN ledger.ledger g ON g.id = c.ledger_id
+	// FOR SHARE in a lateral subquery: it cannot lock the nullable side of
+	// an outer join. The lateral runs once per ledger in the order of the
+	// entries' subquery, which its ORDER BY keeps from being pulled up:
+	// the leading ledger first (the clearing entry's, clearingPeriod),
+	// then by code, as postingPeriod and a period close's sign-off lock
+	// them (ADR-0058 §5), not in the order a scan finds the entries.
+	rows, _ := tx.Query(ctx, `SELECT c.code, c.is_leading, s.fiscal_year, s.period, s.status FROM (SELECT c.ledger_id, g.code, g.is_leading
+			FROM ledger.journal_entry c JOIN ledger.ledger g ON g.id = c.ledger_id
+			WHERE c.fiscal_year = $3 AND (c.id = $4 OR c.posting_group_id = $4) ORDER BY NOT g.is_leading, g.code) c
 		LEFT JOIN LATERAL (SELECT ps.fiscal_year, ps.period, ps.status FROM ledger.period_status ps
 			JOIN ledger.fiscal_period fp ON fp.tenant_id = ps.tenant_id AND fp.calendar_id = ps.calendar_id
 				AND fp.fiscal_year = ps.fiscal_year AND fp.period = ps.period
 			WHERE ps.legal_entity_id = $1 AND ps.ledger_id = c.ledger_id AND NOT fp.is_special AND $2 BETWEEN fp.start_date AND fp.end_date
 			FOR SHARE OF ps) s ON true
-		WHERE c.fiscal_year = $3 AND (c.id = $4 OR c.posting_group_id = $4)
-		ORDER BY c.id <> $4, g.code`, entity, date, by.FiscalYear, by.EntryID)
+		ORDER BY NOT c.is_leading, c.code`, entity, date, by.FiscalYear, by.EntryID)
 	type period struct {
 		code         string
 		leading      bool

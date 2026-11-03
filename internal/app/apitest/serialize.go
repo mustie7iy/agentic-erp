@@ -75,9 +75,7 @@ func Serialized(tb testing.TB, ten pgtest.Tenant, a pgtest.Actor, first, second 
 		if secondPID.Load() == 0 {
 			return false
 		}
-		var waits bool
-		pgtest.Scan(tb, `SELECT $1::int = ANY(pg_blocking_pids($2::int))`, []any{firstPID.Load(), secondPID.Load()}, &waits)
-		return waits
+		return Blocks(tb, firstPID.Load(), secondPID.Load())
 	}, "the second transaction neither waited for the first nor finished")
 	if finished {
 		tb.Errorf("second transaction: finished with %v while the first was still open, want it to wait for the first's lock", secondErr)
@@ -88,6 +86,51 @@ func Serialized(tb testing.TB, ten pgtest.Tenant, a pgtest.Actor, first, second 
 		secondErr = <-secondDone
 	}
 	return firstErr, secondErr
+}
+
+// Started runs work as actor a in a committed unit of work in the
+// background. It sends the transaction's backend pid before work starts,
+// and work's result once the transaction ends: a test that drives an
+// interleaving waits for the pid to block (WaitBlocked) before it starts
+// the next transaction.
+func Started(tb testing.TB, ten pgtest.Tenant, a pgtest.Actor, work func(ctx context.Context) error) (<-chan int32, <-chan error) {
+	tb.Helper()
+	pid, done := make(chan int32, 1), make(chan error, 1)
+	go func() {
+		err := errSetup
+		defer func() { done <- err }()
+		err = Committed(tb, ten, a, func(ctx context.Context) error {
+			var n atomic.Int32
+			if err := backend(ctx, &n); err != nil {
+				return err
+			}
+			pid <- n.Load()
+			return work(ctx)
+		})
+	}()
+	return pid, done
+}
+
+// WaitBlocked waits until backend pid waits for a lock blocker holds; the
+// transaction must not finish before (done, as Started returns it).
+func WaitBlocked(tb testing.TB, pid, blocker int32, done <-chan error, what string) {
+	tb.Helper()
+	pgtest.Eventually(tb, 10*time.Second, func() bool {
+		select {
+		case err := <-done:
+			tb.Fatalf("%s finished with %v, want it waiting for backend %d", what, err, blocker)
+		default:
+		}
+		return Blocks(tb, blocker, pid)
+	}, "%s neither waited for backend %d nor finished", what, blocker)
+}
+
+// Blocks reports whether backend pid waits for a lock blocker holds.
+func Blocks(tb testing.TB, blocker, pid int32) bool {
+	tb.Helper()
+	var waits bool
+	pgtest.Scan(tb, `SELECT $1::int = ANY(pg_blocking_pids($2::int))`, []any{blocker, pid}, &waits)
+	return waits
 }
 
 // backend stores the backend of the request's transaction in pid.

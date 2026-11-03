@@ -2375,11 +2375,25 @@ the rows' order, and a posting and a sign-off on a company whose ledgers
 were created out of code order deadlocked; `TestSignOffAndPostingLockInOneOrder`).
 A single posting (one `postingPeriod` call) therefore waits for the first
 period the sign-off holds while holding none the sign-off needs next, then
-reads the committed `locked` status and is refused. A transaction that
-takes period locks over several statements (the migration load) or in
-another order (a migrated clearing's `clearingPeriods`, the controlling
-switch's lock of a company's periods) is not covered by this. No write takes a period lock before a close's lock,
-so close-then-period never crosses either.
+reads the committed `locked` status and is refused. Every statement that
+locks the `period_status` rows of several ledgers or periods takes them in
+that one order, extended: by legal entity, fiscal year and period, then the
+leading ledger first, then by ledger code, sorted in the statement (an
+`ORDER BY` under the lock, or a lateral over an ordered subquery), never
+in the order a scan finds the rows. A migrated clearing's
+`clearingPeriods` locks its entry's and its copies' periods so (before,
+it followed the scan of `journal_entry`, and a clearing whose entry's row
+the heap stored behind its copies' deadlocked with a sign-off;
+`TestMigratedClearingAndSignOffLockInOneOrder`), as does the controlling
+switch's lock of a company's periods from the current year on (before, it
+had no `ORDER BY` and deadlocked with a posting on a company whose
+ledgers' rows sort out of code order;
+`TestControllingSwitchAndPostingLockInOneOrder`); a filed tax return locks
+the leading ledger's periods by legal entity, year and period through
+`LockPeriod`. A transaction that takes period locks over several
+statements (the migration load) is not covered by this. No write takes a
+period lock before a close's lock, so close-then-period never crosses
+either.
 
 A transaction that would otherwise lock in several
 steps or after posting, the migration load (it posts every document, then

@@ -1553,6 +1553,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Every period lock in one order (pre-existing finding on T64d): a migrated clearing's clearingPeriods locked its posting group's periods FOR SHARE in the scan's order of journal_entry, and the controlling switch locked a company's periods FOR UPDATE with no ORDER BY, each able to deadlock (40P01) with a sign-off or a posting; both now lock by fiscal year and period, the leading ledger first, then by code (concurrency tests on three ledgers whose ids and codes sort differently; 03's entry-lock paragraph)",
+        "r": "internal/ledger/migration.go clearingPeriods · internal/ledger/controlling.go checkSwitches · ADR-0058 As built (review:T64d)",
+        "src": "review:T64d",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "Accrual proposals: companies[].close.accrual_account (tier 3); ledger.ParkedEntries.Park as the request's principal; accrual_proposal and accrual_evidence; POST /v1/accrual-proposals (agents only, in session, x-autonomy propose, ledger.entry.park also; evidence of supplier invoices, orders and entries checked; duplicate and retry rules; the parked entry Dr expense / Cr accrual account dated the period's last day); GET and list with names, evidence and the parked entry; AccrualProposed; closing.accrual.propose; the walkthrough's first agent principal at level 1; walkthrough: the agent principal proposes an accrual citing last month's invoice, Carla posts its parked entry, a person's proposal refused with agents.not_an_agent",
         "r": "ADR-0058 · T64e",
