@@ -13907,13 +13907,77 @@ paths:
           $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/period-closes/{id}:signOff":
+    post:
+      operationId: signOffPeriodClose
+      tags:
+        - closing
+      summary: Sign off a period close
+      description: "Signs off a period close and locks its covered ledgers' periods through the period lock (ADR-0058 §7, T64d), in one transaction under a lock on the close: refused while a manual task is open (409 `closing.tasks_open`, naming them); then every check task's check runs again, and if any fails the sign-off is refused (409 `closing.checks_failing`, the problem's `failing_checks` naming each failing task with what its check found) and nothing is kept (`:check` records a result); when all pass each result is recorded on its task. Each covered ledger's period must then be `closed` or `locked` (409 `closing.period_not_closed`, naming the ledgers still open): a close is signed off after its period stopped taking postings, and a sign-off never closes a period. Each `closed` covered period is locked as `lockFiscalPeriod` locks it (the ledger's audit record and PeriodLocked), the leading ledger first, then by ledger code, the order postings lock periods in; a period already locked is left as it is, and a period changed by someone else between its read and its lock refuses the sign-off (412 `request.version_mismatch`). The sign-off is recorded with who signed off, when, the note and, per covered ledger, its period and whether this sign-off locked it, and the close is `signed_off`. A close already signed off whose covered periods are all locked is refused (409 `closing.close_signed_off`); after a covered period was unlocked (an approved `unlockFiscalPeriod` request) it is signed off again, adding a second sign-off. `If-Match` is the close's ETag; the answer is the sign-off, with the close's new ETag. People only. Besides `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks periods, and `ledger.entry.read`, since its refusal names what the checks found (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as PeriodCloseSignedOff."
+      x-permission: closing.close.sign_off
+      x-also-permissions:
+        - ledger.period.lock
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - closing.checks_failing
+        - closing.close_exists
+        - closing.close_signed_off
+        - closing.period_not_closed
+        - closing.tasks_open
+        - config.not_bootstrapped
+        - ledger.invalid_period_status
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of signOffPeriodClose.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PeriodCloseSignOffInput"
+      responses:
+        "200":
+          description: "The sign-off, with the periods it locked, and the close's new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PeriodCloseSignOff"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/v1/period-closes/{id}/tasks/{code}":
     patch:
       operationId: updateCloseTask
       tags:
         - closing
       summary: Assign a close task
-      description: "Sets or clears (null) the person a task of a period close is assigned to (ADR-0058 §6, T64b): an active person of the tenant (422 `closing.assignee_invalid` for an agent, a service, a blocked or unknown principal). `If-Match` is the close's ETag, so a change made on a stale view of the checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_assigned`)."
+      description: "Sets or clears (null) the person a task of a period close is assigned to (ADR-0058 §6, T64b): an active person of the tenant (422 `closing.assignee_invalid` for an agent, a service, a blocked or unknown principal). `If-Match` is the close's ETag, so a change made on a stale view of the checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_assigned`). A signed-off close whose covered periods are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
@@ -13921,6 +13985,7 @@ paths:
       x-problem-codes:
         - closing.assignee_invalid
         - closing.close_exists
+        - closing.close_signed_off
         - config.not_bootstrapped
         - request.version_mismatch
       parameters:
@@ -13973,13 +14038,14 @@ paths:
       tags:
         - closing
       summary: Complete a close task
-      description: "Marks an open manual task of a period close done, with an optional note (ADR-0058 §6, T64b): refused while a task it depends on is open (409 `closing.task_blocked`, naming them), for a task already done (409 `closing.task_already_done`) and for a check task, which is done by its check passing (409 `closing.task_is_check`; T64c: run it with `:check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_completed`)."
+      description: "Marks an open manual task of a period close done, with an optional note (ADR-0058 §6, T64b): refused while a task it depends on is open (409 `closing.task_blocked`, naming them), for a task already done (409 `closing.task_already_done`) and for a check task, which is done by its check passing (409 `closing.task_is_check`; T64c: run it with `:check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_completed`). A signed-off close whose covered periods are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
       x-agent: false
       x-problem-codes:
         - closing.close_exists
+        - closing.close_signed_off
         - closing.task_already_done
         - closing.task_blocked
         - closing.task_is_check
@@ -14035,13 +14101,14 @@ paths:
       tags:
         - closing
       summary: Reopen a close task
-      description: "Returns a done task of a period close to open, with a reason (409 `closing.task_not_done` for an open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared (a check task keeps its latest `check_result`), and the reason is kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_reopened`)."
+      description: "Returns a done task of a period close to open, with a reason (409 `closing.task_not_done` for an open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared (a check task keeps its latest `check_result`), and the reason is kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_reopened`). A signed-off close whose covered periods are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
       x-agent: false
       x-problem-codes:
         - closing.close_exists
+        - closing.close_signed_off
         - closing.task_not_done
         - config.not_bootstrapped
         - request.version_mismatch
@@ -14095,13 +14162,14 @@ paths:
       tags:
         - closing
       summary: Run a close task's check
-      description: "Runs a check task's check now and records its result on the task (ADR-0058 §6, T64c): `check_result` says whether it passed, when, who ran it and what it found, each with its id and name; the task is set done when it passed (who ran it and when become its completion; a task already done keeps its completion) and open when it did not. `no_parked_entries` passes when no parked entry of the company dated in the period (the leading ledger's period's first to last day) is `parked` or `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted` passes when each covered ledger has a posted revaluation run keyed on its period's last day, and names each ledger with its run. A check is a statement about the moment it ran: run it again to refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_checked`, with `check_passed`)."
+      description: "Runs a check task's check now and records its result on the task (ADR-0058 §6, T64c): `check_result` says whether it passed, when, who ran it and what it found, each with its id and name; the task is set done when it passed (who ran it and when become its completion; a task already done keeps its completion) and open when it did not. `no_parked_entries` passes when no parked entry of the company dated in the period (the leading ledger's period's first to last day) is `parked` or `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted` passes when each covered ledger has a posted revaluation run keyed on its period's last day, and names each ledger with its run. A check is a statement about the moment it ran: run it again to refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_checked`, with `check_passed`). A signed-off close whose covered periods are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
       x-agent: false
       x-problem-codes:
         - closing.close_exists
+        - closing.close_signed_off
         - closing.task_blocked
         - closing.task_not_check
         - config.not_bootstrapped
@@ -19963,6 +20031,12 @@ components:
           items:
             $ref: "#/components/schemas/MatchIssue"
           description: "With `payables.match_outdated` only: the issues the invoice's match under its order items' locks finds that the clean match, or the match its exception was approved on, did not show (ADR-0052, decision D3)."
+        failing_checks:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/FailingCheck"
+          description: "With `closing.checks_failing` only: each check task whose check failed when the sign-off ran it again, with what it found (ADR-0058 §7)."
       examples:
         - type: "https://errors.example.com/request/not-found"
           title: Raise the tier 2 approval limit
@@ -32960,6 +33034,20 @@ components:
           description: "Period close status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum: [open, signed_off]
           readOnly: true
+        signed_off_at:
+          type: string
+          format: date-time
+          description: "When it was signed off (`:signOff`, T64d); absent while it is open."
+          readOnly: true
+        signed_off_by:
+          type: string
+          format: uuid
+          description: "Who signed it off; absent while it is open."
+          readOnly: true
+        signed_off_by_name:
+          type: string
+          description: "Their name; absent while it is open."
+          readOnly: true
         tasks_total:
           type: integer
           format: int32
@@ -33037,6 +33125,7 @@ components:
         - tasks_overdue
         - ledgers
         - tasks
+        - sign_offs
         - version
         - created_at
         - created_by
@@ -33085,8 +33174,22 @@ components:
           readOnly: true
         status:
           type: string
-          description: "`open` until it is signed off. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "`open` until it is signed off, and again after a covered period was unlocked and the close written to (ADR-0058 §7). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum: [open, signed_off]
+          readOnly: true
+        signed_off_at:
+          type: string
+          format: date-time
+          description: "When it was signed off (`:signOff`, T64d); absent while it is open."
+          readOnly: true
+        signed_off_by:
+          type: string
+          format: uuid
+          description: "Who signed it off; absent while it is open."
+          readOnly: true
+        signed_off_by_name:
+          type: string
+          description: "Their name; absent while it is open."
           readOnly: true
         read_date:
           type: string
@@ -33134,6 +33237,13 @@ components:
           items:
             $ref: "#/components/schemas/CloseTask"
           description: "Its tasks, in the template's order."
+          readOnly: true
+        sign_offs:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/PeriodCloseSignOff"
+          description: "Its sign-offs, oldest first (T64d): one per `:signOff`, a second after a covered period was unlocked and the close signed off again; empty until it is signed off."
           readOnly: true
         version:
           type: integer
@@ -33196,6 +33306,7 @@ components:
               status: open
               overdue: true
               read_date: "2026-11-03"
+          sign_offs: []
           version: 1
           created_at: "2026-11-03T14:00:00Z"
           created_by: 0192a000-0000-7000-8000-000000000101
@@ -33270,6 +33381,20 @@ components:
           type: string
           description: "Period close status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum: [open, signed_off]
+          readOnly: true
+        signed_off_at:
+          type: string
+          format: date-time
+          description: "When it was signed off (`:signOff`, T64d); absent while it is open."
+          readOnly: true
+        signed_off_by:
+          type: string
+          format: uuid
+          description: "Who signed it off; absent while it is open."
+          readOnly: true
+        signed_off_by_name:
+          type: string
+          description: "Their name; absent while it is open."
           readOnly: true
         read_date:
           type: string
@@ -33739,6 +33864,164 @@ components:
       additionalProperties: false
       examples:
         - {assignee_id: 0192a000-0000-7000-8000-000000000101}
+    PeriodCloseSignOffInput:
+      type: object
+      description: "A period close's sign-off."
+      properties:
+        note: {type: string, minLength: 1, maxLength: 2000, description: "What the signer wants kept with the sign-off; kept on it and in the audit trail."}
+      additionalProperties: false
+      examples:
+        - {note: "October closed; accruals reviewed with the CFO."}
+    PeriodCloseSignOff:
+      type: object
+      description: "A sign-off of a period close (ADR-0058 §7, T64d): who signed it off, when, and per covered ledger its period and whether this sign-off locked it. Recorded once, never changed; a close signed off again after an unlock has a second."
+      required:
+        - id
+        - close_id
+        - legal_entity_id
+        - company_code
+        - company_name
+        - fiscal_year
+        - fiscal_period
+        - signed_by
+        - signed_by_name
+        - signed_at
+        - ledgers
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        close_id:
+          type: string
+          format: uuid
+          description: "The period close (`GET /v1/period-closes/{id}`)."
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The company's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The company's name.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year.
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 12
+          description: Regular period.
+          readOnly: true
+        signed_by:
+          type: string
+          format: uuid
+          description: The person who signed it off.
+          readOnly: true
+        signed_by_name:
+          type: string
+          description: Their name.
+          readOnly: true
+        signed_at:
+          type: string
+          format: date-time
+          description: When.
+          readOnly: true
+        note:
+          type: string
+          description: "The note given with it; absent without one."
+          readOnly: true
+        ledgers:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/PeriodCloseSignOffLedger"
+          description: "The covered ledgers, the leading one first, then by code: the order their periods were locked in."
+          readOnly: true
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000f21
+          close_id: 0192a000-0000-7000-8000-000000000f01
+          legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+          company_code: "1000"
+          company_name: Maple Manufacturing Ltd.
+          fiscal_year: 2026
+          fiscal_period: 10
+          signed_by: 0192a000-0000-7000-8000-000000000101
+          signed_by_name: Carla Controller
+          signed_at: "2026-11-05T16:00:00Z"
+          note: October closed; accruals reviewed with the CFO.
+          ledgers:
+            - {ledger_id: 0192a000-0000-7000-8000-000000000a01, ledger_code: 0L, ledger_name: Leading ledger, is_leading: true, fiscal_period_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41, locked: true}
+    PeriodCloseSignOffLedger:
+      type: object
+      description: "A covered ledger as a sign-off found it: its period, and whether this sign-off locked it."
+      required:
+        - ledger_id
+        - ledger_code
+        - ledger_name
+        - is_leading
+        - fiscal_period_id
+        - locked
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: The ledger.
+          readOnly: true
+        ledger_code:
+          type: string
+          description: "The ledger's code, as it was at the sign-off."
+          readOnly: true
+        ledger_name:
+          type: string
+          description: "The ledger's name, as it was at the sign-off."
+          readOnly: true
+        is_leading:
+          type: boolean
+          description: Whether it is the leading ledger.
+          readOnly: true
+        fiscal_period_id:
+          type: string
+          format: uuid
+          description: "The ledger's posting period of the close (`GET /v1/fiscal-periods/{id}`)."
+          readOnly: true
+        locked:
+          type: boolean
+          description: "Whether this sign-off locked the period: false when it was locked already."
+          readOnly: true
+    FailingCheck:
+      type: object
+      description: "A check task whose check failed when a sign-off ran it again (`closing.checks_failing`), with what it found; nothing was recorded on the task."
+      readOnly: true
+      required:
+        - task_code
+        - task_name
+        - check
+        - summary
+      properties:
+        task_code:
+          type: string
+          description: The task's code.
+        task_name:
+          type: string
+          description: The task's name.
+        check:
+          type: string
+          description: "The check. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [no_parked_entries, revaluation_posted]
+        summary:
+          type: string
+          description: "What it found, in one sentence; `:check` on the task records it whole."
     CloseTaskComplete:
       type: object
       description: "A manual task's completion."

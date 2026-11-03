@@ -2683,8 +2683,10 @@ step_asset_acquisitions() {
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
 # the process owner approves; Carla reads the year's close calendar, each
 # period's planned first and last due dates on the company's business days.
+# Then the close's checklist (T64b), its checks (T64c) and, last, its
+# sign-off (T64d), which locks the period.
 step_close() {
-  heading "Final step — Financial close: the close template through a governed change, and the year's close calendar"
+  heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off"
   as ada
   say "Ada proposes the close template (ADR-0058 §3): the tasks every company's period close is given, each due"
   say "a number of business days after the period's last day (negative: before it), some waiting for others:"
@@ -2731,6 +2733,7 @@ step_close() {
     "$(field '[.periods[] | .first_due_on < .end_date and .last_due_on > .end_date] | all')" true
   close_checklist
   close_checks
+  close_sign_off
   passed
 }
 
@@ -2827,6 +2830,46 @@ close_checks() {
   expect "the task after a passing check" "$(field .status)" done
   QUIET=1 api 200 '' getPeriodClose -p "id=$close"
   expect "every task done" "$(field '.tasks_done == .tasks_total')" true
+}
+
+# close_sign_off is T64d's part of step_close, its end (ADR-0058 §7): the
+# sign-off is refused while the period is open; Carla closes it in each
+# covered ledger and signs off, which runs the checks again and locks each
+# period through the period lock (T32), the leading ledger first; a manual
+# entry dated in the period is then refused.
+close_sign_off() {
+  local period close tag p
+  period=$((10#${TODAY:5:2}))
+  as carla
+  QUIET=1 api 200 '' listPeriodCloses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  close=$(field ".items[] | select(.fiscal_period == $period) | .id")
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  tag=$ETAG
+  say "Every task is done. Carla signs off the close; it is refused while the period still takes postings: a close"
+  say "is signed off after the period is closed, and a sign-off never closes a period itself."
+  refused 409 closing.period_not_closed signOffPeriodClose -p "id=$close" -if-match "$tag" -body '{}'
+  say "She closes the period in each ledger the close covers (closeFiscalPeriod):"
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  for p in $(field '.ledgers[] | "\(.ledger_code)=\(.fiscal_period_id)"'); do
+    QUIET=1 api 200 '' getFiscalPeriod -p "id=${p#*=}"
+    api 200 '"  '"${p%%=*}"' period \(.fiscal_year)/\(.period): \(.status)"' closeFiscalPeriod -p "id=${p#*=}" -if-match "$ETAG"
+  done
+  say "and signs off. The checks run again (the parked-entries check passes and is recorded), and each covered period"
+  say "is locked through the period lock, the leading ledger first: it no longer reopens with :open, only through an"
+  say "approved unlock request."
+  api 200 '"signed off by \(.signed_by_name) at \(.signed_at): \(.note)", (.ledgers[] | "  \(.ledger_code) \(.ledger_name): period \(if .locked then "locked by the sign-off" else "locked already" end)")' \
+    signOffPeriodClose -p "id=$close" -if-match "$tag" -body '{"note": "Period closed; every task done and every check passing"}'
+  expect "every covered period locked by the sign-off" "$(field '[.ledgers[].locked] | all')" true
+  expect "the leading ledger first" "$(field '.ledgers[0].is_leading')" true
+  api 200 '"\(.company_code) \(.fiscal_year)/\(.fiscal_period): \(.status), by \(.signed_off_by_name)",
+    (.ledgers[] | "  \(.ledger_code): \(.period_status)")' getPeriodClose -p "id=$close"
+  expect "the close" "$(field .status)" signed_off
+  expect "the periods" "$(field '[.ledgers[].period_status] | unique | join(" ")')" locked
+  expect "its sign-offs" "$(field '.sign_offs | length')" 1
+  as tom
+  say "A manual entry dated in the period is refused: the period is locked."
+  refused 409 ledger.period_not_open postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"A late courier charge\", \"lines\": [{\"account_id\": \"$(account 6000)\", \"amount\": {\"amount\": \"40.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$(account 211000)\", \"amount\": {\"amount\": \"-40.00\", \"currency\": \"CAD\"}, \"partner_id\": \"$SUPPLIER\"}]}"
 }
 
 # name_partners replaces the business partners' ids in what it reads with

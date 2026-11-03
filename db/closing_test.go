@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -206,7 +207,79 @@ func TestClosePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := len(codes); got != 2 || codes[0] != "closing.close.manage" || codes[1] != "closing.close.read" {
-		t.Errorf("got %v, want closing.close.manage and closing.close.read", codes)
+	if got := strings.Join(codes, " "); got != "closing.close.manage closing.close.read closing.close.sign_off" {
+		t.Errorf("got %v, want closing.close.manage, closing.close.read and closing.close.sign_off", codes)
 	}
+}
+
+// Sign-offs (T64d, migration 000197): a close's sign-off names at least
+// one covered ledger and at most twenty, as a list; its note, when given,
+// is text of at most 2,000 characters; it belongs to a close of its
+// tenant; and it is never updated or deleted. Another tenant does not see
+// it.
+func TestCloseSignOffRules(t *testing.T) {
+	need(t)
+	const (
+		closeRow = `INSERT INTO closing.period_close (tenant_id, id, legal_entity_id, fiscal_year, fiscal_period, period_end, config_version,
+			created_by, updated_by) VALUES ($1, $2, gen_random_uuid(), 2026, 1, '2026-01-31', 1, $3, $3)`
+		signRow = `INSERT INTO closing.sign_off (tenant_id, id, close_id, signed_by, note, locked) VALUES ($1, gen_random_uuid(), $2, $3, $4, $5)`
+		one     = `[{"ledger_id": "0192a000-0000-7000-8000-000000000a01", "locked": true}]`
+	)
+	type scene struct{ tenant, actor, close uuid.UUID }
+	open := func(s scene) stmt { return step(closeRow, s.tenant, s.close, s.actor) }
+	sign := func(s scene, note any, locked string) stmt {
+		return step(signRow, s.tenant, s.close, s.actor, note, locked)
+	}
+	many := "[" + strings.TrimSuffix(strings.Repeat(`{"locked": true},`, 21), ",") + "]"
+	cases := []struct {
+		name string
+		run  func(tx pgx.Tx, s scene) error
+		want string // empty: allowed
+	}{
+		{"a sign-off with a note, and a second", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), sign(s, "Closed", one), sign(s, nil, one))
+		}, ""},
+		{"a sign-off of no close", func(tx pgx.Tx, s scene) error { return all(tx, sign(s, nil, one)) }, "sign_off_tenant_id_close_id_fkey"},
+		{"a sign-off without a ledger", func(tx pgx.Tx, s scene) error { return all(tx, open(s), sign(s, nil, `[]`)) }, "sign_off_locked"},
+		{"a sign-off of 21 ledgers", func(tx pgx.Tx, s scene) error { return all(tx, open(s), sign(s, nil, many)) }, "sign_off_locked"},
+		{"a sign-off's ledgers as no list", func(tx pgx.Tx, s scene) error { return all(tx, open(s), sign(s, nil, `{}`)) }, "sign_off_locked"},
+		{"an empty note", func(tx pgx.Tx, s scene) error { return all(tx, open(s), sign(s, "", one)) }, "sign_off_note_check"},
+		{"a note too long", func(tx pgx.Tx, s scene) error { return all(tx, open(s), sign(s, strings.Repeat("n", 2001), one)) }, "sign_off_note_check"},
+		{"a sign-off changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), sign(s, nil, one), step(`UPDATE closing.sign_off SET note = 'Later'`))
+		}, "permission denied"},
+		{"a sign-off deleted", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), sign(s, nil, one), step(`DELETE FROM closing.sign_off`))
+		}, "permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), actor: id(), close: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+	t.Run("changed by the owner", func(t *testing.T) {
+		s := scene{tenant: id(), actor: id(), close: id()}
+		mustApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, open(s), sign(s, nil, one)) })
+		_, err := testDB.Exec(context.Background(), `UPDATE closing.sign_off SET note = 'Later' WHERE tenant_id = $1`, s.tenant)
+		failsWith(t, err, "insert-only")
+	})
+	t.Run("another tenant's", func(t *testing.T) {
+		a, b := scene{tenant: id(), actor: id(), close: id()}, id()
+		mustApp(t, a.tenant, func(tx pgx.Tx) error { return all(tx, open(a), sign(a, nil, one)) })
+		mustApp(t, b, func(tx pgx.Tx) error {
+			var n int
+			if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM closing.sign_off`).Scan(&n); err != nil || n != 0 {
+				t.Errorf("another tenant's sign-offs: got %d (%v), want none", n, err)
+			}
+			return nil
+		})
+	})
 }

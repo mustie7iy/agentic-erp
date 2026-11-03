@@ -19,7 +19,12 @@
 // published through the closing outbox (ADR-0007, ADR-0011). T64c runs a
 // check task's check on demand (ADR-0058 §6): no parked entry left in the
 // period, and each covered ledger's revaluation posted, read through the
-// ledger's port, the result recorded on the task with what it found.
+// ledger's port, the result recorded on the task with what it found. T64d
+// signs a close off (ADR-0058 §7): every manual task done, every check
+// passing when run again, each covered period closed by a person; it then
+// locks each covered period through the ledger's period lock (T32) in the
+// order postings take them, and records the sign-off. A covered period
+// unlocked later reopens the close on its next write.
 package closing
 
 import (
@@ -59,6 +64,7 @@ type Period struct {
 	StartDate time.Time
 	EndDate   time.Time
 	Status    string
+	Version   int32
 }
 
 // LedgerPeriod is a ledger a legal entity keeps and its posting period
@@ -88,13 +94,15 @@ type ParkedEntry struct {
 // code; how many of its parked entries with a posting date from from to to
 // are in one of the statuses, and the first limit of them by posting date;
 // and its ledger's posted revaluation run at a key date, ok false when
-// there is none. Each reads nothing of a legal entity the caller may not
-// act in.
+// there is none. Each reads nothing of a legal entity the caller may not act
+// in. Lock locks a closed period as the period lock does (T32), refusing
+// one whose version is no longer the one read.
 type Ledger interface {
 	LeadingPeriods(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]Period, error)
 	PeriodsOf(ctx context.Context, legalEntity uuid.UUID, fiscalYear, period int16) ([]LedgerPeriod, error)
 	Parked(ctx context.Context, legalEntity uuid.UUID, from, to time.Time, statuses []string, limit int) (int, []ParkedEntry, error)
 	PostedRevaluation(ctx context.Context, legalEntity, ledger uuid.UUID, keyDate time.Time) (run uuid.UUID, ok bool, err error)
+	Lock(ctx context.Context, period uuid.UUID, version int32) error
 }
 
 // Person is a principal as the closing context names it: its name, kind

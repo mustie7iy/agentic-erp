@@ -25,13 +25,16 @@ func init() {
 
 // Statuses of a close and of its tasks (ADR-0058 §5).
 const (
-	TaskOpen = "open"
-	TaskDone = "done"
+	CloseOpen      = "open"
+	CloseSignedOff = "signed_off"
+	TaskOpen       = "open"
+	TaskDone       = "done"
 )
 
 // periodClose is a stored close with its tasks' counts: all, done, and
 // the due dates of those open, from which the overdue ones are counted on
-// the company's date at the read; and its tasks' first and last due date.
+// the company's date at the read; its tasks' first and last due date; and,
+// while it is signed off, when and by whom (its latest sign-off).
 type periodClose struct {
 	ID, LegalEntityID        uuid.UUID
 	FiscalYear, FiscalPeriod int16
@@ -44,6 +47,8 @@ type periodClose struct {
 	Total, Done              int32
 	OpenDue                  []time.Time
 	FirstDue, LastDue        *time.Time
+	SignedAt                 *time.Time
+	SignedBy                 *uuid.UUID
 }
 
 // overdue counts the open tasks due before day.
@@ -58,15 +63,17 @@ func (c periodClose) overdue(day time.Time) int32 {
 }
 
 const closeSelect = `SELECT c.id, c.legal_entity_id, c.fiscal_year, c.fiscal_period, c.period_end, c.config_version, c.status, c.version,
-		c.created_at, c.created_by, c.updated_at, c.updated_by, k.total, k.done, k.open_due, k.first_due, k.last_due
+		c.created_at, c.created_by, c.updated_at, c.updated_by, k.total, k.done, k.open_due, k.first_due, k.last_due, so.signed_at, so.signed_by
 	FROM closing.period_close c CROSS JOIN LATERAL (SELECT count(*)::int, (count(*) FILTER (WHERE t.status = 'done'))::int,
 			coalesce(array_agg(t.due_on) FILTER (WHERE t.status = 'open'), '{}'), min(t.due_on), max(t.due_on)
-		FROM closing.close_task t WHERE t.tenant_id = c.tenant_id AND t.close_id = c.id) k(total, done, open_due, first_due, last_due)`
+		FROM closing.close_task t WHERE t.tenant_id = c.tenant_id AND t.close_id = c.id) k(total, done, open_due, first_due, last_due)
+	LEFT JOIN LATERAL (SELECT s.signed_at, s.signed_by FROM closing.sign_off s WHERE s.tenant_id = c.tenant_id AND s.close_id = c.id
+		AND c.status = 'signed_off' ORDER BY s.signed_at DESC, s.id DESC LIMIT 1) so ON true`
 
 func scanClose(r pgx.Row) (periodClose, error) {
 	var c periodClose
 	err := r.Scan(&c.ID, &c.LegalEntityID, &c.FiscalYear, &c.FiscalPeriod, &c.PeriodEnd, &c.ConfigVersion, &c.Status, &c.Version,
-		&c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy, &c.Total, &c.Done, &c.OpenDue, &c.FirstDue, &c.LastDue)
+		&c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy, &c.Total, &c.Done, &c.OpenDue, &c.FirstDue, &c.LastDue, &c.SignedAt, &c.SignedBy)
 	return c, errs.Wrapf(err, "scan period close")
 }
 

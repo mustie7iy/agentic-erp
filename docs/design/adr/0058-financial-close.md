@@ -1029,3 +1029,70 @@ in `step_close`. Decided by default, for the product owner to overrule:
   when it is opened; it has no `revaluation_posted` task, so the sign-off
   T64d adds needs no revaluation run in the walkthrough. The revaluation
   check is tested in `internal/closing` with real runs.
+
+**T64d (sign-off locks the period through T32).** Built as §7:
+`POST /v1/period-closes/{id}:signOff` (`signOffPeriodClose`, people only,
+`closing.close.sign_off` with `ledger.period.lock` and `ledger.entry.read`
+as `x-also-permissions`; the permission added by migration 000197) reads
+the close `FOR UPDATE`, checks `If-Match` against its version and, in this
+order, refuses a close signed off whose covered periods are all locked
+(409 `closing.close_signed_off`), a manual task open (409
+`closing.tasks_open`, naming them), a check failing when run again (409
+`closing.checks_failing`) and a covered period still open (409
+`closing.period_not_closed`, naming the ledgers); it then locks each
+closed covered period through `ledger.LockPeriod` (over the new
+`ledger.ClosePeriods.Lock`, at the version the sign-off read: T32's guard,
+audit record and `PeriodLocked`, unchanged), the leading ledger first,
+then by code, writes the `sign_off` row (migration 000197: insert-only,
+1-20 covered ledgers), sets the close `signed_off`, and writes the audit
+record (`closing.period_close.sign_off`) and `PeriodCloseSignedOff`. A
+refusal keeps nothing (the request rolls back). A signed-off close one of
+whose periods was unlocked is reopened by its first task action, audited
+(`closing.period_close.reopen`, with the unlocked ledgers) and published
+as `PeriodCloseChanged` (`reopened`) before the action's own change; a
+signed-off close whose periods are all locked refuses every task action
+(409 `closing.close_signed_off`). The test drives a lock, an approved
+unlock, a second sign-off, another unlock, a reopened task, a correcting
+entry and a third sign-off (`TestSignOffAfterUnlock`). 03's entry-lock
+paragraph has the sign-off's period locks. Walkthrough: `close_sign_off`,
+the end of `step_close`. Decided by default, for the product owner to
+overrule:
+- The action is `:signOff`, not `:sign-off`: the contract's path rule
+  (`TestOperations`) takes a camelCase verb, as `:acceptProposal`.
+- **The postings' lock order is fixed in the ledger.** `postingPeriod`
+  took its periods `FOR SHARE` in the order of the ledgers' rows (a
+  lateral per row, sorted only afterwards), not leading first, then by
+  code as §5 assumed: the concurrency test, on a company whose three
+  ledgers' ids and codes sort differently, deadlocked (40P01). Its ledgers
+  now come from a subquery ordered leading first, then by code, so the
+  lateral locks run in that order; the rows it returns keep their order
+  (the representative first). A ledger group whose representative is not
+  the leading ledger now locks the leading ledger's period first too.
+- The answer is the sign-off (`PeriodCloseSignOff`: who, when, the note,
+  and per covered ledger its code, name, period and whether this sign-off
+  locked it, with the close's company and period) with the close's new
+  ETag. `GET /v1/period-closes/{id}` lists the close's `sign_offs`, oldest
+  first; the close, the list's items and the calendar's close carry
+  `signed_off_at`, `signed_off_by` and `signed_off_by_name` (§3: "signed
+  off at and by") while it is signed off.
+- `closing.checks_failing` names each failing task in the problem's
+  `failing_checks` (task code and name, check, the result's summary), as
+  `payables.match_outdated` carries `match_issues`; the full result is what
+  `:check` records. When every check passes, each result is recorded on its
+  task as `:check` records it, without a `task_checked` event or audit
+  record of its own: the sign-off's audit record and event stand for them.
+- A covered period whose version changed between the sign-off's read and
+  its lock (opened, closed or unlocked meanwhile) refuses the sign-off with
+  412 `request.version_mismatch`: read the close again.
+- A signed-off close whose covered periods are not all locked is signed off
+  again as it is, without being reopened first: its status stays
+  `signed_off` and a second `sign_off` row records the period this
+  sign-off locked (`locked: true`) and those locked already (`false`).
+- Reopening happens only on a task action that changes something (an empty
+  merge patch reopens nothing), and the refusal of a write on a close
+  signed off with every period locked comes before the action's own checks.
+- The sign-off's optional `note` is 1-2,000 characters, as a task's note.
+- Who signs off is not restricted further (no segregation of duties): any
+  person holding `closing.close.sign_off` and `ledger.period.lock`, one who
+  completed tasks included, as built above and as §7 and the open question
+  below state.

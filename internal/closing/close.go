@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
+	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -198,13 +199,17 @@ func insertTasks(ctx context.Context, tx pgx.Tx, p reqctx.Principal, closeID uui
 }
 
 // closeOut is a close as a single read shows it: with its company, its
-// ledgers' live period status, and its tasks.
+// ledgers' live period status, its tasks and its sign-offs.
 func (e *Endpoints) closeOut(ctx context.Context, tx pgx.Tx, c periodClose) (gen.PeriodClose, error) {
 	tasks, err := tasksOf(ctx, tx, c.ID)
 	if err != nil {
 		return gen.PeriodClose{}, err
 	}
-	v, err := e.view(ctx, []uuid.UUID{c.LegalEntityID}, tasks)
+	offs, err := signOffsOf(ctx, tx, c.ID)
+	if err != nil {
+		return gen.PeriodClose{}, err
+	}
+	v, err := e.view(ctx, []uuid.UUID{c.LegalEntityID}, tasks, idref.Of(offs, func(s signOff) *uuid.UUID { return &s.SignedBy })...)
 	if err != nil {
 		return gen.PeriodClose{}, err
 	}
@@ -212,7 +217,7 @@ func (e *Endpoints) closeOut(ctx context.Context, tx pgx.Tx, c periodClose) (gen
 	if err != nil {
 		return gen.PeriodClose{}, err
 	}
-	return v.closeToAPI(c, ledgers, tasks), nil
+	return v.closeToAPI(c, ledgers, tasks, offs), nil
 }
 
 // ledgersOf are the ledgers a close covers, with their periods' live

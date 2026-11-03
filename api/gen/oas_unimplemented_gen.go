@@ -408,7 +408,10 @@ func (UnimplementedHandler) CaptureSupplierInvoice(ctx context.Context, req *Sup
 // refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and
 // for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the
 // task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
-// (`task_checked`, with `check_passed`).
+// (`task_checked`, with `check_passed`). A signed-off close whose covered periods are all locked
+// refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved
+// `unlockFiscalPeriod` request), the change sets the close open again first, published as
+// PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d).
 //
 // POST /v1/period-closes/{id}/tasks/{code}:check
 func (UnimplementedHandler) CheckCloseTask(ctx context.Context, params CheckCloseTaskParams) (r CheckCloseTaskRes, _ error) {
@@ -460,7 +463,10 @@ func (UnimplementedHandler) ClosePurchaseOrder(ctx context.Context, params Close
 // already done (409 `closing.task_already_done`) and for a check task, which is done by its check
 // passing (409 `closing.task_is_check`; T64c: run it with `:check`). `If-Match` is the close's ETag;
 // the answer is the task, with the close's new ETag. People only. Audited, and published as
-// PeriodCloseChanged (`task_completed`).
+// PeriodCloseChanged (`task_completed`). A signed-off close whose covered periods are all locked
+// refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved
+// `unlockFiscalPeriod` request), the change sets the close open again first, published as
+// PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d).
 //
 // POST /v1/period-closes/{id}/tasks/{code}:complete
 func (UnimplementedHandler) CompleteCloseTask(ctx context.Context, req OptCloseTaskComplete, params CompleteCloseTaskParams) (r CompleteCloseTaskRes, _ error) {
@@ -3705,7 +3711,10 @@ func (UnimplementedHandler) RenewContract(ctx context.Context, req *ContractRene
 // its latest `check_result`), and the reason is kept in the audit trail and the event. It reopens
 // nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is
 // the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
-// (`task_reopened`).
+// (`task_reopened`). A signed-off close whose covered periods are all locked refuses it (409
+// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
+// request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`)
+// (ADR-0058 §7, T64d).
 //
 // POST /v1/period-closes/{id}/tasks/{code}:reopen
 func (UnimplementedHandler) ReopenCloseTask(ctx context.Context, req *ReasonInput, params ReopenCloseTaskParams) (r ReopenCloseTaskRes, _ error) {
@@ -3865,6 +3874,34 @@ func (UnimplementedHandler) RotateWebhookSubscriptionSecret(ctx context.Context,
 //
 // POST /v1/analytics-queries
 func (UnimplementedHandler) RunAnalyticsQuery(ctx context.Context, req *AnalyticsQuery, params RunAnalyticsQueryParams) (r RunAnalyticsQueryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// SignOffPeriodClose implements signOffPeriodClose operation.
+//
+// Signs off a period close and locks its covered ledgers' periods through the period lock (ADR-0058
+// §7, T64d), in one transaction under a lock on the close: refused while a manual task is open (409
+// `closing.tasks_open`, naming them); then every check task's check runs again, and if any fails the
+// sign-off is refused (409 `closing.checks_failing`, the problem's `failing_checks` naming each
+// failing task with what its check found) and nothing is kept (`:check` records a result); when all
+// pass each result is recorded on its task. Each covered ledger's period must then be `closed` or
+// `locked` (409 `closing.period_not_closed`, naming the ledgers still open): a close is signed off
+// after its period stopped taking postings, and a sign-off never closes a period. Each `closed`
+// covered period is locked as `lockFiscalPeriod` locks it (the ledger's audit record and
+// PeriodLocked), the leading ledger first, then by ledger code, the order postings lock periods in; a
+// period already locked is left as it is, and a period changed by someone else between its read and
+// its lock refuses the sign-off (412 `request.version_mismatch`). The sign-off is recorded with who
+// signed off, when, the note and, per covered ledger, its period and whether this sign-off locked it,
+// and the close is `signed_off`. A close already signed off whose covered periods are all locked is
+// refused (409 `closing.close_signed_off`); after a covered period was unlocked (an approved
+// `unlockFiscalPeriod` request) it is signed off again, adding a second sign-off. `If-Match` is the
+// close's ETag; the answer is the sign-off, with the close's new ETag. People only. Besides
+// `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks periods, and
+// `ledger.entry.read`, since its refusal names what the checks found (`x-also-permissions`; 403
+// `identity.permission_missing` otherwise). Audited, and published as PeriodCloseSignedOff.
+//
+// POST /v1/period-closes/{id}:signOff
+func (UnimplementedHandler) SignOffPeriodClose(ctx context.Context, req OptPeriodCloseSignOffInput, params SignOffPeriodCloseParams) (r SignOffPeriodCloseRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -4105,7 +4142,10 @@ func (UnimplementedHandler) UpdateChangeRequest(ctx context.Context, req *Change
 // active person of the tenant (422 `closing.assignee_invalid` for an agent, a service, a blocked or
 // unknown principal). `If-Match` is the close's ETag, so a change made on a stale view of the
 // checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited,
-// and published as PeriodCloseChanged (`task_assigned`).
+// and published as PeriodCloseChanged (`task_assigned`). A signed-off close whose covered periods are
+// all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved
+// `unlockFiscalPeriod` request), the change sets the close open again first, published as
+// PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d).
 //
 // PATCH /v1/period-closes/{id}/tasks/{code}
 func (UnimplementedHandler) UpdateCloseTask(ctx context.Context, req *CloseTaskUpdate, params UpdateCloseTaskParams) (r UpdateCloseTaskRes, _ error) {

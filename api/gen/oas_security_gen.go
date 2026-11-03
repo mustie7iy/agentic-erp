@@ -346,6 +346,7 @@ var operationRolesOidc = map[string][]string{
 	ReverseSupplierInvoiceOperation:           []string{},
 	RotateWebhookSubscriptionSecretOperation:  []string{},
 	RunAnalyticsQueryOperation:                []string{},
+	SignOffPeriodCloseOperation:               []string{},
 	SimulateChangeRequestOperation:            []string{},
 	StartAgentSessionOperation:                []string{},
 	StartMigrationRunOperation:                []string{},

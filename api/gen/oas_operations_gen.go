@@ -300,6 +300,7 @@ const (
 	ReverseSupplierInvoiceOperation           OperationName = "ReverseSupplierInvoice"
 	RotateWebhookSubscriptionSecretOperation  OperationName = "RotateWebhookSubscriptionSecret"
 	RunAnalyticsQueryOperation                OperationName = "RunAnalyticsQuery"
+	SignOffPeriodCloseOperation               OperationName = "SignOffPeriodClose"
 	SimulateChangeRequestOperation            OperationName = "SimulateChangeRequest"
 	StartAgentSessionOperation                OperationName = "StartAgentSession"
 	StartMigrationRunOperation                OperationName = "StartMigrationRun"

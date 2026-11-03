@@ -64,6 +64,16 @@ type MatchIssue struct {
 	Message string `json:"message"`
 }
 
+// FailingCheck is a check task of a period close whose check failed when
+// a sign-off ran it again (closing.checks_failing, ADR-0058 §7): its task,
+// its check and what it found, as the API's FailingCheck.
+type FailingCheck struct {
+	TaskCode string `json:"task_code"`
+	TaskName string `json:"task_name"`
+	Check    string `json:"check"`
+	Summary  string `json:"summary"`
+}
+
 // Problem is an RFC 9457 problem document.
 type Problem struct {
 	Type     string       `json:"type"`
@@ -81,6 +91,9 @@ type Problem struct {
 	// decision D3), set by that problem alone: those the invoice's match
 	// at posting finds that its basis did not show.
 	MatchIssues []MatchIssue `json:"match_issues,omitempty"`
+	// FailingChecks are closing.checks_failing's failing checks (ADR-0058
+	// §7), set by that problem alone.
+	FailingChecks []FailingCheck `json:"failing_checks,omitempty"`
 
 	// RetryAfter, in seconds, is sent as the Retry-After header when set.
 	RetryAfter int `json:"-"`

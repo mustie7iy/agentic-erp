@@ -2362,6 +2362,22 @@ after the entry buckets `loadItems` takes, and the clearing trigger reads it
 `FOR SHARE` again, so a close waits for a migrated clearing as it does for a
 posting, in the same order.
 
+A period close's sign-off (T64d, ADR-0058 §5, §7) is the one lock of
+several periods: under its close's row lock (`closing.period_close`
+`FOR UPDATE`, which no posting takes) it locks each covered ledger's
+closed period through `LockPeriod`, one `FOR UPDATE` at a time, the
+leading ledger's first, then by ledger code. A posting to several ledgers
+takes their periods `FOR SHARE` in that same order: `postingPeriod`'s
+ledgers come from a subquery ordered leading first, then by code, which
+its `ORDER BY` keeps from being pulled up, so the lateral lock runs in that
+order whatever the order of the ledgers' rows or ids (before T64d it ran in
+the rows' order, and a posting and a sign-off on a company whose ledgers
+were created out of code order deadlocked; `TestSignOffAndPostingLockInOneOrder`).
+A posting therefore waits for the first period the sign-off holds while
+holding none the sign-off needs next, then reads the committed `locked`
+status and is refused. No write takes a period lock before a close's lock,
+so close-then-period never crosses either.
+
 A transaction that would otherwise lock in several
 steps or after posting, the migration load (it posts every document, then
 clears one SAP clearing at a time), takes all 64 buckets shared first
@@ -3036,3 +3052,22 @@ open; reopening it keeps the result. The checks read the ledger through
 its port (`ledger.CloseChecks`): parked entries of the company by posting
 date in the leading ledger's period (`ledger.parked_entry`) and posted
 revaluation runs per ledger and key date (`ledger.revaluation_run`).
+
+A close's sign-offs (T64d, migration 000197):
+
+```
+closing.sign_off      (tenant_id, id, close_id, signed_by, signed_at, note, locked jsonb)
+                      PK (tenant_id, id); FK (tenant_id, close_id) -> period_close
+```
+
+`:signOff` writes one row per sign-off: who signed off, when, the note
+(1-2,000 characters, optional) and `locked`, a list of 1-20 covered
+ledgers (`sign_off_locked`), each with its code and name as they were then,
+its period (`ledger.period_status`) and whether this sign-off locked it.
+A row is never updated or deleted (`platform.forbid_mutation`, no grant
+beyond `SELECT` and `INSERT`). The close is `signed_off` after it; while it
+is, its latest row is the close's signer. A covered period unlocked later
+(T32) lets the close's next write set it `open` again, and a close signed
+off again has a second row. Read by close, oldest first
+(`sign_off_by_close`). Schema tests: `db/closing_test.go`
+(`TestCloseSignOffRules`).

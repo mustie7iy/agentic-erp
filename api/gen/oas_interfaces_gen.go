@@ -1177,6 +1177,10 @@ type RunAnalyticsQueryRes interface {
 	runAnalyticsQueryRes()
 }
 
+type SignOffPeriodCloseRes interface {
+	signOffPeriodCloseRes()
+}
+
 type SimulateChangeRequestRes interface {
 	simulateChangeRequestRes()
 }
