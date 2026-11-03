@@ -14235,6 +14235,7 @@ paths:
           description: "What the period is compared against: `prior_period`, `prior_year` or `plan` (required); one of the bases the company configures."
           schema:
             type: string
+            pattern: "^[a-z_]{1,32}$"
             description: "Variance basis. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
             x-extensible-enum: [prior_period, prior_year, plan]
         - name: requires_comment

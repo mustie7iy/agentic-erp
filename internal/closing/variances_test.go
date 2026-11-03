@@ -1,25 +1,20 @@
 package closing_test
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
-	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
-	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
-	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // withVariances is withTemplate with company 2000's variance report
@@ -39,24 +34,12 @@ func withVariances(doc *config.Config) {
 // minor units, the bank taking the balance.
 func post(t *testing.T, e fixture.Env, day string, lines map[string]money.Minor) {
 	t.Helper()
-	d, err := time.Parse(time.DateOnly, day)
-	if err != nil {
-		t.Fatal(err)
-	}
 	var ls []ledger.PostingLine
 	var bank money.Minor
 	for number, amount := range lines {
 		ls, bank = append(ls, ledger.PostingLine{AccountID: e.Account(t, "2000", number), Amount: amount}), bank-amount
 	}
-	ls = append(ls, ledger.PostingLine{AccountID: e.Account(t, "2000", "100000"), Amount: bank})
-	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-		_, err := ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}}.Post(ctx,
-			ledger.Posting{LegalEntityID: e.DE, DocumentType: "SA", DocumentDate: d, PostingDate: d, Currency: "EUR", SourceContext: "payables",
-				SourceDocumentID: uuid.New(), Lines: ls})
-		return err
-	}); err != nil {
-		t.Fatalf("post on %s: %v", day, err)
-	}
+	postOn(t, e, day, append(ls, ledger.PostingLine{AccountID: e.Account(t, "2000", "100000"), Amount: bank})...)
 }
 
 // activate makes the active document, changed by set, a new active
