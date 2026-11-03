@@ -4890,13 +4890,15 @@ type AssetMovement struct {
 	// The kind of document it belongs to. Open enumeration: clients must accept and preserve values not
 	// listed here; values may be added within /v1.
 	DocumentKind string `json:"document_kind"`
-	// The document (an acquisition: `GET /v1/asset-acquisitions/{id}`).
+	// The document (an acquisition: `GET /v1/asset-acquisitions/{id}`; a depreciation run:
+	// `GET /v1/depreciation-runs/{id}`).
 	DocumentID uuid.UUID `json:"document_id"`
 	// That ledger's journal entry (`GET /v1/journal-entries/{id}`); absent for a catch-up of zero.
 	JournalEntryID OptUUID `json:"journal_entry_id"`
 	// The journal entry's fiscal year.
 	JournalEntryFiscalYear OptInt32 `json:"journal_entry_fiscal_year"`
-	// The journal entry's document number, for an acquisition's, retirement's or transfer's entry.
+	// The journal entry's document number: an acquisition's, retirement's or transfer's entry, or a
+	// depreciation run's batch entry.
 	DocumentNumber OptString `json:"document_number"`
 	// For a reversal: the movement it reverses.
 	ReversesID OptUUID `json:"reverses_id"`
@@ -15642,6 +15644,7 @@ func (*ConflictHeaders) runAnalyticsQueryRes()                {}
 func (*ConflictHeaders) signOffPeriodCloseRes()               {}
 func (*ConflictHeaders) simulateChangeRequestRes()            {}
 func (*ConflictHeaders) startAgentSessionRes()                {}
+func (*ConflictHeaders) startDepreciationRunRes()             {}
 func (*ConflictHeaders) startMigrationRunRes()                {}
 func (*ConflictHeaders) submitChangeRequestRes()              {}
 func (*ConflictHeaders) submitPaymentRunRes()                 {}
@@ -19581,7 +19584,8 @@ type DepreciationPreviewTotals struct {
 	Difference Money `json:"difference"`
 	// The lines a run would post, the expense lines by depreciation account, cost center and profit
 	// center, then the credit lines by accumulated depreciation account and profit center, by account
-	// number; a line summing to zero is left out.
+	// number, each with its debits and its credits on separate lines (an asset's negative difference,
+	// depreciation posted back, is a credit of expense and a debit of accumulated depreciation).
 	Lines []DepreciationPreviewLine `json:"lines"`
 }
 
@@ -19634,6 +19638,488 @@ func (s *DepreciationPreviewTotals) SetDifference(val Money) {
 func (s *DepreciationPreviewTotals) SetLines(val []DepreciationPreviewLine) {
 	s.Lines = val
 }
+
+// A depreciation run (ADR-0057 §7): what it posted in its ledger for its period, in the company's
+// local currency, and its batches.
+// Ref: #/components/schemas/DepreciationRun
+type DepreciationRun struct {
+	// The run.
+	ID uuid.UUID `json:"id"`
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The regular period.
+	Period int32 `json:"period"`
+	// The period's last day, its entries' posting date.
+	PostingDate time.Time `json:"posting_date"`
+	// The company's local currency, every amount's.
+	Currency string `json:"currency"`
+	// Queued until its workflow plans it, running while its batches post, then posted or failed. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Status string `json:"status"`
+	// Its Operation (`GET /v1/operations/{id}`).
+	OperationID uuid.UUID `json:"operation_id"`
+	// The assets it selected, once planned.
+	AssetsPlanned OptInt32 `json:"assets_planned"`
+	// The assets it posted a difference for, once posted; for a running or failed run, what its posted
+	// batches posted so far.
+	AssetsPosted OptInt32 `json:"assets_posted"`
+	// The assets its batches skipped under their locks (retired, cancelled, booked through a later period
+	// or moved to centers valid after the period since the plan), once posted; for a running or failed
+	// run, its posted batches' so far.
+	AssetsSkipped OptInt32 `json:"assets_skipped"`
+	// The depreciation it posted, once posted; for a running or failed run, what its posted batches posted
+	// so far, which stays posted. Negative where depreciation was posted back (after an acquisition's
+	// reversal) more than posted.
+	Amount OptMoney                `json:"amount"`
+	Error  OptDepreciationRunError `json:"error"`
+	// Its batches in order, once planned.
+	Batches []DepreciationRunBatch `json:"batches"`
+	// The run's version (ETag).
+	Version int32 `json:"version"`
+	// When it was started.
+	CreatedAt time.Time `json:"created_at"`
+	// Who started it.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// When it last changed.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *DepreciationRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *DepreciationRun) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *DepreciationRun) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *DepreciationRun) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *DepreciationRun) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *DepreciationRun) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DepreciationRun) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *DepreciationRun) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *DepreciationRun) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *DepreciationRun) GetCurrency() string {
+	return s.Currency
+}
+
+// GetStatus returns the value of Status.
+func (s *DepreciationRun) GetStatus() string {
+	return s.Status
+}
+
+// GetOperationID returns the value of OperationID.
+func (s *DepreciationRun) GetOperationID() uuid.UUID {
+	return s.OperationID
+}
+
+// GetAssetsPlanned returns the value of AssetsPlanned.
+func (s *DepreciationRun) GetAssetsPlanned() OptInt32 {
+	return s.AssetsPlanned
+}
+
+// GetAssetsPosted returns the value of AssetsPosted.
+func (s *DepreciationRun) GetAssetsPosted() OptInt32 {
+	return s.AssetsPosted
+}
+
+// GetAssetsSkipped returns the value of AssetsSkipped.
+func (s *DepreciationRun) GetAssetsSkipped() OptInt32 {
+	return s.AssetsSkipped
+}
+
+// GetAmount returns the value of Amount.
+func (s *DepreciationRun) GetAmount() OptMoney {
+	return s.Amount
+}
+
+// GetError returns the value of Error.
+func (s *DepreciationRun) GetError() OptDepreciationRunError {
+	return s.Error
+}
+
+// GetBatches returns the value of Batches.
+func (s *DepreciationRun) GetBatches() []DepreciationRunBatch {
+	return s.Batches
+}
+
+// GetVersion returns the value of Version.
+func (s *DepreciationRun) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *DepreciationRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *DepreciationRun) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *DepreciationRun) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *DepreciationRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *DepreciationRun) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *DepreciationRun) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *DepreciationRun) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *DepreciationRun) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *DepreciationRun) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DepreciationRun) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *DepreciationRun) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *DepreciationRun) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *DepreciationRun) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetStatus sets the value of Status.
+func (s *DepreciationRun) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetOperationID sets the value of OperationID.
+func (s *DepreciationRun) SetOperationID(val uuid.UUID) {
+	s.OperationID = val
+}
+
+// SetAssetsPlanned sets the value of AssetsPlanned.
+func (s *DepreciationRun) SetAssetsPlanned(val OptInt32) {
+	s.AssetsPlanned = val
+}
+
+// SetAssetsPosted sets the value of AssetsPosted.
+func (s *DepreciationRun) SetAssetsPosted(val OptInt32) {
+	s.AssetsPosted = val
+}
+
+// SetAssetsSkipped sets the value of AssetsSkipped.
+func (s *DepreciationRun) SetAssetsSkipped(val OptInt32) {
+	s.AssetsSkipped = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *DepreciationRun) SetAmount(val OptMoney) {
+	s.Amount = val
+}
+
+// SetError sets the value of Error.
+func (s *DepreciationRun) SetError(val OptDepreciationRunError) {
+	s.Error = val
+}
+
+// SetBatches sets the value of Batches.
+func (s *DepreciationRun) SetBatches(val []DepreciationRunBatch) {
+	s.Batches = val
+}
+
+// SetVersion sets the value of Version.
+func (s *DepreciationRun) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *DepreciationRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *DepreciationRun) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *DepreciationRun) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// A batch of a depreciation run: at most 500 assets posted as one journal entry in the run's ledger
+// (none when no asset of it had a difference).
+// Ref: #/components/schemas/DepreciationRunBatch
+type DepreciationRunBatch struct {
+	// The batch's number in the run, from 1.
+	BatchNo int32 `json:"batch_no"`
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Status string `json:"status"`
+	// The assets the run planned in it.
+	Assets int32 `json:"assets"`
+	// The assets it posted a difference for, once posted.
+	AssetsPosted OptInt32 `json:"assets_posted"`
+	// The assets it skipped under their locks, once posted.
+	AssetsSkipped OptInt32 `json:"assets_skipped"`
+	// The depreciation it posted, once posted; negative where depreciation was posted back more than
+	// posted.
+	Amount OptMoney `json:"amount"`
+	// Its journal entry (`GET /v1/journal-entries/{id}`), once posted with a difference.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The entry's fiscal year.
+	JournalEntryFiscalYear OptInt32 `json:"journal_entry_fiscal_year"`
+	// The entry's document number.
+	DocumentNumber OptString `json:"document_number"`
+}
+
+// GetBatchNo returns the value of BatchNo.
+func (s *DepreciationRunBatch) GetBatchNo() int32 {
+	return s.BatchNo
+}
+
+// GetStatus returns the value of Status.
+func (s *DepreciationRunBatch) GetStatus() string {
+	return s.Status
+}
+
+// GetAssets returns the value of Assets.
+func (s *DepreciationRunBatch) GetAssets() int32 {
+	return s.Assets
+}
+
+// GetAssetsPosted returns the value of AssetsPosted.
+func (s *DepreciationRunBatch) GetAssetsPosted() OptInt32 {
+	return s.AssetsPosted
+}
+
+// GetAssetsSkipped returns the value of AssetsSkipped.
+func (s *DepreciationRunBatch) GetAssetsSkipped() OptInt32 {
+	return s.AssetsSkipped
+}
+
+// GetAmount returns the value of Amount.
+func (s *DepreciationRunBatch) GetAmount() OptMoney {
+	return s.Amount
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DepreciationRunBatch) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryFiscalYear returns the value of JournalEntryFiscalYear.
+func (s *DepreciationRunBatch) GetJournalEntryFiscalYear() OptInt32 {
+	return s.JournalEntryFiscalYear
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *DepreciationRunBatch) GetDocumentNumber() OptString {
+	return s.DocumentNumber
+}
+
+// SetBatchNo sets the value of BatchNo.
+func (s *DepreciationRunBatch) SetBatchNo(val int32) {
+	s.BatchNo = val
+}
+
+// SetStatus sets the value of Status.
+func (s *DepreciationRunBatch) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetAssets sets the value of Assets.
+func (s *DepreciationRunBatch) SetAssets(val int32) {
+	s.Assets = val
+}
+
+// SetAssetsPosted sets the value of AssetsPosted.
+func (s *DepreciationRunBatch) SetAssetsPosted(val OptInt32) {
+	s.AssetsPosted = val
+}
+
+// SetAssetsSkipped sets the value of AssetsSkipped.
+func (s *DepreciationRunBatch) SetAssetsSkipped(val OptInt32) {
+	s.AssetsSkipped = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *DepreciationRunBatch) SetAmount(val OptMoney) {
+	s.Amount = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DepreciationRunBatch) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryFiscalYear sets the value of JournalEntryFiscalYear.
+func (s *DepreciationRunBatch) SetJournalEntryFiscalYear(val OptInt32) {
+	s.JournalEntryFiscalYear = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *DepreciationRunBatch) SetDocumentNumber(val OptString) {
+	s.DocumentNumber = val
+}
+
+// The problem that failed a run: its code and detail, as the Operation's error gives them;
+// `assets.run_cancelled` when its Operation was cancelled, which stays `cancelled` without an error,
+// and `platform.internal` when a step's error outlasted its retries.
+// Ref: #/components/schemas/DepreciationRunError
+type DepreciationRunError struct {
+	// The problem's code, such as `ledger.period_not_open`.
+	Code string `json:"code"`
+	// The problem's detail.
+	Detail string `json:"detail"`
+}
+
+// GetCode returns the value of Code.
+func (s *DepreciationRunError) GetCode() string {
+	return s.Code
+}
+
+// GetDetail returns the value of Detail.
+func (s *DepreciationRunError) GetDetail() string {
+	return s.Detail
+}
+
+// SetCode sets the value of Code.
+func (s *DepreciationRunError) SetCode(val string) {
+	s.Code = val
+}
+
+// SetDetail sets the value of Detail.
+func (s *DepreciationRunError) SetDetail(val string) {
+	s.Detail = val
+}
+
+// DepreciationRunHeaders wraps DepreciationRun with response headers.
+type DepreciationRunHeaders struct {
+	ETag     OptString
+	Response DepreciationRun
+}
+
+// GetETag returns the value of ETag.
+func (s *DepreciationRunHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *DepreciationRunHeaders) GetResponse() DepreciationRun {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *DepreciationRunHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *DepreciationRunHeaders) SetResponse(val DepreciationRun) {
+	s.Response = val
+}
+
+func (*DepreciationRunHeaders) getDepreciationRunRes() {}
+
+// One page of depreciation runs.
+// Ref: #/components/schemas/DepreciationRunPage
+type DepreciationRunPage struct {
+	// The runs on this page.
+	Items []DepreciationRun `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *DepreciationRunPage) GetItems() []DepreciationRun {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *DepreciationRunPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *DepreciationRunPage) SetItems(val []DepreciationRun) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *DepreciationRunPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*DepreciationRunPage) listDepreciationRunsRes() {}
 
 // What a depreciation run would post (ADR-0057 §7): one page of the assets it selects and the totals
 // of all of them, in the company's local currency.
@@ -19874,6 +20360,59 @@ func (s *DepreciationRunPreviewRequest) SetFiscalYear(val int32) {
 
 // SetPeriod sets the value of Period.
 func (s *DepreciationRunPreviewRequest) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// The depreciation run to start: a company, a ledger and a regular period.
+// Ref: #/components/schemas/DepreciationRunStart
+type DepreciationRunStart struct {
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The ledger (one depreciation area); default the leading ledger.
+	LedgerID OptUUID `json:"ledger_id"`
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period; a regular one (1-12).
+	Period int32 `json:"period"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *DepreciationRunStart) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *DepreciationRunStart) GetLedgerID() OptUUID {
+	return s.LedgerID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DepreciationRunStart) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *DepreciationRunStart) GetPeriod() int32 {
+	return s.Period
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *DepreciationRunStart) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *DepreciationRunStart) SetLedgerID(val OptUUID) {
+	s.LedgerID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DepreciationRunStart) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *DepreciationRunStart) SetPeriod(val int32) {
 	s.Period = val
 }
 
@@ -23103,6 +23642,18 @@ func (*GetCurrentPrincipalBadRequest) getCurrentPrincipalRes() {}
 type GetCurrentPrincipalForbidden Problem
 
 func (*GetCurrentPrincipalForbidden) getCurrentPrincipalRes() {}
+
+type GetDepreciationRunBadRequest Problem
+
+func (*GetDepreciationRunBadRequest) getDepreciationRunRes() {}
+
+type GetDepreciationRunForbidden Problem
+
+func (*GetDepreciationRunForbidden) getDepreciationRunRes() {}
+
+type GetDepreciationRunNotFound Problem
+
+func (*GetDepreciationRunNotFound) getDepreciationRunRes() {}
 
 type GetDownPaymentRequestBadRequest Problem
 
@@ -30441,6 +30992,14 @@ type ListCountryPacksForbidden Problem
 
 func (*ListCountryPacksForbidden) listCountryPacksRes() {}
 
+type ListDepreciationRunsBadRequest Problem
+
+func (*ListDepreciationRunsBadRequest) listDepreciationRunsRes() {}
+
+type ListDepreciationRunsForbidden Problem
+
+func (*ListDepreciationRunsForbidden) listDepreciationRunsRes() {}
+
 type ListDownPaymentRequestsBadRequest Problem
 
 func (*ListDownPaymentRequestsBadRequest) listDownPaymentRequestsRes() {}
@@ -34908,6 +35467,7 @@ func (*OperationHeaders) proposePaymentRunRes()      {}
 func (*OperationHeaders) reconcileMigrationRunRes()  {}
 func (*OperationHeaders) releasePaymentRunRes()      {}
 func (*OperationHeaders) simulateChangeRequestRes()  {}
+func (*OperationHeaders) startDepreciationRunRes()   {}
 func (*OperationHeaders) startMigrationRunRes()      {}
 func (*OperationHeaders) transmitBankFileRes()       {}
 func (*OperationHeaders) verifyAuditChainRes()       {}
@@ -36187,6 +36747,52 @@ func (o OptDecisionInput) Get() (v DecisionInput, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptDecisionInput) Or(d DecisionInput) DecisionInput {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptDepreciationRunError returns new OptDepreciationRunError with value set to v.
+func NewOptDepreciationRunError(v DepreciationRunError) OptDepreciationRunError {
+	return OptDepreciationRunError{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptDepreciationRunError is optional DepreciationRunError.
+type OptDepreciationRunError struct {
+	Value DepreciationRunError
+	Set   bool
+}
+
+// IsSet returns true if OptDepreciationRunError was set.
+func (o OptDepreciationRunError) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptDepreciationRunError) Reset() {
+	var v DepreciationRunError
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptDepreciationRunError) SetTo(v DepreciationRunError) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptDepreciationRunError) Get() (v DepreciationRunError, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptDepreciationRunError) Or(d DepreciationRunError) DepreciationRunError {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -50634,6 +51240,7 @@ func (*ServiceUnavailableHeaders) runAnalyticsQueryRes()                {}
 func (*ServiceUnavailableHeaders) signOffPeriodCloseRes()               {}
 func (*ServiceUnavailableHeaders) simulateChangeRequestRes()            {}
 func (*ServiceUnavailableHeaders) startAgentSessionRes()                {}
+func (*ServiceUnavailableHeaders) startDepreciationRunRes()             {}
 func (*ServiceUnavailableHeaders) startMigrationRunRes()                {}
 func (*ServiceUnavailableHeaders) submitChangeRequestRes()              {}
 func (*ServiceUnavailableHeaders) submitPaymentRunRes()                 {}
@@ -51078,6 +51685,26 @@ func (*StartAgentSessionPreconditionRequired) startAgentSessionRes() {}
 type StartAgentSessionUnprocessableEntity Problem
 
 func (*StartAgentSessionUnprocessableEntity) startAgentSessionRes() {}
+
+type StartDepreciationRunBadRequest Problem
+
+func (*StartDepreciationRunBadRequest) startDepreciationRunRes() {}
+
+type StartDepreciationRunForbidden Problem
+
+func (*StartDepreciationRunForbidden) startDepreciationRunRes() {}
+
+type StartDepreciationRunNotFound Problem
+
+func (*StartDepreciationRunNotFound) startDepreciationRunRes() {}
+
+type StartDepreciationRunPreconditionRequired Problem
+
+func (*StartDepreciationRunPreconditionRequired) startDepreciationRunRes() {}
+
+type StartDepreciationRunUnprocessableEntity Problem
+
+func (*StartDepreciationRunUnprocessableEntity) startDepreciationRunRes() {}
 
 type StartMigrationRunBadRequest Problem
 
@@ -54928,6 +55555,7 @@ func (*TooManyRequestsHeaders) getConnectorRes()                     {}
 func (*TooManyRequestsHeaders) getContractRes()                      {}
 func (*TooManyRequestsHeaders) getCostCenterRes()                    {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()              {}
+func (*TooManyRequestsHeaders) getDepreciationRunRes()               {}
 func (*TooManyRequestsHeaders) getDownPaymentRequestRes()            {}
 func (*TooManyRequestsHeaders) getEntryTemplateRes()                 {}
 func (*TooManyRequestsHeaders) getExchangeRateRes()                  {}
@@ -55009,6 +55637,7 @@ func (*TooManyRequestsHeaders) listCostCenterPathsRes()              {}
 func (*TooManyRequestsHeaders) listCostCenterPlanActualRes()         {}
 func (*TooManyRequestsHeaders) listCostCentersRes()                  {}
 func (*TooManyRequestsHeaders) listCountryPacksRes()                 {}
+func (*TooManyRequestsHeaders) listDepreciationRunsRes()             {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()          {}
 func (*TooManyRequestsHeaders) listEntryTemplatesRes()               {}
 func (*TooManyRequestsHeaders) listExchangeRatesRes()                {}
@@ -55125,6 +55754,7 @@ func (*TooManyRequestsHeaders) runAnalyticsQueryRes()                {}
 func (*TooManyRequestsHeaders) signOffPeriodCloseRes()               {}
 func (*TooManyRequestsHeaders) simulateChangeRequestRes()            {}
 func (*TooManyRequestsHeaders) startAgentSessionRes()                {}
+func (*TooManyRequestsHeaders) startDepreciationRunRes()             {}
 func (*TooManyRequestsHeaders) startMigrationRunRes()                {}
 func (*TooManyRequestsHeaders) submitChangeRequestRes()              {}
 func (*TooManyRequestsHeaders) submitPaymentRunRes()                 {}
@@ -55324,6 +55954,7 @@ func (*UnauthorizedHeaders) getConnectorRes()                     {}
 func (*UnauthorizedHeaders) getContractRes()                      {}
 func (*UnauthorizedHeaders) getCostCenterRes()                    {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()              {}
+func (*UnauthorizedHeaders) getDepreciationRunRes()               {}
 func (*UnauthorizedHeaders) getDownPaymentRequestRes()            {}
 func (*UnauthorizedHeaders) getEntryTemplateRes()                 {}
 func (*UnauthorizedHeaders) getExchangeRateRes()                  {}
@@ -55405,6 +56036,7 @@ func (*UnauthorizedHeaders) listCostCenterPathsRes()              {}
 func (*UnauthorizedHeaders) listCostCenterPlanActualRes()         {}
 func (*UnauthorizedHeaders) listCostCentersRes()                  {}
 func (*UnauthorizedHeaders) listCountryPacksRes()                 {}
+func (*UnauthorizedHeaders) listDepreciationRunsRes()             {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()          {}
 func (*UnauthorizedHeaders) listEntryTemplatesRes()               {}
 func (*UnauthorizedHeaders) listExchangeRatesRes()                {}
@@ -55521,6 +56153,7 @@ func (*UnauthorizedHeaders) runAnalyticsQueryRes()                {}
 func (*UnauthorizedHeaders) signOffPeriodCloseRes()               {}
 func (*UnauthorizedHeaders) simulateChangeRequestRes()            {}
 func (*UnauthorizedHeaders) startAgentSessionRes()                {}
+func (*UnauthorizedHeaders) startDepreciationRunRes()             {}
 func (*UnauthorizedHeaders) startMigrationRunRes()                {}
 func (*UnauthorizedHeaders) submitChangeRequestRes()              {}
 func (*UnauthorizedHeaders) submitPaymentRunRes()                 {}

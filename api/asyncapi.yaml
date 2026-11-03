@@ -352,13 +352,14 @@ channels:
   assets:
     address: 'erp.{cell}.assets.{tenant}.{event}'
     title: Asset accounting events
-    description: Assets created, changed, cancelled, retired and reactivated, and their movements posted and reversed (ADR-0057 §10).
+    description: Assets created, changed, cancelled, retired and reactivated, their movements posted and reversed, and depreciation runs completed (ADR-0057 §10).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       AssetChanged: {$ref: '#/components/messages/AssetChanged'}
       AssetMovementPosted: {$ref: '#/components/messages/AssetMovementPosted'}
       AssetMovementReversed: {$ref: '#/components/messages/AssetMovementReversed'}
+      DepreciationRunCompleted: {$ref: '#/components/messages/DepreciationRunCompleted'}
   tax:
     address: 'erp.{cell}.tax.{tenant}.{event}'
     title: Tax filing events
@@ -587,6 +588,7 @@ operations:
       - $ref: '#/channels/assets/messages/AssetChanged'
       - $ref: '#/channels/assets/messages/AssetMovementPosted'
       - $ref: '#/channels/assets/messages/AssetMovementReversed'
+      - $ref: '#/channels/assets/messages/DepreciationRunCompleted'
   publishTaxEvents:
     action: send
     title: Tax filing publishes
@@ -2944,6 +2946,31 @@ components:
         - name: acquisition
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000703, source: /erp/eu-1/assets, type: com.example.erp.assets.asset_movement_reversed.v1, subject: 0192a000-0000-7000-8000-000000000a01, time: '2026-11-04T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {document_kind: acquisition, document_id: 0192a000-0000-7000-8000-000000000a01, asset_id: 0192a000-0000-7000-8000-000000000f01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, asset_number: '1', class_code: MACHINES, posting_date: '2026-11-04', reason: Capitalised onto the wrong machine., currency_lc: CAD, currency_gc: USD, ledgers: [{ledger_id: 0192a000-0000-7000-8000-000000000301, cost: {amount: '-6000.00', currency: CAD}, cost_gc: {amount: '-4380.00', currency: USD}, journal_entry_id: 0192a000-0000-7000-8000-000000000e12, fiscal_year: 2026, document_number: '2', reversed_entry_id: 0192a000-0000-7000-8000-000000000e11}], asset_status: planned, asset_version: 3}
+    DepreciationRunCompleted:
+      name: DepreciationRunCompleted
+      title: Depreciation run completed
+      summary: A depreciation run ended, posted or failed.
+      description: |
+        Emitted when a depreciation run (`POST /v1/depreciation-runs`,
+        ADR-0057 §7, §10) ends: `posted` with what it posted, or `failed`
+        with the problem that stopped it (`assets.run_cancelled` once its
+        Operation was cancelled, `platform.internal` when a step's error
+        outlasted its retries) and what its batches posted before (they
+        stay posted). It carries the run's company, ledger,
+        period and posting date, the assets it planned, posted and
+        skipped, the depreciation posted in local currency, and its
+        batches' journal entries. Subject is the run id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.assets.depreciation_run_completed.v1}
+      payload: {$ref: '#/components/schemas/DepreciationRunCompletedV1'}
+      examples:
+        - name: posted
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000704, source: /erp/eu-1/assets, type: com.example.erp.assets.depreciation_run_completed.v1, subject: 0192a000-0000-7000-8000-000000000f31, time: '2026-11-30T17:00:04Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: '1000', ledger_id: 0192a000-0000-7000-8000-000000000301, ledger_code: 0L, fiscal_year: 2026, period: 11, posting_date: '2026-11-30', status: posted, currency_lc: CAD, assets_planned: 2, assets_posted: 2, assets_skipped: 0, amount: {amount: '112.50', currency: CAD}, entries: [{batch_no: 1, journal_entry_id: 0192a000-0000-7000-8000-000000000f33, fiscal_year: 2026, document_number: AF-2026-000001}]}
     PlanCategoryChanged:
       name: PlanCategoryChanged
       title: Plan category changed
@@ -3769,6 +3796,42 @@ components:
               reversed_entry_id: {$ref: '#/components/schemas/Uuid', description: The entry it reversed.}
         asset_status: {type: string, description: "The asset's status after the reversal. Open enum: planned, active, retired."}
         asset_version: {type: integer, description: "The asset's version after the reversal."}
+    DepreciationRunCompletedV1:
+      type: object
+      required: [run_id, legal_entity_id, company_code, ledger_id, ledger_code, fiscal_year, period, posting_date, status, currency_lc, assets_planned, assets_posted, assets_skipped, amount, entries]
+      properties:
+        run_id: {$ref: '#/components/schemas/Uuid', description: '`assets.depreciation_run.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        company_code: {type: string}
+        ledger_id: {$ref: '#/components/schemas/Uuid'}
+        ledger_code: {type: string}
+        fiscal_year: {type: integer}
+        period: {type: integer, description: The regular period.}
+        posting_date: {$ref: '#/components/schemas/Date', description: "The period's last day, the entries' posting date."}
+        status: {type: string, description: 'Open enum: posted, failed.'}
+        currency_lc: {type: string, description: "The company's local currency."}
+        assets_planned: {type: integer, description: The assets the run selected (0 for a run failed before its plan).}
+        assets_posted: {type: integer, description: The assets its posted batches posted a difference for.}
+        assets_skipped: {type: integer, description: The assets its posted batches skipped under their locks.}
+        amount: {$ref: '#/components/schemas/SignedMoney', description: The depreciation its posted batches posted, in local currency.}
+        error:
+          type: object
+          description: The problem that failed the run; absent for a posted run.
+          required: [code, detail]
+          properties:
+            code: {type: string}
+            detail: {type: string}
+        entries:
+          type: array
+          description: The journal entries of its posted batches, by batch.
+          items:
+            type: object
+            required: [batch_no, journal_entry_id, fiscal_year, document_number]
+            properties:
+              batch_no: {type: integer}
+              journal_entry_id: {$ref: '#/components/schemas/Uuid'}
+              fiscal_year: {type: integer}
+              document_number: {type: string}
     PlanCategoryChangedV1:
       type: object
       required: [plan_category_id, code, name, locked, change]

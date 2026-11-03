@@ -441,6 +441,10 @@ type GetCurrentPrincipalRes interface {
 	getCurrentPrincipalRes()
 }
 
+type GetDepreciationRunRes interface {
+	getDepreciationRunRes()
+}
+
 type GetDownPaymentRequestRes interface {
 	getDownPaymentRequestRes()
 }
@@ -763,6 +767,10 @@ type ListCostCentersRes interface {
 
 type ListCountryPacksRes interface {
 	listCountryPacksRes()
+}
+
+type ListDepreciationRunsRes interface {
+	listDepreciationRunsRes()
 }
 
 type ListDownPaymentRequestsRes interface {
@@ -1227,6 +1235,10 @@ type SimulateChangeRequestRes interface {
 
 type StartAgentSessionRes interface {
 	startAgentSessionRes()
+}
+
+type StartDepreciationRunRes interface {
+	startDepreciationRunRes()
 }
 
 type StartMigrationRunRes interface {

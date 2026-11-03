@@ -1156,6 +1156,15 @@ type Handler interface {
 	//
 	// GET /v1/me
 	GetCurrentPrincipal(ctx context.Context) (GetCurrentPrincipalRes, error)
+	// GetDepreciationRun implements getDepreciationRun operation.
+	//
+	// One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it
+	// planned, posted and skipped, the depreciation it posted, the problem that failed it, and its batches
+	// with their journal entries and document numbers. One of a legal entity the caller cannot act in is
+	// not found.
+	//
+	// GET /v1/depreciation-runs/{id}
+	GetDepreciationRun(ctx context.Context, params GetDepreciationRunParams) (GetDepreciationRunRes, error)
 	// GetDownPaymentRequest implements getDownPaymentRequest operation.
 	//
 	// Returns one down payment request.
@@ -1912,6 +1921,14 @@ type Handler interface {
 	//
 	// GET /v1/country-packs
 	ListCountryPacks(ctx context.Context, params ListCountryPacksParams) (ListCountryPacksRes, error)
+	// ListDepreciationRuns implements listDepreciationRuns operation.
+	//
+	// The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
+	// its batches and their journal entries' document numbers. Filters: company, ledger, fiscal year and
+	// status. Sortable by: `created_at` (default).
+	//
+	// GET /v1/depreciation-runs
+	ListDepreciationRuns(ctx context.Context, params ListDepreciationRunsParams) (ListDepreciationRunsRes, error)
 	// ListDownPaymentRequests implements listDownPaymentRequests operation.
 	//
 	// Down payment requests (SAP F-47, ADR-0037). Sortable by: `due_date`.
@@ -3267,6 +3284,44 @@ type Handler interface {
 	//
 	// POST /v1/agent-sessions
 	StartAgentSession(ctx context.Context, req *AgentSessionStart, params StartAgentSessionParams) (StartAgentSessionRes, error)
+	// StartDepreciationRun implements startDepreciationRun operation.
+	//
+	// Starts the depreciation run of a company, ledger and regular period (ADR-0057 §7, T57f; SAP's
+	// AFAB): the run is written `queued` with its Operation (kind `assets.depreciate`, its `resource` the
+	// run) and carried out as a workflow, or in process in a cell without a workflow engine. It selects
+	// the assets the preview shows (`POST /v1/depreciation-runs/preview`), in batches of 500 by asset
+	// number, and posts per batch one journal entry in the run's ledger alone (document type AF, dated the
+	// period's last day, source context `assets`), per asset the planned depreciation through the period
+	// less what is booked in the ledger: the period's depreciation, a catch-up of earlier periods, or
+	// depreciation posted back (negative) after an acquisition's reversal. Each asset's lines take its
+	// latest center assignment: the expense per depreciation account, cost center and profit center, the
+	// credit per accumulated depreciation account and profit center, debits and credits on separate lines;
+	// each line's group amount is the sum of its assets' local amounts translated at the posting date's
+	// rate. Each batch re-checks its assets under their locks: one retired, cancelled, booked through a
+	// later period or moved to centers valid after the period's last day since the plan is skipped and
+	// counted. Each asset a batch processes is booked through the period in the ledger (its terms are
+	// fixed from then on) and gets a depreciation movement when it had a difference. A period already run
+	// posts only what changed since. `ledger_id` defaults to the leading ledger; one the company does not
+	// keep is 422 `ledger.ledger_not_kept`; a special period (13-16) is 422 `assets.special_period`; a
+	// fiscal year or period not set up is 422 `ledger.no_fiscal_period`; a period not open in the ledger
+	// is 409 `ledger.period_not_open`; a period before the latest posted run's in the ledger is 409
+	// `assets.run_out_of_order`; a run of the company and ledger already queued or running is 409
+	// `assets.run_in_progress`, whose detail names it. A business problem while posting (the period closed
+	// or locked meanwhile, an account blocked, a center invalid, a class no longer the company's, a
+	// missing exchange rate) fails the run and its Operation with the problem; batches already posted stay
+	// posted, and a new run of the period, or the next period's run, posts what is left. Cancelling the
+	// Operation (`POST /v1/operations/{id}:cancel`) stops the run at its next step: a cancellation during
+	// the plan or a batch answers at once, the step under way commits as a whole, the next step then fails
+	// the run with `assets.run_cancelled`, freeing its company and ledger for a new run, its batches
+	// already posted stay posted, and the Operation stays `cancelled`. A step failing on an error of the
+	// machinery is tried five times; one that outlasts them fails the run, and its Operation, with
+	// `platform.internal`. In a cell without a workflow engine a failing step is tried again every round
+	// until it succeeds or the Operation is cancelled. The run is published as DepreciationRunCompleted
+	// when it ends, posted or failed, and audited. A legal entity the caller cannot act in is 404.
+	// Human-only.
+	//
+	// POST /v1/depreciation-runs
+	StartDepreciationRun(ctx context.Context, req *DepreciationRunStart, params StartDepreciationRunParams) (StartDepreciationRunRes, error)
 	// StartMigrationRun implements startMigrationRun operation.
 	//
 	// Extracts, transforms and loads the scope; the run becomes `loaded`, or `failed`. Requires status

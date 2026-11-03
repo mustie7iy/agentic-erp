@@ -34,6 +34,7 @@ type candidate struct {
 	costCenter, profitCenter   *uuid.UUID
 	after                      bool
 	plannedTotal, difference   money.Minor
+	differenceGC               money.Minor // a run's, in group currency (T57f)
 }
 
 // selectDepreciable reads the company's assets a run of the period in the
@@ -42,8 +43,10 @@ type candidate struct {
 // start on or before the period's last day, or whose accumulated
 // depreciation in the ledger is not zero, passing over an asset booked
 // through a later period or whose latest assignment is valid from after
-// the period's last day; after marks those after the page token.
-func selectDepreciable(ctx context.Context, tx pgx.Tx, le, ledger uuid.UUID, p Period, after *previewKey) ([]*candidate, error) {
+// the period's last day; after marks those after the page token. With
+// only, just those of the assets named are read: a run's batch re-checks
+// its assets' selection under their locks (T57f).
+func selectDepreciable(ctx context.Context, tx pgx.Tx, le, ledger uuid.UUID, p Period, after *previewKey, only []uuid.UUID) ([]*candidate, error) {
 	var number *string
 	var id *uuid.UUID
 	if after != nil {
@@ -61,8 +64,8 @@ func selectDepreciable(ctx context.Context, tx pgx.Tx, le, ledger uuid.UUID, p P
 				OR (SELECT coalesce(sum(m.accumulated), 0) FROM assets.movement m
 					WHERE m.tenant_id = a.tenant_id AND m.asset_id = a.id AND m.ledger_id = t.ledger_id) <> 0)
 			AND (t.booked_through_year IS NULL OR (t.booked_through_year, t.booked_through_period) <= ($4::smallint, $5::smallint))
-			AND c.valid_from <= $3
-		ORDER BY a.asset_number, a.id`, le, ledger, p.End, p.FiscalYear, p.Number, number, id)
+			AND c.valid_from <= $3 AND ($8::uuid[] IS NULL OR a.id = ANY($8))
+		ORDER BY a.asset_number, a.id`, le, ledger, p.End, p.FiscalYear, p.Number, number, id, only)
 	var out []*candidate
 	var c candidate
 	_, err := pgx.ForEachRow(rows, []any{&c.asset, &c.number, &c.description, &c.class, &c.capitalised, &c.costCenter, &c.profitCenter,
@@ -127,44 +130,42 @@ func (e *Endpoints) PreviewDepreciationRun(ctx context.Context, req *gen.Depreci
 	return &gen.DepreciationRunPreviewHeaders{Response: *out}, nil
 }
 
-// previewOf reads the company the caller may act in (404 otherwise), the
-// ledger it keeps (422 ledger.ledger_not_kept otherwise), the regular
-// period, and the assets a run selects with their planned, booked and
-// difference amounts.
+// previewOf reads the run's target (runTarget) and the assets a run
+// selects with their planned, booked and difference amounts.
 func (e *Endpoints) previewOf(ctx context.Context, tx pgx.Tx, req *gen.DepreciationRunPreviewRequest, ledgerID *uuid.UUID, after *previewKey) (previewRun, error) {
-	co, err := e.company(ctx, req.LegalEntityID)
+	co, l, p, err := e.runTarget(ctx, req.LegalEntityID, ledgerID, req.FiscalYear, req.Period)
 	if err != nil {
 		return previewRun{}, err
 	}
-	l, ok, err := e.ledgerOf(ctx, co.ID, ledgerID)
+	cs, err := selectDepreciable(ctx, tx, co.ID, l.ID, p, after, nil)
 	if err != nil {
 		return previewRun{}, err
 	}
-	if !ok {
-		return previewRun{}, invalid("ledger.ledger_not_kept", fmt.Sprintf("Company %s does not keep this ledger.", co.Code), "ledger_id", "a ledger the company keeps")
-	}
-	p, err := e.periodOf(ctx, co.ID, int16(req.FiscalYear), int16(req.Period))
-	if err != nil {
+	if err := differences(ctx, tx, l.ID, p, cs); err != nil {
 		return previewRun{}, err
 	}
-	cs, err := selectDepreciable(ctx, tx, co.ID, l.ID, p, after)
-	if err != nil {
-		return previewRun{}, err
-	}
+	return previewRun{co: co, ledger: l, period: p, assets: cs}, nil
+}
+
+// differences reads the selected assets' movements in the ledger and sets
+// each one's planned depreciation through the period and its difference
+// from what is booked: what a run of the period posts (ADR-0057 §7).
+func differences(ctx context.Context, tx pgx.Tx, ledger uuid.UUID, p Period, cs []*candidate) error {
 	ds := make(map[uuid.UUID]*depreciable, len(cs))
 	for _, c := range cs {
 		ds[c.asset] = &c.depreciable
 	}
-	if err := readMovements(ctx, tx, l.ID, ds); err != nil {
-		return previewRun{}, err
+	if err := readMovements(ctx, tx, ledger, ds); err != nil {
+		return err
 	}
 	for _, c := range cs {
+		var err error
 		if _, c.plannedTotal, err = c.planned(MonthOf(p.Start)); err != nil {
-			return previewRun{}, err
+			return err
 		}
 		c.difference = c.plannedTotal - c.booked
 	}
-	return previewRun{co: co, ledger: l, period: p, assets: cs}, nil
+	return nil
 }
 
 // classAccounts are a class's depreciation and accumulated depreciation
@@ -204,11 +205,12 @@ func (e *Endpoints) depreciationAccounts(ctx context.Context, doc *config.Config
 }
 
 // previewLine is a line a run would post: an account with its centers
-// (uuid.Nil for none) and its amount, debit positive.
+// (uuid.Nil for none) and its amount, debit positive, in local and group
+// currency.
 type previewLine struct {
 	account                  AccountRef
 	costCenter, profitCenter uuid.UUID
-	amount                   money.Minor
+	amount, gc               money.Minor
 }
 
 // previewSums are the totals of a preview's assets.
@@ -218,46 +220,57 @@ type previewSums struct {
 }
 
 // previewTotals sums the assets: their planned, booked and difference
-// amounts and the lines a run would post, the expense lines by
-// depreciation account, cost center and profit center, then the credit
-// lines by accumulated depreciation account and profit center, each side
-// by account number and centers, a line summing to zero left out.
+// amounts and the lines a run would post (runLines).
 func previewTotals(r previewRun, accounts map[string]classAccounts) previewSums {
 	var out previewSums
+	for _, c := range r.assets {
+		out.planned, out.booked, out.difference = out.planned+c.plannedTotal, out.booked+c.booked, out.difference+c.difference
+	}
+	out.lines = runLines(r.assets, accounts)
+	return out
+}
+
+// runLines are the lines a run posts for the assets' differences
+// (ADR-0057 §7): the expense lines by depreciation account, cost center
+// and profit center, then the credit lines by accumulated depreciation
+// account and profit center, each side by account number and centers,
+// a key's debits before its credits. Debits and credits are summed apart,
+// so no line sums to zero locally while keeping a group amount (assets of
+// both signs on one key, their translations rounded apart), which the
+// ledger refuses; an asset without a difference adds none.
+func runLines(assets []*candidate, accounts map[string]classAccounts) []previewLine {
 	var expense, credit []previewLine
 	type key struct {
 		side                              *[]previewLine
 		account, costCenter, profitCenter uuid.UUID
+		negative                          bool
 	}
 	at := map[key]int{}
 	add := func(side *[]previewLine, l previewLine) {
-		k := key{side, l.account.ID, l.costCenter, l.profitCenter}
+		k := key{side, l.account.ID, l.costCenter, l.profitCenter, l.amount < 0}
 		if i, ok := at[k]; ok {
-			(*side)[i].amount += l.amount
+			(*side)[i].amount, (*side)[i].gc = (*side)[i].amount+l.amount, (*side)[i].gc+l.gc
 			return
 		}
 		at[k] = len(*side)
 		*side = append(*side, l)
 	}
-	for _, c := range r.assets {
-		out.planned, out.booked, out.difference = out.planned+c.plannedTotal, out.booked+c.booked, out.difference+c.difference
+	for _, c := range assets {
+		if c.difference == 0 {
+			continue
+		}
 		a := accounts[c.class]
 		pc := orNil(c.profitCenter)
-		add(&expense, previewLine{account: a.depreciation, costCenter: orNil(c.costCenter), profitCenter: pc, amount: c.difference})
-		add(&credit, previewLine{account: a.accumulated, profitCenter: pc, amount: -c.difference})
+		add(&expense, previewLine{account: a.depreciation, costCenter: orNil(c.costCenter), profitCenter: pc, amount: c.difference, gc: c.differenceGC})
+		add(&credit, previewLine{account: a.accumulated, profitCenter: pc, amount: -c.difference, gc: -c.differenceGC})
 	}
 	for _, side := range [][]previewLine{expense, credit} {
 		slices.SortFunc(side, func(a, b previewLine) int {
 			return cmp.Or(cmp.Compare(a.account.Number, b.account.Number), cmp.Compare(a.costCenter.String(), b.costCenter.String()),
-				cmp.Compare(a.profitCenter.String(), b.profitCenter.String()))
+				cmp.Compare(a.profitCenter.String(), b.profitCenter.String()), cmp.Compare(b.amount, a.amount))
 		})
-		for _, l := range side {
-			if l.amount != 0 {
-				out.lines = append(out.lines, l)
-			}
-		}
 	}
-	return out
+	return slices.Concat(expense, credit)
 }
 
 // orNil is the id, or uuid.Nil for none.

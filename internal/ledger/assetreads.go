@@ -369,3 +369,55 @@ func (AssetReads) AccountNames(ctx context.Context, ids []uuid.UUID) (map[uuid.U
 	_, err = pgx.ForEachRow(rows, []any{&a.ID, &a.Number, &a.Name}, func() error { out[a.ID] = a; return nil })
 	return out, errs.Wrapf(err, "ledger: names of %d accounts", len(ids))
 }
+
+// PeriodOpen refuses a regular period of the legal entity's fiscal year
+// that is not open in the ledger (409 ledger.period_not_open), as a
+// posting dated in it would be refused there: a depreciation run is
+// started only for a period open in its ledger (ADR-0057 §7, T57f). A
+// period without a status in the ledger is not set up (422
+// ledger.no_fiscal_period). Nothing is locked: the run's postings check
+// the period again.
+func (AssetReads) PeriodOpen(ctx context.Context, legalEntity, ledger uuid.UUID, year, period int16) error {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return err
+	}
+	var code, status string
+	err = tx.QueryRow(ctx, `SELECT l.code, ps.status FROM ledger.period_status ps JOIN ledger.ledger l ON l.tenant_id = ps.tenant_id AND l.id = ps.ledger_id
+		WHERE ps.legal_entity_id = $1 AND ps.ledger_id = $2 AND ps.fiscal_year = $3 AND ps.period = $4`, legalEntity, ledger, year, period).Scan(&code, &status)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return noFiscalPeriod("period", fmt.Sprintf("Period %d/%d is not set up in the ledger for the legal entity.", year, period))
+	case err != nil:
+		return fmt.Errorf("ledger: status of period %d/%d of %s in ledger %s: %w", year, period, legalEntity, ledger, err)
+	}
+	return mustBeOpen(year, period, status, "depreciation runs in ledger "+code)
+}
+
+// GroupAmounts translates amounts of a local currency into the group
+// currency at the average rate valid on the date, rounded half away from
+// zero, as a posting dated then translates a local-currency entry's lines
+// (ADR-0042; ADR-0057 §7: a depreciation run's group amount per asset).
+// Without a rate it refuses as that posting would (422
+// ledger.no_exchange_rate).
+func (AssetReads) GroupAmounts(ctx context.Context, from, to string, date time.Time, amounts []money.Minor) ([]money.Minor, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	x, err := rate(ctx, tx, from, to, date)
+	if err != nil {
+		return nil, err
+	}
+	c, err := withExponents(ctx, tx, Conversion{From: from, To: to, Rate: x.shown, exact: x.exact})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]money.Minor, len(amounts))
+	for i, a := range amounts {
+		if out[i], err = c.Convert(a); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}

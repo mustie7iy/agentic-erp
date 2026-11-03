@@ -383,6 +383,16 @@ failing it again on every resume: its supplier is excluded with
 with `payments.nothing_to_pay` and returns the run to `proposed`. A run has
 at most one bank file.
 
+A depreciation run (`POST /v1/depreciation-runs`, 202, ADR-0057 §7) stops at
+its next step once its operation is cancelled: each step (the plan, a batch,
+the finish) reads the operation first. A cancellation during the plan or a
+batch returns at once (they read it without its lock, so `:cancel` never
+waits for a long step); the step under way commits as a whole, and the
+cancellation takes effect at the next step, which fails the run with
+`assets.run_cancelled`. Its posted batches stay posted, the operation stays
+`cancelled`, and the company and ledger are free for a new run of the
+period, which posts what is left.
+
 ## 4.9 Security
 
 - OAuth 2.0 bearer tokens (OIDC) from the tenant's identity provider; the
