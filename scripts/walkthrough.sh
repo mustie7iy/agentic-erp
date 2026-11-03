@@ -314,14 +314,14 @@ start() {
   say "  - the GST34's lines (T61j-T61l): step 2 configures one"
   say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
-  say "  - the liquidity forecast's purchase orders, snapshots and variance (T53f-T53k): step 13 shows the daily cash"
+  say "  - the liquidity forecast's purchase orders, actuals and variance (T53f2-T53k): step 13 shows the daily cash"
   say "    position with a memo record and the forecast of the supplier open items, payment runs, parked invoices, down"
   say "    payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening, memo records"
-  say "    and payments in transit, conversion and drill-down"
+  say "    and payments in transit, conversion and drill-down; step 26 its snapshots"
   say "  - cost center postings, reports and planning (T56d-T56j)"
-  say "  - asset depreciation, retirements, transfers and the rest of asset accounting (T57e-T57i): steps 19 and 20 show the classes"
-  say "    and the master, steps 22 and 24 acquisitions and their corrections"
-  say "  - accounts receivable, the period close beyond its checklist (T64c-T64k), consolidation (T68)"
+  say "  - asset depreciation runs, retirements, transfers and the rest of asset accounting (T57f-T57i): steps 19 and 20 show the"
+  say "    classes and the master, steps 22 and 24 acquisitions and their corrections, step 25 the depreciation schedule and preview"
+  say "  - accounts receivable, the period close beyond its checklist and automatic checks (T64d-T64k), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
   export DATABASE_URL ERP_ENV=development ERP_DEV_ISSUER=true ERP_MIGRATE_ON_START=true
@@ -2835,6 +2835,44 @@ step_asset_reversal() {
   passed
 }
 
+step_asset_depreciation() {
+  heading "Step 25 — Depreciation schedule and preview: the lathe's first period in each ledger, before any run posts"
+  as carla
+  say "Carla checks what depreciation will post before the period's run (ADR-0057 §7, T57e). The lathe of step 22 was"
+  say "capitalised today at 5,000.00, so its depreciation starts in this period: straight-line over 120 months in the"
+  say "leading ledger, 5,000.00 / 120 = 41.67, and declining balance at twice the rate in 2L, 5,000.00 x 2 / 120 = 83.33."
+  say "Nothing is stored as a plan: the schedule is computed from the asset's terms and movements at every read."
+  local lathe period l code want
+  QUIET=1 api 200 '' listAssets -p "legal_entity_id=$LE" -p status=active
+  lathe=$(field '[.items[] | select(.description == "CNC lathe") | .id][0]')
+  api 200 '.items[] | "  \(.seq) \(.kind) \(.ledger_code) \(.posting_date): cost \(.cost.amount) \(.cost.currency) (group \(.cost_gc.amount) \(.cost_gc.currency)), entry \(.document_number)"' \
+    listAssetMovements -p "id=$lathe"
+  expect "the lathe's movements" "$(field '[.items[] | "\(.kind) \(.ledger_code) \(.cost.amount)"] | join(", ")')" "acquisition 0L 5000.00, acquisition 2L 5000.00"
+  api 200 '"asset \(.asset_number) \(.description) in \(.ledger_code), \(.method) over \(.useful_life_months) months from \(.depreciation_start):",
+    (.periods[] | select(.planned.amount != "0.00" or .net_book_value.amount != "0.00") | "  \(.fiscal_year)/\(.period): planned \(.planned.amount), booked \(.booked.amount), net book value \(.net_book_value.amount) \(.net_book_value.currency)"),
+    "  the year: planned \(.totals.planned.amount), booked \(.totals.booked.amount)"' \
+    getAssetSchedule -p "id=$lathe" -p "fiscal_year=$YEAR"
+  period=$(field ".periods[] | select(.start_date <= \"$TODAY\" and .end_date >= \"$TODAY\") | .period")
+  expect "the lathe's first period" "$(field ".periods[] | select(.period == $period) | .planned.amount")" 41.67
+  QUIET=1 api 200 '' getAsset -p "id=$lathe"
+  for l in $(field '.terms[] | "\(.ledger_code)=\(.ledger_id)"'); do
+    code=${l%%=*}
+    want=83.33
+    if [ "$code" = 0L ]; then want=41.67; fi
+    say "The run of period $period in $code would post, per asset, the planned depreciation through the period less what is"
+    say "booked, on the class's accounts and the asset's centers:"
+    api 200 '"  \(.company_code) \(.ledger_code) \(.fiscal_year)/\(.period) (\(.period_start)..\(.period_end)), \(.totals.assets) assets:",
+      (.items[] | "  asset \(.asset_number) \(.description): planned \(.planned.amount), booked \(.booked.amount), difference \(.difference.amount) \(.difference.currency) on \(.depreciation_account.number), \(.cost_center_code // "no cost center")"),
+      (.totals.lines[] | "  line \(.account_number) \(.account_name) \(.cost_center_code // "") \(.profit_center_code // ""): \(.amount.amount) \(.amount.currency)")' \
+      previewDepreciationRun -body "{\"legal_entity_id\": \"$LE\", \"ledger_id\": \"${l#*=}\", \"fiscal_year\": $YEAR, \"period\": $period}"
+    expect "the lathe's depreciation in $code" "$(field "[.items[] | select(.asset_id == \"$lathe\") | .difference.amount][0]")" "$want"
+    expect "the totals in $code balance" "$(field '[.totals.lines[].amount.amount | tonumber] | add * 100 | round')" 0
+  done
+  say "A special period takes no depreciation:"
+  refused 422 assets.special_period previewDepreciationRun -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"period\": 13}"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -2844,7 +2882,8 @@ step_close() {
   heading "Final step — Financial close: the close template through a governed change, and the year's close calendar"
   as ada
   say "Ada proposes the close template (ADR-0058 §3): the tasks every company's period close is given, each due"
-  say "a number of business days after the period's last day (negative: before it), some waiting for others. The"
+  say "a number of business days after the period's last day (negative: before it), some waiting for others:"
+  say "manual tasks a person completes, and a check the system runs (no entry of the period left parked). The"
   say "template decides what a sign-off requires, so it is configuration, approved as a tier 2 change."
   api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
   local base cr request
@@ -2853,13 +2892,14 @@ step_close() {
     proposed: (.items[0].document | .close.tasks = [
       {\"code\": \"CUTOFF_NOTICE\", \"name\": \"Cut-off reminder sent to the team\", \"kind\": \"manual\", \"due_day\": -2},
       {\"code\": \"AP_CUTOFF\", \"name\": \"Supplier invoices of the period entered\", \"kind\": \"manual\", \"due_day\": 1, \"depends_on\": [\"CUTOFF_NOTICE\"]},
-      {\"code\": \"TB_REVIEW\", \"name\": \"Trial balance reviewed\", \"kind\": \"manual\", \"due_day\": 3, \"depends_on\": [\"AP_CUTOFF\"]}])}" \
+      {\"code\": \"TB_REVIEW\", \"name\": \"Trial balance reviewed\", \"kind\": \"manual\", \"due_day\": 3, \"depends_on\": [\"AP_CUTOFF\"]},
+      {\"code\": \"NO_PARKED\", \"name\": \"No entry of the period left parked\", \"kind\": \"check\", \"check\": \"no_parked_entries\", \"due_day\": 3, \"depends_on\": [\"AP_CUTOFF\"]}])}" \
     "$WORK/last.json" >"$WORK/close.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @close.json
   cr=$(field .id)
   api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
   expect "the change's tier" "$(field .tier)" 2
-  expect "the tasks among the changes" "$(field '[.items[] | select(.path | startswith("close.tasks["))] | length')" 3
+  expect "the tasks among the changes" "$(field '[.items[] | select(.path | startswith("close.tasks["))] | length')" 4
   expect "status after submit" "$(field .status)" pending_approval
   request=$(field .workflow_request_id)
   approve priya "$request" "The monthly close checklist, as agreed with the controller"
@@ -2885,6 +2925,7 @@ step_close() {
   expect "the cut-off reminder before each period's end, the review after it" \
     "$(field '[.periods[] | .first_due_on < .end_date and .last_due_on > .end_date] | all')" true
   close_checklist
+  close_checks
   passed
 }
 
@@ -2904,7 +2945,7 @@ close_checklist() {
     createPeriodClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
   close=$(field .id)
   tag=$ETAG
-  expect "the close's tasks" "$(field '[.tasks[].code] | join(" ")')" "CUTOFF_NOTICE AP_CUTOFF TB_REVIEW"
+  expect "the close's tasks" "$(field '[.tasks[].code] | join(" ")')" "CUTOFF_NOTICE AP_CUTOFF TB_REVIEW NO_PARKED"
   expect "the leading ledger first" "$(field '.ledgers[0].ledger_code')" 0L
   say "A second close of the period is refused, and names the first:"
   refused 409 closing.close_exists createPeriodClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
@@ -2932,12 +2973,90 @@ close_checklist() {
   expect "the review after the reopening" "$(field '.tasks[] | select(.code == "TB_REVIEW") | .status')" done
   QUIET=1 api 200 '' completeCloseTask -p "id=$close" -p code=AP_CUTOFF -if-match "$tag" -body '{"note": "The late invoice entered"}'
   api 200 '"\(.company_code) \(.fiscal_year)/\(.fiscal_period): \(.tasks_done) of \(.tasks_total) tasks done, \(.tasks_overdue) overdue",
-    (.tasks[] | "  \(.code) \(.status) by \(.completed_by_name)")' getPeriodClose -p "id=$close"
-  expect "every task done" "$(field '.tasks_done == .tasks_total')" true
+    (.tasks[] | "  \(.code) \(.status)\(if .completed_by_name then " by " + .completed_by_name else "" end)")' getPeriodClose -p "id=$close"
+  expect "every manual task done" "$(field '[.tasks[] | select(.kind == "manual") | .status == "done"] | all')" true
   say "The calendar's row of the period now shows its close:"
   api 200 ".periods[] | select(.period == $period) | \"  period \\(.period): close \\(.close.status), \\(.close.tasks_done) of \\(.close.tasks_total) done\"" \
     getCloseCalendar -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
   expect "the calendar's close" "$(field ".periods[] | select(.period == $period) | .close.id")" "$close"
+}
+
+# close_checks is T64c's part of step_close (ADR-0058 §6): the close's
+# check task runs on demand and records what it found. Tom parks an entry
+# dated in the period; Carla's check fails naming it, Tom cancels it, and
+# the check passes, which completes the task: every task is done for the
+# sign-off to come.
+close_checks() {
+  local period close tag entry
+  period=$((10#${TODAY:5:2}))
+  as carla
+  QUIET=1 api 200 '' listPeriodCloses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  close=$(field ".items[] | select(.fiscal_period == $period) | .id")
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  tag=$ETAG
+  say "NO_PARKED is a check: Carla does not complete it by hand, the system runs it, and a manual task has no check."
+  refused 409 closing.task_is_check completeCloseTask -p "id=$close" -p code=NO_PARKED -if-match "$tag" -body '{}'
+  refused 409 closing.task_not_check checkCloseTask -p "id=$close" -p code=TB_REVIEW -if-match "$tag"
+  as tom
+  say "Tom parks an accrual dated today, in the period, meaning to post it once the invoice arrives:"
+  api 201 '"parked entry \(.id[0:8])…: \(.status), \(.header_text)"' parkJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Accrual for the courier, invoice to come\", \"lines\": [{\"account_id\": \"$(account 6000)\", \"amount\": {\"amount\": \"120.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$(account 211000)\", \"amount\": {\"amount\": \"-120.00\", \"currency\": \"CAD\"}, \"partner_id\": \"$SUPPLIER\"}]}"
+  entry=$(field .id)
+  local entry_tag=$ETAG
+  as carla
+  say "Carla runs the check. It fails, naming what is left parked in the period and who parked it, and the task"
+  say "stays open; the result is kept on the task with when and by whom it ran."
+  api 200 '"  \(.code) \(.status): \(.check_result.summary)", (.check_result.parked_entries[] | "    \(.posting_date) \(.header_text), \(.status), parked by \(.created_by_name) (\(.created_by_kind))")' \
+    checkCloseTask -p "id=$close" -p code=NO_PARKED -if-match "$tag"
+  tag=$ETAG
+  expect "the check's verdict" "$(field '.check_result.passed')" false
+  expect "the entry it names" "$(field "[.check_result.parked_entries[].id] | index(\"$entry\") != null")" true
+  expect "the task after a failing check" "$(field .status)" open
+  as tom
+  say "The courier's invoice will be entered as an invoice; Tom cancels his accrual:"
+  api 200 '"  parked entry: \(.status)"' cancelParkedJournalEntry -p "id=$entry" -if-match "$entry_tag" -body '{"reason": "The invoice will be entered instead"}'
+  as carla
+  say "Carla runs the check again: it passes, and the task is done, by her, when it passed."
+  api 200 '"  \(.code) \(.status) by \(.completed_by_name): \(.check_result.summary)"' checkCloseTask -p "id=$close" -p code=NO_PARKED -if-match "$tag"
+  expect "the check's verdict" "$(field '.check_result.passed')" true
+  expect "the task after a passing check" "$(field .status)" done
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  expect "every task done" "$(field '.tasks_done == .tasks_total')" true
+}
+
+step_cash_snapshot() {
+  heading "Step 26 — Snapshots of the liquidity forecast: one taken on demand and read again with its lines; the daily ones"
+  as tom
+  local snap forecast_total forecast_cents lines_total
+  say "Before the board meeting Tom keeps Maple's forecast as it is now: a snapshot, every source and certainty, kept per"
+  say "document and liquidity item for the next 31 days and summed per bucket after, in each flow's own currency (T53f)."
+  QUIET=1 api 200 '' getLiquidityForecast -p "legal_entity_id=$LE"
+  forecast_total=$(field '[.currencies[] | select(.currency == "CAD") | .total.amount][0]')
+  forecast_cents=$(field 'def c: sub("\\."; "") | tonumber; [.currencies[] | select(.currency == "CAD") | .total.amount | c][0]')
+  api 201 '"snapshot \(.kind) \"\(.name)\" of \(.snapshot_date) (\(.time_zone)), per document to \(.document_level_until), horizon \(.horizon_end), configuration v\(.config_version)",
+      (.currencies[] | "  \(.currency): total \(.total.amount), blocked suppliers \(.blocked.amount), \(.line_count) lines")' \
+    takeCashSnapshot -body "{\"legal_entity_id\": \"$LE\", \"name\": \"Board meeting\"}"
+  snap=$(field .id)
+  expect "the snapshot's CAD total, the forecast's" "$(field '[.currencies[] | select(.currency == "CAD") | .total.amount][0]')" "$forecast_total"
+  say "Its CAD lines, the first ten: each document a flow pays under its liquidity item, then the buckets' sums:"
+  api 200 '"  \(.count) lines, total \(.total.amount) \(.total.currency)", (.items[0:10][] | "  \(.value_date)\(if .bucket_end then "..\(.bucket_end)" else "" end) \(.source)/\(.certainty) \(.liquidity_item // "unclassified") \(.amount.amount)\(if .document then ": \(.document.kind) \(.document.number // "-")" else "" end)\(if .supplier then ", \(.supplier.name)" else "" end)")' \
+    listCashSnapshotFlows -p "id=$snap" -p currency=CAD -p page_size=500
+  lines_total=$(field 'def c: sub("\\."; "") | tonumber; [.items[] | select(.source != "payable_blocked") | .amount.amount | c] | add // 0')
+  expect "the lines add up to the snapshot's total" "$lines_total" "$forecast_cents"
+  expect "per document within 31 days, per bucket after" \
+    "$(field '[.items[] | select(.bucket_end == null) | .flow_count] | all(. == 1)')" true
+  say "The snapshots of Maple, newest first. The daily one is taken once a day after Maple's snapshot time (07:00 in"
+  say "America/Toronto) by the TakeCashSnapshot workflow, here the server's in-process snapshotter; it shows up once"
+  say "the walkthrough runs after that time:"
+  api 200 '.items[] | "  \(.company_code) \(.snapshot_date) \(.kind) \(.name // "")"' listCashSnapshots -p "legal_entity_id=$LE"
+  expect "the board meeting's snapshot listed" "$(field "[.items[].id] | index(\"$snap\") != null")" true
+  as rita
+  say "Rita holds the forecast's read alone: she reads the same lines without their documents or suppliers."
+  api 200 '"  \(.count) lines; documents shown \([.items[] | select(.document)] | length) of \([.items[] | select(.has_document)] | length)"' \
+    listCashSnapshotFlows -p "id=$snap" -p currency=CAD -p page_size=500
+  expect "documents shown to Rita" "$(field '[.items[] | select(.document or .supplier)] | length')" 0
+  as tom
+  passed
 }
 
 # name_partners replaces the business partners' ids in what it reads with
@@ -2961,7 +3080,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_close'
 
 main() {
   start

@@ -201,15 +201,25 @@ type Beyond struct {
 // what it pays of each, which the drill-down names (T53e4).
 type datedFlow struct {
 	flow
-	currency  string
-	parts     []part
-	shares    []Share
-	supplier  *uuid.UUID
-	documents []paidDocument
+	currency string
+	parts    []part
+	shares   []Share
+	// partShares are each part's shares (after the parts are scaled to the
+	// flow), which shares sums: what a snapshot keeps per document (T53f).
+	partShares [][]Share
+	supplier   *uuid.UUID
+	documents  []paidDocument
 	// identity tells a flow from others of its day, source and documents
 	// (a run's payments, a payment's lines in transit, a series'
 	// occurrences) in the drill-down's keys; "" when its documents do.
 	identity string
+	// bank is the house bank a payment or memo record is on, bankCode the
+	// one a run would pay a supplier item from (by code), payment the
+	// run's payment or the payment in transit: what a snapshot keeps of a
+	// flow beside its documents (T53f). nil and "" for none.
+	bank     *uuid.UUID
+	bankCode string
+	payment  *uuid.UUID
 }
 
 // paidDocument is a document a flow pays and what the flow pays of it.
@@ -262,6 +272,9 @@ type forecastRead struct {
 	minCertainty string
 	flows        []datedFlow
 	banks        []Bank
+	// version is the configuration's whose derivation classified the
+	// flows (T53f: a snapshot records it).
+	version int32
 }
 
 // readForecast reads the legal entity's forecast flows up to the horizon
@@ -278,16 +291,26 @@ func (e *Endpoints) readForecast(ctx context.Context, legalEntity uuid.UUID, min
 	if err != nil {
 		return forecastRead{}, err
 	}
+	return e.readForecastOf(ctx, tx, co, legalEntity, minCertainty, last)
+}
+
+// readForecastOf reads, in tx, the forecast flows of a legal entity whose
+// company is known, the caller's access to it judged before (readForecast)
+// or not at all (the snapshot workflow acts in every company, T53f).
+func (e *Endpoints) readForecastOf(ctx context.Context, tx pgx.Tx, co Company, legalEntity uuid.UUID, minCertainty string,
+	last func(reader) (time.Time, error)) (forecastRead, error) {
+	var err error
 	fr := forecastRead{tx: tx, minCertainty: cmp.Or(minCertainty, CertaintyPlanned)}
 	keep := slices.Index(certainties, fr.minCertainty)
 	if keep < 0 {
 		return forecastRead{}, problem.Unprocessable("request.validation_failed", "The least certain flows counted must be a certainty level.",
 			problem.FieldError{Field: "min_certainty", Code: "invalid", Message: "actual, confirmed, expected or planned"})
 	}
-	doc, _, err := e.Settings.Document(ctx)
+	doc, version, err := e.Settings.Document(ctx)
 	if err != nil {
 		return forecastRead{}, fmt.Errorf("cash: configuration: %w", err)
 	}
+	fr.version = version
 	read, zone, err := e.readDate(doc, co.Code)
 	if err != nil {
 		return forecastRead{}, err
@@ -303,9 +326,11 @@ func (e *Endpoints) readForecast(ctx context.Context, legalEntity uuid.UUID, min
 	fr.flows = slices.DeleteFunc(fr.flows, func(d datedFlow) bool { return slices.Index(certainties, d.certainty) > keep })
 	d := newRules(doc.Cash.Derivation)
 	for i := range fr.flows {
-		if fr.flows[i].shares, err = classify(d, fr.r.sums, fr.flows[i].amount, fr.flows[i].parts); err != nil {
+		f := &fr.flows[i]
+		if f.partShares, err = partsShares(d, f.amount, f.parts); err != nil {
 			return forecastRead{}, err
 		}
+		f.shares = sumShares(fr.r.sums, f.partShares)
 	}
 	return fr, nil
 }
@@ -425,7 +450,8 @@ func (e *Endpoints) paymentFlows(ctx context.Context, r reader, legalEntity uuid
 // transit) in the drill-down's keys.
 func paymentFlow(f flow, p Payment, paying Paying, identity string) datedFlow {
 	return datedFlow{flow: f, currency: p.Currency, parts: paymentParts(f.amount, paying), supplier: &p.SupplierID, identity: identity,
-		documents: []paidDocument{{Document: Document{Kind: DocPaymentRun, ID: p.RunID, Number: p.RunNumber}, amount: f.amount}}}
+		documents: []paidDocument{{Document: Document{Kind: DocPaymentRun, ID: p.RunID, Number: p.RunNumber}, amount: f.amount}},
+		bank:      &p.HouseBankID, payment: &p.ID}
 }
 
 // ids are the payments' ids.
@@ -553,8 +579,12 @@ func (r reader) netted(k netting, items []planned) ([]datedFlow, error) {
 		for j, pt := range parts {
 			docs[j] = paidDocument{Document: carried[j].Document, amount: pt.amount}
 		}
-		out = append(out, datedFlow{flow: flow{date: at, source: k.source, certainty: k.certainty, late: late, amount: -paid}, currency: k.currency,
-			parts: parts, supplier: &k.supplier, documents: docs})
+		d := datedFlow{flow: flow{date: at, source: k.source, certainty: k.certainty, late: late, amount: -paid}, currency: k.currency,
+			parts: parts, supplier: &k.supplier, documents: docs}
+		if k.source == SourcePayable { // the bank whose value days date it (§4: the supplier's ranked bank)
+			d.bankCode = it.p.BankCode
+		}
+		out = append(out, d)
 		carried = nil
 	}
 	return out, nil

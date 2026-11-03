@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
@@ -36,6 +37,16 @@ type Endpoints struct {
 	Partners      Partners          // suppliers' names, for the forecast's drill-down (T53e4)
 	Pages         *pagination.Codec // list page tokens
 	Now           func() time.Time  // the read date's clock; nil: time.Now
+	// Consistent begins the read a snapshot reads the forecast in, apart
+	// from the transaction it writes in (T53f).
+	Consistent Consistency
+}
+
+// Consistency begins a read-only transaction at REPEATABLE READ of the
+// caller's tenant, as the caller (uow.Consistent): it returns a context
+// carrying it and the transaction, which the caller rolls back.
+type Consistency interface {
+	Read(ctx context.Context) (context.Context, pgx.Tx, error)
 }
 
 // LegalEntities finds a legal entity (tenancy context).

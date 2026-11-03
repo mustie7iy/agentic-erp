@@ -187,6 +187,16 @@ func TestListAssets(t *testing.T) {
 	reader := e.Client
 	reader.As = e.Reader(t, "reader", e.US)
 	want(t, "a reader of company 1000", list(reader, ""), "1000/1 VEHICLES planned <nil>, 1000/2 MACHINES cancelled <nil>")
+	other := e.assetsOnly(t)
+	got, _ := other.Must(200, "GET", "/v1/assets/"+first["id"].(string), "", "")
+	want(t, "centers without ledger.cost_center.read", fmt.Sprint(got["cost_center_id"], " ", got["cost_center_code"], " ", got["profit_center_name"]),
+		e.c.Admin.String()+" <nil> <nil>")
+}
+
+// assetsOnly is a client acting as a person who may read assets and
+// nothing else: not cost centers, so centers are not named to them.
+func (e assetEnv) assetsOnly(t *testing.T) apitest.Client {
+	t.Helper()
 	pgtest.Exec(t, `INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, gen_random_uuid(), 'assets_only', 'a', 'active', $2, $2)`,
 		e.Tenant.ID, e.Tenant.Human.ID)
 	plain := pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
@@ -200,9 +210,7 @@ func TestListAssets(t *testing.T) {
 		e.Tenant.ID, plain.ID)
 	other := e.Client
 	other.As = plain
-	got, _ := other.Must(200, "GET", "/v1/assets/"+first["id"].(string), "", "")
-	want(t, "centers without ledger.cost_center.read", fmt.Sprint(got["cost_center_id"], " ", got["cost_center_code"], " ", got["profit_center_name"]),
-		e.c.Admin.String()+" <nil> <nil>")
+	return other
 }
 
 // TestAssetDatabaseFailures calls each asset handler with each of its database

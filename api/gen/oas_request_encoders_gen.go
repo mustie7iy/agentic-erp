@@ -1311,6 +1311,20 @@ func encodePrepareTaxReturnRequest(
 	return nil
 }
 
+func encodePreviewDepreciationRunRequest(
+	req *DepreciationRunPreviewRequest,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodePreviewRevaluationRequest(
 	req *RevaluationPreviewRequest,
 	r *http.Request,
@@ -1721,6 +1735,20 @@ func encodeRunAnalyticsQueryRequest(
 
 func encodeStartAgentSessionRequest(
 	req *AgentSessionStart,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeTakeCashSnapshotRequest(
+	req *CashSnapshotCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"

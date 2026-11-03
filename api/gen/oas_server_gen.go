@@ -306,6 +306,23 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices:capture
 	CaptureSupplierInvoice(ctx context.Context, req *SupplierInvoiceCaptureMultipart, params CaptureSupplierInvoiceParams) (CaptureSupplierInvoiceRes, error)
+	// CheckCloseTask implements checkCloseTask operation.
+	//
+	// Runs a check task's check now and records its result on the task (ADR-0058 §6, T64c):
+	// `check_result` says whether it passed, when, who ran it and what it found, each with its id and
+	// name; the task is set done when it passed (who ran it and when become its completion; a task already
+	// done keeps its completion) and open when it did not. `no_parked_entries` passes when no parked entry
+	// of the company dated in the period (the leading ledger's period's first to last day) is `parked` or
+	// `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted`
+	// passes when each covered ledger has a posted revaluation run keyed on its period's last day, and
+	// names each ledger with its run. A check is a statement about the moment it ran: run it again to
+	// refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and
+	// for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the
+	// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
+	// (`task_checked`, with `check_passed`).
+	//
+	// POST /v1/period-closes/{id}/tasks/{code}:check
+	CheckCloseTask(ctx context.Context, params CheckCloseTaskParams) (CheckCloseTaskRes, error)
 	// ClearSupplierInvoiceDownPayments implements clearSupplierInvoiceDownPayments operation.
 	//
 	// Clears paid down payment requests of the invoice's supplier against the posted invoice (SAP F-54;
@@ -338,10 +355,11 @@ type Handler interface {
 	// CompleteCloseTask implements completeCloseTask operation.
 	//
 	// Marks an open manual task of a period close done, with an optional note (ADR-0058 §6, T64b):
-	// refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a task
-	// already done (409 `closing.task_already_done`). `If-Match` is the close's ETag; the answer is the
-	// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
-	// (`task_completed`).
+	// refused while a task it depends on is open (409 `closing.task_blocked`, naming them), for a task
+	// already done (409 `closing.task_already_done`) and for a check task, which is done by its check
+	// passing (409 `closing.task_is_check`; T64c: run it with `:check`). `If-Match` is the close's ETag;
+	// the answer is the task, with the close's new ETag. People only. Audited, and published as
+	// PeriodCloseChanged (`task_completed`).
 	//
 	// POST /v1/period-closes/{id}/tasks/{code}:complete
 	CompleteCloseTask(ctx context.Context, req OptCloseTaskComplete, params CompleteCloseTaskParams) (CompleteCloseTaskRes, error)
@@ -895,6 +913,28 @@ type Handler interface {
 	//
 	// GET /v1/asset-acquisitions/{id}
 	GetAssetAcquisition(ctx context.Context, params GetAssetAcquisitionParams) (GetAssetAcquisitionRes, error)
+	// GetAssetSchedule implements getAssetSchedule operation.
+	//
+	// The asset's planned and booked depreciation in one ledger for each regular period of a fiscal year
+	// (ADR-0057 §7, T57e), computed at the read from its terms and movements, so it never disagrees with
+	// them. The planned schedule walks the periods from the one depreciation starts in
+	// (`depreciation_start`, the terms' own or else the capitalisation date; one period counts in full
+	// from its start): each movement valued by a period is applied at the start of the period of its value
+	// date (acquisitions add their cost; a transfer in adds the cost, accumulated depreciation and
+	// residual value it brought; a retirement or transfer out takes off those it recorded; a reversal
+	// cancels what it reverses), and each period takes, of its net book value B less its residual value R,
+	// by `straight_line` (B − R) / (n − k + 1) over the n − k + 1 periods of useful life left, or by
+	// `declining_balance` the greater of B × factor / n and that straight-line amount, rounded half away
+	// from zero to minor units and held between zero and B − R; from the last period of the useful life
+	// on, all of B − R. `planned` is that depreciation, `booked` the depreciation posted in the period
+	// (runs' and catch-ups', with their reversals, by posting period), `net_book_value` the planned net
+	// book value at the period's end. `totals` sums the year's periods. `ledger_id` defaults to the
+	// leading ledger. A ledger the asset has no terms in is 422 `assets.ledger_terms_missing`; a fiscal
+	// year that is not set up is 422 `ledger.no_fiscal_period`. Amounts are in the company's local
+	// currency. An asset of a legal entity the caller cannot act in is not found.
+	//
+	// GET /v1/assets/{id}/schedule
+	GetAssetSchedule(ctx context.Context, params GetAssetScheduleParams) (GetAssetScheduleRes, error)
 	// GetBankAccount implements getBankAccount operation.
 	//
 	// Returns one bank account of the partner, masked.
@@ -1004,6 +1044,13 @@ type Handler interface {
 	//
 	// GET /v1/cash-position
 	GetCashPosition(ctx context.Context, params GetCashPositionParams) (GetCashPositionRes, error)
+	// GetCashSnapshot implements getCashSnapshot operation.
+	//
+	// One snapshot of the liquidity forecast (ADR-0051 §6, T53f) with its totals per currency; its flows
+	// are `listCashSnapshotFlows`. A snapshot of a legal entity the caller cannot act in is not found.
+	//
+	// GET /v1/cash-snapshots/{id}
+	GetCashSnapshot(ctx context.Context, params GetCashSnapshotParams) (GetCashSnapshotRes, error)
 	// GetCenterChange implements getCenterChange operation.
 	//
 	// Returns one center change.
@@ -1606,6 +1653,21 @@ type Handler interface {
 	//
 	// GET /v1/asset-clearing-items
 	ListAssetClearingItems(ctx context.Context, params ListAssetClearingItemsParams) (ListAssetClearingItemsRes, error)
+	// ListAssetMovements implements listAssetMovements operation.
+	//
+	// The asset's movements, its subledger (ADR-0057 §5, T57e): one per ledger and effect of each
+	// acquisition, depreciation, retirement and transfer and of each reversal, with the signed change of
+	// acquisition cost and accumulated depreciation (negative, the credit it is) in the company's local
+	// currency and in group currency as that ledger booked them, the residual value a retirement or
+	// transfer took (negative) or a transfer in brought, a sale's proceeds, the share of cost taken, the
+	// document it belongs to, and that ledger's journal entry with its document number (none for a
+	// catch-up of zero). A reversal names the movement it reverses (`reverses_id`), a reversed movement
+	// the one reversing it (`reversed_by_id`). Filters: ledger, fiscal year of the posting date, kind.
+	// Sortable by: `seq` (default), the asset's posting order. An asset of a legal entity the caller
+	// cannot act in is not found.
+	//
+	// GET /v1/assets/{id}/movements
+	ListAssetMovements(ctx context.Context, params ListAssetMovementsParams) (ListAssetMovementsRes, error)
 	// ListAssets implements listAssets operation.
 	//
 	// The assets of the legal entities the caller may act in (ADR-0057 §5, T57b), each with its class,
@@ -1674,6 +1736,33 @@ type Handler interface {
 	//
 	// GET /v1/business-partners
 	ListBusinessPartners(ctx context.Context, params ListBusinessPartnersParams) (ListBusinessPartnersRes, error)
+	// ListCashSnapshotFlows implements listCashSnapshotFlows operation.
+	//
+	// The flows a snapshot kept (ADR-0051 §6, T53f), of one currency, by value date and line: within 31
+	// days of the snapshot's date one line per document a flow paid and liquidity item it was classified
+	// in (`flow_no` groups the lines of one flow), beyond it one line per bucket of the company's buckets,
+	// source, certainty, liquidity item and house bank (`bucket_end` set, `flow_count` the flows it sums).
+	// `total` and `count` add up the lines of every page that the filters select. Each line names its
+	// supplier (number and name) only to a caller who may use `partner.supplier.read`, its payment only to
+	// one who may use `payments.run.read`, and its document only to one who may use the document's
+	// context's read permission (`ledger.entry.read`, `payables.invoice.read`, `payments.run.read`,
+	// `cash.memo.read`), as the forecast's drill-down does; for others they are left out, never refused,
+	// and `has_document` still says whether it names one. A snapshot of a legal entity the caller cannot
+	// act in is not found.
+	//
+	// GET /v1/cash-snapshots/{id}/flows
+	ListCashSnapshotFlows(ctx context.Context, params ListCashSnapshotFlowsParams) (ListCashSnapshotFlowsRes, error)
+	// ListCashSnapshots implements listCashSnapshots operation.
+	//
+	// The snapshots of the liquidity forecast of the legal entities the caller may act in (ADR-0051 §6,
+	// T53f), newest first (by `snapshot_date`; those of one date latest taken first): the daily ones the
+	// TakeCashSnapshot workflow takes once a day per company after its `cash.snapshot_time` (local time,
+	// default 07:00), and those people take on demand (`takeCashSnapshot`). Each gives its totals per
+	// currency. A snapshot is kept 25 months after its date, then deleted by the workflow that takes the
+	// daily ones. Sortable by: `snapshot_date` (default descending).
+	//
+	// GET /v1/cash-snapshots
+	ListCashSnapshots(ctx context.Context, params ListCashSnapshotsParams) (ListCashSnapshotsRes, error)
 	// ListCenterChanges implements listCenterChanges operation.
 	//
 	// Requested changes to cost and profit centers (ADR-0050 §11). Changes of cost centers in legal
@@ -2602,6 +2691,36 @@ type Handler interface {
 	//
 	// POST /v1/tax-registrations/{id}/returns
 	PrepareTaxReturn(ctx context.Context, req *TaxReturnPrepare, params PrepareTaxReturnParams) (PrepareTaxReturnRes, error)
+	// PreviewDepreciationRun implements previewDepreciationRun operation.
+	//
+	// What a depreciation run of a company, ledger and regular period would post (ADR-0057 §7, T57e),
+	// without posting: per asset the planned depreciation through the period (the schedule of
+	// `GET /v1/assets/{id}/schedule` summed from the depreciation start), the depreciation booked in the
+	// ledger (runs' and catch-ups', with their reversals) and the difference, which the run posts:
+	// normally the period's depreciation, more when a movement was posted late with an earlier value date
+	// (a catch-up), less or negative when one was reversed, nothing when the period's run already posted
+	// it. The assets are those a run selects: the company's assets with terms in the ledger that are
+	// `active` with their depreciation start (the terms' own, else the capitalisation date) on or before
+	// the period's last day, or whose accumulated depreciation in the ledger is not zero (a `planned`
+	// asset whose acquisition was reversed after depreciation was posted), passing over an asset booked
+	// through a later period or whose latest center assignment is valid from after the period's last day;
+	// ordered and paged by asset number. Each asset is shown on its accounts (its class's depreciation and
+	// accumulated depreciation accounts in the company) and its centers (its latest assignment's).
+	// `totals`, the same on every page, sum every asset selected: the planned, booked and difference
+	// amounts and the lines the run would post, per depreciation account, cost center and profit center
+	// the expense (debit positive) and per accumulated depreciation account and profit center the credit;
+	// the ledger derives a line's cost center from the account's default assignment for an asset without
+	// one, and a cost center's profit center on the posting date, as every posting does (ADR-0050 §5).
+	// Amounts are in the company's local currency. `ledger_id` defaults to the leading ledger; one the
+	// company does not keep is 422 `ledger.ledger_not_kept`; a special period (13-16) takes no
+	// depreciation, 422 `assets.special_period`; a fiscal year or period that is not set up is 422
+	// `ledger.no_fiscal_period`. Whether the period is open and runs' order are the run's checks. An asset
+	// of a class the active configuration no longer gives the company fails the preview (422
+	// `assets.class_unknown`, `assets.class_not_in_company`), as it would fail the run. A legal entity the
+	// caller cannot act in is 404. Reads only; every agent autonomy level may call it.
+	//
+	// POST /v1/depreciation-runs/preview
+	PreviewDepreciationRun(ctx context.Context, req *DepreciationRunPreviewRequest, params PreviewDepreciationRunParams) (PreviewDepreciationRunRes, error)
 	// PreviewRevaluation implements previewRevaluation operation.
 	//
 	// Values, without posting, what a revaluation run of a legal entity and ledger at a key date would
@@ -2897,10 +3016,11 @@ type Handler interface {
 	// ReopenCloseTask implements reopenCloseTask operation.
 	//
 	// Returns a done task of a period close to open, with a reason (409 `closing.task_not_done` for an
-	// open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared, and the reason is
-	// kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays
-	// done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People
-	// only. Audited, and published as PeriodCloseChanged (`task_reopened`).
+	// open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared (a check task keeps
+	// its latest `check_result`), and the reason is kept in the audit trail and the event. It reopens
+	// nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is
+	// the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
+	// (`task_reopened`).
 	//
 	// POST /v1/period-closes/{id}/tasks/{code}:reopen
 	ReopenCloseTask(ctx context.Context, req *ReasonInput, params ReopenCloseTaskParams) (ReopenCloseTaskRes, error)
@@ -3138,6 +3258,21 @@ type Handler interface {
 	//
 	// POST /v1/requisitions/{id}:submit
 	SubmitRequisition(ctx context.Context, params SubmitRequisitionParams) (SubmitRequisitionRes, error)
+	// TakeCashSnapshot implements takeCashSnapshot operation.
+	//
+	// Takes a named snapshot of a legal entity's liquidity forecast as it is now (ADR-0051 §6, T53f),
+	// such as before a board meeting, kept like the daily ones the TakeCashSnapshot workflow takes. The
+	// forecast is read as `getLiquidityForecast` reads it with the company's buckets, every source and
+	// certainty, blocked suppliers' flows included (marked by their source, `payable_blocked`), from one
+	// database state, and stored in transaction currency: at document level for value dates within 31 days
+	// of the snapshot's date (each document a flow pays, under each liquidity item it is classified in,
+	// `listCashSnapshotFlows`), and summed per bucket and liquidity item beyond, up to the last bucket;
+	// flows after the last bucket are not kept. The liquidity items are those the active configuration
+	// derived then: a later rule change does not restate it. A legal entity the caller cannot act in is
+	// 404. Audited, and published as CashSnapshotTaken.
+	//
+	// POST /v1/cash-snapshots
+	TakeCashSnapshot(ctx context.Context, req *CashSnapshotCreate, params TakeCashSnapshotParams) (TakeCashSnapshotRes, error)
 	// TerminateContract implements terminateContract operation.
 	//
 	// Ends an active contract early (status `terminated`); orders already released against it are

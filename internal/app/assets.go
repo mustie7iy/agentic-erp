@@ -69,6 +69,15 @@ func (assetLedger) Period(ctx context.Context, legalEntity uuid.UUID, date time.
 	return assets.Period{FiscalYear: p.FiscalYear, Number: p.Number, Start: p.Start, End: p.End}, err
 }
 
+func (assetLedger) Periods(ctx context.Context, legalEntity uuid.UUID, year int16) ([]assets.Period, error) {
+	ps, err := ledger.Calendar{LegalEntities: tenancy.Directory{}}.Periods(ctx, legalEntity, year)
+	out := make([]assets.Period, len(ps))
+	for i, p := range ps {
+		out[i] = assets.Period{FiscalYear: p.FiscalYear, Number: p.Number, Start: p.Start, End: p.End}
+	}
+	return out, err
+}
+
 func (assetLedger) Accounts(ctx context.Context, legalEntity uuid.UUID, numbers []string) (map[string]uuid.UUID, error) {
 	return ledger.AssetReads{}.Accounts(ctx, legalEntity, numbers)
 }

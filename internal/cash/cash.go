@@ -22,6 +22,9 @@
 // totals unless asked. T53e3 splits each flow over the liquidity items its
 // documents' offsetting lines derive, giving rows by item and its
 // hierarchy, and simulates a change of the derivation on the open flows.
+// T53f keeps snapshots of the forecast (ADR-0051 §6): one a day per
+// company, taken by the TakeCashSnapshot workflow, and those people take,
+// per document within 31 days and per bucket beyond, for 25 months.
 package cash
 
 import (

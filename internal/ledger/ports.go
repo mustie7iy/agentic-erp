@@ -696,6 +696,34 @@ func (c Calendar) Period(ctx context.Context, legalEntity uuid.UUID, date time.T
 	return p, nil
 }
 
+// Periods are the regular posting periods of the legal entity's fiscal
+// year, in order (ADR-0057 §7: a depreciation run and its preview name a
+// period by year and number); a year that is not set up is 422
+// ledger.no_fiscal_period, as FiscalYear.
+func (c Calendar) Periods(ctx context.Context, legalEntity uuid.UUID, year int16) ([]FiscalPeriod, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	le, ok, err := c.LegalEntities.Entity(ctx, legalEntity)
+	if err != nil {
+		return nil, err
+	}
+	var periods []FiscalPeriod
+	if ok {
+		rows, _ := tx.Query(ctx, `SELECT fiscal_year, period, start_date, end_date FROM ledger.fiscal_period
+			WHERE calendar_id = $1 AND fiscal_year = $2 AND NOT is_special ORDER BY period`, le.FiscalCalendarID, year)
+		if periods, err = pgx.CollectRows(rows, pgx.RowToStructByPos[FiscalPeriod]); err != nil {
+			return nil, fmt.Errorf("ledger: periods of %s in %d: %w", legalEntity, year, err)
+		}
+	}
+	if len(periods) == 0 {
+		return nil, problem.Unprocessable("ledger.no_fiscal_period", fmt.Sprintf("No fiscal year %d of the legal entity is set up; "+
+			"a fiscal year is set up by a number range for it in the configuration.", year))
+	}
+	return periods, nil
+}
+
 // WithholdingTaxCode is a legal entity's active withholding tax code
 // (T46e): a rate of the invoice's net or gross, deducted when the invoice
 // posts or when it is paid, owed on the account.

@@ -113,6 +113,10 @@ type CaptureSupplierInvoiceRes interface {
 	captureSupplierInvoiceRes()
 }
 
+type CheckCloseTaskRes interface {
+	checkCloseTaskRes()
+}
+
 type ClearSupplierInvoiceDownPaymentsRes interface {
 	clearSupplierInvoiceDownPaymentsRes()
 }
@@ -349,6 +353,10 @@ type GetAssetRes interface {
 	getAssetRes()
 }
 
+type GetAssetScheduleRes interface {
+	getAssetScheduleRes()
+}
+
 type GetBankAccountRes interface {
 	getBankAccountRes()
 }
@@ -383,6 +391,10 @@ type GetBusinessPartnerRes interface {
 
 type GetCashPositionRes interface {
 	getCashPositionRes()
+}
+
+type GetCashSnapshotRes interface {
+	getCashSnapshotRes()
 }
 
 type GetCenterChangeRes interface {
@@ -645,6 +657,10 @@ type ListAssetClearingItemsRes interface {
 	listAssetClearingItemsRes()
 }
 
+type ListAssetMovementsRes interface {
+	listAssetMovementsRes()
+}
+
 type ListAssetsRes interface {
 	listAssetsRes()
 }
@@ -679,6 +695,14 @@ type ListBankStatementsRes interface {
 
 type ListBusinessPartnersRes interface {
 	listBusinessPartnersRes()
+}
+
+type ListCashSnapshotFlowsRes interface {
+	listCashSnapshotFlowsRes()
+}
+
+type ListCashSnapshotsRes interface {
+	listCashSnapshotsRes()
 }
 
 type ListCenterChangesRes interface {
@@ -1045,6 +1069,10 @@ type PrepareTaxReturnRes interface {
 	prepareTaxReturnRes()
 }
 
+type PreviewDepreciationRunRes interface {
+	previewDepreciationRunRes()
+}
+
 type PreviewRevaluationRes interface {
 	previewRevaluationRes()
 }
@@ -1207,6 +1235,10 @@ type SubmitPurchaseOrderChangeRes interface {
 
 type SubmitRequisitionRes interface {
 	submitRequisitionRes()
+}
+
+type TakeCashSnapshotRes interface {
+	takeCashSnapshotRes()
 }
 
 type TerminateContractRes interface {

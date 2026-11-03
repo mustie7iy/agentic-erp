@@ -276,18 +276,7 @@ func flowKey(f datedFlow) string {
 // context's read permission usable; the permissions are read once a
 // page, and the names only of a page that shows suppliers.
 func (e *Endpoints) shown(ctx context.Context, page []keyed, includeBlocked bool) ([]ListedFlow, error) {
-	may := map[string]bool{}
-	mayUse := func(permission string) (bool, error) {
-		if v, ok := may[permission]; ok {
-			return v, nil
-		}
-		v, err := authz.MayUse(ctx, permission)
-		if err != nil {
-			return false, fmt.Errorf("cash: may the caller use %s: %w", permission, err)
-		}
-		may[permission] = v
-		return v, nil
-	}
+	mayUse := mayUse(ctx)
 	names, err := e.supplierNames(ctx, page, mayUse)
 	if err != nil {
 		return nil, err
@@ -316,8 +305,24 @@ func (e *Endpoints) shown(ctx context.Context, page []keyed, includeBlocked bool
 	return out, nil
 }
 
-// supplierNames are the page's suppliers by id, read only when the page
-// names one and the caller may read suppliers; none otherwise.
+// mayUse reports whether the caller may use a permission (authz.MayUse),
+// each permission read once.
+func mayUse(ctx context.Context) func(permission string) (bool, error) {
+	may := map[string]bool{}
+	return func(permission string) (bool, error) {
+		if v, ok := may[permission]; ok {
+			return v, nil
+		}
+		v, err := authz.MayUse(ctx, permission)
+		if err != nil {
+			return false, fmt.Errorf("cash: may the caller use %s: %w", permission, err)
+		}
+		may[permission] = v
+		return v, nil
+	}
+}
+
+// supplierNames are the page's suppliers by id (partnerNames).
 func (e *Endpoints) supplierNames(ctx context.Context, page []keyed, mayUse func(string) (bool, error)) (map[uuid.UUID]PartnerName, error) {
 	var ids []uuid.UUID
 	for _, k := range page {
@@ -325,6 +330,12 @@ func (e *Endpoints) supplierNames(ctx context.Context, page []keyed, mayUse func
 			ids = append(ids, *k.f.supplier)
 		}
 	}
+	return e.partnerNames(ctx, ids, mayUse)
+}
+
+// partnerNames are the suppliers by id, read only when there are some and
+// the caller may read suppliers; none otherwise.
+func (e *Endpoints) partnerNames(ctx context.Context, ids []uuid.UUID, mayUse func(string) (bool, error)) (map[uuid.UUID]PartnerName, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}

@@ -2648,7 +2648,8 @@ A leaf context (ADR-0051 §2): it reads the ledger, payments, payables and
 procurement through ports they publish and owns only what it adds; no
 context imports it (`internal/layout`). Migration 000141 (T53b) creates the
 schema with the configuration it keeps; memo records follow in T53d
-(000152), snapshots and variance comments in T53f.
+(000152), snapshots of the forecast in T53f (000198), variance comments in
+T53f4.
 
 ```mermaid
 erDiagram
@@ -2681,6 +2682,31 @@ erDiagram
     uuid session_id "agents context"
     text batch_key
     uuid realised_statement_id "payments context" }
+  snapshot ||--o{ snapshot_flow : "keeps"
+  liquidity_item ||--o{ snapshot_flow : "classifies"
+  snapshot { uuid id PK
+    uuid legal_entity_id "tenancy context"
+    text kind "daily | on_demand"
+    text name "on_demand only"
+    date snapshot_date "the company's date at the read"
+    text time_zone
+    date horizon_end "the last bucket's last day"
+    int config_version "the derivation that classified it" }
+  snapshot_flow { int line_no PK
+    int flow_no
+    date value_date
+    date bucket_end "null: document level"
+    uuid house_bank_id "payments context"
+    char currency
+    text source
+    text certainty
+    text liquidity_item FK "null: unclassified"
+    bigint amount "minor units, signed"
+    int flow_count
+    uuid supplier_id "partner context"
+    uuid payment_id "payments context"
+    text document_kind
+    uuid document_id "the owning context's" }
 ```
 
 | Table | Purpose |
@@ -2688,7 +2714,9 @@ erDiagram
 | `cash.liquidity_item` | The configuration's `cash.liquidity_items` (SAP FLQLITEM), kept by `cash.Setup`: cash by purpose in one tree, a code of upper-case letters, digits and underscores, a direction, a parent of the tenant (never itself). One the document drops becomes inactive, never deleted, since memo records and snapshots name items; the configuration's validation keeps the tree acyclic, at most four levels, children of their parent's direction or of one for both |
 | `cash.planning_group` | The configuration's `cash.planning_groups` (SAP T035), kept by `cash.Setup`, inactive once dropped; suppliers name one per company (`partner.supplier_company.planning_group`, §3.6) |
 | `cash.memo_record` | An expected receipt or payment (SAP's memo records, ADR-0051 §7; T53d): a signed, non-zero amount in minor units of its currency, a value date and an expiry date on or after it, a certainty, an active liquidity item of the amount's direction (`cash.check_memo_item`, when the item or amount is written; `cash.Setup` refuses taking away an item an open record names), a house bank or none (forecast only), optionally a series (`weekly`, `monthly` on the value date's day, `quarterly`; until a day or a count of 2-520, or neither) expanded at read time, `counts_until` the last occurrence's expiry (a one-off record's `expires_on`, null for a series without end; an active record past it is shown `expired`). An override (`recurrence_of`, `occurrence_date`) replaces one occurrence of a series, once per occurrence (`memo_record_override_once`). `origin` `agent` records carry their session and reason and are the only ones `proposed` or `rejected`; `upload` ones carry their batch key and a reference unique per company and key (`memo_record_batch_reference`). Realised by a statement line or by a person; a series only through an override of an occurrence. Changes are versions; never deleted |
-| `cash.outbox`, `cash.inbox` | The context's events (`MemoRecordChanged`), relayed as every context's (000152, `outbox.Contexts`) |
+| `cash.snapshot` | A snapshot of a company's liquidity forecast (ADR-0051 §6, T53f, 000198): `daily` (the TakeCashSnapshot workflow's, one per company and date, `snapshot_daily`) or `on_demand` (a person's, named, `snapshot_name`), its date and zone, the last day of its buckets and the configuration version that classified it. Insert-only (no version, no update or delete granted); deleted with its lines 25 months after its date by the workflow through `cash.delete_expired_snapshots`, which computes the 25 months and refuses a day after UTC's tomorrow |
+| `cash.snapshot_flow` | A snapshot's lines in transaction currency: within 31 days of its date, what one forecast flow (`flow_no`) pays of one document under one liquidity item, with its day at the bank, house bank, source, certainty, lateness, supplier and payment (`flow_count` 1, `snapshot_flow_count`); beyond, a bucket's sum (`bucket_end`) per currency, source, certainty, item and house bank, naming no document, supplier or payment and never late (`snapshot_flow_bucket`). A document is named whole (`snapshot_flow_document`); an item is the tenant's (null: unclassified). Insert-only |
+| `cash.outbox`, `cash.inbox` | The context's events (`MemoRecordChanged`, `CashSnapshotTaken`), relayed as every context's (000152, `outbox.Contexts`) |
 
 What is not stored, and read from the active document when a position or
 forecast is computed: the derivation rules (`cash.derivation`: account
@@ -2770,6 +2798,15 @@ parked or held `payables.supplier_invoice`, a
 (`reference`); suppliers by `partner.business_partner` number and name.
 Conversion reads `ledger.exchange_rate` through the rate service. No
 migration.
+
+T53f stores the forecast as it was (000198, `cash.snapshot`,
+`cash.snapshot_flow` above): read in a read-only repeatable-read
+transaction (the workflow activity's first, a request's on a pool of its
+own, `uow.Consistent`) and written in a read-committed one. The dispatcher finds the tenants that manage cash
+as the worker role, from their active `cash.liquidity_item` rows (000198
+grants `erp_worker` those two columns), and asks each, in its own scope,
+which companies are due. Migration 000198 seeds `cash.snapshot.take`;
+reading a snapshot is `cash.forecast.read`.
 
 ## 3.19 Controlling (`controlling`)
 
@@ -2897,8 +2934,9 @@ by `ledger.tax_item_reported_in`, built concurrently by migration 000180).
 
 ## 3.21 Asset accounting (`assets`)
 
-The asset master (ADR-0057 §5, §7, §8, T57b) and its acquisitions and
-their reversals (§6, T57c, T57d), owned by the assets context
+The asset master (ADR-0057 §5, §7, §8, T57b), its acquisitions and
+their reversals (§6, T57c, T57d) and its depreciation schedule, read from
+them (§7, T57e, no table of its own), owned by the assets context
 (`internal/assets`, a leaf). Migration 000191 creates the schema, its
 outbox (`assets.outbox`, AssetChanged) and the permission
 `assets.asset.change` (`assets.asset.read` came with T57a). The classes and
@@ -2972,7 +3010,7 @@ erDiagram
 | `assets.asset_assignment` | Its cost center (optional) and profit center from `valid_from` on, insert-only (`platform.forbid_mutation`): the first row at creation, valid from `-infinity`, each later one from a center transfer or its reversal (T57h). A row takes the asset's current `last_seq`, raised first (`asset_assignment_seq`), and only the first is valid from `-infinity` (`asset_assignment_valid_from`), so the row with the highest `seq` is the latest and names the asset's centers. The profit center is the cost center's on the row's date, derived by the ledger (`ledger.AssetReads.Assignment`) |
 | `assets.acquisition` | An acquisition (T57c, migration 000192; ADR-0057 §6): an asset's cost from a posted line on its class's clearing account (`source_*`, with the entry's document number, source context and document as posted) or, from T57d, against an offset account (`offset_account_id`), never both (`acquisition_source`); in the line's (or the manual amount's) currency with its local and group amounts (`amount_lc`, `amount_gc`, a manual one's as the ledger converted its cost line), its value and posting dates and the asset's `seq` (`acquisition_seq_once`). It starts `posted` and is reversed at most once, keeping what it posted (`acquisition_transition`, `acquisition_fixed`); it is `reversed` exactly when its reversal's posting date and reason are recorded (`acquisition_reversal`, T57d, migration 000195), never dated before its own posting date (`acquisition_reversal_date`), and keeps them |
 | `assets.clearing_use` | What acquisitions used of a capitalised line, keyed by the line: its amounts in its currency, local and group currency, and what is used of each, which stays between zero and the line's amount (the mirror for a credit line, `clearing_use_within_line`); the line's amounts never change (`clearing_use_line_fixed`). Read FOR UPDATE by every acquisition from the line, and given back by its reversal. A reversal's line names the line it reverses (`reverses_entry_year`, `reverses_entry_id`, both or neither, `clearing_use_reverses`; T57d), which never changes, so an asset's take-off through it is bounded by what it holds from that line |
-| `assets.movement` | The subledger (ADR-0057 §5): one append-only row per asset, ledger and effect (`acquisition`, `depreciation`, `retirement`, `transfer_out`, `transfer_in`) with the signed change of cost and accumulated depreciation in local and group currency, residual value, proceeds and share, its document and journal entry. A reversal row has its original's kind, asset and ledger and exactly the negated amounts (`movement_reversal`), each original is reversed at most once (`movement_reversed_once`), and depreciation changes accumulated depreciation alone (`movement_depreciation`) |
+| `assets.movement` | The subledger (ADR-0057 §5): one append-only row per asset, ledger and effect (`acquisition`, `depreciation`, `retirement`, `transfer_out`, `transfer_in`) with the signed change of cost and accumulated depreciation in local and group currency, of residual value (negative when a retirement or transfer out took it, positive when a transfer in brought it, T57e), proceeds and share, its document and journal entry. The depreciation schedule and a run's preview (T57e) are computed from these rows and `asset_terms` at the read, never stored (ADR-0057 §7), and `GET /v1/assets/{id}/movements` lists them. A reversal row has its original's kind, asset and ledger and exactly the negated amounts (`movement_reversal`), each original is reversed at most once (`movement_reversed_once`), and depreciation changes accumulated depreciation alone (`movement_depreciation`) |
 | `assets.document_entry` | The journal entry of each assets document per ledger and part (`main`, or a center transfer's `catch_up`), with its document number; the reversal records its reversal entry and that entry's number once (`document_entry_reversal`, `document_entry_reversal_number`, `document_entry_reversed_once`; T57d), the only update granted |
 
 ## 3.22 Financial close (`closing`)
@@ -2983,7 +3021,8 @@ adapts, and no context reads it. Its template is configuration (T64a):
 `close.tasks`, at most 200 tasks, each with a unique `code`
 (`[A-Z0-9_]{1,30}`), a `name` (cosmetic), a `kind` (`manual` or `check`,
 with a `check` this build runs exactly when the kind is `check`; each
-slice that builds a check adds it), a `due_day` (business days after the
+slice that builds a check adds it: `no_parked_entries` and
+`revaluation_posted` from T64c), a `due_day` (business days after the
 period's last day, -31 to 31, 0 that day itself), `depends_on` (other
 tasks of the template, each once, without a cycle, and given to every
 company the dependent task is) and optional `companies` (only these
@@ -3035,3 +3074,25 @@ code)` and by assignee. The legal entity, ledgers, periods and principals
 are other contexts', by id, without foreign keys. The close calendar's
 row of a period shows its close and its tasks' due dates once it has one.
 Schema tests: `db/closing_test.go`.
+
+A check task's latest result (T64c, migrations 000196 and 000197) is kept
+on the task:
+
+```
+closing.close_task    + checked_at, checked_by, check_passed, check_result jsonb
+```
+
+`:check` records when the check ran, who ran it, whether it passed and
+what it found (`check_result`: its summary and, for `no_parked_entries`,
+the count and the first 20 parked entries with who parked them; for
+`revaluation_posted`, each covered ledger with its key date and posted
+run), names included as they were then. The four are set together, on a
+check task only (`close_task_checked`), never when the task is created,
+and once recorded are replaced by the next check, never removed
+(`closing.check_close_task`). A check task is `done` only while its latest
+check passed (`close_task_check_passed`): a pass sets it done (who ran it
+and when become its completion, unless it was done already) and a failure
+open; reopening it keeps the result. The checks read the ledger through
+its port (`ledger.CloseChecks`): parked entries of the company by posting
+date in the leading ledger's period (`ledger.parked_entry`) and posted
+revaluation runs per ledger and key date (`ledger.revaluation_run`).

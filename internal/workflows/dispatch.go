@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"go.temporal.io/sdk/activity"
 	sdkworkflow "go.temporal.io/sdk/workflow"
 
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
@@ -49,12 +50,16 @@ type Dispatcher struct {
 	// Recurring finds the entry templates' due dates (ADR-0056); nil
 	// parks none.
 	Recurring *Recurrences
+	// Snapshots finds the companies' due cash snapshots (ADR-0051 §6), at
+	// most once a minute; nil takes none.
+	Snapshots *Snapshots
 	Now       func() time.Time // the fetch periods' and due dates' clock; nil: time.Now
 	Log       *slog.Logger
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
 	Begin database.BeginFunc
 
-	fetched time.Time // the last fetch period started without a failure
+	fetched     time.Time // the last fetch period started without a failure
+	snapshotted time.Time // the last minute whose due snapshots were started without a failure
 }
 
 func (d *Dispatcher) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
@@ -148,8 +153,8 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (int, error) {
 	if err := tx.Commit(ctx); err != nil {
 		return n, fmt.Errorf("dispatcher: committing the started workflows: %w", err)
 	}
-	if d.Recurring != nil {
-		k, err := d.recur(ctx)
+	for _, step := range []func(context.Context) (int, error){d.recur, d.snapshot} {
+		k, err := step(ctx)
 		n += k
 		if err != nil {
 			failures = append(failures, err)
@@ -254,6 +259,9 @@ func (d *Dispatcher) fetch(ctx context.Context, tx pgx.Tx) (int, error) {
 // rounds dispatch it; the template moves on only once the date's entry is
 // parked or refused, so a round lists it until then.
 func (d *Dispatcher) recur(ctx context.Context) (int, error) {
+	if d.Recurring == nil {
+		return 0, nil
+	}
 	due, err := d.Recurring.Due(ctx, clock.Now(d.Now))
 	failures := []error{err}
 	n := 0
@@ -273,6 +281,37 @@ func (d *Dispatcher) recur(ctx context.Context) (int, error) {
 	return n, nil
 }
 
+// snapshot starts, once a minute, a TakeCashSnapshot workflow for every
+// company whose daily snapshot is due (ADR-0051 §6). The workflow id names
+// the company and the date, so the engine starts each once however many
+// replicas and rounds dispatch it; a minute started with no failure is not
+// looked at again by this dispatcher.
+func (d *Dispatcher) snapshot(ctx context.Context) (int, error) {
+	now := clock.Now(d.Now)
+	slot := now.UTC().Truncate(snapshotEvery)
+	if d.Snapshots == nil || slot.Equal(d.snapshotted) {
+		return 0, nil
+	}
+	due, err := d.Snapshots.Due(ctx, now)
+	failures := []error{err}
+	n := 0
+	for _, in := range due {
+		started, err := d.Client.Start(ctx, workflow.Start{ID: SnapshotWorkflowID(in), Queue: d.Queue, Name: SnapshotWorkflow, Args: []any{in}})
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		if started {
+			n++
+		}
+	}
+	if err := errors.Join(failures...); err != nil {
+		return n, fmt.Errorf("dispatcher: %w", err)
+	}
+	d.snapshotted = slot
+	return n, nil
+}
+
 // Run dispatches until ctx ends, logging failures and work done.
 func (d *Dispatcher) Run(ctx context.Context) {
 	worker.Loop(ctx, d.Interval, time.Second, func(ctx context.Context) (bool, error) {
@@ -285,7 +324,7 @@ func (d *Dispatcher) Run(ctx context.Context) {
 }
 
 // Register registers the workflows and activities a cell's worker hosts.
-func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a *Approvals, st *Statements, rc *Recurrences) {
+func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a *Approvals, st *Statements, rc *Recurrences, sn *Snapshots) {
 	r.RegisterWorkflowWithOptions(ProposePaymentRun, sdkworkflow.RegisterOptions{Name: ProposeWorkflow})
 	r.RegisterWorkflowWithOptions(ReleasePaymentRun, sdkworkflow.RegisterOptions{Name: ReleaseWorkflow})
 	r.RegisterWorkflowWithOptions(SimulateChange, sdkworkflow.RegisterOptions{Name: SimulateWorkflow})
@@ -299,4 +338,9 @@ func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a
 	r.RegisterActivity(st)
 	r.RegisterWorkflowWithOptions(ParkRecurringEntry, sdkworkflow.RegisterOptions{Name: RecurWorkflow})
 	r.RegisterActivity(rc)
+	r.RegisterWorkflowWithOptions(TakeCashSnapshot, sdkworkflow.RegisterOptions{Name: SnapshotWorkflow})
+	// By name: Snapshots.Due is the dispatcher's question, not an activity,
+	// and Recurrences registers a "Due" already.
+	r.RegisterActivityWithOptions(sn.TakeSnapshot, activity.RegisterOptions{Name: "TakeSnapshot"})
+	r.RegisterActivityWithOptions(sn.PruneSnapshots, activity.RegisterOptions{Name: "PruneSnapshots"})
 }

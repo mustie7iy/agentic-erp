@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -30,7 +31,8 @@ func (closingCompanies) Company(ctx context.Context, id uuid.UUID) (closing.Comp
 	return closing.Company{ID: le.ID, Code: le.Code, Name: le.Name}, ok, err
 }
 
-// closingLedger gives the closing context the ledger's posting periods.
+// closingLedger gives the closing context the ledger's posting periods,
+// and what a close's checks read: parked entries and revaluation runs.
 type closingLedger struct{}
 
 func (closingLedger) LeadingPeriods(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]closing.Period, error) {
@@ -53,6 +55,20 @@ func (closingLedger) PeriodsOf(ctx context.Context, legalEntity uuid.UUID, fisca
 		}
 	}
 	return out, err
+}
+
+func (closingLedger) Parked(ctx context.Context, legalEntity uuid.UUID, from, to time.Time, statuses []string, limit int) (int, []closing.ParkedEntry, error) {
+	n, ps, err := ledger.CloseChecks{}.Parked(ctx, legalEntity, from, to, statuses, limit)
+	out := make([]closing.ParkedEntry, len(ps))
+	for i, p := range ps {
+		out[i] = closing.ParkedEntry{ID: p.ID, DocumentType: p.DocumentType, PostingDate: p.PostingDate, Status: p.Status, Reference: p.Reference,
+			HeaderText: p.HeaderText, CreatedBy: p.CreatedBy, CreatedByKind: p.CreatedByKind}
+	}
+	return n, out, err
+}
+
+func (closingLedger) PostedRevaluation(ctx context.Context, legalEntity, ledgerID uuid.UUID, keyDate time.Time) (uuid.UUID, bool, error) {
+	return ledger.CloseChecks{}.PostedRevaluation(ctx, legalEntity, ledgerID, keyDate)
 }
 
 func closingPeriod(p ledger.Period) closing.Period {

@@ -13973,7 +13973,7 @@ paths:
       tags:
         - closing
       summary: Complete a close task
-      description: "Marks an open manual task of a period close done, with an optional note (ADR-0058 §6, T64b): refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a task already done (409 `closing.task_already_done`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_completed`)."
+      description: "Marks an open manual task of a period close done, with an optional note (ADR-0058 §6, T64b): refused while a task it depends on is open (409 `closing.task_blocked`, naming them), for a task already done (409 `closing.task_already_done`) and for a check task, which is done by its check passing (409 `closing.task_is_check`; T64c: run it with `:check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_completed`)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
@@ -13982,6 +13982,7 @@ paths:
         - closing.close_exists
         - closing.task_already_done
         - closing.task_blocked
+        - closing.task_is_check
         - config.not_bootstrapped
         - request.version_mismatch
       parameters:
@@ -14034,7 +14035,7 @@ paths:
       tags:
         - closing
       summary: Reopen a close task
-      description: "Returns a done task of a period close to open, with a reason (409 `closing.task_not_done` for an open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared, and the reason is kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_reopened`)."
+      description: "Returns a done task of a period close to open, with a reason (409 `closing.task_not_done` for an open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared (a check task keeps its latest `check_result`), and the reason is kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_reopened`)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
@@ -14059,6 +14060,60 @@ paths:
       responses:
         "200":
           description: "The task after the change, with the close's new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CloseTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/period-closes/{id}/tasks/{code}:check":
+    post:
+      operationId: checkCloseTask
+      tags:
+        - closing
+      summary: Run a close task's check
+      description: "Runs a check task's check now and records its result on the task (ADR-0058 §6, T64c): `check_result` says whether it passed, when, who ran it and what it found, each with its id and name; the task is set done when it passed (who ran it and when become its completion; a task already done keeps its completion) and open when it did not. `no_parked_entries` passes when no parked entry of the company dated in the period (the leading ledger's period's first to last day) is `parked` or `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted` passes when each covered ledger has a posted revaluation run keyed on its period's last day, and names each ledger with its run. A check is a statement about the moment it ran: run it again to refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_checked`, with `check_passed`)."
+      x-permission: closing.close.manage
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - closing.close_exists
+        - closing.task_blocked
+        - closing.task_not_check
+        - config.not_bootstrapped
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CloseTaskCode"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The task with its check's result, with the close's new ETag."
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -14418,6 +14473,112 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/assets/{id}/schedule":
+    get:
+      operationId: getAssetSchedule
+      tags:
+        - assets
+      summary: Get an asset's depreciation schedule
+      description: "The asset's planned and booked depreciation in one ledger for each regular period of a fiscal year (ADR-0057 §7, T57e), computed at the read from its terms and movements, so it never disagrees with them. The planned schedule walks the periods from the one depreciation starts in (`depreciation_start`, the terms' own or else the capitalisation date; one period counts in full from its start): each movement valued by a period is applied at the start of the period of its value date (acquisitions add their cost; a transfer in adds the cost, accumulated depreciation and residual value it brought; a retirement or transfer out takes off those it recorded; a reversal cancels what it reverses), and each period takes, of its net book value B less its residual value R, by `straight_line` (B − R) / (n − k + 1) over the n − k + 1 periods of useful life left, or by `declining_balance` the greater of B × factor / n and that straight-line amount, rounded half away from zero to minor units and held between zero and B − R; from the last period of the useful life on, all of B − R. `planned` is that depreciation, `booked` the depreciation posted in the period (runs' and catch-ups', with their reversals, by posting period), `net_book_value` the planned net book value at the period's end. `totals` sums the year's periods. `ledger_id` defaults to the leading ledger. A ledger the asset has no terms in is 422 `assets.ledger_terms_missing`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. Amounts are in the company's local currency. An asset of a legal entity the caller cannot act in is not found."
+      x-permission: assets.asset.read
+      x-problem-codes:
+        - assets.ledger_terms_missing
+        - ledger.no_fiscal_period
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: ledger_id
+          in: query
+          required: false
+          description: The ledger (one depreciation area); default the leading ledger.
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: The fiscal year whose periods are shown.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+      responses:
+        "200":
+          description: The asset's schedule for the year.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetSchedule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/assets/{id}/movements":
+    get:
+      operationId: listAssetMovements
+      tags:
+        - assets
+      summary: List an asset's movements
+      description: "The asset's movements, its subledger (ADR-0057 §5, T57e): one per ledger and effect of each acquisition, depreciation, retirement and transfer and of each reversal, with the signed change of acquisition cost and accumulated depreciation (negative, the credit it is) in the company's local currency and in group currency as that ledger booked them, the residual value a retirement or transfer took (negative) or a transfer in brought, a sale's proceeds, the share of cost taken, the document it belongs to, and that ledger's journal entry with its document number (none for a catch-up of zero). A reversal names the movement it reverses (`reverses_id`), a reversed movement the one reversing it (`reversed_by_id`). Filters: ledger, fiscal year of the posting date, kind. Sortable by: `seq` (default), the asset's posting order. An asset of a legal entity the caller cannot act in is not found."
+      x-permission: assets.asset.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: ledger_id
+          in: query
+          required: false
+          description: Only the movements in this ledger.
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: false
+          description: Only the movements posted in this fiscal year.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: kind
+          in: query
+          required: false
+          description: Only the movements of this kind.
+          schema:
+            type: string
+            description: "Movement kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [acquisition, depreciation, retirement, transfer_out, transfer_in]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the asset's movements.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetMovementPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/asset-acquisitions:
     get:
       operationId: listAssetAcquisitions
@@ -14773,6 +14934,68 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/depreciation-runs/preview:
+    post:
+      operationId: previewDepreciationRun
+      tags:
+        - assets
+      summary: Preview a depreciation run
+      description: "What a depreciation run of a company, ledger and regular period would post (ADR-0057 §7, T57e), without posting: per asset the planned depreciation through the period (the schedule of `GET /v1/assets/{id}/schedule` summed from the depreciation start), the depreciation booked in the ledger (runs' and catch-ups', with their reversals) and the difference, which the run posts: normally the period's depreciation, more when a movement was posted late with an earlier value date (a catch-up), less or negative when one was reversed, nothing when the period's run already posted it. The assets are those a run selects: the company's assets with terms in the ledger that are `active` with their depreciation start (the terms' own, else the capitalisation date) on or before the period's last day, or whose accumulated depreciation in the ledger is not zero (a `planned` asset whose acquisition was reversed after depreciation was posted), passing over an asset booked through a later period or whose latest center assignment is valid from after the period's last day; ordered and paged by asset number. Each asset is shown on its accounts (its class's depreciation and accumulated depreciation accounts in the company) and its centers (its latest assignment's). `totals`, the same on every page, sum every asset selected: the planned, booked and difference amounts and the lines the run would post, per depreciation account, cost center and profit center the expense (debit positive) and per accumulated depreciation account and profit center the credit; the ledger derives a line's cost center from the account's default assignment for an asset without one, and a cost center's profit center on the posting date, as every posting does (ADR-0050 §5). Amounts are in the company's local currency. `ledger_id` defaults to the leading ledger; one the company does not keep is 422 `ledger.ledger_not_kept`; a special period (13-16) takes no depreciation, 422 `assets.special_period`; a fiscal year or period that is not set up is 422 `ledger.no_fiscal_period`. Whether the period is open and runs' order are the run's checks. An asset of a class the active configuration no longer gives the company fails the preview (422 `assets.class_unknown`, `assets.class_not_in_company`), as it would fail the run. A legal entity the caller cannot act in is 404. Reads only; every agent autonomy level may call it."
+      x-permission: assets.asset.read
+      x-autonomy: read
+      x-problem-codes:
+        - assets.class_not_in_company
+        - assets.class_unknown
+        - assets.special_period
+        - config.not_bootstrapped
+        - ledger.ledger_not_kept
+        - ledger.no_fiscal_period
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      requestBody:
+        description: The run to preview.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DepreciationRunPreviewRequest"
+            examples:
+              march:
+                summary: Preview March's depreciation in the leading ledger
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  fiscal_year: 2026
+                  period: 3
+      responses:
+        "200":
+          description: One page of the assets the run would post, and the totals of all of them.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepreciationRunPreview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/cash-position:
     get:
       operationId: getCashPosition
@@ -14827,6 +15050,221 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CashPosition"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/cash-snapshots:
+    get:
+      operationId: listCashSnapshots
+      tags:
+        - cash
+      summary: List snapshots of the liquidity forecast
+      description: "The snapshots of the liquidity forecast of the legal entities the caller may act in (ADR-0051 §6, T53f), newest first (by `snapshot_date`; those of one date latest taken first): the daily ones the TakeCashSnapshot workflow takes once a day per company after its `cash.snapshot_time` (local time, default 07:00), and those people take on demand (`takeCashSnapshot`). Each gives its totals per currency. A snapshot is kept 25 months after its date, then deleted by the workflow that takes the daily ones. Sortable by: `snapshot_date` (default descending)."
+      x-permission: cash.forecast.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: kind
+          in: query
+          required: false
+          description: "Only snapshots of this kind: `daily` or `on_demand`."
+          schema:
+            type: string
+            description: "A snapshot's kind. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [daily, on_demand]
+        - name: from
+          in: query
+          required: false
+          description: Only snapshots dated on or after this day.
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          description: Only snapshots dated on or before this day.
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of snapshots.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashSnapshotPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: takeCashSnapshot
+      tags:
+        - cash
+      summary: Take a snapshot of the liquidity forecast
+      description: "Takes a named snapshot of a legal entity's liquidity forecast as it is now (ADR-0051 §6, T53f), such as before a board meeting, kept like the daily ones the TakeCashSnapshot workflow takes. The forecast is read as `getLiquidityForecast` reads it with the company's buckets, every source and certainty, blocked suppliers' flows included (marked by their source, `payable_blocked`), from one database state, and stored in transaction currency: at document level for value dates within 31 days of the snapshot's date (each document a flow pays, under each liquidity item it is classified in, `listCashSnapshotFlows`), and summed per bucket and liquidity item beyond, up to the last bucket; flows after the last bucket are not kept. The liquidity items are those the active configuration derived then: a later rule change does not restate it. A legal entity the caller cannot act in is 404. Audited, and published as CashSnapshotTaken."
+      x-permission: cash.snapshot.take
+      x-agent: false
+      x-slo-class: report
+      x-problem-codes:
+        - cash.amount_too_large
+        - config.not_bootstrapped
+        - payables.unknown_payment_term
+        - payables.withholding_exceeds_invoice
+        - payables.withholding_tax_code_unknown
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The snapshot to take.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CashSnapshotCreate"
+      responses:
+        "201":
+          description: "Taken; the snapshot."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashSnapshot"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/cash-snapshots/{id}":
+    get:
+      operationId: getCashSnapshot
+      tags:
+        - cash
+      summary: Get a snapshot of the liquidity forecast
+      description: "One snapshot of the liquidity forecast (ADR-0051 §6, T53f) with its totals per currency; its flows are `listCashSnapshotFlows`. A snapshot of a legal entity the caller cannot act in is not found."
+      x-permission: cash.forecast.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashSnapshot"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/cash-snapshots/{id}/flows":
+    get:
+      operationId: listCashSnapshotFlows
+      tags:
+        - cash
+      summary: List the flows of a snapshot of the liquidity forecast
+      description: "The flows a snapshot kept (ADR-0051 §6, T53f), of one currency, by value date and line: within 31 days of the snapshot's date one line per document a flow paid and liquidity item it was classified in (`flow_no` groups the lines of one flow), beyond it one line per bucket of the company's buckets, source, certainty, liquidity item and house bank (`bucket_end` set, `flow_count` the flows it sums). `total` and `count` add up the lines of every page that the filters select. Each line names its supplier (number and name) only to a caller who may use `partner.supplier.read`, its payment only to one who may use `payments.run.read`, and its document only to one who may use the document's context's read permission (`ledger.entry.read`, `payables.invoice.read`, `payments.run.read`, `cash.memo.read`), as the forecast's drill-down does; for others they are left out, never refused, and `has_document` still says whether it names one. A snapshot of a legal entity the caller cannot act in is not found."
+      x-permission: cash.forecast.read
+      x-problem-codes:
+        - request.invalid_page_size
+        - request.invalid_page_token
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: currency
+          in: query
+          required: true
+          description: "The currency of the flows (ISO 4217)."
+          schema:
+            type: string
+            pattern: "^[A-Z]{3}$"
+        - name: liquidity_item
+          in: query
+          required: false
+          description: "Only the lines classified in this liquidity item (its code; descendants not included); not with `unclassified=true` (422)."
+          schema:
+            type: string
+            maxLength: 40
+        - name: unclassified
+          in: query
+          required: false
+          description: "Only the lines no derivation rule assigned and no default covered."
+          schema:
+            type: boolean
+            default: false
+        - name: source
+          in: query
+          required: false
+          description: "Only the lines of this source (ADR-0051 §4)."
+          schema:
+            type: string
+            description: "Where a flow comes from. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [in_transit, payment_run, memo, payable, payable_blocked, invoice_unposted, down_payment]
+        - name: from
+          in: query
+          required: false
+          description: "Only the lines whose value date is on or after this day."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          description: "Only the lines whose value date is on or before this day, on or after `from` (else 422)."
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: A page of the snapshot's flows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashSnapshotFlowPage"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -33612,7 +34050,7 @@ components:
           readOnly: true
         kind:
           type: string
-          description: "`manual`: a person completes it; `check`: the system runs it (later slices). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "`manual`: a person completes it; `check`: its check completes it by passing (`:check`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum: [manual, check]
           readOnly: true
         check:
@@ -33679,6 +34117,8 @@ components:
           type: string
           description: "The note given when it was completed; absent without one."
           readOnly: true
+        check_result:
+          $ref: "#/components/schemas/CloseCheckResult"
       examples:
         - close_id: 0192a000-0000-7000-8000-000000000f01
           close_version: 3
@@ -33703,6 +34143,171 @@ components:
           completed_by_name: Carla Controller
           completed_at: "2026-11-03T15:00:00Z"
           note: Last invoices entered on the 2nd.
+    CloseCheckResult:
+      type: object
+      description: "The latest result of a check task's check (ADR-0058 §6, T64c), recorded when `:check` ran it: whether it passed, when and by whom, and what it found, each with its id and name. A check is a statement about the moment it ran; absent on a manual task and on a check task never checked. Reopening the task keeps it."
+      required:
+        - check
+        - passed
+        - checked_at
+        - checked_by
+        - checked_by_name
+        - summary
+      properties:
+        check:
+          type: string
+          description: "The check run. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [no_parked_entries, revaluation_posted]
+          readOnly: true
+        passed:
+          type: boolean
+          description: "Whether it passed: the task was set done when it did, open when it did not."
+          readOnly: true
+        checked_at:
+          type: string
+          format: date-time
+          description: When it ran.
+          readOnly: true
+        checked_by:
+          type: string
+          format: uuid
+          description: The person who ran it.
+          readOnly: true
+        checked_by_name:
+          type: string
+          description: Their name.
+          readOnly: true
+        summary:
+          type: string
+          description: "What it found, in one sentence."
+          readOnly: true
+        parked_entries_count:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "`no_parked_entries`: how many parked entries of the company dated in the period (posting date from the leading ledger's period's first to its last day) are `parked` or `pending_approval`; absent for another check."
+          readOnly: true
+        parked_entries:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/CloseCheckParkedEntry"
+          description: "`no_parked_entries`: the first 20 of them by posting date (`parked_entries_count` says how many there are); absent for another check."
+          readOnly: true
+        ledgers:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/CloseCheckLedger"
+          description: "`revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted revaluation run keyed on its period's last day, if it has one; absent for another check."
+          readOnly: true
+      examples:
+        - check: no_parked_entries
+          passed: false
+          checked_at: "2026-11-03T15:00:00Z"
+          checked_by: 0192a000-0000-7000-8000-000000000101
+          checked_by_name: Carla Controller
+          summary: "1 parked entry dated 2026-10-01 to 2026-10-31 is parked or pending approval; post or cancel it."
+          parked_entries_count: 1
+          parked_entries:
+            - id: 0192a000-0000-7000-8000-000000000c01
+              document_type: SA
+              posting_date: "2026-10-30"
+              status: parked
+              header_text: Office rent accrual
+              created_by: 0192a000-0000-7000-8000-000000000101
+              created_by_kind: human
+              created_by_name: Carla Controller
+    CloseCheckParkedEntry:
+      type: object
+      description: "A parked entry a `no_parked_entries` check found (`GET /v1/parked-journal-entries/{id}`), as it was when the check ran."
+      required:
+        - id
+        - document_type
+        - posting_date
+        - status
+        - created_by
+        - created_by_kind
+        - created_by_name
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: "The parked entry."
+          readOnly: true
+        document_type:
+          type: string
+          description: Its document type.
+          readOnly: true
+        posting_date:
+          type: string
+          format: date
+          description: Its posting date.
+          readOnly: true
+        status:
+          type: string
+          description: "Its status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [parked, pending_approval]
+          readOnly: true
+        reference:
+          type: string
+          description: "Its reference; absent without one."
+          readOnly: true
+        header_text:
+          type: string
+          description: "Its header text; absent without one."
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: Who parked it.
+          readOnly: true
+        created_by_kind:
+          type: string
+          description: "Whether a person, an agent or a service parked it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [human, agent, service]
+          readOnly: true
+        created_by_name:
+          type: string
+          description: Their name.
+          readOnly: true
+    CloseCheckLedger:
+      type: object
+      description: "A covered ledger as a `revaluation_posted` check found it."
+      required:
+        - ledger_id
+        - ledger_code
+        - ledger_name
+        - key_date
+        - posted
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: The ledger.
+          readOnly: true
+        ledger_code:
+          type: string
+          description: Its code.
+          readOnly: true
+        ledger_name:
+          type: string
+          description: Its name.
+          readOnly: true
+        key_date:
+          type: string
+          format: date
+          description: "Its period's last day, the key date its revaluation run is keyed on."
+          readOnly: true
+        posted:
+          type: boolean
+          description: "Whether it has a posted revaluation run at the key date."
+          readOnly: true
+        revaluation_run_id:
+          type: string
+          format: uuid
+          description: "The posted run (`GET /v1/revaluation-runs/{id}`); absent without one."
+          readOnly: true
     CloseTaskPage:
       type: object
       description: One page of close tasks.
@@ -34138,6 +34743,413 @@ components:
           maxLength: 2048
       examples:
         - items: []
+    CashSnapshotCreate:
+      type: object
+      description: "A snapshot of the liquidity forecast to take on demand (ADR-0051 §6)."
+      required: [legal_entity_id, name]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The legal entity whose forecast is kept."}
+        name: {type: string, minLength: 1, maxLength: 200, pattern: '^\S(.*\S)?$', description: "What the snapshot is for, such as \"Board meeting April\"."}
+      examples:
+        - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          name: Board meeting April
+    CashSnapshot:
+      type: object
+      description: "A snapshot of a legal entity's liquidity forecast as it was at `taken_at` (ADR-0051 §6, T53f), in transaction currency, with its totals per currency."
+      required: [id, legal_entity_id, company_code, kind, snapshot_date, time_zone, horizon_end, document_level_until, config_version, taken_at, currencies]
+      properties:
+        id: {type: string, format: uuid, description: Snapshot id., readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        company_code: {type: string, description: "The legal entity's company code.", readOnly: true}
+        kind:
+          type: string
+          description: "`daily` (taken by the TakeCashSnapshot workflow, once per company and date) or `on_demand` (taken by a person, named). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [daily, on_demand]
+          readOnly: true
+        name: {type: string, description: "The name a person gave it; absent on a daily snapshot.", readOnly: true}
+        snapshot_date: {type: string, format: date, description: "The company's date when it was taken, in `time_zone`: the forecast's read date.", readOnly: true}
+        time_zone: {type: string, description: "The IANA time zone the date is in (UTC when the company sets none).", readOnly: true}
+        horizon_end: {type: string, format: date, description: "The last day of the company's last bucket: no flow after it is kept.", readOnly: true}
+        document_level_until: {type: string, format: date, description: "The last day kept at document level, 30 days after `snapshot_date`; flows after it are summed per bucket.", readOnly: true}
+        config_version: {type: integer, format: int32, minimum: 1, description: "The configuration version whose derivation rules classified the flows.", readOnly: true}
+        taken_at: {type: string, format: date-time, description: When it was read., readOnly: true}
+        currencies:
+          type: array
+          items: {$ref: "#/components/schemas/CashSnapshotCurrency"}
+          description: "Its totals per currency, by currency code."
+          readOnly: true
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000e01
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "3000"
+          kind: on_demand
+          name: Board meeting April
+          snapshot_date: "2026-04-17"
+          time_zone: America/Toronto
+          horizon_end: "2027-04-02"
+          document_level_until: "2026-05-17"
+          config_version: 4
+          taken_at: "2026-04-17T13:05:00Z"
+          currencies:
+            - currency: CAD
+              total: {amount: "-24176.00", currency: CAD}
+              blocked: {amount: "-1500.00", currency: CAD}
+              line_count: 9
+    CashSnapshotCurrency:
+      type: object
+      description: "A snapshot's totals in one currency: what the forecast's totals counted over the horizon (every source but `payable_blocked`), what suppliers no run pays were owed, and how many lines it kept."
+      required: [currency, total, blocked, line_count]
+      properties:
+        currency: {type: string, description: The currency (ISO 4217)., readOnly: true}
+        total: {$ref: "#/components/schemas/Money"}
+        blocked: {$ref: "#/components/schemas/Money"}
+        line_count: {type: integer, format: int32, minimum: 0, description: "The lines kept (`listCashSnapshotFlows`).", readOnly: true}
+    CashSnapshotPage:
+      type: object
+      description: One page of snapshots of the liquidity forecast.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CashSnapshot"}
+          description: The snapshots on this page, newest first.
+          readOnly: true
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+          readOnly: true
+      examples:
+        - items: []
+    CashSnapshotFlowPage:
+      type: object
+      description: "A page of the lines a snapshot of the liquidity forecast kept in one currency, with what the selected lines of every page add up to."
+      required: [snapshot_id, legal_entity_id, company_code, snapshot_date, currency, unclassified, total, count, items]
+      properties:
+        snapshot_id: {type: string, format: uuid, description: The snapshot., readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        company_code: {type: string, description: "The legal entity's company code.", readOnly: true}
+        snapshot_date: {type: string, format: date, description: "The snapshot's date.", readOnly: true}
+        currency: {type: string, description: "The currency (ISO 4217).", readOnly: true}
+        liquidity_item: {type: string, description: "The liquidity item asked for; absent when none was.", readOnly: true}
+        unclassified: {type: boolean, description: "Whether only the lines no rule assigned are listed.", readOnly: true}
+        total: {$ref: "#/components/schemas/Money"}
+        count: {type: integer, format: int32, minimum: 0, description: "How many lines the filters select, over every page.", readOnly: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CashSnapshotFlow"}
+          description: "The lines on this page, by value date and line number."
+          readOnly: true
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+          readOnly: true
+      examples:
+        - snapshot_id: 0192a000-0000-7000-8000-000000000e01
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "3000"
+          snapshot_date: "2026-04-17"
+          currency: CAD
+          unclassified: false
+          total: {amount: "-784.00", currency: CAD}
+          count: 1
+          items:
+            - line_no: 1
+              flow_no: 1
+              value_date: "2026-04-21"
+              source: payable
+              certainty: expected
+              late: false
+              liquidity_item: OP_SUPPLIERS
+              amount: {amount: "-784.00", currency: CAD}
+              flow_count: 1
+              supplier: {id: 0192a000-0000-7000-8000-000000000301, number: BP10000001, name: Tyrell Office Supplies}
+              has_document: true
+              document: {kind: journal_entry, id: 0192a000-0000-7000-8000-000000000401, number: "5100000012"}
+    CashSnapshotFlow:
+      type: object
+      description: "A line a snapshot kept (ADR-0051 §6): at document level, what one flow of the forecast paid of one document under one liquidity item; beyond 31 days, the sum of the flows of a bucket, source, certainty, liquidity item and house bank. Its supplier, payment and document are given only to a caller who may read them in their own context, as the forecast's drill-down gives them."
+      required: [line_no, flow_no, value_date, source, certainty, late, amount, flow_count, has_document]
+      properties:
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line's number in the snapshot.", readOnly: true}
+        flow_no: {type: integer, format: int32, minimum: 1, description: "The flow the line is of: the lines of one flow share it; a bucket's sum has its own.", readOnly: true}
+        value_date: {type: string, format: date, description: "The day the flow was expected at the bank (a blocked supplier's on its due date); a bucket's sum: the first day it covers.", readOnly: true}
+        bucket_end: {type: string, format: date, description: "The last day a bucket's sum covers; absent at document level.", readOnly: true}
+        house_bank_id: {type: string, format: uuid, description: "The house bank the flow was expected on; absent when none (a supplier item takes the bank its supplier's first payment method ranks).", readOnly: true}
+        house_bank_code: {type: string, description: "The house bank's code; present exactly when `house_bank_id` is.", readOnly: true}
+        source:
+          type: string
+          description: "Where the flow came from (ADR-0051 §4). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [in_transit, payment_run, memo, payable, payable_blocked, invoice_unposted, down_payment]
+          readOnly: true
+        certainty:
+          type: string
+          description: "How certain it was. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [actual, confirmed, expected, planned]
+          readOnly: true
+        late: {type: boolean, description: "True when it was due before the snapshot's date and expected the working day after it.", readOnly: true}
+        liquidity_item: {type: string, description: "The liquidity item it was classified in; absent when no rule assigned it and no default covered it.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money"}
+        flow_count: {type: integer, format: int32, minimum: 1, description: "The flows it sums: 1 at document level.", readOnly: true}
+        supplier: {$ref: "#/components/schemas/PartnerName"}
+        payment_id: {type: string, format: uuid, description: "The payment it was, a run's payment or a payment in transit, of the payment run `document` names; absent for other sources and for a caller who may not use `payments.run.read`.", readOnly: true}
+        has_document: {type: boolean, description: "Whether the line names a document, shown or not.", readOnly: true}
+        document: {$ref: "#/components/schemas/CashSnapshotDocument"}
+    CashSnapshotDocument:
+      type: object
+      description: "The document a snapshot's line was paid for, to read through its own context's API, as the forecast's drill-down names it (`LiquidityForecastDocument`)."
+      required: [kind, id]
+      properties:
+        kind:
+          type: string
+          description: "What the document is. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [journal_entry, supplier_invoice, down_payment_request, payment_run, memo_record]
+          readOnly: true
+        id: {type: string, format: uuid, description: "The document's id in its context.", readOnly: true}
+        number: {type: string, description: "Its document number (a memo record's reference) when it was taken; absent when it had none.", readOnly: true}
+    AssetSchedule:
+      type: object
+      description: "An asset's planned and booked depreciation per regular period of a fiscal year in one ledger (ADR-0057 §7), in the company's local currency."
+      required: [asset_id, asset_number, description, legal_entity_id, company_code, ledger_id, ledger_code, ledger_name, fiscal_year, currency, method, useful_life_months, residual_value, periods, totals]
+      properties:
+        asset_id: {type: string, format: uuid, description: "The asset (`GET /v1/assets/{id}`).", readOnly: true}
+        asset_number: {type: string, description: "The asset's number in its company.", readOnly: true}
+        description: {type: string, description: What the asset is., readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The asset's company.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        ledger_id: {type: string, format: uuid, description: The ledger., readOnly: true}
+        ledger_code: {type: string, description: "The ledger's code.", readOnly: true}
+        ledger_name: {type: string, description: "The ledger's name.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: The fiscal year shown., readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's local currency, every amount's.", readOnly: true}
+        method:
+          type: string
+          x-extensible-enum: [straight_line, declining_balance]
+          description: "The terms' method. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        useful_life_months: {type: integer, format: int32, description: The useful life in periods (months)., readOnly: true}
+        declining_factor: {type: string, pattern: "^[0-9]+(\\.[0-9]{1,4})?$", description: "The declining balance factor; only with `declining_balance`.", readOnly: true}
+        residual_value: {$ref: "#/components/schemas/Money"}
+        depreciation_start: {type: string, format: date, description: "The day depreciation starts from, its period counting in full: the terms' own, else the capitalisation date; absent while the asset has neither.", readOnly: true}
+        periods:
+          type: array
+          description: "The year's regular periods, in order."
+          items: {$ref: "#/components/schemas/AssetSchedulePeriod"}
+        totals: {$ref: "#/components/schemas/AssetScheduleTotals"}
+      examples:
+        - asset_id: 0192a000-0000-7000-8000-000000000401
+          asset_number: "1"
+          description: CNC milling machine
+          legal_entity_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01
+          company_code: "1000"
+          ledger_id: 0192a000-0000-7000-8000-000000000301
+          ledger_code: 0L
+          ledger_name: Leading ledger
+          fiscal_year: 2026
+          currency: CAD
+          method: straight_line
+          useful_life_months: 120
+          residual_value: {amount: "500.00", currency: CAD}
+          depreciation_start: "2026-12-01"
+          periods:
+            - {fiscal_year: 2026, period: 12, start_date: "2026-12-01", end_date: "2026-12-31", planned: {amount: "54.17", currency: CAD}, booked: {amount: "0.00", currency: CAD}, net_book_value: {amount: "6945.83", currency: CAD}}
+          totals: {planned: {amount: "54.17", currency: CAD}, booked: {amount: "0.00", currency: CAD}}
+    AssetSchedulePeriod:
+      type: object
+      description: "One regular period of an asset's schedule."
+      required: [fiscal_year, period, start_date, end_date, planned, booked, net_book_value]
+      properties:
+        fiscal_year: {type: integer, format: int32, description: The fiscal year., readOnly: true}
+        period: {type: integer, format: int32, minimum: 1, maximum: 12, description: The regular period., readOnly: true}
+        start_date: {type: string, format: date, description: "The period's first day.", readOnly: true}
+        end_date: {type: string, format: date, description: "The period's last day.", readOnly: true}
+        planned: {$ref: "#/components/schemas/Money"}
+        booked: {$ref: "#/components/schemas/Money"}
+        net_book_value: {$ref: "#/components/schemas/Money"}
+    AssetScheduleTotals:
+      type: object
+      description: "The year's planned and booked depreciation."
+      required: [planned, booked]
+      properties:
+        planned: {$ref: "#/components/schemas/Money"}
+        booked: {$ref: "#/components/schemas/Money"}
+    AssetMovement:
+      type: object
+      description: "A movement of an asset in one ledger (ADR-0057 §5): the signed change one document or reversal made to its values there."
+      required: [id, seq, ledger_id, ledger_code, ledger_name, kind, value_date, posting_date, fiscal_year, fiscal_period, cost, accumulated, cost_gc, accumulated_gc, residual, proceeds, document_kind, document_id]
+      properties:
+        id: {type: string, format: uuid, description: The movement., readOnly: true}
+        seq: {type: integer, format: int32, description: "The asset's posting order: a movement with a higher `seq` was posted after.", readOnly: true}
+        ledger_id: {type: string, format: uuid, description: The ledger., readOnly: true}
+        ledger_code: {type: string, description: "The ledger's code.", readOnly: true}
+        ledger_name: {type: string, description: "The ledger's name.", readOnly: true}
+        kind:
+          type: string
+          x-extensible-enum: [acquisition, depreciation, retirement, transfer_out, transfer_in]
+          description: "What it is. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        value_date: {type: string, format: date, description: "The value date; the schedule applies the movement from its period.", readOnly: true}
+        posting_date: {type: string, format: date, description: The posting date., readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "The posting date's fiscal year.", readOnly: true}
+        fiscal_period: {type: integer, format: int32, description: "The posting date's period.", readOnly: true}
+        cost: {$ref: "#/components/schemas/Money"}
+        accumulated: {$ref: "#/components/schemas/Money"}
+        cost_gc: {$ref: "#/components/schemas/Money"}
+        accumulated_gc: {$ref: "#/components/schemas/Money"}
+        residual: {$ref: "#/components/schemas/Money"}
+        proceeds: {$ref: "#/components/schemas/Money"}
+        share: {type: string, description: "The fraction of cost a retirement or transfer out took, as a plain decimal.", readOnly: true}
+        document_kind:
+          type: string
+          x-extensible-enum: [acquisition, retirement, transfer, depreciation_run]
+          description: "The kind of document it belongs to. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        document_id: {type: string, format: uuid, description: "The document (an acquisition: `GET /v1/asset-acquisitions/{id}`).", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "That ledger's journal entry (`GET /v1/journal-entries/{id}`); absent for a catch-up of zero.", readOnly: true}
+        journal_entry_fiscal_year: {type: integer, format: int32, description: "The journal entry's fiscal year.", readOnly: true}
+        document_number: {type: string, description: "The journal entry's document number, for an acquisition's, retirement's or transfer's entry.", readOnly: true}
+        reverses_id: {type: string, format: uuid, description: "For a reversal: the movement it reverses.", readOnly: true}
+        reversed_by_id: {type: string, format: uuid, description: "For a reversed movement: the movement reversing it.", readOnly: true}
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000501
+          seq: 2
+          ledger_id: 0192a000-0000-7000-8000-000000000301
+          ledger_code: 0L
+          ledger_name: Leading ledger
+          kind: acquisition
+          value_date: "2026-11-03"
+          posting_date: "2026-11-03"
+          fiscal_year: 2026
+          fiscal_period: 11
+          cost: {amount: "7000.00", currency: CAD}
+          accumulated: {amount: "0.00", currency: CAD}
+          cost_gc: {amount: "5110.00", currency: USD}
+          accumulated_gc: {amount: "0.00", currency: USD}
+          residual: {amount: "0.00", currency: CAD}
+          proceeds: {amount: "0.00", currency: CAD}
+          document_kind: acquisition
+          document_id: 0192a000-0000-7000-8000-000000000601
+          journal_entry_id: 0192a000-0000-7000-8000-000000000701
+          journal_entry_fiscal_year: 2026
+          document_number: "AA-100001"
+    AssetMovementPage:
+      type: object
+      description: "One page of an asset's movements."
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetMovement"
+          description: The movements on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
+    DepreciationRunPreviewRequest:
+      type: object
+      description: "The depreciation run to preview: a company, a ledger and a regular period."
+      required: [legal_entity_id, fiscal_year, period]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company's legal entity."}
+        ledger_id: {type: string, format: uuid, description: The ledger (one depreciation area); default the leading ledger.}
+        fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2999, description: The fiscal year.}
+        period: {type: integer, format: int32, minimum: 1, maximum: 16, description: "The period; a regular one (1-12)."}
+    DepreciationRunPreview:
+      type: object
+      description: "What a depreciation run would post (ADR-0057 §7): one page of the assets it selects and the totals of all of them, in the company's local currency."
+      required: [legal_entity_id, company_code, ledger_id, ledger_code, ledger_name, fiscal_year, period, period_start, period_end, currency, items, totals]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company's legal entity.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        ledger_id: {type: string, format: uuid, description: The ledger., readOnly: true}
+        ledger_code: {type: string, description: "The ledger's code.", readOnly: true}
+        ledger_name: {type: string, description: "The ledger's name.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: The fiscal year., readOnly: true}
+        period: {type: integer, format: int32, description: The period., readOnly: true}
+        period_start: {type: string, format: date, description: "The period's first day.", readOnly: true}
+        period_end: {type: string, format: date, description: "The period's last day, the run's posting date.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's local currency, every amount's.", readOnly: true}
+        items:
+          type: array
+          description: The assets on this page, by asset number.
+          items: {$ref: "#/components/schemas/DepreciationPreviewItem"}
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        totals: {$ref: "#/components/schemas/DepreciationPreviewTotals"}
+      examples:
+        - legal_entity_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01
+          company_code: "1000"
+          ledger_id: 0192a000-0000-7000-8000-000000000301
+          ledger_code: 0L
+          ledger_name: Leading ledger
+          fiscal_year: 2026
+          period: 11
+          period_start: "2026-11-01"
+          period_end: "2026-11-30"
+          currency: CAD
+          items: []
+          totals: {assets: 0, planned: {amount: "0.00", currency: CAD}, booked: {amount: "0.00", currency: CAD}, difference: {amount: "0.00", currency: CAD}, lines: []}
+    DepreciationPreviewItem:
+      type: object
+      description: "An asset a depreciation run would post: its planned depreciation through the period, what is booked, and the difference the run posts, on its accounts and centers."
+      required: [asset_id, asset_number, description, class_code, class_name, method, depreciation_account, accumulated_account, planned, booked, difference]
+      properties:
+        asset_id: {type: string, format: uuid, description: "The asset (`GET /v1/assets/{id}/schedule`).", readOnly: true}
+        asset_number: {type: string, description: "The asset's number.", readOnly: true}
+        description: {type: string, description: What the asset is., readOnly: true}
+        class_code: {type: string, description: "The asset's class.", readOnly: true}
+        class_name: {type: string, description: "The class's name.", readOnly: true}
+        method:
+          type: string
+          x-extensible-enum: [straight_line, declining_balance]
+          description: "The terms' method in the ledger. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        cost_center_id: {type: string, format: uuid, description: "The asset's cost center (its latest assignment's).", readOnly: true}
+        cost_center_code: {type: string, description: "The cost center's code, to a caller who may read cost centers.", readOnly: true}
+        cost_center_name: {type: string, description: "The cost center's name, to a caller who may read cost centers.", readOnly: true}
+        profit_center_id: {type: string, format: uuid, description: "The asset's profit center (its latest assignment's).", readOnly: true}
+        profit_center_code: {type: string, description: "The profit center's code, to a caller who may read cost centers.", readOnly: true}
+        profit_center_name: {type: string, description: "The profit center's name, to a caller who may read cost centers.", readOnly: true}
+        depreciation_account: {$ref: "#/components/schemas/AssetOffsetAccount"}
+        accumulated_account: {$ref: "#/components/schemas/AssetOffsetAccount"}
+        planned: {$ref: "#/components/schemas/Money"}
+        booked: {$ref: "#/components/schemas/Money"}
+        difference: {$ref: "#/components/schemas/Money"}
+    DepreciationPreviewTotals:
+      type: object
+      description: "The totals of every asset a depreciation run would post, the same on every page: the count, the planned, booked and difference amounts, and the lines it would post."
+      required: [assets, planned, booked, difference, lines]
+      properties:
+        assets: {type: integer, format: int32, description: The number of assets selected., readOnly: true}
+        planned: {$ref: "#/components/schemas/Money"}
+        booked: {$ref: "#/components/schemas/Money"}
+        difference: {$ref: "#/components/schemas/Money"}
+        lines:
+          type: array
+          description: "The lines a run would post, the expense lines by depreciation account, cost center and profit center, then the credit lines by accumulated depreciation account and profit center, by account number; a line summing to zero is left out."
+          items: {$ref: "#/components/schemas/DepreciationPreviewLine"}
+    DepreciationPreviewLine:
+      type: object
+      description: "A line a depreciation run would post: an account with its centers and the amount, debit positive."
+      required: [account_id, account_number, account_name, amount]
+      properties:
+        account_id: {type: string, format: uuid, description: "The account (`GET /v1/accounts/{id}`).", readOnly: true}
+        account_number: {type: string, description: "The account's number.", readOnly: true}
+        account_name: {type: string, description: "The account's name.", readOnly: true}
+        cost_center_id: {type: string, format: uuid, description: "The cost center (expense lines only).", readOnly: true}
+        cost_center_code: {type: string, description: "The cost center's code, to a caller who may read cost centers.", readOnly: true}
+        cost_center_name: {type: string, description: "The cost center's name, to a caller who may read cost centers.", readOnly: true}
+        profit_center_id: {type: string, format: uuid, description: The profit center., readOnly: true}
+        profit_center_code: {type: string, description: "The profit center's code, to a caller who may read cost centers.", readOnly: true}
+        profit_center_name: {type: string, description: "The profit center's name, to a caller who may read cost centers.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money"}
     AssetAcquisitionCreate:
       type: object
       description: "An acquisition from a posted line on an asset clearing account (ADR-0057 §6)."
