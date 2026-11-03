@@ -295,6 +295,7 @@ const (
 	RequestBankAccountEndOperation            OperationName = "RequestBankAccountEnd"
 	ResumeWebhookSubscriptionOperation        OperationName = "ResumeWebhookSubscription"
 	RetireEntryTemplateOperation              OperationName = "RetireEntryTemplate"
+	ReverseAssetAcquisitionOperation          OperationName = "ReverseAssetAcquisition"
 	ReverseGoodsReceiptOperation              OperationName = "ReverseGoodsReceipt"
 	ReverseJournalEntryOperation              OperationName = "ReverseJournalEntry"
 	ReverseSupplierInvoiceOperation           OperationName = "ReverseSupplierInvoice"

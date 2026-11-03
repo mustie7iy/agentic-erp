@@ -77,7 +77,15 @@ func assetLine(l ledger.AssetLine) assets.Line {
 	return assets.Line{LineRef: assets.LineRef{FiscalYear: l.FiscalYear, EntryID: l.EntryID, LineNo: l.LineNo}, LegalEntityID: l.LegalEntityID,
 		AccountID: l.AccountID, Currency: l.Currency, CurrencyLC: l.CurrencyLC, CurrencyGC: l.CurrencyGC, Amount: l.Amount, LC: l.LC, GC: l.GC,
 		PostingDate: l.PostingDate, DocumentNumber: l.DocumentNumber, SourceContext: l.SourceContext, SourceDocumentID: l.SourceDocumentID,
-		ProfitCenterID: l.ProfitCenterID, Leading: l.Leading, InEveryLedger: l.InEveryLedger, Reversed: l.Reversed, Reversal: l.Reversal}
+		ProfitCenterID: l.ProfitCenterID, Leading: l.Leading, InEveryLedger: l.InEveryLedger, Reverses: reversalEntry(l.Reverses),
+		ReversedBy: reversalEntry(l.ReversedBy)}
+}
+
+func reversalEntry(r *ledger.ReversalEntry) *assets.ReversalEntry {
+	if r == nil {
+		return nil
+	}
+	return &assets.ReversalEntry{FiscalYear: r.FiscalYear, EntryID: r.EntryID, DocumentNumber: r.DocumentNumber, PostingDate: r.PostingDate}
 }
 
 func (assetLedger) Line(ctx context.Context, entry uuid.UUID, lineNo int32) (assets.Line, bool, error) {
@@ -109,23 +117,52 @@ func (assetLedger) ClearingLines(ctx context.Context, q assets.ClearingQuery) ([
 
 // Post posts through the ledger's published posting API (ADR-0057 §4),
 // source context assets, to every ledger the company keeps, each line
-// keeping its local and group amounts, and reads the entries back per
-// ledger.
+// keeping the local and group amounts it gives, and reads the entries back
+// per ledger.
 func (assetLedger) Post(ctx context.Context, p assets.Posting) ([]assets.PostedEntry, error) {
 	in := ledger.Posting{LegalEntityID: p.LegalEntityID, DocumentType: p.DocumentType, DocumentDate: p.DocumentDate, PostingDate: p.PostingDate,
 		Currency: p.Currency, HeaderText: p.HeaderText, SourceContext: "assets", SourceDocumentID: p.DocumentID}
 	for _, l := range p.Lines {
-		lc, gc := l.LC, l.GC
-		in.Lines = append(in.Lines, ledger.PostingLine{AccountID: l.AccountID, Amount: l.Amount, LC: &lc, GC: &gc, ProfitCenterID: l.ProfitCenterID, Text: l.Text})
+		in.Lines = append(in.Lines, ledger.PostingLine{AccountID: l.AccountID, Amount: l.Amount, LC: l.LC, GC: l.GC, ProfitCenterID: l.ProfitCenterID, Text: l.Text})
 	}
 	posted, err := postings().Post(ctx, in)
 	if err != nil {
 		return nil, err
 	}
-	es, err := ledger.AssetReads{}.Entries(ctx, posted.FiscalYear, posted.ID)
+	return groupEntries(ctx, posted)
+}
+
+// groupEntries reads the entries of an entry's posting group per ledger.
+func groupEntries(ctx context.Context, first ledger.Entry) ([]assets.PostedEntry, error) {
+	es, err := ledger.AssetReads{}.Entries(ctx, first.FiscalYear, first.ID)
 	out := make([]assets.PostedEntry, len(es))
 	for i, e := range es {
 		out[i] = assets.PostedEntry{ID: e.ID, LedgerID: e.LedgerID, FiscalYear: e.FiscalYear, Period: e.Period, DocumentNumber: e.DocumentNumber}
+	}
+	return out, err
+}
+
+// Reverse reverses an assets entry's posting group through the ledger's
+// published reversal path on the date, and reads the reversal's entries
+// back per ledger.
+func (assetLedger) Reverse(ctx context.Context, entry uuid.UUID, postingDate time.Time) ([]assets.PostedEntry, error) {
+	rev, err := postings().Reverse(ctx, entry, &postingDate, nil)
+	if err != nil {
+		return nil, err
+	}
+	return groupEntries(ctx, rev)
+}
+
+func (assetLedger) OffsetAccount(ctx context.Context, legalEntity, account uuid.UUID) (assets.AccountRef, bool, error) {
+	a, ok, err := ledger.AssetReads{}.OffsetAccount(ctx, legalEntity, account)
+	return assets.AccountRef{ID: a.ID, Number: a.Number, Name: a.Name}, ok, err
+}
+
+func (assetLedger) AccountNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]assets.AccountRef, error) {
+	names, err := ledger.AssetReads{}.AccountNames(ctx, ids)
+	out := make(map[uuid.UUID]assets.AccountRef, len(names))
+	for id, a := range names {
+		out[id] = assets.AccountRef{ID: a.ID, Number: a.Number, Name: a.Name}
 	}
 	return out, err
 }

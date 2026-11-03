@@ -6944,22 +6944,33 @@ func (s *Server) handleCreateAssetRequest(args [0]string, argsEscaped bool, w ht
 
 // handleCreateAssetAcquisitionRequest handles createAssetAcquisition operation.
 //
-// Capitalises a posted journal line on an asset clearing account onto an asset (ADR-0057 §6, T57c;
-// SAP's acquisition with automatic offsetting entry): a supplier invoice item, a goods receipt or a
-// manual entry posted on the clearing account of the asset's class in the asset's company. The line is
-// named by its leading-ledger entry and line number (`GET /v1/asset-clearing-items` lists them); one
-// that is not such a line is 422 `assets.not_clearing_line`, a line of a reversed entry or of a
-// reversal 422 `assets.source_reversed`, and a line whose entry has no copy in every ledger the
-// company keeps (a ledger-specific entry) 422 `assets.source_not_in_every_ledger`. `amount` is in the
-// line's currency, all that is left of the line by default; it has the line's sign (a credit line, a
-// supplier credit memo, is capitalised as a negative acquisition, which reduces cost) and is at most
-// what is left (422 `assets.amount_exceeds_line`); a negative acquisition that would leave the asset's
-// cost below zero in a ledger, or one onto an asset holding no cost, is 422 `assets.cost_negative`.
-// One line may be split across several assets, and an asset acquired by several acquisitions. Its
-// local and group amounts are the line's in proportion, rounded half away from zero, the acquisition
-// that uses the rest of the line taking the rest of its local and group amounts, so a line capitalised
-// in full leaves the clearing account at zero in all three currencies. The value date defaults to the
-// line's posting date and may lie in any period up to the end of the posting date's (422
+// Capitalises onto an asset a posted journal line on an asset clearing account (`source`; ADR-0057
+// §6, T57c; SAP's acquisition with automatic offsetting entry) or, by manual entry, an amount against
+// an offset account (`offset_account_id`, T57d); one of the two is given (422
+// `request.validation_failed` on `source` for both or neither). From a line: a supplier invoice item,
+// a goods receipt or a manual entry posted on the clearing account of the asset's class in the asset's
+// company. The line is named by its leading-ledger entry and line number
+// (`GET /v1/asset-clearing-items` lists them); one that is not such a line is 422
+// `assets.not_clearing_line`, a line of a reversed entry 422 `assets.source_reversed`, and a line
+// whose entry has no copy in every ledger the company keeps (a ledger-specific entry) 422
+// `assets.source_not_in_every_ledger`. The line of a reversal, reversing a line L, takes cost off
+// again: only onto an asset holding posted acquisitions from L (422 `assets.source_reversed` onto any
+// other asset, and for the reversal of a line nothing was capitalised from), each asset taking from it
+// at most its posted acquisitions from L less what it already took from the reversal's line (422
+// `assets.amount_exceeds_line` above that; the worklist offers each asset that bound, all of it by
+// default). So a supplier invoice reversed in payables after its line was capitalised is corrected on
+// the asset when the acquisition can no longer be reversed (409 `assets.later_movements` on its
+// `:reverse`); once taken, the asset's acquisitions from L are not reversed until this one is (409
+// `assets.reversal_line_capitalised`). `amount` is in the line's currency, all that is left of the
+// line by default; it has the line's sign (a credit line, a supplier credit memo, is capitalised as a
+// negative acquisition, which reduces cost) and is at most what is left (422
+// `assets.amount_exceeds_line`); a negative acquisition that would leave the asset's cost below zero
+// in a ledger, or one onto an asset holding no cost, is 422 `assets.cost_negative`. One line may be
+// split across several assets, and an asset acquired by several acquisitions. Its local and group
+// amounts are the line's in proportion, rounded half away from zero, the acquisition that uses the
+// rest of the line taking the rest of its local and group amounts, so a line capitalised in full
+// leaves the clearing account at zero in all three currencies. The value date defaults to the line's
+// posting date and may lie in any period up to the end of the posting date's (422
 // `assets.value_date_in_future` after it); the posting date defaults to the company's date today, and
 // lies on or after the start of the asset's latest center assignment (409
 // `assets.posting_before_center_transfer`). It posts in the line's currency, to every ledger the
@@ -6967,7 +6978,15 @@ func (s *Server) handleCreateAssetRequest(args [0]string, argsEscaped bool, w ht
 // account on the line's profit center (document type AA, source context `assets`; 422
 // `ledger.period_not_open` when the period is not open in a ledger), writes the asset's movements per
 // ledger, and makes a `planned` asset `active` with its capitalisation date the earliest value date of
-// its acquisitions. A cancelled or retired asset is 422 `assets.asset_cancelled` or
+// its acquisitions that add cost. Against an offset account: `amount` is required and positive, in any
+// currency; the offset account is a G/L account set up in the company, active and not blocked, that is
+// no reconciliation account of any kind, not the GR/IR account and no asset clearing account of the
+// company (422 `assets.offset_account_invalid`). It posts Dr the class's acquisition cost account on
+// the asset's profit center / Cr the offset account, converted at the posting date's rate (422
+// `ledger.no_exchange_rate` without one), to every ledger the company keeps; the asset's cost per
+// ledger is the cost line's local and group amounts as the ledger posted them. It serves what has no
+// supplier line (own work capitalised, a contribution in kind). Its value date defaults to its posting
+// date; the date rules above apply. A cancelled or retired asset is 422 `assets.asset_cancelled` or
 // `assets.asset_retired`; an asset the caller cannot act in is 404. Audited, and published as
 // AssetMovementPosted.
 //
@@ -7120,7 +7139,7 @@ func (s *Server) handleCreateAssetAcquisitionRequest(args [0]string, argsEscaped
 		mreq := middleware.Request{
 			Context:          ctx,
 			OperationName:    CreateAssetAcquisitionOperation,
-			OperationSummary: "Capitalise a posted line onto an asset",
+			OperationSummary: "Capitalise a posted line, or an amount against an offset account, onto an asset",
 			OperationID:      "createAssetAcquisition",
 			Body:             request,
 			RawBody:          rawBody,
@@ -32151,11 +32170,14 @@ func (s *Server) handleListAssetClassesRequest(args [0]string, argsEscaped bool,
 // currency, what acquisitions used of it and what is left, its document and origin (for a supplier
 // invoice its number, the supplier's reference and the supplier's name), and the acquisitions made
 // from it. The lines of a reversed entry and of its reversal are left out while nothing was
-// capitalised from the reversed one; a reversed line with acquisitions is shown with
-// `source_reversed`. With `remaining=true`, only lines an acquisition can still take something from
-// (not reversed, something left). A legal entity the caller cannot act in has none. Ordered by posting
-// date, entry and line. The lines are ledger amounts, so besides `assets.asset.read` the caller needs
-// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+// capitalised from the reversed one; a reversed line with acquisitions is shown with `source_reversed`
+// and its reversal's line beside it (`reversal`, T57d), offered to each asset holding posted
+// acquisitions from the reversed line with the most it may take from it: those acquisitions less what
+// it already took from the reversal's line. With `remaining=true`, only lines an acquisition can still
+// take something from: not reversed with something left, or reversed with something offered. A legal
+// entity the caller cannot act in has none. Ordered by posting date, entry and line. The lines are
+// ledger amounts, so besides `assets.asset.read` the caller needs `ledger.entry.read`
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
 //
 // GET /v1/asset-clearing-items
 func (s *Server) handleListAssetClearingItemsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -59603,6 +59625,232 @@ func (s *Server) handleRetireEntryTemplateRequest(args [1]string, argsEscaped bo
 	}
 }
 
+// handleReverseAssetAcquisitionRequest handles reverseAssetAcquisition operation.
+//
+// Reverses a posted acquisition (ADR-0057 §6, T57d): its entry in every ledger through the ledger's
+// reversal path, on `posting_date` (default the acquisition's posting date), never before the
+// acquisition's posting date (422 `assets.reversal_before_original`) and in a period open in every
+// ledger (409 `ledger.period_not_open`); each entry's reversal is shown beside it in `entries`. It
+// writes the asset's movements negated, gives the amount back to the source line, which the worklist
+// offers again, and derives the asset's status and capitalisation date again from the acquisitions
+// left: reversing the earliest of several moves `capitalised_on` to the earliest left, reversing the
+// only one returns the asset to `planned`. Refused while a retirement or transfer posted on the asset
+// after it is not reversed (409 `assets.later_movements`: the last posted is reversed first); where it
+// would leave the asset's cost below zero in a ledger (422 `assets.cost_negative`: a reduction
+// capitalised since took off cost this one brought); and, for an acquisition from a line, while an
+// acquisition from that line's reversal's line stands on the asset (409
+// `assets.reversal_line_capitalised`: that one is reversed first). One already reversed is 409
+// `assets.acquisition_not_posted`. Payables is not told: an invoice whose line was capitalised stays
+// as it is. Depreciation posted on the asset since is posted back by its next depreciation run (T57f).
+// The If-Match is the acquisition's ETag; an acquisition the caller cannot act in is 404. Audited, and
+// published as AssetMovementReversed. Human-only.
+//
+// POST /v1/asset-acquisitions/{id}:reverse
+func (s *Server) handleReverseAssetAcquisitionRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("reverseAssetAcquisition"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/asset-acquisitions/{id}:reverse"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ReverseAssetAcquisitionOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ReverseAssetAcquisitionOperation,
+			ID:   "reverseAssetAcquisition",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ReverseAssetAcquisitionOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeReverseAssetAcquisitionParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeReverseAssetAcquisitionRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response ReverseAssetAcquisitionRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ReverseAssetAcquisitionOperation,
+			OperationSummary: "Reverse an asset acquisition",
+			OperationID:      "reverseAssetAcquisition",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *AssetAcquisitionReverse
+			Params   = ReverseAssetAcquisitionParams
+			Response = ReverseAssetAcquisitionRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackReverseAssetAcquisitionParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ReverseAssetAcquisition(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ReverseAssetAcquisition(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeReverseAssetAcquisitionResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleReverseGoodsReceiptRequest handles reverseGoodsReceipt operation.
 //
 // Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
@@ -59831,9 +60079,12 @@ func (s *Server) handleReverseGoodsReceiptRequest(args [1]string, argsEscaped bo
 // entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with
 // `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409
 // `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with
-// `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any other context are
-// 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new
-// reversal entry. Human-only.
+// `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. An assets document's entry
+// (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is
+// reversed with `POST /v1/asset-acquisitions/{id}:reverse` (retirements and transfers with their own
+// `:reverse`, a depreciation run's entries never one by one). Entries of any other context are 409
+// `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal
+// entry. Human-only.
 //
 // POST /v1/journal-entries/{id}:reverse
 func (s *Server) handleReverseJournalEntryRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

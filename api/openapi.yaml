@@ -6118,7 +6118,7 @@ paths:
       tags:
         - ledger
       summary: Reverse a journal entry
-      description: "Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a copy in a parallel ledger is reversed only through its group's first entry (409 `ledger.entry_is_copy`). Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry. Human-only."
+      description: "Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a copy in a parallel ledger is reversed only through its group's first entry (409 `ledger.entry_is_copy`). Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. An assets document's entry (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is reversed with `POST /v1/asset-acquisitions/{id}:reverse` (retirements and transfers with their own `:reverse`, a depreciation run's entries never one by one). Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry. Human-only."
       x-permission: ledger.entry.post
       x-agent: false
       x-problem-codes:
@@ -14490,8 +14490,8 @@ paths:
       operationId: createAssetAcquisition
       tags:
         - assets
-      summary: Capitalise a posted line onto an asset
-      description: "Capitalises a posted journal line on an asset clearing account onto an asset (ADR-0057 §6, T57c; SAP's acquisition with automatic offsetting entry): a supplier invoice item, a goods receipt or a manual entry posted on the clearing account of the asset's class in the asset's company. The line is named by its leading-ledger entry and line number (`GET /v1/asset-clearing-items` lists them); one that is not such a line is 422 `assets.not_clearing_line`, a line of a reversed entry or of a reversal 422 `assets.source_reversed`, and a line whose entry has no copy in every ledger the company keeps (a ledger-specific entry) 422 `assets.source_not_in_every_ledger`. `amount` is in the line's currency, all that is left of the line by default; it has the line's sign (a credit line, a supplier credit memo, is capitalised as a negative acquisition, which reduces cost) and is at most what is left (422 `assets.amount_exceeds_line`); a negative acquisition that would leave the asset's cost below zero in a ledger, or one onto an asset holding no cost, is 422 `assets.cost_negative`. One line may be split across several assets, and an asset acquired by several acquisitions. Its local and group amounts are the line's in proportion, rounded half away from zero, the acquisition that uses the rest of the line taking the rest of its local and group amounts, so a line capitalised in full leaves the clearing account at zero in all three currencies. The value date defaults to the line's posting date and may lie in any period up to the end of the posting date's (422 `assets.value_date_in_future` after it); the posting date defaults to the company's date today, and lies on or after the start of the asset's latest center assignment (409 `assets.posting_before_center_transfer`). It posts in the line's currency, to every ledger the company keeps, Dr the class's acquisition cost account on the asset's profit center, Cr the clearing account on the line's profit center (document type AA, source context `assets`; 422 `ledger.period_not_open` when the period is not open in a ledger), writes the asset's movements per ledger, and makes a `planned` asset `active` with its capitalisation date the earliest value date of its acquisitions. A cancelled or retired asset is 422 `assets.asset_cancelled` or `assets.asset_retired`; an asset the caller cannot act in is 404. Audited, and published as AssetMovementPosted."
+      summary: Capitalise a posted line, or an amount against an offset account, onto an asset
+      description: "Capitalises onto an asset a posted journal line on an asset clearing account (`source`; ADR-0057 §6, T57c; SAP's acquisition with automatic offsetting entry) or, by manual entry, an amount against an offset account (`offset_account_id`, T57d); one of the two is given (422 `request.validation_failed` on `source` for both or neither). **From a line**: a supplier invoice item, a goods receipt or a manual entry posted on the clearing account of the asset's class in the asset's company. The line is named by its leading-ledger entry and line number (`GET /v1/asset-clearing-items` lists them); one that is not such a line is 422 `assets.not_clearing_line`, a line of a reversed entry 422 `assets.source_reversed`, and a line whose entry has no copy in every ledger the company keeps (a ledger-specific entry) 422 `assets.source_not_in_every_ledger`. The line of a reversal, reversing a line L, takes cost off again: only onto an asset holding posted acquisitions from L (422 `assets.source_reversed` onto any other asset, and for the reversal of a line nothing was capitalised from), each asset taking from it at most its posted acquisitions from L less what it already took from the reversal's line (422 `assets.amount_exceeds_line` above that; the worklist offers each asset that bound, all of it by default). So a supplier invoice reversed in payables after its line was capitalised is corrected on the asset when the acquisition can no longer be reversed (409 `assets.later_movements` on its `:reverse`); once taken, the asset's acquisitions from L are not reversed until this one is (409 `assets.reversal_line_capitalised`). `amount` is in the line's currency, all that is left of the line by default; it has the line's sign (a credit line, a supplier credit memo, is capitalised as a negative acquisition, which reduces cost) and is at most what is left (422 `assets.amount_exceeds_line`); a negative acquisition that would leave the asset's cost below zero in a ledger, or one onto an asset holding no cost, is 422 `assets.cost_negative`. One line may be split across several assets, and an asset acquired by several acquisitions. Its local and group amounts are the line's in proportion, rounded half away from zero, the acquisition that uses the rest of the line taking the rest of its local and group amounts, so a line capitalised in full leaves the clearing account at zero in all three currencies. The value date defaults to the line's posting date and may lie in any period up to the end of the posting date's (422 `assets.value_date_in_future` after it); the posting date defaults to the company's date today, and lies on or after the start of the asset's latest center assignment (409 `assets.posting_before_center_transfer`). It posts in the line's currency, to every ledger the company keeps, Dr the class's acquisition cost account on the asset's profit center, Cr the clearing account on the line's profit center (document type AA, source context `assets`; 422 `ledger.period_not_open` when the period is not open in a ledger), writes the asset's movements per ledger, and makes a `planned` asset `active` with its capitalisation date the earliest value date of its acquisitions that add cost. **Against an offset account**: `amount` is required and positive, in any currency; the offset account is a G/L account set up in the company, active and not blocked, that is no reconciliation account of any kind, not the GR/IR account and no asset clearing account of the company (422 `assets.offset_account_invalid`). It posts Dr the class's acquisition cost account on the asset's profit center / Cr the offset account, converted at the posting date's rate (422 `ledger.no_exchange_rate` without one), to every ledger the company keeps; the asset's cost per ledger is the cost line's local and group amounts as the ledger posted them. It serves what has no supplier line (own work capitalised, a contribution in kind). Its value date defaults to its posting date; the date rules above apply. A cancelled or retired asset is 422 `assets.asset_cancelled` or `assets.asset_retired`; an asset the caller cannot act in is 404. Audited, and published as AssetMovementPosted."
       x-permission: assets.asset.post
       x-agent: false
       x-problem-codes:
@@ -14502,6 +14502,7 @@ paths:
         - assets.class_unknown
         - assets.cost_negative
         - assets.not_clearing_line
+        - assets.offset_account_invalid
         - assets.posting_before_center_transfer
         - assets.source_not_in_every_ledger
         - assets.source_reversed
@@ -14630,13 +14631,101 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/asset-acquisitions/{id}:reverse":
+    post:
+      operationId: reverseAssetAcquisition
+      tags:
+        - assets
+      summary: Reverse an asset acquisition
+      description: "Reverses a posted acquisition (ADR-0057 §6, T57d): its entry in every ledger through the ledger's reversal path, on `posting_date` (default the acquisition's posting date), never before the acquisition's posting date (422 `assets.reversal_before_original`) and in a period open in every ledger (409 `ledger.period_not_open`); each entry's reversal is shown beside it in `entries`. It writes the asset's movements negated, gives the amount back to the source line, which the worklist offers again, and derives the asset's status and capitalisation date again from the acquisitions left: reversing the earliest of several moves `capitalised_on` to the earliest left, reversing the only one returns the asset to `planned`. Refused while a retirement or transfer posted on the asset after it is not reversed (409 `assets.later_movements`: the last posted is reversed first); where it would leave the asset's cost below zero in a ledger (422 `assets.cost_negative`: a reduction capitalised since took off cost this one brought); and, for an acquisition from a line, while an acquisition from that line's reversal's line stands on the asset (409 `assets.reversal_line_capitalised`: that one is reversed first). One already reversed is 409 `assets.acquisition_not_posted`. Payables is not told: an invoice whose line was capitalised stays as it is. Depreciation posted on the asset since is posted back by its next depreciation run (T57f). The If-Match is the acquisition's ETag; an acquisition the caller cannot act in is 404. Audited, and published as AssetMovementReversed. Human-only."
+      x-permission: assets.asset.post
+      x-agent: false
+      x-problem-codes:
+        - assets.acquisition_not_posted
+        - assets.cost_negative
+        - assets.later_movements
+        - assets.reversal_before_original
+        - assets.reversal_line_capitalised
+        - config.no_number_range
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.already_reversed
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cannot_reverse_reversal
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.entry_cleared
+        - ledger.entry_is_copy
+        - ledger.entry_owned_elsewhere
+        - ledger.gr_ir_currency_mismatch
+        - ledger.item_already_cleared
+        - ledger.item_reserved
+        - ledger.legal_entity_not_active
+        - ledger.no_fiscal_period
+        - ledger.no_price_difference_account
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.unknown_unit
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The reversal.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssetAcquisitionReverse"
+      responses:
+        "200":
+          description: "The acquisition, `reversed`, with each entry's reversal."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetAcquisition"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/asset-clearing-items:
     get:
       operationId: listAssetClearingItems
       tags:
         - assets
       summary: List the lines on asset clearing accounts
-      description: "The worklist of acquisitions (ADR-0057 §6, T57c): the leading ledger's lines on the company's asset clearing accounts in one fiscal year, each with its amounts in its currency, local and group currency, what acquisitions used of it and what is left, its document and origin (for a supplier invoice its number, the supplier's reference and the supplier's name), and the acquisitions made from it. The lines of a reversed entry and of its reversal are left out while nothing was capitalised from the reversed one; a reversed line with acquisitions is shown with `source_reversed`. With `remaining=true`, only lines an acquisition can still take something from (not reversed, something left). A legal entity the caller cannot act in has none. Ordered by posting date, entry and line. The lines are ledger amounts, so besides `assets.asset.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      description: "The worklist of acquisitions (ADR-0057 §6, T57c): the leading ledger's lines on the company's asset clearing accounts in one fiscal year, each with its amounts in its currency, local and group currency, what acquisitions used of it and what is left, its document and origin (for a supplier invoice its number, the supplier's reference and the supplier's name), and the acquisitions made from it. The lines of a reversed entry and of its reversal are left out while nothing was capitalised from the reversed one; a reversed line with acquisitions is shown with `source_reversed` and its reversal's line beside it (`reversal`, T57d), offered to each asset holding posted acquisitions from the reversed line with the most it may take from it: those acquisitions less what it already took from the reversal's line. With `remaining=true`, only lines an acquisition can still take something from: not reversed with something left, or reversed with something offered. A legal entity the caller cannot act in has none. Ordered by posting date, entry and line. The lines are ledger amounts, so besides `assets.asset.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
       x-permission: assets.asset.read
       x-also-permissions:
         - ledger.entry.read
@@ -14664,7 +14753,7 @@ paths:
         - name: remaining
           in: query
           required: false
-          description: "Only lines an acquisition can still take something from; default false."
+          description: "Only lines an acquisition can still take something from (not reversed with something left, or reversed with something its reversal's line offers); default false."
           schema:
             type: boolean
         - $ref: "#/components/parameters/PageSize"
@@ -34052,14 +34141,15 @@ components:
     AssetAcquisitionCreate:
       type: object
       description: "An acquisition from a posted line on an asset clearing account (ADR-0057 §6)."
-      required: [asset_id, source]
+      required: [asset_id]
       properties:
-        asset_id: {type: string, format: uuid, description: "The asset the line's amount is capitalised onto."}
+        asset_id: {type: string, format: uuid, description: "The asset the amount is capitalised onto."}
         source: {$ref: "#/components/schemas/AssetAcquisitionSourceRef"}
+        offset_account_id: {type: string, format: uuid, description: "For an acquisition by manual entry (T57d), instead of `source`: the G/L account credited (`GET /v1/accounts`); no reconciliation account and no asset clearing account."}
         amount:
           $ref: "#/components/schemas/Money"
-          description: "In the line's currency, with the line's sign (negative from a credit line); default all that is left of the line."
-        value_date: {type: string, format: date, description: "The date the cost counts from for depreciation; default the line's posting date. At most the end of the posting date's period."}
+          description: "From a line: in the line's currency, with the line's sign (negative from a credit line or a reversal's line); default all that is left of the line, or of a reversal's line what the asset may take from it. Against an offset account: required, positive, in any currency."
+        value_date: {type: string, format: date, description: "The date the cost counts from for depreciation; default the line's posting date, or against an offset account the posting date. At most the end of the posting date's period."}
         posting_date: {type: string, format: date, description: "The acquisition's posting date; default the company's date today."}
         text: {type: string, minLength: 1, maxLength: 200, description: "A text for the acquisition and its entries."}
       additionalProperties: false
@@ -34067,6 +34157,16 @@ components:
         - asset_id: 0192a000-0000-7000-8000-000000000f01
           source: {entry_id: 0192a000-0000-7000-8000-000000000e01, line_no: 2}
           amount: {amount: "6000.00", currency: CAD}
+    AssetAcquisitionReverse:
+      type: object
+      description: "The reversal of an asset acquisition (ADR-0057 §6)."
+      required: [reason]
+      properties:
+        reason: {type: string, minLength: 1, maxLength: 2000, description: Why the acquisition is reversed.}
+        posting_date: {type: string, format: date, description: "The reversal's posting date; default the acquisition's. On or after the acquisition's posting date, in a period open in every ledger."}
+      additionalProperties: false
+      examples:
+        - reason: Capitalised onto the wrong machine.
     AssetAcquisitionSourceRef:
       type: object
       description: "A line of a journal entry of the leading ledger, on an asset clearing account."
@@ -34076,7 +34176,7 @@ components:
         line_no: {type: integer, format: int32, minimum: 1, description: "The line's number in the entry."}
       additionalProperties: false
     AssetAcquisition:
-      description: "An asset acquisition (ADR-0057 §6, T57c): a posted line's amount capitalised onto an asset, with its local and group amounts, its source line and the supplier invoice behind it, and its journal entries per ledger."
+      description: "An asset acquisition (ADR-0057 §6, T57c, T57d): a posted line's amount, or an amount against an offset account, capitalised onto an asset, with its local and group amounts, its source line and the supplier invoice behind it or its offset account, its journal entries per ledger and, once reversed, the reversal."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -34094,6 +34194,7 @@ components:
             amount_lc: {$ref: "#/components/schemas/Money", description: "In local currency; negative from a credit line."}
             amount_gc: {$ref: "#/components/schemas/Money", description: "In group currency; negative from a credit line."}
             source: {$ref: "#/components/schemas/AssetAcquisitionSource"}
+            offset_account: {$ref: "#/components/schemas/AssetOffsetAccount"}
             text: {type: string, description: "The acquisition's text.", readOnly: true}
             status:
               type: string
@@ -34103,8 +34204,9 @@ components:
             entries:
               type: array
               items: {$ref: "#/components/schemas/AssetDocumentEntry"}
-              description: "Its journal entries, one per ledger, the leading ledger first and then by ledger code."
+              description: "Its journal entries, one per ledger, the leading ledger first and then by ledger code, each with its reversal once reversed."
               readOnly: true
+            reversal: {$ref: "#/components/schemas/AssetAcquisitionReversal"}
       examples:
         - id: 0192a000-0000-7000-8000-000000000a01
           version: 1
@@ -34133,6 +34235,21 @@ components:
           status: posted
           entries:
             - {ledger_id: 0192a000-0000-7000-8000-000000000301, ledger_code: 0L, ledger_name: Leading ledger, fiscal_year: 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000e11, document_number: "1"}
+    AssetOffsetAccount:
+      type: object
+      description: "The offset account of an acquisition by manual entry, by its number and name."
+      required: [id, number, name]
+      properties:
+        id: {type: string, format: uuid, description: "The account (`GET /v1/accounts/{id}`).", readOnly: true}
+        number: {type: string, description: "The account's number.", readOnly: true}
+        name: {type: string, description: "The account's name.", readOnly: true}
+    AssetAcquisitionReversal:
+      type: object
+      description: "The reversal of an acquisition; its entries are shown beside the acquisition's in `entries`."
+      required: [posting_date, reason]
+      properties:
+        posting_date: {type: string, format: date, description: "The reversal's posting date.", readOnly: true}
+        reason: {type: string, description: Why it was reversed., readOnly: true}
     AssetAcquisitionSource:
       type: object
       description: "The line an acquisition capitalised: its leading-ledger entry and line, the entry's document number and origin, and for a supplier invoice its number, reference and supplier."
@@ -34165,6 +34282,9 @@ components:
         fiscal_year: {type: integer, format: int32, description: "The entry's fiscal year.", readOnly: true}
         journal_entry_id: {type: string, format: uuid, description: "The journal entry (`GET /v1/journal-entries/{id}`).", readOnly: true}
         document_number: {type: string, description: "The entry's document number.", readOnly: true}
+        reversal_fiscal_year: {type: integer, format: int32, description: "Its reversal's fiscal year, once reversed.", readOnly: true}
+        reversal_journal_entry_id: {type: string, format: uuid, description: "Its reversal entry, once reversed.", readOnly: true}
+        reversal_document_number: {type: string, description: "Its reversal entry's document number, once reversed.", readOnly: true}
     AssetAcquisitionPage:
       type: object
       description: One page of asset acquisitions.
@@ -34207,12 +34327,13 @@ components:
         remaining: {$ref: "#/components/schemas/Money", description: "What is left of it in its currency, with its sign."}
         remaining_lc: {$ref: "#/components/schemas/Money", description: "What is left in local currency, with its sign."}
         remaining_gc: {$ref: "#/components/schemas/Money", description: "What is left in group currency, with its sign."}
-        source_reversed: {type: boolean, description: "The line's entry was reversed after acquisitions were made from it; nothing more can be taken from it.", readOnly: true}
+        source_reversed: {type: boolean, description: "The line's entry was reversed after acquisitions were made from it; nothing more can be taken from it, and its reversal's line (`reversal`) takes the cost off the assets holding it.", readOnly: true}
         acquisitions:
           type: array
           items: {$ref: "#/components/schemas/AssetClearingAcquisition"}
           description: "The acquisitions made from the line, by posting order."
           readOnly: true
+        reversal: {$ref: "#/components/schemas/AssetClearingReversal"}
     AssetClearingAcquisition:
       type: object
       description: "An acquisition made from a clearing line."
@@ -34227,6 +34348,35 @@ components:
           description: "`posted` or `reversed`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum: [posted, reversed]
           readOnly: true
+    AssetClearingReversal:
+      type: object
+      description: "The line of the reversal of a reversed clearing line (ADR-0057 §6, T57d): capitalised as an acquisition of its sign (`source` its entry and line) onto an asset that holds acquisitions from the reversed line, at most what it offers that asset."
+      required: [fiscal_year, entry_id, line_no, posting_date, document_number, acquisitions, offers]
+      properties:
+        fiscal_year: {type: integer, format: int32, description: "The reversal entry's fiscal year.", readOnly: true}
+        entry_id: {type: string, format: uuid, description: "The reversal entry (the leading ledger's).", readOnly: true}
+        line_no: {type: integer, format: int32, description: "The line's number, the reversed line's.", readOnly: true}
+        posting_date: {type: string, format: date, description: "The reversal's posting date.", readOnly: true}
+        document_number: {type: string, description: "The reversal entry's document number.", readOnly: true}
+        acquisitions:
+          type: array
+          items: {$ref: "#/components/schemas/AssetClearingAcquisition"}
+          description: "The acquisitions made from the reversal's line, by posting order."
+          readOnly: true
+        offers:
+          type: array
+          items: {$ref: "#/components/schemas/AssetClearingOffer"}
+          description: "Per asset holding posted acquisitions from the reversed line, by asset number, what it may still take from the reversal's line; none once each has taken all."
+          readOnly: true
+    AssetClearingOffer:
+      type: object
+      description: "What an asset may take from a reversal's line: its posted acquisitions from the reversed line less what it took from the reversal's line."
+      required: [asset_id, asset_number, asset_description, amount]
+      properties:
+        asset_id: {type: string, format: uuid, description: The asset., readOnly: true}
+        asset_number: {type: string, description: "The asset's number.", readOnly: true}
+        asset_description: {type: string, description: "The asset's description.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "In the line's currency, with the reversal line's sign."}
     AssetClearingItemPage:
       type: object
       description: One page of lines on asset clearing accounts.

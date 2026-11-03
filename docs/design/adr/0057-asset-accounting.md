@@ -1653,3 +1653,89 @@ overrule:
 - **No totals on the worklist**: it is a worklist of lines, not a report;
   each line carries its amount, what is used and what is left in its
   currency, local and group currency, each signed as the line.
+
+**T57d (manual acquisition and acquisition reversal).** Built as §4
+(reversal routing) and §6 for manual acquisitions and reversals:
+migration 000195 adds the acquisition's reversal (`reversal_posting_date`,
+`reversal_reason`; `acquisition_reversal`, `acquisition_reversal_date`,
+the reversal kept by `acquisition_fixed`), the line a reversal's line
+reverses on its `clearing_use` row (`clearing_use_reverses`, kept by
+`clearing_use_line_fixed`) and each document entry's reversal entry with
+its number, the one update granted on `document_entry`
+(`document_entry_reversal_number`, `document_entry_reversed_once`); schema
+test `TestAcquisitionReversalRules`. `POST /v1/asset-acquisitions` takes
+`offset_account_id` instead of `source`, and `POST
+/v1/asset-acquisitions/{id}:reverse` (`reverseAssetAcquisition`, If-Match,
+`assets.asset.post`, human-only) is audited (`assets.acquisition.reverse`)
+and published as AssetMovementReversed. The ledger's
+`ledger.entry_owned_elsewhere` names the acquisition's path for an assets
+entry (04 §4.9). Decided by default, for the product owner to overrule:
+- **Manual acquisitions.** One of `source` and `offset_account_id` is given
+  (422 `request.validation_failed` on `source` otherwise). The amount is
+  required and positive, in any currency (a `Money` always names its
+  currency, so §6's "default local" has nothing to default); a reduction
+  is a reversal or a credit line, not a negative manual acquisition. The
+  offset account is set up in the company, active and not blocked, no
+  reconciliation account of any kind and not the GR/IR account (the
+  accounts `ledger.Accounts.IsPostable` admits, read with their number and
+  name through `ledger.AssetReads.OffsetAccount`), and no asset clearing
+  account of the company, whose credit the worklist would never see (422
+  `assets.offset_account_invalid`). The offset line takes the asset's
+  profit center, as the cost line does. The value date defaults to the
+  posting date. The cost line's local and group amounts are read back from
+  the leading ledger's entry (`assets.Ledger.Line`, line 1); the copies in
+  the other ledgers carry the same amounts (ADR-0045's linked copies), so
+  every ledger's movement takes them. The representation names the offset
+  account by number and name (`offset_account`).
+- **Reversal.** The body is a reason (required, as for a supplier
+  invoice's reversal) and an optional posting date, by default the
+  acquisition's own. An acquisition already reversed is 409
+  `assets.acquisition_not_posted`, a code beside §10's list (as T57b added
+  none for it). The ledger reverses the acquisition's posting group through
+  its leading ledger's entry (`ledger.Postings.Reverse`, with the ledger's
+  own header text); a period not open in a ledger is the ledger's 409
+  `ledger.period_not_open`. The asset is read FOR UPDATE before the
+  acquisition, as every posting locks the asset first. The negated
+  movements take the asset's next `seq`, the reversal's posting date and
+  period and the original's value date, so the schedule (§7) sees the two
+  cancel out; the amount is given back to the source line's
+  `clearing_use`. The acquisition and each entry show the reversal
+  (`reversal`, and `reversal_journal_entry_id`,
+  `reversal_document_number` per entry). `assets.later_movements` reads the
+  asset's movements of retirement and transfer documents with a higher
+  `seq` and no reversal row (each such document writes a movement on every
+  asset it touches, a `center` transfer its catch-up's, §5); it is tested
+  with a movement written as a retirement writes it until T57g and T57h
+  exist. `assets.cost_negative` sums each ledger's cost without the
+  acquisition's movements. Depreciation posted since is posted back by the
+  asset's next run (§7), tested with T57f.
+- **A reversal's line.** The ledger's line read gives the entry a line
+  reverses and the entry that reversed it (`ledger.AssetLine.Reverses`,
+  `ReversedBy`); a reversal keeps its original's lines in order, so line n
+  of a reversal reverses line n of its original. The take-off's bound per
+  asset is computed in the assets schema: the reversal line's
+  `clearing_use` row names the line it reverses. The rule is read for
+  either sign: a reversal's line takes amounts of its own sign, so a
+  reversed supplier credit memo's reversal line gives back cost the memo
+  took off, within the same bound; §6's "negative acquisition" is the
+  debit line's case. Its default amount is the asset's whole bound. Its
+  local and group amounts are the reversal line's in proportion, as for
+  any line (§6), so a reversal's line taken off in full in the order the
+  reversed line was capitalised leaves each asset's cost at zero; in
+  another order an asset's cost may be left a minor unit away from zero.
+- **Worklist.** A reversed line with acquisitions shows its reversal's
+  line beside it (`reversal`: its entry, line, document number and posting
+  date, the acquisitions made from it, and per asset holding acquisitions
+  from the reversed line, by asset number, what it may still take, an
+  asset with nothing left omitted); a reversal's line is never listed on
+  its own. With `remaining=true` a reversed line is kept while its
+  reversal's line offers something. The ledger's worklist query
+  (`ledger.ClearingQuery`) now binds `Skip` to lines neither reversed nor
+  reversals and `Keep` to those alone, so a reversed line used in full is
+  kept while it offers something.
+- **Ledger routing.** An assets entry does not record its document's kind,
+  so `ledger.entry_owned_elsewhere` names the acquisition's path with the
+  document's id and says a retirement or transfer is reversed through its
+  own `:reverse` and a run's entries never one by one.
+- **Tracker.** The leaf "Acquisitions from AP and settlement" (T57c, T57d)
+  is done with T57d.

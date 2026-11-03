@@ -32,6 +32,15 @@
 // posting API in every ledger the company keeps, each part keeping its
 // local and group amounts (ledger.PostingLine.GC), with the assets'
 // movements, AssetMovementPosted and the worklist of the lines.
+//
+// T57d builds acquisitions by manual entry against an offset account and
+// the reversal of acquisitions (ADR-0057 §6): a reversal reverses the
+// acquisition's entries through the ledger's reversal path, negates its
+// movements, gives the amount back to its line and derives the asset's
+// status again, refused while a retirement or transfer posted after it
+// stands (last posted, first reversed); a reversed line's reversal line
+// is capitalised as a reduction onto the assets holding the reversed line,
+// each at most what it holds, and published as AssetMovementReversed.
 package assets
 
 import (
@@ -80,8 +89,11 @@ type LedgerRef struct {
 // given; the fiscal year and the regular period a company's date falls in
 // (422 ledger.no_fiscal_period outside every one); a company's accounts by
 // number; a journal line and the leading ledger's lines on accounts in a
-// year (ADR-0057 §6); and an entry posted to every ledger the company
-// keeps through the ledger's posting API, its entries returned per ledger.
+// year (ADR-0057 §6); an entry posted to every ledger the company keeps
+// through the ledger's posting API, and the reversal of such an entry
+// (its posting group's first) on a date, their entries returned per
+// ledger; an account a manual acquisition may credit in a company (ok
+// false for any other); and accounts' numbers and names by id.
 type Ledger interface {
 	Ledgers(ctx context.Context, legalEntity *uuid.UUID) ([]LedgerRef, error)
 	FiscalYear(ctx context.Context, legalEntity uuid.UUID, date time.Time) (int16, error)
@@ -90,6 +102,15 @@ type Ledger interface {
 	Line(ctx context.Context, entry uuid.UUID, lineNo int32) (Line, bool, error)
 	ClearingLines(ctx context.Context, q ClearingQuery) ([]Line, error)
 	Post(ctx context.Context, p Posting) ([]PostedEntry, error)
+	Reverse(ctx context.Context, entry uuid.UUID, postingDate time.Time) ([]PostedEntry, error)
+	OffsetAccount(ctx context.Context, legalEntity, account uuid.UUID) (AccountRef, bool, error)
+	AccountNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]AccountRef, error)
+}
+
+// AccountRef is a G/L account by its number and name.
+type AccountRef struct {
+	ID           uuid.UUID
+	Number, Name string
 }
 
 // Period is a regular posting period with its dates.
@@ -107,8 +128,10 @@ type LineRef struct {
 
 // Line is a journal line as an acquisition reads its source (ADR-0057
 // §6): amounts debit positive in its entry's currency, local and group
-// currency, and whether its entry is the leading ledger's, has a copy in
-// every ledger the company keeps, was reversed or reverses another.
+// currency, whether its entry is the leading ledger's and has a copy in
+// every ledger the company keeps, the entry it reverses and the entry
+// that reversed it. A reversal keeps its original's lines in order, so
+// line n of a reversal reverses line n of its original.
 type Line struct {
 	LineRef
 	LegalEntityID, AccountID         uuid.UUID
@@ -118,13 +141,24 @@ type Line struct {
 	DocumentNumber, SourceContext    string
 	SourceDocumentID, ProfitCenterID *uuid.UUID
 	Leading, InEveryLedger           bool
-	Reversed, Reversal               bool
+	Reverses, ReversedBy             *ReversalEntry
+}
+
+// ReversalEntry is the other entry of a reversal pair: the entry a
+// reversal reverses, or the reversal of a reversed entry.
+type ReversalEntry struct {
+	FiscalYear     int16
+	EntryID        uuid.UUID
+	DocumentNumber string
+	PostingDate    time.Time
 }
 
 // ClearingQuery selects the leading ledger's lines on Accounts of a
 // company in a fiscal year by (posting date, entry, line) after After, at
-// most Limit, leaving out Skip, the lines of entries ExceptContext posted,
-// and the lines of reversed entries and reversals that Keep does not name.
+// most Limit, leaving out the lines of entries ExceptContext posted, of
+// the other lines those Skip names, and the lines of reversed entries and
+// reversals that Keep does not name (Skip binds only the others, Keep
+// only these).
 type ClearingQuery struct {
 	LegalEntityID uuid.UUID
 	Accounts      []uuid.UUID
@@ -155,11 +189,13 @@ type Posting struct {
 }
 
 // PostingLine is a line in the posting's currency, debit positive, with
-// the local and group amounts it keeps (PostingLine.LC and GC) and its
-// profit center.
+// the local and group amounts it keeps (PostingLine.LC and GC; both nil:
+// converted at the posting date's rate, as a manual acquisition's lines
+// are) and its profit center.
 type PostingLine struct {
 	AccountID      uuid.UUID
-	Amount, LC, GC money.Minor
+	Amount         money.Minor
+	LC, GC         *money.Minor
 	ProfitCenterID *uuid.UUID
 	Text           *string
 }

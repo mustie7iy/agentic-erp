@@ -24,13 +24,15 @@ import (
 const sourcePayables = "payables"
 
 // docView is what assets documents are shown with: their companies, the
-// minor-unit digits of their currencies, the ledgers in order, and the
-// supplier invoices they came from.
+// minor-unit digits of their currencies, the ledgers in order, the
+// supplier invoices they came from, and the offset accounts of manual
+// acquisitions.
 type docView struct {
 	companies map[uuid.UUID]Company
 	exponents map[string]int
 	ledgers   []LedgerRef
 	invoices  map[uuid.UUID]InvoiceSource
+	accounts  map[uuid.UUID]AccountRef
 }
 
 // exponent adds a currency's minor-unit digits to the view.
@@ -109,7 +111,8 @@ func (v docView) supplierInvoice(context string, doc *uuid.UUID) gen.OptAssetSup
 		SupplierID: s.SupplierID, SupplierName: s.SupplierName})
 }
 
-// entries shows a document's entries in ledger order.
+// entries shows a document's entries in ledger order, each with its
+// reversal once reversed.
 func (v docView) entries(es []DocumentEntry) []gen.AssetDocumentEntry {
 	out := []gen.AssetDocumentEntry{}
 	for _, l := range v.ledgers {
@@ -117,26 +120,39 @@ func (v docView) entries(es []DocumentEntry) []gen.AssetDocumentEntry {
 		if i < 0 {
 			continue
 		}
-		out = append(out, gen.AssetDocumentEntry{LedgerID: l.ID, LedgerCode: l.Code, LedgerName: l.Name, FiscalYear: int32(es[i].FiscalYear),
-			JournalEntryID: es[i].EntryID, DocumentNumber: es[i].DocumentNumber})
+		en := gen.AssetDocumentEntry{LedgerID: l.ID, LedgerCode: l.Code, LedgerName: l.Name, FiscalYear: int32(es[i].FiscalYear),
+			JournalEntryID: es[i].EntryID, DocumentNumber: es[i].DocumentNumber}
+		if r := es[i].Reversal; r != nil {
+			en.ReversalFiscalYear, en.ReversalJournalEntryID = gen.NewOptInt32(int32(r.FiscalYear)), gen.NewOptUUID(r.EntryID)
+			en.ReversalDocumentNumber = gen.NewOptString(r.DocumentNumber)
+		}
+		out = append(out, en)
 	}
 	return out
 }
 
 // acquisitionView reads what acquisitions are shown with.
 func (e *Endpoints) acquisitionView(ctx context.Context, tx pgx.Tx, qs []Acquisition) (docView, error) {
-	var companies, invoices []uuid.UUID
+	var companies, invoices, offsets []uuid.UUID
 	var currencies []string
 	for _, q := range qs {
 		companies, currencies = append(companies, q.LegalEntityID), append(currencies, q.Currency, q.CurrencyLC, q.CurrencyGC)
 		if q.Source == nil {
+			offsets = append(offsets, *q.OffsetAccountID) // set without a source (acquisition_source)
 			continue
 		}
 		if id, ok := invoiceOf(q.Source.Context, q.Source.DocumentID); ok {
 			invoices = append(invoices, id)
 		}
 	}
-	return e.docViewOf(ctx, tx, companies, currencies, invoices)
+	v, err := e.docViewOf(ctx, tx, companies, currencies, invoices)
+	if err != nil || len(offsets) == 0 {
+		return v, err
+	}
+	if v.accounts, err = e.Ledger.AccountNames(ctx, offsets); err != nil {
+		return docView{}, fmt.Errorf("assets: names of %d offset accounts: %w", len(offsets), err)
+	}
+	return v, nil
 }
 
 // acquisitionAPI shows an acquisition.
@@ -150,6 +166,14 @@ func (v docView) acquisitionAPI(q Acquisition) gen.AssetAcquisition {
 		out.Source = gen.NewOptAssetAcquisitionSource(gen.AssetAcquisitionSource{FiscalYear: int32(s.FiscalYear), EntryID: s.EntryID, LineNo: s.LineNo,
 			DocumentNumber: s.DocumentNumber, SourceContext: s.Context, SourceDocumentID: apitypes.OptUUID(s.DocumentID),
 			SupplierInvoice: v.supplierInvoice(s.Context, s.DocumentID)})
+	}
+	if id := q.OffsetAccountID; id != nil {
+		// Accounts are never removed, so the offset account is named.
+		a := v.accounts[*id]
+		out.OffsetAccount = gen.NewOptAssetOffsetAccount(gen.AssetOffsetAccount{ID: *id, Number: a.Number, Name: a.Name})
+	}
+	if r := q.Reversal; r != nil {
+		out.Reversal = gen.NewOptAssetAcquisitionReversal(gen.AssetAcquisitionReversal{PostingDate: r.PostingDate, Reason: r.Reason})
 	}
 	return out
 }
@@ -166,14 +190,9 @@ func (e *Endpoints) acquisitionOut(ctx context.Context, q Acquisition) (gen.Asse
 
 // CreateAssetAcquisition implements POST /v1/asset-acquisitions.
 func (e *Endpoints) CreateAssetAcquisition(ctx context.Context, req *gen.AssetAcquisitionCreate, _ gen.CreateAssetAcquisitionParams) (gen.CreateAssetAcquisitionRes, error) {
-	in := NewAcquisition{AssetID: req.AssetID, EntryID: req.Source.EntryID, LineNo: req.Source.LineNo, ValueDate: apitypes.Ptr[time.Time](req.ValueDate),
-		PostingDate: apitypes.Ptr[time.Time](req.PostingDate), Text: apitypes.Ptr[string](req.Text)}
-	if m, ok := req.Amount.Get(); ok {
-		amount, err := e.amountOf(ctx, m)
-		if err != nil {
-			return nil, err
-		}
-		in.Amount, in.AmountCurrency = &amount, m.Currency
+	in, err := e.newAcquisition(ctx, req)
+	if err != nil {
+		return nil, err
 	}
 	q, err := e.postAcquisition(ctx, in)
 	if err != nil {
@@ -185,6 +204,45 @@ func (e *Endpoints) CreateAssetAcquisition(ctx context.Context, req *gen.AssetAc
 	}
 	return &gen.AssetAcquisitionHeaders{ETag: gen.NewOptString(etag.Format(q.Version)), Location: gen.NewOptString("/v1/asset-acquisitions/" + q.ID.String()),
 		Response: out}, nil
+}
+
+// newAcquisition reads an acquisition from its request: from a source
+// line or against an offset account, one of the two (422
+// request.validation_failed on source), and against an offset account
+// with a positive amount (on amount).
+func (e *Endpoints) newAcquisition(ctx context.Context, req *gen.AssetAcquisitionCreate) (NewAcquisition, error) {
+	in := NewAcquisition{AssetID: req.AssetID, OffsetAccountID: apitypes.Ptr[uuid.UUID](req.OffsetAccountID), ValueDate: apitypes.Ptr[time.Time](req.ValueDate),
+		PostingDate: apitypes.Ptr[time.Time](req.PostingDate), Text: apitypes.Ptr[string](req.Text)}
+	if s, ok := req.Source.Get(); ok {
+		in.Line = &LineKey{EntryID: s.EntryID, LineNo: s.LineNo}
+	}
+	if (in.Line == nil) == (in.OffsetAccountID == nil) {
+		return NewAcquisition{}, validation("source", "a source line or an offset account (offset_account_id), one of the two")
+	}
+	if m, ok := req.Amount.Get(); ok {
+		amount, err := e.amountOf(ctx, m)
+		if err != nil {
+			return NewAcquisition{}, err
+		}
+		in.Amount, in.AmountCurrency = &amount, m.Currency
+	}
+	if in.OffsetAccountID != nil && (in.Amount == nil || *in.Amount <= 0) {
+		return NewAcquisition{}, validation("amount", "a positive amount, required against an offset account")
+	}
+	return in, nil
+}
+
+// ReverseAssetAcquisition implements POST /v1/asset-acquisitions/{id}:reverse.
+func (e *Endpoints) ReverseAssetAcquisition(ctx context.Context, req *gen.AssetAcquisitionReverse, params gen.ReverseAssetAcquisitionParams) (gen.ReverseAssetAcquisitionRes, error) {
+	q, err := e.reverseAcquisition(ctx, params.ID, etag.IfMatch(params.IfMatch), apitypes.Ptr[time.Time](req.PostingDate), req.Reason)
+	if err != nil {
+		return nil, err
+	}
+	out, err := e.acquisitionOut(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.ReverseAssetAcquisitionOKHeaders{ETag: gen.NewOptString(etag.Format(q.Version)), Response: out}, nil
 }
 
 // amountOf parses an amount with its currency's minor-unit digits (400

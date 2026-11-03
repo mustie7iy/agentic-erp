@@ -341,6 +341,7 @@ var operationRolesOidc = map[string][]string{
 	RequestBankAccountEndOperation:            []string{},
 	ResumeWebhookSubscriptionOperation:        []string{},
 	RetireEntryTemplateOperation:              []string{},
+	ReverseAssetAcquisitionOperation:          []string{},
 	ReverseGoodsReceiptOperation:              []string{},
 	ReverseJournalEntryOperation:              []string{},
 	ReverseSupplierInvoiceOperation:           []string{},

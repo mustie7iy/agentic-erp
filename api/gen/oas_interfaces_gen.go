@@ -1157,6 +1157,10 @@ type RetireEntryTemplateRes interface {
 	retireEntryTemplateRes()
 }
 
+type ReverseAssetAcquisitionRes interface {
+	reverseAssetAcquisitionRes()
+}
+
 type ReverseGoodsReceiptRes interface {
 	reverseGoodsReceiptRes()
 }

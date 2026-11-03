@@ -3101,15 +3101,18 @@ type AssetAcquisition struct {
 	// In local currency; negative from a credit line.
 	AmountLc Money `json:"amount_lc"`
 	// In group currency; negative from a credit line.
-	AmountGc Money                     `json:"amount_gc"`
-	Source   OptAssetAcquisitionSource `json:"source"`
+	AmountGc      Money                     `json:"amount_gc"`
+	Source        OptAssetAcquisitionSource `json:"source"`
+	OffsetAccount OptAssetOffsetAccount     `json:"offset_account"`
 	// The acquisition's text.
 	Text OptString `json:"text"`
 	// `posted`, or `reversed`. Open enumeration: clients must accept and preserve values not listed here;
 	// values may be added within /v1.
 	Status string `json:"status"`
-	// Its journal entries, one per ledger, the leading ledger first and then by ledger code.
-	Entries []AssetDocumentEntry `json:"entries"`
+	// Its journal entries, one per ledger, the leading ledger first and then by ledger code, each with its
+	// reversal once reversed.
+	Entries  []AssetDocumentEntry        `json:"entries"`
+	Reversal OptAssetAcquisitionReversal `json:"reversal"`
 }
 
 // GetID returns the value of ID.
@@ -3202,6 +3205,11 @@ func (s *AssetAcquisition) GetSource() OptAssetAcquisitionSource {
 	return s.Source
 }
 
+// GetOffsetAccount returns the value of OffsetAccount.
+func (s *AssetAcquisition) GetOffsetAccount() OptAssetOffsetAccount {
+	return s.OffsetAccount
+}
+
 // GetText returns the value of Text.
 func (s *AssetAcquisition) GetText() OptString {
 	return s.Text
@@ -3215,6 +3223,11 @@ func (s *AssetAcquisition) GetStatus() string {
 // GetEntries returns the value of Entries.
 func (s *AssetAcquisition) GetEntries() []AssetDocumentEntry {
 	return s.Entries
+}
+
+// GetReversal returns the value of Reversal.
+func (s *AssetAcquisition) GetReversal() OptAssetAcquisitionReversal {
+	return s.Reversal
 }
 
 // SetID sets the value of ID.
@@ -3307,6 +3320,11 @@ func (s *AssetAcquisition) SetSource(val OptAssetAcquisitionSource) {
 	s.Source = val
 }
 
+// SetOffsetAccount sets the value of OffsetAccount.
+func (s *AssetAcquisition) SetOffsetAccount(val OptAssetOffsetAccount) {
+	s.OffsetAccount = val
+}
+
 // SetText sets the value of Text.
 func (s *AssetAcquisition) SetText(val OptString) {
 	s.Text = val
@@ -3322,17 +3340,26 @@ func (s *AssetAcquisition) SetEntries(val []AssetDocumentEntry) {
 	s.Entries = val
 }
 
+// SetReversal sets the value of Reversal.
+func (s *AssetAcquisition) SetReversal(val OptAssetAcquisitionReversal) {
+	s.Reversal = val
+}
+
 // An acquisition from a posted line on an asset clearing account (ADR-0057 §6).
 // Ref: #/components/schemas/AssetAcquisitionCreate
 type AssetAcquisitionCreate struct {
-	// The asset the line's amount is capitalised onto.
-	AssetID uuid.UUID                 `json:"asset_id"`
-	Source  AssetAcquisitionSourceRef `json:"source"`
-	// In the line's currency, with the line's sign (negative from a credit line); default all that is left
-	// of the line.
+	// The asset the amount is capitalised onto.
+	AssetID uuid.UUID                    `json:"asset_id"`
+	Source  OptAssetAcquisitionSourceRef `json:"source"`
+	// For an acquisition by manual entry (T57d), instead of `source`: the G/L account credited
+	// (`GET /v1/accounts`); no reconciliation account and no asset clearing account.
+	OffsetAccountID OptUUID `json:"offset_account_id"`
+	// From a line: in the line's currency, with the line's sign (negative from a credit line or a
+	// reversal's line); default all that is left of the line, or of a reversal's line what the asset may
+	// take from it. Against an offset account: required, positive, in any currency.
 	Amount OptMoney `json:"amount"`
-	// The date the cost counts from for depreciation; default the line's posting date. At most the end of
-	// the posting date's period.
+	// The date the cost counts from for depreciation; default the line's posting date, or against an
+	// offset account the posting date. At most the end of the posting date's period.
 	ValueDate OptDate `json:"value_date"`
 	// The acquisition's posting date; default the company's date today.
 	PostingDate OptDate `json:"posting_date"`
@@ -3346,8 +3373,13 @@ func (s *AssetAcquisitionCreate) GetAssetID() uuid.UUID {
 }
 
 // GetSource returns the value of Source.
-func (s *AssetAcquisitionCreate) GetSource() AssetAcquisitionSourceRef {
+func (s *AssetAcquisitionCreate) GetSource() OptAssetAcquisitionSourceRef {
 	return s.Source
+}
+
+// GetOffsetAccountID returns the value of OffsetAccountID.
+func (s *AssetAcquisitionCreate) GetOffsetAccountID() OptUUID {
+	return s.OffsetAccountID
 }
 
 // GetAmount returns the value of Amount.
@@ -3376,8 +3408,13 @@ func (s *AssetAcquisitionCreate) SetAssetID(val uuid.UUID) {
 }
 
 // SetSource sets the value of Source.
-func (s *AssetAcquisitionCreate) SetSource(val AssetAcquisitionSourceRef) {
+func (s *AssetAcquisitionCreate) SetSource(val OptAssetAcquisitionSourceRef) {
 	s.Source = val
+}
+
+// SetOffsetAccountID sets the value of OffsetAccountID.
+func (s *AssetAcquisitionCreate) SetOffsetAccountID(val OptUUID) {
+	s.OffsetAccountID = val
 }
 
 // SetAmount sets the value of Amount.
@@ -3480,6 +3517,65 @@ func (s *AssetAcquisitionPage) SetNextPageToken(val OptString) {
 }
 
 func (*AssetAcquisitionPage) listAssetAcquisitionsRes() {}
+
+// The reversal of an acquisition; its entries are shown beside the acquisition's in `entries`.
+// Ref: #/components/schemas/AssetAcquisitionReversal
+type AssetAcquisitionReversal struct {
+	// The reversal's posting date.
+	PostingDate time.Time `json:"posting_date"`
+	// Why it was reversed.
+	Reason string `json:"reason"`
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetAcquisitionReversal) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetReason returns the value of Reason.
+func (s *AssetAcquisitionReversal) GetReason() string {
+	return s.Reason
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetAcquisitionReversal) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetReason sets the value of Reason.
+func (s *AssetAcquisitionReversal) SetReason(val string) {
+	s.Reason = val
+}
+
+// The reversal of an asset acquisition (ADR-0057 §6).
+// Ref: #/components/schemas/AssetAcquisitionReverse
+type AssetAcquisitionReverse struct {
+	// Why the acquisition is reversed.
+	Reason string `json:"reason"`
+	// The reversal's posting date; default the acquisition's. On or after the acquisition's posting date,
+	// in a period open in every ledger.
+	PostingDate OptDate `json:"posting_date"`
+}
+
+// GetReason returns the value of Reason.
+func (s *AssetAcquisitionReverse) GetReason() string {
+	return s.Reason
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetAcquisitionReverse) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// SetReason sets the value of Reason.
+func (s *AssetAcquisitionReverse) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetAcquisitionReverse) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
 
 // The line an acquisition capitalised: its leading-ledger entry and line, the entry's document number
 // and origin, and for a supplier invoice its number, reference and supplier.
@@ -4007,10 +4103,11 @@ type AssetClearingItem struct {
 	// What is left in group currency, with its sign.
 	RemainingGc Money `json:"remaining_gc"`
 	// The line's entry was reversed after acquisitions were made from it; nothing more can be taken from
-	// it.
+	// it, and its reversal's line (`reversal`) takes the cost off the assets holding it.
 	SourceReversed bool `json:"source_reversed"`
 	// The acquisitions made from the line, by posting order.
 	Acquisitions []AssetClearingAcquisition `json:"acquisitions"`
+	Reversal     OptAssetClearingReversal   `json:"reversal"`
 }
 
 // GetFiscalYear returns the value of FiscalYear.
@@ -4123,6 +4220,11 @@ func (s *AssetClearingItem) GetAcquisitions() []AssetClearingAcquisition {
 	return s.Acquisitions
 }
 
+// GetReversal returns the value of Reversal.
+func (s *AssetClearingItem) GetReversal() OptAssetClearingReversal {
+	return s.Reversal
+}
+
 // SetFiscalYear sets the value of FiscalYear.
 func (s *AssetClearingItem) SetFiscalYear(val int32) {
 	s.FiscalYear = val
@@ -4233,6 +4335,11 @@ func (s *AssetClearingItem) SetAcquisitions(val []AssetClearingAcquisition) {
 	s.Acquisitions = val
 }
 
+// SetReversal sets the value of Reversal.
+func (s *AssetClearingItem) SetReversal(val OptAssetClearingReversal) {
+	s.Reversal = val
+}
+
 // One page of lines on asset clearing accounts.
 // Ref: #/components/schemas/AssetClearingItemPage
 type AssetClearingItemPage struct {
@@ -4263,6 +4370,152 @@ func (s *AssetClearingItemPage) SetNextPageToken(val OptString) {
 }
 
 func (*AssetClearingItemPage) listAssetClearingItemsRes() {}
+
+// What an asset may take from a reversal's line: its posted acquisitions from the reversed line less
+// what it took from the reversal's line.
+// Ref: #/components/schemas/AssetClearingOffer
+type AssetClearingOffer struct {
+	// The asset.
+	AssetID uuid.UUID `json:"asset_id"`
+	// The asset's number.
+	AssetNumber string `json:"asset_number"`
+	// The asset's description.
+	AssetDescription string `json:"asset_description"`
+	// In the line's currency, with the reversal line's sign.
+	Amount Money `json:"amount"`
+}
+
+// GetAssetID returns the value of AssetID.
+func (s *AssetClearingOffer) GetAssetID() uuid.UUID {
+	return s.AssetID
+}
+
+// GetAssetNumber returns the value of AssetNumber.
+func (s *AssetClearingOffer) GetAssetNumber() string {
+	return s.AssetNumber
+}
+
+// GetAssetDescription returns the value of AssetDescription.
+func (s *AssetClearingOffer) GetAssetDescription() string {
+	return s.AssetDescription
+}
+
+// GetAmount returns the value of Amount.
+func (s *AssetClearingOffer) GetAmount() Money {
+	return s.Amount
+}
+
+// SetAssetID sets the value of AssetID.
+func (s *AssetClearingOffer) SetAssetID(val uuid.UUID) {
+	s.AssetID = val
+}
+
+// SetAssetNumber sets the value of AssetNumber.
+func (s *AssetClearingOffer) SetAssetNumber(val string) {
+	s.AssetNumber = val
+}
+
+// SetAssetDescription sets the value of AssetDescription.
+func (s *AssetClearingOffer) SetAssetDescription(val string) {
+	s.AssetDescription = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AssetClearingOffer) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// The line of the reversal of a reversed clearing line (ADR-0057 §6, T57d): capitalised as an
+// acquisition of its sign (`source` its entry and line) onto an asset that holds acquisitions from the
+// reversed line, at most what it offers that asset.
+// Ref: #/components/schemas/AssetClearingReversal
+type AssetClearingReversal struct {
+	// The reversal entry's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The reversal entry (the leading ledger's).
+	EntryID uuid.UUID `json:"entry_id"`
+	// The line's number, the reversed line's.
+	LineNo int32 `json:"line_no"`
+	// The reversal's posting date.
+	PostingDate time.Time `json:"posting_date"`
+	// The reversal entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The acquisitions made from the reversal's line, by posting order.
+	Acquisitions []AssetClearingAcquisition `json:"acquisitions"`
+	// Per asset holding posted acquisitions from the reversed line, by asset number, what it may still
+	// take from the reversal's line; none once each has taken all.
+	Offers []AssetClearingOffer `json:"offers"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetClearingReversal) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetEntryID returns the value of EntryID.
+func (s *AssetClearingReversal) GetEntryID() uuid.UUID {
+	return s.EntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *AssetClearingReversal) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetClearingReversal) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *AssetClearingReversal) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetAcquisitions returns the value of Acquisitions.
+func (s *AssetClearingReversal) GetAcquisitions() []AssetClearingAcquisition {
+	return s.Acquisitions
+}
+
+// GetOffers returns the value of Offers.
+func (s *AssetClearingReversal) GetOffers() []AssetClearingOffer {
+	return s.Offers
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetClearingReversal) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetEntryID sets the value of EntryID.
+func (s *AssetClearingReversal) SetEntryID(val uuid.UUID) {
+	s.EntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *AssetClearingReversal) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetClearingReversal) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *AssetClearingReversal) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetAcquisitions sets the value of Acquisitions.
+func (s *AssetClearingReversal) SetAcquisitions(val []AssetClearingAcquisition) {
+	s.Acquisitions = val
+}
+
+// SetOffers sets the value of Offers.
+func (s *AssetClearingReversal) SetOffers(val []AssetClearingOffer) {
+	s.Offers = val
+}
 
 // A new asset: its company, class, description and centers. Its terms come from the class.
 // Ref: #/components/schemas/AssetCreate
@@ -4344,6 +4597,12 @@ type AssetDocumentEntry struct {
 	JournalEntryID uuid.UUID `json:"journal_entry_id"`
 	// The entry's document number.
 	DocumentNumber string `json:"document_number"`
+	// Its reversal's fiscal year, once reversed.
+	ReversalFiscalYear OptInt32 `json:"reversal_fiscal_year"`
+	// Its reversal entry, once reversed.
+	ReversalJournalEntryID OptUUID `json:"reversal_journal_entry_id"`
+	// Its reversal entry's document number, once reversed.
+	ReversalDocumentNumber OptString `json:"reversal_document_number"`
 }
 
 // GetLedgerID returns the value of LedgerID.
@@ -4376,6 +4635,21 @@ func (s *AssetDocumentEntry) GetDocumentNumber() string {
 	return s.DocumentNumber
 }
 
+// GetReversalFiscalYear returns the value of ReversalFiscalYear.
+func (s *AssetDocumentEntry) GetReversalFiscalYear() OptInt32 {
+	return s.ReversalFiscalYear
+}
+
+// GetReversalJournalEntryID returns the value of ReversalJournalEntryID.
+func (s *AssetDocumentEntry) GetReversalJournalEntryID() OptUUID {
+	return s.ReversalJournalEntryID
+}
+
+// GetReversalDocumentNumber returns the value of ReversalDocumentNumber.
+func (s *AssetDocumentEntry) GetReversalDocumentNumber() OptString {
+	return s.ReversalDocumentNumber
+}
+
 // SetLedgerID sets the value of LedgerID.
 func (s *AssetDocumentEntry) SetLedgerID(val uuid.UUID) {
 	s.LedgerID = val
@@ -4404,6 +4678,21 @@ func (s *AssetDocumentEntry) SetJournalEntryID(val uuid.UUID) {
 // SetDocumentNumber sets the value of DocumentNumber.
 func (s *AssetDocumentEntry) SetDocumentNumber(val string) {
 	s.DocumentNumber = val
+}
+
+// SetReversalFiscalYear sets the value of ReversalFiscalYear.
+func (s *AssetDocumentEntry) SetReversalFiscalYear(val OptInt32) {
+	s.ReversalFiscalYear = val
+}
+
+// SetReversalJournalEntryID sets the value of ReversalJournalEntryID.
+func (s *AssetDocumentEntry) SetReversalJournalEntryID(val OptUUID) {
+	s.ReversalJournalEntryID = val
+}
+
+// SetReversalDocumentNumber sets the value of ReversalDocumentNumber.
+func (s *AssetDocumentEntry) SetReversalDocumentNumber(val OptString) {
+	s.ReversalDocumentNumber = val
 }
 
 // AssetHeaders wraps Asset with response headers.
@@ -4563,6 +4852,47 @@ func (s *AssetLedgerValues) SetNetBookValue(val Money) {
 // SetNetBookValueGc sets the value of NetBookValueGc.
 func (s *AssetLedgerValues) SetNetBookValueGc(val Money) {
 	s.NetBookValueGc = val
+}
+
+// The offset account of an acquisition by manual entry, by its number and name.
+// Ref: #/components/schemas/AssetOffsetAccount
+type AssetOffsetAccount struct {
+	// The account (`GET /v1/accounts/{id}`).
+	ID uuid.UUID `json:"id"`
+	// The account's number.
+	Number string `json:"number"`
+	// The account's name.
+	Name string `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *AssetOffsetAccount) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetNumber returns the value of Number.
+func (s *AssetOffsetAccount) GetNumber() string {
+	return s.Number
+}
+
+// GetName returns the value of Name.
+func (s *AssetOffsetAccount) GetName() string {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *AssetOffsetAccount) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *AssetOffsetAccount) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetName sets the value of Name.
+func (s *AssetOffsetAccount) SetName(val string) {
+	s.Name = val
 }
 
 // One page of assets.
@@ -12554,6 +12884,7 @@ func (*ConflictHeaders) requestBankAccountChangeRes()         {}
 func (*ConflictHeaders) requestBankAccountEndRes()            {}
 func (*ConflictHeaders) resumeWebhookSubscriptionRes()        {}
 func (*ConflictHeaders) retireEntryTemplateRes()              {}
+func (*ConflictHeaders) reverseAssetAcquisitionRes()          {}
 func (*ConflictHeaders) reverseGoodsReceiptRes()              {}
 func (*ConflictHeaders) reverseJournalEntryRes()              {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()           {}
@@ -31311,6 +31642,52 @@ func (o OptAnalyticsDerived) Or(d AnalyticsDerived) AnalyticsDerived {
 	return d
 }
 
+// NewOptAssetAcquisitionReversal returns new OptAssetAcquisitionReversal with value set to v.
+func NewOptAssetAcquisitionReversal(v AssetAcquisitionReversal) OptAssetAcquisitionReversal {
+	return OptAssetAcquisitionReversal{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetAcquisitionReversal is optional AssetAcquisitionReversal.
+type OptAssetAcquisitionReversal struct {
+	Value AssetAcquisitionReversal
+	Set   bool
+}
+
+// IsSet returns true if OptAssetAcquisitionReversal was set.
+func (o OptAssetAcquisitionReversal) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetAcquisitionReversal) Reset() {
+	var v AssetAcquisitionReversal
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetAcquisitionReversal) SetTo(v AssetAcquisitionReversal) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetAcquisitionReversal) Get() (v AssetAcquisitionReversal, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetAcquisitionReversal) Or(d AssetAcquisitionReversal) AssetAcquisitionReversal {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptAssetAcquisitionSource returns new OptAssetAcquisitionSource with value set to v.
 func NewOptAssetAcquisitionSource(v AssetAcquisitionSource) OptAssetAcquisitionSource {
 	return OptAssetAcquisitionSource{
@@ -31351,6 +31728,144 @@ func (o OptAssetAcquisitionSource) Get() (v AssetAcquisitionSource, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAssetAcquisitionSource) Or(d AssetAcquisitionSource) AssetAcquisitionSource {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssetAcquisitionSourceRef returns new OptAssetAcquisitionSourceRef with value set to v.
+func NewOptAssetAcquisitionSourceRef(v AssetAcquisitionSourceRef) OptAssetAcquisitionSourceRef {
+	return OptAssetAcquisitionSourceRef{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetAcquisitionSourceRef is optional AssetAcquisitionSourceRef.
+type OptAssetAcquisitionSourceRef struct {
+	Value AssetAcquisitionSourceRef
+	Set   bool
+}
+
+// IsSet returns true if OptAssetAcquisitionSourceRef was set.
+func (o OptAssetAcquisitionSourceRef) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetAcquisitionSourceRef) Reset() {
+	var v AssetAcquisitionSourceRef
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetAcquisitionSourceRef) SetTo(v AssetAcquisitionSourceRef) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetAcquisitionSourceRef) Get() (v AssetAcquisitionSourceRef, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetAcquisitionSourceRef) Or(d AssetAcquisitionSourceRef) AssetAcquisitionSourceRef {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssetClearingReversal returns new OptAssetClearingReversal with value set to v.
+func NewOptAssetClearingReversal(v AssetClearingReversal) OptAssetClearingReversal {
+	return OptAssetClearingReversal{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetClearingReversal is optional AssetClearingReversal.
+type OptAssetClearingReversal struct {
+	Value AssetClearingReversal
+	Set   bool
+}
+
+// IsSet returns true if OptAssetClearingReversal was set.
+func (o OptAssetClearingReversal) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetClearingReversal) Reset() {
+	var v AssetClearingReversal
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetClearingReversal) SetTo(v AssetClearingReversal) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetClearingReversal) Get() (v AssetClearingReversal, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetClearingReversal) Or(d AssetClearingReversal) AssetClearingReversal {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssetOffsetAccount returns new OptAssetOffsetAccount with value set to v.
+func NewOptAssetOffsetAccount(v AssetOffsetAccount) OptAssetOffsetAccount {
+	return OptAssetOffsetAccount{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetOffsetAccount is optional AssetOffsetAccount.
+type OptAssetOffsetAccount struct {
+	Value AssetOffsetAccount
+	Set   bool
+}
+
+// IsSet returns true if OptAssetOffsetAccount was set.
+func (o OptAssetOffsetAccount) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetOffsetAccount) Reset() {
+	var v AssetOffsetAccount
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetOffsetAccount) SetTo(v AssetOffsetAccount) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetOffsetAccount) Get() (v AssetOffsetAccount, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetOffsetAccount) Or(d AssetOffsetAccount) AssetOffsetAccount {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -44480,6 +44995,69 @@ func (s *RevaluationTotal) SetDifferenceGc(val Money) {
 	s.DifferenceGc = val
 }
 
+type ReverseAssetAcquisitionBadRequest Problem
+
+func (*ReverseAssetAcquisitionBadRequest) reverseAssetAcquisitionRes() {}
+
+type ReverseAssetAcquisitionForbidden Problem
+
+func (*ReverseAssetAcquisitionForbidden) reverseAssetAcquisitionRes() {}
+
+type ReverseAssetAcquisitionNotFound Problem
+
+func (*ReverseAssetAcquisitionNotFound) reverseAssetAcquisitionRes() {}
+
+// ReverseAssetAcquisitionOKHeaders wraps AssetAcquisition with response headers.
+type ReverseAssetAcquisitionOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           AssetAcquisition
+}
+
+// GetETag returns the value of ETag.
+func (s *ReverseAssetAcquisitionOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ReverseAssetAcquisitionOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ReverseAssetAcquisitionOKHeaders) GetResponse() AssetAcquisition {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ReverseAssetAcquisitionOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ReverseAssetAcquisitionOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReverseAssetAcquisitionOKHeaders) SetResponse(val AssetAcquisition) {
+	s.Response = val
+}
+
+func (*ReverseAssetAcquisitionOKHeaders) reverseAssetAcquisitionRes() {}
+
+type ReverseAssetAcquisitionPreconditionFailed Problem
+
+func (*ReverseAssetAcquisitionPreconditionFailed) reverseAssetAcquisitionRes() {}
+
+type ReverseAssetAcquisitionPreconditionRequired Problem
+
+func (*ReverseAssetAcquisitionPreconditionRequired) reverseAssetAcquisitionRes() {}
+
+type ReverseAssetAcquisitionUnprocessableEntity Problem
+
+func (*ReverseAssetAcquisitionUnprocessableEntity) reverseAssetAcquisitionRes() {}
+
 type ReverseGoodsReceiptBadRequest Problem
 
 func (*ReverseGoodsReceiptBadRequest) reverseGoodsReceiptRes() {}
@@ -45920,6 +46498,7 @@ func (*ServiceUnavailableHeaders) requestBankAccountChangeRes()         {}
 func (*ServiceUnavailableHeaders) requestBankAccountEndRes()            {}
 func (*ServiceUnavailableHeaders) resumeWebhookSubscriptionRes()        {}
 func (*ServiceUnavailableHeaders) retireEntryTemplateRes()              {}
+func (*ServiceUnavailableHeaders) reverseAssetAcquisitionRes()          {}
 func (*ServiceUnavailableHeaders) reverseGoodsReceiptRes()              {}
 func (*ServiceUnavailableHeaders) reverseJournalEntryRes()              {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()           {}
@@ -50355,6 +50934,7 @@ func (*TooManyRequestsHeaders) requestBankAccountChangeRes()         {}
 func (*TooManyRequestsHeaders) requestBankAccountEndRes()            {}
 func (*TooManyRequestsHeaders) resumeWebhookSubscriptionRes()        {}
 func (*TooManyRequestsHeaders) retireEntryTemplateRes()              {}
+func (*TooManyRequestsHeaders) reverseAssetAcquisitionRes()          {}
 func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()              {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()              {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()           {}
@@ -50739,6 +51319,7 @@ func (*UnauthorizedHeaders) requestBankAccountChangeRes()         {}
 func (*UnauthorizedHeaders) requestBankAccountEndRes()            {}
 func (*UnauthorizedHeaders) resumeWebhookSubscriptionRes()        {}
 func (*UnauthorizedHeaders) retireEntryTemplateRes()              {}
+func (*UnauthorizedHeaders) reverseAssetAcquisitionRes()          {}
 func (*UnauthorizedHeaders) reverseGoodsReceiptRes()              {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()              {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()           {}

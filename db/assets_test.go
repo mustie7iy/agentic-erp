@@ -267,7 +267,7 @@ func TestAssetAcquisitionRules(t *testing.T) {
 	mustApp(t, f.tenant, func(tx pgx.Tx) error {
 		return exec(tx, acquisitionSQL, f.tenant, acq, f.entity, f.active, 2, 1000, id(), nil, "posted", f.actor)
 	})
-	status := `UPDATE assets.acquisition SET status = $2, version = version + 1 WHERE id = $1`
+	status := `UPDATE assets.acquisition SET status = $2, reversal_posting_date = '2026-06-02', reversal_reason = 'r', version = version + 1 WHERE id = $1`
 	for name, c := range map[string]struct {
 		sql  string
 		args []any
@@ -333,4 +333,54 @@ func TestDocumentEntryRules(t *testing.T) {
 	failsWith(t, f.try(t, entrySQL, f.tenant, doc, f.ledger, "main"), "document_entry_pkey")
 	failsWith(t, f.try(t, entrySQL, f.tenant, doc, f.ledger, "extra"), "document_entry_part_check")
 	failsWith(t, f.try(t, `UPDATE assets.document_entry SET document_number = '2' WHERE document_id = $1`, doc), "permission denied")
+}
+
+// TestAcquisitionReversalRules (T57d, migration 000195): an acquisition is
+// reversed exactly when its reversal's date and reason are recorded, never
+// dated before it, and keeps them; a reversal's line's use names the line
+// it reverses, both or neither, and keeps it; a document's entry records
+// its reversal entry once, with its number, and nothing else of it
+// changes.
+func TestAcquisitionReversalRules(t *testing.T) {
+	need(t)
+	f := newAssetFixture(t)
+	acq := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, acquisitionSQL, f.tenant, acq, f.entity, f.active, 2, 1000, id(), nil, "posted", f.actor)
+	})
+	reverse := `UPDATE assets.acquisition SET status = 'reversed', reversal_posting_date = $2::date, reversal_reason = $3, version = version + 1 WHERE id = $1`
+	for name, c := range map[string]struct {
+		sql  string
+		args []any
+		want string
+	}{
+		"reversed without its date":        {`UPDATE assets.acquisition SET status = 'reversed', version = version + 1 WHERE id = $1`, []any{acq}, "acquisition_reversal"},
+		"a reversal recorded while posted": {`UPDATE assets.acquisition SET reversal_posting_date = '2026-06-02', reversal_reason = 'r', version = version + 1 WHERE id = $1`, []any{acq}, "acquisition_reversal"},
+		"reversed without a reason":        {reverse, []any{acq, "2026-06-02", nil}, "acquisition_reversal"},
+		"an empty reason":                  {reverse, []any{acq, "2026-06-02", ""}, "acquisition_reversal_reason_check"},
+		"reversed before it was posted":    {reverse, []any{acq, "2026-05-31", "r"}, "acquisition_reversal_date"},
+	} {
+		t.Run(name, func(t *testing.T) { failsWith(t, f.try(t, c.sql, c.args...), c.want) })
+	}
+	mustApp(t, f.tenant, func(tx pgx.Tx) error { return exec(tx, reverse, acq, "2026-06-01", "r") })
+	failsWith(t, f.try(t, `UPDATE assets.acquisition SET reversal_reason = 'other', version = version + 1 WHERE id = $1`, acq), "keeps what it posted")
+
+	reversal := `INSERT INTO assets.clearing_use (tenant_id, entry_year, entry_id, line_no, legal_entity_id, currency, line_amount, line_lc, line_gc,
+		reverses_entry_year, reverses_entry_id) VALUES ($1, 2026, $2, 1, $3, 'EUR', -100, -100, -100, $4, $5)`
+	failsWith(t, f.try(t, reversal, f.tenant, id(), f.entity, 2026, nil), "clearing_use_reverses")
+	use := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error { return exec(tx, reversal, f.tenant, use, f.entity, 2026, id()) })
+	failsWith(t, f.try(t, `UPDATE assets.clearing_use SET reverses_entry_id = gen_random_uuid(), version = version + 1 WHERE entry_id = $1`, use), "keeps its amounts")
+
+	doc := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO assets.document_entry (tenant_id, document_kind, document_id, ledger_id, part, journal_entry_year, journal_entry_id,
+			document_number) VALUES ($1, 'acquisition', $2, $3, 'main', 2026, gen_random_uuid(), '1')`, f.tenant, doc, f.ledger)
+	})
+	record := `UPDATE assets.document_entry SET reversal_entry_year = 2026, reversal_entry_id = gen_random_uuid(), reversal_document_number = $2 WHERE document_id = $1`
+	failsWith(t, f.try(t, `UPDATE assets.document_entry SET reversal_entry_year = 2026, reversal_entry_id = gen_random_uuid() WHERE document_id = $1`, doc),
+		"document_entry_reversal_number")
+	mustApp(t, f.tenant, func(tx pgx.Tx) error { return exec(tx, record, doc, "2") })
+	failsWith(t, f.try(t, record, doc, "3"), "is reversed once")
+	failsWith(t, f.try(t, `UPDATE assets.document_entry SET journal_entry_year = 2027 WHERE document_id = $1`, doc), "permission denied")
 }
