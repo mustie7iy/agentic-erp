@@ -32579,6 +32579,16 @@ components:
               method: straight_line
               useful_life_months: 120
               residual_value: {amount: "0.00", currency: CAD}
+          values:
+            - ledger_id: 0192a000-0000-7000-8000-000000000301
+              ledger_code: 0L
+              ledger_name: Leading ledger
+              cost: {amount: "0.00", currency: CAD}
+              cost_gc: {amount: "0.00", currency: USD}
+              accumulated: {amount: "0.00", currency: CAD}
+              accumulated_gc: {amount: "0.00", currency: USD}
+              net_book_value: {amount: "0.00", currency: CAD}
+              net_book_value_gc: {amount: "0.00", currency: USD}
     AssetLedgerValues:
       type: object
       description: "An asset's values in one ledger (ADR-0057 §5): its acquisition cost, accumulated depreciation (negative, the credit it is) and net book value, in the company's local currency and in group currency as the ledger booked them."
