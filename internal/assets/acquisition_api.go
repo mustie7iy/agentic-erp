@@ -238,7 +238,7 @@ func (e *Endpoints) ListAssetAcquisitions(ctx context.Context, params gen.ListAs
 	}
 	le, asset, entry := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.AssetID), apitypes.Ptr[uuid.UUID](params.SourceEntryID)
 	from, to := apitypes.Ptr[time.Time](params.PostingDateFrom), apitypes.Ptr[time.Time](params.PostingDateTo)
-	scope := fmt.Sprintf("listAssetAcquisitions|%s|%s|%s|%s|%s|%s", le, asset, entry, outboxDate(from), outboxDate(to), params.Status.Value)
+	scope := fmt.Sprintf("listAssetAcquisitions|%s|%s|%s|%s|%s|%s", le, asset, entry, scopeDate(from), scopeDate(to), params.Status.Value)
 	ks, err := e.Pages.Keyset(acquisitionSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -270,8 +270,8 @@ func (e *Endpoints) ListAssetAcquisitions(ctx context.Context, params gen.ListAs
 	return &gen.AssetAcquisitionPage{Items: items, NextPageToken: next}, nil
 }
 
-// outboxDate is a date for a page's scope, "" for none.
-func outboxDate(d *time.Time) string {
+// scopeDate is a date for a page token's scope, "" for none.
+func scopeDate(d *time.Time) string {
 	if d == nil {
 		return ""
 	}

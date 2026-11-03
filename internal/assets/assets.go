@@ -61,10 +61,12 @@ type Company struct {
 }
 
 // Companies reads legal entities (tenancy context): the one of a company
-// code, and the one of an id, ok false when there is none.
+// code, and the one of an id, ok false when there is none; and the
+// tenant's group currency.
 type Companies interface {
 	ByCode(ctx context.Context, code string) (Company, bool, error)
 	Company(ctx context.Context, id uuid.UUID) (Company, bool, error)
+	GroupCurrency(ctx context.Context) (string, error)
 }
 
 // LedgerRef is a ledger by its code and name.

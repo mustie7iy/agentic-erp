@@ -242,7 +242,7 @@ func (v docView) clearingItem(l Line, account *config.Account, u used, acqs []cl
 		DocumentNumber: l.DocumentNumber, SourceContext: l.SourceContext, SourceDocumentID: apitypes.OptUUID(l.SourceDocumentID),
 		SupplierInvoice: v.supplierInvoice(l.SourceContext, l.SourceDocumentID), AccountID: l.AccountID, AccountNumber: account.Number,
 		AccountName: account.Name, Amount: v.money(l.Amount, l.Currency), AmountLc: v.money(l.LC, l.CurrencyLC), AmountGc: v.money(l.GC, l.CurrencyGC),
-		Used: v.money(u.tc, l.Currency), Remaining: v.money(l.Amount-u.tc, l.Currency), RemainingLc: v.money(l.LC-u.lc, l.CurrencyLC),
+		Used: v.money(u.tc, l.Currency), UsedLc: v.money(u.lc, l.CurrencyLC), UsedGc: v.money(u.gc, l.CurrencyGC), Remaining: v.money(l.Amount-u.tc, l.Currency), RemainingLc: v.money(l.LC-u.lc, l.CurrencyLC),
 		RemainingGc: v.money(l.GC-u.gc, l.CurrencyGC), SourceReversed: l.Reversed || l.Reversal, Acquisitions: []gen.AssetClearingAcquisition{}}
 	for _, a := range acqs {
 		it.Acquisitions = append(it.Acquisitions, gen.AssetClearingAcquisition{ID: a.id, AssetID: a.asset, AssetNumber: a.assetNumber,

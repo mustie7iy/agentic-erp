@@ -34,6 +34,7 @@ type Asset struct {
 	LastSeq                      int32
 	CostCenterID, ProfitCenterID *uuid.UUID
 	Terms                        []Terms
+	Values                       map[uuid.UUID]Values // by ledger, from its movements
 	Version                      int32
 	CreatedAt, UpdatedAt         time.Time
 	CreatedBy, UpdatedBy         uuid.UUID
@@ -50,6 +51,13 @@ type Terms struct {
 	Residual                 money.Minor
 	DepreciationStart        *time.Time
 	BookedYear, BookedPeriod *int16
+}
+
+// Values are an asset's values in one ledger, the sums of its movements
+// there (ADR-0057 §5): cost and accumulated depreciation (negative, a
+// credit) in local and group currency.
+type Values struct {
+	Cost, CostGC, Accumulated, AccumulatedGC money.Minor
 }
 
 // booked reports whether depreciation has been posted in the terms'

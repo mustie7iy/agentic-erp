@@ -44,6 +44,10 @@ func (assetCompanies) Company(ctx context.Context, id uuid.UUID) (assets.Company
 	return assetCompany(le), ok, err
 }
 
+func (assetCompanies) GroupCurrency(ctx context.Context) (string, error) {
+	return tenancy.Directory{}.GroupCurrency(ctx)
+}
+
 // assetLedger gives the assets context the ledgers and fiscal years.
 type assetLedger struct{}
 

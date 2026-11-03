@@ -63,6 +63,18 @@ func acquisition(asset any, entry uuid.UUID, lineNo int, extra string) string {
 	return fmt.Sprintf(`{"asset_id": "%v", "source": {"entry_id": %q, "line_no": %d}%s}`, asset, entry, lineNo, extra)
 }
 
+// values are an asset's values, one per ledger: cost, accumulated
+// depreciation and net book value in local and group currency.
+func values(a map[string]any) string {
+	var out []string
+	for _, v := range a["values"].([]any) {
+		v := v.(map[string]any)
+		out = append(out, fmt.Sprint(v["ledger_code"], " ", moneyOf(v["cost"]), " ", moneyOf(v["cost_gc"]), " ", moneyOf(v["accumulated"]), " ",
+			moneyOf(v["accumulated_gc"]), " ", moneyOf(v["net_book_value"]), " ", moneyOf(v["net_book_value_gc"])))
+	}
+	return strings.Join(out, "; ")
+}
+
 // money is a Money of a representation, as "amount currency".
 func moneyOf(v any) string {
 	m := v.(map[string]any)
@@ -132,6 +144,7 @@ func TestAcquisitionSplitsALine(t *testing.T) {
 
 	asset, _ := e.Must(200, "GET", "/v1/assets/"+a["id"].(string), "", "")
 	want(t, "the asset", fmt.Sprint(asset["status"], " ", asset["capitalised_on"], " ", asset["version"]), "active 2026-06-10 2")
+	want(t, "its values", values(asset), "0L 423.33 USD 389.46 EUR 0.00 USD 0.00 EUR 423.33 USD 389.46 EUR")
 	var seq, last int
 	pgtest.Scan(t, `SELECT q.seq, a.last_seq FROM assets.acquisition q JOIN assets.asset a ON a.id = q.asset_id WHERE q.id = $1`, []any{first["id"]}, &seq, &last)
 	want(t, "the acquisition's seq and the asset's", fmt.Sprint(seq, " ", last), "2 2")
@@ -177,6 +190,8 @@ func TestAcquisitionInEveryLedger(t *testing.T) {
 	want(t, "the cost line's profit center", pc, e.c.Profit)
 	asset, _ := e.Must(200, "GET", "/v1/assets/"+a["id"].(string), "", "")
 	want(t, "the asset", fmt.Sprint(asset["status"], " ", asset["capitalised_on"]), "active 2026-05-20")
+	want(t, "its values", values(asset), "0L 600.00 EUR 600.00 EUR 0.00 EUR 0.00 EUR 600.00 EUR 600.00 EUR; "+
+		"2L 600.00 EUR 600.00 EUR 0.00 EUR 0.00 EUR 600.00 EUR 600.00 EUR")
 }
 
 // TestAcquisitionRefused: lines that are not the asset's class's clearing
@@ -252,11 +267,14 @@ func TestAcquisitionRefused(t *testing.T) {
 	e.acquire(t, moved["id"], good, 1, `, "amount": {"amount": "30.00", "currency": "EUR"}, "posting_date": "2026-06-20"`)
 	e.clocked.Problem(422, "assets.cost_negative", "POST", "/v1/asset-acquisitions", acquisition(moved["id"], credit, 2, `, "posting_date": "2026-06-20"`), "")
 	e.acquire(t, id, good, 1, `, "amount": {"amount": "200.00", "currency": "EUR"}`)
-	reduction := e.acquire(t, id, credit, 2, "")
+	reduction := e.acquire(t, id, credit, 2, `, "value_date": "2026-06-01"`) // before the cost it reduces: it capitalises nothing
 	want(t, "a negative acquisition", fmt.Sprint(moneyOf(reduction["amount"]), " ", moneyOf(reduction["amount_lc"])), "-50.00 EUR -50.00 EUR")
 	var cost int64
 	pgtest.Scan(t, `SELECT sum(cost) FROM assets.movement WHERE asset_id = $1 AND ledger_id = $2`, []any{id, e.l2}, &cost)
 	want(t, "the cost after the reduction", cost, 15000)
+	after, _ := e.Must(200, "GET", "/v1/assets/"+id.(string), "", "")
+	want(t, "the values after the reduction", fmt.Sprint(after["capitalised_on"], " ", values(after)), "2026-06-10 0L 150.00 EUR 150.00 EUR 0.00 EUR 0.00 EUR "+
+		"150.00 EUR 150.00 EUR; 2L 150.00 EUR 150.00 EUR 0.00 EUR 0.00 EUR 150.00 EUR 150.00 EUR")
 	own := uuid.MustParse(reduction["entries"].([]any)[0].(map[string]any)["journal_entry_id"].(string))
 	e.clocked.Problem(422, "assets.not_clearing_line", "POST", "/v1/asset-acquisitions", acquisition(id, own, 2, ""), "")
 

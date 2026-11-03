@@ -32523,7 +32523,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [legal_entity_id, company_code, asset_number, class_code, class_name, description, status, terms]
+          required: [legal_entity_id, company_code, asset_number, class_code, class_name, description, status, terms, values]
           properties:
             legal_entity_id: {type: string, format: uuid, description: "The company's legal entity.", readOnly: true}
             company_code: {type: string, description: The company code., readOnly: true}
@@ -32547,6 +32547,11 @@ components:
               type: array
               items: {$ref: "#/components/schemas/AssetTerms"}
               description: "Its depreciation terms, one per ledger it has terms in, the leading ledger first and then by ledger code."
+              readOnly: true
+            values:
+              type: array
+              items: {$ref: "#/components/schemas/AssetLedgerValues"}
+              description: "Its values per ledger it has terms or movements in, in the order of `terms`: the sums of its movements (ADR-0057 §5), zero before its first acquisition. The asset's `version` moves when they change."
               readOnly: true
       examples:
         - id: 0192a000-0000-7000-8000-000000000f01
@@ -32574,6 +32579,30 @@ components:
               method: straight_line
               useful_life_months: 120
               residual_value: {amount: "0.00", currency: CAD}
+    AssetLedgerValues:
+      type: object
+      description: "An asset's values in one ledger (ADR-0057 §5): its acquisition cost, accumulated depreciation (negative, the credit it is) and net book value, in the company's local currency and in group currency as the ledger booked them."
+      required: [ledger_id, ledger_code, ledger_name, cost, cost_gc, accumulated, accumulated_gc, net_book_value, net_book_value_gc]
+      properties:
+        ledger_id: {type: string, format: uuid, description: The ledger., readOnly: true}
+        ledger_code: {type: string, description: "The ledger's code.", readOnly: true}
+        ledger_name: {type: string, description: "The ledger's name.", readOnly: true}
+        cost: {$ref: "#/components/schemas/Money"}
+        cost_gc: {$ref: "#/components/schemas/Money"}
+        accumulated: {$ref: "#/components/schemas/Money"}
+        accumulated_gc: {$ref: "#/components/schemas/Money"}
+        net_book_value: {$ref: "#/components/schemas/Money"}
+        net_book_value_gc: {$ref: "#/components/schemas/Money"}
+      examples:
+        - ledger_id: 0192a000-0000-7000-8000-000000000301
+          ledger_code: 0L
+          ledger_name: Leading ledger
+          cost: {amount: "6000.00", currency: CAD}
+          cost_gc: {amount: "4380.00", currency: USD}
+          accumulated: {amount: "0.00", currency: CAD}
+          accumulated_gc: {amount: "0.00", currency: USD}
+          net_book_value: {amount: "6000.00", currency: CAD}
+          net_book_value_gc: {amount: "4380.00", currency: USD}
     AssetTerms:
       type: object
       description: "An asset's depreciation terms in one ledger (ADR-0057 §7): one depreciation area."
@@ -32674,7 +32703,9 @@ components:
       properties:
         asset_id: {type: string, format: uuid, description: "The asset the line's amount is capitalised onto."}
         source: {$ref: "#/components/schemas/AssetAcquisitionSourceRef"}
-        amount: {$ref: "#/components/schemas/Money"}
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "In the line's currency, with the line's sign (negative from a credit line); default all that is left of the line."
         value_date: {type: string, format: date, description: "The date the cost counts from for depreciation; default the line's posting date. At most the end of the posting date's period."}
         posting_date: {type: string, format: date, description: "The acquisition's posting date; default the company's date today."}
         text: {type: string, minLength: 1, maxLength: 200, description: "A text for the acquisition and its entries."}
@@ -32706,9 +32737,9 @@ components:
             value_date: {type: string, format: date, description: "The date the cost counts from for depreciation.", readOnly: true}
             posting_date: {type: string, format: date, description: The posting date of its entries., readOnly: true}
             fiscal_year: {type: integer, format: int32, description: "The posting date's fiscal year.", readOnly: true}
-            amount: {$ref: "#/components/schemas/Money"}
-            amount_lc: {$ref: "#/components/schemas/Money"}
-            amount_gc: {$ref: "#/components/schemas/Money"}
+            amount: {$ref: "#/components/schemas/Money", description: "In the line's currency; negative from a credit line, a reduction of cost."}
+            amount_lc: {$ref: "#/components/schemas/Money", description: "In local currency; negative from a credit line."}
+            amount_gc: {$ref: "#/components/schemas/Money", description: "In group currency; negative from a credit line."}
             source: {$ref: "#/components/schemas/AssetAcquisitionSource"}
             text: {type: string, description: "The acquisition's text.", readOnly: true}
             status:
@@ -32801,7 +32832,7 @@ components:
     AssetClearingItem:
       type: object
       description: "A line on an asset clearing account (ADR-0057 §6): its amounts, what acquisitions used and what is left, its document and origin, and the acquisitions made from it."
-      required: [fiscal_year, entry_id, line_no, posting_date, document_number, source_context, account_id, account_number, account_name, amount, amount_lc, amount_gc, used, remaining, remaining_lc, remaining_gc, source_reversed, acquisitions]
+      required: [fiscal_year, entry_id, line_no, posting_date, document_number, source_context, account_id, account_number, account_name, amount, amount_lc, amount_gc, used, used_lc, used_gc, remaining, remaining_lc, remaining_gc, source_reversed, acquisitions]
       properties:
         fiscal_year: {type: integer, format: int32, description: "The entry's fiscal year.", readOnly: true}
         entry_id: {type: string, format: uuid, description: "The journal entry (the leading ledger's).", readOnly: true}
@@ -32814,13 +32845,15 @@ components:
         account_id: {type: string, format: uuid, description: The clearing account., readOnly: true}
         account_number: {type: string, description: "The account's number.", readOnly: true}
         account_name: {type: string, description: "The account's name.", readOnly: true}
-        amount: {$ref: "#/components/schemas/Money"}
-        amount_lc: {$ref: "#/components/schemas/Money"}
-        amount_gc: {$ref: "#/components/schemas/Money"}
-        used: {$ref: "#/components/schemas/Money"}
-        remaining: {$ref: "#/components/schemas/Money"}
-        remaining_lc: {$ref: "#/components/schemas/Money"}
-        remaining_gc: {$ref: "#/components/schemas/Money"}
+        amount: {$ref: "#/components/schemas/Money", description: "The line's amount, debit positive: negative for a credit line."}
+        amount_lc: {$ref: "#/components/schemas/Money", description: "In local currency, debit positive."}
+        amount_gc: {$ref: "#/components/schemas/Money", description: "In group currency, debit positive."}
+        used: {$ref: "#/components/schemas/Money", description: "What acquisitions used of it in its currency, with its sign."}
+        used_lc: {$ref: "#/components/schemas/Money", description: "What they used in local currency, with its sign."}
+        used_gc: {$ref: "#/components/schemas/Money", description: "What they used in group currency, with its sign."}
+        remaining: {$ref: "#/components/schemas/Money", description: "What is left of it in its currency, with its sign."}
+        remaining_lc: {$ref: "#/components/schemas/Money", description: "What is left in local currency, with its sign."}
+        remaining_gc: {$ref: "#/components/schemas/Money", description: "What is left in group currency, with its sign."}
         source_reversed: {type: boolean, description: "The line's entry was reversed after acquisitions were made from it; nothing more can be taken from it.", readOnly: true}
         acquisitions:
           type: array
@@ -32835,7 +32868,7 @@ components:
         id: {type: string, format: uuid, description: "The acquisition (`GET /v1/asset-acquisitions/{id}`).", readOnly: true}
         asset_id: {type: string, format: uuid, description: The asset., readOnly: true}
         asset_number: {type: string, description: "The asset's number.", readOnly: true}
-        amount: {$ref: "#/components/schemas/Money"}
+        amount: {$ref: "#/components/schemas/Money", description: "In the line's currency, with the line's sign."}
         status:
           type: string
           description: "`posted` or `reversed`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."

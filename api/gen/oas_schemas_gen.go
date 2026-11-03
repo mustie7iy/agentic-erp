@@ -2809,6 +2809,10 @@ type Asset struct {
 	// Its depreciation terms, one per ledger it has terms in, the leading ledger first and then by ledger
 	// code.
 	Terms []AssetTerms `json:"terms"`
+	// Its values per ledger it has terms or movements in, in the order of `terms`: the sums of its
+	// movements (ADR-0057 §5), zero before its first acquisition. The asset's `version` moves when they
+	// change.
+	Values []AssetLedgerValues `json:"values"`
 }
 
 // GetID returns the value of ID.
@@ -2916,6 +2920,11 @@ func (s *Asset) GetTerms() []AssetTerms {
 	return s.Terms
 }
 
+// GetValues returns the value of Values.
+func (s *Asset) GetValues() []AssetLedgerValues {
+	return s.Values
+}
+
 // SetID sets the value of ID.
 func (s *Asset) SetID(val uuid.UUID) {
 	s.ID = val
@@ -3021,6 +3030,11 @@ func (s *Asset) SetTerms(val []AssetTerms) {
 	s.Terms = val
 }
 
+// SetValues sets the value of Values.
+func (s *Asset) SetValues(val []AssetLedgerValues) {
+	s.Values = val
+}
+
 // An account of a company's chart of accounts, by number and name (`GET /v1/accounts?number=` gives
 // its id).
 // Ref: #/components/schemas/AssetAccountRef
@@ -3081,11 +3095,14 @@ type AssetAcquisition struct {
 	// The posting date of its entries.
 	PostingDate time.Time `json:"posting_date"`
 	// The posting date's fiscal year.
-	FiscalYear int32                     `json:"fiscal_year"`
-	Amount     Money                     `json:"amount"`
-	AmountLc   Money                     `json:"amount_lc"`
-	AmountGc   Money                     `json:"amount_gc"`
-	Source     OptAssetAcquisitionSource `json:"source"`
+	FiscalYear int32 `json:"fiscal_year"`
+	// In the line's currency; negative from a credit line, a reduction of cost.
+	Amount Money `json:"amount"`
+	// In local currency; negative from a credit line.
+	AmountLc Money `json:"amount_lc"`
+	// In group currency; negative from a credit line.
+	AmountGc Money                     `json:"amount_gc"`
+	Source   OptAssetAcquisitionSource `json:"source"`
 	// The acquisition's text.
 	Text OptString `json:"text"`
 	// `posted`, or `reversed`. Open enumeration: clients must accept and preserve values not listed here;
@@ -3311,7 +3328,9 @@ type AssetAcquisitionCreate struct {
 	// The asset the line's amount is capitalised onto.
 	AssetID uuid.UUID                 `json:"asset_id"`
 	Source  AssetAcquisitionSourceRef `json:"source"`
-	Amount  OptMoney                  `json:"amount"`
+	// In the line's currency, with the line's sign (negative from a credit line); default all that is left
+	// of the line.
+	Amount OptMoney `json:"amount"`
 	// The date the cost counts from for depreciation; default the line's posting date. At most the end of
 	// the posting date's period.
 	ValueDate OptDate `json:"value_date"`
@@ -3887,7 +3906,8 @@ type AssetClearingAcquisition struct {
 	AssetID uuid.UUID `json:"asset_id"`
 	// The asset's number.
 	AssetNumber string `json:"asset_number"`
-	Amount      Money  `json:"amount"`
+	// In the line's currency, with the line's sign.
+	Amount Money `json:"amount"`
 	// `posted` or `reversed`. Open enumeration: clients must accept and preserve values not listed here;
 	// values may be added within /v1.
 	Status string `json:"status"`
@@ -3968,13 +3988,24 @@ type AssetClearingItem struct {
 	AccountNumber string `json:"account_number"`
 	// The account's name.
 	AccountName string `json:"account_name"`
-	Amount      Money  `json:"amount"`
-	AmountLc    Money  `json:"amount_lc"`
-	AmountGc    Money  `json:"amount_gc"`
-	Used        Money  `json:"used"`
-	Remaining   Money  `json:"remaining"`
-	RemainingLc Money  `json:"remaining_lc"`
-	RemainingGc Money  `json:"remaining_gc"`
+	// The line's amount, debit positive: negative for a credit line.
+	Amount Money `json:"amount"`
+	// In local currency, debit positive.
+	AmountLc Money `json:"amount_lc"`
+	// In group currency, debit positive.
+	AmountGc Money `json:"amount_gc"`
+	// What acquisitions used of it in its currency, with its sign.
+	Used Money `json:"used"`
+	// What they used in local currency, with its sign.
+	UsedLc Money `json:"used_lc"`
+	// What they used in group currency, with its sign.
+	UsedGc Money `json:"used_gc"`
+	// What is left of it in its currency, with its sign.
+	Remaining Money `json:"remaining"`
+	// What is left in local currency, with its sign.
+	RemainingLc Money `json:"remaining_lc"`
+	// What is left in group currency, with its sign.
+	RemainingGc Money `json:"remaining_gc"`
 	// The line's entry was reversed after acquisitions were made from it; nothing more can be taken from
 	// it.
 	SourceReversed bool `json:"source_reversed"`
@@ -4055,6 +4086,16 @@ func (s *AssetClearingItem) GetAmountGc() Money {
 // GetUsed returns the value of Used.
 func (s *AssetClearingItem) GetUsed() Money {
 	return s.Used
+}
+
+// GetUsedLc returns the value of UsedLc.
+func (s *AssetClearingItem) GetUsedLc() Money {
+	return s.UsedLc
+}
+
+// GetUsedGc returns the value of UsedGc.
+func (s *AssetClearingItem) GetUsedGc() Money {
+	return s.UsedGc
 }
 
 // GetRemaining returns the value of Remaining.
@@ -4155,6 +4196,16 @@ func (s *AssetClearingItem) SetAmountGc(val Money) {
 // SetUsed sets the value of Used.
 func (s *AssetClearingItem) SetUsed(val Money) {
 	s.Used = val
+}
+
+// SetUsedLc sets the value of UsedLc.
+func (s *AssetClearingItem) SetUsedLc(val Money) {
+	s.UsedLc = val
+}
+
+// SetUsedGc sets the value of UsedGc.
+func (s *AssetClearingItem) SetUsedGc(val Money) {
+	s.UsedGc = val
 }
 
 // SetRemaining sets the value of Remaining.
@@ -4404,6 +4455,115 @@ func (s *AssetHeaders) SetResponse(val Asset) {
 }
 
 func (*AssetHeaders) createAssetRes() {}
+
+// An asset's values in one ledger (ADR-0057 §5): its acquisition cost, accumulated depreciation
+// (negative, the credit it is) and net book value, in the company's local currency and in group
+// currency as the ledger booked them.
+// Ref: #/components/schemas/AssetLedgerValues
+type AssetLedgerValues struct {
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName     string `json:"ledger_name"`
+	Cost           Money  `json:"cost"`
+	CostGc         Money  `json:"cost_gc"`
+	Accumulated    Money  `json:"accumulated"`
+	AccumulatedGc  Money  `json:"accumulated_gc"`
+	NetBookValue   Money  `json:"net_book_value"`
+	NetBookValueGc Money  `json:"net_book_value_gc"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *AssetLedgerValues) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *AssetLedgerValues) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *AssetLedgerValues) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetCost returns the value of Cost.
+func (s *AssetLedgerValues) GetCost() Money {
+	return s.Cost
+}
+
+// GetCostGc returns the value of CostGc.
+func (s *AssetLedgerValues) GetCostGc() Money {
+	return s.CostGc
+}
+
+// GetAccumulated returns the value of Accumulated.
+func (s *AssetLedgerValues) GetAccumulated() Money {
+	return s.Accumulated
+}
+
+// GetAccumulatedGc returns the value of AccumulatedGc.
+func (s *AssetLedgerValues) GetAccumulatedGc() Money {
+	return s.AccumulatedGc
+}
+
+// GetNetBookValue returns the value of NetBookValue.
+func (s *AssetLedgerValues) GetNetBookValue() Money {
+	return s.NetBookValue
+}
+
+// GetNetBookValueGc returns the value of NetBookValueGc.
+func (s *AssetLedgerValues) GetNetBookValueGc() Money {
+	return s.NetBookValueGc
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *AssetLedgerValues) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *AssetLedgerValues) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *AssetLedgerValues) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetCost sets the value of Cost.
+func (s *AssetLedgerValues) SetCost(val Money) {
+	s.Cost = val
+}
+
+// SetCostGc sets the value of CostGc.
+func (s *AssetLedgerValues) SetCostGc(val Money) {
+	s.CostGc = val
+}
+
+// SetAccumulated sets the value of Accumulated.
+func (s *AssetLedgerValues) SetAccumulated(val Money) {
+	s.Accumulated = val
+}
+
+// SetAccumulatedGc sets the value of AccumulatedGc.
+func (s *AssetLedgerValues) SetAccumulatedGc(val Money) {
+	s.AccumulatedGc = val
+}
+
+// SetNetBookValue sets the value of NetBookValue.
+func (s *AssetLedgerValues) SetNetBookValue(val Money) {
+	s.NetBookValue = val
+}
+
+// SetNetBookValueGc sets the value of NetBookValueGc.
+func (s *AssetLedgerValues) SetNetBookValueGc(val Money) {
+	s.NetBookValueGc = val
+}
 
 // One page of assets.
 // Ref: #/components/schemas/AssetPage

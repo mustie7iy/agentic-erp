@@ -1629,10 +1629,24 @@ overrule:
   cost in a ledger below zero.
 - **Status.** An acquisition sets the asset's `last_seq` to its `seq` and
   derives its status and `capitalised_on` from its posted acquisitions
-  (`planned` without any, else `active` with the earliest value date);
-  transfers in and retirements join the rule with T57g and T57h.
+  that add cost (`planned` without any, else `active` with the earliest
+  value date): a reduction from a credit line capitalises nothing, so one
+  valued earlier does not move the capitalisation date or the default
+  depreciation start (review round 1); transfers in and retirements join
+  the rule with T57g and T57h.
+- **Values per ledger** (§5 "Versions", review round 1): the asset's
+  representation gains `values`, per ledger it has terms or movements in,
+  its cost, accumulated depreciation and net book value in local and group
+  currency, the sums of its movements; `assets.Companies` gains the
+  tenant's group currency for them. `GET /v1/assets/{id}/movements` stays
+  with §10's table for a later slice.
+- **Permissions**: listing and reading acquisitions need
+  `assets.asset.read`, as every read of the context does; posting them
+  `assets.asset.post` (§10's table names `assets.asset.post` for the row,
+  read here as the writes').
 - **`document_entry`** keeps each entry's document number and is
   insert-only; the reversal columns are written by T57d, which grants the
   update.
 - **No totals on the worklist**: it is a worklist of lines, not a report;
-  each line carries its amount, used and left in all three currencies.
+  each line carries its amount, what is used and what is left in its
+  currency, local and group currency, each signed as the line.
