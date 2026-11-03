@@ -170,18 +170,21 @@ func TestVarianceCommentRefusals(t *testing.T) {
 		e.body(`"from": "2026-04-17", "to": "2026-04-17", "lag": 0, "liquidity_item": "TAX", "text": "\u000b"`), "")
 	e.Problem(400, "request.invalid_body", "POST", "/v1/liquidity-forecast-variance/comments",
 		e.body(`"from": "2026-04-17", "to": "2026-04-17", "lag": 0, "liquidity_item": "TAX", "text": "\u3000"`), "")
-	// Behind the contract's pattern, the endpoint refuses a blank text by
-	// unicode.IsSpace, wider than the database's [:space:].
+	// Behind the contract's pattern and length, the endpoint refuses a blank
+	// text by unicode.IsSpace, wider than the database's [:space:], and a
+	// text of more than 2,000 characters.
 	day := time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC)
-	for _, blank := range []string{"\u000b", "\u3000", "\u0085"} {
-		err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-			_, err := app.Cash(app.Config{Now: func() time.Time { return readAt }}).CommentVariance(ctx,
-				cash.CommentInput{LegalEntity: e.le, From: day, To: day, Item: "TAX", Text: blank})
-			return err
+	for _, text := range []string{"\u000b", "\u3000", "\u0085", strings.Repeat("é", 2001)} {
+		t.Run(fmt.Sprintf("a text of %.8q", text), func(t *testing.T) {
+			err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+				_, err := app.Cash(app.Config{Now: func() time.Time { return readAt }}).CommentVariance(ctx,
+					cash.CommentInput{LegalEntity: e.le, From: day, To: day, Item: "TAX", Text: text})
+				return err
+			})
+			if p := problem.From(err); p == nil || p.Code != "request.validation_failed" || len(p.Errors) != 1 || p.Errors[0].Field != "text" {
+				t.Errorf("got %v, want request.validation_failed on text", err)
+			}
 		})
-		if p := problem.From(err); p == nil || p.Code != "request.validation_failed" || len(p.Errors) != 1 || p.Errors[0].Field != "text" {
-			t.Errorf("a text of %q: got %v, want request.validation_failed on text", blank, err)
-		}
 	}
 	e.Problem(409, "cash.snapshot_not_taken", "POST", "/v1/liquidity-forecast-variance/comments",
 		e.body(`"from": "2026-04-16", "to": "2026-04-16", "lag": 0, "liquidity_item": "TAX", `+text), "")

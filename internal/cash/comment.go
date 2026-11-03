@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -35,8 +36,12 @@ import (
 // or rejects it.
 const CommentAccepted = "accepted"
 
+// maxCommentText is the longest text of a comment, in characters (the
+// contract's and variance_comment_text's limit).
+const maxCommentText = 2000
+
 func init() {
-	problem.RegisterConstraint("variance_comment_text", func() *problem.Problem { return errBlankText })
+	problem.RegisterConstraint("variance_comment_text", textInvalid)
 	// A snapshot deleted at its retention while the comment naming it was
 	// being written: the variance can no longer be read.
 	problem.RegisterConstraint("variance_comment_snapshot", func() *problem.Problem {
@@ -132,9 +137,13 @@ func (e *Endpoints) CommentVariance(ctx context.Context, in CommentInput) (Varia
 	return c, decided(ctx, c, "cash.variance_comment.create")
 }
 
-// errBlankText refuses a comment of nothing but spaces.
-var errBlankText = problem.Unprocessable("request.validation_failed", "A comment explains the variance in words.",
-	problem.FieldError{Field: "text", Code: "invalid", Message: "not blank"})
+// textInvalid refuses a comment's text of nothing but spaces or of more
+// than 2,000 characters; a new problem each time, since a problem is
+// changed as it is written.
+func textInvalid() *problem.Problem {
+	return problem.Unprocessable("request.validation_failed", "A comment explains the variance in words, in at most 2,000 characters.",
+		problem.FieldError{Field: "text", Code: "invalid", Message: "1 to 2,000 characters, not blank"})
+}
 
 // checkComment refuses what the comment says before anything is read: a
 // blank text (by unicode.IsSpace, wider than the database's [:space:], so
@@ -142,8 +151,8 @@ var errBlankText = problem.Unprocessable("request.validation_failed", "A comment
 // period backwards or longer than any grain's limit (36 months), both an
 // item and the unclassified row, or neither.
 func checkComment(in CommentInput, from, to time.Time) error {
-	if strings.TrimSpace(in.Text) == "" {
-		return errBlankText
+	if strings.TrimSpace(in.Text) == "" || utf8.RuneCountInString(in.Text) > maxCommentText {
+		return textInvalid()
 	}
 	if err := checkLag(in.Lag); err != nil {
 		return err
