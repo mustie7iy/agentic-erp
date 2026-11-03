@@ -101,7 +101,10 @@ The requester, human or agent, may
   version numbers) are fields and filters, never the path.
 - References to other resources are ids (`supplier_id`). `?expand=supplier`
   may embed a read-only copy for a fixed list of fields; expansion never
-  crosses tenants or permissions.
+  crosses tenants or permissions. A caller without the permission to read
+  what an expansion, or a name embedded beside an id, would copy gets the
+  resource with the id alone, never a 403 for the whole resource
+  (`authz.Expansions`, review:batch44).
 - Custom fields (ADR-0009) appear under `extensions`, validated against the
   tenant's published schema for that resource.
 - Sensitive values are never returned in full: bank accounts expose

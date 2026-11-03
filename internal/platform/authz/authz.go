@@ -142,6 +142,40 @@ func Require(ctx context.Context, permission string) error {
 	return nil
 }
 
+// MayUse reports whether the principal may use the permission, as
+// Authorize decides it: held, and not barred by a segregation-of-duties
+// rule in force. It is for what a response embeds only for a caller who
+// may read it (04 §4.4: an expansion never crosses permissions), where a
+// 403 would refuse the whole resource.
+func MayUse(ctx context.Context, permission string) (bool, error) {
+	set, err := Permissions(ctx)
+	if err != nil || !set[permission] {
+		return false, err
+	}
+	tx, _ := reqctx.TxFrom(ctx) // Permissions found it
+	other, err := barredBy(ctx, tx, permission, set)
+	if err != nil {
+		return false, err // fails closed: an unread rule may bar it
+	}
+	return other == "", nil
+}
+
+// Expansions is expand without the expansion name when the principal may
+// not use permission (MayUse), the one reading what it embeds requires (04 §4.4):
+// the resource is answered without the copy rather than refused. The
+// permissions are read only when name was asked for, so a page checks
+// once for all its items.
+func Expansions(ctx context.Context, expand []string, name, permission string) ([]string, error) {
+	if !slices.Contains(expand, name) {
+		return expand, nil
+	}
+	may, err := MayUse(ctx, permission)
+	if err != nil || may {
+		return expand, err
+	}
+	return slices.DeleteFunc(slices.Clone(expand), func(s string) bool { return s == name }), nil
+}
+
 // Authorize checks the operation's agent rule, permissions and the
 // segregation-of-duties rules that involve them.
 func (a *Authorizer) Authorize(ctx context.Context, operationID string) error {
@@ -258,6 +292,17 @@ func atLevel(ctx context.Context, tx pgx.Tx, agent uuid.UUID, need int, what str
 // anyway (rules introduced while grants were already in place, or grants
 // made outside the API).
 func checkSoD(ctx context.Context, tx pgx.Tx, permission string, held map[string]bool) error {
+	other, err := barredBy(ctx, tx, permission, held)
+	if err != nil || other == "" {
+		return err
+	}
+	return problem.Forbidden("identity.sod_conflict",
+		"Segregation of duties: you hold both "+permission+" and "+other+", so you may use neither until one is removed.")
+}
+
+// barredBy is the held permission a segregation-of-duties rule in force
+// pairs with permission, which bars both; "" when none does.
+func barredBy(ctx context.Context, tx pgx.Tx, permission string, held map[string]bool) (string, error) {
 	// CollectRows below returns the query's error.
 	rows, _ := tx.Query(ctx, `SELECT CASE WHEN permission_a = $1 THEN permission_b ELSE permission_a END
 		FROM identity.sod_rule
@@ -265,15 +310,14 @@ func checkSoD(ctx context.Context, tx pgx.Tx, permission string, held map[string
 		  AND current_date >= valid_from AND (valid_to IS NULL OR current_date < valid_to)`, permission)
 	others, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
-		return fmt.Errorf("authz: sod rules: %w", err)
+		return "", fmt.Errorf("authz: sod rules: %w", err)
 	}
 	for _, other := range others {
 		if held[other] {
-			return problem.Forbidden("identity.sod_conflict",
-				"Segregation of duties: you hold both "+permission+" and "+other+", so you may use neither until one is removed.")
+			return other, nil
 		}
 	}
-	return nil
+	return "", nil
 }
 
 // Access is the set of legal entities a principal may act in today.

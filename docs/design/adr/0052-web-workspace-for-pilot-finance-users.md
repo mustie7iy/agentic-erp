@@ -3462,6 +3462,41 @@ partner's id. What it settled, each decided by default where this ADR,
   accrual Tom parks for Tyrell with their partners, and cancels the
   accrual.
 
+## Expansions and partner names within permissions (2026-11-02, review:batch44)
+The batch 44 review of T73h3, which gives an entry's partners only to a
+caller who may read business partners, found the rule broken elsewhere:
+`expand=supplier` on supplier invoices, requisitions and purchase orders
+(get and list) and a revaluation's items' `partner_number` and
+`partner_name` (T73i2, above) gave a business partner's number, name,
+country and status to a caller without `partner.supplier.read`. 04 §4.4
+says an expansion never crosses permissions. Decided by default, from
+T73h3's behaviour and 04 §4.4:
+- **Left out, never refused.** For a caller without the permission,
+  person or agent, `expanded` is left out and an item's partner is given
+  by `partner_id` alone; `document_number`, the ledger's own, stays. A
+  403 would refuse an invoice, order or run the caller may read. The
+  ETag is the resource's either way.
+- **Checked once a request, as an operation is.** `authz.Expansions`
+  drops an expansion whose permission the caller may not use, reading the
+  permissions only when it was asked for, so a page checks once for all
+  its items; `authz.MayUse` answers the revaluation's names. May use is
+  as `Authorize` decides: held, and not barred by a segregation-of-duties
+  rule in force (a person barred from `listBusinessPartners` gets no copy
+  either). The permission is the partner context's
+  `partner.ReadPermission`; the ledger, which may not import that
+  context, names it in a constant of its own.
+- **The workspace** already showed a supplier or partner by id where the
+  API names none, so its pages need no change.
+- **Not changed, one question for the product owner (security
+  posture):** a payment's and a payment exclusion's `supplier_name` and a
+  payment's bank account fields, required fields of the payment run under
+  `payments.run.read`; the payment problems that name a supplier by number
+  and name (a release's and a proposal's refusals); and the migration
+  reconciliation report's partner keys `partner <id> (<name>)` under
+  `integration.migration.*`. They are the resource's own content rather
+  than copies, so whether they too need `partner.supplier.read` is not
+  decided here.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF

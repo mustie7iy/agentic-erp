@@ -1159,7 +1159,8 @@ type Invoker interface {
 	GetProfitCenter(ctx context.Context, params GetProfitCenterParams) (GetProfitCenterRes, error)
 	// GetPurchaseOrder invokes getPurchaseOrder operation.
 	//
-	// Returns one purchase order. Expandable: `supplier`.
+	// Returns one purchase order. Expandable: `supplier`, for a caller who may read business partners
+	// (`partner.supplier.read`); another is answered without `expanded`, not refused.
 	//
 	// GET /v1/purchase-orders/{id}
 	GetPurchaseOrder(ctx context.Context, params GetPurchaseOrderParams) (GetPurchaseOrderRes, error)
@@ -1197,7 +1198,8 @@ type Invoker interface {
 	GetRegressionSuite(ctx context.Context, params GetRegressionSuiteParams) (GetRegressionSuiteRes, error)
 	// GetRequisition invokes getRequisition operation.
 	//
-	// Returns one requisition. Expandable: `supplier`.
+	// Returns one requisition. Expandable: `supplier`, for a caller who may read business partners
+	// (`partner.supplier.read`); another is answered without `expanded`, not refused.
 	//
 	// GET /v1/requisitions/{id}
 	GetRequisition(ctx context.Context, params GetRequisitionParams) (GetRequisitionRes, error)
@@ -1251,7 +1253,8 @@ type Invoker interface {
 	// GetSupplierInvoice invokes getSupplierInvoice operation.
 	//
 	// Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`).
-	// Expandable: `supplier`.
+	// Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`);
+	// another is answered without `expanded`, not refused.
 	//
 	// GET /v1/supplier-invoices/{id}
 	GetSupplierInvoice(ctx context.Context, params GetSupplierInvoiceParams) (GetSupplierInvoiceRes, error)
@@ -1823,7 +1826,9 @@ type Invoker interface {
 	ListPurchaseOrderChanges(ctx context.Context, params ListPurchaseOrderChangesParams) (ListPurchaseOrderChangesRes, error)
 	// ListPurchaseOrders invokes listPurchaseOrders operation.
 	//
-	// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`.
+	// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`, for a caller
+	// who may read business partners (`partner.supplier.read`); another is answered without `expanded`,
+	// not refused.
 	//
 	// GET /v1/purchase-orders
 	ListPurchaseOrders(ctx context.Context, params ListPurchaseOrdersParams) (ListPurchaseOrdersRes, error)
@@ -1842,7 +1847,9 @@ type Invoker interface {
 	ListRegressionSuites(ctx context.Context, params ListRegressionSuitesParams) (ListRegressionSuitesRes, error)
 	// ListRequisitions invokes listRequisitions operation.
 	//
-	// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`.
+	// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`, for a
+	// caller who may read business partners (`partner.supplier.read`); another is answered without
+	// `expanded`, not refused.
 	//
 	// GET /v1/requisitions
 	ListRequisitions(ctx context.Context, params ListRequisitionsParams) (ListRequisitionsRes, error)
@@ -1885,7 +1892,9 @@ type Invoker interface {
 	ListSodRules(ctx context.Context, params ListSodRulesParams) (ListSodRulesRes, error)
 	// ListSupplierInvoices invokes listSupplierInvoices operation.
 	//
-	// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`.
+	// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a
+	// caller who may read business partners (`partner.supplier.read`); another is answered without
+	// `expanded`, not refused.
 	//
 	// GET /v1/supplier-invoices
 	ListSupplierInvoices(ctx context.Context, params ListSupplierInvoicesParams) (ListSupplierInvoicesRes, error)
@@ -20902,7 +20911,8 @@ func (c *Client) sendGetProfitCenter(ctx context.Context, params GetProfitCenter
 
 // GetPurchaseOrder invokes getPurchaseOrder operation.
 //
-// Returns one purchase order. Expandable: `supplier`.
+// Returns one purchase order. Expandable: `supplier`, for a caller who may read business partners
+// (`partner.supplier.read`); another is answered without `expanded`, not refused.
 //
 // GET /v1/purchase-orders/{id}
 func (c *Client) GetPurchaseOrder(ctx context.Context, params GetPurchaseOrderParams) (GetPurchaseOrderRes, error) {
@@ -21615,7 +21625,8 @@ func (c *Client) sendGetRegressionSuite(ctx context.Context, params GetRegressio
 
 // GetRequisition invokes getRequisition operation.
 //
-// Returns one requisition. Expandable: `supplier`.
+// Returns one requisition. Expandable: `supplier`, for a caller who may read business partners
+// (`partner.supplier.read`); another is answered without `expanded`, not refused.
 //
 // GET /v1/requisitions/{id}
 func (c *Client) GetRequisition(ctx context.Context, params GetRequisitionParams) (GetRequisitionRes, error) {
@@ -22735,7 +22746,8 @@ func (c *Client) sendGetSodRule(ctx context.Context, params GetSodRuleParams) (r
 // GetSupplierInvoice invokes getSupplierInvoice operation.
 //
 // Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`).
-// Expandable: `supplier`.
+// Expandable: `supplier`, for a caller who may read business partners (`partner.supplier.read`);
+// another is answered without `expanded`, not refused.
 //
 // GET /v1/supplier-invoices/{id}
 func (c *Client) GetSupplierInvoice(ctx context.Context, params GetSupplierInvoiceParams) (GetSupplierInvoiceRes, error) {
@@ -38316,7 +38328,9 @@ func (c *Client) sendListPurchaseOrderChanges(ctx context.Context, params ListPu
 
 // ListPurchaseOrders invokes listPurchaseOrders operation.
 //
-// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`.
+// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`, for a caller
+// who may read business partners (`partner.supplier.read`); another is answered without `expanded`,
+// not refused.
 //
 // GET /v1/purchase-orders
 func (c *Client) ListPurchaseOrders(ctx context.Context, params ListPurchaseOrdersParams) (ListPurchaseOrdersRes, error) {
@@ -39085,7 +39099,9 @@ func (c *Client) sendListRegressionSuites(ctx context.Context, params ListRegres
 
 // ListRequisitions invokes listRequisitions operation.
 //
-// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`.
+// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`, for a
+// caller who may read business partners (`partner.supplier.read`); another is answered without
+// `expanded`, not refused.
 //
 // GET /v1/requisitions
 func (c *Client) ListRequisitions(ctx context.Context, params ListRequisitionsParams) (ListRequisitionsRes, error) {
@@ -40579,7 +40595,9 @@ func (c *Client) sendListSodRules(ctx context.Context, params ListSodRulesParams
 
 // ListSupplierInvoices invokes listSupplierInvoices operation.
 //
-// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`.
+// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a
+// caller who may read business partners (`partner.supplier.read`); another is answered without
+// `expanded`, not refused.
 //
 // GET /v1/supplier-invoices
 func (c *Client) ListSupplierInvoices(ctx context.Context, params ListSupplierInvoicesParams) (ListSupplierInvoicesRes, error) {
