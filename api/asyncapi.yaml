@@ -350,12 +350,13 @@ channels:
   assets:
     address: 'erp.{cell}.assets.{tenant}.{event}'
     title: Asset accounting events
-    description: Assets created, changed, cancelled, retired and reactivated, and their movements posted (ADR-0057 §10).
+    description: Assets created, changed, cancelled, retired and reactivated, and their movements posted and reversed (ADR-0057 §10).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       AssetChanged: {$ref: '#/components/messages/AssetChanged'}
       AssetMovementPosted: {$ref: '#/components/messages/AssetMovementPosted'}
+      AssetMovementReversed: {$ref: '#/components/messages/AssetMovementReversed'}
   tax:
     address: 'erp.{cell}.tax.{tenant}.{event}'
     title: Tax filing events
@@ -573,6 +574,7 @@ operations:
     messages:
       - $ref: '#/channels/assets/messages/AssetChanged'
       - $ref: '#/channels/assets/messages/AssetMovementPosted'
+      - $ref: '#/channels/assets/messages/AssetMovementReversed'
   publishTaxEvents:
     action: send
     title: Tax filing publishes
@@ -2879,6 +2881,29 @@ components:
         - name: acquisition
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000702, source: /erp/eu-1/assets, type: com.example.erp.assets.asset_movement_posted.v1, subject: 0192a000-0000-7000-8000-000000000a01, time: '2026-11-03T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {document_kind: acquisition, document_id: 0192a000-0000-7000-8000-000000000a01, asset_id: 0192a000-0000-7000-8000-000000000f01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, asset_number: '1', class_code: MACHINES, value_date: '2026-11-03', posting_date: '2026-11-03', currency_lc: CAD, currency_gc: USD, ledgers: [{ledger_id: 0192a000-0000-7000-8000-000000000301, cost: {amount: '6000.00', currency: CAD}, cost_gc: {amount: '4380.00', currency: USD}, journal_entry_id: 0192a000-0000-7000-8000-000000000e11, fiscal_year: 2026, document_number: '1'}], asset_status: active, asset_version: 2}
+    AssetMovementReversed:
+      name: AssetMovementReversed
+      title: Asset movement reversed
+      summary: An acquisition, retirement or transfer of an asset was reversed.
+      description: |
+        Emitted by `asset-acquisitions/{id}:reverse` (`acquisition`),
+        ADR-0057 §6, §10; retirements and transfers add their kinds with
+        their slices. It carries the asset, its status and version after
+        the reversal, the reversal's posting date and reason, and per
+        ledger the change of acquisition cost the reversal made (the
+        original's negated) in local and group currency with the reversal
+        entry and the entry it reversed. Subject is the document id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.assets.asset_movement_reversed.v1}
+      payload: {$ref: '#/components/schemas/AssetMovementReversedV1'}
+      examples:
+        - name: acquisition
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000703, source: /erp/eu-1/assets, type: com.example.erp.assets.asset_movement_reversed.v1, subject: 0192a000-0000-7000-8000-000000000a01, time: '2026-11-04T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {document_kind: acquisition, document_id: 0192a000-0000-7000-8000-000000000a01, asset_id: 0192a000-0000-7000-8000-000000000f01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, asset_number: '1', class_code: MACHINES, posting_date: '2026-11-04', reason: Capitalised onto the wrong machine., currency_lc: CAD, currency_gc: USD, ledgers: [{ledger_id: 0192a000-0000-7000-8000-000000000301, cost: {amount: '-6000.00', currency: CAD}, cost_gc: {amount: '-4380.00', currency: USD}, journal_entry_id: 0192a000-0000-7000-8000-000000000e12, fiscal_year: 2026, document_number: '2', reversed_entry_id: 0192a000-0000-7000-8000-000000000e11}], asset_status: planned, asset_version: 3}
     PlanCategoryChanged:
       name: PlanCategoryChanged
       title: Plan category changed
@@ -3577,6 +3602,36 @@ components:
               document_number: {type: string}
         asset_status: {type: string, description: "The asset's status after the posting. Open enum: planned, active, retired."}
         asset_version: {type: integer, description: "The asset's version after the posting."}
+    AssetMovementReversedV1:
+      type: object
+      required: [document_kind, document_id, asset_id, legal_entity_id, asset_number, class_code, posting_date, reason, currency_lc, currency_gc, ledgers, asset_status, asset_version]
+      properties:
+        document_kind: {type: string, description: 'Open enum: acquisition.'}
+        document_id: {$ref: '#/components/schemas/Uuid', description: '`assets.acquisition.id` for an acquisition.'}
+        asset_id: {$ref: '#/components/schemas/Uuid'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        asset_number: {type: string}
+        class_code: {type: string}
+        posting_date: {$ref: '#/components/schemas/Date', description: "The reversal's posting date."}
+        reason: {type: string, description: Why it was reversed.}
+        currency_lc: {type: string, description: "The company's local currency."}
+        currency_gc: {type: string, description: "The tenant's group currency."}
+        ledgers:
+          type: array
+          description: Per ledger the change of acquisition cost the reversal made and its reversal entry.
+          items:
+            type: object
+            required: [ledger_id, cost, cost_gc, journal_entry_id, fiscal_year, document_number, reversed_entry_id]
+            properties:
+              ledger_id: {$ref: '#/components/schemas/Uuid'}
+              cost: {$ref: '#/components/schemas/SignedMoney', description: In local currency; the original's negated.}
+              cost_gc: {$ref: '#/components/schemas/SignedMoney', description: In group currency; the original's negated.}
+              journal_entry_id: {$ref: '#/components/schemas/Uuid', description: The reversal entry.}
+              fiscal_year: {type: integer, description: "The reversal entry's fiscal year."}
+              document_number: {type: string, description: "The reversal entry's document number."}
+              reversed_entry_id: {$ref: '#/components/schemas/Uuid', description: The entry it reversed.}
+        asset_status: {type: string, description: "The asset's status after the reversal. Open enum: planned, active, retired."}
+        asset_version: {type: integer, description: "The asset's version after the reversal."}
     PlanCategoryChangedV1:
       type: object
       required: [plan_category_id, code, name, locked, change]

@@ -2601,6 +2601,99 @@ step_asset_acquisitions() {
   passed
 }
 
+step_asset_reversal() {
+  heading "Step 22 — Asset corrections: a press contributed against share capital, one acquisition reversed; a duplicate invoice's line taken off the press"
+  as carla
+  say "Maple's shareholder contributes a hydraulic press in kind. No supplier invoice brings it, so Carla capitalises it by"
+  say "manual entry against share capital 3000 (ADR-0057 §6, T57d): Dr machinery 1600 / Cr 3000 in every ledger the"
+  say "company keeps, the press's cost the ledger's own amounts."
+  local cc press manual press_cost item invoice entry l rev rl yesterday values
+  accounts
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  api 201 '"asset \(.company_code)/\(.asset_number) \(.description): \(.status)"' createAsset \
+    -body "{\"legal_entity_id\": \"$LE\", \"class_code\": \"MACHINES\", \"description\": \"Hydraulic press\", \"cost_center_id\": \"$cc\"}"
+  press=$(field .id)
+  say "The clearing account is no offset: its lines are the worklist's, settled by acquisitions from them."
+  refused 422 assets.offset_account_invalid createAssetAcquisition \
+    -body "{\"asset_id\": \"$press\", \"offset_account_id\": \"$(account 1690)\", \"amount\": {\"amount\": \"8500.00\", \"currency\": \"CAD\"}}"
+  api 201 '"acquisition onto asset \(.asset_number) against \(.offset_account.number) \(.offset_account.name): \(.amount.amount) \(.amount.currency), group \(.amount_gc.amount) \(.amount_gc.currency); entries \([.entries[] | "\(.ledger_code) \(.document_number)"] | join(", "))"' \
+    createAssetAcquisition -body "{\"asset_id\": \"$press\", \"offset_account_id\": \"$(account 3000)\", \"amount\": {\"amount\": \"8500.00\", \"currency\": \"CAD\"}, \"text\": \"Press contributed in kind\"}"
+  manual=$(field .id)
+  expect "the offset account" "$(field '"\(.offset_account.number) \(.source // "no source")"')" "3000 no source"
+  values='"  asset \(.asset_number) \(.description): \(.status), capitalised on \(.capitalised_on); \([.values[] | "\(.ledger_code) cost \(.cost.amount) \(.cost.currency)"] | join(", "))"'
+  api 200 "$values" getAsset -p "id=$press"
+  expect "the press's status" "$(field .status)" active
+  say "The valuation said 7,500.00, not 8,500.00. Carla reverses the acquisition; a reversal is never dated before what"
+  say "it reverses:"
+  yesterday=$(date_add "$TODAY" -1)
+  QUIET=1 api 200 '' getAssetAcquisition -p "id=$manual"
+  refused 422 assets.reversal_before_original reverseAssetAcquisition -p "id=$manual" -if-match "$ETAG" \
+    -body "{\"reason\": \"Valued at 8,500.00 in error\", \"posting_date\": \"$yesterday\"}"
+  QUIET=1 api 200 '' getAssetAcquisition -p "id=$manual"
+  api 200 '"acquisition \(.status) on \(.reversal.posting_date): \(.reversal.reason); \([.entries[] | "\(.ledger_code) \(.document_number) reversed by \(.reversal_document_number)"] | join(", "))"' \
+    reverseAssetAcquisition -p "id=$manual" -if-match "$ETAG" -body "{\"reason\": \"Valued at 8,500.00 in error\"}"
+  expect "the acquisition's status" "$(field .status)" reversed
+  expect "a reversal entry in every ledger" "$(field '[.entries[] | select(.reversal_journal_entry_id != null)] | length')" "$(field '.entries | length')"
+  say "With its only acquisition reversed the press is planned again, at no cost:"
+  api 200 "$values" getAsset -p "id=$press"
+  expect "the press, planned again" "$(field '"\(.status) \(.capitalised_on) \([.values[].cost.amount] | unique | join(" "))"')" "planned null 0.00"
+  api 201 '"acquisition onto asset \(.asset_number) against \(.offset_account.number): \(.amount.amount) \(.amount.currency)"' createAssetAcquisition \
+    -body "{\"asset_id\": \"$press\", \"offset_account_id\": \"$(account 3000)\", \"amount\": {\"amount\": \"7500.00\", \"currency\": \"CAD\"}, \"text\": \"Press contributed in kind\"}"
+
+  as alex
+  say "Tyrell invoices the press's tooling, CAD 1,200.00 plus GST, on the asset clearing account; Carla capitalises it onto"
+  say "the press. The invoice turns out to duplicate one already settled: Alex reverses it in payables, which is not told"
+  say "about the asset."
+  item="{\"account_id\": \"$(account 1690)\", \"description\": \"Press tooling\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"1200.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TOOLS-7\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"1260.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"60.00\", \"currency\": \"CAD\"}, \"items\": [$item]}"
+  invoice=$(field .id)
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  entry=$(field .journal_entry_id)
+  as carla
+  QUIET=1 api 200 '' listAssetClearingItems -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p remaining=true
+  l=$(field "[.items[] | select(.entry_id == \"$entry\") | .line_no][0]")
+  api 201 '"acquisition onto asset \(.asset_number): \(.amount.amount) \(.amount.currency) from entry \(.source.document_number) line \(.source.line_no)"' \
+    createAssetAcquisition -body "{\"asset_id\": \"$press\", \"source\": {\"entry_id\": \"$entry\", \"line_no\": $l}}"
+  press_cost=$(field .id)
+  as alex
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$invoice"
+  api 200 '"\(.document_number): \(.status), reversal entry \(.reversal_entry_id)"' reverseSupplierInvoice -p "id=$invoice" -if-match "$ETAG" \
+    -body "{\"reason\": \"Posted twice\", \"posting_date\": \"$TODAY\"}"
+  as carla
+  say "Carla's worklist shows the invoice's line reversed, with its reversal's line beside it offering the press what it"
+  say "holds from the line:"
+  api 200 '.items[] | select(.entry_id == "'"$entry"'") | "  entry \(.document_number) line \(.line_no): reversed \(.source_reversed); reversal entry \(.reversal.document_number) line \(.reversal.line_no) offers \([.reversal.offers[] | "\(.asset_number) \(.asset_description) \(.amount.amount) \(.amount.currency)"] | join(", "))"' \
+    listAssetClearingItems -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p remaining=true
+  rev=$(field ".items[] | select(.entry_id == \"$entry\") | .reversal.entry_id")
+  rl=$(field ".items[] | select(.entry_id == \"$entry\") | .reversal.line_no")
+  expect "the press's offer" "$(field ".items[] | select(.entry_id == \"$entry\") | [.reversal.offers[] | .amount.amount] | join(\" \")")" "-1200.00"
+  say "She takes the cost off the press through the reversal's line, at most what the press holds from the invoice:"
+  refused 422 assets.amount_exceeds_line createAssetAcquisition \
+    -body "{\"asset_id\": \"$press\", \"source\": {\"entry_id\": \"$rev\", \"line_no\": $rl}, \"amount\": {\"amount\": \"-1500.00\", \"currency\": \"CAD\"}}"
+  api 201 '"acquisition onto asset \(.asset_number): \(.amount.amount) \(.amount.currency), local \(.amount_lc.amount), group \(.amount_gc.amount) \(.amount_gc.currency), from reversal entry \(.source.document_number)"' \
+    createAssetAcquisition -body "{\"asset_id\": \"$press\", \"source\": {\"entry_id\": \"$rev\", \"line_no\": $rl}}"
+  expect "the take-off" "$(field .amount.amount)" "-1200.00"
+  say "While the take-off stands, the tooling's own acquisition is not reversed: the take-off is bounded by it."
+  QUIET=1 api 200 '' getAssetAcquisition -p "id=$press_cost"
+  refused 409 assets.reversal_line_capitalised reverseAssetAcquisition -p "id=$press_cost" -if-match "$ETAG" -body '{"reason": "Duplicate invoice"}'
+  api 200 "$values" getAsset -p "id=$press"
+  expect "the press's cost in every ledger" "$(field '[.values[].cost.amount] | unique | join(" ")')" "7500.00"
+  api 200 '"the reversed line on the worklist with something left: \([.items[] | select(.entry_id == "'"$entry"'")] | length)"' \
+    listAssetClearingItems -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p remaining=true
+  expect "the reversed line, nothing left to offer" "$(field "[.items[] | select(.entry_id == \"$entry\")] | length")" 0
+  QUIET=1 api 200 '' listAssetAcquisitions -p "asset_id=$press" -p status=reversed
+  expect "the press's reversed acquisitions" "$(field '[.items[].id] | join(" ")')" "$manual"
+  QUIET=1 api 200 '' listLedgers
+  for l in $(field '.items[] | "\(.code)=\(.id)"'); do
+    QUIET=1 api 200 '' listBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "ledger_id=${l#*=}" -p "account_id=$(account 1690)" -p page_size=500
+    expect "the clearing account in ledger ${l%%=*}" "$(field '[.items[] | (.debit.amount | tonumber) - (.credit.amount | tonumber), (.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber), (.debit_gc.amount | tonumber) - (.credit_gc.amount | tonumber)] | map(. * 100 | round) | unique | join(" ")')" 0
+  done
+  say "  the clearing account is at zero in every ledger and all three currencies"
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -2622,7 +2715,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_asset_acquisitions'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_asset_acquisitions step_asset_reversal'
 
 main() {
   start

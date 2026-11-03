@@ -1142,7 +1142,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Manual acquisition against an offset account and acquisition reversal: assets.offset_account_invalid; :reverse with assets.later_movements (a retirement or transfer of any kind posted after it, by seq, not reversed) and assets.reversal_before_original (test: dated before the acquisition's posting date), the line given back, refused with assets.cost_negative where it would leave the cost below zero; a reversed source line's reversal line offered on the worklist per asset with its bound and capitalised as a negative acquisition only onto an asset holding unreversed acquisitions from the reversed line, at most those less what the reversal's line already took from it (assets.source_reversed, assets.amount_exceeds_line, assets.cost_negative; tests: a partly capitalised line, a second take-off beyond the bound), the asset's acquisition from the reversed line then refused (assets.reversal_line_capitalised), the correction when the acquisition can no longer be reversed; status and capitalised_on derived from the acquisitions and transfers in left (back to planned when none); AssetMovementReversed; the ledger's entry_owned_elsewhere names the assets path (04 §4.9); walkthrough: an acquisition against an offset account, one reversed, a reversed supplier invoice's reversal line taken off the asset",
         "r": "ADR-0057 · T57d",
         "src": "adr:ADR-0057",
@@ -1193,7 +1193,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Acquisitions from AP and settlement",
       "r": "T57 · ADR-0057 §6 · T57c, T57d",
       "src": "baseline",

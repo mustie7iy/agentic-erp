@@ -20,7 +20,8 @@ import (
 )
 
 // Acquisition is a stored acquisition with its asset's number and
-// description, its source line and its journal entries per ledger.
+// description, its source line or offset account, its journal entries per
+// ledger and its reversal.
 type Acquisition struct {
 	ID, LegalEntityID, AssetID       uuid.UUID
 	AssetNumber, AssetDescription    string
@@ -30,8 +31,10 @@ type Acquisition struct {
 	Currency, CurrencyLC, CurrencyGC string
 	Amount, LC, GC                   money.Minor
 	Source                           *Source
+	OffsetAccountID                  *uuid.UUID
 	Text                             *string
 	Status                           string
+	Reversal                         *Reversal
 	Entries                          []DocumentEntry
 	Version                          int32
 	CreatedAt, UpdatedAt             time.Time
@@ -46,11 +49,19 @@ type Source struct {
 	DocumentID              *uuid.UUID
 }
 
-// DocumentEntry is one ledger's journal entry of an assets document.
+// Reversal is when and why an assets document was reversed.
+type Reversal struct {
+	PostingDate time.Time
+	Reason      string
+}
+
+// DocumentEntry is one ledger's journal entry of an assets document, with
+// its reversal entry once reversed.
 type DocumentEntry struct {
 	LedgerID, EntryID uuid.UUID
 	FiscalYear        int16
 	DocumentNumber    string
+	Reversal          *ReversalEntry
 }
 
 // clearingUse is what is used of a capitalised line (assets.clearing_use).
@@ -61,11 +72,18 @@ type clearingUse struct {
 
 // lockUse reads what is used of the line FOR UPDATE, after inserting its
 // row with nothing used when it has none, so acquisitions from one line
-// serialise (ADR-0057 §5).
-func lockUse(ctx context.Context, tx pgx.Tx, l Line) (clearingUse, error) {
-	if _, err := tx.Exec(ctx, `INSERT INTO assets.clearing_use (tenant_id, entry_year, entry_id, line_no, legal_entity_id, currency, line_amount, line_lc, line_gc)
-		VALUES (platform.current_tenant(), $1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING`,
-		l.FiscalYear, l.EntryID, l.LineNo, l.LegalEntityID, l.Currency, l.Amount, l.LC, l.GC); err != nil {
+// serialise (ADR-0057 §5). A reversal's line's row names the line it
+// reverses, so the worklist finds what assets took off through it.
+func lockUse(ctx context.Context, tx pgx.Tx, l Line, reverses *LineRef) (clearingUse, error) {
+	var year *int16
+	var entry *uuid.UUID
+	if reverses != nil {
+		year, entry = &reverses.FiscalYear, &reverses.EntryID
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO assets.clearing_use (tenant_id, entry_year, entry_id, line_no, legal_entity_id, currency, line_amount, line_lc, line_gc,
+			reverses_entry_year, reverses_entry_id)
+		VALUES (platform.current_tenant(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT DO NOTHING`,
+		l.FiscalYear, l.EntryID, l.LineNo, l.LegalEntityID, l.Currency, l.Amount, l.LC, l.GC, year, entry); err != nil {
 		return clearingUse{}, fmt.Errorf("assets: use of line %d of entry %s: %w", l.LineNo, l.EntryID, err)
 	}
 	var u clearingUse
@@ -111,19 +129,45 @@ func latestAssignment(ctx context.Context, tx pgx.Tx, asset uuid.UUID) (time.Tim
 // it used of its line, its movements and entries per ledger, and the
 // asset's status and capitalisation date derived again (ADR-0057 §5).
 func writeAcquisition(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, seq int32, a acquiring, text *string, entries []PostedEntry) error {
-	l := a.line
+	// The source columns are null together for a manual acquisition, the
+	// offset account for one from a line (acquisition_source).
+	var src [6]any
+	var offset *uuid.UUID
+	if l := a.line; a.offset == nil {
+		src = [6]any{l.FiscalYear, l.EntryID, l.LineNo, l.DocumentNumber, l.SourceContext, l.SourceDocumentID}
+	} else {
+		offset = &a.offset.ID
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO assets.acquisition (tenant_id, id, legal_entity_id, asset_id, seq, value_date, posting_date, fiscal_year, currency,
 			amount, amount_lc, amount_gc, currency_lc, currency_gc, source_entry_year, source_entry_id, source_line_no, source_document_number, source_context,
-			source_document_id, text, status, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, 'posted', $22, $22)`,
-		p.TenantID, id, a.company.ID, a.asset.ID, seq, a.value, a.posting, entries[0].FiscalYear, l.Currency, a.amount.tc, a.amount.lc, a.amount.gc,
-		l.CurrencyLC, l.CurrencyGC, l.FiscalYear, l.EntryID, l.LineNo, l.DocumentNumber, l.SourceContext, l.SourceDocumentID, text, p.ID); err != nil {
+			source_document_id, offset_account_id, text, status, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, 'posted', $23, $23)`,
+		p.TenantID, id, a.company.ID, a.asset.ID, seq, a.value, a.posting, entries[0].FiscalYear, a.currency, a.amount.tc, a.amount.lc, a.amount.gc,
+		a.currencyLC, a.currencyGC, src[0], src[1], src[2], src[3], src[4], src[5], offset, text, p.ID); err != nil {
 		return fmt.Errorf("assets: insert acquisition of asset %s: %w", a.asset.Number, err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE assets.clearing_use SET used = used + $4, used_lc = used_lc + $5, used_gc = used_gc + $6, version = version + 1
-		WHERE entry_year = $1 AND entry_id = $2 AND line_no = $3`, l.FiscalYear, l.EntryID, l.LineNo, a.amount.tc, a.amount.lc, a.amount.gc); err != nil {
-		return fmt.Errorf("assets: use line %d of entry %s: %w", l.LineNo, l.EntryID, err)
+	if a.offset == nil {
+		if err := useLine(ctx, tx, LineRef{FiscalYear: a.line.FiscalYear, EntryID: a.line.EntryID, LineNo: a.line.LineNo}, a.amount); err != nil {
+			return err
+		}
 	}
+	if err := writeMovements(ctx, tx, p, id, seq, a, entries); err != nil {
+		return err
+	}
+	return derive(ctx, tx, p, a.asset.ID, seq)
+}
+
+// useLine adds what an acquisition takes of its line to what is used of
+// it; a reversal gives it back with the amounts negated.
+func useLine(ctx context.Context, tx pgx.Tx, l LineRef, amount share) error {
+	_, err := tx.Exec(ctx, `UPDATE assets.clearing_use SET used = used + $4, used_lc = used_lc + $5, used_gc = used_gc + $6, version = version + 1
+		WHERE entry_year = $1 AND entry_id = $2 AND line_no = $3`, l.FiscalYear, l.EntryID, l.LineNo, amount.tc, amount.lc, amount.gc)
+	return errs.Wrapf(err, "assets: use line %d of entry %s", l.LineNo, l.EntryID)
+}
+
+// writeMovements writes an acquisition's movement and journal entry per
+// ledger.
+func writeMovements(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, seq int32, a acquiring, entries []PostedEntry) error {
 	for _, en := range entries {
 		if _, err := tx.Exec(ctx, `INSERT INTO assets.movement (tenant_id, id, asset_id, seq, legal_entity_id, ledger_id, class_code, kind, value_date,
 				posting_date, fiscal_year, fiscal_period, cost, cost_gc, document_kind, document_id, journal_entry_year, journal_entry_id, created_by)
@@ -138,7 +182,7 @@ func writeAcquisition(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uui
 			return fmt.Errorf("assets: entry of acquisition %s in ledger %s: %w", id, en.LedgerID, err)
 		}
 	}
-	return derive(ctx, tx, p, a.asset.ID, seq)
+	return nil
 }
 
 // derive sets the asset's last seq and derives its status and
@@ -158,7 +202,8 @@ func derive(ctx context.Context, tx pgx.Tx, p reqctx.Principal, asset uuid.UUID,
 // descriptions.
 const acquisitionSelect = `SELECT q.id, q.legal_entity_id, q.asset_id, a.asset_number, a.description, q.seq, q.value_date, q.posting_date, q.fiscal_year,
 		q.currency, q.currency_lc, q.currency_gc, q.amount, q.amount_lc, q.amount_gc, q.source_entry_year, q.source_entry_id, q.source_line_no,
-		q.source_document_number, q.source_context, q.source_document_id, q.text, q.status, q.version, q.created_at, q.created_by, q.updated_at, q.updated_by
+		q.source_document_number, q.source_context, q.source_document_id, q.offset_account_id, q.text, q.status, q.reversal_posting_date, q.reversal_reason,
+		q.version, q.created_at, q.created_by, q.updated_at, q.updated_by
 	FROM assets.acquisition q JOIN assets.asset a ON a.tenant_id = q.tenant_id AND a.id = q.asset_id`
 
 func scanAcquisition(r pgx.Row) (Acquisition, error) {
@@ -168,11 +213,16 @@ func scanAcquisition(r pgx.Row) (Acquisition, error) {
 	var line *int32
 	var number, context *string
 	var doc *uuid.UUID
+	var reversed *time.Time
+	var reason *string
 	err := r.Scan(&q.ID, &q.LegalEntityID, &q.AssetID, &q.AssetNumber, &q.AssetDescription, &q.Seq, &q.ValueDate, &q.PostingDate, &q.FiscalYear,
-		&q.Currency, &q.CurrencyLC, &q.CurrencyGC, &q.Amount, &q.LC, &q.GC, &year, &entry, &line, &number, &context, &doc, &q.Text, &q.Status,
-		&q.Version, &q.CreatedAt, &q.CreatedBy, &q.UpdatedAt, &q.UpdatedBy)
+		&q.Currency, &q.CurrencyLC, &q.CurrencyGC, &q.Amount, &q.LC, &q.GC, &year, &entry, &line, &number, &context, &doc, &q.OffsetAccountID, &q.Text,
+		&q.Status, &reversed, &reason, &q.Version, &q.CreatedAt, &q.CreatedBy, &q.UpdatedAt, &q.UpdatedBy)
 	if err == nil && entry != nil { // the source columns are null together (acquisition_source)
 		q.Source = &Source{LineRef: LineRef{FiscalYear: *year, EntryID: *entry, LineNo: *line}, DocumentNumber: *number, Context: *context, DocumentID: doc}
+	}
+	if err == nil && reversed != nil { // set together with the status (acquisition_reversal)
+		q.Reversal = &Reversal{PostingDate: *reversed, Reason: *reason}
 	}
 	return q, errs.Wrapf(err, "scan acquisition")
 }
@@ -197,48 +247,84 @@ func readAcquisition(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Acquisition,
 }
 
 // readEntries reads the main journal entries of documents of a kind, by
-// document.
+// document, each with its reversal entry once reversed.
 func readEntries(ctx context.Context, tx pgx.Tx, kind string, ids []uuid.UUID) (map[uuid.UUID][]DocumentEntry, error) {
-	rows, _ := tx.Query(ctx, `SELECT document_id, ledger_id, journal_entry_year, journal_entry_id, document_number FROM assets.document_entry
-		WHERE document_kind = $1 AND document_id = ANY($2) AND part = 'main'`, kind, ids)
+	rows, _ := tx.Query(ctx, `SELECT document_id, ledger_id, journal_entry_year, journal_entry_id, document_number, reversal_entry_year, reversal_entry_id,
+			reversal_document_number
+		FROM assets.document_entry WHERE document_kind = $1 AND document_id = ANY($2) AND part = 'main'`, kind, ids)
 	out := map[uuid.UUID][]DocumentEntry{}
 	var doc uuid.UUID
 	var en DocumentEntry
-	_, err := pgx.ForEachRow(rows, []any{&doc, &en.LedgerID, &en.FiscalYear, &en.EntryID, &en.DocumentNumber}, func() error {
+	var rev nullableReversal
+	_, err := pgx.ForEachRow(rows, []any{&doc, &en.LedgerID, &en.FiscalYear, &en.EntryID, &en.DocumentNumber, &rev.year, &rev.id, &rev.number}, func() error {
+		en.Reversal = rev.entry()
 		out[doc] = append(out[doc], en)
 		return nil
 	})
 	return out, errs.Wrapf(err, "assets: entries of %d documents", len(ids))
 }
 
+// nullableReversal is a document entry's reversal entry, all null until
+// it is reversed (document_entry_reversal, document_entry_reversal_number).
+type nullableReversal struct {
+	year   *int16
+	id     *uuid.UUID
+	number *string
+}
+
+func (n nullableReversal) entry() *ReversalEntry {
+	if n.id == nil {
+		return nil
+	}
+	return &ReversalEntry{FiscalYear: *n.year, EntryID: *n.id, DocumentNumber: *n.number}
+}
+
 // recordAcquisition audits the acquisition and publishes it as
 // AssetMovementPosted, with the asset's status and version after it.
-func recordAcquisition(ctx context.Context, tx pgx.Tx, q Acquisition, a acquiring) error {
-	asset, err := readAsset(ctx, tx, q.AssetID, false)
+func recordAcquisition(ctx context.Context, tx pgx.Tx, q Acquisition) error {
+	asset, ledgers, err := eventLedgers(ctx, tx, q, 1, func(en DocumentEntry) map[string]any {
+		return map[string]any{"journal_entry_id": en.EntryID, "fiscal_year": en.FiscalYear, "document_number": en.DocumentNumber}
+	})
 	if err != nil {
 		return err
 	}
-	expLC, err := currency.Exponent(ctx, tx, q.CurrencyLC, nil)
-	if err != nil {
-		return fmt.Errorf("assets: currency %s: %w", q.CurrencyLC, err)
-	}
-	expGC, err := currency.Exponent(ctx, tx, q.CurrencyGC, nil)
-	if err != nil {
-		return fmt.Errorf("assets: currency %s: %w", q.CurrencyGC, err)
-	}
-	ledgers := make([]map[string]any, len(q.Entries))
-	for i, en := range q.Entries {
-		ledgers[i] = map[string]any{"ledger_id": en.LedgerID, "cost": money.EventAmount(q.LC, q.CurrencyLC, expLC),
-			"cost_gc": money.EventAmount(q.GC, q.CurrencyGC, expGC), "journal_entry_id": en.EntryID, "fiscal_year": en.FiscalYear,
-			"document_number": en.DocumentNumber}
-	}
 	detail := map[string]any{"asset_id": q.AssetID, "asset_number": q.AssetNumber, "seq": q.Seq, "value_date": q.ValueDate.Format(time.DateOnly),
 		"posting_date": q.PostingDate.Format(time.DateOnly), "currency": q.Currency, "amount": int64(q.Amount), "amount_lc": int64(q.LC),
-		"amount_gc": int64(q.GC), "source_entry_id": a.line.EntryID, "source_line_no": a.line.LineNo, "ledgers": ledgers}
+		"amount_gc": int64(q.GC), "ledgers": ledgers}
+	if q.Source != nil {
+		detail["source_entry_id"], detail["source_line_no"] = q.Source.EntryID, q.Source.LineNo
+	} else {
+		detail["offset_account_id"] = q.OffsetAccountID
+	}
 	return audit.Record(ctx, "assets.acquisition.post", "assets.acquisition", q.ID, detail,
 		outbox.Event{Context: "assets", Name: "asset_movement_posted", AggregateType: "assets.acquisition", AggregateID: q.ID,
 			Payload: map[string]any{"document_kind": "acquisition", "document_id": q.ID, "asset_id": q.AssetID, "legal_entity_id": q.LegalEntityID,
 				"asset_number": q.AssetNumber, "class_code": asset.Class, "value_date": q.ValueDate.Format(time.DateOnly),
 				"posting_date": q.PostingDate.Format(time.DateOnly), "currency_lc": q.CurrencyLC, "currency_gc": q.CurrencyGC, "ledgers": ledgers,
 				"asset_status": asset.Status, "asset_version": asset.Version}})
+}
+
+// eventLedgers reads the asset after an acquisition's posting or reversal
+// and, per ledger, the change of cost it made (its amounts times sign) with
+// the entry fields of each ledger's entry.
+func eventLedgers(ctx context.Context, tx pgx.Tx, q Acquisition, sign money.Minor, entry func(DocumentEntry) map[string]any) (Asset, []map[string]any, error) {
+	asset, err := readAsset(ctx, tx, q.AssetID, false)
+	if err != nil {
+		return Asset{}, nil, err
+	}
+	expLC, err := currency.Exponent(ctx, tx, q.CurrencyLC, nil)
+	if err != nil {
+		return Asset{}, nil, fmt.Errorf("assets: currency %s: %w", q.CurrencyLC, err)
+	}
+	expGC, err := currency.Exponent(ctx, tx, q.CurrencyGC, nil)
+	if err != nil {
+		return Asset{}, nil, fmt.Errorf("assets: currency %s: %w", q.CurrencyGC, err)
+	}
+	ledgers := make([]map[string]any, len(q.Entries))
+	for i, en := range q.Entries {
+		ledgers[i] = entry(en)
+		ledgers[i]["ledger_id"] = en.LedgerID
+		ledgers[i]["cost"], ledgers[i]["cost_gc"] = money.EventAmount(sign*q.LC, q.CurrencyLC, expLC), money.EventAmount(sign*q.GC, q.CurrencyGC, expGC)
+	}
+	return asset, ledgers, nil
 }

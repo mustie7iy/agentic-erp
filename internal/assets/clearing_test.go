@@ -51,7 +51,7 @@ func (e assetEnv) number(t *testing.T, entry uuid.UUID) string {
 // supplier invoice behind a line, leaves out a reversed entry and its
 // reversal while nothing was capitalised from it, shows a reversed line
 // with acquisitions, keeps only lines with something left with
-// remaining=true, pages by posting date, entry and line, and has nothing
+// remaining=true (or reversed with something its reversal's line offers), pages by posting date, entry and line, and has nothing
 // for a company the caller cannot act in or one without asset accounts.
 func TestClearingItems(t *testing.T) {
 	e := newAcquisitions(t)
@@ -98,7 +98,9 @@ func TestClearingItems(t *testing.T) {
 
 	e.acquire(t, b["id"], split, 1, "")
 	got, _ = e.worklist(t, "&remaining=true")
-	want(t, "with something left", strings.Join(got, "\n"), e.number(t, invoice)+"/1 100.00 EUR used 0.00 EUR left 100.00 EUR 100.00 EUR 100.00 EUR reversed false []\n"+
+	// The reversed line stays while its reversal's line offers the asset holding it a take-off (T57d).
+	want(t, "with something left", strings.Join(got, "\n"), hd+"/1 70.00 EUR used 70.00 EUR left 0.00 EUR 0.00 EUR 0.00 EUR reversed true [2:70.00:posted]\n"+
+		e.number(t, invoice)+"/1 100.00 EUR used 0.00 EUR left 100.00 EUR 100.00 EUR 100.00 EUR reversed false []\n"+
 		e.number(t, payablesEntry)+"/1 5.00 EUR used 0.00 EUR left 5.00 EUR 5.00 EUR 5.00 EUR reversed false []")
 
 	var pages []string
