@@ -6841,6 +6841,13 @@
        },
        {
         "s": "D",
+        "t": "Page-token scopes hold filter values, not pointers: listHierarchies formatted its is_standard filter as a *bool, whose address the next request does not share, so paging with that filter was refused after page one; it formats the Opt now, and a layout test traces every scope given to the page-token codec and refuses a formatted pointer, interface, map, channel or function whose type does not print itself",
+        "r": "internal/ledger/hierarchies_api.go · TestHierarchyListing · internal/layout TestPageScopes",
+        "src": "review:batch46",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "Generated code checked against the contract in CI",
         "r": "",
         "src": "baseline",

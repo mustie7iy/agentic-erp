@@ -78,7 +78,9 @@ func (e *Endpoints) ListHierarchies(ctx context.Context, params gen.ListHierarch
 		return nil, err
 	}
 	standard := apitypes.Ptr[bool](params.IsStandard)
-	scope := fmt.Sprintf("listHierarchies|%s|%s|%v", params.Kind.Value, params.Code.Value, standard)
+	// The Opt, not the pointer: a pointer prints its address, which the next
+	// page's request does not share (internal/layout's TestPageScopes).
+	scope := fmt.Sprintf("listHierarchies|%s|%s|%v", params.Kind.Value, params.Code.Value, params.IsStandard)
 	ks, err := e.Pages.Keyset(hierarchySort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
