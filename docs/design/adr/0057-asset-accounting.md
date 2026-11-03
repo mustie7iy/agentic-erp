@@ -1876,10 +1876,17 @@ Decided by default, for the product owner to overrule:
 - **Cancelling a run's Operation stops the run at its next step**
   (review round 2 replaced round 1's "carried to its end", under which
   `:cancel` answered `cancelled` while the run went on posting). The plan,
-  each batch and the finish read the Operation under its row lock after
-  the run's (`assets.Runs.Cancelled`, `operations.IsCancelled`), so a
-  `:cancel` during a step waits for it to commit; once it is cancelled the
-  step refuses with 409 `assets.run_cancelled`, a business problem, and
+  each batch and the finish read the Operation after the run's lock
+  (`assets.Runs.Cancelled`, `operations.IsCancelled`). The plan and each
+  batch read it without its row lock (review round 3: under the lock, a
+  `:cancel` during a long plan or a 500-asset batch met the 5 s lock
+  timeout and answered 409 `request.in_progress`), so a `:cancel` during
+  them returns at once and takes effect at the next step; their closing
+  progress report leaves a cancelled Operation alone, and the step under
+  way commits as a whole. The finish, which succeeds the Operation, and
+  the fail read it under the lock, so a `:cancel` cannot slip in between
+  the read and the finish. Once it is cancelled the next step refuses
+  with 409 `assets.run_cancelled`, a business problem, and
   the workflow's fail path sets the run `failed` with it, freeing
   `depreciation_run_one_at_a_time`. Batches already posted stay posted and
   a new run of the period posts what is left; the Operation stays

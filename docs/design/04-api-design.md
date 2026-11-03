@@ -361,8 +361,10 @@ at most one bank file.
 
 A depreciation run (`POST /v1/depreciation-runs`, 202, ADR-0057 §7) stops at
 its next step once its operation is cancelled: each step (the plan, a batch,
-the finish) reads the operation under its lock, so a cancellation during a
-batch waits for the batch to commit, and the next step fails the run with
+the finish) reads the operation first. A cancellation during the plan or a
+batch returns at once (they read it without its lock, so `:cancel` never
+waits for a long step); the step under way commits as a whole, and the
+cancellation takes effect at the next step, which fails the run with
 `assets.run_cancelled`. Its posted batches stay posted, the operation stays
 `cancelled`, and the company and ledger are free for a new run of the
 period, which posts what is left.

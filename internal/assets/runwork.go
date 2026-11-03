@@ -26,10 +26,15 @@ import (
 // workflow engine). Each is idempotent: run again after a commit whose
 // completion was lost, it finds its effect there and does nothing. Each
 // of the plan, a batch and the finish first reads the run's Operation
-// under its lock (liveRun): once it is cancelled the step refuses with
-// 409 assets.run_cancelled, which the workflow records by failing the
-// run, so a cancellation stops the run at its next step and the batches
-// already posted stay posted.
+// (liveRun): once it is cancelled the step refuses with 409
+// assets.run_cancelled, which the workflow records by failing the run, so
+// a cancellation stops the run at its next step and the batches already
+// posted stay posted. The plan and a batch, which may run long, read it
+// without its lock, so a :cancel during them commits at once (the
+// transactions' lock timeout would otherwise answer it 409
+// request.in_progress); their closing report leaves a cancelled Operation
+// alone. The finish, which succeeds the Operation, reads it under its
+// lock.
 
 // lockRun reads a run FOR UPDATE (FOR SHARE with share), whoever may act
 // in its company: the run's own work, as its requester.
@@ -47,15 +52,16 @@ func lockRun(ctx context.Context, tx pgx.Tx, id uuid.UUID, share bool) (Run, err
 
 // liveRun locks a run as lockRun does and, while it is queued or running,
 // refuses it once its Operation is cancelled (409 assets.run_cancelled).
-// The Operation is read under its lock after the run's, the order every
-// step takes them in, so a :cancel during the step waits for it to commit
-// and stops the run at the next one.
-func (e *Endpoints) liveRun(ctx context.Context, tx pgx.Tx, id uuid.UUID, share bool) (Run, error) {
+// With finishing the Operation is read under its lock, after the run's,
+// for a step that finishes the Operation; otherwise as it stands, so a
+// :cancel during the step commits at once and stops the run at the next
+// one.
+func (e *Endpoints) liveRun(ctx context.Context, tx pgx.Tx, id uuid.UUID, share, finishing bool) (Run, error) {
 	r, err := lockRun(ctx, tx, id, share)
 	if err != nil || (r.Status != RunQueued && r.Status != RunRunning) {
 		return r, err
 	}
-	cancelled, err := e.Runs.Cancelled(ctx, r.OperationID)
+	cancelled, err := e.Runs.Cancelled(ctx, r.OperationID, finishing)
 	if err != nil {
 		return Run{}, fmt.Errorf("assets: the operation of depreciation run %s: %w", id, err)
 	}
@@ -77,7 +83,7 @@ func (e *Endpoints) PlanDepreciationRun(ctx context.Context, id uuid.UUID) ([]in
 	if err != nil {
 		return nil, err
 	}
-	r, err := e.liveRun(ctx, tx, id, false)
+	r, err := e.liveRun(ctx, tx, id, false, false)
 	if err != nil || r.Status == RunPosted || r.Status == RunFailed {
 		return nil, err
 	}
@@ -187,7 +193,7 @@ func (e *Endpoints) PostDepreciationBatch(ctx context.Context, id uuid.UUID, no 
 // assets locked and still selectable and their differences; ok is false
 // for a batch already posted or a run no longer running.
 func (e *Endpoints) batchOf(ctx context.Context, tx pgx.Tx, id uuid.UUID, no int32) (batchWork, bool, error) {
-	r, err := e.liveRun(ctx, tx, id, true)
+	r, err := e.liveRun(ctx, tx, id, true, false)
 	if err != nil || r.Status != RunRunning {
 		return batchWork{}, false, err
 	}
@@ -358,7 +364,7 @@ func (e *Endpoints) FinishDepreciationRun(ctx context.Context, id uuid.UUID) err
 	if err != nil {
 		return err
 	}
-	r, err := e.liveRun(ctx, tx, id, false)
+	r, err := e.liveRun(ctx, tx, id, false, true)
 	if err != nil || r.Status != RunRunning {
 		return err
 	}
@@ -406,7 +412,7 @@ func (e *Endpoints) FailDepreciationRun(ctx context.Context, id uuid.UUID, why *
 	if r, err = e.recordRun(ctx, tx, id, "assets.depreciation_run.fail"); err != nil {
 		return err
 	}
-	cancelled, err := e.Runs.Cancelled(ctx, r.OperationID)
+	cancelled, err := e.Runs.Cancelled(ctx, r.OperationID, true)
 	if err != nil || cancelled {
 		return errs.Wrapf(err, "assets: the operation of depreciation run %s", id)
 	}

@@ -242,8 +242,8 @@ func (assetRuns) Report(ctx context.Context, id uuid.UUID, done, total int64) er
 	return operations.Report(ctx, id, done, total)
 }
 
-func (assetRuns) Cancelled(ctx context.Context, id uuid.UUID) (bool, error) {
-	return operations.IsCancelled(ctx, id)
+func (assetRuns) Cancelled(ctx context.Context, id uuid.UUID, lock bool) (bool, error) {
+	return operations.IsCancelled(ctx, id, lock)
 }
 
 func (assetRuns) Succeed(ctx context.Context, id uuid.UUID, resource string, result any) error {

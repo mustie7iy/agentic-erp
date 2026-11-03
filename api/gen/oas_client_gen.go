@@ -3050,13 +3050,15 @@ type Invoker interface {
 	// or locked meanwhile, an account blocked, a center invalid, a class no longer the company's, a
 	// missing exchange rate) fails the run and its Operation with the problem; batches already posted stay
 	// posted, and a new run of the period, or the next period's run, posts what is left. Cancelling the
-	// Operation (`POST /v1/operations/{id}:cancel`) stops the run at its next step: the batch under way
-	// commits as a whole (a cancellation during it waits for it), the run is then `failed` with
-	// `assets.run_cancelled`, freeing its company and ledger for a new run, its batches already posted
-	// stay posted, and the Operation stays `cancelled`. A step failing on an error of the machinery is
-	// retried five times; one that outlasts them fails the run, and its Operation, with
-	// `platform.internal`. The run is published as DepreciationRunCompleted when it ends, posted or
-	// failed, and audited. A legal entity the caller cannot act in is 404. Human-only.
+	// Operation (`POST /v1/operations/{id}:cancel`) stops the run at its next step: a cancellation during
+	// the plan or a batch answers at once, the step under way commits as a whole, the next step then fails
+	// the run with `assets.run_cancelled`, freeing its company and ledger for a new run, its batches
+	// already posted stay posted, and the Operation stays `cancelled`. A step failing on an error of the
+	// machinery is tried five times; one that outlasts them fails the run, and its Operation, with
+	// `platform.internal`. In a cell without a workflow engine a failing step is tried again every round
+	// until it succeeds or the Operation is cancelled. The run is published as DepreciationRunCompleted
+	// when it ends, posted or failed, and audited. A legal entity the caller cannot act in is 404.
+	// Human-only.
 	//
 	// POST /v1/depreciation-runs
 	StartDepreciationRun(ctx context.Context, request *DepreciationRunStart, params StartDepreciationRunParams) (StartDepreciationRunRes, error)
@@ -54819,13 +54821,15 @@ func (c *Client) sendStartAgentSession(ctx context.Context, request *AgentSessio
 // or locked meanwhile, an account blocked, a center invalid, a class no longer the company's, a
 // missing exchange rate) fails the run and its Operation with the problem; batches already posted stay
 // posted, and a new run of the period, or the next period's run, posts what is left. Cancelling the
-// Operation (`POST /v1/operations/{id}:cancel`) stops the run at its next step: the batch under way
-// commits as a whole (a cancellation during it waits for it), the run is then `failed` with
-// `assets.run_cancelled`, freeing its company and ledger for a new run, its batches already posted
-// stay posted, and the Operation stays `cancelled`. A step failing on an error of the machinery is
-// retried five times; one that outlasts them fails the run, and its Operation, with
-// `platform.internal`. The run is published as DepreciationRunCompleted when it ends, posted or
-// failed, and audited. A legal entity the caller cannot act in is 404. Human-only.
+// Operation (`POST /v1/operations/{id}:cancel`) stops the run at its next step: a cancellation during
+// the plan or a batch answers at once, the step under way commits as a whole, the next step then fails
+// the run with `assets.run_cancelled`, freeing its company and ledger for a new run, its batches
+// already posted stay posted, and the Operation stays `cancelled`. A step failing on an error of the
+// machinery is tried five times; one that outlasts them fails the run, and its Operation, with
+// `platform.internal`. In a cell without a workflow engine a failing step is tried again every round
+// until it succeeds or the Operation is cancelled. The run is published as DepreciationRunCompleted
+// when it ends, posted or failed, and audited. A legal entity the caller cannot act in is 404.
+// Human-only.
 //
 // POST /v1/depreciation-runs
 func (c *Client) StartDepreciationRun(ctx context.Context, request *DepreciationRunStart, params StartDepreciationRunParams) (StartDepreciationRunRes, error) {

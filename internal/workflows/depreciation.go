@@ -86,8 +86,8 @@ func interrupted() problem.Problem {
 // business problem (a cancelled Operation's assets.run_cancelled
 // included) fails the run instead, and so does, where it is final, any
 // other error, which the run still returns once the run is failed, so the
-// workflow fails with it for the operators. In a workflow it only sequences the steps, so it is
-// deterministic.
+// workflow fails with it for the operators. In a workflow it only
+// sequences the steps, so it is deterministic.
 func (s depreciationSteps) run() error {
 	batches, err := s.plan()
 	for _, b := range batches {
@@ -118,7 +118,7 @@ func (s depreciationSteps) run() error {
 // :cancel also sends, does not cut a step off: the activities run on a
 // context it does not reach, so the step under way commits or not as a
 // whole and the failing step still runs. A failure of the machinery is
-// retried five times with backoff, as the other workflows' (ADR-0012);
+// tried five times with backoff, as the other workflows' (ADR-0012);
 // one that outlasts them fails the run as an internal error and fails the
 // workflow with it. A business problem is not retried.
 //

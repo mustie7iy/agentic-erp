@@ -38,11 +38,20 @@ type deprScenario struct {
 
 // deprSetup is a tenant with the prototype's asset classes and a machine
 // of company 2000 capitalised at 1,200.00 EUR valued 10 June 2026, so its
-// depreciation is 10.00 a month from June.
+// depreciation is 10.00 a month from June. The test's own runs are
+// carried out by the test (a test workflow environment or the in-process
+// runner), never by the dispatcher, which reads every tenant's queue: at
+// the end their Operations still without a workflow are marked as taken,
+// so a later test's dispatcher does not start them (R66's isolation,
+// under -shuffle).
 func deprSetup(t *testing.T) *deprScenario {
 	t.Helper()
 	e := fixture.NewWith(t, nil, fixture.AssetClasses, "assets.asset.read", "assets.asset.change", "assets.asset.post", "assets.depreciation.run",
 		"ledger.entry.post", "platform.operation.read", "platform.operation.cancel")
+	t.Cleanup(func() {
+		pgtest.Exec(t, `UPDATE platform.operation SET workflow_id = 'carried out by the test', version = version + 1
+			WHERE tenant_id = $1 AND kind = $2 AND workflow_id IS NULL`, e.Tenant.ID, workflows.DepreciateKind)
+	})
 	s := &deprScenario{e: e, d: &workflows.Depreciations{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Runs: app.Assets(app.Config{}),
 		Actors: identity.Actors{}}}
 	s.machine(t, "Mill")

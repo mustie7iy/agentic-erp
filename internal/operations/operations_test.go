@@ -337,34 +337,38 @@ func TestOutsideAUnitOfWork(t *testing.T) {
 	if _, err := e.CancelOperation(ctx, gen.CancelOperationParams{}); err == nil {
 		t.Error("cancel outside a request")
 	}
-	if _, err := operations.IsCancelled(ctx, uuid.New()); err == nil {
+	if _, err := operations.IsCancelled(ctx, uuid.New(), true); err == nil {
 		t.Error("IsCancelled outside a request")
 	}
 }
 
 // TestIsCancelled: an operation reads as cancelled once it is, and not
-// while queued; an unknown one is not found.
+// while queued, under its lock and without; an unknown one is not found.
 func TestIsCancelled(t *testing.T) {
 	ten := pgtest.NewTenant(t, perms...)
-	o := start(t, ten, "test.cancelled")
-	read := func(id uuid.UUID) (bool, error) {
-		var got bool
-		err := inRequest(t, ten, ten.Human, false, func(ctx context.Context) error {
-			var err error
-			got, err = operations.IsCancelled(ctx, id)
-			return err
+	for name, lock := range map[string]bool{"under its lock": true, "as it stands": false} {
+		t.Run(name, func(t *testing.T) {
+			o := start(t, ten, "test.cancelled")
+			read := func(id uuid.UUID) (bool, error) {
+				var got bool
+				err := inRequest(t, ten, ten.Human, false, func(ctx context.Context) error {
+					var err error
+					got, err = operations.IsCancelled(ctx, id, lock)
+					return err
+				})
+				return got, err
+			}
+			if got, err := read(o.ID); err != nil || got {
+				t.Errorf("a queued operation: got %v %v, want false", got, err)
+			}
+			pgtest.Exec(t, `UPDATE platform.operation SET status = 'cancelled', version = version + 1 WHERE id = $1`, o.ID)
+			if got, err := read(o.ID); err != nil || !got {
+				t.Errorf("a cancelled operation: got %v %v, want true", got, err)
+			}
+			if _, err := read(uuid.New()); problem.From(err).Code != "request.not_found" {
+				t.Errorf("an unknown operation: got %v, want request.not_found", err)
+			}
 		})
-		return got, err
-	}
-	if got, err := read(o.ID); err != nil || got {
-		t.Errorf("a queued operation: got %v %v, want false", got, err)
-	}
-	pgtest.Exec(t, `UPDATE platform.operation SET status = 'cancelled', version = version + 1 WHERE id = $1`, o.ID)
-	if got, err := read(o.ID); err != nil || !got {
-		t.Errorf("a cancelled operation: got %v %v, want true", got, err)
-	}
-	if _, err := read(uuid.New()); problem.From(err).Code != "request.not_found" {
-		t.Errorf("an unknown operation: got %v, want request.not_found", err)
 	}
 }
 

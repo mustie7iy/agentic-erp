@@ -278,14 +278,15 @@ const KindDepreciate = "assets.depreciate"
 // Runs keeps a depreciation run's Operation (operations context, ADR-0057
 // §2, §7): Start writes it queued, for the run's resource path, in the
 // request's transaction, which the workflows dispatcher then starts;
-// Report records the batches posted of all; Cancelled says, under the
-// Operation's lock, whether it was cancelled, which stops the run at its
-// next step; Succeed and Fail finish it from the run's activities. assets
-// imports neither operations nor the workflow engine.
+// Report records the batches posted of all; Cancelled says whether it
+// was cancelled, which stops the run at its next step, read under the
+// Operation's lock with lock and as it stands without; Succeed and Fail
+// finish it from the run's activities. assets imports neither operations
+// nor the workflow engine.
 type Runs interface {
 	Start(ctx context.Context, resource string, request any) (gen.Operation, error)
 	Report(ctx context.Context, id uuid.UUID, done, total int64) error
-	Cancelled(ctx context.Context, id uuid.UUID) (bool, error)
+	Cancelled(ctx context.Context, id uuid.UUID, lock bool) (bool, error)
 	Succeed(ctx context.Context, id uuid.UUID, resource string, result any) error
 	Fail(ctx context.Context, id uuid.UUID, p *problem.Problem) error
 }

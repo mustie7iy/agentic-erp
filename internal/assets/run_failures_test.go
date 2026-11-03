@@ -107,10 +107,10 @@ var errRuns = errors.New("operations unavailable")
 func (failingRuns) Start(context.Context, string, any) (gen.Operation, error) {
 	return gen.Operation{}, errRuns
 }
-func (failingRuns) Report(context.Context, uuid.UUID, int64, int64) error   { return errRuns }
-func (failingRuns) Cancelled(context.Context, uuid.UUID) (bool, error)      { return false, nil }
-func (failingRuns) Succeed(context.Context, uuid.UUID, string, any) error   { return errRuns }
-func (failingRuns) Fail(context.Context, uuid.UUID, *problem.Problem) error { return errRuns }
+func (failingRuns) Report(context.Context, uuid.UUID, int64, int64) error    { return errRuns }
+func (failingRuns) Cancelled(context.Context, uuid.UUID, bool) (bool, error) { return false, nil }
+func (failingRuns) Succeed(context.Context, uuid.UUID, string, any) error    { return errRuns }
+func (failingRuns) Fail(context.Context, uuid.UUID, *problem.Problem) error  { return errRuns }
 
 // TestDepreciationRunPortsFail: a run's step whose port fails is refused
 // with the cause: the Operation not written or not reported, the
@@ -210,7 +210,7 @@ func TestDepreciationRunPortsFail(t *testing.T) {
 // cancelUnread is the operations port whose read of a cancellation fails.
 type cancelUnread struct{ assets.Runs }
 
-func (cancelUnread) Cancelled(context.Context, uuid.UUID) (bool, error) { return false, errRuns }
+func (cancelUnread) Cancelled(context.Context, uuid.UUID, bool) (bool, error) { return false, errRuns }
 
 // TestRunInProgressConstraint: a second run of a company and ledger
 // queued at the same time as the first meets the database's rule, which

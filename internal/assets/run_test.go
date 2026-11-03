@@ -18,11 +18,11 @@ import (
 )
 
 // newRuns is newAcquisitions whose people may also start depreciation
-// runs, the tenant's group currency USD, so group amounts differ from
-// company 2000's EUR.
-func newRuns(t *testing.T) assetEnv {
+// runs (and do what more permits), the tenant's group currency USD, so
+// group amounts differ from company 2000's EUR.
+func newRuns(t *testing.T, more ...string) assetEnv {
 	t.Helper()
-	e := newAssets(t, append(postPermissions, "assets.depreciation.run")...)
+	e := newAssets(t, append(append(postPermissions, "assets.depreciation.run"), more...)...)
 	pgtest.Exec(t, `UPDATE tenancy.tenant SET group_currency = 'USD', version = version + 1 WHERE id = $1`, e.Tenant.ID)
 	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
 		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-01-01', 0.92, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
@@ -385,4 +385,82 @@ func TestDepreciationRunBatches(t *testing.T) {
 	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE legal_entity_id = $1 AND ledger_id = $2 AND fiscal_year = 2026 AND period = 6`, e.DE, e.l0)
 	r = e.carry(t, run)
 	want(t, "a run failed after its first batch", runOf(r), "failed 3 2 0 20.00; 1 posted 2 2 0 20.00; 2 pending 1 <nil> <nil> -")
+}
+
+// heldRuns is the operations port whose report, the last thing the plan
+// and a batch do before they commit, waits inside the step's transaction
+// until the test lets it go: a step under way, held open.
+type heldRuns struct {
+	assets.Runs
+	inside  chan<- struct{}
+	release <-chan struct{}
+}
+
+func (h heldRuns) Report(ctx context.Context, id uuid.UUID, done, total int64) error {
+	h.inside <- struct{}{}
+	<-h.release
+	return h.Runs.Report(ctx, id, done, total)
+}
+
+// TestDepreciationRunCancelDuringAStep: a :cancel while the plan's or a
+// batch's transaction is open answers 200 at once, rather than waiting
+// for the step and meeting the lock timeout (409 request.in_progress,
+// which the Idempotency-Key would replay); the step commits as a whole,
+// leaving the cancelled Operation alone, and the next step fails the run
+// with assets.run_cancelled.
+func TestDepreciationRunCancelDuringAStep(t *testing.T) {
+	e := newRuns(t, "platform.operation.read", "platform.operation.cancel")
+	e.depreciable(t, "Mill")
+	plan := func(ctx context.Context, h *assets.Endpoints, run uuid.UUID) error {
+		_, err := h.PlanDepreciationRun(ctx, run)
+		return err
+	}
+	for _, c := range []struct {
+		name    string
+		planned bool
+		step    func(ctx context.Context, h *assets.Endpoints, run uuid.UUID) error
+		want    string
+	}{
+		{"the plan", false, plan, "failed 1 0 0 0.00; 1 pending 1 <nil> <nil> -"},
+		{"a batch", true, func(ctx context.Context, h *assets.Endpoints, run uuid.UUID) error {
+			return h.PostDepreciationBatch(ctx, run, 1)
+		},
+			"failed 1 1 0 10.00; 1 posted 1 1 0 10.00"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			op, run := e.start(t, e.l0, 6)
+			if c.planned {
+				if err := e.step(t, func(ctx context.Context, h *assets.Endpoints) error { return plan(ctx, h, run) }); err != nil {
+					t.Fatal(err)
+				}
+			}
+			path := "/v1/operations/" + op["id"].(string)
+			_, tag := e.In(t).Must(200, "GET", path, "", "")
+			inside, release, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+			h := app.Assets(app.Config{})
+			h.Runs = heldRuns{Runs: h.Runs, inside: inside, release: release}
+			go func() {
+				done <- apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { return c.step(ctx, h, run) })
+			}()
+			select {
+			case <-inside:
+			case err := <-done:
+				t.Fatalf("the step ended before its report: %v", err)
+			}
+			code, body, _ := e.In(t).Do("POST", path+":cancel", "", tag)
+			close(release)
+			if err := <-done; err != nil {
+				t.Errorf("the step held open: got %v, want it committed", err)
+			}
+			if code != 200 || body["status"] != "cancelled" {
+				t.Errorf("the cancel during %s: got %d %v, want 200 cancelled at once", c.name, code, body)
+			}
+			r := e.carry(t, run)
+			want(t, "the run after the cancel", runOf(r), c.want)
+			problem, _ := r["error"].(map[string]any) // none on a run that went on to be posted
+			want(t, "its problem", problem["code"], "assets.run_cancelled")
+			o, _ := e.In(t).Must(200, "GET", path, "", "")
+			want(t, "its Operation", o["status"], "cancelled")
+		})
+	}
 }
