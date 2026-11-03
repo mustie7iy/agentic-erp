@@ -315,7 +315,12 @@ Per ADR-0008:
   unit of work runs at `REPEATABLE READ` (read-only), so every statement
   sees what the first saw. A report computed from several contexts' reads
   needs it, such as the daily cash position (`getCashPosition`, ADR-0051
-  §6); the contract allows the mark on `GET` only (`api/spec.go`).
+  §6); the contract allows the mark on `GET` only (`api/spec.go`). A write
+  that records such a report, as taking a snapshot of the liquidity
+  forecast does (`takeCashSnapshot`, ADR-0051 §6, T53f), reads it in a
+  read-only `REPEATABLE READ` transaction of its own (`uow.Consistent`)
+  and writes in its request's: run whole at `REPEATABLE READ`, the write
+  would fail whenever another write of the tenant committed meanwhile.
 
 ## 4.8 Long-running operations
 

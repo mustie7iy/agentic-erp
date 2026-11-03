@@ -467,6 +467,117 @@ cost of a second copy of every open item and order kept in step by event
 handlers, with its own reconciliation; it is the path if the read budget
 fails at a larger tenant, and the flow shape of §4 is its schema.
 
+As built (T53f, the first slice: snapshots; split into T53f and
+T53f2-T53f4 in the tracker, src `split:T53f`; decided by default where §6,
+§11 and §15 leave it open):
+- **The split.** T53f is one slice per thing a treasurer can use, in
+  §11's order: snapshots (this slice, taken, read and kept); the actuals
+  (T53f2, `GET /v1/cash-actuals`, which stand alone on the statements);
+  the variance with lag and attribution (T53f3, which needs both); and
+  variance comments by people (T53f4, which need the variance; an agent's
+  proposals are T53i's).
+- **Tables.** Migration 000192 creates `cash.snapshot` and
+  `cash.snapshot_flow` (RLS, `tenant_id` first, insert-only: no version,
+  so no update is granted; deleted only by retention, the lines with
+  their snapshot) and seeds `cash.snapshot.take`. §6's columns, with three
+  decisions: `kind` (`daily`, one per company and date, `snapshot_daily`;
+  `on_demand`, named, `snapshot_name`) in place of `status`, since a
+  snapshot is written whole in one transaction and has no state to track;
+  `time_zone`, the zone of `snapshot_date` (the company's read date,
+  T72n1); and `config_version`, the configuration whose derivation
+  classified the flows, since §4 says snapshots keep the item they were
+  taken with and a rule change does not restate them. `document_ref` is
+  `document_kind`, `document_id` and `document_number` (the drill-down's
+  `LiquidityForecastDocument`, the number as it was).
+- **Document level.** A line within 31 days of the snapshot's date
+  (`document_level_until`, the date plus 30) is what one forecast flow
+  (`flow_no`) pays of one document under one liquidity item: a supplier
+  payment's documents (its invoices and credit memos netted, T53e) each
+  classified on its own with the flow's direction (`partsShares`, the same
+  shares `classify` sums, so the lines of a flow add up to it), a memo
+  record's occurrence, a down payment request; a run's payment, or a
+  payment in transit, is split by the items it settles, which are not its
+  document, so its lines are its shares by item each naming its run. Each
+  line keeps the flow's day at the bank, source, certainty, lateness,
+  supplier, house bank (a payment's bank, a memo record's, a supplier
+  item's ranked bank by its code, none for the rest, as §4's table) and,
+  for run and in-transit flows, the payment (`payment_id`), which the
+  variance's attribution (T53f3) matches against statement lines. A share
+  of nothing is no line.
+- **Beyond.** After the 31st day, one line per bucket of the company's
+  buckets, currency, source, certainty, item and bank (`bucket_end` set,
+  `flow_count` the flows with a share in it), naming no document,
+  supplier or payment; a bucket that holds the 31st day is summed from the
+  day after it. Flows after the last bucket (the forecast's `beyond`) are
+  not kept: no period they could be compared over is in the horizon. The
+  opening is not kept either: the variance compares flows, and the
+  position of a past day is its statements' (T53f2).
+- **What is kept.** The forecast as `getLiquidityForecast` reads it with
+  the company's buckets, every certainty, and blocked suppliers' flows by
+  their source (`payable_blocked`), so the variance can count them or not
+  as the forecast does. The snapshot's totals per currency (`total`,
+  without `payable_blocked`, as the forecast's default; `blocked`;
+  `line_count`) are summed at the read from its lines.
+- **One database state.** The forecast is read in a read-only `REPEATABLE
+  READ` transaction of its own (`uow.Consistent`, wired in
+  `internal/app`), as the caller, and the snapshot written in the
+  request's (or the activity's) `READ COMMITTED` transaction. A write
+  cannot run whole at `REPEATABLE READ`: every write of a tenant moves its
+  audit chain head, so any write committed during the read would fail it.
+  `x-snapshot` stays on `GET`s (04 §4.7). The read holds a second
+  connection while it runs; a snapshot is taken once a day per company or
+  by a person, so the pool is not at risk.
+- **The daily snapshot.** A company is due once its local time in its
+  zone reaches its `cash.snapshot_time` (default 07:00) and its daily
+  snapshot of that date is not taken (`cash.Endpoints.DueSnapshots`). The
+  dispatcher asks at most once a minute, of the tenants that manage cash
+  (an active liquidity item; 000192 grants `erp_worker` the two columns
+  it needs), and starts `TakeCashSnapshot` with the id
+  `{tenant}-legal_entity-{legal entity}-cash_snapshot-{date}`, so replicas
+  and rounds start it once. Its two activities take the snapshot as the
+  system principal `cash-snapshotter`, who acts in every company of the
+  tenant, then delete the old ones. Taken twice it finds the first and
+  writes and publishes nothing (`TestTakeSnapshotTwice`); two replicas at
+  once leave one (`ON CONFLICT` on `snapshot_daily`,
+  `TestCashSnapshotDailyRace`). An activity that runs after the company's
+  midnight skips the date, since a past day's forecast cannot be read
+  again. A date that does not parse is not retried. Without a workflow
+  engine the in-process `Snapshotter` takes them each minute with the
+  same activities, as the recurring entries do (ADR-0056).
+- **Retention.** The workflow then deletes the company's snapshots dated
+  more than 25 months before its date (daily and on demand alike, as §6
+  keeps them alike), each audited (`cash.snapshot.delete`, reason
+  `retention`); run again it deletes nothing. §6's exception, a snapshot
+  a variance comment refers to, is T53f4's to add with the comments.
+- **API.** `POST /v1/cash-snapshots` (`takeCashSnapshot`,
+  `cash.snapshot.take`, Idempotency-Key, `x-agent: false`: §13 gives the
+  agent `getCashSnapshot` only), `GET /v1/cash-snapshots` (the companies
+  the caller may act in, newest first, by legal entity, kind and dates,
+  paged), `GET /v1/cash-snapshots/{id}` and
+  `GET /v1/cash-snapshots/{id}/flows` (one currency, by item or the
+  unclassified, source and value dates, paged by line, with the total and
+  count of every page), all read with `cash.forecast.read`. A line's
+  supplier, payment and document are shown as the drill-down shows them
+  (T53e4: `partner.supplier.read`, `payments.run.read` and each document's
+  context's read permission, `authz.MayUse`), else left out, with
+  `has_document` saying whether it names one; its house bank by its code.
+  The write is audited (`cash.snapshot.take`) and published as
+  `CashSnapshotTaken`; its webhook (`x-webhook`) is T53h's.
+- **Budget.** §6 names none for snapshots: the read is the forecast's
+  (01 §Performance, p95 3 s at 100,000 open items), and the lines are
+  written in one statement.
+- **Evidence.** `db.TestCashSnapshotRules`, `TestCashSnapshotPrivileges`;
+  `cash.TestCashSnapshotOnDemand` (a run's payment of two items, a credit
+  memo netted into an invoice's payment kept as two lines of one flow,
+  memo records, a down payment request, two supplier items summed in
+  their weeks after the 31st day and a series' occurrences in their
+  months), `TestCashSnapshotLines`, `TestCashSnapshotList`,
+  `TestCashSnapshotDaily`, `TestCashSnapshotDailyRace`,
+  `TestCashSnapshotRefusals`, `TestCashSnapshotRetention`,
+  `TestCashSnapshotFailures`; `uow.TestConsistentRead`;
+  `workflows.TestTakeCashSnapshot`, `TestTakeSnapshotTwice`,
+  `TestDispatchSnapshots`, `TestSnapshotter`; the walkthrough's step 23.
+
 ### 7. Memo records
 `cash.memo_record (tenant_id, id, legal_entity_id, house_bank_id NULL,
 currency, amount, value_date, expires_on, certainty, liquidity_item,

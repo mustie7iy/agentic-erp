@@ -2642,7 +2642,8 @@ A leaf context (ADR-0051 §2): it reads the ledger, payments, payables and
 procurement through ports they publish and owns only what it adds; no
 context imports it (`internal/layout`). Migration 000141 (T53b) creates the
 schema with the configuration it keeps; memo records follow in T53d
-(000152), snapshots and variance comments in T53f.
+(000152), snapshots of the forecast in T53f (000192), variance comments in
+T53f4.
 
 ```mermaid
 erDiagram
@@ -2675,6 +2676,31 @@ erDiagram
     uuid session_id "agents context"
     text batch_key
     uuid realised_statement_id "payments context" }
+  snapshot ||--o{ snapshot_flow : "keeps"
+  liquidity_item ||--o{ snapshot_flow : "classifies"
+  snapshot { uuid id PK
+    uuid legal_entity_id "tenancy context"
+    text kind "daily | on_demand"
+    text name "on_demand only"
+    date snapshot_date "the company's date at the read"
+    text time_zone
+    date horizon_end "the last bucket's last day"
+    int config_version "the derivation that classified it" }
+  snapshot_flow { int line_no PK
+    int flow_no
+    date value_date
+    date bucket_end "null: document level"
+    uuid house_bank_id "payments context"
+    char currency
+    text source
+    text certainty
+    text liquidity_item FK "null: unclassified"
+    bigint amount "minor units, signed"
+    int flow_count
+    uuid supplier_id "partner context"
+    uuid payment_id "payments context"
+    text document_kind
+    uuid document_id "the owning context's" }
 ```
 
 | Table | Purpose |
@@ -2682,7 +2708,9 @@ erDiagram
 | `cash.liquidity_item` | The configuration's `cash.liquidity_items` (SAP FLQLITEM), kept by `cash.Setup`: cash by purpose in one tree, a code of upper-case letters, digits and underscores, a direction, a parent of the tenant (never itself). One the document drops becomes inactive, never deleted, since memo records and snapshots name items; the configuration's validation keeps the tree acyclic, at most four levels, children of their parent's direction or of one for both |
 | `cash.planning_group` | The configuration's `cash.planning_groups` (SAP T035), kept by `cash.Setup`, inactive once dropped; suppliers name one per company (`partner.supplier_company.planning_group`, §3.6) |
 | `cash.memo_record` | An expected receipt or payment (SAP's memo records, ADR-0051 §7; T53d): a signed, non-zero amount in minor units of its currency, a value date and an expiry date on or after it, a certainty, an active liquidity item of the amount's direction (`cash.check_memo_item`, when the item or amount is written; `cash.Setup` refuses taking away an item an open record names), a house bank or none (forecast only), optionally a series (`weekly`, `monthly` on the value date's day, `quarterly`; until a day or a count of 2-520, or neither) expanded at read time, `counts_until` the last occurrence's expiry (a one-off record's `expires_on`, null for a series without end; an active record past it is shown `expired`). An override (`recurrence_of`, `occurrence_date`) replaces one occurrence of a series, once per occurrence (`memo_record_override_once`). `origin` `agent` records carry their session and reason and are the only ones `proposed` or `rejected`; `upload` ones carry their batch key and a reference unique per company and key (`memo_record_batch_reference`). Realised by a statement line or by a person; a series only through an override of an occurrence. Changes are versions; never deleted |
-| `cash.outbox`, `cash.inbox` | The context's events (`MemoRecordChanged`), relayed as every context's (000152, `outbox.Contexts`) |
+| `cash.snapshot` | A snapshot of a company's liquidity forecast (ADR-0051 §6, T53f, 000192): `daily` (the TakeCashSnapshot workflow's, one per company and date, `snapshot_daily`) or `on_demand` (a person's, named, `snapshot_name`), its date and zone, the last day of its buckets and the configuration version that classified it. Insert-only (no version, no update granted); deleted with its lines 25 months after its date by the workflow |
+| `cash.snapshot_flow` | A snapshot's lines in transaction currency: within 31 days of its date, what one forecast flow (`flow_no`) pays of one document under one liquidity item, with its day at the bank, house bank, source, certainty, lateness, supplier and payment (`flow_count` 1, `snapshot_flow_count`); beyond, a bucket's sum (`bucket_end`) per currency, source, certainty, item and house bank, naming no document, supplier or payment and never late (`snapshot_flow_bucket`). A document is named whole (`snapshot_flow_document`); an item is the tenant's (null: unclassified). Insert-only |
+| `cash.outbox`, `cash.inbox` | The context's events (`MemoRecordChanged`, `CashSnapshotTaken`), relayed as every context's (000152, `outbox.Contexts`) |
 
 What is not stored, and read from the active document when a position or
 forecast is computed: the derivation rules (`cash.derivation`: account
@@ -2764,6 +2792,15 @@ parked or held `payables.supplier_invoice`, a
 (`reference`); suppliers by `partner.business_partner` number and name.
 Conversion reads `ledger.exchange_rate` through the rate service. No
 migration.
+
+T53f stores the forecast as it was (000192, `cash.snapshot`,
+`cash.snapshot_flow` above): read in a read-only repeatable-read
+transaction of its own (`uow.Consistent`) and written in the request's or
+the workflow activity's. The dispatcher finds the tenants that manage cash
+as the worker role, from their active `cash.liquidity_item` rows (000192
+grants `erp_worker` those two columns), and asks each, in its own scope,
+which companies are due. Migration 000192 seeds `cash.snapshot.take`;
+reading a snapshot is `cash.forecast.read`.
 
 ## 3.19 Controlling (`controlling`)
 

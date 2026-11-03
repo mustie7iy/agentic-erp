@@ -37,7 +37,7 @@ func memoForecast(ctx context.Context, tx pgx.Tx, r reader, legalEntity uuid.UUI
 		m := o.record
 		out[i] = datedFlow{flow: o.flow, currency: m.Currency, parts: []part{{amount: m.Amount, item: m.Item}},
 			documents: []paidDocument{{Document: Document{Kind: DocMemoRecord, ID: m.ID, Number: deref(m.Reference)}, amount: m.Amount}},
-			identity:  o.on.Format(time.DateOnly)}
+			identity:  o.on.Format(time.DateOnly), bank: m.HouseBankID}
 	}
 	return out, err
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -26,7 +27,7 @@ func Cash(cfg Config) *cash.Endpoints {
 			Unposted: payablesEndpoints(cfg, nil), // posting's own dependencies: the forecast reads an invoice as posting would
 			Requests: downPayments{}}},
 		Ledger: cashLedger{}, Sessions: agents.Sessions{}, Partners: cashPartners{},
-		Pages: cfg.Pages, Now: cfg.Now}
+		Pages: cfg.Pages, Now: cfg.Now, Consistent: uow.Consistent{Begin: cfg.Pool.Begin, Role: cfg.AppRole}}
 }
 
 // cashPartners names the suppliers of the forecast's drill-down, as the

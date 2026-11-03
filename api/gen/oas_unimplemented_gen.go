@@ -1199,6 +1199,16 @@ func (UnimplementedHandler) GetCashPosition(ctx context.Context, params GetCashP
 	return r, ht.ErrNotImplemented
 }
 
+// GetCashSnapshot implements getCashSnapshot operation.
+//
+// One snapshot of the liquidity forecast (ADR-0051 §6, T53f) with its totals per currency; its flows
+// are `listCashSnapshotFlows`. A snapshot of a legal entity the caller cannot act in is not found.
+//
+// GET /v1/cash-snapshots/{id}
+func (UnimplementedHandler) GetCashSnapshot(ctx context.Context, params GetCashSnapshotParams) (r GetCashSnapshotRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetCenterChange implements getCenterChange operation.
 //
 // Returns one center change.
@@ -2018,6 +2028,39 @@ func (UnimplementedHandler) ListBankStatements(ctx context.Context, params ListB
 //
 // GET /v1/business-partners
 func (UnimplementedHandler) ListBusinessPartners(ctx context.Context, params ListBusinessPartnersParams) (r ListBusinessPartnersRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListCashSnapshotFlows implements listCashSnapshotFlows operation.
+//
+// The flows a snapshot kept (ADR-0051 §6, T53f), of one currency, by value date and line: within 31
+// days of the snapshot's date one line per document a flow paid and liquidity item it was classified
+// in (`flow_no` groups the lines of one flow), beyond it one line per bucket of the company's buckets,
+// source, certainty, liquidity item and house bank (`bucket_end` set, `flow_count` the flows it sums).
+// `total` and `count` add up the lines of every page that the filters select. Each line names its
+// supplier (number and name) only to a caller who may use `partner.supplier.read`, its payment only to
+// one who may use `payments.run.read`, and its document only to one who may use the document's
+// context's read permission (`ledger.entry.read`, `payables.invoice.read`, `payments.run.read`,
+// `cash.memo.read`), as the forecast's drill-down does; for others they are left out, never refused,
+// and `has_document` still says whether it names one. A snapshot of a legal entity the caller cannot
+// act in is not found.
+//
+// GET /v1/cash-snapshots/{id}/flows
+func (UnimplementedHandler) ListCashSnapshotFlows(ctx context.Context, params ListCashSnapshotFlowsParams) (r ListCashSnapshotFlowsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListCashSnapshots implements listCashSnapshots operation.
+//
+// The snapshots of the liquidity forecast of the legal entities the caller may act in (ADR-0051 §6,
+// T53f), newest first (by `snapshot_date`; those of one date latest taken first): the daily ones the
+// TakeCashSnapshot workflow takes once a day per company after its `cash.snapshot_time` (local time,
+// default 07:00), and those people take on demand (`takeCashSnapshot`). Each gives its totals per
+// currency. A snapshot is kept 25 months after its date, then deleted by the workflow that takes the
+// daily ones. Sortable by: `snapshot_date` (default descending).
+//
+// GET /v1/cash-snapshots
+func (UnimplementedHandler) ListCashSnapshots(ctx context.Context, params ListCashSnapshotsParams) (r ListCashSnapshotsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3807,6 +3850,24 @@ func (UnimplementedHandler) SubmitPurchaseOrderChange(ctx context.Context, param
 //
 // POST /v1/requisitions/{id}:submit
 func (UnimplementedHandler) SubmitRequisition(ctx context.Context, params SubmitRequisitionParams) (r SubmitRequisitionRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// TakeCashSnapshot implements takeCashSnapshot operation.
+//
+// Takes a named snapshot of a legal entity's liquidity forecast as it is now (ADR-0051 §6, T53f),
+// such as before a board meeting, kept like the daily ones the TakeCashSnapshot workflow takes. The
+// forecast is read as `getLiquidityForecast` reads it with the company's buckets, every source and
+// certainty, blocked suppliers' flows included (marked by their source, `payable_blocked`), from one
+// database state, and stored in transaction currency: at document level for value dates within 31 days
+// of the snapshot's date (each document a flow pays, under each liquidity item it is classified in,
+// `listCashSnapshotFlows`), and summed per bucket and liquidity item beyond, up to the last bucket;
+// flows after the last bucket are not kept. The liquidity items are those the active configuration
+// derived then: a later rule change does not restate it. A legal entity the caller cannot act in is
+// 404. Audited, and published as CashSnapshotTaken.
+//
+// POST /v1/cash-snapshots
+func (UnimplementedHandler) TakeCashSnapshot(ctx context.Context, req *CashSnapshotCreate, params TakeCashSnapshotParams) (r TakeCashSnapshotRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
