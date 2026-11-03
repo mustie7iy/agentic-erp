@@ -1678,9 +1678,9 @@ leave it open):
   tell the line at the bank without reading the statement; review round 1)
   only to a caller who may use `payments.statement.read`, its payments
   (id, run and run number, what each paid) only with `payments.run.read`,
-  and the suppliers (each payment's own, and once each in `suppliers` for
-  a caller who may not see the payments; review round 1: a line of two
-  payments names who received what) only with `partner.supplier.read`,
+  and the suppliers (each payment's own, and once each in `suppliers`,
+  which a caller who may not see the payments still gets; review round 1:
+  a line of two payments names who received what) only with `partner.supplier.read`,
   each as `authz.MayUse` decides it, read once a page, else left out
   (`payment_count` counts them all). The product
   owner's open question of T53e4 covers these lines too: whether a single
