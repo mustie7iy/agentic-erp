@@ -253,6 +253,17 @@ func (UnimplementedHandler) CancelApprovalRequest(ctx context.Context, req *Comm
 	return r, ht.ErrNotImplemented
 }
 
+// CancelAsset implements cancelAsset operation.
+//
+// Cancels a `planned` asset, one created in error (ADR-0057 §5): it keeps its number and is final. An
+// asset that is not planned is 409 `assets.asset_not_planned` (one that holds value is retired, not
+// cancelled). Audited, and published as AssetChanged (`cancelled`).
+//
+// POST /v1/assets/{id}:cancel
+func (UnimplementedHandler) CancelAsset(ctx context.Context, params CancelAssetParams) (r CancelAssetRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CancelContract implements cancelContract operation.
 //
 // Cancels a draft contract that was never used (status `cancelled`). Active contracts are ended with
@@ -417,6 +428,30 @@ func (UnimplementedHandler) CloseFiscalPeriod(ctx context.Context, params CloseF
 //
 // POST /v1/purchase-orders/{id}:close
 func (UnimplementedHandler) ClosePurchaseOrder(ctx context.Context, params ClosePurchaseOrderParams) (r ClosePurchaseOrderRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateAsset implements createAsset operation.
+//
+// Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the
+// company uses (422 `assets.class_unknown` for a class the active configuration lacks,
+// `assets.class_not_in_company` for one without asset accounts in the company), numbered from the
+// company's `asset` number range of the fiscal year its date falls in (the company's date today in its
+// configured time zone; 422 `config.no_number_range` without one). It takes its class's depreciation
+// terms in every ledger the company keeps that the class has terms in, with a residual value of zero
+// and no depreciation start (depreciation then starts at the capitalisation date); change them with
+// `PATCH`. Its centers are its first assignment, in force from creation: a cost center (optional) must
+// be one of the company's that its class's depreciation account may take, valid and not locked for
+// costs today (422 `ledger.cost_center_invalid`), and gives its profit center today (a different
+// `profit_center_id` is 422 `ledger.profit_center_mismatch`); without a cost center the profit center
+// is as given (optional; 422 `ledger.profit_center_invalid` for one that cannot be posted today). An
+// asset whose depreciation account needs a cost center (a primary cost account while cost center
+// accounting applies) without one and without the account's default cost center in the company is 422
+// `assets.cost_center_required`, so its depreciation can always post. A legal entity the caller cannot
+// act in is 404. Audited, and published as AssetChanged (`created`).
+//
+// POST /v1/assets
+func (UnimplementedHandler) CreateAsset(ctx context.Context, req *AssetCreate, params CreateAssetParams) (r CreateAssetRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1015,6 +1050,16 @@ func (UnimplementedHandler) GetAnalyticsModel(ctx context.Context, params GetAna
 //
 // GET /v1/approval-requests/{id}
 func (UnimplementedHandler) GetApprovalRequest(ctx context.Context, params GetApprovalRequestParams) (r GetApprovalRequestRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetAsset implements getAsset operation.
+//
+// One asset with its class, centers and depreciation terms per ledger (ADR-0057 §5). An asset of a
+// legal entity the caller cannot act in is not found.
+//
+// GET /v1/assets/{id}
+func (UnimplementedHandler) GetAsset(ctx context.Context, params GetAssetParams) (r GetAssetRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1838,6 +1883,18 @@ func (UnimplementedHandler) ListApprovalRequests(ctx context.Context, params Lis
 //
 // GET /v1/asset-classes
 func (UnimplementedHandler) ListAssetClasses(ctx context.Context, params ListAssetClassesParams) (r ListAssetClassesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListAssets implements listAssets operation.
+//
+// The assets of the legal entities the caller may act in (ADR-0057 §5, T57b), each with its class,
+// its centers (the latest assignment's) and its depreciation terms per ledger. Filters: company,
+// class, status, cost center (the asset's current one) and asset number. Sortable by: `asset_number`
+// (default; as text), `created_at`.
+//
+// GET /v1/assets
+func (UnimplementedHandler) ListAssets(ctx context.Context, params ListAssetsParams) (r ListAssetsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3774,6 +3831,25 @@ func (UnimplementedHandler) UnlockPlanCategory(ctx context.Context, params Unloc
 //
 // PATCH /v1/ai-policy
 func (UnimplementedHandler) UpdateAiPolicy(ctx context.Context, req *AiPolicyUpdate, params UpdateAiPolicyParams) (r UpdateAiPolicyRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateAsset implements updateAsset operation.
+//
+// Changes an asset's description, its depreciation terms per ledger and its depreciation start
+// (ADR-0057 §7, T57b); not a cancelled one (422 `assets.asset_cancelled`). JSON Merge Patch (RFC
+// 7396) for `description` and `depreciation_start`, which sets (or with `null` clears) the
+// depreciation start in every ledger the asset has terms in; each entry of `terms` changes the terms
+// in its ledger, absent fields unchanged, or gives the asset terms in a ledger the company keeps that
+// it has none in yet (a ledger assigned to the company after the asset was created; `method` and
+// `useful_life_months` then required), and a ledger the company does not keep is 422
+// `ledger.ledger_not_kept`. Changing to `straight_line` drops the declining factor;
+// `declining_balance` needs one. A ledger's terms are fixed once depreciation has been posted in it
+// (409 `assets.terms_in_use`; a change in estimate is not offered). The residual value is in the
+// company's local currency. Audited, and published as AssetChanged (`changed`).
+//
+// PATCH /v1/assets/{id}
+func (UnimplementedHandler) UpdateAsset(ctx context.Context, req *AssetUpdate, params UpdateAssetParams) (r UpdateAssetRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

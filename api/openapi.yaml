@@ -13702,6 +13702,271 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/assets:
+    get:
+      operationId: listAssets
+      tags:
+        - assets
+      summary: List assets
+      description: "The assets of the legal entities the caller may act in (ADR-0057 §5, T57b), each with its class, its centers (the latest assignment's) and its depreciation terms per ledger. Filters: company, class, status, cost center (the asset's current one) and asset number. Sortable by: `asset_number` (default; as text), `created_at`."
+      x-permission: assets.asset.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: class_code
+          in: query
+          required: false
+          description: Only assets of this asset class.
+          schema:
+            type: string
+            pattern: "^[A-Z0-9_]{1,20}$"
+        - name: status
+          in: query
+          required: false
+          description: Only assets in this status.
+          schema:
+            type: string
+            description: "Asset status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [planned, active, retired, cancelled]
+        - name: cost_center_id
+          in: query
+          required: false
+          description: "Only assets whose current cost center (their latest assignment's) is this one."
+          schema:
+            type: string
+            format: uuid
+        - name: asset_number
+          in: query
+          required: false
+          description: Only the asset with this number (in each company).
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of assets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createAsset
+      tags:
+        - assets
+      summary: Create an asset
+      description: "Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the company uses (422 `assets.class_unknown` for a class the active configuration lacks, `assets.class_not_in_company` for one without asset accounts in the company), numbered from the company's `asset` number range of the fiscal year its date falls in (the company's date today in its configured time zone; 422 `config.no_number_range` without one). It takes its class's depreciation terms in every ledger the company keeps that the class has terms in, with a residual value of zero and no depreciation start (depreciation then starts at the capitalisation date); change them with `PATCH`. Its centers are its first assignment, in force from creation: a cost center (optional) must be one of the company's that its class's depreciation account may take, valid and not locked for costs today (422 `ledger.cost_center_invalid`), and gives its profit center today (a different `profit_center_id` is 422 `ledger.profit_center_mismatch`); without a cost center the profit center is as given (optional; 422 `ledger.profit_center_invalid` for one that cannot be posted today). An asset whose depreciation account needs a cost center (a primary cost account while cost center accounting applies) without one and without the account's default cost center in the company is 422 `assets.cost_center_required`, so its depreciation can always post. A legal entity the caller cannot act in is 404. Audited, and published as AssetChanged (`created`)."
+      x-permission: assets.asset.change
+      x-agent: false
+      x-problem-codes:
+        - assets.class_not_in_company
+        - assets.class_unknown
+        - assets.cost_center_required
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.cost_center_invalid
+        - ledger.no_fiscal_period
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The asset.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssetCreate"
+      responses:
+        "201":
+          description: "Created; the asset, `planned`."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Asset"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/assets/{id}":
+    get:
+      operationId: getAsset
+      tags:
+        - assets
+      summary: Get an asset
+      description: "One asset with its class, centers and depreciation terms per ledger (ADR-0057 §5). An asset of a legal entity the caller cannot act in is not found."
+      x-permission: assets.asset.read
+      x-problem-codes:
+        - config.not_bootstrapped
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The asset.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Asset"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateAsset
+      tags:
+        - assets
+      summary: Change an asset
+      description: "Changes an asset's description, its depreciation terms per ledger and its depreciation start (ADR-0057 §7, T57b); not a cancelled one (422 `assets.asset_cancelled`). JSON Merge Patch (RFC 7396) for `description` and `depreciation_start`, which sets (or with `null` clears) the depreciation start in every ledger the asset has terms in; each entry of `terms` changes the terms in its ledger, absent fields unchanged, or gives the asset terms in a ledger the company keeps that it has none in yet (a ledger assigned to the company after the asset was created; `method` and `useful_life_months` then required), and a ledger the company does not keep is 422 `ledger.ledger_not_kept`. Changing to `straight_line` drops the declining factor; `declining_balance` needs one. A ledger's terms are fixed once depreciation has been posted in it (409 `assets.terms_in_use`; a change in estimate is not offered). The residual value is in the company's local currency. Audited, and published as AssetChanged (`changed`)."
+      x-permission: assets.asset.change
+      x-agent: false
+      x-problem-codes:
+        - assets.asset_cancelled
+        - assets.terms_in_use
+        - config.not_bootstrapped
+        - ledger.ledger_not_kept
+        - request.invalid_amount
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the asset.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/AssetUpdate"
+      responses:
+        "200":
+          description: "Updated; the asset after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Asset"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/assets/{id}:cancel":
+    post:
+      operationId: cancelAsset
+      tags:
+        - assets
+      summary: Cancel an asset
+      description: "Cancels a `planned` asset, one created in error (ADR-0057 §5): it keeps its number and is final. An asset that is not planned is 409 `assets.asset_not_planned` (one that holds value is retired, not cancelled). Audited, and published as AssetChanged (`cancelled`)."
+      x-permission: assets.asset.change
+      x-agent: false
+      x-problem-codes:
+        - assets.asset_not_planned
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The asset, `cancelled`."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Asset"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/cash-position:
     get:
       operationId: getCashPosition
@@ -31984,6 +32249,155 @@ components:
       examples:
         - number: "1600"
           name: Machinery
+    Asset:
+      description: "An asset (ADR-0057 §5, T57b; SAP's asset master record): numbered in its company, of an asset class, with its cost and profit center and its depreciation terms per ledger. `planned` until its first acquisition capitalises it (T57c), then `active`, and `retired` once a retirement or transfer took all its cost; a planned asset created in error is `cancelled`."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [legal_entity_id, company_code, asset_number, class_code, class_name, description, status, terms]
+          properties:
+            legal_entity_id: {type: string, format: uuid, description: "The company's legal entity.", readOnly: true}
+            company_code: {type: string, description: The company code., readOnly: true}
+            asset_number: {type: string, description: "The asset's number in its company, from the company's `asset` number range.", readOnly: true}
+            class_code: {type: string, description: "The asset class (`GET /v1/asset-classes`); it never changes.", readOnly: true}
+            class_name: {type: string, description: "The class's name in the active configuration.", readOnly: true}
+            description: {type: string, description: What the asset is., readOnly: true}
+            status:
+              type: string
+              description: "`planned` (created, no value yet), `active`, `retired` or `cancelled`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [planned, active, retired, cancelled]
+              readOnly: true
+            capitalised_on: {type: string, format: date, description: "The earliest value date of its acquisitions and transfers in; absent while it has none.", readOnly: true}
+            cost_center_id: {type: string, format: uuid, description: "Its cost center, the one its depreciation and loss are posted on; absent when it has none (its depreciation account's default cost center then).", readOnly: true}
+            cost_center_code: {type: string, description: "The cost center's code; present with `cost_center_id` when the caller may read cost centers (`ledger.cost_center.read`).", readOnly: true}
+            cost_center_name: {type: string, description: "The cost center's name, with its code.", readOnly: true}
+            profit_center_id: {type: string, format: uuid, description: "Its profit center, its cost center's on the day it was assigned, or as given without one; its balance sheet lines are posted on it. Absent when it has none.", readOnly: true}
+            profit_center_code: {type: string, description: "The profit center's code; present with `profit_center_id` when the caller may read cost centers (`ledger.cost_center.read`).", readOnly: true}
+            profit_center_name: {type: string, description: "The profit center's name, with its code.", readOnly: true}
+            terms:
+              type: array
+              items: {$ref: "#/components/schemas/AssetTerms"}
+              description: "Its depreciation terms, one per ledger it has terms in, the leading ledger first and then by ledger code."
+              readOnly: true
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000f01
+          version: 1
+          created_at: "2026-11-02T09:00:00Z"
+          created_by: 0192a000-0000-7000-8000-000000000101
+          updated_at: "2026-11-02T09:00:00Z"
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "1000"
+          asset_number: "1"
+          class_code: MACHINES
+          class_name: Machinery and equipment
+          description: CNC milling machine
+          status: planned
+          cost_center_id: 0192a000-0000-7000-8000-000000000c11
+          cost_center_code: CC-1100
+          cost_center_name: Finance office
+          profit_center_id: 0192a000-0000-7000-8000-000000000c21
+          profit_center_code: PC-MTL
+          profit_center_name: Montreal office
+          terms:
+            - ledger_id: 0192a000-0000-7000-8000-000000000301
+              ledger_code: 0L
+              ledger_name: Leading ledger
+              method: straight_line
+              useful_life_months: 120
+              residual_value: {amount: "0.00", currency: CAD}
+    AssetTerms:
+      type: object
+      description: "An asset's depreciation terms in one ledger (ADR-0057 §7): one depreciation area."
+      required: [ledger_id, ledger_code, ledger_name, method, useful_life_months, residual_value]
+      properties:
+        ledger_id: {type: string, format: uuid, description: The ledger., readOnly: true}
+        ledger_code: {type: string, description: "The ledger's code.", readOnly: true}
+        ledger_name: {type: string, description: "The ledger's name.", readOnly: true}
+        method:
+          type: string
+          x-extensible-enum: [straight_line, declining_balance]
+          description: "`straight_line`, or `declining_balance` (switching to straight-line when that gives more). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        useful_life_months: {type: integer, format: int32, minimum: 1, maximum: 1200, description: The useful life in months., readOnly: true}
+        declining_factor: {type: string, pattern: "^[0-9]+(\\.[0-9]{1,4})?$", description: "The declining balance factor; only with `declining_balance`.", readOnly: true}
+        residual_value: {$ref: "#/components/schemas/Money"}
+        depreciation_start: {type: string, format: date, description: "The day depreciation starts from (its period counts in full); absent: the capitalisation date.", readOnly: true}
+        booked_through_year: {type: integer, format: int32, description: "The fiscal year of the period depreciation is posted through in this ledger; absent until depreciation is first posted, after which the terms are fixed.", readOnly: true}
+        booked_through_period: {type: integer, format: int32, description: "That period, with `booked_through_year`.", readOnly: true}
+      examples:
+        - ledger_id: 0192a000-0000-7000-8000-000000000302
+          ledger_code: 2L
+          ledger_name: Local GAAP
+          method: declining_balance
+          useful_life_months: 120
+          declining_factor: "2"
+          residual_value: {amount: "0.00", currency: CAD}
+    AssetCreate:
+      type: object
+      description: "A new asset: its company, class, description and centers. Its terms come from the class."
+      required: [legal_entity_id, class_code, description]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company's legal entity."}
+        class_code: {type: string, pattern: "^[A-Z0-9_]{1,20}$", description: "An asset class the company uses (`GET /v1/asset-classes?legal_entity_id=`)."}
+        description: {type: string, minLength: 1, maxLength: 200, description: What the asset is.}
+        cost_center_id: {type: string, format: uuid, description: "A cost center of the company; the profit center is then its own."}
+        profit_center_id: {type: string, format: uuid, description: "The profit center: without a cost center, as given; with one, its cost center's or absent."}
+      additionalProperties: false
+      examples:
+        - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          class_code: MACHINES
+          description: CNC milling machine
+          cost_center_id: 0192a000-0000-7000-8000-000000000c11
+    AssetUpdate:
+      type: object
+      description: "Merge patch of an asset: its description, its depreciation start in every ledger, and its terms per ledger."
+      properties:
+        description: {type: string, minLength: 1, maxLength: 200, description: What the asset is.}
+        depreciation_start: {type: [string, "null"], format: date, description: "The day depreciation starts from in every ledger the asset has terms in (a `terms` entry's own wins for its ledger); null: from the capitalisation date."}
+        terms:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: {$ref: "#/components/schemas/AssetTermsUpdate"}
+          description: "Changes of the terms per ledger, one entry per ledger."
+      additionalProperties: false
+      examples:
+        - {description: "CNC milling machine, hall 2", depreciation_start: "2026-12-01"}
+        - terms: [{ledger_id: 0192a000-0000-7000-8000-000000000301, useful_life_months: 96, residual_value: {amount: "1000.00", currency: CAD}}]
+    AssetTermsUpdate:
+      type: object
+      description: "A change of an asset's terms in one ledger, absent fields unchanged; for a ledger the asset has no terms in yet, `method` and `useful_life_months` are required."
+      required: [ledger_id]
+      properties:
+        ledger_id: {type: string, format: uuid, description: "A ledger the company keeps."}
+        method:
+          type: string
+          x-extensible-enum: [straight_line, declining_balance]
+          description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        useful_life_months: {type: integer, format: int32, minimum: 1, maximum: 1200, description: The useful life in months.}
+        declining_factor: {type: string, pattern: "^[0-9]+(\\.[0-9]{1,4})?$", description: "Above 1 and at most 10; only with `declining_balance`."}
+        residual_value: {$ref: "#/components/schemas/Money"}
+        depreciation_start: {type: [string, "null"], format: date, description: "The day depreciation starts from in this ledger; null: from the capitalisation date."}
+      additionalProperties: false
+      examples:
+        - {ledger_id: 0192a000-0000-7000-8000-000000000302, method: declining_balance, useful_life_months: 120, declining_factor: "2.5"}
+    AssetPage:
+      type: object
+      description: One page of assets.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Asset"
+          description: The assets on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
     CashPosition:
       type: object
       description: "A legal entity's daily cash position (ADR-0051 §8, T53c): per house bank and per currency first, then the converted total. Amounts are signed: money in the bank is positive, a payment out negative."

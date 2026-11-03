@@ -368,6 +368,20 @@ func encodeClearSupplierInvoiceDownPaymentsRequest(
 	return nil
 }
 
+func encodeCreateAssetRequest(
+	req *AssetCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateBusinessPartnerRequest(
 	req *BusinessPartnerCreate,
 	r *http.Request,
@@ -1687,6 +1701,20 @@ func encodeUnlockFiscalPeriodRequest(
 
 func encodeUpdateAiPolicyRequest(
 	req *AiPolicyUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateAssetRequest(
+	req *AssetUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

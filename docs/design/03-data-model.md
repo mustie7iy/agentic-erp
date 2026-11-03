@@ -2593,7 +2593,7 @@ line or reservation. An agent's budget is identity's
 ## 3.16 Later contexts
 
 `sales`, `receivables`, `inventory`, `manufacturing`, `maintenance`,
-`projects`, `hr`, `controlling` (plan values from T56g, §3.19), `assets` follow the same patterns:
+`projects`, `hr`, `controlling` (plan values from T56g, §3.19), `assets` (the asset master from T57b, §3.21) follow the same patterns:
 
 - documents as header + items with `document_number` from number ranges;
 - financial effects only through `ledger` postings (`source_context`,
@@ -2858,3 +2858,47 @@ a standing return whose snapshot claims the item, of a company its
 registration covers, dated by its period's end, or released by one ended
 (`tax_item_reported`, a deferred trigger of the tax filing context, served
 by `ledger.tax_item_reported_in`, built concurrently by migration 000180).
+
+## 3.21 Asset accounting (`assets`)
+
+The asset master (ADR-0057 §5, §7, §8, T57b), owned by the assets context
+(`internal/assets`, a leaf). Migration 000191 creates the schema, its
+outbox (`assets.outbox`, AssetChanged) and the permission
+`assets.asset.change` (`assets.asset.read` came with T57a). The classes and
+each company's asset accounts are configuration (ADR-0057 §3, §3.7 above);
+the legal entity is the tenancy context's and the ledgers and centers are
+the ledger's, by id, with no foreign key across the schema.
+
+```mermaid
+erDiagram
+  asset ||--o{ asset_terms : "one per ledger"
+  asset ||--|{ asset_assignment : "by seq"
+  asset { uuid id PK
+    uuid legal_entity_id "tenancy context"
+    text asset_number "unique in the company"
+    text class_code "configuration's asset_classes"
+    text status "planned | active | retired | cancelled"
+    date capitalised_on
+    int last_seq "the asset's posting order" }
+  asset_terms { uuid asset_id PK
+    uuid ledger_id PK "ledger context"
+    text method "straight_line | declining_balance"
+    int useful_life_months
+    numeric declining_factor
+    bigint residual_value "local currency"
+    date depreciation_start
+    smallint booked_through_year
+    smallint booked_through_period }
+  asset_assignment { uuid asset_id PK
+    int seq PK
+    date valid_from "-infinity for the first"
+    uuid cost_center_id "ledger context"
+    uuid profit_center_id "ledger context"
+    uuid transfer_id "a center transfer's (T57h)" }
+```
+
+| Table | Purpose |
+|---|---|
+| `assets.asset` | An asset (SAP ANLA): its company, number from the company's `asset` range in the fiscal year it is created (`asset_number_once`), class, description, status and capitalisation date. It starts `planned` and moves planned -> active -> retired, back by reversals (retired -> active, active -> planned), or planned -> cancelled, which is final (`asset_transition`, a trigger); capitalised exactly while active or retired (`asset_capitalised`). Its company, number, class and creation never change (`asset_fixed`) and `last_seq` never goes back (`asset_seq_forward`): every posting, reversal and assignment touching the asset takes the next `seq` under the asset's lock, so posting order is `seq` order, never id order (ADR-0057 §5). Its version moves with every change of its master, terms or assignments |
+| `assets.asset_terms` | Its depreciation terms per ledger the company keeps (one depreciation area each, ADR-0057 §7), copied from the class when it is created and changeable until depreciation is posted in that ledger (`booked_through_*` set; `asset_terms_in_use`, a trigger): a method, a useful life of 1-1200 months, a declining factor above 1 and at most 10 with declining balance alone (`asset_terms_declining_factor`), a residual value of zero or more in minor units of local currency, and an optional depreciation start (null: the capitalisation date) |
+| `assets.asset_assignment` | Its cost center (optional) and profit center from `valid_from` on, insert-only (`platform.forbid_mutation`): the first row at creation, valid from `-infinity`, each later one from a center transfer or its reversal (T57h). A row takes the asset's current `last_seq`, raised first (`asset_assignment_seq`), and only the first is valid from `-infinity` (`asset_assignment_valid_from`), so the row with the highest `seq` is the latest and names the asset's centers. The profit center is the cost center's on the row's date, derived by the ledger (`ledger.AssetReads.Assignment`) |

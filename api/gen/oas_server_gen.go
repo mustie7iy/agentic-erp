@@ -200,6 +200,14 @@ type Handler interface {
 	//
 	// POST /v1/approval-requests/{id}:cancel
 	CancelApprovalRequest(ctx context.Context, req *CommentRequiredInput, params CancelApprovalRequestParams) (CancelApprovalRequestRes, error)
+	// CancelAsset implements cancelAsset operation.
+	//
+	// Cancels a `planned` asset, one created in error (ADR-0057 §5): it keeps its number and is final. An
+	// asset that is not planned is 409 `assets.asset_not_planned` (one that holds value is retired, not
+	// cancelled). Audited, and published as AssetChanged (`cancelled`).
+	//
+	// POST /v1/assets/{id}:cancel
+	CancelAsset(ctx context.Context, params CancelAssetParams) (CancelAssetRes, error)
 	// CancelContract implements cancelContract operation.
 	//
 	// Cancels a draft contract that was never used (status `cancelled`). Active contracts are ended with
@@ -325,6 +333,27 @@ type Handler interface {
 	//
 	// POST /v1/purchase-orders/{id}:close
 	ClosePurchaseOrder(ctx context.Context, params ClosePurchaseOrderParams) (ClosePurchaseOrderRes, error)
+	// CreateAsset implements createAsset operation.
+	//
+	// Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the
+	// company uses (422 `assets.class_unknown` for a class the active configuration lacks,
+	// `assets.class_not_in_company` for one without asset accounts in the company), numbered from the
+	// company's `asset` number range of the fiscal year its date falls in (the company's date today in its
+	// configured time zone; 422 `config.no_number_range` without one). It takes its class's depreciation
+	// terms in every ledger the company keeps that the class has terms in, with a residual value of zero
+	// and no depreciation start (depreciation then starts at the capitalisation date); change them with
+	// `PATCH`. Its centers are its first assignment, in force from creation: a cost center (optional) must
+	// be one of the company's that its class's depreciation account may take, valid and not locked for
+	// costs today (422 `ledger.cost_center_invalid`), and gives its profit center today (a different
+	// `profit_center_id` is 422 `ledger.profit_center_mismatch`); without a cost center the profit center
+	// is as given (optional; 422 `ledger.profit_center_invalid` for one that cannot be posted today). An
+	// asset whose depreciation account needs a cost center (a primary cost account while cost center
+	// accounting applies) without one and without the account's default cost center in the company is 422
+	// `assets.cost_center_required`, so its depreciation can always post. A legal entity the caller cannot
+	// act in is 404. Audited, and published as AssetChanged (`created`).
+	//
+	// POST /v1/assets
+	CreateAsset(ctx context.Context, req *AssetCreate, params CreateAssetParams) (CreateAssetRes, error)
 	// CreateBusinessPartner implements createBusinessPartner operation.
 	//
 	// Creates the partner in status `pending` together with a partner change of kind `create` (see
@@ -773,6 +802,13 @@ type Handler interface {
 	//
 	// GET /v1/approval-requests/{id}
 	GetApprovalRequest(ctx context.Context, params GetApprovalRequestParams) (GetApprovalRequestRes, error)
+	// GetAsset implements getAsset operation.
+	//
+	// One asset with its class, centers and depreciation terms per ledger (ADR-0057 §5). An asset of a
+	// legal entity the caller cannot act in is not found.
+	//
+	// GET /v1/assets/{id}
+	GetAsset(ctx context.Context, params GetAssetParams) (GetAssetRes, error)
 	// GetBankAccount implements getBankAccount operation.
 	//
 	// Returns one bank account of the partner, masked.
@@ -1386,6 +1422,15 @@ type Handler interface {
 	//
 	// GET /v1/asset-classes
 	ListAssetClasses(ctx context.Context, params ListAssetClassesParams) (ListAssetClassesRes, error)
+	// ListAssets implements listAssets operation.
+	//
+	// The assets of the legal entities the caller may act in (ADR-0057 §5, T57b), each with its class,
+	// its centers (the latest assignment's) and its depreciation terms per ledger. Filters: company,
+	// class, status, cost center (the asset's current one) and asset number. Sortable by: `asset_number`
+	// (default; as text), `created_at`.
+	//
+	// GET /v1/assets
+	ListAssets(ctx context.Context, params ListAssetsParams) (ListAssetsRes, error)
 	// ListAuditEvents implements listAuditEvents operation.
 	//
 	// Audit trail entries, newest first by default. Sortable by: `occurred_at`.
@@ -2893,6 +2938,22 @@ type Handler interface {
 	//
 	// PATCH /v1/ai-policy
 	UpdateAiPolicy(ctx context.Context, req *AiPolicyUpdate, params UpdateAiPolicyParams) (UpdateAiPolicyRes, error)
+	// UpdateAsset implements updateAsset operation.
+	//
+	// Changes an asset's description, its depreciation terms per ledger and its depreciation start
+	// (ADR-0057 §7, T57b); not a cancelled one (422 `assets.asset_cancelled`). JSON Merge Patch (RFC
+	// 7396) for `description` and `depreciation_start`, which sets (or with `null` clears) the
+	// depreciation start in every ledger the asset has terms in; each entry of `terms` changes the terms
+	// in its ledger, absent fields unchanged, or gives the asset terms in a ledger the company keeps that
+	// it has none in yet (a ledger assigned to the company after the asset was created; `method` and
+	// `useful_life_months` then required), and a ledger the company does not keep is 422
+	// `ledger.ledger_not_kept`. Changing to `straight_line` drops the declining factor;
+	// `declining_balance` needs one. A ledger's terms are fixed once depreciation has been posted in it
+	// (409 `assets.terms_in_use`; a change in estimate is not offered). The residual value is in the
+	// company's local currency. Audited, and published as AssetChanged (`changed`).
+	//
+	// PATCH /v1/assets/{id}
+	UpdateAsset(ctx context.Context, req *AssetUpdate, params UpdateAssetParams) (UpdateAssetRes, error)
 	// UpdateChangeRequest implements updateChangeRequest operation.
 	//
 	// Changes a change request in status `draft` or `invalid`; an `invalid` one returns to `draft` and
