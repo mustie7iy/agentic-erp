@@ -9459,6 +9459,13 @@
       "r": "internal/controlplane controlplane_test.go:275, :280 (errs[0] without a length check) and :290 (the time-zone assertion added in batch 27 copies it) · CLAUDE.md tests: one clear assertion message per check",
       "src": "review:batch27",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "TestOffboardingFailures fails each statement of an export and of an erasure in turn up to the run's own statement count, not a fixed bound (finding of the T57b review: an export ran 195 statements against a bound of 199, and the assets schema pushed it past, so T57b raised the bound to 399); a run that succeeds though one of its statements failed, or issues none, fails the test",
+      "r": "internal/offboarding/offboarding_test.go eachStatementFailing",
+      "src": "review:T57b",
+      "c": []
      }
     ]
    },
