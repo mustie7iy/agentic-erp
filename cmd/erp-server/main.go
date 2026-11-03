@@ -289,29 +289,36 @@ func openPool(ctx context.Context, cfg config.Config) (*database.Pool, error) {
 	return database.Open(ctx, cfg.DatabaseURL, settings)
 }
 
-// openPools opens the primary's pool and, when the cell extracts, the
-// read replica's; the function returned closes both.
+// openPools opens the primary's pool, the consistent reads' pool and,
+// when the cell extracts, the read replica's; the function returned closes
+// them. A pool that does not open closes those opened before it.
 func (s *server) openPools(ctx context.Context) (func(), error) {
-	var err error
-	if s.pool, err = openPool(ctx, s.cfg); err != nil {
-		return nil, err
+	steps := []struct {
+		to   **database.Pool
+		open func() (*database.Pool, error)
+	}{
+		{&s.pool, func() (*database.Pool, error) { return openPool(ctx, s.cfg) }},
+		{&s.consistent, func() (*database.Pool, error) { return openConsistent(ctx, s.cfg) }},
+		{&s.replica, func() (*database.Pool, error) { return openReplica(ctx, s.cfg, s.cfg.Objects.Enabled()) }},
 	}
-	if s.consistent, err = openConsistent(ctx, s.cfg); err != nil {
-		s.pool.Close()
-		return nil, err
-	}
-	if s.replica, err = openReplica(ctx, s.cfg, s.cfg.Objects.Enabled()); err != nil {
-		s.consistent.Close()
-		s.pool.Close()
-		return nil, err
-	}
-	return func() {
-		if s.replica != nil {
-			s.replica.Close()
+	var opened []*database.Pool
+	closeAll := func() {
+		for i := len(opened) - 1; i >= 0; i-- {
+			opened[i].Close()
 		}
-		s.consistent.Close()
-		s.pool.Close()
-	}, nil
+	}
+	for _, st := range steps {
+		p, err := st.open()
+		if err != nil {
+			closeAll()
+			return nil, err
+		}
+		*st.to = p
+		if p != nil { // no replica
+			opened = append(opened, p)
+		}
+	}
+	return closeAll, nil
 }
 
 // openConsistent opens the primary's pool of consistent reads beside a
@@ -321,11 +328,7 @@ func (s *server) openPools(ctx context.Context) (func(), error) {
 func openConsistent(ctx context.Context, cfg config.Config) (*database.Pool, error) {
 	settings := database.DefaultSettings
 	settings.MaxConns = 2
-	pool, err := database.Open(ctx, cfg.DatabaseURL, settings)
-	if err != nil {
-		return nil, fmt.Errorf("the consistent reads' pool: %w", err)
-	}
-	return pool, nil
+	return database.Open(ctx, cfg.DatabaseURL, settings)
 }
 
 // openReplica opens the read replica's pool when one is configured and
