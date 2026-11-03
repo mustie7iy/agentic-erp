@@ -533,10 +533,11 @@ func applyAssetReconciliation(ctx context.Context, tx pgx.Tx, chart uuid.UUID, c
 // refuses the same on submission; an entry posted while the change awaited
 // approval is caught here, and the activation rolls back. Turning the flag
 // on locks the account's row, so a second activation waits for this one.
-// A posting in flight needs no lock against it: no posting reads the flag
-// (only a bank statement's clearing does), so a line committed while the
-// activation runs is a line posted after it, an open item like any other
-// (ADR-0047 Consequences). Assets differ: a posting reads the account's
+// A posting in flight needs no lock against it: no journal posting's
+// checks read the flag, so a line committed while the activation runs is a
+// line posted after it, an open item like any other (ADR-0047
+// Consequences); only a statement's clearing reads it, and one that reads
+// it off is refused as if it ran first. Assets differ: a posting reads the account's
 // reconciliation kind, hence ADR-0057's new-accounts-only rule.
 func applyOpenItems(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart uuid.UUID, co config.Company) error {
 	var numbers []string

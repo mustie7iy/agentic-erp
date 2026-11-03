@@ -135,8 +135,11 @@ Canadian bank may only offer BAI2.
   description (T49a).
 - The ledger records the open-item flag on the company's account
   (`ledger.company_account.is_open_item_managed`, shown by
-  `GET /v1/accounts/{id}`) when the configuration is activated; posting
-  and clearing read it there (T49f).
+  `GET /v1/accounts/{id}`) when the configuration is activated; a bank
+  statement line's clearing reads it there (T49f). **As built (review of
+  T57a):** no journal posting's checks read it, so the activation needs no
+  lock against a posting in flight (below); a clearing that reads it off
+  while the activation runs is refused, as if it had run first.
 - The ledger's check that an account turned open-item managed has no
   postings runs when the change is submitted, as the GR/IR account's
   does, and again when it is activated (coordinator 2026-10-20, the

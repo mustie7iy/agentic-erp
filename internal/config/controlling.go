@@ -125,8 +125,8 @@ func (c *Company) AutomaticAccounts() []AutomaticAccount {
 	}
 	for _, t := range c.TaxCodes {
 		add("tax_codes["+t.Code+"].account", t.Account)
-		for _, c := range t.Components {
-			add("tax_codes["+t.Code+"].components["+c.Key+"].account", c.Account)
+		for _, part := range t.Components {
+			add("tax_codes["+t.Code+"].components["+part.Key+"].account", part.Account)
 		}
 	}
 	for _, w := range c.WithholdingTaxCodes {
