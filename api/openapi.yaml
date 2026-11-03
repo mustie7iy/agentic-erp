@@ -6072,11 +6072,12 @@ paths:
       tags:
         - ledger
       summary: Get a journal entry
-      description: Returns one journal entry with its lines.
+      description: "Returns one journal entry with its lines. Expandable: `partners`, the business partners its lines name (`expanded.partners`), to a caller who may read business partners (`partner.supplier.read`); for another caller, and when no line names a partner, `expanded` is left out."
       x-permission: ledger.entry.read
       x-problem-codes: []
       parameters:
         - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/Expand"
       responses:
         "200":
           description: The journal entry.
@@ -6419,11 +6420,12 @@ paths:
       tags:
         - ledger
       summary: Get a parked journal entry
-      description: Returns one parked journal entry with its lines.
+      description: "Returns one parked journal entry with its lines. Expandable: `partners`, the business partners its lines name (`expanded.partners`), to a caller who may read business partners (`partner.supplier.read`); for another caller, and when no line names a partner, `expanded` is left out."
       x-permission: ledger.entry.read
       x-problem-codes: []
       parameters:
         - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/Expand"
       responses:
         "200":
           description: The parked journal entry.
@@ -19027,6 +19029,49 @@ components:
             name: Muster Industrie GmbH
             country_code: DE
             status: pending
+    JournalEntryExpanded:
+      type: object
+      description: "Read-only copies of what a journal entry's lines reference, requested with `expand`."
+      required:
+        - partners
+      properties:
+        partners:
+          type: array
+          items:
+            $ref: "#/components/schemas/PartnerName"
+          description: "Each business partner the lines name (`partner_id`), once, in the order of the lines that first name it; a partner the tenant no longer has is left out."
+          maxItems: 10000
+          readOnly: true
+      examples:
+        - partners:
+            - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"
+              number: "100001"
+              name: Muster Industrie GmbH
+    PartnerName:
+      type: object
+      description: "A business partner by its number and name, as they are now."
+      required:
+        - id
+        - number
+        - name
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Business partner id.
+          readOnly: true
+        number:
+          type: string
+          description: Business partner number.
+          readOnly: true
+        name:
+          type: string
+          description: Name.
+          readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"
+          number: "100001"
+          name: Muster Industrie GmbH
     DecisionInput:
       type: object
       description: Body of an approval decision.
@@ -24107,7 +24152,7 @@ components:
             currency: EUR
     JournalEntry:
       type: object
-      description: "A posted journal entry. Insert-only: it never changes; corrections are reversals. The ETag is derived from the representation (it changes when the entry is reversed)."
+      description: "A posted journal entry. Insert-only: it never changes; corrections are reversals. The ETag is derived from the representation without `expanded` (it changes when the entry is reversed, not when a partner it names is renamed)."
       required:
         - id
         - legal_entity_id
@@ -24273,6 +24318,10 @@ components:
           type: string
           format: uuid
           description: Principal that posted.
+          readOnly: true
+        expanded:
+          $ref: "#/components/schemas/JournalEntryExpanded"
+          description: "The business partners its lines name, when `getJournalEntry` was asked `expand=partners`; absent otherwise."
           readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"
@@ -25147,6 +25196,10 @@ components:
               type: string
               format: date
               description: "The due date of the template's schedule the ERP parked it for, owned by the template's owner (`created_by_kind` `system`); absent when a principal parked it."
+              readOnly: true
+            expanded:
+              $ref: "#/components/schemas/JournalEntryExpanded"
+              description: "The business partners its lines name, when `getParkedJournalEntry` was asked `expand=partners`; absent otherwise."
               readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"

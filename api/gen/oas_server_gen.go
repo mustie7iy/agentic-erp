@@ -995,7 +995,9 @@ type Handler interface {
 	GetHierarchyNode(ctx context.Context, params GetHierarchyNodeParams) (GetHierarchyNodeRes, error)
 	// GetJournalEntry implements getJournalEntry operation.
 	//
-	// Returns one journal entry with its lines.
+	// Returns one journal entry with its lines. Expandable: `partners`, the business partners its lines
+	// name (`expanded.partners`), to a caller who may read business partners (`partner.supplier.read`);
+	// for another caller, and when no line names a partner, `expanded` is left out.
 	//
 	// GET /v1/journal-entries/{id}
 	GetJournalEntry(ctx context.Context, params GetJournalEntryParams) (GetJournalEntryRes, error)
@@ -1062,7 +1064,10 @@ type Handler interface {
 	GetOrgUnit(ctx context.Context, params GetOrgUnitParams) (GetOrgUnitRes, error)
 	// GetParkedJournalEntry implements getParkedJournalEntry operation.
 	//
-	// Returns one parked journal entry with its lines.
+	// Returns one parked journal entry with its lines. Expandable: `partners`, the business partners its
+	// lines name (`expanded.partners`), to a caller who may read business partners
+	// (`partner.supplier.read`); for another caller, and when no line names a partner, `expanded` is left
+	// out.
 	//
 	// GET /v1/parked-journal-entries/{id}
 	GetParkedJournalEntry(ctx context.Context, params GetParkedJournalEntryParams) (GetParkedJournalEntryRes, error)

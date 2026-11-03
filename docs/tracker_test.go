@@ -65,8 +65,11 @@ const baselineItems = 950
 // the tag (90). 91 since T73d3: the walk-through by a pilot approver, human
 // acceptance, split into T73d4, which inherits the tag (91). 92 since
 // T73j4: the reports' page budgets at the pilot's volumes and the pilot's
-// walk-through split into T73j5, which inherits the tag (92).
-const pilotItems = 92
+// walk-through split into T73j5, which inherits the tag (92). 94 since
+// T73h3: amounts in Arabic-Indic digits (T73h4) and the walk-through by a
+// pilot GL accountant and controller, human acceptance (T73h5), split
+// from it, each inheriting the tag (94).
+const pilotItems = 94
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

@@ -19866,7 +19866,8 @@ func (s *ItemPaymentTerms) SetDiscounts(val []CashDiscountTier) {
 }
 
 // A posted journal entry. Insert-only: it never changes; corrections are reversals. The ETag is
-// derived from the representation (it changes when the entry is reversed).
+// derived from the representation without `expanded` (it changes when the entry is reversed, not when
+// a partner it names is renamed).
 // Ref: #/components/schemas/JournalEntry
 type JournalEntry struct {
 	// Identifier (UUIDv7).
@@ -19930,6 +19931,9 @@ type JournalEntry struct {
 	PostedAt time.Time `json:"posted_at"`
 	// Principal that posted.
 	PostedBy uuid.UUID `json:"posted_by"`
+	// The business partners its lines name, when `getJournalEntry` was asked `expand=partners`; absent
+	// otherwise.
+	Expanded OptJournalEntryExpanded `json:"expanded"`
 }
 
 // GetID returns the value of ID.
@@ -20067,6 +20071,11 @@ func (s *JournalEntry) GetPostedBy() uuid.UUID {
 	return s.PostedBy
 }
 
+// GetExpanded returns the value of Expanded.
+func (s *JournalEntry) GetExpanded() OptJournalEntryExpanded {
+	return s.Expanded
+}
+
 // SetID sets the value of ID.
 func (s *JournalEntry) SetID(val uuid.UUID) {
 	s.ID = val
@@ -20200,6 +20209,11 @@ func (s *JournalEntry) SetPostedAt(val time.Time) {
 // SetPostedBy sets the value of PostedBy.
 func (s *JournalEntry) SetPostedBy(val uuid.UUID) {
 	s.PostedBy = val
+}
+
+// SetExpanded sets the value of Expanded.
+func (s *JournalEntry) SetExpanded(val OptJournalEntryExpanded) {
+	s.Expanded = val
 }
 
 // A manual journal entry to post. Local and group amounts are converted with the exchange rates valid
@@ -20351,6 +20365,24 @@ func (s *JournalEntryCreate) SetHeaderText(val OptString) {
 // SetLines sets the value of Lines.
 func (s *JournalEntryCreate) SetLines(val []JournalLineInput) {
 	s.Lines = val
+}
+
+// Read-only copies of what a journal entry's lines reference, requested with `expand`.
+// Ref: #/components/schemas/JournalEntryExpanded
+type JournalEntryExpanded struct {
+	// Each business partner the lines name (`partner_id`), once, in the order of the lines that first name
+	// it; a partner the tenant no longer has is left out.
+	Partners []PartnerName `json:"partners"`
+}
+
+// GetPartners returns the value of Partners.
+func (s *JournalEntryExpanded) GetPartners() []PartnerName {
+	return s.Partners
+}
+
+// SetPartners sets the value of Partners.
+func (s *JournalEntryExpanded) SetPartners(val []PartnerName) {
+	s.Partners = val
 }
 
 // JournalEntryHeaders wraps JournalEntry with response headers.
@@ -27988,6 +28020,52 @@ func (o OptItemPaymentTerms) Or(d ItemPaymentTerms) ItemPaymentTerms {
 	return d
 }
 
+// NewOptJournalEntryExpanded returns new OptJournalEntryExpanded with value set to v.
+func NewOptJournalEntryExpanded(v JournalEntryExpanded) OptJournalEntryExpanded {
+	return OptJournalEntryExpanded{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptJournalEntryExpanded is optional JournalEntryExpanded.
+type OptJournalEntryExpanded struct {
+	Value JournalEntryExpanded
+	Set   bool
+}
+
+// IsSet returns true if OptJournalEntryExpanded was set.
+func (o OptJournalEntryExpanded) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptJournalEntryExpanded) Reset() {
+	var v JournalEntryExpanded
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptJournalEntryExpanded) SetTo(v JournalEntryExpanded) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptJournalEntryExpanded) Get() (v JournalEntryExpanded, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptJournalEntryExpanded) Or(d JournalEntryExpanded) JournalEntryExpanded {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptJournalEntryReverse returns new OptJournalEntryReverse with value set to v.
 func NewOptJournalEntryReverse(v JournalEntryReverse) OptJournalEntryReverse {
 	return OptJournalEntryReverse{
@@ -30026,6 +30104,9 @@ type ParkedJournalEntry struct {
 	// The due date of the template's schedule the ERP parked it for, owned by the template's owner
 	// (`created_by_kind` `system`); absent when a principal parked it.
 	OccurrenceDate OptDate `json:"occurrence_date"`
+	// The business partners its lines name, when `getParkedJournalEntry` was asked `expand=partners`;
+	// absent otherwise.
+	Expanded OptJournalEntryExpanded `json:"expanded"`
 }
 
 // GetID returns the value of ID.
@@ -30168,6 +30249,11 @@ func (s *ParkedJournalEntry) GetOccurrenceDate() OptDate {
 	return s.OccurrenceDate
 }
 
+// GetExpanded returns the value of Expanded.
+func (s *ParkedJournalEntry) GetExpanded() OptJournalEntryExpanded {
+	return s.Expanded
+}
+
 // SetID sets the value of ID.
 func (s *ParkedJournalEntry) SetID(val uuid.UUID) {
 	s.ID = val
@@ -30306,6 +30392,11 @@ func (s *ParkedJournalEntry) SetTemplateName(val OptString) {
 // SetOccurrenceDate sets the value of OccurrenceDate.
 func (s *ParkedJournalEntry) SetOccurrenceDate(val OptDate) {
 	s.OccurrenceDate = val
+}
+
+// SetExpanded sets the value of Expanded.
+func (s *ParkedJournalEntry) SetExpanded(val OptJournalEntryExpanded) {
+	s.Expanded = val
 }
 
 // ParkedJournalEntryHeaders wraps ParkedJournalEntry with response headers.
@@ -31071,6 +31162,47 @@ func (s *PartnerChangeWarning) SetCode(val string) {
 // SetMessage sets the value of Message.
 func (s *PartnerChangeWarning) SetMessage(val string) {
 	s.Message = val
+}
+
+// A business partner by its number and name, as they are now.
+// Ref: #/components/schemas/PartnerName
+type PartnerName struct {
+	// Business partner id.
+	ID uuid.UUID `json:"id"`
+	// Business partner number.
+	Number string `json:"number"`
+	// Name.
+	Name string `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *PartnerName) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetNumber returns the value of Number.
+func (s *PartnerName) GetNumber() string {
+	return s.Number
+}
+
+// GetName returns the value of Name.
+func (s *PartnerName) GetName() string {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *PartnerName) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *PartnerName) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetName sets the value of Name.
+func (s *PartnerName) SetName(val string) {
+	s.Name = val
 }
 
 // Read-only copy of selected business partner fields, embedded by `expand=supplier`.

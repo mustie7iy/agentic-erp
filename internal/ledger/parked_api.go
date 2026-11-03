@@ -83,7 +83,15 @@ func (e *Endpoints) GetParkedJournalEntry(ctx context.Context, params gen.GetPar
 	if err != nil {
 		return nil, err
 	}
-	return &gen.GetParkedJournalEntryOKHeaders{ETag: gen.NewOptString(etag.Format(pe.Version)), Response: parkedToAPI(pe)}, nil
+	rep := parkedToAPI(pe)
+	partners := make([]gen.OptUUID, len(rep.Lines))
+	for i, l := range rep.Lines {
+		partners[i] = l.PartnerID
+	}
+	if rep.Expanded, err = e.expandPartners(ctx, params.Expand, partners); err != nil {
+		return nil, err
+	}
+	return &gen.GetParkedJournalEntryOKHeaders{ETag: gen.NewOptString(etag.Format(pe.Version)), Response: rep}, nil
 }
 
 var parkedSort = pagination.Sort{Default: "created_at", DefaultDesc: true, Fields: []pagination.Field{

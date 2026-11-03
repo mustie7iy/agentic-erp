@@ -265,7 +265,15 @@ func (e *Endpoints) GetJournalEntry(ctx context.Context, params gen.GetJournalEn
 		return nil, err
 	}
 	rep := entryToAPI(je)
-	return &gen.GetJournalEntryOKHeaders{ETag: apitypes.ETagOf(rep), Response: rep}, nil
+	tag := apitypes.ETagOf(rep) // the entry's, before the partners' names as they are now
+	partners := make([]gen.OptUUID, len(rep.Lines))
+	for i, l := range rep.Lines {
+		partners[i] = l.PartnerID
+	}
+	if rep.Expanded, err = e.expandPartners(ctx, params.Expand, partners); err != nil {
+		return nil, err
+	}
+	return &gen.GetJournalEntryOKHeaders{ETag: tag, Response: rep}, nil
 }
 
 var entrySort = pagination.Sort{Default: "posting_date", Fields: []pagination.Field{

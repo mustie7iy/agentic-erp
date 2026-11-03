@@ -347,3 +347,47 @@ func TestPostToLedgers(t *testing.T) {
 		})
 	}
 }
+
+// TestPartnersNamedOnEntries is the GL accountant's and the controller's
+// reading of an entry (T73h3): a parked and a posted entry's lines name
+// their partners by number and name, read with the entry
+// (expand=partners), so the pages' calls stay six; a line without a
+// partner is unchanged; a person who may not read partners sees the id,
+// as before.
+func TestPartnersNamedOnEntries(t *testing.T) {
+	s, d := journalStack(t)
+	b := s.as(d.accountant)
+	id := parkAs(b, d, typedLine{account: "520000", amount: "5.00", text: "Freight"}, typedLine{account: "211000", amount: "-5.00", partner: "BP90000001"})
+	supplier := d.f.Supplier.String()
+	read := func(t *testing.T, who *browser, path string, wants ...string) {
+		t.Helper()
+		got := who.get(path).page(t).mainText()
+		holds(t, path, got, wants...)
+		for _, w := range wants {
+			if w == supplier {
+				return // the id expected: not named
+			}
+		}
+		if strings.Contains(got, supplier) {
+			t.Errorf("%s: got the partner's id %s, want it named", path, supplier)
+		}
+	}
+	t.Run("parked", func(t *testing.T) {
+		read(t, b, parkedPath(id), "520000 Office Supplies EUR 5.00 None None None None None Freight", "BP90000001 BP90000001")
+	})
+	parkedDecided(t, "posted", decideParkedAs(b, id, "post", nil), id, "posted")
+	var journal uuid.UUID
+	pgtest.Scan(t, `SELECT journal_entry_id FROM ledger.parked_entry WHERE id = $1`, []any{id}, &journal)
+	t.Run("posted", func(t *testing.T) {
+		read(t, b, entryPath(journal), "BP90000001 BP90000001")
+	})
+	t.Run("posted, in French", func(t *testing.T) {
+		got := b.get(entryPath(journal), "Accept-Language", "fr-CA").page(t).mainText()
+		holds(t, "fr-CA", got, "BP90000001 BP90000001")
+	})
+	viewer := s.as(d.viewer)
+	t.Run("a person who may not read partners", func(t *testing.T) {
+		read(t, viewer, entryPath(journal), supplier)
+		read(t, viewer, parkedPath(id), supplier)
+	})
+}
