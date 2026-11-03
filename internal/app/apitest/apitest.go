@@ -311,7 +311,8 @@ func (c Client) Blank(field, method, path, body, ifMatch string) {
 	errs, _ := m["errors"].([]any)
 	var got any
 	if len(errs) > 0 {
-		got = errs[0].(map[string]any)["field"]
+		e, _ := errs[0].(map[string]any)
+		got = e["field"]
 	}
 	if got != field {
 		c.T.Errorf("%s %s: field %v, want %s", method, path, got, field)

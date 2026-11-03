@@ -175,9 +175,9 @@ func ReferenceNotFound(field, what, message string) *Problem {
 
 // RequireText refuses a text given as white space alone: 422
 // request.validation_failed naming field, nil for any other text. A
-// column such a text is written to checks btrim(x) <> ”, which would
-// refuse it as 409 request.rule_violated without the field, so a context
-// calls RequireText before the write.
+// column such a text is written to checks that its trimmed text is not
+// empty, which would refuse it as 409 request.rule_violated without the
+// field, so a context calls RequireText before the write.
 func RequireText(field, value string) error {
 	if strings.TrimSpace(value) != "" {
 		return nil
