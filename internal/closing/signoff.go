@@ -154,7 +154,7 @@ func (e *Endpoints) checksPass(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 		t task
 		f found
 	}
-	var passing []result
+	var results []result
 	var failing []problem.FailingCheck
 	for _, t := range tasks {
 		if t.Kind != config.CloseCheck {
@@ -167,7 +167,7 @@ func (e *Endpoints) checksPass(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 		if !passed {
 			failing = append(failing, problem.FailingCheck{TaskCode: t.Code, TaskName: t.Name, Check: *t.Check, Summary: f.Summary})
 		}
-		passing = append(passing, result{t, f})
+		results = append(results, result{t, f})
 	}
 	if len(failing) > 0 {
 		var lines []string
@@ -178,7 +178,7 @@ func (e *Endpoints) checksPass(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 		pr.FailingChecks = failing
 		return pr
 	}
-	for _, r := range passing {
+	for _, r := range results {
 		if err := recordCheck(ctx, tx, p, r.t, true, r.f); err != nil {
 			return err
 		}

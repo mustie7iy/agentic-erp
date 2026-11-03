@@ -2373,9 +2373,12 @@ its `ORDER BY` keeps from being pulled up, so the lateral lock runs in that
 order whatever the order of the ledgers' rows or ids (before T64d it ran in
 the rows' order, and a posting and a sign-off on a company whose ledgers
 were created out of code order deadlocked; `TestSignOffAndPostingLockInOneOrder`).
-A posting therefore waits for the first period the sign-off holds while
-holding none the sign-off needs next, then reads the committed `locked`
-status and is refused. No write takes a period lock before a close's lock,
+A single posting (one `postingPeriod` call) therefore waits for the first
+period the sign-off holds while holding none the sign-off needs next, then
+reads the committed `locked` status and is refused. A transaction that
+takes period locks over several statements (the migration load) or in
+another order (a migrated clearing's `clearingPeriods`, the controlling
+switch's lock of a company's periods) is not covered by this. No write takes a period lock before a close's lock,
 so close-then-period never crosses either.
 
 A transaction that would otherwise lock in several
