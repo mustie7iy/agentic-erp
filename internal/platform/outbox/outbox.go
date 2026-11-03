@@ -19,7 +19,7 @@ import (
 
 // Contexts are the database schemas that have an outbox, in relay order.
 var Contexts = []string{"platform", "tenancy", "identity", "config", "partner", "ledger", "procurement",
-	"payables", "payments", "workflow", "integration", "agents", "cash", "controlling", "tax", "assets"}
+	"payables", "payments", "workflow", "integration", "agents", "cash", "controlling", "tax", "assets", "closing"}
 
 // PublicContext is the context name events carry: schema config publishes as
 // configuration; every other schema publishes under its own name.

@@ -350,14 +350,11 @@ type reader struct {
 // day is a holiday still answers.
 const maxDays = 366
 
-// working reports whether the company does business on the day: not a
-// weekend, not one of its holidays (ADR-0048).
+// working reports whether the company does business on the day: not one
+// of its weekend days, not one of its holidays (ADR-0048). The rule is the
+// configuration's (ADR-0058 §3), shared with the close calendar.
 func (r reader) working(d time.Time) bool {
-	if wd := d.Weekday(); wd == time.Saturday || wd == time.Sunday {
-		return false
-	}
-	_, holiday := r.doc.Holiday(r.company, d)
-	return !holiday
+	return r.doc.BusinessDay(r.company, d)
 }
 
 // onOrAfter is the first working day on or after d.
