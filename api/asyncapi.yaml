@@ -334,11 +334,12 @@ channels:
   cash:
     address: 'erp.{cell}.cash.{tenant}.{event}'
     title: Cash management events
-    description: Memo records of expected receipts and payments (ADR-0051).
+    description: Memo records of expected receipts and payments, and snapshots of the liquidity forecast (ADR-0051).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       MemoRecordChanged: {$ref: '#/components/messages/MemoRecordChanged'}
+      CashSnapshotTaken: {$ref: '#/components/messages/CashSnapshotTaken'}
   controlling:
     address: 'erp.{cell}.controlling.{tenant}.{event}'
     title: Controlling events
@@ -569,6 +570,7 @@ operations:
     channel: {$ref: '#/channels/cash'}
     messages:
       - $ref: '#/channels/cash/messages/MemoRecordChanged'
+      - $ref: '#/channels/cash/messages/CashSnapshotTaken'
   publishControllingEvents:
     action: send
     title: Controlling publishes
@@ -2851,6 +2853,27 @@ components:
         - name: created
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000501, source: /erp/eu-1/cash, type: com.example.erp.cash.memo_record_changed.v1, subject: 0192a000-0000-7000-8000-000000000d01, time: '2026-10-21T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {memo_record_id: 0192a000-0000-7000-8000-000000000d01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, change: created, status: active, version: 1}
+    CashSnapshotTaken:
+      name: CashSnapshotTaken
+      title: Cash snapshot taken
+      summary: A snapshot of a company's liquidity forecast was taken.
+      description: |
+        Emitted when the TakeCashSnapshot workflow takes a company's daily
+        snapshot (`daily`, once per company and date) and by `cash-snapshots`
+        (POST, `on_demand`, a person's) (ADR-0051 §6, §15). It names the
+        snapshot, which `GET /v1/cash-snapshots/{id}` returns; a snapshot is
+        never changed. Subject is the snapshot id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.cash.cash_snapshot_taken.v1}
+      payload: {$ref: '#/components/schemas/CashSnapshotTakenV1'}
+      examples:
+        - name: daily
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000601, source: /erp/eu-1/cash, type: com.example.erp.cash.cash_snapshot_taken.v1, subject: 0192a000-0000-7000-8000-000000000e01, time: '2026-10-21T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {cash_snapshot_id: 0192a000-0000-7000-8000-000000000e01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: '3000', kind: daily, snapshot_date: '2026-10-21', line_count: 42}
     AssetChanged:
       name: AssetChanged
       title: Asset changed
@@ -3498,6 +3521,16 @@ components:
         change: {type: string, description: 'Open enum: created, proposed, updated, accepted, rejected, realised, cancelled.'}
         status: {type: string, description: 'The stored status after the change. Open enum: proposed, active, realised, cancelled, rejected.'}
         version: {type: integer, description: The record's version after the change.}
+    CashSnapshotTakenV1:
+      type: object
+      required: [cash_snapshot_id, legal_entity_id, company_code, kind, snapshot_date, line_count]
+      properties:
+        cash_snapshot_id: {$ref: '#/components/schemas/Uuid', description: '`cash.snapshot.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        company_code: {type: string, description: "The legal entity's company code."}
+        kind: {type: string, description: 'Open enum: daily, on_demand.'}
+        snapshot_date: {$ref: '#/components/schemas/Date'}
+        line_count: {type: integer, description: The lines the snapshot kept.}
     TaxReturnPreparedV1:
       type: object
       required: ["tax_return_id", "registration_id", "registration_code", "legal_entity_id", "kind", "return_type", "period_start", "period_end", "amends_id", "pack_country", "pack_version", "item_count", "items_hash", "boxes", "approval_request_id"]

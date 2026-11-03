@@ -314,10 +314,10 @@ start() {
   say "  - the GST34's lines (T61j-T61l): step 2 configures one"
   say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
-  say "  - the liquidity forecast's purchase orders, snapshots and variance (T53f-T53k): step 13 shows the daily cash"
+  say "  - the liquidity forecast's purchase orders, actuals and variance (T53f2-T53k): step 13 shows the daily cash"
   say "    position with a memo record and the forecast of the supplier open items, payment runs, parked invoices, down"
   say "    payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening, memo records"
-  say "    and payments in transit, conversion and drill-down"
+  say "    and payments in transit, conversion and drill-down; step 26 its snapshots"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - asset depreciation runs, retirements, transfers and the rest of asset accounting (T57f-T57i): steps 19 and 20 show the"
   say "    classes and the master, steps 22 and 24 acquisitions and their corrections, step 25 the depreciation schedule and preview"
@@ -3024,6 +3024,41 @@ close_checks() {
   expect "every task done" "$(field '.tasks_done == .tasks_total')" true
 }
 
+step_cash_snapshot() {
+  heading "Step 26 — Snapshots of the liquidity forecast: one taken on demand and read again with its lines; the daily ones"
+  as tom
+  local snap forecast_total forecast_cents lines_total
+  say "Before the board meeting Tom keeps Maple's forecast as it is now: a snapshot, every source and certainty, kept per"
+  say "document and liquidity item for the next 31 days and summed per bucket after, in each flow's own currency (T53f)."
+  QUIET=1 api 200 '' getLiquidityForecast -p "legal_entity_id=$LE"
+  forecast_total=$(field '[.currencies[] | select(.currency == "CAD") | .total.amount][0]')
+  forecast_cents=$(field 'def c: sub("\\."; "") | tonumber; [.currencies[] | select(.currency == "CAD") | .total.amount | c][0]')
+  api 201 '"snapshot \(.kind) \"\(.name)\" of \(.snapshot_date) (\(.time_zone)), per document to \(.document_level_until), horizon \(.horizon_end), configuration v\(.config_version)",
+      (.currencies[] | "  \(.currency): total \(.total.amount), blocked suppliers \(.blocked.amount), \(.line_count) lines")' \
+    takeCashSnapshot -body "{\"legal_entity_id\": \"$LE\", \"name\": \"Board meeting\"}"
+  snap=$(field .id)
+  expect "the snapshot's CAD total, the forecast's" "$(field '[.currencies[] | select(.currency == "CAD") | .total.amount][0]')" "$forecast_total"
+  say "Its CAD lines, the first ten: each document a flow pays under its liquidity item, then the buckets' sums:"
+  api 200 '"  \(.count) lines, total \(.total.amount) \(.total.currency)", (.items[0:10][] | "  \(.value_date)\(if .bucket_end then "..\(.bucket_end)" else "" end) \(.source)/\(.certainty) \(.liquidity_item // "unclassified") \(.amount.amount)\(if .document then ": \(.document.kind) \(.document.number // "-")" else "" end)\(if .supplier then ", \(.supplier.name)" else "" end)")' \
+    listCashSnapshotFlows -p "id=$snap" -p currency=CAD -p page_size=500
+  lines_total=$(field 'def c: sub("\\."; "") | tonumber; [.items[] | select(.source != "payable_blocked") | .amount.amount | c] | add // 0')
+  expect "the lines add up to the snapshot's total" "$lines_total" "$forecast_cents"
+  expect "per document within 31 days, per bucket after" \
+    "$(field '[.items[] | select(.bucket_end == null) | .flow_count] | all(. == 1)')" true
+  say "The snapshots of Maple, newest first. The daily one is taken once a day after Maple's snapshot time (07:00 in"
+  say "America/Toronto) by the TakeCashSnapshot workflow, here the server's in-process snapshotter; it shows up once"
+  say "the walkthrough runs after that time:"
+  api 200 '.items[] | "  \(.company_code) \(.snapshot_date) \(.kind) \(.name // "")"' listCashSnapshots -p "legal_entity_id=$LE"
+  expect "the board meeting's snapshot listed" "$(field "[.items[].id] | index(\"$snap\") != null")" true
+  as rita
+  say "Rita holds the forecast's read alone: she reads the same lines without their documents or suppliers."
+  api 200 '"  \(.count) lines; documents shown \([.items[] | select(.document)] | length) of \([.items[] | select(.has_document)] | length)"' \
+    listCashSnapshotFlows -p "id=$snap" -p currency=CAD -p page_size=500
+  expect "documents shown to Rita" "$(field '[.items[] | select(.document or .supplier)] | length')" 0
+  as tom
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -3045,7 +3080,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_close'
 
 main() {
   start

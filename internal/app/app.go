@@ -113,7 +113,13 @@ type handler struct {
 
 // Config is what the API needs.
 type Config struct {
-	Pool       *database.Pool
+	Pool *database.Pool
+	// Consistent is the pool of the reads a write records as of one
+	// database state (uow.Consistent: a cash snapshot taken on demand,
+	// ADR-0051 §6), apart from Pool, so a request holding one of Pool's
+	// connections never waits for another of Pool's; nil takes no snapshot
+	// on demand.
+	Consistent *database.Pool
 	AppRole    string
 	Verifier   *authn.Verifier
 	Pages      *pagination.Codec

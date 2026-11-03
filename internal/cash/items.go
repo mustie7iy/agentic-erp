@@ -102,6 +102,36 @@ func follow(out []Line, amounts []money.Minor, at []int, l DocumentLine) ([]Line
 // shares of one item summed, in the order the parts first name the items,
 // so the shares add up to the parts, the flow's amount.
 func classify(d *rules, s *sums, amount money.Minor, parts []part) ([]Share, error) {
+	each, err := partsShares(d, amount, parts)
+	if err != nil {
+		return nil, err
+	}
+	return sumShares(s, each), nil
+}
+
+// sumShares are the parts' shares summed by item, in the order the parts
+// first name the items.
+func sumShares(s *sums, each [][]Share) []Share {
+	var out []Share
+	for _, shares := range each {
+		for _, sh := range shares {
+			i := slices.IndexFunc(out, func(x Share) bool { return x.Item == sh.Item })
+			if i < 0 {
+				out = append(out, sh)
+				continue
+			}
+			out[i].Amount = s.add(out[i].Amount, sh.Amount)
+		}
+	}
+	return out
+}
+
+// partsShares are each part's shares by liquidity item, the parts shared
+// out over the flow's amount first (scaled), each derived on its own with
+// the flow's direction (a credit memo netted into a payment takes the
+// outflow's fallback): what classify sums by item, and what a snapshot
+// keeps per document (T53f). Parts that cancel out are one, the flow's.
+func partsShares(d *rules, amount money.Minor, parts []part) ([][]Share, error) {
 	parts, err := scaled(amount, parts)
 	if err != nil {
 		return nil, err
@@ -110,19 +140,10 @@ func classify(d *rules, s *sums, amount money.Minor, parts []part) ([]Share, err
 	if amount > 0 {
 		direction = config.DirectionInflow
 	}
-	var out []Share
-	for _, p := range parts {
-		shares, err := partShares(d, p, direction)
-		if err != nil {
+	out := make([][]Share, len(parts))
+	for i, p := range parts {
+		if out[i], err = partShares(d, p, direction); err != nil {
 			return nil, err
-		}
-		for _, sh := range shares {
-			i := slices.IndexFunc(out, func(x Share) bool { return x.Item == sh.Item })
-			if i < 0 {
-				out = append(out, sh)
-				continue
-			}
-			out[i].Amount = s.add(out[i].Amount, sh.Amount)
 		}
 	}
 	return out, nil

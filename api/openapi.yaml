@@ -15062,6 +15062,221 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/cash-snapshots:
+    get:
+      operationId: listCashSnapshots
+      tags:
+        - cash
+      summary: List snapshots of the liquidity forecast
+      description: "The snapshots of the liquidity forecast of the legal entities the caller may act in (ADR-0051 §6, T53f), newest first (by `snapshot_date`; those of one date latest taken first): the daily ones the TakeCashSnapshot workflow takes once a day per company after its `cash.snapshot_time` (local time, default 07:00), and those people take on demand (`takeCashSnapshot`). Each gives its totals per currency. A snapshot is kept 25 months after its date, then deleted by the workflow that takes the daily ones. Sortable by: `snapshot_date` (default descending)."
+      x-permission: cash.forecast.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: kind
+          in: query
+          required: false
+          description: "Only snapshots of this kind: `daily` or `on_demand`."
+          schema:
+            type: string
+            description: "A snapshot's kind. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [daily, on_demand]
+        - name: from
+          in: query
+          required: false
+          description: Only snapshots dated on or after this day.
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          description: Only snapshots dated on or before this day.
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of snapshots.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashSnapshotPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: takeCashSnapshot
+      tags:
+        - cash
+      summary: Take a snapshot of the liquidity forecast
+      description: "Takes a named snapshot of a legal entity's liquidity forecast as it is now (ADR-0051 §6, T53f), such as before a board meeting, kept like the daily ones the TakeCashSnapshot workflow takes. The forecast is read as `getLiquidityForecast` reads it with the company's buckets, every source and certainty, blocked suppliers' flows included (marked by their source, `payable_blocked`), from one database state, and stored in transaction currency: at document level for value dates within 31 days of the snapshot's date (each document a flow pays, under each liquidity item it is classified in, `listCashSnapshotFlows`), and summed per bucket and liquidity item beyond, up to the last bucket; flows after the last bucket are not kept. The liquidity items are those the active configuration derived then: a later rule change does not restate it. A legal entity the caller cannot act in is 404. Audited, and published as CashSnapshotTaken."
+      x-permission: cash.snapshot.take
+      x-agent: false
+      x-slo-class: report
+      x-problem-codes:
+        - cash.amount_too_large
+        - config.not_bootstrapped
+        - payables.unknown_payment_term
+        - payables.withholding_exceeds_invoice
+        - payables.withholding_tax_code_unknown
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The snapshot to take.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CashSnapshotCreate"
+      responses:
+        "201":
+          description: "Taken; the snapshot."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashSnapshot"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/cash-snapshots/{id}":
+    get:
+      operationId: getCashSnapshot
+      tags:
+        - cash
+      summary: Get a snapshot of the liquidity forecast
+      description: "One snapshot of the liquidity forecast (ADR-0051 §6, T53f) with its totals per currency; its flows are `listCashSnapshotFlows`. A snapshot of a legal entity the caller cannot act in is not found."
+      x-permission: cash.forecast.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashSnapshot"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/cash-snapshots/{id}/flows":
+    get:
+      operationId: listCashSnapshotFlows
+      tags:
+        - cash
+      summary: List the flows of a snapshot of the liquidity forecast
+      description: "The flows a snapshot kept (ADR-0051 §6, T53f), of one currency, by value date and line: within 31 days of the snapshot's date one line per document a flow paid and liquidity item it was classified in (`flow_no` groups the lines of one flow), beyond it one line per bucket of the company's buckets, source, certainty, liquidity item and house bank (`bucket_end` set, `flow_count` the flows it sums). `total` and `count` add up the lines of every page that the filters select. Each line names its supplier (number and name) only to a caller who may use `partner.supplier.read`, its payment only to one who may use `payments.run.read`, and its document only to one who may use the document's context's read permission (`ledger.entry.read`, `payables.invoice.read`, `payments.run.read`, `cash.memo.read`), as the forecast's drill-down does; for others they are left out, never refused, and `has_document` still says whether it names one. A snapshot of a legal entity the caller cannot act in is not found."
+      x-permission: cash.forecast.read
+      x-problem-codes:
+        - request.invalid_page_size
+        - request.invalid_page_token
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: currency
+          in: query
+          required: true
+          description: "The currency of the flows (ISO 4217)."
+          schema:
+            type: string
+            pattern: "^[A-Z]{3}$"
+        - name: liquidity_item
+          in: query
+          required: false
+          description: "Only the lines classified in this liquidity item (its code; descendants not included); not with `unclassified=true` (422)."
+          schema:
+            type: string
+            maxLength: 40
+        - name: unclassified
+          in: query
+          required: false
+          description: "Only the lines no derivation rule assigned and no default covered."
+          schema:
+            type: boolean
+            default: false
+        - name: source
+          in: query
+          required: false
+          description: "Only the lines of this source (ADR-0051 §4)."
+          schema:
+            type: string
+            description: "Where a flow comes from. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [in_transit, payment_run, memo, payable, payable_blocked, invoice_unposted, down_payment]
+        - name: from
+          in: query
+          required: false
+          description: "Only the lines whose value date is on or after this day."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          description: "Only the lines whose value date is on or before this day, on or after `from` (else 422)."
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: A page of the snapshot's flows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashSnapshotFlowPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/liquidity-forecast:
     get:
       operationId: getLiquidityForecast
@@ -34528,6 +34743,171 @@ components:
           maxLength: 2048
       examples:
         - items: []
+    CashSnapshotCreate:
+      type: object
+      description: "A snapshot of the liquidity forecast to take on demand (ADR-0051 §6)."
+      required: [legal_entity_id, name]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The legal entity whose forecast is kept."}
+        name: {type: string, minLength: 1, maxLength: 200, pattern: '^\S(.*\S)?$', description: "What the snapshot is for, such as \"Board meeting April\"."}
+      examples:
+        - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          name: Board meeting April
+    CashSnapshot:
+      type: object
+      description: "A snapshot of a legal entity's liquidity forecast as it was at `taken_at` (ADR-0051 §6, T53f), in transaction currency, with its totals per currency."
+      required: [id, legal_entity_id, company_code, kind, snapshot_date, time_zone, horizon_end, document_level_until, config_version, taken_at, currencies]
+      properties:
+        id: {type: string, format: uuid, description: Snapshot id., readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        company_code: {type: string, description: "The legal entity's company code.", readOnly: true}
+        kind:
+          type: string
+          description: "`daily` (taken by the TakeCashSnapshot workflow, once per company and date) or `on_demand` (taken by a person, named). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [daily, on_demand]
+          readOnly: true
+        name: {type: string, description: "The name a person gave it; absent on a daily snapshot.", readOnly: true}
+        snapshot_date: {type: string, format: date, description: "The company's date when it was taken, in `time_zone`: the forecast's read date.", readOnly: true}
+        time_zone: {type: string, description: "The IANA time zone the date is in (UTC when the company sets none).", readOnly: true}
+        horizon_end: {type: string, format: date, description: "The last day of the company's last bucket: no flow after it is kept.", readOnly: true}
+        document_level_until: {type: string, format: date, description: "The last day kept at document level, 30 days after `snapshot_date`; flows after it are summed per bucket.", readOnly: true}
+        config_version: {type: integer, format: int32, minimum: 1, description: "The configuration version whose derivation rules classified the flows.", readOnly: true}
+        taken_at: {type: string, format: date-time, description: When it was read., readOnly: true}
+        currencies:
+          type: array
+          items: {$ref: "#/components/schemas/CashSnapshotCurrency"}
+          description: "Its totals per currency, by currency code."
+          readOnly: true
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000e01
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "3000"
+          kind: on_demand
+          name: Board meeting April
+          snapshot_date: "2026-04-17"
+          time_zone: America/Toronto
+          horizon_end: "2027-04-02"
+          document_level_until: "2026-05-17"
+          config_version: 4
+          taken_at: "2026-04-17T13:05:00Z"
+          currencies:
+            - currency: CAD
+              total: {amount: "-24176.00", currency: CAD}
+              blocked: {amount: "-1500.00", currency: CAD}
+              line_count: 9
+    CashSnapshotCurrency:
+      type: object
+      description: "A snapshot's totals in one currency: what the forecast's totals counted over the horizon (every source but `payable_blocked`), what suppliers no run pays were owed, and how many lines it kept."
+      required: [currency, total, blocked, line_count]
+      properties:
+        currency: {type: string, description: The currency (ISO 4217)., readOnly: true}
+        total: {$ref: "#/components/schemas/Money"}
+        blocked: {$ref: "#/components/schemas/Money"}
+        line_count: {type: integer, format: int32, minimum: 0, description: "The lines kept (`listCashSnapshotFlows`).", readOnly: true}
+    CashSnapshotPage:
+      type: object
+      description: One page of snapshots of the liquidity forecast.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CashSnapshot"}
+          description: The snapshots on this page, newest first.
+          readOnly: true
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+          readOnly: true
+      examples:
+        - items: []
+    CashSnapshotFlowPage:
+      type: object
+      description: "A page of the lines a snapshot of the liquidity forecast kept in one currency, with what the selected lines of every page add up to."
+      required: [snapshot_id, legal_entity_id, company_code, snapshot_date, currency, unclassified, total, count, items]
+      properties:
+        snapshot_id: {type: string, format: uuid, description: The snapshot., readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        company_code: {type: string, description: "The legal entity's company code.", readOnly: true}
+        snapshot_date: {type: string, format: date, description: "The snapshot's date.", readOnly: true}
+        currency: {type: string, description: "The currency (ISO 4217).", readOnly: true}
+        liquidity_item: {type: string, description: "The liquidity item asked for; absent when none was.", readOnly: true}
+        unclassified: {type: boolean, description: "Whether only the lines no rule assigned are listed.", readOnly: true}
+        total: {$ref: "#/components/schemas/Money"}
+        count: {type: integer, format: int32, minimum: 0, description: "How many lines the filters select, over every page.", readOnly: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CashSnapshotFlow"}
+          description: "The lines on this page, by value date and line number."
+          readOnly: true
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+          readOnly: true
+      examples:
+        - snapshot_id: 0192a000-0000-7000-8000-000000000e01
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "3000"
+          snapshot_date: "2026-04-17"
+          currency: CAD
+          unclassified: false
+          total: {amount: "-784.00", currency: CAD}
+          count: 1
+          items:
+            - line_no: 1
+              flow_no: 1
+              value_date: "2026-04-21"
+              source: payable
+              certainty: expected
+              late: false
+              liquidity_item: OP_SUPPLIERS
+              amount: {amount: "-784.00", currency: CAD}
+              flow_count: 1
+              supplier: {id: 0192a000-0000-7000-8000-000000000301, number: BP10000001, name: Tyrell Office Supplies}
+              has_document: true
+              document: {kind: journal_entry, id: 0192a000-0000-7000-8000-000000000401, number: "5100000012"}
+    CashSnapshotFlow:
+      type: object
+      description: "A line a snapshot kept (ADR-0051 §6): at document level, what one flow of the forecast paid of one document under one liquidity item; beyond 31 days, the sum of the flows of a bucket, source, certainty, liquidity item and house bank. Its supplier, payment and document are given only to a caller who may read them in their own context, as the forecast's drill-down gives them."
+      required: [line_no, flow_no, value_date, source, certainty, late, amount, flow_count, has_document]
+      properties:
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line's number in the snapshot.", readOnly: true}
+        flow_no: {type: integer, format: int32, minimum: 1, description: "The flow the line is of: the lines of one flow share it; a bucket's sum has its own.", readOnly: true}
+        value_date: {type: string, format: date, description: "The day the flow was expected at the bank (a blocked supplier's on its due date); a bucket's sum: the first day it covers.", readOnly: true}
+        bucket_end: {type: string, format: date, description: "The last day a bucket's sum covers; absent at document level.", readOnly: true}
+        house_bank_id: {type: string, format: uuid, description: "The house bank the flow was expected on; absent when none (a supplier item takes the bank its supplier's first payment method ranks).", readOnly: true}
+        house_bank_code: {type: string, description: "The house bank's code; present exactly when `house_bank_id` is.", readOnly: true}
+        source:
+          type: string
+          description: "Where the flow came from (ADR-0051 §4). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [in_transit, payment_run, memo, payable, payable_blocked, invoice_unposted, down_payment]
+          readOnly: true
+        certainty:
+          type: string
+          description: "How certain it was. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [actual, confirmed, expected, planned]
+          readOnly: true
+        late: {type: boolean, description: "True when it was due before the snapshot's date and expected the working day after it.", readOnly: true}
+        liquidity_item: {type: string, description: "The liquidity item it was classified in; absent when no rule assigned it and no default covered it.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money"}
+        flow_count: {type: integer, format: int32, minimum: 1, description: "The flows it sums: 1 at document level.", readOnly: true}
+        supplier: {$ref: "#/components/schemas/PartnerName"}
+        payment_id: {type: string, format: uuid, description: "The payment it was, a run's payment or a payment in transit, of the payment run `document` names; absent for other sources and for a caller who may not use `payments.run.read`.", readOnly: true}
+        has_document: {type: boolean, description: "Whether the line names a document, shown or not.", readOnly: true}
+        document: {$ref: "#/components/schemas/CashSnapshotDocument"}
+    CashSnapshotDocument:
+      type: object
+      description: "The document a snapshot's line was paid for, to read through its own context's API, as the forecast's drill-down names it (`LiquidityForecastDocument`)."
+      required: [kind, id]
+      properties:
+        kind:
+          type: string
+          description: "What the document is. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [journal_entry, supplier_invoice, down_payment_request, payment_run, memo_record]
+          readOnly: true
+        id: {type: string, format: uuid, description: "The document's id in its context.", readOnly: true}
+        number: {type: string, description: "Its document number (a memo record's reference) when it was taken; absent when it had none.", readOnly: true}
     AssetSchedule:
       type: object
       description: "An asset's planned and booked depreciation per regular period of a fiscal year in one ledger (ADR-0057 §7), in the company's local currency."

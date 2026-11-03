@@ -393,6 +393,10 @@ type GetCashPositionRes interface {
 	getCashPositionRes()
 }
 
+type GetCashSnapshotRes interface {
+	getCashSnapshotRes()
+}
+
 type GetCenterChangeRes interface {
 	getCenterChangeRes()
 }
@@ -691,6 +695,14 @@ type ListBankStatementsRes interface {
 
 type ListBusinessPartnersRes interface {
 	listBusinessPartnersRes()
+}
+
+type ListCashSnapshotFlowsRes interface {
+	listCashSnapshotFlowsRes()
+}
+
+type ListCashSnapshotsRes interface {
+	listCashSnapshotsRes()
 }
 
 type ListCenterChangesRes interface {
@@ -1223,6 +1235,10 @@ type SubmitPurchaseOrderChangeRes interface {
 
 type SubmitRequisitionRes interface {
 	submitRequisitionRes()
+}
+
+type TakeCashSnapshotRes interface {
+	takeCashSnapshotRes()
 }
 
 type TerminateContractRes interface {

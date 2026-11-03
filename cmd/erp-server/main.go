@@ -242,6 +242,8 @@ type server struct {
 	// replica is the cell's read replica, which the analytics extract
 	// reads (DATABASE_REPLICA_URL); nil: the primary.
 	replica *database.Pool
+	// consistent is the consistent reads' pool (openConsistent).
+	consistent *database.Pool
 
 	static       []authn.Static
 	dev          *authn.DevIssuer
@@ -287,23 +289,46 @@ func openPool(ctx context.Context, cfg config.Config) (*database.Pool, error) {
 	return database.Open(ctx, cfg.DatabaseURL, settings)
 }
 
-// openPools opens the primary's pool and, when the cell extracts, the
-// read replica's; the function returned closes both.
+// openPools opens the primary's pool, the consistent reads' pool and,
+// when the cell extracts, the read replica's; the function returned closes
+// them. A pool that does not open closes those opened before it.
 func (s *server) openPools(ctx context.Context) (func(), error) {
-	var err error
-	if s.pool, err = openPool(ctx, s.cfg); err != nil {
-		return nil, err
+	steps := []struct {
+		to   **database.Pool
+		open func() (*database.Pool, error)
+	}{
+		{&s.pool, func() (*database.Pool, error) { return openPool(ctx, s.cfg) }},
+		{&s.consistent, func() (*database.Pool, error) { return openConsistent(ctx, s.cfg) }},
+		{&s.replica, func() (*database.Pool, error) { return openReplica(ctx, s.cfg, s.cfg.Objects.Enabled()) }},
 	}
-	if s.replica, err = openReplica(ctx, s.cfg, s.cfg.Objects.Enabled()); err != nil {
-		s.pool.Close()
-		return nil, err
-	}
-	return func() {
-		if s.replica != nil {
-			s.replica.Close()
+	var opened []*database.Pool
+	closeAll := func() {
+		for i := len(opened) - 1; i >= 0; i-- {
+			opened[i].Close()
 		}
-		s.pool.Close()
-	}, nil
+	}
+	for _, st := range steps {
+		p, err := st.open()
+		if err != nil {
+			closeAll()
+			return nil, err
+		}
+		*st.to = p
+		if p != nil { // no replica
+			opened = append(opened, p)
+		}
+	}
+	return closeAll, nil
+}
+
+// openConsistent opens the primary's pool of consistent reads beside a
+// request's transaction (app.Config.Consistent: a cash snapshot taken on
+// demand), two connections: its reads wait on nothing, so a request
+// holding the main pool's connection while it waits here always gets one.
+func openConsistent(ctx context.Context, cfg config.Config) (*database.Pool, error) {
+	settings := database.DefaultSettings
+	settings.MaxConns = 2
+	return database.Open(ctx, cfg.DatabaseURL, settings)
 }
 
 // openReplica opens the read replica's pool when one is configured and
@@ -639,7 +664,7 @@ const analyticsTimeout = 30 * time.Second
 func (s *server) newAPI() error {
 	cfg := s.cfg
 	s.apiCfg = app.Config{
-		Pool: s.pool, AppRole: cfg.AppRole, Verifier: s.verifier, Pages: s.pages, FieldKeys: s.keys, Extractor: s.extractor, Connector: s.connector, ExtractDir: cfg.ExtractDir, Objects: s.store, Retention: cfg.Objects.Retention, Secrets: cfg.Secrets, Log: s.log,
+		Pool: s.pool, Consistent: s.consistent, AppRole: cfg.AppRole, Verifier: s.verifier, Pages: s.pages, FieldKeys: s.keys, Extractor: s.extractor, Connector: s.connector, ExtractDir: cfg.ExtractDir, Objects: s.store, Retention: cfg.Objects.Retention, Secrets: cfg.Secrets, Log: s.log,
 		UploadKey: uploadKey(cfg.PageTokenKey), PublicURL: cfg.PublicURL, Workflows: s.engineClient,
 		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
 		Metrics: s.metrics, Tracer: s.tp, Meter: otel.GetMeterProvider(), Now: time.Now,
@@ -768,9 +793,14 @@ func (s *server) startOperations(runCtx context.Context) {
 	transmitter := &payments.Transmitter{Endpoints: app.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
 	s.spawn("bank file transmitter", func() { transmitter.Run(runCtx) })
 	recurrences := &workflows.Recurrences{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Endpoints: app.Ledger(apiCfg)}
+	// The cash context is a leaf (ADR-0051 §2): its endpoints are the
+	// snapshot workflow's port, wired here.
+	snapshots := &workflows.Snapshots{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Cash: app.Cash(apiCfg)}
 	if engine == nil {
 		recurrer := &workflows.Recurrer{Recurrences: recurrences, Log: log}
 		s.spawn("recurring entries", func() { recurrer.Run(runCtx) })
+		snapshotter := &workflows.Snapshotter{Snapshots: snapshots, Log: log}
+		s.spawn("cash snapshots", func() { snapshotter.Run(runCtx) })
 		proposer := &payments.Proposer{Endpoints: app.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
 		s.spawn("proposer", func() { proposer.Run(runCtx) })
 		releaser := &workflows.Releaser{Payments: &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)}, Pool: pool, WorkerRole: cfg.WorkerRole, Log: log}
@@ -784,10 +814,10 @@ func (s *server) startOperations(runCtx context.Context) {
 		return engine.Worker(runCtx, cfg.Temporal.TaskQueue, func(r workflow.Registry) {
 			workflows.Register(r, activities, &workflows.Simulations{Worker: s.simulator}, &workflows.Migrations{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Integration(apiCfg), Actors: identity.Actors{}},
 				&workflows.Approvals{Pool: pool, AppRole: cfg.AppRole}, &workflows.Statements{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)},
-				recurrences)
+				recurrences, snapshots)
 		})
 	})
-	dispatcher := &workflows.Dispatcher{Deadline: cfg.Temporal.EscalateAfter, Escalations: cfg.Temporal.Escalations, Pool: pool, WorkerRole: cfg.WorkerRole, Client: engine, Queue: cfg.Temporal.TaskQueue, Interval: dispatchInterval, Statements: cfg.Temporal.StatementFetch, Recurring: recurrences, Log: log}
+	dispatcher := &workflows.Dispatcher{Deadline: cfg.Temporal.EscalateAfter, Escalations: cfg.Temporal.Escalations, Pool: pool, WorkerRole: cfg.WorkerRole, Client: engine, Queue: cfg.Temporal.TaskQueue, Interval: dispatchInterval, Statements: cfg.Temporal.StatementFetch, Recurring: recurrences, Snapshots: snapshots, Log: log}
 	s.spawn("dispatcher", func() { dispatcher.Run(runCtx) })
 }
 

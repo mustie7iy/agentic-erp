@@ -10570,6 +10570,696 @@ func (s *CashPositionTotal) SetAvailable(val Money) {
 	s.Available = val
 }
 
+// A snapshot of a legal entity's liquidity forecast as it was at `taken_at` (ADR-0051 §6, T53f), in
+// transaction currency, with its totals per currency.
+// Ref: #/components/schemas/CashSnapshot
+type CashSnapshot struct {
+	// Snapshot id.
+	ID uuid.UUID `json:"id"`
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// `daily` (taken by the TakeCashSnapshot workflow, once per company and date) or `on_demand` (taken by
+	// a person, named). Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Kind string `json:"kind"`
+	// The name a person gave it; absent on a daily snapshot.
+	Name OptString `json:"name"`
+	// The company's date when it was taken, in `time_zone`: the forecast's read date.
+	SnapshotDate time.Time `json:"snapshot_date"`
+	// The IANA time zone the date is in (UTC when the company sets none).
+	TimeZone string `json:"time_zone"`
+	// The last day of the company's last bucket: no flow after it is kept.
+	HorizonEnd time.Time `json:"horizon_end"`
+	// The last day kept at document level, 30 days after `snapshot_date`; flows after it are summed per
+	// bucket.
+	DocumentLevelUntil time.Time `json:"document_level_until"`
+	// The configuration version whose derivation rules classified the flows.
+	ConfigVersion int32 `json:"config_version"`
+	// When it was read.
+	TakenAt time.Time `json:"taken_at"`
+	// Its totals per currency, by currency code.
+	Currencies []CashSnapshotCurrency `json:"currencies"`
+}
+
+// GetID returns the value of ID.
+func (s *CashSnapshot) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CashSnapshot) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CashSnapshot) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetKind returns the value of Kind.
+func (s *CashSnapshot) GetKind() string {
+	return s.Kind
+}
+
+// GetName returns the value of Name.
+func (s *CashSnapshot) GetName() OptString {
+	return s.Name
+}
+
+// GetSnapshotDate returns the value of SnapshotDate.
+func (s *CashSnapshot) GetSnapshotDate() time.Time {
+	return s.SnapshotDate
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *CashSnapshot) GetTimeZone() string {
+	return s.TimeZone
+}
+
+// GetHorizonEnd returns the value of HorizonEnd.
+func (s *CashSnapshot) GetHorizonEnd() time.Time {
+	return s.HorizonEnd
+}
+
+// GetDocumentLevelUntil returns the value of DocumentLevelUntil.
+func (s *CashSnapshot) GetDocumentLevelUntil() time.Time {
+	return s.DocumentLevelUntil
+}
+
+// GetConfigVersion returns the value of ConfigVersion.
+func (s *CashSnapshot) GetConfigVersion() int32 {
+	return s.ConfigVersion
+}
+
+// GetTakenAt returns the value of TakenAt.
+func (s *CashSnapshot) GetTakenAt() time.Time {
+	return s.TakenAt
+}
+
+// GetCurrencies returns the value of Currencies.
+func (s *CashSnapshot) GetCurrencies() []CashSnapshotCurrency {
+	return s.Currencies
+}
+
+// SetID sets the value of ID.
+func (s *CashSnapshot) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CashSnapshot) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CashSnapshot) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetKind sets the value of Kind.
+func (s *CashSnapshot) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetName sets the value of Name.
+func (s *CashSnapshot) SetName(val OptString) {
+	s.Name = val
+}
+
+// SetSnapshotDate sets the value of SnapshotDate.
+func (s *CashSnapshot) SetSnapshotDate(val time.Time) {
+	s.SnapshotDate = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *CashSnapshot) SetTimeZone(val string) {
+	s.TimeZone = val
+}
+
+// SetHorizonEnd sets the value of HorizonEnd.
+func (s *CashSnapshot) SetHorizonEnd(val time.Time) {
+	s.HorizonEnd = val
+}
+
+// SetDocumentLevelUntil sets the value of DocumentLevelUntil.
+func (s *CashSnapshot) SetDocumentLevelUntil(val time.Time) {
+	s.DocumentLevelUntil = val
+}
+
+// SetConfigVersion sets the value of ConfigVersion.
+func (s *CashSnapshot) SetConfigVersion(val int32) {
+	s.ConfigVersion = val
+}
+
+// SetTakenAt sets the value of TakenAt.
+func (s *CashSnapshot) SetTakenAt(val time.Time) {
+	s.TakenAt = val
+}
+
+// SetCurrencies sets the value of Currencies.
+func (s *CashSnapshot) SetCurrencies(val []CashSnapshotCurrency) {
+	s.Currencies = val
+}
+
+func (*CashSnapshot) getCashSnapshotRes() {}
+
+// A snapshot of the liquidity forecast to take on demand (ADR-0051 §6).
+// Ref: #/components/schemas/CashSnapshotCreate
+type CashSnapshotCreate struct {
+	// The legal entity whose forecast is kept.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// What the snapshot is for, such as "Board meeting April".
+	Name string `json:"name"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CashSnapshotCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetName returns the value of Name.
+func (s *CashSnapshotCreate) GetName() string {
+	return s.Name
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CashSnapshotCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetName sets the value of Name.
+func (s *CashSnapshotCreate) SetName(val string) {
+	s.Name = val
+}
+
+// A snapshot's totals in one currency: what the forecast's totals counted over the horizon (every
+// source but `payable_blocked`), what suppliers no run pays were owed, and how many lines it kept.
+// Ref: #/components/schemas/CashSnapshotCurrency
+type CashSnapshotCurrency struct {
+	// The currency (ISO 4217).
+	Currency string `json:"currency"`
+	Total    Money  `json:"total"`
+	Blocked  Money  `json:"blocked"`
+	// The lines kept (`listCashSnapshotFlows`).
+	LineCount int32 `json:"line_count"`
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CashSnapshotCurrency) GetCurrency() string {
+	return s.Currency
+}
+
+// GetTotal returns the value of Total.
+func (s *CashSnapshotCurrency) GetTotal() Money {
+	return s.Total
+}
+
+// GetBlocked returns the value of Blocked.
+func (s *CashSnapshotCurrency) GetBlocked() Money {
+	return s.Blocked
+}
+
+// GetLineCount returns the value of LineCount.
+func (s *CashSnapshotCurrency) GetLineCount() int32 {
+	return s.LineCount
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CashSnapshotCurrency) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetTotal sets the value of Total.
+func (s *CashSnapshotCurrency) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetBlocked sets the value of Blocked.
+func (s *CashSnapshotCurrency) SetBlocked(val Money) {
+	s.Blocked = val
+}
+
+// SetLineCount sets the value of LineCount.
+func (s *CashSnapshotCurrency) SetLineCount(val int32) {
+	s.LineCount = val
+}
+
+// The document a snapshot's line was paid for, to read through its own context's API, as the
+// forecast's drill-down names it (`LiquidityForecastDocument`).
+// Ref: #/components/schemas/CashSnapshotDocument
+type CashSnapshotDocument struct {
+	// What the document is. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Kind string `json:"kind"`
+	// The document's id in its context.
+	ID uuid.UUID `json:"id"`
+	// Its document number (a memo record's reference) when it was taken; absent when it had none.
+	Number OptString `json:"number"`
+}
+
+// GetKind returns the value of Kind.
+func (s *CashSnapshotDocument) GetKind() string {
+	return s.Kind
+}
+
+// GetID returns the value of ID.
+func (s *CashSnapshotDocument) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetNumber returns the value of Number.
+func (s *CashSnapshotDocument) GetNumber() OptString {
+	return s.Number
+}
+
+// SetKind sets the value of Kind.
+func (s *CashSnapshotDocument) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetID sets the value of ID.
+func (s *CashSnapshotDocument) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *CashSnapshotDocument) SetNumber(val OptString) {
+	s.Number = val
+}
+
+// A line a snapshot kept (ADR-0051 §6): at document level, what one flow of the forecast paid of one
+// document under one liquidity item; beyond 31 days, the sum of the flows of a bucket, source,
+// certainty, liquidity item and house bank. Its supplier, payment and document are given only to a
+// caller who may read them in their own context, as the forecast's drill-down gives them.
+// Ref: #/components/schemas/CashSnapshotFlow
+type CashSnapshotFlow struct {
+	// The line's number in the snapshot.
+	LineNo int32 `json:"line_no"`
+	// The flow the line is of: the lines of one flow share it; a bucket's sum has its own.
+	FlowNo int32 `json:"flow_no"`
+	// The day the flow was expected at the bank (a blocked supplier's on its due date); a bucket's sum:
+	// the first day it covers.
+	ValueDate time.Time `json:"value_date"`
+	// The last day a bucket's sum covers; absent at document level.
+	BucketEnd OptDate `json:"bucket_end"`
+	// The house bank the flow was expected on; absent when none (a supplier item takes the bank its
+	// supplier's first payment method ranks).
+	HouseBankID OptUUID `json:"house_bank_id"`
+	// The house bank's code; present exactly when `house_bank_id` is.
+	HouseBankCode OptString `json:"house_bank_code"`
+	// Where the flow came from (ADR-0051 §4). Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	Source string `json:"source"`
+	// How certain it was. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Certainty string `json:"certainty"`
+	// True when it was due before the snapshot's date and expected the working day after it.
+	Late bool `json:"late"`
+	// The liquidity item it was classified in; absent when no rule assigned it and no default covered it.
+	LiquidityItem OptString `json:"liquidity_item"`
+	Amount        Money     `json:"amount"`
+	// The flows it sums: 1 at document level.
+	FlowCount int32          `json:"flow_count"`
+	Supplier  OptPartnerName `json:"supplier"`
+	// The payment it was, a run's payment or a payment in transit, of the payment run `document` names;
+	// absent for other sources and for a caller who may not use `payments.run.read`.
+	PaymentID OptUUID `json:"payment_id"`
+	// Whether the line names a document, shown or not.
+	HasDocument bool                    `json:"has_document"`
+	Document    OptCashSnapshotDocument `json:"document"`
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *CashSnapshotFlow) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetFlowNo returns the value of FlowNo.
+func (s *CashSnapshotFlow) GetFlowNo() int32 {
+	return s.FlowNo
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *CashSnapshotFlow) GetValueDate() time.Time {
+	return s.ValueDate
+}
+
+// GetBucketEnd returns the value of BucketEnd.
+func (s *CashSnapshotFlow) GetBucketEnd() OptDate {
+	return s.BucketEnd
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *CashSnapshotFlow) GetHouseBankID() OptUUID {
+	return s.HouseBankID
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *CashSnapshotFlow) GetHouseBankCode() OptString {
+	return s.HouseBankCode
+}
+
+// GetSource returns the value of Source.
+func (s *CashSnapshotFlow) GetSource() string {
+	return s.Source
+}
+
+// GetCertainty returns the value of Certainty.
+func (s *CashSnapshotFlow) GetCertainty() string {
+	return s.Certainty
+}
+
+// GetLate returns the value of Late.
+func (s *CashSnapshotFlow) GetLate() bool {
+	return s.Late
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *CashSnapshotFlow) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetAmount returns the value of Amount.
+func (s *CashSnapshotFlow) GetAmount() Money {
+	return s.Amount
+}
+
+// GetFlowCount returns the value of FlowCount.
+func (s *CashSnapshotFlow) GetFlowCount() int32 {
+	return s.FlowCount
+}
+
+// GetSupplier returns the value of Supplier.
+func (s *CashSnapshotFlow) GetSupplier() OptPartnerName {
+	return s.Supplier
+}
+
+// GetPaymentID returns the value of PaymentID.
+func (s *CashSnapshotFlow) GetPaymentID() OptUUID {
+	return s.PaymentID
+}
+
+// GetHasDocument returns the value of HasDocument.
+func (s *CashSnapshotFlow) GetHasDocument() bool {
+	return s.HasDocument
+}
+
+// GetDocument returns the value of Document.
+func (s *CashSnapshotFlow) GetDocument() OptCashSnapshotDocument {
+	return s.Document
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *CashSnapshotFlow) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetFlowNo sets the value of FlowNo.
+func (s *CashSnapshotFlow) SetFlowNo(val int32) {
+	s.FlowNo = val
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *CashSnapshotFlow) SetValueDate(val time.Time) {
+	s.ValueDate = val
+}
+
+// SetBucketEnd sets the value of BucketEnd.
+func (s *CashSnapshotFlow) SetBucketEnd(val OptDate) {
+	s.BucketEnd = val
+}
+
+// SetHouseBankID sets the value of HouseBankID.
+func (s *CashSnapshotFlow) SetHouseBankID(val OptUUID) {
+	s.HouseBankID = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *CashSnapshotFlow) SetHouseBankCode(val OptString) {
+	s.HouseBankCode = val
+}
+
+// SetSource sets the value of Source.
+func (s *CashSnapshotFlow) SetSource(val string) {
+	s.Source = val
+}
+
+// SetCertainty sets the value of Certainty.
+func (s *CashSnapshotFlow) SetCertainty(val string) {
+	s.Certainty = val
+}
+
+// SetLate sets the value of Late.
+func (s *CashSnapshotFlow) SetLate(val bool) {
+	s.Late = val
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *CashSnapshotFlow) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *CashSnapshotFlow) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetFlowCount sets the value of FlowCount.
+func (s *CashSnapshotFlow) SetFlowCount(val int32) {
+	s.FlowCount = val
+}
+
+// SetSupplier sets the value of Supplier.
+func (s *CashSnapshotFlow) SetSupplier(val OptPartnerName) {
+	s.Supplier = val
+}
+
+// SetPaymentID sets the value of PaymentID.
+func (s *CashSnapshotFlow) SetPaymentID(val OptUUID) {
+	s.PaymentID = val
+}
+
+// SetHasDocument sets the value of HasDocument.
+func (s *CashSnapshotFlow) SetHasDocument(val bool) {
+	s.HasDocument = val
+}
+
+// SetDocument sets the value of Document.
+func (s *CashSnapshotFlow) SetDocument(val OptCashSnapshotDocument) {
+	s.Document = val
+}
+
+// A page of the lines a snapshot of the liquidity forecast kept in one currency, with what the
+// selected lines of every page add up to.
+// Ref: #/components/schemas/CashSnapshotFlowPage
+type CashSnapshotFlowPage struct {
+	// The snapshot.
+	SnapshotID uuid.UUID `json:"snapshot_id"`
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// The snapshot's date.
+	SnapshotDate time.Time `json:"snapshot_date"`
+	// The currency (ISO 4217).
+	Currency string `json:"currency"`
+	// The liquidity item asked for; absent when none was.
+	LiquidityItem OptString `json:"liquidity_item"`
+	// Whether only the lines no rule assigned are listed.
+	Unclassified bool  `json:"unclassified"`
+	Total        Money `json:"total"`
+	// How many lines the filters select, over every page.
+	Count int32 `json:"count"`
+	// The lines on this page, by value date and line number.
+	Items []CashSnapshotFlow `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetSnapshotID returns the value of SnapshotID.
+func (s *CashSnapshotFlowPage) GetSnapshotID() uuid.UUID {
+	return s.SnapshotID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CashSnapshotFlowPage) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CashSnapshotFlowPage) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetSnapshotDate returns the value of SnapshotDate.
+func (s *CashSnapshotFlowPage) GetSnapshotDate() time.Time {
+	return s.SnapshotDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CashSnapshotFlowPage) GetCurrency() string {
+	return s.Currency
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *CashSnapshotFlowPage) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetUnclassified returns the value of Unclassified.
+func (s *CashSnapshotFlowPage) GetUnclassified() bool {
+	return s.Unclassified
+}
+
+// GetTotal returns the value of Total.
+func (s *CashSnapshotFlowPage) GetTotal() Money {
+	return s.Total
+}
+
+// GetCount returns the value of Count.
+func (s *CashSnapshotFlowPage) GetCount() int32 {
+	return s.Count
+}
+
+// GetItems returns the value of Items.
+func (s *CashSnapshotFlowPage) GetItems() []CashSnapshotFlow {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CashSnapshotFlowPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetSnapshotID sets the value of SnapshotID.
+func (s *CashSnapshotFlowPage) SetSnapshotID(val uuid.UUID) {
+	s.SnapshotID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CashSnapshotFlowPage) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CashSnapshotFlowPage) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetSnapshotDate sets the value of SnapshotDate.
+func (s *CashSnapshotFlowPage) SetSnapshotDate(val time.Time) {
+	s.SnapshotDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CashSnapshotFlowPage) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *CashSnapshotFlowPage) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetUnclassified sets the value of Unclassified.
+func (s *CashSnapshotFlowPage) SetUnclassified(val bool) {
+	s.Unclassified = val
+}
+
+// SetTotal sets the value of Total.
+func (s *CashSnapshotFlowPage) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetCount sets the value of Count.
+func (s *CashSnapshotFlowPage) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetItems sets the value of Items.
+func (s *CashSnapshotFlowPage) SetItems(val []CashSnapshotFlow) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CashSnapshotFlowPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CashSnapshotFlowPage) listCashSnapshotFlowsRes() {}
+
+// CashSnapshotHeaders wraps CashSnapshot with response headers.
+type CashSnapshotHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           CashSnapshot
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CashSnapshotHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CashSnapshotHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CashSnapshotHeaders) GetResponse() CashSnapshot {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CashSnapshotHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CashSnapshotHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CashSnapshotHeaders) SetResponse(val CashSnapshot) {
+	s.Response = val
+}
+
+func (*CashSnapshotHeaders) takeCashSnapshotRes() {}
+
+// One page of snapshots of the liquidity forecast.
+// Ref: #/components/schemas/CashSnapshotPage
+type CashSnapshotPage struct {
+	// The snapshots on this page, newest first.
+	Items []CashSnapshot `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CashSnapshotPage) GetItems() []CashSnapshot {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CashSnapshotPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CashSnapshotPage) SetItems(val []CashSnapshot) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CashSnapshotPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CashSnapshotPage) listCashSnapshotsRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/CenterChange
 type CenterChange struct {
@@ -13896,6 +14586,7 @@ func (*ConflictHeaders) submitChangeRequestRes()              {}
 func (*ConflictHeaders) submitPaymentRunRes()                 {}
 func (*ConflictHeaders) submitPurchaseOrderChangeRes()        {}
 func (*ConflictHeaders) submitRequisitionRes()                {}
+func (*ConflictHeaders) takeCashSnapshotRes()                 {}
 func (*ConflictHeaders) terminateContractRes()                {}
 func (*ConflictHeaders) transmitBankFileRes()                 {}
 func (*ConflictHeaders) unblockBusinessPartnerRes()           {}
@@ -20988,6 +21679,18 @@ func (*GetCashPositionNotFound) getCashPositionRes() {}
 type GetCashPositionUnprocessableEntity Problem
 
 func (*GetCashPositionUnprocessableEntity) getCashPositionRes() {}
+
+type GetCashSnapshotBadRequest Problem
+
+func (*GetCashSnapshotBadRequest) getCashSnapshotRes() {}
+
+type GetCashSnapshotForbidden Problem
+
+func (*GetCashSnapshotForbidden) getCashSnapshotRes() {}
+
+type GetCashSnapshotNotFound Problem
+
+func (*GetCashSnapshotNotFound) getCashSnapshotRes() {}
 
 type GetCenterChangeBadRequest Problem
 
@@ -28458,6 +29161,30 @@ type ListBusinessPartnersForbidden Problem
 
 func (*ListBusinessPartnersForbidden) listBusinessPartnersRes() {}
 
+type ListCashSnapshotFlowsBadRequest Problem
+
+func (*ListCashSnapshotFlowsBadRequest) listCashSnapshotFlowsRes() {}
+
+type ListCashSnapshotFlowsForbidden Problem
+
+func (*ListCashSnapshotFlowsForbidden) listCashSnapshotFlowsRes() {}
+
+type ListCashSnapshotFlowsNotFound Problem
+
+func (*ListCashSnapshotFlowsNotFound) listCashSnapshotFlowsRes() {}
+
+type ListCashSnapshotFlowsUnprocessableEntity Problem
+
+func (*ListCashSnapshotFlowsUnprocessableEntity) listCashSnapshotFlowsRes() {}
+
+type ListCashSnapshotsBadRequest Problem
+
+func (*ListCashSnapshotsBadRequest) listCashSnapshotsRes() {}
+
+type ListCashSnapshotsForbidden Problem
+
+func (*ListCashSnapshotsForbidden) listCashSnapshotsRes() {}
+
 type ListCenterChangesBadRequest Problem
 
 func (*ListCenterChangesBadRequest) listCenterChangesRes() {}
@@ -33760,6 +34487,52 @@ func (o OptCashPositionBookBalance) Get() (v CashPositionBookBalance, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptCashPositionBookBalance) Or(d CashPositionBookBalance) CashPositionBookBalance {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptCashSnapshotDocument returns new OptCashSnapshotDocument with value set to v.
+func NewOptCashSnapshotDocument(v CashSnapshotDocument) OptCashSnapshotDocument {
+	return OptCashSnapshotDocument{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptCashSnapshotDocument is optional CashSnapshotDocument.
+type OptCashSnapshotDocument struct {
+	Value CashSnapshotDocument
+	Set   bool
+}
+
+// IsSet returns true if OptCashSnapshotDocument was set.
+func (o OptCashSnapshotDocument) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptCashSnapshotDocument) Reset() {
+	var v CashSnapshotDocument
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptCashSnapshotDocument) SetTo(v CashSnapshotDocument) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptCashSnapshotDocument) Get() (v CashSnapshotDocument, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptCashSnapshotDocument) Or(d CashSnapshotDocument) CashSnapshotDocument {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -48242,6 +49015,7 @@ func (*ServiceUnavailableHeaders) submitChangeRequestRes()              {}
 func (*ServiceUnavailableHeaders) submitPaymentRunRes()                 {}
 func (*ServiceUnavailableHeaders) submitPurchaseOrderChangeRes()        {}
 func (*ServiceUnavailableHeaders) submitRequisitionRes()                {}
+func (*ServiceUnavailableHeaders) takeCashSnapshotRes()                 {}
 func (*ServiceUnavailableHeaders) terminateContractRes()                {}
 func (*ServiceUnavailableHeaders) transmitBankFileRes()                 {}
 func (*ServiceUnavailableHeaders) unblockBusinessPartnerRes()           {}
@@ -50588,6 +51362,26 @@ func (s *SupplierInvoiceUpdate) SetExtensions(val OptExtensions) {
 	s.Extensions = val
 }
 
+type TakeCashSnapshotBadRequest Problem
+
+func (*TakeCashSnapshotBadRequest) takeCashSnapshotRes() {}
+
+type TakeCashSnapshotForbidden Problem
+
+func (*TakeCashSnapshotForbidden) takeCashSnapshotRes() {}
+
+type TakeCashSnapshotNotFound Problem
+
+func (*TakeCashSnapshotNotFound) takeCashSnapshotRes() {}
+
+type TakeCashSnapshotPreconditionRequired Problem
+
+func (*TakeCashSnapshotPreconditionRequired) takeCashSnapshotRes() {}
+
+type TakeCashSnapshotUnprocessableEntity Problem
+
+func (*TakeCashSnapshotUnprocessableEntity) takeCashSnapshotRes() {}
+
 // A tax identifier, masked.
 // Ref: #/components/schemas/TaxIdentifier
 type TaxIdentifier struct {
@@ -52474,6 +53268,7 @@ func (*TooManyRequestsHeaders) getBankStatementRes()                 {}
 func (*TooManyRequestsHeaders) getBankStatementRulesRes()            {}
 func (*TooManyRequestsHeaders) getBusinessPartnerRes()               {}
 func (*TooManyRequestsHeaders) getCashPositionRes()                  {}
+func (*TooManyRequestsHeaders) getCashSnapshotRes()                  {}
 func (*TooManyRequestsHeaders) getCenterChangeRes()                  {}
 func (*TooManyRequestsHeaders) getChangeRequestRes()                 {}
 func (*TooManyRequestsHeaders) getClearingRes()                      {}
@@ -52549,6 +53344,8 @@ func (*TooManyRequestsHeaders) listBankStatementMatchesRes()         {}
 func (*TooManyRequestsHeaders) listBankStatementPaymentsRes()        {}
 func (*TooManyRequestsHeaders) listBankStatementsRes()               {}
 func (*TooManyRequestsHeaders) listBusinessPartnersRes()             {}
+func (*TooManyRequestsHeaders) listCashSnapshotFlowsRes()            {}
+func (*TooManyRequestsHeaders) listCashSnapshotsRes()                {}
 func (*TooManyRequestsHeaders) listCenterChangesRes()                {}
 func (*TooManyRequestsHeaders) listChangeRequestsRes()               {}
 func (*TooManyRequestsHeaders) listClearingsRes()                    {}
@@ -52682,6 +53479,7 @@ func (*TooManyRequestsHeaders) submitChangeRequestRes()              {}
 func (*TooManyRequestsHeaders) submitPaymentRunRes()                 {}
 func (*TooManyRequestsHeaders) submitPurchaseOrderChangeRes()        {}
 func (*TooManyRequestsHeaders) submitRequisitionRes()                {}
+func (*TooManyRequestsHeaders) takeCashSnapshotRes()                 {}
 func (*TooManyRequestsHeaders) terminateContractRes()                {}
 func (*TooManyRequestsHeaders) transmitBankFileRes()                 {}
 func (*TooManyRequestsHeaders) unblockBusinessPartnerRes()           {}
@@ -52863,6 +53661,7 @@ func (*UnauthorizedHeaders) getBankStatementRes()                 {}
 func (*UnauthorizedHeaders) getBankStatementRulesRes()            {}
 func (*UnauthorizedHeaders) getBusinessPartnerRes()               {}
 func (*UnauthorizedHeaders) getCashPositionRes()                  {}
+func (*UnauthorizedHeaders) getCashSnapshotRes()                  {}
 func (*UnauthorizedHeaders) getCenterChangeRes()                  {}
 func (*UnauthorizedHeaders) getChangeRequestRes()                 {}
 func (*UnauthorizedHeaders) getClearingRes()                      {}
@@ -52938,6 +53737,8 @@ func (*UnauthorizedHeaders) listBankStatementMatchesRes()         {}
 func (*UnauthorizedHeaders) listBankStatementPaymentsRes()        {}
 func (*UnauthorizedHeaders) listBankStatementsRes()               {}
 func (*UnauthorizedHeaders) listBusinessPartnersRes()             {}
+func (*UnauthorizedHeaders) listCashSnapshotFlowsRes()            {}
+func (*UnauthorizedHeaders) listCashSnapshotsRes()                {}
 func (*UnauthorizedHeaders) listCenterChangesRes()                {}
 func (*UnauthorizedHeaders) listChangeRequestsRes()               {}
 func (*UnauthorizedHeaders) listClearingsRes()                    {}
@@ -53071,6 +53872,7 @@ func (*UnauthorizedHeaders) submitChangeRequestRes()              {}
 func (*UnauthorizedHeaders) submitPaymentRunRes()                 {}
 func (*UnauthorizedHeaders) submitPurchaseOrderChangeRes()        {}
 func (*UnauthorizedHeaders) submitRequisitionRes()                {}
+func (*UnauthorizedHeaders) takeCashSnapshotRes()                 {}
 func (*UnauthorizedHeaders) terminateContractRes()                {}
 func (*UnauthorizedHeaders) transmitBankFileRes()                 {}
 func (*UnauthorizedHeaders) unblockBusinessPartnerRes()           {}

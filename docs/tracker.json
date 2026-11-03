@@ -1425,10 +1425,31 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Snapshots, actuals and variance: TakeCashSnapshot workflow per company and day (run-twice test, document level within 31 days), on-demand snapshots, retention; GET /v1/cash-actuals classifying statement lines by their matches; GET /v1/liquidity-forecast-variance with lag and attribution (timing, amount, new, missing, unclassified); variance comments by people",
-        "r": "T53f",
+        "s": "D",
+        "t": "Snapshots of the liquidity forecast: TakeCashSnapshot workflow per company and day after its snapshot_time (run-twice test, document level within 31 days, per bucket beyond), on-demand snapshots, retention of 25 months, a snapshot read with its lines (split: the actuals, the variance and its comments are T53f2-T53f4)",
+        "r": "POST/GET /v1/cash-snapshots, GET /v1/cash-snapshots/{id}, GET /v1/cash-snapshots/{id}/flows (CashSnapshot, CashSnapshotFlowPage) · CashSnapshotTaken event · migration 000198 (cash.snapshot, cash.snapshot_flow, cash.snapshot.take) · cash.Endpoints.TakeSnapshot, TakeDailySnapshot, PruneSnapshots, DueSnapshots, SnapshotTenants, Snapshot, Snapshots, SnapshotLines · uow.Consistent · workflows.TakeCashSnapshot, Snapshots, Snapshotter, Dispatcher.Snapshots · TestCashSnapshotRules, TestCashSnapshotPrivileges, TestCashSnapshot*, TestConsistentRead, TestTakeCashSnapshot, TestTakeSnapshotTwice, TestDispatchSnapshots, TestSnapshotter · walkthrough step 26 · ADR-0051 (as built, T53f) · 03-data-model §3.18 · T53f",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Cash actuals: GET /v1/cash-actuals, the posted and unposted bank statement lines by value date per house bank and currency, classified by their matches (the payments' supplier items with their split, the posting rule's item, an unmatched line its direction's default shown unclassified), by liquidity item and bucket (ADR-0051 §4, §11)",
+        "r": "T53f2",
+        "src": "split:T53f · adr:ADR-0051",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Forecast variance: GET /v1/liquidity-forecast-variance for a period against the snapshot taken lag days before its start (default 7; 0, 7 and 30), per liquidity item, currency and bucket with forecast, actual, variance and absolute percentage; within the 31 days kept per document attributed to timing, amount, new, missing and unclassified, per item only beyond (ADR-0051 §11)",
+        "r": "T53f3",
+        "src": "split:T53f · adr:ADR-0051",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Variance comments by people: cash.variance_comment (company, period, item, lag, text, status, author), written by people with cash.variance.comment, audited and published as VarianceCommentDecided; a snapshot a comment refers to is kept past its retention with it (ADR-0051 §6, §11, §15)",
+        "r": "T53f4",
+        "src": "split:T53f · adr:ADR-0051",
         "c": []
        },
        {
@@ -1508,7 +1529,7 @@
      {
       "s": "T",
       "t": "Forecast agent with variance explanations",
-      "r": "T53f · T53i",
+      "r": "T53f · T53f2 · T53f3 · T53f4 · T53i",
       "src": "baseline",
       "c": []
      },
