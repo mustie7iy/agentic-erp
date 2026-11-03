@@ -112,7 +112,29 @@ func (e *Endpoints) GetLiquidityForecast(ctx context.Context, params gen.GetLiqu
 		for j, b := range c.Buckets {
 			cur.Buckets[j] = gen.LiquidityForecastBucketFlows{Start: f.Buckets[j].Start, Flows: flowsToAPI(b.Flows, amount), Total: amount(b.Total)}
 		}
+		cur.Items = itemsToAPI(c.Items, amount)
 		out.Currencies[i] = cur
 	}
 	return &out, nil
+}
+
+// itemsToAPI shows a currency's rows by liquidity item.
+func itemsToAPI(rows []ItemRow, amount func(money.Minor) gen.Money) []gen.LiquidityForecastItem {
+	each := func(ms []money.Minor) []gen.Money {
+		out := make([]gen.Money, len(ms))
+		for i, m := range ms {
+			out[i] = amount(m)
+		}
+		return out
+	}
+	out := make([]gen.LiquidityForecastItem, len(rows))
+	for i, r := range rows {
+		out[i] = gen.LiquidityForecastItem{LiquidityItem: apitypes.OptText(r.Item), Name: apitypes.OptText(r.Name), Parent: apitypes.OptText(r.Parent),
+			Level: int32(r.Level), Buckets: each(r.Buckets), Total: amount(r.Total), Beyond: amount(r.Beyond), Flows: make([]gen.LiquidityForecastItemFlows, len(r.Flows))}
+		for j, fl := range r.Flows {
+			out[i].Flows[j] = gen.LiquidityForecastItemFlows{Source: fl.Source, Certainty: fl.Certainty, Buckets: each(fl.Buckets), Total: amount(fl.Total),
+				Beyond: amount(fl.Beyond)}
+		}
+	}
+	return out
 }

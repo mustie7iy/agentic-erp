@@ -802,6 +802,42 @@ func TestParseActive(t *testing.T) {
 	}
 }
 
+// TestCashDerivationChanges: a change of the liquidity item derivation is
+// operational and needs a simulation, which lists the open flows whose
+// items it moves (ADR-0051 §4, T53e3); an item's name needs none.
+func TestCashDerivationChanges(t *testing.T) {
+	base := func() *Config {
+		return &Config{Cash: Cash{LiquidityItems: []LiquidityItem{{Code: "OPS", Name: "Operating", Direction: DirectionOutflow}},
+			Derivation: Derivation{Defaults: DerivationDefaults{Outflow: "OPS"}}}}
+	}
+	cases := map[string]struct {
+		change   func(*Config)
+		tier     Tier
+		evidence string
+	}{
+		"an item's name": {func(c *Config) { c.Cash.LiquidityItems[0].Name = "Ops" }, TierCosmetic, ""},
+		"an account rule": {func(c *Config) {
+			c.Cash.Derivation.Accounts = []AccountDerivation{{From: "6100", To: "6100", Item: "OPS"}}
+		}, TierOperational, "simulation"},
+		"a default":        {func(c *Config) { c.Cash.Derivation.Defaults.Outflow = "" }, TierOperational, "simulation"},
+		"the rules all":    {func(c *Config) { c.Cash.Derivation = Derivation{} }, TierOperational, "simulation"},
+		"a planning group": {func(c *Config) { c.Cash.PlanningGroups = []PlanningGroup{{Code: "TAX", Name: "Tax"}} }, TierOperational, ""},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			proposed := base()
+			c.change(proposed)
+			changes, _ := Diff(base(), proposed) // never fails
+			if got := MaxTier(changes); got != c.tier {
+				t.Errorf("tier: got %v, want %v (%v)", got, c.tier, changes)
+			}
+			if got := strings.Join(Evidence(changes), " "); got != c.evidence {
+				t.Errorf("evidence: got %q, want %q (%v)", got, c.evidence, changes)
+			}
+		})
+	}
+}
+
 // TestAnalyticsChanges: a metric's or dimension's words are cosmetic and
 // need no evidence; its definition is operational and needs a simulation,
 // which a tier needing one already has.

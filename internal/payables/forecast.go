@@ -34,7 +34,11 @@ import (
 // terms (due on its supplier's net days, as an item posted without terms
 // is), and withholding tax codes that would refuse it leave it without
 // withholding; a supplier not set up in the legal entity has neither (no
-// term, no codes).
+// term, no codes). Each gives its items as its offsetting lines (T53e3):
+// an item's account (on an order item, the order item's, which validation
+// fills in) and net amount, signed as posting signs it, with its tax code;
+// the tax is not calculated (a calculation could refuse it, and within a
+// code an item's tax follows its amount).
 func (e *Endpoints) Unposted(ctx context.Context, legalEntity uuid.UUID) ([]ledger.PayableItem, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -66,7 +70,7 @@ type unposted struct {
 
 // item is the open item the invoice would post.
 func (u unposted) item(ctx context.Context, v Invoice) (ledger.PayableItem, error) {
-	it := ledger.PayableItem{PartnerID: v.SupplierID, DocumentDate: v.InvoiceDate, Currency: v.Currency, Amount: -signed(v, v.Gross)}
+	it := ledger.PayableItem{PartnerID: v.SupplierID, DocumentDate: v.InvoiceDate, Currency: v.Currency, Amount: -signed(v, v.Gross), Lines: itemLines(v)}
 	sup, err := u.supplier(ctx, v)
 	if err != nil {
 		return it, err
@@ -92,6 +96,23 @@ func (u unposted) item(ctx context.Context, v Invoice) (ledger.PayableItem, erro
 	}
 	it.Amount, it.Withholding = -signed(v, v.Gross-withheld), ws
 	return it, nil
+}
+
+// itemLines are the invoice's items with an amount as offsetting lines.
+// Every live item has an account: validation requires one on an item
+// without an order item and fills it from the order item otherwise.
+func itemLines(v Invoice) []ledger.OffsettingLine {
+	var out []ledger.OffsettingLine
+	for _, it := range v.Items {
+		if it.Amount != 0 && it.AccountID != nil {
+			l := ledger.OffsettingLine{AccountID: *it.AccountID, Amount: signed(v, it.Amount)}
+			if it.TaxCode != nil {
+				l.TaxCode = *it.TaxCode
+			}
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // supplier is the invoice's supplier in its legal entity: without a

@@ -65,6 +65,10 @@ type CancelApprovalRequestRes interface {
 	cancelApprovalRequestRes()
 }
 
+type CancelAssetRes interface {
+	cancelAssetRes()
+}
+
 type CancelContractRes interface {
 	cancelContractRes()
 }
@@ -119,6 +123,10 @@ type CloseFiscalPeriodRes interface {
 
 type ClosePurchaseOrderRes interface {
 	closePurchaseOrderRes()
+}
+
+type CreateAssetRes interface {
+	createAssetRes()
 }
 
 type CreateBusinessPartnerRes interface {
@@ -319,6 +327,10 @@ type GetAnalyticsModelRes interface {
 
 type GetApprovalRequestRes interface {
 	getApprovalRequestRes()
+}
+
+type GetAssetRes interface {
+	getAssetRes()
 }
 
 type GetBankAccountRes interface {
@@ -599,6 +611,10 @@ type ListApprovalRequestsRes interface {
 
 type ListAssetClassesRes interface {
 	listAssetClassesRes()
+}
+
+type ListAssetsRes interface {
+	listAssetsRes()
 }
 
 type ListAuditEventsRes interface {
@@ -1171,6 +1187,10 @@ type UnlockPlanCategoryRes interface {
 
 type UpdateAiPolicyRes interface {
 	updateAiPolicyRes()
+}
+
+type UpdateAssetRes interface {
+	updateAssetRes()
 }
 
 type UpdateChangeRequestRes interface {

@@ -41,6 +41,10 @@ type PayableItem struct {
 	// Withholding are its withholding taxes deducted at payment (T46f):
 	// a payment withholds PaymentWithholding of them.
 	Withholding []Withholding
+	// Lines are its document's offsetting lines where its reader gives
+	// them: an unposted invoice's items, as payables reads them for the
+	// liquidity forecast (T53e3); a posted item's are read by Offsetting.
+	Lines []OffsettingLine
 }
 
 // Payable returns the legal entity's open supplier items in the currency

@@ -78,6 +78,10 @@ type Payments interface {
 	// payment run holds (the run's payment counts instead, Pending), as a
 	// run on or after the date would pay them (ADR-0051 §5, T53e).
 	Payables(ctx context.Context, legalEntity uuid.UUID, on time.Time) ([]Payable, error)
+	// Paying is what each of the legal entity's payments among the ids
+	// pays, keyed by payment: what the forecast derives a run's payment's
+	// liquidity items from (ADR-0051 §4, T53e3).
+	Paying(ctx context.Context, legalEntity uuid.UUID, ids []uuid.UUID, on time.Time) (map[uuid.UUID]Paying, error)
 }
 
 // Ledger is what the cash position reads of the ledger context.

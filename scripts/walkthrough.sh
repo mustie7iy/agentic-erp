@@ -318,11 +318,12 @@ start() {
   say "  - the GST34's lines (T61j-T61l): step 2 configures one"
   say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
-  say "  - the liquidity forecast's liquidity items, conversion, drill-down and other sources (T53e3-T53k): step 13 shows"
-  say "    the daily cash position with a memo record and the forecast of the supplier open items, payment runs, parked"
-  say "    invoices, down payment requests and blocked suppliers"
+  say "  - the liquidity forecast's conversion, drill-down and other sources (T53e4-T53k): step 13 shows the daily cash"
+  say "    position with a memo record and the forecast of the supplier open items, payment runs, parked invoices, down"
+  say "    payment requests and blocked suppliers; step 21 its rows by liquidity item"
   say "  - cost center postings, reports and planning (T56d-T56j)"
-  say "  - accounts receivable, fixed assets (T57), period-end close (T64), consolidation (T68)"
+  say "  - asset acquisition, depreciation and the rest of asset accounting (T57c-T57i): steps 19 and 20 show the classes and the master"
+  say "  - accounts receivable, period-end close (T64), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
   export DATABASE_URL ERP_ENV=development ERP_DEV_ISSUER=true ERP_MIGRATE_ON_START=true
@@ -2494,6 +2495,129 @@ step_assets() {
   passed
 }
 
+step_asset_master() {
+  heading "Step 20 — The asset master: a machine on its cost center with its terms per ledger; an asset created in error cancelled"
+  as carla
+  say "Carla creates the company's first machine as an asset of class MACHINES on the finance office's cost center"
+  say "(ADR-0057 §5, §8). It is numbered from the company's asset range, takes its class's depreciation terms in every"
+  say "ledger the company keeps, and its profit center from the cost center today. It is planned: an acquisition gives"
+  say "it its value (T57c)."
+  local cc asset second ledgers
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  QUIET=1 api 200 '' listAssetClasses -p "legal_entity_id=$LE"
+  ledgers=$(field '.items[] | select(.code == "MACHINES") | .terms | length')
+  api 201 '"asset \(.company_code)/\(.asset_number) \(.description): \(.status)"' createAsset \
+    -body "{\"legal_entity_id\": \"$LE\", \"class_code\": \"MACHINES\", \"description\": \"CNC milling machine\", \"cost_center_id\": \"$cc\"}"
+  asset=$(field .id)
+  api 200 '"asset \(.asset_number) \(.description), class \(.class_code) \(.class_name), \(.status)",
+    "  cost center \(.cost_center_code) \(.cost_center_name), profit center \(.profit_center_code) \(.profit_center_name)",
+    (.terms[] | "  \(.ledger_code) \(.ledger_name): \(.method), \(.useful_life_months) months\(if .declining_factor then ", factor \(.declining_factor)" else "" end), residual value \(.residual_value.amount) \(.residual_value.currency)")' \
+    getAsset -p "id=$asset"
+  expect "the asset's class" "$(field '"\(.class_code) \(.class_name)"')" "MACHINES Machinery and equipment"
+  expect "the asset's status" "$(field .status)" planned
+  expect "the asset's cost center" "$(field .cost_center_code)" CC-1100
+  expect "the profit center, the cost center's" "$(field .profit_center_code)" PC-MTL
+  expect "terms in every ledger the class has for the company" "$(field '.terms | length')" "$ledgers"
+  expect "the leading ledger's terms" "$(field '.terms[] | select(.ledger_code == "0L") | "\(.method) \(.useful_life_months)"')" "straight_line 120"
+  say "The machine goes into use next month, so its depreciation starts then in every ledger; a residual value of"
+  say "500.00 is kept in the leading ledger."
+  local next leading y=${TODAY:0:4} m=$((10#${TODAY:5:2} + 1))
+  if [ "$m" -gt 12 ]; then m=1 y=$((y + 1)); fi
+  next=$(printf '%s-%02d-01' "$y" "$m")
+  leading=$(field '.terms[] | select(.ledger_code == "0L") | .ledger_id')
+  api 200 '(.terms[] | "  \(.ledger_code): from \(.depreciation_start), residual value \(.residual_value.amount) \(.residual_value.currency)")' updateAsset \
+    -p "id=$asset" -if-match "$ETAG" \
+    -body "{\"depreciation_start\": \"$next\", \"terms\": [{\"ledger_id\": \"$leading\", \"residual_value\": {\"amount\": \"500.00\", \"currency\": \"CAD\"}}]}"
+  expect "the depreciation start" "$(field '[.terms[].depreciation_start] | unique | join(" ")')" "$next"
+  expect "the leading ledger's residual value" "$(field '.terms[] | select(.ledger_code == "0L") | .residual_value.amount')" "500.00"
+  say "A second machine was entered twice by mistake; Carla cancels the copy. It keeps its number, and a cancelled"
+  say "asset is final."
+  api 201 '"asset \(.company_code)/\(.asset_number) \(.description): \(.status)"' createAsset \
+    -body "{\"legal_entity_id\": \"$LE\", \"class_code\": \"MACHINES\", \"description\": \"CNC milling machine (entered twice)\", \"cost_center_id\": \"$cc\"}"
+  second=$(field .id)
+  api 200 '"asset \(.asset_number): \(.status)"' cancelAsset -p "id=$second" -if-match "$ETAG"
+  expect "the copy's status" "$(field .status)" cancelled
+  refused 409 assets.asset_not_planned cancelAsset -p "id=$second" -if-match "$ETAG"
+  api 200 '.items[] | "  \(.company_code)/\(.asset_number) \(.class_code) \(.description): \(.status)"' listAssets -p "legal_entity_id=$LE"
+  expect "the company's assets" "$(field '[.items[].status] | join(" ")')" "planned cancelled"
+  passed
+}
+
+# step_cash_items is the liquidity forecast by liquidity item (T53e3,
+# ADR-0051 §4, §9): Alex parks an invoice for implementation services on
+# 6100; Ada proposes an item for professional services and a rule taking
+# 6100 to it, a tier 2 change whose simulation lists the open flows the
+# rule moves; once the process owner approves and Ada activates it, Tom
+# reads the forecast's rows by item and its hierarchy. The invoice is
+# cancelled again.
+step_cash_items() {
+  heading "Step 21 — The liquidity forecast by liquidity item; a derivation rule simulated on the open flows it moves"
+  as alex
+  say "Alex parks an invoice from Tyrell for implementation services, CAD 800.00 on 6100, not on an order:"
+  local item invoice invoice_etag cr base request
+  item="{\"account_id\": \"$(account 6100)\", \"description\": \"Implementation services\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"800.00\", \"currency\": \"CAD\"}}"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-SVC-1\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"800.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"CAD\"}, \"items\": [$item]}"
+  invoice=$(field .id)
+  invoice_etag=$ETAG
+  as tom
+  say "Tom reads the forecast by liquidity item (T53e3): each flow is split over the items its documents' lines"
+  say "derive; with only the default rule of step 2 every supplier payment is Supplier payments, under Operating:"
+  api 200 '.currencies[] | .currency as $c | (.items[] | "  \($c) \("  " * .level)\(.liquidity_item // "unclassified") \(.name // ""): total \(.total.amount), beyond \(.beyond.amount)")' \
+    getLiquidityForecast -p "legal_entity_id=$LE"
+  expect "the top rows add up to each bucket's total" \
+    "$(field '[.currencies[] | . as $c | range(0; $c.buckets | length) as $i
+      | ([$c.items[] | select(.level == 0) | .buckets[$i].amount | sub("\\."; "") | tonumber] | add // 0) == ($c.buckets[$i].total.amount | sub("\\."; "") | tonumber)] | all')" true
+  expect "the CAD items" "$(field '[.currencies[] | select(.currency == "CAD") | .items[] | .liquidity_item] | join(" ")')" "OPERATING OP_SUPPLIERS"
+  as ada
+  say "Ada proposes an item for professional services under Operating, and a rule taking account 6100 to it. A"
+  say "derivation rule is tier 2 and needs a simulation: the open flows whose items the rule moves."
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Liquidity item for professional services\", rationale: \"Treasury reports services apart (T53e3)\", base_version: $base,
+    proposed: (.items[0].document | .cash.liquidity_items += [{\"code\": \"OP_SERVICES\", \"name\": \"Professional services\", \"direction\": \"outflow\", \"parent\": \"OPERATING\"}]
+      | .cash.derivation.accounts = [{\"from\": \"6100\", \"to\": \"6100\", \"item\": \"OP_SERVICES\"}])}" "$WORK/last.json" >"$WORK/items.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @items.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 2
+  expect "status after submit" "$(field .status)" awaiting_evidence
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)",
+    (.detail.liquidity_items_by_company[]? | select(.moved > 0) | "  company \(.company): \(.moved) moved",
+      (.flows[] | "    \(.value_date) \(.source) \(.certainty) \(.amount.amount) \(.amount.currency): \([.base[] | "\(.liquidity_item) \(.amount.amount)"] | join(", ")) -> \([.proposed[] | "\(.liquidity_item) \(.amount.amount)"] | join(", "))"),
+      (.totals[] | "    \(.base.currency) \(.liquidity_item): \(.base.amount) -> \(.proposed.amount)"))' getChangeRequest -p "id=$cr"
+  expect "status after the evidence" "$(field .status)" pending_approval
+  expect "the parked invoice's flow moves to OP_SERVICES" \
+    "$(field '[.evidence[].detail.liquidity_items_by_company[]? | select(.company == "'"$CC"'") | .flows[] | select(.source == "invoice_unposted")
+      | any(.proposed[]; .liquidity_item == "OP_SERVICES")] | any')" true
+  expect "no document or supplier in a moved flow" \
+    "$(field '[.evidence[].detail.liquidity_items_by_company[]?.flows[] | keys | join(",")] | unique | join(" ")')" "amount,base,certainty,proposed,source,value_date"
+  request=$(field .workflow_request_id)
+  approve priya "$request" "Services reported apart, as treasury asked"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as tom
+  say "The forecast now gives the services their own row under Operating, which adds up its children:"
+  api 200 '.currencies[] | select(.currency == "CAD") | (.items[] | ("  " * .level) as $in | "  CAD \($in)\(.liquidity_item) \(.name): total \(.total.amount)",
+    (.flows[] | "  CAD \($in)    \(.source) \(.certainty): \(.total.amount)"))' getLiquidityForecast -p "legal_entity_id=$LE"
+  expect "the CAD items" "$(field '[.currencies[] | select(.currency == "CAD") | .items[] | "\(.level) \(.liquidity_item)"] | join(", ")')" \
+    "0 OPERATING, 1 OP_SERVICES, 1 OP_SUPPLIERS"
+  expect "the services' row, the parked invoice at what a run would pay" \
+    "$(field '.currencies[] | select(.currency == "CAD") | .items[] | select(.liquidity_item == "OP_SERVICES") | [.flows[] | "\(.source) \(.certainty) \(.total.amount | startswith("-"))"] | join(", ")')" \
+    "invoice_unposted planned true"
+  expect "Operating, its children added up" \
+    "$(field '.currencies[] | select(.currency == "CAD") | .items as $r | ($r[] | select(.level == 0) | .total.amount | sub("\\."; "") | tonumber) == ([$r[] | select(.level == 1) | .total.amount | sub("\\."; "") | tonumber] | add)')" true
+  as alex
+  say "Alex cancels the invoice again:"
+  api 200 '"\(.document_number): \(.status)"' cancelSupplierInvoice -p "id=$invoice" -if-match "$invoice_etag" -body '{"reason": "Entered for the liquidity item walkthrough"}'
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -2515,7 +2639,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items'
 
 main() {
   start

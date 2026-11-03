@@ -221,6 +221,14 @@ type Invoker interface {
 	//
 	// POST /v1/approval-requests/{id}:cancel
 	CancelApprovalRequest(ctx context.Context, request *CommentRequiredInput, params CancelApprovalRequestParams) (CancelApprovalRequestRes, error)
+	// CancelAsset invokes cancelAsset operation.
+	//
+	// Cancels a `planned` asset, one created in error (ADR-0057 §5): it keeps its number and is final. An
+	// asset that is not planned is 409 `assets.asset_not_planned` (one that holds value is retired, not
+	// cancelled). Audited, and published as AssetChanged (`cancelled`).
+	//
+	// POST /v1/assets/{id}:cancel
+	CancelAsset(ctx context.Context, params CancelAssetParams) (CancelAssetRes, error)
 	// CancelContract invokes cancelContract operation.
 	//
 	// Cancels a draft contract that was never used (status `cancelled`). Active contracts are ended with
@@ -346,6 +354,27 @@ type Invoker interface {
 	//
 	// POST /v1/purchase-orders/{id}:close
 	ClosePurchaseOrder(ctx context.Context, params ClosePurchaseOrderParams) (ClosePurchaseOrderRes, error)
+	// CreateAsset invokes createAsset operation.
+	//
+	// Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the
+	// company uses (422 `assets.class_unknown` for a class the active configuration lacks,
+	// `assets.class_not_in_company` for one without asset accounts in the company), numbered from the
+	// company's `asset` number range of the fiscal year its date falls in (the company's date today in its
+	// configured time zone; 422 `config.no_number_range` without one). It takes its class's depreciation
+	// terms in every ledger the company keeps that the class has terms in, with a residual value of zero
+	// and no depreciation start (depreciation then starts at the capitalisation date); change them with
+	// `PATCH`. Its centers are its first assignment, in force from creation: a cost center (optional) must
+	// be one of the company's that its class's depreciation account may take, valid and not locked for
+	// costs today (422 `ledger.cost_center_invalid`), and gives its profit center today (a different
+	// `profit_center_id` is 422 `ledger.profit_center_mismatch`); without a cost center the profit center
+	// is as given (optional; 422 `ledger.profit_center_invalid` for one that cannot be posted today). An
+	// asset whose depreciation account needs a cost center (a primary cost account while cost center
+	// accounting applies) without one and without the account's default cost center in the company is 422
+	// `assets.cost_center_required`, so its depreciation can always post. A legal entity the caller cannot
+	// act in is 404. Audited, and published as AssetChanged (`created`).
+	//
+	// POST /v1/assets
+	CreateAsset(ctx context.Context, request *AssetCreate, params CreateAssetParams) (CreateAssetRes, error)
 	// CreateBusinessPartner invokes createBusinessPartner operation.
 	//
 	// Creates the partner in status `pending` together with a partner change of kind `create` (see
@@ -794,6 +823,13 @@ type Invoker interface {
 	//
 	// GET /v1/approval-requests/{id}
 	GetApprovalRequest(ctx context.Context, params GetApprovalRequestParams) (GetApprovalRequestRes, error)
+	// GetAsset invokes getAsset operation.
+	//
+	// One asset with its class, centers and depreciation terms per ledger (ADR-0057 §5). An asset of a
+	// legal entity the caller cannot act in is not found.
+	//
+	// GET /v1/assets/{id}
+	GetAsset(ctx context.Context, params GetAssetParams) (GetAssetRes, error)
 	// GetBankAccount invokes getBankAccount operation.
 	//
 	// Returns one bank account of the partner, masked.
@@ -1087,10 +1123,26 @@ type Invoker interface {
 	// buckets' `total`s, the currency's `total` and `beyond` only with `include_blocked=true`. Amounts are
 	// signed: a payment out is negative. Each currency gives its flows per bucket by source, certainty and
 	// lateness with the bucket's total, the total over the horizon, and what is expected after the last
-	// bucket (`beyond`, in no bucket). `min_certainty` cuts the less certain flows (actual, confirmed,
-	// expected, planned; default planned, every flow). Memo records, liquidity items, converted totals,
-	// the opening position and drill-down are later steps (T53e3, T53e4). A legal entity the caller cannot
-	// act in is 404.
+	// bucket (`beyond`, in no bucket). Each currency also gives its rows by liquidity item and its
+	// hierarchy (`items`, T53e3; ADR-0051 §4, §9): every flow is split over the liquidity items
+	// (`cash.liquidity_items`) its documents derive by the configuration's `cash.derivation`: a supplier
+	// payment over the documents it pays, each at what the payment pays of it, and each document over its
+	// offsetting lines (a posted item's expense, asset and tax lines, an unposted invoice's items; never
+	// the supplier's line nor a withholding tax withheld at invoice), in proportion to their signed
+	// amounts, a line taking the item of the first account rule covering its account, else its supplier's
+	// planning group's, else the default of the flow's direction; a tax line follows the base lines of its
+	// tax code in proportion to their amounts, and a self-assessed pair (`self_output`/`self_input` of a
+	// reverse charge or import code), which moves no cash, is left out before the split. A down payment
+	// request, and a run's payment of one, has no lines and takes its supplier's planning group's item or
+	// the default. Each split rounds once to minor units by largest remainder (ties to the item named
+	// first), so an item's shares add up to the flow. Each row gives the item's code, name, parent and
+	// level, its flows and its descendants' per bucket (`buckets`, in the forecast's buckets' order), over
+	// the horizon (`total`) and after the last bucket (`beyond`), counted as the buckets' totals count
+	// them, so the top rows add up to each bucket's `total`, and the item's own flows by source and
+	// certainty; a row without `liquidity_item` holds what no rule assigns and no default covers.
+	// `min_certainty` cuts the less certain flows (actual, confirmed, expected, planned; default planned,
+	// every flow). Memo records, converted totals, the opening position and drill-down are a later step
+	// (T53e4). A legal entity the caller cannot act in is 404.
 	//
 	// GET /v1/liquidity-forecast
 	GetLiquidityForecast(ctx context.Context, params GetLiquidityForecastParams) (GetLiquidityForecastRes, error)
@@ -1407,6 +1459,15 @@ type Invoker interface {
 	//
 	// GET /v1/asset-classes
 	ListAssetClasses(ctx context.Context, params ListAssetClassesParams) (ListAssetClassesRes, error)
+	// ListAssets invokes listAssets operation.
+	//
+	// The assets of the legal entities the caller may act in (ADR-0057 §5, T57b), each with its class,
+	// its centers (the latest assignment's) and its depreciation terms per ledger. Filters: company,
+	// class, status, cost center (the asset's current one) and asset number. Sortable by: `asset_number`
+	// (default; as text), `created_at`.
+	//
+	// GET /v1/assets
+	ListAssets(ctx context.Context, params ListAssetsParams) (ListAssetsRes, error)
 	// ListAuditEvents invokes listAuditEvents operation.
 	//
 	// Audit trail entries, newest first by default. Sortable by: `occurred_at`.
@@ -2773,7 +2834,15 @@ type Invoker interface {
 	// entity whose rules change (the last 30 days, at most 200, newest first) under the active and the
 	// proposed rules: the evidence's `detail.rules` lists, per rule, the rows it would newly refuse and
 	// newly pass, with personal custom fields masked, and the rows it cannot evaluate, which fail the
-	// simulation. Requires status `awaiting_evidence`.
+	// simulation. A change of the liquidity item derivation (`cash.derivation`, ADR-0051 §4, T53e3) needs
+	// a simulation whatever its tier: it classifies each company's open flows of the liquidity forecast
+	// (as `getLiquidityForecast` reads them, after its last bucket too) under the active and the proposed
+	// rules, and the evidence's `detail.liquidity_items_by_company` lists, per company the requester may
+	// act in, the flows whose shares by liquidity item would change (currency, day, source, certainty,
+	// amount, the shares before and after; no document or supplier), at most 100 per company by day, with
+	// their count and, per currency and item, what the moved flows give it before and after; the requester
+	// must hold `cash.forecast.read`, else the operation fails with 403. Requires status
+	// `awaiting_evidence`.
 	//
 	// POST /v1/change-requests/{id}:simulate
 	SimulateChangeRequest(ctx context.Context, params SimulateChangeRequestParams) (SimulateChangeRequestRes, error)
@@ -2914,6 +2983,22 @@ type Invoker interface {
 	//
 	// PATCH /v1/ai-policy
 	UpdateAiPolicy(ctx context.Context, request *AiPolicyUpdate, params UpdateAiPolicyParams) (UpdateAiPolicyRes, error)
+	// UpdateAsset invokes updateAsset operation.
+	//
+	// Changes an asset's description, its depreciation terms per ledger and its depreciation start
+	// (ADR-0057 §7, T57b); not a cancelled one (422 `assets.asset_cancelled`). JSON Merge Patch (RFC
+	// 7396) for `description` and `depreciation_start`, which sets (or with `null` clears) the
+	// depreciation start in every ledger the asset has terms in; each entry of `terms` changes the terms
+	// in its ledger, absent fields unchanged, or gives the asset terms in a ledger the company keeps that
+	// it has none in yet (a ledger assigned to the company after the asset was created; `method` and
+	// `useful_life_months` then required), and a ledger the company does not keep is 422
+	// `ledger.ledger_not_kept`. Changing to `straight_line` drops the declining factor;
+	// `declining_balance` needs one. A ledger's terms are fixed once depreciation has been posted in it
+	// (409 `assets.terms_in_use`; a change in estimate is not offered). The residual value is in the
+	// company's local currency. Audited, and published as AssetChanged (`changed`).
+	//
+	// PATCH /v1/assets/{id}
+	UpdateAsset(ctx context.Context, request *AssetUpdate, params UpdateAssetParams) (UpdateAssetRes, error)
 	// UpdateChangeRequest invokes updateChangeRequest operation.
 	//
 	// Changes a change request in status `draft` or `invalid`; an `invalid` one returns to `draft` and
@@ -5779,6 +5864,165 @@ func (c *Client) sendCancelApprovalRequest(ctx context.Context, request *Comment
 	return result, nil
 }
 
+// CancelAsset invokes cancelAsset operation.
+//
+// Cancels a `planned` asset, one created in error (ADR-0057 §5): it keeps its number and is final. An
+// asset that is not planned is 409 `assets.asset_not_planned` (one that holds value is retired, not
+// cancelled). Audited, and published as AssetChanged (`cancelled`).
+//
+// POST /v1/assets/{id}:cancel
+func (c *Client) CancelAsset(ctx context.Context, params CancelAssetParams) (CancelAssetRes, error) {
+	res, err := c.sendCancelAsset(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendCancelAsset(ctx context.Context, params CancelAssetParams) (res CancelAssetRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("cancelAsset"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/assets/{id}:cancel"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CancelAssetOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/assets/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":cancel"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CancelAssetOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCancelAssetResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CancelContract invokes cancelContract operation.
 //
 // Cancels a draft contract that was never used (status `cancelled`). Active contracts are ended with
@@ -8021,6 +8265,151 @@ func (c *Client) sendClosePurchaseOrder(ctx context.Context, params ClosePurchas
 
 	stage = "DecodeResponse"
 	result, err := decodeClosePurchaseOrderResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateAsset invokes createAsset operation.
+//
+// Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the
+// company uses (422 `assets.class_unknown` for a class the active configuration lacks,
+// `assets.class_not_in_company` for one without asset accounts in the company), numbered from the
+// company's `asset` number range of the fiscal year its date falls in (the company's date today in its
+// configured time zone; 422 `config.no_number_range` without one). It takes its class's depreciation
+// terms in every ledger the company keeps that the class has terms in, with a residual value of zero
+// and no depreciation start (depreciation then starts at the capitalisation date); change them with
+// `PATCH`. Its centers are its first assignment, in force from creation: a cost center (optional) must
+// be one of the company's that its class's depreciation account may take, valid and not locked for
+// costs today (422 `ledger.cost_center_invalid`), and gives its profit center today (a different
+// `profit_center_id` is 422 `ledger.profit_center_mismatch`); without a cost center the profit center
+// is as given (optional; 422 `ledger.profit_center_invalid` for one that cannot be posted today). An
+// asset whose depreciation account needs a cost center (a primary cost account while cost center
+// accounting applies) without one and without the account's default cost center in the company is 422
+// `assets.cost_center_required`, so its depreciation can always post. A legal entity the caller cannot
+// act in is 404. Audited, and published as AssetChanged (`created`).
+//
+// POST /v1/assets
+func (c *Client) CreateAsset(ctx context.Context, request *AssetCreate, params CreateAssetParams) (CreateAssetRes, error) {
+	res, err := c.sendCreateAsset(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateAsset(ctx context.Context, request *AssetCreate, params CreateAssetParams) (res CreateAssetRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createAsset"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/assets"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateAssetOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/assets"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateAssetRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateAssetOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateAssetResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -15067,6 +15456,138 @@ func (c *Client) sendGetApprovalRequest(ctx context.Context, params GetApprovalR
 	return result, nil
 }
 
+// GetAsset invokes getAsset operation.
+//
+// One asset with its class, centers and depreciation terms per ledger (ADR-0057 §5). An asset of a
+// legal entity the caller cannot act in is not found.
+//
+// GET /v1/assets/{id}
+func (c *Client) GetAsset(ctx context.Context, params GetAssetParams) (GetAssetRes, error) {
+	res, err := c.sendGetAsset(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetAsset(ctx context.Context, params GetAssetParams) (res GetAssetRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAsset"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/assets/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAssetOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/assets/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAssetOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAssetResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetBankAccount invokes getBankAccount operation.
 //
 // Returns one bank account of the partner, masked.
@@ -19197,10 +19718,26 @@ func (c *Client) sendGetLegalEntityToday(ctx context.Context, params GetLegalEnt
 // buckets' `total`s, the currency's `total` and `beyond` only with `include_blocked=true`. Amounts are
 // signed: a payment out is negative. Each currency gives its flows per bucket by source, certainty and
 // lateness with the bucket's total, the total over the horizon, and what is expected after the last
-// bucket (`beyond`, in no bucket). `min_certainty` cuts the less certain flows (actual, confirmed,
-// expected, planned; default planned, every flow). Memo records, liquidity items, converted totals,
-// the opening position and drill-down are later steps (T53e3, T53e4). A legal entity the caller cannot
-// act in is 404.
+// bucket (`beyond`, in no bucket). Each currency also gives its rows by liquidity item and its
+// hierarchy (`items`, T53e3; ADR-0051 §4, §9): every flow is split over the liquidity items
+// (`cash.liquidity_items`) its documents derive by the configuration's `cash.derivation`: a supplier
+// payment over the documents it pays, each at what the payment pays of it, and each document over its
+// offsetting lines (a posted item's expense, asset and tax lines, an unposted invoice's items; never
+// the supplier's line nor a withholding tax withheld at invoice), in proportion to their signed
+// amounts, a line taking the item of the first account rule covering its account, else its supplier's
+// planning group's, else the default of the flow's direction; a tax line follows the base lines of its
+// tax code in proportion to their amounts, and a self-assessed pair (`self_output`/`self_input` of a
+// reverse charge or import code), which moves no cash, is left out before the split. A down payment
+// request, and a run's payment of one, has no lines and takes its supplier's planning group's item or
+// the default. Each split rounds once to minor units by largest remainder (ties to the item named
+// first), so an item's shares add up to the flow. Each row gives the item's code, name, parent and
+// level, its flows and its descendants' per bucket (`buckets`, in the forecast's buckets' order), over
+// the horizon (`total`) and after the last bucket (`beyond`), counted as the buckets' totals count
+// them, so the top rows add up to each bucket's `total`, and the item's own flows by source and
+// certainty; a row without `liquidity_item` holds what no rule assigns and no default covers.
+// `min_certainty` cuts the less certain flows (actual, confirmed, expected, planned; default planned,
+// every flow). Memo records, converted totals, the opening position and drill-down are a later step
+// (T53e4). A legal entity the caller cannot act in is 404.
 //
 // GET /v1/liquidity-forecast
 func (c *Client) GetLiquidityForecast(ctx context.Context, params GetLiquidityForecastParams) (GetLiquidityForecastRes, error) {
@@ -25355,6 +25892,262 @@ func (c *Client) sendListAssetClasses(ctx context.Context, params ListAssetClass
 
 	stage = "DecodeResponse"
 	result, err := decodeListAssetClassesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListAssets invokes listAssets operation.
+//
+// The assets of the legal entities the caller may act in (ADR-0057 §5, T57b), each with its class,
+// its centers (the latest assignment's) and its depreciation terms per ledger. Filters: company,
+// class, status, cost center (the asset's current one) and asset number. Sortable by: `asset_number`
+// (default; as text), `created_at`.
+//
+// GET /v1/assets
+func (c *Client) ListAssets(ctx context.Context, params ListAssetsParams) (ListAssetsRes, error) {
+	res, err := c.sendListAssets(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListAssets(ctx context.Context, params ListAssetsParams) (res ListAssetsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listAssets"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/assets"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListAssetsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/assets"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "class_code" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "class_code",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ClassCode.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "cost_center_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "cost_center_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CostCenterID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "asset_number" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "asset_number",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.AssetNumber.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListAssetsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListAssetsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -51561,7 +52354,15 @@ func (c *Client) sendRunAnalyticsQuery(ctx context.Context, request *AnalyticsQu
 // entity whose rules change (the last 30 days, at most 200, newest first) under the active and the
 // proposed rules: the evidence's `detail.rules` lists, per rule, the rows it would newly refuse and
 // newly pass, with personal custom fields masked, and the rows it cannot evaluate, which fail the
-// simulation. Requires status `awaiting_evidence`.
+// simulation. A change of the liquidity item derivation (`cash.derivation`, ADR-0051 §4, T53e3) needs
+// a simulation whatever its tier: it classifies each company's open flows of the liquidity forecast
+// (as `getLiquidityForecast` reads them, after its last bucket too) under the active and the proposed
+// rules, and the evidence's `detail.liquidity_items_by_company` lists, per company the requester may
+// act in, the flows whose shares by liquidity item would change (currency, day, source, certainty,
+// amount, the shares before and after; no document or supplier), at most 100 per company by day, with
+// their count and, per currency and item, what the moved flows give it before and after; the requester
+// must hold `cash.forecast.read`, else the operation fails with 403. Requires status
+// `awaiting_evidence`.
 //
 // POST /v1/change-requests/{id}:simulate
 func (c *Client) SimulateChangeRequest(ctx context.Context, params SimulateChangeRequestParams) (SimulateChangeRequestRes, error) {
@@ -53945,6 +54746,175 @@ func (c *Client) sendUpdateAiPolicy(ctx context.Context, request *AiPolicyUpdate
 
 	stage = "DecodeResponse"
 	result, err := decodeUpdateAiPolicyResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateAsset invokes updateAsset operation.
+//
+// Changes an asset's description, its depreciation terms per ledger and its depreciation start
+// (ADR-0057 §7, T57b); not a cancelled one (422 `assets.asset_cancelled`). JSON Merge Patch (RFC
+// 7396) for `description` and `depreciation_start`, which sets (or with `null` clears) the
+// depreciation start in every ledger the asset has terms in; each entry of `terms` changes the terms
+// in its ledger, absent fields unchanged, or gives the asset terms in a ledger the company keeps that
+// it has none in yet (a ledger assigned to the company after the asset was created; `method` and
+// `useful_life_months` then required), and a ledger the company does not keep is 422
+// `ledger.ledger_not_kept`. Changing to `straight_line` drops the declining factor;
+// `declining_balance` needs one. A ledger's terms are fixed once depreciation has been posted in it
+// (409 `assets.terms_in_use`; a change in estimate is not offered). The residual value is in the
+// company's local currency. Audited, and published as AssetChanged (`changed`).
+//
+// PATCH /v1/assets/{id}
+func (c *Client) UpdateAsset(ctx context.Context, request *AssetUpdate, params UpdateAssetParams) (UpdateAssetRes, error) {
+	res, err := c.sendUpdateAsset(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateAsset(ctx context.Context, request *AssetUpdate, params UpdateAssetParams) (res UpdateAssetRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateAsset"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/assets/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateAssetOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/assets/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateAssetRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateAssetOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateAssetResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

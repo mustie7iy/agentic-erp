@@ -55,6 +55,28 @@ type Payable struct {
 	// discount it takes then and the withholding tax deducted: positive
 	// for an invoice, negative for a credit memo it nets.
 	Pays func(on time.Time) (money.Minor, error)
+	// Lines are its document's offsetting lines and PlanningGroup its
+	// supplier's planning group in the company, "" for none: what its
+	// liquidity items are derived from (ADR-0051 §4, T53e3). A down
+	// payment request has no lines.
+	Lines         []DocumentLine
+	PlanningGroup string
+}
+
+// Paying is what a payment of a run not yet released pays (ADR-0051 §4,
+// T53e3): its supplier's planning group in the company, and what it pays
+// of each open item it settles with the item's offsetting lines; a down
+// payment request's payment settles none and is classified as a whole.
+type Paying struct {
+	PlanningGroup string
+	Items         []Paid
+}
+
+// Paid is an open item a payment settles: what the payment pays of it
+// (negative for a credit memo it nets) and its offsetting lines.
+type Paid struct {
+	Amount money.Minor
+	Lines  []DocumentLine
 }
 
 // Sources and certainties of the forecast's flows (ADR-0051 §4).
@@ -109,6 +131,8 @@ type ForecastCurrency struct {
 	Total    money.Minor
 	Beyond   Beyond
 	Blocked  Beyond
+	// Items are its rows by liquidity item and its hierarchy (T53e3).
+	Items []ItemRow
 }
 
 // BucketFlows is a bucket's flows by source, certainty and lateness, and
@@ -125,10 +149,13 @@ type Beyond struct {
 	Count  int
 }
 
-// datedFlow is a flow in its currency.
+// datedFlow is a flow in its currency, with the documents it pays, from
+// which its liquidity items are derived, and its shares by item.
 type datedFlow struct {
 	flow
 	currency string
+	parts    []part
+	shares   []Share
 }
 
 // Forecast computes the legal entity's liquidity forecast. A legal entity
@@ -164,6 +191,11 @@ func (e *Endpoints) Forecast(ctx context.Context, q ForecastQuery) (Forecast, er
 		return Forecast{}, err
 	}
 	flows = slices.DeleteFunc(flows, func(d datedFlow) bool { return slices.Index(certainties, d.certainty) > keep })
+	for i := range flows {
+		if flows[i].shares, err = classify(doc.Cash.Derivation, r.sums, flows[i].amount, flows[i].parts); err != nil {
+			return Forecast{}, err
+		}
+	}
 	if f.Currencies, err = r.byCurrency(ctx, tx, f.Buckets, flows, q.IncludeBlocked); err != nil {
 		return Forecast{}, err
 	}
@@ -195,19 +227,48 @@ func (e *Endpoints) forecastFlows(ctx context.Context, r reader, legalEntity uui
 	if err != nil {
 		return nil, fmt.Errorf("cash: payments of runs not released of %s: %w", legalEntity, err)
 	}
-	ids := make([]uuid.UUID, len(pending))
+	bankIDs := make([]uuid.UUID, len(pending))
 	for i, p := range pending {
-		ids[i] = p.HouseBankID
+		bankIDs[i] = p.HouseBankID
 	}
-	banks, err := e.Payments.HouseBankCodes(ctx, ids)
+	banks, err := e.Payments.HouseBankCodes(ctx, bankIDs)
 	if err != nil {
 		return nil, fmt.Errorf("cash: house banks of %s: %w", legalEntity, err)
 	}
+	paying, err := e.Payments.Paying(ctx, legalEntity, ids(pending), r.read)
+	if err != nil {
+		return nil, fmt.Errorf("cash: what the payments of runs not released of %s pay: %w", legalEntity, err)
+	}
 	for _, p := range pending {
 		d, late := r.valueDate(banks[p.HouseBankID], p)
-		out = append(out, datedFlow{flow: flow{date: d, source: SourcePaymentRun, certainty: CertaintyConfirmed, late: late, amount: -p.Amount}, currency: p.Currency})
+		out = append(out, datedFlow{flow: flow{date: d, source: SourcePaymentRun, certainty: CertaintyConfirmed, late: late, amount: -p.Amount}, currency: p.Currency,
+			parts: paymentParts(p, paying[p.ID])})
 	}
 	return out, nil
+}
+
+// ids are the payments' ids.
+func ids(ps []Payment) []uuid.UUID {
+	out := make([]uuid.UUID, len(ps))
+	for i, p := range ps {
+		out[i] = p.ID
+	}
+	return out
+}
+
+// paymentParts are the documents a payment pays: each open item it
+// settles at what it pays of it, which add up to the payment (a run pays
+// a supplier the sum of its items, netted); a payment of no item (a down
+// payment request's) whole, by its supplier's planning group.
+func paymentParts(p Payment, paying Paying) []part {
+	if len(paying.Items) == 0 {
+		return []part{{amount: -p.Amount, planningGroup: paying.PlanningGroup}}
+	}
+	out := make([]part, len(paying.Items))
+	for i, it := range paying.Items {
+		out[i] = part{amount: -it.Amount, lines: it.Lines, planningGroup: paying.PlanningGroup}
+	}
+	return out
 }
 
 // netting is what one run payment pays (ADR-0051 §5): a supplier's
@@ -296,7 +357,7 @@ func (r reader) netted(k netting, items []planned) ([]datedFlow, error) {
 		if i+1 < len(items) && items[i+1].day.Equal(it.day) {
 			continue
 		}
-		paid, err := r.pays(carried, it.day)
+		paid, parts, err := r.pays(carried, it.day)
 		if err != nil {
 			return nil, err
 		}
@@ -304,7 +365,8 @@ func (r reader) netted(k netting, items []planned) ([]datedFlow, error) {
 			continue
 		}
 		at, late := r.atBankOn(k.source, it)
-		out = append(out, datedFlow{flow: flow{date: at, source: k.source, certainty: k.certainty, late: late, amount: -paid}, currency: k.currency})
+		out = append(out, datedFlow{flow: flow{date: at, source: k.source, certainty: k.certainty, late: late, amount: -paid}, currency: k.currency,
+			parts: parts})
 		carried = nil
 	}
 	return out, nil
@@ -326,17 +388,20 @@ func (r reader) atBankOn(source string, it planned) (time.Time, bool) {
 }
 
 // pays is what a run on the day pays for the items: each at what it pays
-// then, summed.
-func (r reader) pays(items []Payable, day time.Time) (money.Minor, error) {
+// then, summed, with each item as a part of the payment (negative: paid
+// out) to derive its liquidity items from.
+func (r reader) pays(items []Payable, day time.Time) (money.Minor, []part, error) {
 	var total money.Minor
-	for _, p := range items {
+	parts := make([]part, len(items))
+	for i, p := range items {
 		amount, err := p.Pays(day)
 		if err != nil {
-			return 0, err
+			return 0, nil, err
 		}
 		total = r.sums.add(total, amount)
+		parts[i] = part{amount: -amount, lines: p.Lines, planningGroup: p.PlanningGroup}
 	}
-	return total, nil
+	return total, parts, nil
 }
 
 // payDay is the day a run is expected to pay a supplier item (ADR-0051 §5,
@@ -418,6 +483,7 @@ func buckets(read time.Time, bs []config.Bucket) []Bucket {
 func (r reader) byCurrency(ctx context.Context, tx pgx.Tx, bs []Bucket, flows []datedFlow, includeBlocked bool) ([]ForecastCurrency, error) {
 	var out []ForecastCurrency
 	at := map[string]int{}
+	var rows []*itemRows
 	for _, f := range flows {
 		i, ok := at[f.currency]
 		if !ok {
@@ -430,8 +496,12 @@ func (r reader) byCurrency(ctx context.Context, tx pgx.Tx, bs []Bucket, flows []
 			for b := range out[i].Buckets {
 				out[i].Buckets[b].Flows = []FlowTotal{}
 			}
+			rows = append(rows, newItemRows(r.doc.Cash.LiquidityItems, len(bs)))
 		}
-		r.into(&out[i], bs, f, includeBlocked)
+		r.into(&out[i], rows[i], bs, f, includeBlocked)
+	}
+	for i := range out {
+		out[i].Items = rows[i].ordered()
 	}
 	slices.SortFunc(out, func(a, b ForecastCurrency) int { return cmp.Compare(a.Currency, b.Currency) })
 	return out, nil
@@ -439,8 +509,9 @@ func (r reader) byCurrency(ctx context.Context, tx pgx.Tx, bs []Bucket, flows []
 
 // into adds a flow to its currency: to the bucket its day falls in, else
 // beyond, and to the totals, unless it is a blocked supplier's not asked
-// for, which is listed in its bucket and summed in Blocked only.
-func (r reader) into(c *ForecastCurrency, bs []Bucket, f datedFlow, includeBlocked bool) {
+// for, which is listed in its bucket and summed in Blocked only; and its
+// shares to the currency's rows by liquidity item alike.
+func (r reader) into(c *ForecastCurrency, rows *itemRows, bs []Bucket, f datedFlow, includeBlocked bool) {
 	blocked := f.source == SourcePayableBlocked
 	if blocked {
 		c.Blocked = r.sums.addTo(c.Blocked, f.amount)
@@ -451,6 +522,9 @@ func (r reader) into(c *ForecastCurrency, bs []Bucket, f datedFlow, includeBlock
 	b, _ := slices.BinarySearchFunc(bs, f.date, func(b Bucket, d time.Time) int {
 		return cmp.Compare(b.End.Unix(), d.Unix())
 	})
+	for _, sh := range f.shares {
+		rows.add(r.sums, sh, f, b, counted)
+	}
 	switch {
 	case b < len(bs):
 		bf := &c.Buckets[b]

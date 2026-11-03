@@ -524,7 +524,7 @@ func (sc *failuresScenario) exportCommitAndBeginFailing(t *testing.T) {
 
 // eachExportStatementFailing is the step "each export statement failing" of TestOffboardingFailures.
 func (sc *failuresScenario) eachExportStatementFailing(t *testing.T) {
-	for n := 1; n < 200; n++ {
+	for n := 1; n < 400; n++ { // above the statements an export runs, which grow with the schemas (T57b added assets)
 		count := 0
 		sc.w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 			tx, err := sc.pool.Begin(ctx, s)
@@ -639,7 +639,7 @@ func (sc *failuresScenario) eraseCommitsAndTakeover(t *testing.T) {
 
 // eachEraseStatementFailing is the step "each erase statement failing" of TestOffboardingFailures.
 func (sc *failuresScenario) eachEraseStatementFailing(t *testing.T) {
-	for n := 1; n < 200; n++ {
+	for n := 1; n < 400; n++ { // above the statements an export runs, which grow with the schemas (T57b added assets)
 		count := 0
 		sc.plain.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 			tx, err := sc.pool.Begin(ctx, s)

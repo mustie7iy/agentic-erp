@@ -363,15 +363,16 @@ As built (T53b):
   merged into the tenant's by code; the Canada pack 2026.2 (2026.1 plus
   that file and IAS 7 as a source) suggests OPERATING, INVESTING and
   FINANCING, each for both directions.
-- **For T53e (batch 6 review, T61e):** a supplier invoice's
+- **For T53e3 (batch 6 review, T61e; built, see As built T53e3 in §9):** a supplier invoice's
   self-assessed tax (T61e's `self_output`/`self_input` pair, reverse charge)
   posts an offsetting +x/−x that moves no cash; if the two accounts derive
   to different liquidity items, the flow would be split into a positive and
   a negative share. The forecast reader nets self-assessment pairs out of
   the offsetting lines before `cash.Derive`, so they classify nothing.
-- **Deferred to T53e:** the derivation simulation (the open flows whose
-  item a rule change moves) needs the flow readers T53e builds; until then
-  a rule change is approved on its diff alone, at tier 2.
+- **Deferred to T53e3:** the derivation simulation (the open flows whose
+  item a rule change moves) needs the flow readers T53e builds; until
+  T53e3 a rule change was approved on its diff alone, at tier 2. Built in
+  T53e3 (§9, As built T53e3).
 
 ### 5. Dates and amounts of document flows
 **Supplier open items** (decision P5). The expected payment date of an
@@ -1113,8 +1114,8 @@ into T53e and T53e2-T53e4 in the tracker, src `split:T53e`):
   `PaymentBlocked`, `blockedReason`) is left out of the totals in this
   slice; showing its items apart (`payable_blocked`, `include_blocked`) is
   T53e2 (below).
-- **Not yet** (T53e3, T53e4): liquidity items, the
-  self-assessment netting and the derivation simulation; converted totals,
+- **Not yet** (T53e4; liquidity items, the self-assessment netting and
+  the derivation simulation are T53e3's, below): converted totals,
   the opening position and cumulative closing, memo records and payments
   in transit, one grain over a range, drill-down, and the budget at
   100,000 open items (no index added: the due date is computed, as §6
@@ -1204,6 +1205,100 @@ blocked suppliers; decided by default where §4 and §5 leave it open):
   parks an invoice and requests a down payment, reads them and Massive
   Dynamic's blocked items, with and without `include_blocked`, then cancels
   both.
+
+As built (T53e3, liquidity items in the forecast; decided by default
+where §4 and §9 leave it open):
+- **Request and response.** No new parameter and no migration
+  (`cash.forecast.read` covers it). Each currency of
+  `GET /v1/liquidity-forecast` gains `items`, its rows by liquidity item
+  and its hierarchy (`LiquidityForecastItem`, additive): the item's code,
+  name, parent and level, its shares and its descendants' per bucket, over
+  the horizon and after the last bucket, counted as the buckets' totals
+  count them (a `payable_blocked` share only with `include_blocked`), and
+  its own shares by source and certainty
+  (`LiquidityForecastItemFlows`), listed whether counted or not. Rows are
+  depth first, siblings by code; an item is listed when it or a descendant
+  has a share; the row of what no rule assigns and no default covers has
+  no `liquidity_item` and comes last. The top rows add up to each bucket's
+  `total`, the currency's `total` and `beyond`. Lateness is not a
+  dimension of the rows (§9 names item, source and certainty). The rows
+  carry no document id or supplier, as the rest of the forecast.
+- **What a flow is split over.** A supplier payment (netted per supplier,
+  T53e) is split over the documents it pays, each at what the payment pays
+  of it on that day (after its discount and withholding at payment; a
+  credit memo negative), each document derived on its own (`cash.Derive`)
+  and the shares of one item summed, so the shares add up to the flow; a
+  run's payment likewise over the items it settles (`payment_item`: amount
+  less discount and withholding), a payment of no item (a down payment
+  request's) whole. The direction a fallback takes is the flow's (an
+  outflow for every flow built so far), so a credit memo netted into a
+  payment takes the outflow default, not the inflow one.
+- **Offsetting lines** (§4's "offsetting lines of its document"). A
+  posted item's are its entry's lines in the leading ledger but those on a
+  supplier or customer reconciliation account and those on the account of
+  a withholding tax withheld at invoice (`ledger.OpenItems.Offsetting`):
+  what the document owes, and what it owes the authority instead, are not
+  what the payment pays for. A GR/IR line of an invoice on an order valued
+  through GR/IR is classified by the GR/IR account's rule like any line;
+  resolving it to the order item's account would need procurement's order
+  items, which is left for the order source (T53g). An unposted invoice's
+  are its items (account, filled from the order item on an order, and net
+  amount signed as posting signs it; `payables.Endpoints.Unposted`), their
+  accounts' numbers read from the company's chart; its tax is not
+  calculated for the split (the calculation can refuse, and within one
+  code tax follows its base in proportion anyway). A down payment request
+  has none: its supplier's planning group, else the default.
+- **Tax follows its base; self-assessment netted** (the T53e3 note in
+  §4). A tax line is a line on the account of one of its tax code's
+  components, as the entry's tax items record (`ledger.tax_item`,
+  `account_key`). A self-assessed pair's lines (`self_output`,
+  `self_input`) are left out before the split, so they classify nothing;
+  a part of the self-assessed tax not recovered stays on its base line as
+  posted (T61d), as a cost of it. Every other tax line is shared out over
+  its code's base lines in proportion to their amounts; a tax line whose
+  code has no base line (import tax posted alone, T61e), or whose base
+  lines cancel out, stays a line of its own account.
+- **Rounding.** Two allocations, each `money.Allocate`: a tax line over
+  its base lines, and a document's amount over its items (`cash.Derive`,
+  T53b). Each rounds the sum once, to minor units, and gives the residue
+  by largest remainder, ties to the earlier line or the item named first,
+  so each split adds up exactly and the same input splits the same way
+  (`TestOffsetting`, `TestDerive`, `TestClassify`).
+- **The planning group.** `partner.Payee.PlanningGroup` (the supplier's in
+  the company) reaches the forecast with each payable and each run's
+  payment (`payments.CashPayable.PlanningGroup`, `CashPosition.Paying`).
+- **The derivation simulation** (§4, tiers; deferred from T53b). A change
+  of `cash.derivation` needs a simulation whatever its tier
+  (`config.Evidence`, as an analytics definition does). The cash context's
+  `Simulation`, run with the change request's simulation through
+  `configuration.Simulators` (adapted in `internal/app`, as `cash` imports
+  no context), classifies each company's open flows (the forecast's, every
+  source and certainty, after the last bucket too, dated by the active
+  document) under the active and the proposed rules, and records under
+  `liquidity_items_by_company` per company the count of flows whose shares
+  change, the first 100 by day (currency, day, source, certainty, amount,
+  shares before and after) and per currency and item what those flows
+  give it before and after. Like the analytics simulation (ADR-0044) it
+  runs as the requester, who must hold `cash.forecast.read` (else the
+  operation fails, 403), and covers the companies the requester may act
+  in; the listed flows name no document or supplier, as the forecast does
+  not, so no partner data is read and no `authz.MayUse` is needed. Each
+  reader of the change request is shown the companies they may access
+  alone, the summary counting over those (`cash.Disclose`, as the ledger's
+  assignment simulation). The simulation lists, it never fails a change.
+- **Evidence.** `cash.TestLiquidityForecastItems` (Maple Inc: rent and
+  equipment with input tax following them, a reverse charge pair netted
+  out, a tax authority by its planning group, a request and a run's
+  payment of no item by the planning group, withholding at invoice left
+  out, a run's payment of an item and a credit memo, a parked invoice by
+  its item, a blocked vendor's share counted only with `include_blocked`,
+  the certainty cut), `TestLiquidityForecastUnclassified`,
+  `TestLiquidityForecastItemsFailures`, `TestDerivationSimulation`,
+  `TestDerivationSimulationFailures`, `TestOffsetting`, `TestClassify`,
+  `config.TestCashDerivationChanges`; the walkthrough's step 21: an
+  invoice for services parked on 6100, a change request adding an item and
+  a rule for 6100 simulated (the parked invoice's flow moves) and
+  approved, and the forecast's rows by item read before and after.
 
 ### 10. Currency conversion
 Amounts are kept and shown in their own currency first: a bank's balance

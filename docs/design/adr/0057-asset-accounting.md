@@ -1462,6 +1462,9 @@ operation. Decided by default, for the product owner to overrule:
   account determination, tax codes, withholding taxes, foreign-currency
   valuation, house banks, statement posting rules): only assets post to it
   (review round 1).
+  A tax code's component accounts, which the check first added itself,
+  are listed by `AutomaticAccounts` since T56c2, so the default cost
+  center check sees them too (one list, ADR-0050 §4 As built).
 - §3's "an account becomes one only while it has no postings" is narrowed
   to "only an account the activation creates" (review round 1): turning an
   existing account, even an unposted one, could race a posting in flight
@@ -1485,3 +1488,89 @@ operation. Decided by default, for the product owner to overrule:
   postings (bank statements, clearings, settlements, revaluation,
   reversals, which keep their original's source) are held by the database
   rule, whose problem is the same with the field `lines.account_id`.
+
+**T57b (the asset master).** Built as §2, §5, §7 and §8 for the asset
+itself: migration 000191 creates the `assets` schema with its outbox,
+`assets.asset`, `assets.asset_terms` and `assets.asset_assignment` (RLS,
+`tenant_id` leading every key; schema tests `TestAssetRules`,
+`TestAssetAssignmentsInSeqOrder`, `TestAssetTermsInUse`) and the permission
+`assets.asset.change`. The state trigger (`asset_transition`) admits
+planned -> active -> retired, retired -> active, active -> planned and
+planned -> cancelled, a cancelled asset being final; an asset's company,
+number, class and creation never change and `last_seq` never goes back. An
+assignment row takes the asset's current `last_seq`, which its writer
+raises first under the asset's lock (`asset_assignment_seq`), so the row
+with the highest `seq` is the latest and names the asset's centers; the
+first is valid from `-infinity`, no later one is. `POST`, `GET`, `PATCH
+/v1/assets`, `GET /v1/assets/{id}` and `:cancel` (`createAsset`,
+`listAssets`, `getAsset`, `updateAsset`, `cancelAsset`), audited and
+published as AssetChanged (`created`, `changed`, `cancelled`) on the new
+`assets` channel. Decided by default, for the product owner to overrule:
+- **Ports so far.** `assets.Companies` gains the legal entity by id with its
+  local currency; `assets.Ledger` has its reads of the ledgers (all, or
+  those a company keeps) and of the fiscal year of a date (its posting and
+  line reads come with T57c and T57f, their first users); `assets.Centers`
+  derives and checks an asset's centers and names them, both through a new
+  published read of the ledger, `ledger.AssetReads`; `assets.Numbers` is
+  the configuration's number issuer; `assets.Runs` (Start, Succeed, Fail of
+  an `assets.depreciate` Operation, over `operations`) is wired and tested
+  now, as the tracker leaf asks, and first used by T57f. `assets.Invoices`
+  comes with T57c, its first user. No dependency direction changes.
+- **The creation date** is the company's date today in its configured time
+  zone (`config.CompanyDay`; a zone that does not load fails the request);
+  its fiscal year (422 `ledger.no_fiscal_period` outside every one) chooses
+  the `asset` number range, and its day is the one the centers are checked
+  and derived on.
+- **Centers are checked as a posting on the class's depreciation account
+  on that day would check them** (ADR-0050 §5): a cost center of the
+  company, active, valid and not locked for actual costs, on an account
+  that takes a cost object (422 `ledger.cost_center_invalid` with the
+  reason); its profit center then is the asset's (a different one given:
+  422 `ledger.profit_center_mismatch`); a cost center without a profit
+  center keeps the profit center given; without a cost center the profit
+  center is as given and checked as a posting checks it (422
+  `ledger.profit_center_invalid`). Refusals name `cost_center_id` and
+  `profit_center_id`.
+- **`assets.cost_center_required`** applies when the depreciation account
+  is a primary cost account, cost center accounting applies to the company
+  in the creation date's fiscal year, and the account has no active
+  default cost center in the company, which is when a posting would refuse
+  the line (`ledger.cost_center_required`). A company that turns cost
+  center accounting on after creating assets without cost centers gives
+  them one by a center transfer (T57h) or the account a default before
+  their depreciation runs; that case is not refused ahead.
+- **Terms at creation**: the class's terms in each ledger the company keeps
+  that the class has terms in (validation keeps every kept ledger covered
+  at activation; a ledger assigned later gets terms by `PATCH`), with a
+  residual value of zero and no depreciation start.
+- **`PATCH`**: `description`; `depreciation_start` (merge patch, `null`
+  clears) sets it in every ledger the asset has terms in; each `terms`
+  entry changes one ledger's terms, or gives terms in a ledger the company
+  keeps that the asset has none in (`method` and `useful_life_months` then
+  required; 422 `ledger.ledger_not_kept` for a ledger it does not keep). A
+  change to `straight_line` drops the declining factor; `declining_balance`
+  needs one (above 1, at most 10, up to four decimals). The residual value
+  is in the company's local currency, zero or more. A cancelled asset is
+  refused (422 `assets.asset_cancelled`, §5's status); a ledger's terms
+  once booked through a period are refused (409 `assets.terms_in_use`),
+  checked under the asset's lock; the database refuses it too
+  (`asset_terms_in_use`), whose problem is not registered since no writer
+  reaches it unchecked. A patch that changes nothing writes and publishes
+  nothing.
+- **`:cancel`** cancels a `planned` asset (409 `assets.asset_not_planned`
+  otherwise); the "only without movements" of §5 is checked with the
+  movements, from T57c.
+- **Representations** name the class (from the active configuration), the
+  company code, the ledgers by code and name, the residual value with its
+  currency, and the centers by code and name only to a caller who may read
+  cost centers (`ledger.cost_center.read`, `authz.MayUse`, as an expansion
+  would; their ids always). The list is ordered by asset number as text
+  (default) or creation, ties by id, filtered by company, class, status,
+  current cost center and number.
+- Audit records of an asset (`assets.asset.create`, `.change`, `.cancel`)
+  carry its master, centers and terms per ledger as they are after the
+  change (review round 1).
+- An asset's description is required, not spaces alone (422
+  `request.validation_failed`), at most 200 characters. Asset
+  numbers are unique per company, as other documents' are; the
+  configuration keeps a range from repeating another year's numbers.

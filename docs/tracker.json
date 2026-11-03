@@ -1135,9 +1135,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Asset master: schema assets (asset, asset_terms, asset_assignment keyed by a per-asset seq, the highest seq naming the asset's centers, with a schema test; the profit center derived from the cost center on the creation date (ledger.profit_center_mismatch for another); RLS, tenant_id first, state trigger, schema tests); asset.last_seq for posting order; the assets leaf and its ports, assets.Runs included (internal/layout leaves); /v1/assets create, list, get, PATCH (description, terms, depreciation start), :cancel; numbers from the asset range; terms per kept ledger from the class; assets.cost_center_required; permissions assets.asset.read/change; AssetChanged; audit; walkthrough: an asset created with a cost center and read with its class name and terms per ledger, a second cancelled",
-        "r": "ADR-0057 · T57b",
+        "r": "migration 000191 (schema assets: asset, asset_terms, asset_assignment; asset_transition, asset_fixed, asset_seq_forward, asset_terms_in_use, asset_assignment_seq, asset_assignment_valid_from; assets outbox; assets.asset.change) · internal/assets (asset.go, assetstore.go, terms.go, asset_api.go; ports Companies, Ledger, Centers, Numbers, Runs) · ledger.AssetReads (Ledgers, Assignment, CenterNames) · internal/app/assets.go (adapters, assetRuns over operations) · POST/GET /v1/assets, GET/PATCH /v1/assets/{id}, :cancel; AssetChanged on the assets channel · TestCreateAsset, TestCreateAssetRefused, TestUpdateAsset, TestUpdateAssetRefused, TestCancelAsset, TestListAssets, TestAssetDatabaseFailures, TestDepreciationRunOperations, TestAssetRules, TestAssetAssignmentsInSeqOrder, TestAssetTermsInUse · walkthrough step_asset_master (step 20) · ADR-0057 (as built, T57b) · 03-data-model §3.21 · T57b",
         "src": "adr:ADR-0057",
         "c": []
        },
@@ -1404,9 +1404,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Liquidity items in the forecast: liquidity item derivation with proportional split (cash.Derive, T53b) and the derivation simulation listing the open flows whose item a rule change moves (moved from T53b); self-assessment pairs (T61e's self_output/self_input, reverse charge) netted out of the offsetting lines before derivation, since they are not cash (batch 6 review); rows by liquidity item and its hierarchy (ADR-0051 §9)",
-        "r": "T53e3",
+        "r": "GET /v1/liquidity-forecast items (LiquidityForecastItem, LiquidityForecastItemFlows) · cash.offsetting, classify, itemRows, Simulation, Disclose · ledger.OpenItems.Offsetting, OffsettingLine, PayableItem.Lines · payments.CashPosition.Paying, CashPayable.PlanningGroup · payables.Endpoints.Unposted item lines · partner.Payee.PlanningGroup · config.Evidence (cash.derivation needs a simulation) · internal/app cashSimulation, cashDisclosure · TestLiquidityForecastItems, TestLiquidityForecastUnclassified, TestLiquidityForecastItemsFailures, TestDerivationSimulation, TestDerivationSimulationFailures, TestOffsetting, TestClassify, TestCashDerivationChanges · walkthrough step 21 · ADR-0051 (as built, T53e3) · T53e3",
         "src": "split:T53e",
         "c": []
        },
@@ -2192,6 +2192,13 @@
         "t": "Configuration rules: controlling.cost_center_categories (revenue_allowed, lock defaults of new cost centers; create/move refuse an inactive category), cost_element per account (defaults by type; DB check by type), default_assignments by account, cost_center_accounting and profit_center_accounting per company (on only before the year's first posting, from that fiscal year, never off), default_profit_center; tiers: category name 1, rules 3, switches 4; activation refuses an automatically posted primary_cost account without a default, and a default center not active, open-ended and unlocked from today (checked again at activation; a lock or redate leaving a default unusable is refused); packs carry cost_element (ca/2026.1 unchanged, for T62g); ledger.AssignmentSimulation lists per company and account the window's lines assigned differently or refused, disclosed by company access",
         "r": "migration 000140 · internal/config controlling.go · internal/ledger controlling.go, assignsim.go, setup.go, costcenters.go · internal/countrypack validate.go · api/openapi.yaml · ADR-0050 §4 · T56c",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Automatic accounts include a multi-component tax code's component accounts (found in T57a's review): config.Company.AutomaticAccounts listed a tax code's account only in the single-rate form, so with cost center accounting on a component posting to a primary_cost account passed activation without a default cost center, and its automatic posting would be refused; it now lists each component's account (a non-deductible component has none), and T57a's refusal of an asset reconciliation account reads the same list instead of adding the components itself",
+        "r": "internal/config controlling.go AutomaticAccounts · assets.go notAutomatic · TestAutomaticAccounts · TestControllingRules (a tax component's account that is an expense) · TestAssetClassesValid (a reconciliation account for a tax component) · ADR-0050 §4 As built (T56c2) · ADR-0057 As built · T56c2",
+        "src": "review:T57a",
         "c": []
        },
        {

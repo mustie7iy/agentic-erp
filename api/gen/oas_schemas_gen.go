@@ -2758,6 +2758,269 @@ type ApproveApprovalRequestUnprocessableEntity Problem
 
 func (*ApproveApprovalRequestUnprocessableEntity) approveApprovalRequestRes() {}
 
+// Merged schema.
+// Ref: #/components/schemas/Asset
+type Asset struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The asset's number in its company, from the company's `asset` number range.
+	AssetNumber string `json:"asset_number"`
+	// The asset class (`GET /v1/asset-classes`); it never changes.
+	ClassCode string `json:"class_code"`
+	// The class's name in the active configuration.
+	ClassName string `json:"class_name"`
+	// What the asset is.
+	Description string `json:"description"`
+	// `planned` (created, no value yet), `active`, `retired` or `cancelled`. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The earliest value date of its acquisitions and transfers in; absent while it has none.
+	CapitalisedOn OptDate `json:"capitalised_on"`
+	// Its cost center, the one its depreciation and loss are posted on; absent when it has none (its
+	// depreciation account's default cost center then).
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// The cost center's code; present with `cost_center_id` when the caller may read cost centers
+	// (`ledger.cost_center.read`).
+	CostCenterCode OptString `json:"cost_center_code"`
+	// The cost center's name, with its code.
+	CostCenterName OptString `json:"cost_center_name"`
+	// Its profit center, its cost center's on the day it was assigned, or as given without one; its
+	// balance sheet lines are posted on it. Absent when it has none.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// The profit center's code; present with `profit_center_id` when the caller may read cost centers
+	// (`ledger.cost_center.read`).
+	ProfitCenterCode OptString `json:"profit_center_code"`
+	// The profit center's name, with its code.
+	ProfitCenterName OptString `json:"profit_center_name"`
+	// Its depreciation terms, one per ledger it has terms in, the leading ledger first and then by ledger
+	// code.
+	Terms []AssetTerms `json:"terms"`
+}
+
+// GetID returns the value of ID.
+func (s *Asset) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *Asset) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *Asset) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *Asset) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *Asset) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *Asset) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *Asset) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *Asset) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetAssetNumber returns the value of AssetNumber.
+func (s *Asset) GetAssetNumber() string {
+	return s.AssetNumber
+}
+
+// GetClassCode returns the value of ClassCode.
+func (s *Asset) GetClassCode() string {
+	return s.ClassCode
+}
+
+// GetClassName returns the value of ClassName.
+func (s *Asset) GetClassName() string {
+	return s.ClassName
+}
+
+// GetDescription returns the value of Description.
+func (s *Asset) GetDescription() string {
+	return s.Description
+}
+
+// GetStatus returns the value of Status.
+func (s *Asset) GetStatus() string {
+	return s.Status
+}
+
+// GetCapitalisedOn returns the value of CapitalisedOn.
+func (s *Asset) GetCapitalisedOn() OptDate {
+	return s.CapitalisedOn
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *Asset) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *Asset) GetCostCenterCode() OptString {
+	return s.CostCenterCode
+}
+
+// GetCostCenterName returns the value of CostCenterName.
+func (s *Asset) GetCostCenterName() OptString {
+	return s.CostCenterName
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *Asset) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetProfitCenterCode returns the value of ProfitCenterCode.
+func (s *Asset) GetProfitCenterCode() OptString {
+	return s.ProfitCenterCode
+}
+
+// GetProfitCenterName returns the value of ProfitCenterName.
+func (s *Asset) GetProfitCenterName() OptString {
+	return s.ProfitCenterName
+}
+
+// GetTerms returns the value of Terms.
+func (s *Asset) GetTerms() []AssetTerms {
+	return s.Terms
+}
+
+// SetID sets the value of ID.
+func (s *Asset) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *Asset) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *Asset) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *Asset) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *Asset) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *Asset) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *Asset) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *Asset) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetAssetNumber sets the value of AssetNumber.
+func (s *Asset) SetAssetNumber(val string) {
+	s.AssetNumber = val
+}
+
+// SetClassCode sets the value of ClassCode.
+func (s *Asset) SetClassCode(val string) {
+	s.ClassCode = val
+}
+
+// SetClassName sets the value of ClassName.
+func (s *Asset) SetClassName(val string) {
+	s.ClassName = val
+}
+
+// SetDescription sets the value of Description.
+func (s *Asset) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetStatus sets the value of Status.
+func (s *Asset) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetCapitalisedOn sets the value of CapitalisedOn.
+func (s *Asset) SetCapitalisedOn(val OptDate) {
+	s.CapitalisedOn = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *Asset) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *Asset) SetCostCenterCode(val OptString) {
+	s.CostCenterCode = val
+}
+
+// SetCostCenterName sets the value of CostCenterName.
+func (s *Asset) SetCostCenterName(val OptString) {
+	s.CostCenterName = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *Asset) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetProfitCenterCode sets the value of ProfitCenterCode.
+func (s *Asset) SetProfitCenterCode(val OptString) {
+	s.ProfitCenterCode = val
+}
+
+// SetProfitCenterName sets the value of ProfitCenterName.
+func (s *Asset) SetProfitCenterName(val OptString) {
+	s.ProfitCenterName = val
+}
+
+// SetTerms sets the value of Terms.
+func (s *Asset) SetTerms(val []AssetTerms) {
+	s.Terms = val
+}
+
 // An account of a company's chart of accounts, by number and name (`GET /v1/accounts?number=` gives
 // its id).
 // Ref: #/components/schemas/AssetAccountRef
@@ -3083,6 +3346,400 @@ func (s *AssetClassTerms) SetUsefulLifeMonths(val int32) {
 // SetDecliningFactor sets the value of DecliningFactor.
 func (s *AssetClassTerms) SetDecliningFactor(val OptString) {
 	s.DecliningFactor = val
+}
+
+// A new asset: its company, class, description and centers. Its terms come from the class.
+// Ref: #/components/schemas/AssetCreate
+type AssetCreate struct {
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// An asset class the company uses (`GET /v1/asset-classes?legal_entity_id=`).
+	ClassCode string `json:"class_code"`
+	// What the asset is.
+	Description string `json:"description"`
+	// A cost center of the company; the profit center is then its own.
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// The profit center: without a cost center, as given; with one, its cost center's or absent.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AssetCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetClassCode returns the value of ClassCode.
+func (s *AssetCreate) GetClassCode() string {
+	return s.ClassCode
+}
+
+// GetDescription returns the value of Description.
+func (s *AssetCreate) GetDescription() string {
+	return s.Description
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *AssetCreate) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *AssetCreate) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AssetCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetClassCode sets the value of ClassCode.
+func (s *AssetCreate) SetClassCode(val string) {
+	s.ClassCode = val
+}
+
+// SetDescription sets the value of Description.
+func (s *AssetCreate) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *AssetCreate) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *AssetCreate) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// AssetHeaders wraps Asset with response headers.
+type AssetHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           Asset
+}
+
+// GetETag returns the value of ETag.
+func (s *AssetHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AssetHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *AssetHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *AssetHeaders) GetResponse() Asset {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *AssetHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AssetHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *AssetHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AssetHeaders) SetResponse(val Asset) {
+	s.Response = val
+}
+
+func (*AssetHeaders) createAssetRes() {}
+
+// One page of assets.
+// Ref: #/components/schemas/AssetPage
+type AssetPage struct {
+	// The assets on this page.
+	Items []Asset `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *AssetPage) GetItems() []Asset {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AssetPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *AssetPage) SetItems(val []Asset) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AssetPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*AssetPage) listAssetsRes() {}
+
+// An asset's depreciation terms in one ledger (ADR-0057 §7): one depreciation area.
+// Ref: #/components/schemas/AssetTerms
+type AssetTerms struct {
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// `straight_line`, or `declining_balance` (switching to straight-line when that gives more). Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Method string `json:"method"`
+	// The useful life in months.
+	UsefulLifeMonths int32 `json:"useful_life_months"`
+	// The declining balance factor; only with `declining_balance`.
+	DecliningFactor OptString `json:"declining_factor"`
+	ResidualValue   Money     `json:"residual_value"`
+	// The day depreciation starts from (its period counts in full); absent: the capitalisation date.
+	DepreciationStart OptDate `json:"depreciation_start"`
+	// The fiscal year of the period depreciation is posted through in this ledger; absent until
+	// depreciation is first posted, after which the terms are fixed.
+	BookedThroughYear OptInt32 `json:"booked_through_year"`
+	// That period, with `booked_through_year`.
+	BookedThroughPeriod OptInt32 `json:"booked_through_period"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *AssetTerms) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *AssetTerms) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *AssetTerms) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetMethod returns the value of Method.
+func (s *AssetTerms) GetMethod() string {
+	return s.Method
+}
+
+// GetUsefulLifeMonths returns the value of UsefulLifeMonths.
+func (s *AssetTerms) GetUsefulLifeMonths() int32 {
+	return s.UsefulLifeMonths
+}
+
+// GetDecliningFactor returns the value of DecliningFactor.
+func (s *AssetTerms) GetDecliningFactor() OptString {
+	return s.DecliningFactor
+}
+
+// GetResidualValue returns the value of ResidualValue.
+func (s *AssetTerms) GetResidualValue() Money {
+	return s.ResidualValue
+}
+
+// GetDepreciationStart returns the value of DepreciationStart.
+func (s *AssetTerms) GetDepreciationStart() OptDate {
+	return s.DepreciationStart
+}
+
+// GetBookedThroughYear returns the value of BookedThroughYear.
+func (s *AssetTerms) GetBookedThroughYear() OptInt32 {
+	return s.BookedThroughYear
+}
+
+// GetBookedThroughPeriod returns the value of BookedThroughPeriod.
+func (s *AssetTerms) GetBookedThroughPeriod() OptInt32 {
+	return s.BookedThroughPeriod
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *AssetTerms) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *AssetTerms) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *AssetTerms) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetMethod sets the value of Method.
+func (s *AssetTerms) SetMethod(val string) {
+	s.Method = val
+}
+
+// SetUsefulLifeMonths sets the value of UsefulLifeMonths.
+func (s *AssetTerms) SetUsefulLifeMonths(val int32) {
+	s.UsefulLifeMonths = val
+}
+
+// SetDecliningFactor sets the value of DecliningFactor.
+func (s *AssetTerms) SetDecliningFactor(val OptString) {
+	s.DecliningFactor = val
+}
+
+// SetResidualValue sets the value of ResidualValue.
+func (s *AssetTerms) SetResidualValue(val Money) {
+	s.ResidualValue = val
+}
+
+// SetDepreciationStart sets the value of DepreciationStart.
+func (s *AssetTerms) SetDepreciationStart(val OptDate) {
+	s.DepreciationStart = val
+}
+
+// SetBookedThroughYear sets the value of BookedThroughYear.
+func (s *AssetTerms) SetBookedThroughYear(val OptInt32) {
+	s.BookedThroughYear = val
+}
+
+// SetBookedThroughPeriod sets the value of BookedThroughPeriod.
+func (s *AssetTerms) SetBookedThroughPeriod(val OptInt32) {
+	s.BookedThroughPeriod = val
+}
+
+// A change of an asset's terms in one ledger, absent fields unchanged; for a ledger the asset has no
+// terms in yet, `method` and `useful_life_months` are required.
+// Ref: #/components/schemas/AssetTermsUpdate
+type AssetTermsUpdate struct {
+	// A ledger the company keeps.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Method OptString `json:"method"`
+	// The useful life in months.
+	UsefulLifeMonths OptInt32 `json:"useful_life_months"`
+	// Above 1 and at most 10; only with `declining_balance`.
+	DecliningFactor OptString `json:"declining_factor"`
+	ResidualValue   OptMoney  `json:"residual_value"`
+	// The day depreciation starts from in this ledger; null: from the capitalisation date.
+	DepreciationStart OptNilDate `json:"depreciation_start"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *AssetTermsUpdate) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetMethod returns the value of Method.
+func (s *AssetTermsUpdate) GetMethod() OptString {
+	return s.Method
+}
+
+// GetUsefulLifeMonths returns the value of UsefulLifeMonths.
+func (s *AssetTermsUpdate) GetUsefulLifeMonths() OptInt32 {
+	return s.UsefulLifeMonths
+}
+
+// GetDecliningFactor returns the value of DecliningFactor.
+func (s *AssetTermsUpdate) GetDecliningFactor() OptString {
+	return s.DecliningFactor
+}
+
+// GetResidualValue returns the value of ResidualValue.
+func (s *AssetTermsUpdate) GetResidualValue() OptMoney {
+	return s.ResidualValue
+}
+
+// GetDepreciationStart returns the value of DepreciationStart.
+func (s *AssetTermsUpdate) GetDepreciationStart() OptNilDate {
+	return s.DepreciationStart
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *AssetTermsUpdate) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetMethod sets the value of Method.
+func (s *AssetTermsUpdate) SetMethod(val OptString) {
+	s.Method = val
+}
+
+// SetUsefulLifeMonths sets the value of UsefulLifeMonths.
+func (s *AssetTermsUpdate) SetUsefulLifeMonths(val OptInt32) {
+	s.UsefulLifeMonths = val
+}
+
+// SetDecliningFactor sets the value of DecliningFactor.
+func (s *AssetTermsUpdate) SetDecliningFactor(val OptString) {
+	s.DecliningFactor = val
+}
+
+// SetResidualValue sets the value of ResidualValue.
+func (s *AssetTermsUpdate) SetResidualValue(val OptMoney) {
+	s.ResidualValue = val
+}
+
+// SetDepreciationStart sets the value of DepreciationStart.
+func (s *AssetTermsUpdate) SetDepreciationStart(val OptNilDate) {
+	s.DepreciationStart = val
+}
+
+// Merge patch of an asset: its description, its depreciation start in every ledger, and its terms per
+// ledger.
+// Ref: #/components/schemas/AssetUpdate
+type AssetUpdate struct {
+	// What the asset is.
+	Description OptString `json:"description"`
+	// The day depreciation starts from in every ledger the asset has terms in (a `terms` entry's own wins
+	// for its ledger); null: from the capitalisation date.
+	DepreciationStart OptNilDate `json:"depreciation_start"`
+	// Changes of the terms per ledger, one entry per ledger.
+	Terms []AssetTermsUpdate `json:"terms"`
+}
+
+// GetDescription returns the value of Description.
+func (s *AssetUpdate) GetDescription() OptString {
+	return s.Description
+}
+
+// GetDepreciationStart returns the value of DepreciationStart.
+func (s *AssetUpdate) GetDepreciationStart() OptNilDate {
+	return s.DepreciationStart
+}
+
+// GetTerms returns the value of Terms.
+func (s *AssetUpdate) GetTerms() []AssetTermsUpdate {
+	return s.Terms
+}
+
+// SetDescription sets the value of Description.
+func (s *AssetUpdate) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetDepreciationStart sets the value of DepreciationStart.
+func (s *AssetUpdate) SetDepreciationStart(val OptNilDate) {
+	s.DepreciationStart = val
+}
+
+// SetTerms sets the value of Terms.
+func (s *AssetUpdate) SetTerms(val []AssetTermsUpdate) {
+	s.Terms = val
 }
 
 type AssignProfitCenterBadRequest Problem
@@ -6709,6 +7366,30 @@ type CancelApprovalRequestUnprocessableEntity Problem
 
 func (*CancelApprovalRequestUnprocessableEntity) cancelApprovalRequestRes() {}
 
+type CancelAssetBadRequest Problem
+
+func (*CancelAssetBadRequest) cancelAssetRes() {}
+
+type CancelAssetForbidden Problem
+
+func (*CancelAssetForbidden) cancelAssetRes() {}
+
+type CancelAssetNotFound Problem
+
+func (*CancelAssetNotFound) cancelAssetRes() {}
+
+type CancelAssetPreconditionFailed Problem
+
+func (*CancelAssetPreconditionFailed) cancelAssetRes() {}
+
+type CancelAssetPreconditionRequired Problem
+
+func (*CancelAssetPreconditionRequired) cancelAssetRes() {}
+
+type CancelAssetUnprocessableEntity Problem
+
+func (*CancelAssetUnprocessableEntity) cancelAssetRes() {}
+
 type CancelContractBadRequest Problem
 
 func (*CancelContractBadRequest) cancelContractRes() {}
@@ -9813,6 +10494,7 @@ func (*ConflictHeaders) blockLegalEntityRes()                 {}
 func (*ConflictHeaders) blockOrgUnitRes()                     {}
 func (*ConflictHeaders) blockPrincipalRes()                   {}
 func (*ConflictHeaders) cancelApprovalRequestRes()            {}
+func (*ConflictHeaders) cancelAssetRes()                      {}
 func (*ConflictHeaders) cancelContractRes()                   {}
 func (*ConflictHeaders) cancelDownPaymentRequestRes()         {}
 func (*ConflictHeaders) cancelMemoRecordRes()                 {}
@@ -9827,6 +10509,7 @@ func (*ConflictHeaders) captureSupplierInvoiceRes()           {}
 func (*ConflictHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*ConflictHeaders) closeFiscalPeriodRes()                {}
 func (*ConflictHeaders) closePurchaseOrderRes()               {}
+func (*ConflictHeaders) createAssetRes()                      {}
 func (*ConflictHeaders) createBusinessPartnerRes()            {}
 func (*ConflictHeaders) createChangeRequestRes()              {}
 func (*ConflictHeaders) createClearingRes()                   {}
@@ -9949,6 +10632,7 @@ func (*ConflictHeaders) unblockOrgUnitRes()                   {}
 func (*ConflictHeaders) unlockFiscalPeriodRes()               {}
 func (*ConflictHeaders) unlockPlanCategoryRes()               {}
 func (*ConflictHeaders) updateAiPolicyRes()                   {}
+func (*ConflictHeaders) updateAssetRes()                      {}
 func (*ConflictHeaders) updateChangeRequestRes()              {}
 func (*ConflictHeaders) updateConnectorRes()                  {}
 func (*ConflictHeaders) updateContractRes()                   {}
@@ -12422,6 +13106,30 @@ func (s *CountryPackSource) SetURL(val string) {
 func (s *CountryPackSource) SetRetrieved(val string) {
 	s.Retrieved = val
 }
+
+type CreateAssetBadRequest Problem
+
+func (*CreateAssetBadRequest) createAssetRes() {}
+
+type CreateAssetForbidden Problem
+
+func (*CreateAssetForbidden) createAssetRes() {}
+
+type CreateAssetNotFound Problem
+
+func (*CreateAssetNotFound) createAssetRes() {}
+
+type CreateAssetPreconditionFailed Problem
+
+func (*CreateAssetPreconditionFailed) createAssetRes() {}
+
+type CreateAssetPreconditionRequired Problem
+
+func (*CreateAssetPreconditionRequired) createAssetRes() {}
+
+type CreateAssetUnprocessableEntity Problem
+
+func (*CreateAssetUnprocessableEntity) createAssetRes() {}
 
 type CreateBusinessPartnerBadRequest Problem
 
@@ -16056,6 +16764,46 @@ func (*GetApprovalRequestForbidden) getApprovalRequestRes() {}
 type GetApprovalRequestNotFound Problem
 
 func (*GetApprovalRequestNotFound) getApprovalRequestRes() {}
+
+type GetAssetBadRequest Problem
+
+func (*GetAssetBadRequest) getAssetRes() {}
+
+type GetAssetForbidden Problem
+
+func (*GetAssetForbidden) getAssetRes() {}
+
+type GetAssetNotFound Problem
+
+func (*GetAssetNotFound) getAssetRes() {}
+
+// GetAssetOKHeaders wraps Asset with response headers.
+type GetAssetOKHeaders struct {
+	ETag     OptString
+	Response Asset
+}
+
+// GetETag returns the value of ETag.
+func (s *GetAssetOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetAssetOKHeaders) GetResponse() Asset {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetAssetOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetAssetOKHeaders) SetResponse(val Asset) {
+	s.Response = val
+}
+
+func (*GetAssetOKHeaders) getAssetRes() {}
 
 type GetBankAccountBadRequest Problem
 
@@ -22665,7 +23413,8 @@ func (s *LiquidityForecastBucketFlows) SetTotal(val Money) {
 }
 
 // The flows of one currency: per bucket, in the buckets' order, their total over the horizon, what is
-// expected after it, and what suppliers no run pays are owed.
+// expected after it, and what suppliers no run pays are owed; and the same flows by liquidity item and
+// its hierarchy.
 // Ref: #/components/schemas/LiquidityForecastCurrency
 type LiquidityForecastCurrency struct {
 	// The currency (ISO 4217).
@@ -22675,6 +23424,11 @@ type LiquidityForecastCurrency struct {
 	Total   Money                          `json:"total"`
 	Beyond  LiquidityForecastBeyond        `json:"beyond"`
 	Blocked LiquidityForecastBlocked       `json:"blocked"`
+	// The rows by liquidity item (T53e3), depth first: each item followed by its children, siblings by
+	// code, an item listed when it or a descendant has a flow; the row of what no rule assigns (without
+	// `liquidity_item`) last. The top rows (`level` 0) add up to each bucket's `total`, the currency's
+	// `total` and `beyond`.
+	Items []LiquidityForecastItem `json:"items"`
 }
 
 // GetCurrency returns the value of Currency.
@@ -22702,6 +23456,11 @@ func (s *LiquidityForecastCurrency) GetBlocked() LiquidityForecastBlocked {
 	return s.Blocked
 }
 
+// GetItems returns the value of Items.
+func (s *LiquidityForecastCurrency) GetItems() []LiquidityForecastItem {
+	return s.Items
+}
+
 // SetCurrency sets the value of Currency.
 func (s *LiquidityForecastCurrency) SetCurrency(val string) {
 	s.Currency = val
@@ -22725,6 +23484,184 @@ func (s *LiquidityForecastCurrency) SetBeyond(val LiquidityForecastBeyond) {
 // SetBlocked sets the value of Blocked.
 func (s *LiquidityForecastCurrency) SetBlocked(val LiquidityForecastBlocked) {
 	s.Blocked = val
+}
+
+// SetItems sets the value of Items.
+func (s *LiquidityForecastCurrency) SetItems(val []LiquidityForecastItem) {
+	s.Items = val
+}
+
+// A row of a currency's liquidity forecast by liquidity item (ADR-0051 §4, §9, T53e3): the shares of
+// the flows its item derives, with its descendants', per bucket, counted as the buckets' totals count
+// them (a `payable_blocked` share only with `include_blocked`), and the item's own flows by source and
+// certainty.
+// Ref: #/components/schemas/LiquidityForecastItem
+type LiquidityForecastItem struct {
+	// The liquidity item's code (`cash.liquidity_items`); absent on the row of the flows no derivation
+	// rule assigns and no default covers.
+	LiquidityItem OptString `json:"liquidity_item"`
+	// The liquidity item's name; absent with `liquidity_item`.
+	Name OptString `json:"name"`
+	// The code of the item's parent in the hierarchy; absent for a top item and the row without
+	// `liquidity_item`.
+	Parent OptString `json:"parent"`
+	// The item's depth in the hierarchy: 0 for a top item (and the row without `liquidity_item`), its
+	// parent's plus one below.
+	Level int32 `json:"level"`
+	// The item's and its descendants' shares per bucket, one per bucket of the forecast in the same order.
+	Buckets []Money `json:"buckets"`
+	Total   Money   `json:"total"`
+	Beyond  Money   `json:"beyond"`
+	// The item's own shares (not its descendants') by source and certainty, sorted by both; empty for an
+	// item listed for its descendants alone. Listed whether or not the totals count them: a
+	// `payable_blocked` row's amounts are its own.
+	Flows []LiquidityForecastItemFlows `json:"flows"`
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *LiquidityForecastItem) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetName returns the value of Name.
+func (s *LiquidityForecastItem) GetName() OptString {
+	return s.Name
+}
+
+// GetParent returns the value of Parent.
+func (s *LiquidityForecastItem) GetParent() OptString {
+	return s.Parent
+}
+
+// GetLevel returns the value of Level.
+func (s *LiquidityForecastItem) GetLevel() int32 {
+	return s.Level
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *LiquidityForecastItem) GetBuckets() []Money {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *LiquidityForecastItem) GetTotal() Money {
+	return s.Total
+}
+
+// GetBeyond returns the value of Beyond.
+func (s *LiquidityForecastItem) GetBeyond() Money {
+	return s.Beyond
+}
+
+// GetFlows returns the value of Flows.
+func (s *LiquidityForecastItem) GetFlows() []LiquidityForecastItemFlows {
+	return s.Flows
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *LiquidityForecastItem) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetName sets the value of Name.
+func (s *LiquidityForecastItem) SetName(val OptString) {
+	s.Name = val
+}
+
+// SetParent sets the value of Parent.
+func (s *LiquidityForecastItem) SetParent(val OptString) {
+	s.Parent = val
+}
+
+// SetLevel sets the value of Level.
+func (s *LiquidityForecastItem) SetLevel(val int32) {
+	s.Level = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *LiquidityForecastItem) SetBuckets(val []Money) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *LiquidityForecastItem) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetBeyond sets the value of Beyond.
+func (s *LiquidityForecastItem) SetBeyond(val Money) {
+	s.Beyond = val
+}
+
+// SetFlows sets the value of Flows.
+func (s *LiquidityForecastItem) SetFlows(val []LiquidityForecastItemFlows) {
+	s.Flows = val
+}
+
+// A liquidity item's own shares of the flows of one source and certainty, per bucket, over the horizon
+// and after the last bucket.
+// Ref: #/components/schemas/LiquidityForecastItemFlows
+type LiquidityForecastItemFlows struct {
+	// Where the flows come from (ADR-0051 §4). Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	Source string `json:"source"`
+	// How certain the flows are. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Certainty string `json:"certainty"`
+	// The shares per bucket, one per bucket of the forecast in the same order.
+	Buckets []Money `json:"buckets"`
+	Total   Money   `json:"total"`
+	Beyond  Money   `json:"beyond"`
+}
+
+// GetSource returns the value of Source.
+func (s *LiquidityForecastItemFlows) GetSource() string {
+	return s.Source
+}
+
+// GetCertainty returns the value of Certainty.
+func (s *LiquidityForecastItemFlows) GetCertainty() string {
+	return s.Certainty
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *LiquidityForecastItemFlows) GetBuckets() []Money {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *LiquidityForecastItemFlows) GetTotal() Money {
+	return s.Total
+}
+
+// GetBeyond returns the value of Beyond.
+func (s *LiquidityForecastItemFlows) GetBeyond() Money {
+	return s.Beyond
+}
+
+// SetSource sets the value of Source.
+func (s *LiquidityForecastItemFlows) SetSource(val string) {
+	s.Source = val
+}
+
+// SetCertainty sets the value of Certainty.
+func (s *LiquidityForecastItemFlows) SetCertainty(val string) {
+	s.Certainty = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *LiquidityForecastItemFlows) SetBuckets(val []Money) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *LiquidityForecastItemFlows) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetBeyond sets the value of Beyond.
+func (s *LiquidityForecastItemFlows) SetBeyond(val Money) {
+	s.Beyond = val
 }
 
 type ListAccountsBadRequest Problem
@@ -22770,6 +23707,14 @@ func (*ListAssetClassesBadRequest) listAssetClassesRes() {}
 type ListAssetClassesForbidden Problem
 
 func (*ListAssetClassesForbidden) listAssetClassesRes() {}
+
+type ListAssetsBadRequest Problem
+
+func (*ListAssetsBadRequest) listAssetsRes() {}
+
+type ListAssetsForbidden Problem
+
+func (*ListAssetsForbidden) listAssetsRes() {}
 
 type ListAuditEventsBadRequest Problem
 
@@ -41203,6 +42148,7 @@ func (*ServiceUnavailableHeaders) blockLegalEntityRes()                 {}
 func (*ServiceUnavailableHeaders) blockOrgUnitRes()                     {}
 func (*ServiceUnavailableHeaders) blockPrincipalRes()                   {}
 func (*ServiceUnavailableHeaders) cancelApprovalRequestRes()            {}
+func (*ServiceUnavailableHeaders) cancelAssetRes()                      {}
 func (*ServiceUnavailableHeaders) cancelContractRes()                   {}
 func (*ServiceUnavailableHeaders) cancelDownPaymentRequestRes()         {}
 func (*ServiceUnavailableHeaders) cancelMemoRecordRes()                 {}
@@ -41217,6 +42163,7 @@ func (*ServiceUnavailableHeaders) captureSupplierInvoiceRes()           {}
 func (*ServiceUnavailableHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*ServiceUnavailableHeaders) closeFiscalPeriodRes()                {}
 func (*ServiceUnavailableHeaders) closePurchaseOrderRes()               {}
+func (*ServiceUnavailableHeaders) createAssetRes()                      {}
 func (*ServiceUnavailableHeaders) createBusinessPartnerRes()            {}
 func (*ServiceUnavailableHeaders) createChangeRequestRes()              {}
 func (*ServiceUnavailableHeaders) createClearingRes()                   {}
@@ -41334,6 +42281,7 @@ func (*ServiceUnavailableHeaders) unblockOrgUnitRes()                   {}
 func (*ServiceUnavailableHeaders) unlockFiscalPeriodRes()               {}
 func (*ServiceUnavailableHeaders) unlockPlanCategoryRes()               {}
 func (*ServiceUnavailableHeaders) updateAiPolicyRes()                   {}
+func (*ServiceUnavailableHeaders) updateAssetRes()                      {}
 func (*ServiceUnavailableHeaders) updateChangeRequestRes()              {}
 func (*ServiceUnavailableHeaders) updateConnectorRes()                  {}
 func (*ServiceUnavailableHeaders) updateContractRes()                   {}
@@ -45474,6 +46422,7 @@ func (*TooManyRequestsHeaders) blockLegalEntityRes()                 {}
 func (*TooManyRequestsHeaders) blockOrgUnitRes()                     {}
 func (*TooManyRequestsHeaders) blockPrincipalRes()                   {}
 func (*TooManyRequestsHeaders) cancelApprovalRequestRes()            {}
+func (*TooManyRequestsHeaders) cancelAssetRes()                      {}
 func (*TooManyRequestsHeaders) cancelContractRes()                   {}
 func (*TooManyRequestsHeaders) cancelDownPaymentRequestRes()         {}
 func (*TooManyRequestsHeaders) cancelMemoRecordRes()                 {}
@@ -45488,6 +46437,7 @@ func (*TooManyRequestsHeaders) captureSupplierInvoiceRes()           {}
 func (*TooManyRequestsHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*TooManyRequestsHeaders) closeFiscalPeriodRes()                {}
 func (*TooManyRequestsHeaders) closePurchaseOrderRes()               {}
+func (*TooManyRequestsHeaders) createAssetRes()                      {}
 func (*TooManyRequestsHeaders) createBusinessPartnerRes()            {}
 func (*TooManyRequestsHeaders) createChangeRequestRes()              {}
 func (*TooManyRequestsHeaders) createClearingRes()                   {}
@@ -45538,6 +46488,7 @@ func (*TooManyRequestsHeaders) getAiPolicyRes()                      {}
 func (*TooManyRequestsHeaders) getAiUsageRes()                       {}
 func (*TooManyRequestsHeaders) getAnalyticsModelRes()                {}
 func (*TooManyRequestsHeaders) getApprovalRequestRes()               {}
+func (*TooManyRequestsHeaders) getAssetRes()                         {}
 func (*TooManyRequestsHeaders) getBankAccountRes()                   {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()               {}
 func (*TooManyRequestsHeaders) getBankFileRes()                      {}
@@ -45608,6 +46559,7 @@ func (*TooManyRequestsHeaders) listAgentSessionsRes()                {}
 func (*TooManyRequestsHeaders) listAgentToolCallsRes()               {}
 func (*TooManyRequestsHeaders) listApprovalRequestsRes()             {}
 func (*TooManyRequestsHeaders) listAssetClassesRes()                 {}
+func (*TooManyRequestsHeaders) listAssetsRes()                       {}
 func (*TooManyRequestsHeaders) listAuditEventsRes()                  {}
 func (*TooManyRequestsHeaders) listBalancesRes()                     {}
 func (*TooManyRequestsHeaders) listBankAccountsRes()                 {}
@@ -45751,6 +46703,7 @@ func (*TooManyRequestsHeaders) unblockOrgUnitRes()                   {}
 func (*TooManyRequestsHeaders) unlockFiscalPeriodRes()               {}
 func (*TooManyRequestsHeaders) unlockPlanCategoryRes()               {}
 func (*TooManyRequestsHeaders) updateAiPolicyRes()                   {}
+func (*TooManyRequestsHeaders) updateAssetRes()                      {}
 func (*TooManyRequestsHeaders) updateChangeRequestRes()              {}
 func (*TooManyRequestsHeaders) updateConnectorRes()                  {}
 func (*TooManyRequestsHeaders) updateContractRes()                   {}
@@ -45840,6 +46793,7 @@ func (*UnauthorizedHeaders) blockLegalEntityRes()                 {}
 func (*UnauthorizedHeaders) blockOrgUnitRes()                     {}
 func (*UnauthorizedHeaders) blockPrincipalRes()                   {}
 func (*UnauthorizedHeaders) cancelApprovalRequestRes()            {}
+func (*UnauthorizedHeaders) cancelAssetRes()                      {}
 func (*UnauthorizedHeaders) cancelContractRes()                   {}
 func (*UnauthorizedHeaders) cancelDownPaymentRequestRes()         {}
 func (*UnauthorizedHeaders) cancelMemoRecordRes()                 {}
@@ -45854,6 +46808,7 @@ func (*UnauthorizedHeaders) captureSupplierInvoiceRes()           {}
 func (*UnauthorizedHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*UnauthorizedHeaders) closeFiscalPeriodRes()                {}
 func (*UnauthorizedHeaders) closePurchaseOrderRes()               {}
+func (*UnauthorizedHeaders) createAssetRes()                      {}
 func (*UnauthorizedHeaders) createBusinessPartnerRes()            {}
 func (*UnauthorizedHeaders) createChangeRequestRes()              {}
 func (*UnauthorizedHeaders) createClearingRes()                   {}
@@ -45904,6 +46859,7 @@ func (*UnauthorizedHeaders) getAiPolicyRes()                      {}
 func (*UnauthorizedHeaders) getAiUsageRes()                       {}
 func (*UnauthorizedHeaders) getAnalyticsModelRes()                {}
 func (*UnauthorizedHeaders) getApprovalRequestRes()               {}
+func (*UnauthorizedHeaders) getAssetRes()                         {}
 func (*UnauthorizedHeaders) getBankAccountRes()                   {}
 func (*UnauthorizedHeaders) getBankFileContentRes()               {}
 func (*UnauthorizedHeaders) getBankFileRes()                      {}
@@ -45974,6 +46930,7 @@ func (*UnauthorizedHeaders) listAgentSessionsRes()                {}
 func (*UnauthorizedHeaders) listAgentToolCallsRes()               {}
 func (*UnauthorizedHeaders) listApprovalRequestsRes()             {}
 func (*UnauthorizedHeaders) listAssetClassesRes()                 {}
+func (*UnauthorizedHeaders) listAssetsRes()                       {}
 func (*UnauthorizedHeaders) listAuditEventsRes()                  {}
 func (*UnauthorizedHeaders) listBalancesRes()                     {}
 func (*UnauthorizedHeaders) listBankAccountsRes()                 {}
@@ -46117,6 +47074,7 @@ func (*UnauthorizedHeaders) unblockOrgUnitRes()                   {}
 func (*UnauthorizedHeaders) unlockFiscalPeriodRes()               {}
 func (*UnauthorizedHeaders) unlockPlanCategoryRes()               {}
 func (*UnauthorizedHeaders) updateAiPolicyRes()                   {}
+func (*UnauthorizedHeaders) updateAssetRes()                      {}
 func (*UnauthorizedHeaders) updateChangeRequestRes()              {}
 func (*UnauthorizedHeaders) updateConnectorRes()                  {}
 func (*UnauthorizedHeaders) updateContractRes()                   {}
@@ -46314,6 +47272,70 @@ func (*UpdateAiPolicyPreconditionRequired) updateAiPolicyRes() {}
 type UpdateAiPolicyUnprocessableEntity Problem
 
 func (*UpdateAiPolicyUnprocessableEntity) updateAiPolicyRes() {}
+
+type UpdateAssetBadRequest Problem
+
+func (*UpdateAssetBadRequest) updateAssetRes() {}
+
+type UpdateAssetForbidden Problem
+
+func (*UpdateAssetForbidden) updateAssetRes() {}
+
+type UpdateAssetNotFound Problem
+
+func (*UpdateAssetNotFound) updateAssetRes() {}
+
+// UpdateAssetOKHeaders wraps Asset with response headers.
+type UpdateAssetOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           Asset
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateAssetOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateAssetOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateAssetOKHeaders) GetResponse() Asset {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateAssetOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateAssetOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateAssetOKHeaders) SetResponse(val Asset) {
+	s.Response = val
+}
+
+func (*UpdateAssetOKHeaders) cancelAssetRes() {}
+func (*UpdateAssetOKHeaders) updateAssetRes() {}
+
+type UpdateAssetPreconditionFailed Problem
+
+func (*UpdateAssetPreconditionFailed) updateAssetRes() {}
+
+type UpdateAssetPreconditionRequired Problem
+
+func (*UpdateAssetPreconditionRequired) updateAssetRes() {}
+
+type UpdateAssetUnprocessableEntity Problem
+
+func (*UpdateAssetUnprocessableEntity) updateAssetRes() {}
 
 type UpdateChangeRequestBadRequest Problem
 
