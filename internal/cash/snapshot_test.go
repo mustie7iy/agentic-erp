@@ -446,7 +446,7 @@ func TestCashSnapshotFailures(t *testing.T) {
 		},
 		"due": func(ctx context.Context) error { _, err := endpoints().DueSnapshots(ctx, readAt); return err },
 		"prune": func(ctx context.Context) error {
-			_, err := endpoints().PruneSnapshots(ctx, e.le, day.AddDate(3, 0, 0))
+			_, err := endpoints().PruneSnapshots(ctx, e.le, day)
 			return err
 		},
 	} {

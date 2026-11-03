@@ -478,8 +478,8 @@ T53f2-T53f4 in the tracker, src `split:T53f`; decided by default where §6,
   proposals are T53i's).
 - **Tables.** Migration 000192 creates `cash.snapshot` and
   `cash.snapshot_flow` (RLS, `tenant_id` first, insert-only: no version,
-  so no update is granted; deleted only by retention, the lines with
-  their snapshot) and seeds `cash.snapshot.take`. §6's columns, with three
+  so no update is granted, and no delete; deleted only by retention, the
+  lines with their snapshot) and seeds `cash.snapshot.take`. §6's columns, with three
   decisions: `kind` (`daily`, one per company and date, `snapshot_daily`;
   `on_demand`, named, `snapshot_name`) in place of `status`, since a
   snapshot is written whole in one transaction and has no state to track;
@@ -556,7 +556,12 @@ T53f2-T53f4 in the tracker, src `split:T53f`; decided by default where §6,
 - **Retention.** The workflow then deletes the company's snapshots dated
   more than 25 months before its date (daily and on demand alike, as §6
   keeps them alike), each audited (`cash.snapshot.delete`, reason
-  `retention`); run again it deletes nothing. §6's exception, a snapshot
+  `retention`); run again it deletes nothing. The application may delete
+  no row (`TestDesignRules`), so the deletion is a function of the
+  database, `cash.delete_expired_snapshots` (run as the tables' owner,
+  still under row-level security), which computes the 25 months itself
+  and refuses a day after UTC's tomorrow: no caller reaches a snapshot
+  younger than its retention. §6's exception, a snapshot
   a variance comment refers to, is T53f4's to add with the comments.
 - **API.** `POST /v1/cash-snapshots` (`takeCashSnapshot`,
   `cash.snapshot.take`, Idempotency-Key, `x-agent: false`: §13 gives the
@@ -580,7 +585,7 @@ T53f2-T53f4 in the tracker, src `split:T53f`; decided by default where §6,
 - **Budget.** §6 names none for snapshots: the read is the forecast's
   (01 §Performance, p95 3 s at 100,000 open items), and the lines are
   written in one statement.
-- **Evidence.** `db.TestCashSnapshotRules`, `TestCashSnapshotPrivileges`;
+- **Evidence.** `db.TestCashSnapshotRules`, `TestCashSnapshotPrivileges`, `TestCashSnapshotRetentionRule`;
   `cash.TestCashSnapshotOnDemand` (a run's payment of two items, a credit
   memo netted into an invoice's payment kept as two lines of one flow,
   memo records, a down payment request, two supplier items summed in

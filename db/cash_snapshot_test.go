@@ -166,9 +166,15 @@ func TestCashSnapshotRules(t *testing.T) {
 		{"a document-level line of two flows", func(f fixture, sid uuid.UUID) []stmt {
 			return []stmt{snapshotRow(f, sid, nil), flowRow(f, sid, 1, map[string]any{"flow_count": 2})}
 		}, "snapshot_flow_count"},
-		{"a snapshot deleted with its lines", func(f fixture, sid uuid.UUID) []stmt {
-			return []stmt{snapshotRow(f, sid, nil), flowRow(f, sid, 1, nil), step(`DELETE FROM cash.snapshot WHERE id = $1`, sid)}
-		}, ""},
+		{"a snapshot deleted", func(f fixture, sid uuid.UUID) []stmt {
+			return []stmt{snapshotRow(f, sid, nil), step(`DELETE FROM cash.snapshot WHERE id = $1`, sid)}
+		}, "permission denied"},
+		{"a line deleted", func(f fixture, sid uuid.UUID) []stmt {
+			return []stmt{snapshotRow(f, sid, nil), flowRow(f, sid, 1, nil), step(`DELETE FROM cash.snapshot_flow WHERE snapshot_id = $1`, sid)}
+		}, "permission denied"},
+		{"retention on a day after tomorrow", func(f fixture, sid uuid.UUID) []stmt {
+			return []stmt{step(`SELECT count(*) FROM cash.delete_expired_snapshots($1, current_date + 2)`, f.entity)}
+		}, "a day after tomorrow"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f := newFixture(t)
@@ -203,7 +209,9 @@ func TestCashSnapshotPrivileges(t *testing.T) {
 		{`has_column_privilege('erp_worker', 'cash.liquidity_item', 'tenant_id', 'SELECT')`, true},
 		{`has_column_privilege('erp_worker', 'cash.liquidity_item', 'name', 'SELECT')`, false},
 		{`has_table_privilege('erp_worker', 'cash.snapshot', 'SELECT')`, false},
-		{`has_table_privilege('erp_app', 'cash.snapshot', 'DELETE')`, true},
+		{`has_table_privilege('erp_app', 'cash.snapshot', 'DELETE')`, false},
+		{`has_function_privilege('erp_app', 'cash.delete_expired_snapshots(uuid, date)', 'EXECUTE')`, true},
+		{`has_function_privilege('erp_readonly', 'cash.delete_expired_snapshots(uuid, date)', 'EXECUTE')`, false},
 		{`has_table_privilege('erp_app', 'cash.snapshot_flow', 'UPDATE')`, false},
 	} {
 		t.Run(c.check, func(t *testing.T) {
@@ -215,5 +223,47 @@ func TestCashSnapshotPrivileges(t *testing.T) {
 				t.Errorf("got %v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+// TestCashSnapshotRetentionRule: the retention function deletes a
+// company's snapshots dated more than 25 months before the day, months
+// back clamped to the month's last day, with their lines, and no other
+// tenant's (T53f, 000192).
+func TestCashSnapshotRetentionRule(t *testing.T) {
+	need(t)
+	f, other := newFixture(t), newFixture(t)
+	old, kept, leap := id(), id(), id()
+	mustApp(t, other.tenant, func(tx pgx.Tx) error {
+		return all(tx, snapshotRow(other, id(), map[string]any{"snapshot_date": "2024-01-01", "horizon_end": "2024-12-31"}))
+	})
+	var deleted []uuid.UUID
+	var lines int
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		err := all(tx, memoItems(f),
+			snapshotRow(f, old, map[string]any{"snapshot_date": "2024-02-28", "horizon_end": "2024-12-31"}), flowRow(f, old, 1, nil),
+			snapshotRow(f, leap, map[string]any{"snapshot_date": "2024-02-29", "horizon_end": "2024-12-31", "kind": "on_demand", "name": "Leap"}),
+			snapshotRow(f, kept, map[string]any{"snapshot_date": "2024-03-01", "horizon_end": "2024-12-31", "kind": "on_demand", "name": "Kept"}))
+		if err != nil {
+			return err
+		}
+		rows, _ := tx.Query(context.Background(), `SELECT deleted_id FROM cash.delete_expired_snapshots($1, '2026-03-31') ORDER BY deleted_date`, f.entity)
+		if deleted, err = pgx.CollectRows(rows, pgx.RowTo[uuid.UUID]); err != nil {
+			return err
+		}
+		return tx.QueryRow(context.Background(), `SELECT count(*) FROM cash.snapshot_flow WHERE snapshot_id = $1`, old).Scan(&lines)
+	})
+	if len(deleted) != 1 || deleted[0] != old {
+		t.Errorf("deleted on 31 March 2026 (before 29 February 2024): got %v, want only %v", deleted, old)
+	}
+	if lines != 0 {
+		t.Errorf("the deleted snapshot's lines: got %d, want none", lines)
+	}
+	var others int
+	mustApp(t, other.tenant, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `SELECT count(*) FROM cash.snapshot`).Scan(&others)
+	})
+	if others != 1 {
+		t.Errorf("another tenant's snapshot: got %d, want it kept", others)
 	}
 }

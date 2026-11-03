@@ -440,8 +440,10 @@ func (e *Endpoints) PruneSnapshots(ctx context.Context, legalEntity uuid.UUID, d
 	if err != nil {
 		return 0, err
 	}
+	// The database computes the same day (cash.delete_expired_snapshots,
+	// months back clamped to the month's last day); it is the audit's.
 	before := addMonths(date, -retentionMonths)
-	rows, _ := tx.Query(ctx, `DELETE FROM cash.snapshot WHERE legal_entity_id = $1 AND snapshot_date < $2 RETURNING id, kind, snapshot_date`, legalEntity, before)
+	rows, _ := tx.Query(ctx, `SELECT deleted_id, deleted_kind, deleted_date FROM cash.delete_expired_snapshots($1, $2)`, legalEntity, date)
 	type gone struct {
 		id   uuid.UUID
 		kind string
