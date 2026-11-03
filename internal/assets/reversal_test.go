@@ -58,7 +58,9 @@ func amounts(q map[string]any) string {
 // capital (USD, group EUR) is converted at the posting date's rate, its
 // movement takes the cost line's local and group amounts, the asset
 // becomes active on its posting date, and it reads back with its offset
-// account, audited and published.
+// account, audited and published. Its reversal, and that of a GBP line's
+// part, negate the local and group amounts exactly and give the line
+// back in all three currencies.
 func TestManualAcquisition(t *testing.T) {
 	e := newAcquisitions(t)
 	a, _ := e.create(t, e.body(e.US, "MACHINES", ""))
@@ -85,6 +87,23 @@ func TestManualAcquisition(t *testing.T) {
 	want(t, "the audited offset account", offset, capital)
 	page, _ := e.Must(200, "GET", "/v1/asset-acquisitions?page_size=1&asset_id="+a["id"].(string), "", "")
 	want(t, "listed with its offset account", page["items"].([]any)[0].(map[string]any)["offset_account"].(map[string]any)["number"], "300000")
+
+	entry := e.post(t, "1000", "2026-06-10", "GBP", nil, line{"169000", "1000.00"}, line{"100000", "-1000.00"})
+	part := e.acquire(t, a["id"], entry, 1, `, "amount": {"amount": "333.33", "currency": "GBP"}`)
+	e.reverse(t, q, "")
+	e.reverse(t, part, "")
+	var negated string
+	pgtest.Scan(t, `SELECT string_agg(concat_ws(' ', m.cost, m.cost_gc), '; ' ORDER BY m.seq) FROM assets.movement m WHERE m.asset_id = $1 AND m.reverses_id IS NOT NULL`,
+		[]any{a["id"]}, &negated)
+	want(t, "the negated movements in local and group currency", negated, "-12700 -11684; -42333 -38946")
+	var used string
+	pgtest.Scan(t, `SELECT concat_ws(' ', used, used_lc, used_gc) FROM assets.clearing_use WHERE entry_id = $1`, []any{entry}, &used)
+	want(t, "the line given back in all three currencies", used, "0 0 0")
+	want(t, "the cost account", balances(t, e.Tenant.ID, e.Account(t, "1000", "160000")), "0L: 0 0 0")
+	evs = apitest.Published(t, e.Tenant, outbox.Event{Context: "assets", Name: "asset_movement_reversed"})
+	ledgers = evs[0]["ledgers"].([]any)[0].(map[string]any)
+	want(t, "the reversal's event", fmt.Sprint(evs[0]["asset_status"], " ", moneyOf(ledgers["cost"]), " ", moneyOf(ledgers["cost_gc"])),
+		"active -127.00 USD -116.84 EUR")
 }
 
 // TestManualAcquisitionRefused: an offset account that is a
@@ -354,6 +373,8 @@ func TestReversalLine(t *testing.T) {
 	e.clocked.Problem(422, "assets.source_reversed", "POST", "/v1/asset-acquisitions", takeOff(other["id"], ""), "")
 	e.clocked.Problem(422, "assets.amount_exceeds_line", "POST", "/v1/asset-acquisitions", takeOff(mill["id"], "-70.00"), "")
 	e.clocked.Problem(422, "assets.amount_exceeds_line", "POST", "/v1/asset-acquisitions", takeOff(mill["id"], "50.00"), "")
+	e.clocked.Problem(422, "request.validation_failed", "POST", "/v1/asset-acquisitions", acquisition(mill["id"], rev, 1,
+		`, "amount": {"amount": "-500.00", "currency": "USD"}`), "")
 	e.clocked.Problem(422, "assets.source_reversed", "POST", "/v1/asset-acquisitions", acquisition(mill["id"], entry, 1, ""), "")
 	part, _ := e.clocked.Must(201, "POST", "/v1/asset-acquisitions", takeOff(mill["id"], "-50.00"), "")
 	want(t, "the take-off", amounts(part), "-50.00 EUR, -50.00 EUR, -50.00 EUR")

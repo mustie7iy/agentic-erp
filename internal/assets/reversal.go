@@ -58,8 +58,11 @@ func (e *Endpoints) reverseAcquisition(ctx context.Context, id uuid.UUID, ifMatc
 }
 
 // lockAcquisition reads the acquisition (404 for one of a company the
-// caller may not act in), then its asset and the acquisition again FOR
-// UPDATE, in that order, as every posting on the asset locks it first.
+// caller may not act in), then its asset, the acquisition again and its
+// source line's use FOR UPDATE, in that order: the order an acquisition
+// takes them (asset, line, then the ledger's number range), so a reversal
+// and an acquisition from the same line onto another asset never wait on
+// each other's locks the other way round (ADR-0008).
 func lockAcquisition(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Asset, Acquisition, error) {
 	q, err := readAcquisition(ctx, tx, id)
 	if err != nil {
@@ -72,6 +75,12 @@ func lockAcquisition(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Asset, Acqui
 	q, err = scanAcquisition(tx.QueryRow(ctx, acquisitionSelect+` WHERE q.id = $1 FOR UPDATE OF q`, id))
 	if err != nil {
 		return Asset{}, Acquisition{}, fmt.Errorf("assets: lock acquisition %s: %w", id, err)
+	}
+	if s := q.Source; s != nil {
+		if _, err := tx.Exec(ctx, `SELECT FROM assets.clearing_use WHERE entry_year = $1 AND entry_id = $2 AND line_no = $3 FOR UPDATE`,
+			s.FiscalYear, s.EntryID, s.LineNo); err != nil {
+			return Asset{}, Acquisition{}, fmt.Errorf("assets: lock the use of line %d of entry %s: %w", s.LineNo, s.EntryID, err)
+		}
 	}
 	entries, err := readEntries(ctx, tx, "acquisition", []uuid.UUID{id})
 	q.Entries = entries[id]
@@ -203,13 +212,11 @@ func (e *Endpoints) reverseEntries(ctx context.Context, q Acquisition, on time.T
 // derived again (ADR-0057 §5).
 func writeReversal(ctx context.Context, tx pgx.Tx, p reqctx.Principal, q Acquisition, seq int32, on time.Time, reason string,
 	reversals map[uuid.UUID]PostedEntry) error {
-	tag, err := tx.Exec(ctx, `UPDATE assets.acquisition SET status = 'reversed', reversal_posting_date = $2, reversal_reason = $3, version = version + 1,
-		updated_by = $4 WHERE id = $1 AND status = 'posted'`, q.ID, on, reason, p.ID)
-	if err != nil {
+	// Guarded on the status, which this transaction read FOR UPDATE, so
+	// the row always matches; acquisition_transition holds it too.
+	if _, err := tx.Exec(ctx, `UPDATE assets.acquisition SET status = 'reversed', reversal_posting_date = $2, reversal_reason = $3, version = version + 1,
+		updated_by = $4 WHERE id = $1 AND status = 'posted'`, q.ID, on, reason, p.ID); err != nil {
 		return fmt.Errorf("assets: reverse acquisition %s: %w", q.ID, err)
-	}
-	if tag.RowsAffected() != 1 { // read posted FOR UPDATE in this transaction
-		return fmt.Errorf("assets: acquisition %s is no longer posted", q.ID)
 	}
 	for _, en := range q.Entries {
 		r := reversals[en.LedgerID]

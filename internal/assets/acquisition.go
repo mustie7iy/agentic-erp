@@ -149,6 +149,9 @@ func (e *Endpoints) prepareFromLine(ctx context.Context, tx pgx.Tx, doc *config.
 		if amount == nil {
 			currency = a.line.Currency // the default is in the line's
 		}
+		if currency != a.line.Currency { // before the bound, which is in the line's currency
+			return validation("amount.currency", "the line's currency, "+a.line.Currency)
+		}
 		if amount, err = takeOff(ctx, tx, *a, amount); err != nil {
 			return err
 		}

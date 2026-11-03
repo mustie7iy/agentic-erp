@@ -51,8 +51,9 @@ func (e assetEnv) number(t *testing.T, entry uuid.UUID) string {
 // supplier invoice behind a line, leaves out a reversed entry and its
 // reversal while nothing was capitalised from it, shows a reversed line
 // with acquisitions, keeps only lines with something left with
-// remaining=true (or reversed with something its reversal's line offers), pages by posting date, entry and line, and has nothing
-// for a company the caller cannot act in or one without asset accounts.
+// remaining=true (or reversed with something its reversal's line
+// offers), pages by posting date, entry and line, and has nothing for a
+// company the caller cannot act in or one without asset accounts.
 func TestClearingItems(t *testing.T) {
 	e := newAcquisitions(t)
 	cc := fmt.Sprintf(`, "cost_center_id": %q`, e.c.Admin)
