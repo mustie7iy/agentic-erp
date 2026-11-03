@@ -987,9 +987,9 @@ owner decided on 2026-11-02:
   segregation-of-duties rule in force), person or agent.
 - **Left out, never refused.** Any other caller gets the payments with
   `bank_account_id` alone, the payment's own reference, as an expansion is
-  left out (04 §4.4). The partner context's accounts are then not read at
-  all (`supplierAccounts`), and the permission is read once a page, only
-  for a page with payments.
+  left out (04 §4.4). The handler decides once a page, and only for a
+  page with payments (`mayShowAccounts`); without the permission the
+  partner context's accounts are not read at all (`paymentRefs`).
 - **The contract.** `bank_account_last4`, `bank_account_scheme` and
   `bank_account_holder_name` were required; they are now optional, which a
   consumer that relied on them notices: an accepted break before v1, listed
@@ -1007,7 +1007,12 @@ owner decided on 2026-11-02:
 - **Tests.** `TestBankDetailsNeedPartnerRead` lists a run's payments as a
   person and an agent and searches a statement's payments as a person,
   with the permission held, barred by a segregation-of-duties rule and not
-  held; the payments package's tenant holds it, so every other test still
-  checks the details; `TestDatabaseFailures` fails the permission's read.
+  held, on a Canadian account so the bank and branch numbers are checked
+  too; `TestPaymentRefs` shows a page whose accounts are not shown reads
+  none. The payments package's tenant holds `partner.supplier.read`
+  (`perms`), so every other test still checks the details and the failure
+  tests (`TestDatabaseFailures`, `TestSearchPaymentsDatabaseFailures`)
+  fail the permission's two reads (permissions, then SoD rules) in turn:
+  removing the grant from `perms` would silently drop that coverage.
   No walkthrough step: the walkthrough's caller holds every permission, and
   this is a security fix, not a capability.

@@ -61,7 +61,7 @@ func runOK(ctx context.Context, r Run) (*gen.RejectPaymentRunOKHeaders, error) {
 // paymentToAPI is payment p of run r, named by refs; a payment that names
 // no house bank is paid by its run's. Its supplier's bank account is given
 // only when refs hold it, that is to a caller who may read business
-// partners (paymentRefs).
+// partners (mayShowAccounts).
 func paymentToAPI(p Payment, r Run, refs paymentRefs) gen.Payment {
 	currency, exp, numbers := r.Currency, r.Exponent, refs.numbers
 	out := gen.Payment{ID: p.ID, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, PaymentRunID: p.RunID, SupplierID: p.SupplierID, SupplierName: refs.suppliers[p.SupplierID].Name,
@@ -229,7 +229,11 @@ func (e *Endpoints) ListPayments(ctx context.Context, params gen.ListPaymentsPar
 		return nil, fmt.Errorf("payments: list payments of run %s: %w", r.ID, err)
 	}
 	page, next := pagination.Page(ks, pays, idKey(func(p Payment) uuid.UUID { return p.ID }))
-	refs, err := e.paymentRefs(ctx, r, page)
+	shown, err := mayShowAccounts(ctx, page)
+	if err != nil {
+		return nil, fmt.Errorf("payments: list payments of run %s: %w", r.ID, err)
+	}
+	refs, err := e.paymentRefs(ctx, r, page, shown)
 	if err != nil {
 		return nil, fmt.Errorf("payments: list payments of run %s: %w", r.ID, err)
 	}
@@ -330,8 +334,7 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 // suppliers' names, the document numbers of the down payment requests and
 // journal entries (the payments' postings and their items'), the house
 // banks' codes, and the suppliers' bank accounts, masked; none for a
-// caller who may not use partner.ReadPermission (product owner
-// 2026-11-02, T45e).
+// caller who may not use partner.ReadPermission (mayShowAccounts).
 type paymentRefs struct {
 	suppliers           map[uuid.UUID]partner.Named
 	numbers, houseBanks map[uuid.UUID]string
@@ -339,8 +342,9 @@ type paymentRefs struct {
 }
 
 // paymentRefs reads what the page's payments of run r reference, one call
-// to each context for the page.
-func (e *Endpoints) paymentRefs(ctx context.Context, r Run, page []Payment) (paymentRefs, error) {
+// to each context for the page; the suppliers' bank accounts only when
+// shown (mayShowAccounts).
+func (e *Endpoints) paymentRefs(ctx context.Context, r Run, page []Payment, shown bool) (paymentRefs, error) {
 	var refs paymentRefs
 	var err error
 	if refs.suppliers, err = supplierNames(ctx, e.Payees, page, func(p Payment) (uuid.UUID, string) { return p.SupplierID, "payment " + p.ID.String() }); err != nil {
@@ -349,33 +353,31 @@ func (e *Endpoints) paymentRefs(ctx context.Context, r Run, page []Payment) (pay
 	if refs.numbers, err = e.paymentNumbers(ctx, page); err != nil {
 		return refs, err
 	}
-	if refs.accounts, err = supplierAccounts(ctx, e.Payees, page); err != nil {
-		return refs, err
+	if shown {
+		accounts := make([]uuid.UUID, len(page))
+		for i, p := range page {
+			accounts[i] = p.BankAccountID
+		}
+		if refs.accounts, err = idref.Resolve(ctx, e.Payees.BankAccounts, accounts, accountRef); err != nil {
+			return refs, err
+		}
 	}
 	refs.houseBanks, err = bankCodes(ctx, page, func(p Payment) *uuid.UUID { return bankOf(r, p) })
 	return refs, err
 }
 
-// supplierAccounts reads the suppliers' bank accounts the page's payments pay
-// to, masked, for a caller who may use partner.ReadPermission, as
+// mayShowAccounts tells whether a page's payments show their suppliers'
+// bank accounts: only to a caller who may use partner.ReadPermission, as
 // Authorize decides it (held, and not barred by a segregation-of-duties
-// rule); for any other caller, person or agent, none, so the payments are
-// answered without their bank details rather than refused (product owner
-// 2026-11-02, T45e; 04 §4.4). The permission is read only for a page with
-// payments.
-func supplierAccounts(ctx context.Context, payees Payees, page []Payment) (map[uuid.UUID]partner.BankAccount, error) {
+// rule). Any other caller, person or agent, gets the payments without
+// their bank details rather than a refusal, and the accounts are not read
+// (product owner 2026-11-02, T45e; 04 §4.4). The permission is read only
+// for a page with payments.
+func mayShowAccounts(ctx context.Context, page []Payment) (bool, error) {
 	if len(page) == 0 {
-		return nil, nil
+		return false, nil
 	}
-	may, err := authz.MayUse(ctx, partner.ReadPermission)
-	if err != nil || !may {
-		return nil, err
-	}
-	accounts := make([]uuid.UUID, len(page))
-	for i, p := range page {
-		accounts[i] = p.BankAccountID
-	}
-	return idref.Resolve(ctx, payees.BankAccounts, accounts, accountRef)
+	return authz.MayUse(ctx, partner.ReadPermission)
 }
 
 // paymentNumbers gives the document numbers of the down payment requests

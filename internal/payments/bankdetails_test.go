@@ -27,6 +27,12 @@ func TestBankDetailsNeedPartnerRead(t *testing.T) {
 	if err := pgtest.Admin(t).QueryRow(t.Context(), `SELECT payment_run_id::text FROM payments.payment WHERE id = $1`, uuidOf(sc.pays[0].payment)).Scan(&run); err != nil {
 		t.Fatal(err)
 	}
+	// The supplier's account becomes a Canadian one, so its bank and branch
+	// numbers are there to be shown or left out; bank accounts are
+	// insert-only but for their end, so the trigger is off for this row.
+	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica;
+		UPDATE partner.bank_account SET account_scheme = 'ca', institution_number = '004', transit_number = '12345', bic = NULL,
+		bank_country_code = 'CA' WHERE partner_id = '%s'; END $$`, e.Supplier))
 	paths := map[string]string{"run's payments": "/v1/payment-runs/" + run + "/payments", "statement's search": "/v1/bank-statements/" + sc.statement + "/payments"}
 	check := func(t *testing.T, as pgtest.Actor, path string, shown bool) {
 		t.Helper()
@@ -61,7 +67,13 @@ func TestBankDetailsNeedPartnerRead(t *testing.T) {
 			pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
 				VALUES ($1, gen_random_uuid(), $2, 'payments.run.propose', 'd', current_date, $3)`, e.Tenant.ID, partner.ReadPermission, e.Tenant.Human.ID)
 		}},
-		{"not held", false, func() { e.Tenant.Revoke(t, partner.ReadPermission, e.Tenant.Human, e.Tenant.Agent) }},
+		{"not held", false, func() {
+			// The rule is gone, so only the permission's absence hides the
+			// details; rules are never deleted but here, with the trigger off.
+			pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica;
+				DELETE FROM identity.sod_rule WHERE tenant_id = '%s'; END $$`, e.Tenant.ID))
+			e.Tenant.Revoke(t, partner.ReadPermission, e.Tenant.Human, e.Tenant.Agent)
+		}},
 	}
 	for _, c := range cases {
 		c.setup()
