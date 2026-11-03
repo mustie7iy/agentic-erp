@@ -96,9 +96,12 @@ func (e forecastEnv) item(t *testing.T, partner uuid.UUID, day, currency string,
 //   - CAD -4,000.00 of 30 April due in 365 days (Friday 30 April 2027,
 //     paid the Thursday before): beyond the horizon, which ends on 16 April
 //     2027;
-//   - the vendor's USD -700.00, blocked for payment: left out;
+//   - the vendor's USD -700.00, blocked for payment: apart;
 //   - CAD -800.00 held by a proposed run, whose CAD 800.00 payment counts on
 //     the run date, the 17th, instead.
+//
+// The vendor's item is shown apart on its net due date, Friday 1 May, and
+// summed in blocked, outside the totals.
 func (e forecastEnv) forecastScenario(t *testing.T) {
 	t.Helper()
 	e.item(t, e.Supplier, "2026-04-01", "CAD", -100000, &terms{baseline: "2026-04-01", net: 30, discDays: 20, discPct: "2"})
@@ -144,8 +147,9 @@ func flowsOf(t *testing.T, f map[string]any) []string {
 					amount(bm["total"])))
 			}
 		}
-		beyond := cm["beyond"].(map[string]any)
-		out = append(out, fmt.Sprintf("%s total %s, beyond %s x%v", cm["currency"], amount(cm["total"]), amount(beyond["amount"]), beyond["count"]))
+		beyond, blocked := cm["beyond"].(map[string]any), cm["blocked"].(map[string]any)
+		out = append(out, fmt.Sprintf("%s total %s, beyond %s x%v, blocked %s x%v", cm["currency"], amount(cm["total"]), amount(beyond["amount"]),
+			beyond["count"], amount(blocked["amount"]), blocked["count"]))
 	}
 	return out
 }
@@ -153,8 +157,8 @@ func flowsOf(t *testing.T, f map[string]any) []string {
 // TestLiquidityForecast: Maple Inc's forecast per currency in its default
 // buckets (ADR-0051 §5, §9): each supplier item expected when a run would
 // pay it, at what the run would pay, credit memos netting, items held by a
-// run counted as the run's payment, a blocked supplier's left out, and what
-// falls after the last bucket beyond it.
+// run counted as the run's payment, a blocked supplier's shown apart, and
+// what falls after the last bucket beyond it.
 func TestLiquidityForecast(t *testing.T) {
 	e := setupForecast(t, withForecast)
 	e.forecastScenario(t)
@@ -168,15 +172,16 @@ func TestLiquidityForecast(t *testing.T) {
 		"CAD day 2026-04-17..2026-04-17: payment_run/confirmed/late=false -800.00 CAD x1 = -800.00 CAD",
 		"CAD day 2026-04-21..2026-04-21: payable/expected/late=false -1180.00 CAD x1 = -1180.00 CAD",
 		"CAD week 2026-05-01..2026-05-07: payable/expected/late=false -500.00 CAD x1 = -500.00 CAD",
-		"CAD total -2480.00 CAD, beyond -4000.00 CAD x1",
-		"USD week 2026-05-01..2026-05-07: payable/expected/late=false -2000.00 USD x1 = -2000.00 USD",
-		"USD total -2000.00 USD, beyond 0.00 USD x0",
+		"CAD total -2480.00 CAD, beyond -4000.00 CAD x1, blocked 0.00 CAD x0",
+		"USD week 2026-05-01..2026-05-07: payable/expected/late=false -2000.00 USD x1, payable_blocked/expected/late=false -700.00 USD x1 = -2000.00 USD",
+		"USD total -2000.00 USD, beyond 0.00 USD x0, blocked -700.00 USD x1",
 	})
+	want(t, "blocked not counted", f["include_blocked"], false)
 
 	t.Run("the certainty cut", func(t *testing.T) {
 		want(t, "confirmed and above", flowsOf(t, e.forecastOf(t, "&min_certainty=confirmed")), []string{
 			"CAD day 2026-04-17..2026-04-17: payment_run/confirmed/late=false -800.00 CAD x1 = -800.00 CAD",
-			"CAD total -800.00 CAD, beyond 0.00 CAD x0",
+			"CAD total -800.00 CAD, beyond 0.00 CAD x0, blocked 0.00 CAD x0",
 		})
 		want(t, "actual only", flowsOf(t, e.forecastOf(t, "&min_certainty=actual")), []string{})
 		e.Problem(422, "request.validation_failed", "GET", "/v1/liquidity-forecast?legal_entity_id="+e.le.String()+"&min_certainty=likely", "", "")
@@ -200,7 +205,7 @@ func TestLiquidityForecastNetting(t *testing.T) {
 	e.item(t, later, "2026-04-15", "CAD", -100000, &terms{baseline: "2026-04-15", net: 30, discDays: 20, discPct: "2"})
 	want(t, "flows", flowsOf(t, e.forecastOf(t, "")), []string{
 		"CAD week 2026-05-01..2026-05-07: payable/expected/late=false -880.00 CAD x1 = -880.00 CAD",
-		"CAD total -880.00 CAD, beyond 0.00 CAD x0",
+		"CAD total -880.00 CAD, beyond 0.00 CAD x0, blocked 0.00 CAD x0",
 	})
 }
 
@@ -223,9 +228,9 @@ func TestLiquidityForecastSettings(t *testing.T) {
 		"map[end:2026-05-31 grain:month start:2026-05-01]]")
 	want(t, "flows", flowsOf(t, f), []string{
 		"CAD month 2026-05-01..2026-05-31: payable/expected/late=false -1000.00 CAD x1 = -1000.00 CAD",
-		"CAD total -1000.00 CAD, beyond 0.00 CAD x0",
+		"CAD total -1000.00 CAD, beyond 0.00 CAD x0, blocked 0.00 CAD x0",
 		"USD week 2026-04-17..2026-04-23: payable/expected/late=false -500.00 USD x1, payment_run/confirmed/late=true -300.00 USD x1 = -800.00 USD",
-		"USD total -800.00 USD, beyond 0.00 USD x0",
+		"USD total -800.00 USD, beyond 0.00 USD x0, blocked 0.00 USD x0",
 	})
 }
 

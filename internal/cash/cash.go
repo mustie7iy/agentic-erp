@@ -17,7 +17,9 @@
 // the liquidity forecast (ADR-0051 §5, §9): supplier open items expected
 // when a payment run would pay them, by the proposer's own rules, and the
 // payments of runs not yet released, per currency in the company's
-// buckets.
+// buckets. T53e2 adds the invoices parked or on hold and the down payment
+// requests, and shows what suppliers no run pays are owed apart from the
+// totals unless asked.
 package cash
 
 import (

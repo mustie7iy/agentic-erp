@@ -1112,9 +1112,8 @@ into T53e and T53e2-T53e4 in the tracker, src `split:T53e`):
   blocked for posting or for payment (the proposer's `SupplierBlocked` and
   `PaymentBlocked`, `blockedReason`) is left out of the totals in this
   slice; showing its items apart (`payable_blocked`, `include_blocked`) is
-  T53e2.
-- **Not yet** (T53e2-T53e4): parked and held invoices, down payment
-  requests and blocked items shown apart; liquidity items, the
+  T53e2 (below).
+- **Not yet** (T53e3, T53e4): liquidity items, the
   self-assessment netting and the derivation simulation; converted totals,
   the opening position and cumulative closing, memo records and payments
   in transit, one grain over a range, drill-down, and the budget at
@@ -1129,6 +1128,82 @@ into T53e and T53e2-T53e4 in the tracker, src `split:T53e`):
   its own buckets, a late run, refusals and every database failure);
   `payments.TestCashPayable`; `ledger.TestDiscountRounding`, `TestDueDate`;
   the walkthrough's step 13 reads Maple's forecast through the API.
+
+As built (T53e2, parked and held invoices, down payment requests and
+blocked suppliers; decided by default where §4 and §5 leave it open):
+- **Request and response.** `GET /v1/liquidity-forecast` takes
+  `include_blocked` (default false) and echoes it; each currency gains
+  `blocked` (amount and count of its `payable_blocked` flows, in the buckets
+  and after the last, whether counted or not). `CashFlowTotal.source` gains
+  `payable_blocked`, `invoice_unposted` and `down_payment` (an open
+  enumeration, additive). No migration: `cash.forecast.read` covers it.
+- **One port.** The payments context's `CashPosition.Payables` gives every
+  document a run would pay, each with its kind (`CashItem`, `CashUnposted`,
+  `CashDownPayment`): the posted items as before, the unposted invoices
+  from payables (`payables.Endpoints.Unposted`) and the open requests
+  (`payables.DownPaymentRequests.Open`), through two ports payments declares
+  (`Unposted`, `Requests`) and the composition root wires, so the routing,
+  the supplier blocks, `Dates` and `Pays` are the run's for all three. The
+  query of the requests a live run pays moved to one helper
+  (`heldRequests`) the proposer uses too. No context gains an import.
+- **Unposted invoices** (`invoice_unposted`, `planned`). §4's "kept terms"
+  do not exist before posting: `supplier_invoice_terms` is written when an
+  invoice posts. So an invoice, credit memo or subsequent debit or credit
+  parked or on hold is read as the open item posting it now would give,
+  by posting's own functions (`invoiceTerms`: the order's term, else the
+  supplier's, from the invoice date, a correction naming an invoice that
+  invoice's, a credit memo none; `withholding`: the supplier's codes, what
+  is withheld at invoice off what it owes, the rest deducted at payment).
+  What would refuse the posting (a 422: a term or withholding code not
+  configured, withholding of the whole invoice) does not refuse the
+  forecast: the item is then without terms (due on its supplier's net
+  days) or without withholding; a database failure fails the read. The
+  contract's `x-problem-codes` of the forecast list those three payables
+  codes all the same: `TestProblemCodes` derives codes from the call graph
+  without branch conditions, a superset by ADR-0052 G7 as built, so a
+  consumer may see them listed but never answered. Their
+  expected day and amount follow `payable`'s rule (tiers, payment days, the
+  ranked bank's value days). They net per supplier and currency among
+  themselves, not with the posted items: a different certainty is a
+  different row, and a run cannot net them before they post. A parked
+  credit memo alone is therefore no flow. Matching, approvals and the
+  match tolerance are not judged: a held invoice is forecast as if it
+  posts. T53g must count an order's open value net of the quantities of
+  its unposted invoices, as of its posted ones, so an order and its parked
+  invoice are not counted twice.
+- **Down payment requests** (`down_payment`, `expected`). The open requests
+  in every currency less those a live run's payment pays (the run's
+  payment counts instead, `payment_run`), each whole and never netted, as
+  the run pays a request in a payment of its own (T46c), on its due date
+  moved to the next working day, `late` before the read date (expected the
+  working day after it, as a late payment is). A request's day is not
+  moved to the payment days: §4 names the due date, and a run pays every
+  request due by its due-by date. Its amount includes the tax it claims
+  (T46c).
+- **Blocked suppliers** (`payable_blocked`). Everything a supplier no run
+  pays is owed (its items, unposted invoices and requests) is shown apart,
+  each keeping its own certainty (`expected`, or `planned` for unposted
+  invoices), on its net due date (a request's due date), the read date when
+  overdue, not moved to a payment or working day (no run pays it), at what
+  it owes on that day (after its withholding at payment; its discount
+  tiers have lapsed by then), netted per supplier, currency and certainty
+  as a run would net it once the block is lifted (a request alone). Its
+  flows are listed in their buckets and summed in `blocked`; the buckets'
+  totals, the currency's total and `beyond` count them only with
+  `include_blocked=true`. `late` is not set on them: an overdue blocked
+  item is not expected at the bank the next working day.
+- **Evidence.** `cash.TestLiquidityForecastSources` (an invoice on an order
+  in its discount tier netted with a held one; a parked credit memo alone;
+  withholding at payment; a term and a withholding code not configured; a
+  supplier not set up in the company; requests on time, late, held by a
+  proposed run and cancelled; a blocked vendor's item, parked invoice and
+  request, one after the last bucket; `include_blocked`; the certainty
+  cut), `TestLiquidityForecastSourcesFailures` (every database failure),
+  `TestLiquidityForecastUnpostedFailure` (an order not found fails the
+  read), `payables.TestDownPaymentRequestPorts`; the walkthrough's step 13
+  parks an invoice and requests a down payment, reads them and Massive
+  Dynamic's blocked items, with and without `include_blocked`, then cancels
+  both.
 
 ### 10. Currency conversion
 Amounts are kept and shown in their own currency first: a bank's balance

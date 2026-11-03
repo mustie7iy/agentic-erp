@@ -60787,6 +60787,10 @@ func (s *LiquidityForecast) encodeFields(e *jx.Encoder) {
 		e.Str(s.MinCertainty)
 	}
 	{
+		e.FieldStart("include_blocked")
+		e.Bool(s.IncludeBlocked)
+	}
+	{
 		e.FieldStart("buckets")
 		e.ArrStart()
 		for _, elem := range s.Buckets {
@@ -60804,13 +60808,14 @@ func (s *LiquidityForecast) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfLiquidityForecast = [6]string{
+var jsonFieldsNameOfLiquidityForecast = [7]string{
 	0: "legal_entity_id",
 	1: "read_date",
 	2: "time_zone",
 	3: "min_certainty",
-	4: "buckets",
-	5: "currencies",
+	4: "include_blocked",
+	5: "buckets",
+	6: "currencies",
 }
 
 // Decode decodes LiquidityForecast from json.
@@ -60870,8 +60875,20 @@ func (s *LiquidityForecast) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"min_certainty\"")
 			}
-		case "buckets":
+		case "include_blocked":
 			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := d.Bool()
+				s.IncludeBlocked = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"include_blocked\"")
+			}
+		case "buckets":
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				s.Buckets = make([]LiquidityForecastBucket, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -60889,7 +60906,7 @@ func (s *LiquidityForecast) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"buckets\"")
 			}
 		case "currencies":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				s.Currencies = make([]LiquidityForecastCurrency, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -60916,7 +60933,7 @@ func (s *LiquidityForecast) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00111111,
+		0b01111111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -61069,6 +61086,117 @@ func (s *LiquidityForecastBeyond) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *LiquidityForecastBeyond) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *LiquidityForecastBlocked) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *LiquidityForecastBlocked) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("amount")
+		s.Amount.Encode(e)
+	}
+	{
+		e.FieldStart("count")
+		e.Int32(s.Count)
+	}
+}
+
+var jsonFieldsNameOfLiquidityForecastBlocked = [2]string{
+	0: "amount",
+	1: "count",
+}
+
+// Decode decodes LiquidityForecastBlocked from json.
+func (s *LiquidityForecastBlocked) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode LiquidityForecastBlocked to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "amount":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				if err := s.Amount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"amount\"")
+			}
+		case "count":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int32()
+				s.Count = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"count\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode LiquidityForecastBlocked")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000011,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfLiquidityForecastBlocked) {
+					name = jsonFieldsNameOfLiquidityForecastBlocked[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *LiquidityForecastBlocked) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *LiquidityForecastBlocked) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -61370,13 +61498,18 @@ func (s *LiquidityForecastCurrency) encodeFields(e *jx.Encoder) {
 		e.FieldStart("beyond")
 		s.Beyond.Encode(e)
 	}
+	{
+		e.FieldStart("blocked")
+		s.Blocked.Encode(e)
+	}
 }
 
-var jsonFieldsNameOfLiquidityForecastCurrency = [4]string{
+var jsonFieldsNameOfLiquidityForecastCurrency = [5]string{
 	0: "currency",
 	1: "buckets",
 	2: "total",
 	3: "beyond",
+	4: "blocked",
 }
 
 // Decode decodes LiquidityForecastCurrency from json.
@@ -61438,6 +61571,16 @@ func (s *LiquidityForecastCurrency) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"beyond\"")
 			}
+		case "blocked":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				if err := s.Blocked.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"blocked\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -61448,7 +61591,7 @@ func (s *LiquidityForecastCurrency) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00001111,
+		0b00011111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

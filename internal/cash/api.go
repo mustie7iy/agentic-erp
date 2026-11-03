@@ -94,11 +94,12 @@ func convertedToAPI(c Converted) gen.CashPositionConverted {
 
 // GetLiquidityForecast implements GET /v1/liquidity-forecast.
 func (e *Endpoints) GetLiquidityForecast(ctx context.Context, params gen.GetLiquidityForecastParams) (gen.GetLiquidityForecastRes, error) {
-	f, err := e.Forecast(ctx, ForecastQuery{LegalEntity: params.LegalEntityID, MinCertainty: params.MinCertainty.Value})
+	f, err := e.Forecast(ctx, ForecastQuery{LegalEntity: params.LegalEntityID, MinCertainty: params.MinCertainty.Value,
+		IncludeBlocked: params.IncludeBlocked.Value})
 	if err != nil {
 		return nil, err
 	}
-	out := gen.LiquidityForecast{LegalEntityID: f.LegalEntity, ReadDate: f.ReadDate, TimeZone: f.TimeZone, MinCertainty: f.MinCertainty,
+	out := gen.LiquidityForecast{LegalEntityID: f.LegalEntity, ReadDate: f.ReadDate, TimeZone: f.TimeZone, MinCertainty: f.MinCertainty, IncludeBlocked: f.IncludeBlocked,
 		Buckets: make([]gen.LiquidityForecastBucket, len(f.Buckets)), Currencies: make([]gen.LiquidityForecastCurrency, len(f.Currencies))}
 	for i, b := range f.Buckets {
 		out.Buckets[i] = gen.LiquidityForecastBucket{Grain: b.Grain, Start: b.Start, End: b.End}
@@ -106,7 +107,8 @@ func (e *Endpoints) GetLiquidityForecast(ctx context.Context, params gen.GetLiqu
 	for i, c := range f.Currencies {
 		amount := amounts(c.Currency, c.Exponent)
 		cur := gen.LiquidityForecastCurrency{Currency: c.Currency, Buckets: make([]gen.LiquidityForecastBucketFlows, len(c.Buckets)), Total: amount(c.Total),
-			Beyond: gen.LiquidityForecastBeyond{Amount: amount(c.Beyond.Amount), Count: int32(c.Beyond.Count)}}
+			Beyond:  gen.LiquidityForecastBeyond{Amount: amount(c.Beyond.Amount), Count: int32(c.Beyond.Count)},
+			Blocked: gen.LiquidityForecastBlocked{Amount: amount(c.Blocked.Amount), Count: int32(c.Blocked.Count)}}
 		for j, b := range c.Buckets {
 			cur.Buckets[j] = gen.LiquidityForecastBucketFlows{Start: f.Buckets[j].Start, Flows: flowsToAPI(b.Flows, amount), Total: amount(b.Total)}
 		}

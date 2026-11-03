@@ -22059,14 +22059,28 @@ func (s *Server) handleGetLegalEntityTodayRequest(args [1]string, argsEscaped bo
 // next payment day, and a debit balance left after the last is no flow. `payment_run` (`confirmed`),
 // the payments of runs `proposed` or `releasing` not posted yet, whose items they hold, on their run
 // date plus their bank's value days moved to the next working day, `late` when that is before the read
-// date (then expected the working day after it), as in the cash position. The items of a supplier
-// blocked for payment or posting, or inactive, are left out (shown apart in a later step). Amounts are
+// date (then expected the working day after it), as in the cash position. `invoice_unposted`
+// (`planned`, T53e2), the supplier invoices, credit memos and subsequent debits and credits `parked`
+// or `on_hold`, which are no open items yet: each at what it would be owed posted now, by the payment
+// terms and withholding tax codes it would post with (its order's term, else its supplier's, from its
+// invoice date; a correction naming an invoice that invoice's terms; a credit memo none), expected by
+// the same rule as `payable` and netted per supplier and currency among themselves (not with the
+// posted items, which are more certain); what would refuse its posting does not refuse the forecast: a
+// term not configured gives way to its supplier's net days, and withholding tax codes that would
+// refuse it are left out. `down_payment` (`expected`, T53e2), the open down payment requests that no
+// live run pays, each whole and never netted (a run pays a request on its own), on its due date moved
+// to the next working day, `late` when that is before the read date. A supplier blocked for payment or
+// posting, inactive, or not set up in the company is paid by no run: its items, unposted invoices and
+// requests are `payable_blocked` (each keeping its own certainty), on their net due date (a request's
+// due date; an overdue one on the read date), at what they owe then, netted as a run would, apart from
+// the totals: listed in each bucket's flows and summed per currency in `blocked`, but counted in the
+// buckets' `total`s, the currency's `total` and `beyond` only with `include_blocked=true`. Amounts are
 // signed: a payment out is negative. Each currency gives its flows per bucket by source, certainty and
 // lateness with the bucket's total, the total over the horizon, and what is expected after the last
 // bucket (`beyond`, in no bucket). `min_certainty` cuts the less certain flows (actual, confirmed,
-// expected, planned; default planned, every flow). Parked and held invoices, down payment requests,
-// memo records, liquidity items, converted totals, the opening position and drill-down are later steps
-// (T53e2-T53e4). A legal entity the caller cannot act in is 404.
+// expected, planned; default planned, every flow). Memo records, liquidity items, converted totals,
+// the opening position and drill-down are later steps (T53e3, T53e4). A legal entity the caller cannot
+// act in is 404.
 //
 // GET /v1/liquidity-forecast
 func (s *Server) handleGetLiquidityForecastRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -22215,6 +22229,10 @@ func (s *Server) handleGetLiquidityForecastRequest(args [0]string, argsEscaped b
 					Name: "min_certainty",
 					In:   "query",
 				}: params.MinCertainty,
+				{
+					Name: "include_blocked",
+					In:   "query",
+				}: params.IncludeBlocked,
 			},
 			Raw: r,
 		}

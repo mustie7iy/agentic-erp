@@ -1320,9 +1320,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Forecast from parked and held invoices and down payment requests (P5): ports for parked and held invoices, down payment requests; supplier blocks: the items of a supplier blocked for payment shown apart on their net due date (payable_blocked, ADR-0051 §4, §5), not in the totals unless asked (include_blocked)",
-        "r": "T53e2",
+        "r": "GET /v1/liquidity-forecast include_blocked, LiquidityForecastCurrency.blocked, sources invoice_unposted, down_payment, payable_blocked · payments.CashPosition.Payables (Kind; ports Unposted, Requests), heldRequests · payables.Endpoints.Unposted, DownPaymentRequests.Open · internal/app cash and down payment adapters · TestLiquidityForecastSources, TestLiquidityForecastSourcesFailures, TestLiquidityForecastUnpostedFailure, TestDownPaymentRequestPorts · walkthrough step 13 · ADR-0051 (as built, T53e2) · 03-data-model §3.18 · T53e2",
         "src": "split:T53e",
         "c": []
        },

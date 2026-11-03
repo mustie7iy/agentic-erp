@@ -2707,6 +2707,17 @@ proposer computes them; nothing is indexed for them yet (the budget at
 100,000 open items is T53e4's). Migration 000189 seeds its permission,
 `cash.forecast.read`.
 
+T53e2 adds what is not posted yet, still stored nowhere new: the invoices
+`parked` or `on_hold` (`payables.supplier_invoice`), each as the open item
+its posting would give, with the terms posting would keep in
+`supplier_invoice_terms` (the order's term, else the supplier's, from the
+invoice date) and the supplier's withholding codes (`partner.supplier_withholding`
+through the ledger's kept codes); the `open` down payment requests
+(`payables.down_payment_request`) less those a live run's
+`down_payment` payment pays (`payments.payment.down_payment_request_id`);
+and the items of suppliers no run pays (`partner.supplier_company`'s
+blocks, or not set up in the company) shown apart. No migration.
+
 ## 3.19 Controlling (`controlling`)
 
 Plan values and plan against actual (ADR-0050 §2, §8, decision P5; T56g).

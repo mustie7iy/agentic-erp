@@ -13711,6 +13711,9 @@ type GetLiquidityForecastParams struct {
 	// The least certain flows counted: `actual`, `confirmed`, `expected` or `planned` (default, every
 	// flow); another value is 422.
 	MinCertainty OptString `json:",omitempty,omitzero"`
+	// Count the `payable_blocked` flows (what suppliers no run pays are owed) in the totals and `beyond`
+	// too; by default (false) they are listed and summed in `blocked` only.
+	IncludeBlocked OptBool `json:",omitempty,omitzero"`
 }
 
 func unpackGetLiquidityForecastParams(packed middleware.Parameters) (params GetLiquidityForecastParams) {
@@ -13728,6 +13731,15 @@ func unpackGetLiquidityForecastParams(packed middleware.Parameters) (params GetL
 		}
 		if v, ok := packed[key]; ok {
 			params.MinCertainty = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "include_blocked",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.IncludeBlocked = v.(OptBool)
 		}
 	}
 	return params
@@ -13808,6 +13820,52 @@ func decodeGetLiquidityForecastParams(args [0]string, argsEscaped bool, r *http.
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "min_certainty",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Set default value for query: include_blocked.
+	{
+		val := bool(false)
+		params.IncludeBlocked.SetTo(val)
+	}
+	// Decode query: include_blocked.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "include_blocked",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotIncludeBlockedVal bool
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToBool(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotIncludeBlockedVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.IncludeBlocked.SetTo(paramsDotIncludeBlockedVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "include_blocked",
 			In:   "query",
 			Err:  err,
 		}

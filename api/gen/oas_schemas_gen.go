@@ -6797,8 +6797,9 @@ type CashFlowTotal struct {
 	// the working day after it.
 	Late   bool  `json:"late"`
 	Amount Money `json:"amount"`
-	// How many flows: payments, memo records' occurrences, or in the liquidity forecast for `payable`
-	// supplier payments (a supplier's items a run nets into one payment), not open items.
+	// How many flows: payments, memo records' occurrences, or in the liquidity forecast for `payable`,
+	// `payable_blocked` and `invoice_unposted` supplier payments (a supplier's documents netted into one
+	// payment, as a run nets them), not documents, and for `down_payment` requests.
 	Count int32 `json:"count"`
 }
 
@@ -22080,6 +22081,9 @@ type LiquidityForecast struct {
 	// The least certain flows counted. Open enumeration: clients must accept and preserve values not
 	// listed here; values may be added within /v1.
 	MinCertainty string `json:"min_certainty"`
+	// Whether the `payable_blocked` flows are counted in the totals and `beyond` (`include_blocked`); they
+	// are listed in the buckets' flows and summed in each currency's `blocked` either way.
+	IncludeBlocked bool `json:"include_blocked"`
 	// The columns, in order: consecutive periods from the read date.
 	Buckets []LiquidityForecastBucket `json:"buckets"`
 	// The flows of each currency with any, by currency code.
@@ -22104,6 +22108,11 @@ func (s *LiquidityForecast) GetTimeZone() string {
 // GetMinCertainty returns the value of MinCertainty.
 func (s *LiquidityForecast) GetMinCertainty() string {
 	return s.MinCertainty
+}
+
+// GetIncludeBlocked returns the value of IncludeBlocked.
+func (s *LiquidityForecast) GetIncludeBlocked() bool {
+	return s.IncludeBlocked
 }
 
 // GetBuckets returns the value of Buckets.
@@ -22136,6 +22145,11 @@ func (s *LiquidityForecast) SetMinCertainty(val string) {
 	s.MinCertainty = val
 }
 
+// SetIncludeBlocked sets the value of IncludeBlocked.
+func (s *LiquidityForecast) SetIncludeBlocked(val bool) {
+	s.IncludeBlocked = val
+}
+
 // SetBuckets sets the value of Buckets.
 func (s *LiquidityForecast) SetBuckets(val []LiquidityForecastBucket) {
 	s.Buckets = val
@@ -22148,7 +22162,8 @@ func (s *LiquidityForecast) SetCurrencies(val []LiquidityForecastCurrency) {
 
 func (*LiquidityForecast) getLiquidityForecastRes() {}
 
-// The flows of one currency expected after the last bucket, counted in no bucket nor in the total.
+// The flows of one currency expected after the last bucket, counted in no bucket nor in the total;
+// `payable_blocked` flows only with `include_blocked`.
 // Ref: #/components/schemas/LiquidityForecastBeyond
 type LiquidityForecastBeyond struct {
 	Amount Money `json:"amount"`
@@ -22173,6 +22188,36 @@ func (s *LiquidityForecastBeyond) SetAmount(val Money) {
 
 // SetCount sets the value of Count.
 func (s *LiquidityForecastBeyond) SetCount(val int32) {
+	s.Count = val
+}
+
+// The `payable_blocked` flows of one currency (ADR-0051 §5): what suppliers blocked for payment or
+// posting, inactive or not set up in the company are owed, which no payment run pays, in the buckets
+// and after the last, summed whether or not `include_blocked` counts them in the totals.
+// Ref: #/components/schemas/LiquidityForecastBlocked
+type LiquidityForecastBlocked struct {
+	Amount Money `json:"amount"`
+	// How many flows (a blocked supplier's documents netted per day, as a run would net them).
+	Count int32 `json:"count"`
+}
+
+// GetAmount returns the value of Amount.
+func (s *LiquidityForecastBlocked) GetAmount() Money {
+	return s.Amount
+}
+
+// GetCount returns the value of Count.
+func (s *LiquidityForecastBlocked) GetCount() int32 {
+	return s.Count
+}
+
+// SetAmount sets the value of Amount.
+func (s *LiquidityForecastBlocked) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetCount sets the value of Count.
+func (s *LiquidityForecastBlocked) SetCount(val int32) {
 	s.Count = val
 }
 
@@ -22223,7 +22268,8 @@ func (s *LiquidityForecastBucket) SetEnd(val time.Time) {
 type LiquidityForecastBucketFlows struct {
 	// The bucket's first day.
 	Start time.Time `json:"start"`
-	// The bucket's flows by source, certainty and whether late; empty when none.
+	// The bucket's flows by source, certainty and whether late; empty when none. The bucket's `total`
+	// counts its `payable_blocked` flows only with `include_blocked`.
 	Flows []CashFlowTotal `json:"flows"`
 	Total Money           `json:"total"`
 }
@@ -22258,8 +22304,8 @@ func (s *LiquidityForecastBucketFlows) SetTotal(val Money) {
 	s.Total = val
 }
 
-// The flows of one currency: per bucket, in the buckets' order, their total over the horizon, and what
-// is expected after it.
+// The flows of one currency: per bucket, in the buckets' order, their total over the horizon, what is
+// expected after it, and what suppliers no run pays are owed.
 // Ref: #/components/schemas/LiquidityForecastCurrency
 type LiquidityForecastCurrency struct {
 	// The currency (ISO 4217).
@@ -22268,6 +22314,7 @@ type LiquidityForecastCurrency struct {
 	Buckets []LiquidityForecastBucketFlows `json:"buckets"`
 	Total   Money                          `json:"total"`
 	Beyond  LiquidityForecastBeyond        `json:"beyond"`
+	Blocked LiquidityForecastBlocked       `json:"blocked"`
 }
 
 // GetCurrency returns the value of Currency.
@@ -22290,6 +22337,11 @@ func (s *LiquidityForecastCurrency) GetBeyond() LiquidityForecastBeyond {
 	return s.Beyond
 }
 
+// GetBlocked returns the value of Blocked.
+func (s *LiquidityForecastCurrency) GetBlocked() LiquidityForecastBlocked {
+	return s.Blocked
+}
+
 // SetCurrency sets the value of Currency.
 func (s *LiquidityForecastCurrency) SetCurrency(val string) {
 	s.Currency = val
@@ -22308,6 +22360,11 @@ func (s *LiquidityForecastCurrency) SetTotal(val Money) {
 // SetBeyond sets the value of Beyond.
 func (s *LiquidityForecastCurrency) SetBeyond(val LiquidityForecastBeyond) {
 	s.Beyond = val
+}
+
+// SetBlocked sets the value of Blocked.
+func (s *LiquidityForecastCurrency) SetBlocked(val LiquidityForecastBlocked) {
+	s.Blocked = val
 }
 
 type ListAccountsBadRequest Problem

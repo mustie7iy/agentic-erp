@@ -13713,13 +13713,16 @@ paths:
       tags:
         - cash
       summary: Get a company's liquidity forecast
-      description: "The liquidity forecast of a legal entity (ADR-0051 §9, T53e), computed at the read from one database state (a repeatable-read snapshot): the flows expected from the read date (the company's date in its configured time zone, shown as `time_zone`) in the company's buckets (`cash.buckets`; default 14 days, 11 weeks and 9 months: each grain's periods follow the previous grain's, a week being seven days and a month running to the same day of the next month, its last day when shorter), per currency, never converted. Flows: `payable` (`expected`), the posted supplier open items (not special G/L items such as down payments) that no live payment run holds, each expected when a payment run would pay it (ADR-0051 §5, P5): while the company takes cash discounts (`cash.take_discounts`, default true), the last day of the earliest discount tier still open, else the net due date (by the terms the item was posted with, else its supplier's net days; a credit memo's is its document date), moved back to the company's last payment day (`cash.payment_days`; none: any day) on or before it but not before the read date (a tier that would be is passed over for the next, or the net due date), an overdue item on the next payment day; then the value days (`cash.value_days`) of the house bank the supplier's first payment method ranks for the item's currency, moved to the next working day of the company's calendar (weekends and its holidays). Its amount is what a run on that payment day pays: what the item owes less the cash discount it then takes and the withholding tax deducted at payment, as the proposer computes them (one rule, `ledger.ItemTerms`), netted per supplier and currency as a run nets them: one flow per supplier payment; a day whose items owe nothing net pays nothing and its items are carried to the supplier's next payment day, and a debit balance left after the last is no flow. `payment_run` (`confirmed`), the payments of runs `proposed` or `releasing` not posted yet, whose items they hold, on their run date plus their bank's value days moved to the next working day, `late` when that is before the read date (then expected the working day after it), as in the cash position. The items of a supplier blocked for payment or posting, or inactive, are left out (shown apart in a later step). Amounts are signed: a payment out is negative. Each currency gives its flows per bucket by source, certainty and lateness with the bucket's total, the total over the horizon, and what is expected after the last bucket (`beyond`, in no bucket). `min_certainty` cuts the less certain flows (actual, confirmed, expected, planned; default planned, every flow). Parked and held invoices, down payment requests, memo records, liquidity items, converted totals, the opening position and drill-down are later steps (T53e2-T53e4). A legal entity the caller cannot act in is 404."
+      description: "The liquidity forecast of a legal entity (ADR-0051 §9, T53e), computed at the read from one database state (a repeatable-read snapshot): the flows expected from the read date (the company's date in its configured time zone, shown as `time_zone`) in the company's buckets (`cash.buckets`; default 14 days, 11 weeks and 9 months: each grain's periods follow the previous grain's, a week being seven days and a month running to the same day of the next month, its last day when shorter), per currency, never converted. Flows: `payable` (`expected`), the posted supplier open items (not special G/L items such as down payments) that no live payment run holds, each expected when a payment run would pay it (ADR-0051 §5, P5): while the company takes cash discounts (`cash.take_discounts`, default true), the last day of the earliest discount tier still open, else the net due date (by the terms the item was posted with, else its supplier's net days; a credit memo's is its document date), moved back to the company's last payment day (`cash.payment_days`; none: any day) on or before it but not before the read date (a tier that would be is passed over for the next, or the net due date), an overdue item on the next payment day; then the value days (`cash.value_days`) of the house bank the supplier's first payment method ranks for the item's currency, moved to the next working day of the company's calendar (weekends and its holidays). Its amount is what a run on that payment day pays: what the item owes less the cash discount it then takes and the withholding tax deducted at payment, as the proposer computes them (one rule, `ledger.ItemTerms`), netted per supplier and currency as a run nets them: one flow per supplier payment; a day whose items owe nothing net pays nothing and its items are carried to the supplier's next payment day, and a debit balance left after the last is no flow. `payment_run` (`confirmed`), the payments of runs `proposed` or `releasing` not posted yet, whose items they hold, on their run date plus their bank's value days moved to the next working day, `late` when that is before the read date (then expected the working day after it), as in the cash position. `invoice_unposted` (`planned`, T53e2), the supplier invoices, credit memos and subsequent debits and credits `parked` or `on_hold`, which are no open items yet: each at what it would be owed posted now, by the payment terms and withholding tax codes it would post with (its order's term, else its supplier's, from its invoice date; a correction naming an invoice that invoice's terms; a credit memo none), expected by the same rule as `payable` and netted per supplier and currency among themselves (not with the posted items, which are more certain); what would refuse its posting does not refuse the forecast: a term not configured gives way to its supplier's net days, and withholding tax codes that would refuse it are left out. `down_payment` (`expected`, T53e2), the open down payment requests that no live run pays, each whole and never netted (a run pays a request on its own), on its due date moved to the next working day, `late` when that is before the read date. A supplier blocked for payment or posting, inactive, or not set up in the company is paid by no run: its items, unposted invoices and requests are `payable_blocked` (each keeping its own certainty), on their net due date (a request's due date; an overdue one on the read date), at what they owe then, netted as a run would, apart from the totals: listed in each bucket's flows and summed per currency in `blocked`, but counted in the buckets' `total`s, the currency's `total` and `beyond` only with `include_blocked=true`. Amounts are signed: a payment out is negative. Each currency gives its flows per bucket by source, certainty and lateness with the bucket's total, the total over the horizon, and what is expected after the last bucket (`beyond`, in no bucket). `min_certainty` cuts the less certain flows (actual, confirmed, expected, planned; default planned, every flow). Memo records, liquidity items, converted totals, the opening position and drill-down are later steps (T53e3, T53e4). A legal entity the caller cannot act in is 404."
       x-permission: cash.forecast.read
       x-slo-class: report
       x-snapshot: true
       x-problem-codes:
         - cash.amount_too_large
         - config.not_bootstrapped
+        - payables.unknown_payment_term
+        - payables.withholding_exceeds_invoice
+        - payables.withholding_tax_code_unknown
         - request.validation_failed
       parameters:
         - name: legal_entity_id
@@ -13737,6 +13740,13 @@ paths:
             type: string
             description: "A certainty level. Open enumeration: values may be added within /v1."
             x-extensible-enum: [actual, confirmed, expected, planned]
+        - name: include_blocked
+          in: query
+          required: false
+          description: "Count the `payable_blocked` flows (what suppliers no run pays are owed) in the totals and `beyond` too; by default (false) they are listed and summed in `blocked` only."
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
           description: The liquidity forecast.
@@ -31769,7 +31779,7 @@ components:
         source:
           type: string
           description: "Where the flows come from (ADR-0051 §4). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-          x-extensible-enum: [in_transit, payment_run, memo, payable]
+          x-extensible-enum: [in_transit, payment_run, memo, payable, payable_blocked, invoice_unposted, down_payment]
           readOnly: true
         certainty:
           type: string
@@ -31778,7 +31788,7 @@ components:
           readOnly: true
         late: {type: boolean, description: "True for payments and memo records dated before the read date and still not at the bank, expected the working day after it.", readOnly: true}
         amount: {$ref: "#/components/schemas/Money"}
-        count: {type: integer, format: int32, minimum: 1, description: "How many flows: payments, memo records' occurrences, or in the liquidity forecast for `payable` supplier payments (a supplier's items a run nets into one payment), not open items.", readOnly: true}
+        count: {type: integer, format: int32, minimum: 1, description: "How many flows: payments, memo records' occurrences, or in the liquidity forecast for `payable`, `payable_blocked` and `invoice_unposted` supplier payments (a supplier's documents netted into one payment, as a run nets them), not documents, and for `down_payment` requests.", readOnly: true}
     CashPositionCurrency:
       type: object
       description: "The banks of one currency summed."
@@ -31838,7 +31848,7 @@ components:
     LiquidityForecast:
       type: object
       description: "A legal entity's liquidity forecast (ADR-0051 §9, T53e): the flows expected per currency and bucket from the read date. Amounts are signed: a payment out is negative."
-      required: [legal_entity_id, read_date, time_zone, min_certainty, buckets, currencies]
+      required: [legal_entity_id, read_date, time_zone, min_certainty, include_blocked, buckets, currencies]
       properties:
         legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
         read_date: {type: string, format: date, description: "The company's date when the forecast was read, in `time_zone`: the first bucket starts on it, and what is late is judged by it.", readOnly: true}
@@ -31848,6 +31858,7 @@ components:
           description: "The least certain flows counted. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum: [actual, confirmed, expected, planned]
           readOnly: true
+        include_blocked: {type: boolean, description: "Whether the `payable_blocked` flows are counted in the totals and `beyond` (`include_blocked`); they are listed in the buckets' flows and summed in each currency's `blocked` either way.", readOnly: true}
         buckets:
           type: array
           items: {$ref: "#/components/schemas/LiquidityForecastBucket"}
@@ -31863,6 +31874,7 @@ components:
           read_date: "2026-04-17"
           time_zone: America/Toronto
           min_certainty: planned
+          include_blocked: false
           buckets:
             - {grain: day, start: "2026-04-17", end: "2026-04-17"}
             - {grain: week, start: "2026-04-18", end: "2026-04-24"}
@@ -31873,10 +31885,13 @@ components:
                   flows: [{source: payment_run, certainty: confirmed, late: false, amount: {amount: "-500.00", currency: CAD}, count: 1}]
                   total: {amount: "-500.00", currency: CAD}
                 - start: "2026-04-18"
-                  flows: [{source: payable, certainty: expected, late: false, amount: {amount: "-1176.00", currency: CAD}, count: 2}]
+                  flows:
+                    - {source: payable, certainty: expected, late: false, amount: {amount: "-1176.00", currency: CAD}, count: 2}
+                    - {source: payable_blocked, certainty: expected, late: false, amount: {amount: "-300.00", currency: CAD}, count: 1}
                   total: {amount: "-1176.00", currency: CAD}
               total: {amount: "-1676.00", currency: CAD}
               beyond: {amount: {amount: "-2000.00", currency: CAD}, count: 1}
+              blocked: {amount: {amount: "-300.00", currency: CAD}, count: 1}
     LiquidityForecastBucket:
       type: object
       description: "A column of the forecast: the days from `start` to `end`."
@@ -31891,8 +31906,8 @@ components:
         end: {type: string, format: date, description: The last day., readOnly: true}
     LiquidityForecastCurrency:
       type: object
-      description: "The flows of one currency: per bucket, in the buckets' order, their total over the horizon, and what is expected after it."
-      required: [currency, buckets, total, beyond]
+      description: "The flows of one currency: per bucket, in the buckets' order, their total over the horizon, what is expected after it, and what suppliers no run pays are owed."
+      required: [currency, buckets, total, beyond, blocked]
       properties:
         currency: {type: string, description: The currency (ISO 4217)., readOnly: true}
         buckets:
@@ -31902,6 +31917,7 @@ components:
           readOnly: true
         total: {$ref: "#/components/schemas/Money"}
         beyond: {$ref: "#/components/schemas/LiquidityForecastBeyond"}
+        blocked: {$ref: "#/components/schemas/LiquidityForecastBlocked"}
     LiquidityForecastBucketFlows:
       type: object
       description: "A bucket's flows in one currency by source, certainty and lateness, and their total."
@@ -31911,16 +31927,23 @@ components:
         flows:
           type: array
           items: {$ref: "#/components/schemas/CashFlowTotal"}
-          description: "The bucket's flows by source, certainty and whether late; empty when none."
+          description: "The bucket's flows by source, certainty and whether late; empty when none. The bucket's `total` counts its `payable_blocked` flows only with `include_blocked`."
           readOnly: true
         total: {$ref: "#/components/schemas/Money"}
     LiquidityForecastBeyond:
       type: object
-      description: "The flows of one currency expected after the last bucket, counted in no bucket nor in the total."
+      description: "The flows of one currency expected after the last bucket, counted in no bucket nor in the total; `payable_blocked` flows only with `include_blocked`."
       required: [amount, count]
       properties:
         amount: {$ref: "#/components/schemas/Money"}
         count: {type: integer, format: int32, minimum: 0, description: How many flows., readOnly: true}
+    LiquidityForecastBlocked:
+      type: object
+      description: "The `payable_blocked` flows of one currency (ADR-0051 §5): what suppliers blocked for payment or posting, inactive or not set up in the company are owed, which no payment run pays, in the buckets and after the last, summed whether or not `include_blocked` counts them in the totals."
+      required: [amount, count]
+      properties:
+        amount: {$ref: "#/components/schemas/Money"}
+        count: {type: integer, format: int32, minimum: 0, description: "How many flows (a blocked supplier's documents netted per day, as a run would net them).", readOnly: true}
     MemoRecord:
       description: "A memo record (ADR-0051 §7, SAP's memo records): an expected receipt or payment entered by a person, uploaded or proposed by an agent, one-off or recurring, counting in the cash position on its house bank and in the liquidity forecast until it expires or is realised, cancelled or rejected."
       allOf:

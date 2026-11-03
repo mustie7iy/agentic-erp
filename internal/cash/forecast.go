@@ -26,14 +26,21 @@ import (
 // ledger's (ledger.ItemTerms), read through the payments context's port,
 // so the two never differ.
 
-// Payable is a supplier open item as the forecast reads it (ADR-0051 §5):
+// Payable is what a run is expected to pay a supplier as the forecast
+// reads it (ADR-0051 §4, §5): a supplier open item (SourcePayable), an
+// invoice not posted yet as the item it would become
+// (SourceInvoiceUnposted), or a down payment request (SourceDownPayment);
 // what paying it on a day pays, the days a run would pay it on, whether
 // its supplier is blocked, and the bank and method that would pay it.
 type Payable struct {
+	Source   string
 	Supplier uuid.UUID // the business partner a run pays
 	Currency string
+	// Due is its net due date; a down payment request's due date.
+	Due time.Time
 	// Blocked: no run pays its supplier (blocked for payment or posting,
-	// inactive): left out of the totals.
+	// inactive, not set up in the company): shown apart on its due date
+	// (SourcePayableBlocked), out of the totals unless asked.
 	Blocked bool
 	// BankCode and Method are the house bank its supplier's first payment
 	// method ranks for its currency and that method; "" when none fits,
@@ -52,31 +59,37 @@ type Payable struct {
 
 // Sources and certainties of the forecast's flows (ADR-0051 §4).
 const (
-	SourcePayable     = "payable"
-	CertaintyActual   = "actual"
-	CertaintyExpected = "expected"
-	CertaintyPlanned  = "planned"
+	SourcePayable         = "payable"
+	SourcePayableBlocked  = "payable_blocked"
+	SourceInvoiceUnposted = "invoice_unposted"
+	SourceDownPayment     = "down_payment"
+	CertaintyActual       = "actual"
+	CertaintyExpected     = "expected"
+	CertaintyPlanned      = "planned"
 )
 
 // certainties are the certainty levels, most certain first: a cut at one
 // keeps it and those before it.
 var certainties = []string{CertaintyActual, CertaintyConfirmed, CertaintyExpected, CertaintyPlanned}
 
-// ForecastQuery is what a forecast covers: the legal entity and the least
-// certain flows it counts ("": every flow, planned).
+// ForecastQuery is what a forecast covers: the legal entity, the least
+// certain flows it counts ("": every flow, planned), and whether what
+// blocked suppliers are owed counts in the totals.
 type ForecastQuery struct {
-	LegalEntity  uuid.UUID
-	MinCertainty string
+	LegalEntity    uuid.UUID
+	MinCertainty   string
+	IncludeBlocked bool
 }
 
 // Forecast is a legal entity's liquidity forecast.
 type Forecast struct {
-	LegalEntity  uuid.UUID
-	ReadDate     time.Time // the company's date at the read, in TimeZone
-	TimeZone     string
-	MinCertainty string
-	Buckets      []Bucket
-	Currencies   []ForecastCurrency
+	LegalEntity    uuid.UUID
+	ReadDate       time.Time // the company's date at the read, in TimeZone
+	TimeZone       string
+	MinCertainty   string
+	IncludeBlocked bool
+	Buckets        []Bucket
+	Currencies     []ForecastCurrency
 }
 
 // Bucket is a column of the forecast: the days from Start to End.
@@ -86,14 +99,16 @@ type Bucket struct {
 }
 
 // ForecastCurrency is the flows of one currency per bucket, in the
-// buckets' order, their total over the horizon, and the flows expected
-// after its last bucket.
+// buckets' order, their total over the horizon, the flows expected after
+// its last bucket, and the blocked suppliers' flows in the buckets and
+// after, counted in the totals and Beyond only when asked.
 type ForecastCurrency struct {
 	Currency string
 	Exponent int
 	Buckets  []BucketFlows
 	Total    money.Minor
 	Beyond   Beyond
+	Blocked  Beyond
 }
 
 // BucketFlows is a bucket's flows by source, certainty and lateness, and
@@ -103,7 +118,8 @@ type BucketFlows struct {
 	Total money.Minor
 }
 
-// Beyond is what is expected after the horizon: counted in no bucket.
+// Beyond is a sum of flows and their count: what is expected after the
+// horizon (counted in no bucket), or what blocked suppliers are owed.
 type Beyond struct {
 	Amount money.Minor
 	Count  int
@@ -141,14 +157,14 @@ func (e *Endpoints) Forecast(ctx context.Context, q ForecastQuery) (Forecast, er
 		return Forecast{}, err
 	}
 	r := reader{doc: doc, company: co.Code, settings: companyCash(doc, co.Code), read: read, sums: &sums{}}
-	f := Forecast{LegalEntity: q.LegalEntity, ReadDate: read, TimeZone: zone, MinCertainty: minCertainty,
+	f := Forecast{LegalEntity: q.LegalEntity, ReadDate: read, TimeZone: zone, MinCertainty: minCertainty, IncludeBlocked: q.IncludeBlocked,
 		Buckets: buckets(read, r.settings.BucketsOrDefault())}
 	flows, err := e.forecastFlows(ctx, r, q.LegalEntity)
 	if err != nil {
 		return Forecast{}, err
 	}
 	flows = slices.DeleteFunc(flows, func(d datedFlow) bool { return slices.Index(certainties, d.certainty) > keep })
-	if f.Currencies, err = r.byCurrency(ctx, tx, f.Buckets, flows); err != nil {
+	if f.Currencies, err = r.byCurrency(ctx, tx, f.Buckets, flows, q.IncludeBlocked); err != nil {
 		return Forecast{}, err
 	}
 	if r.sums.overflow {
@@ -162,9 +178,10 @@ func (e *Endpoints) Forecast(ctx context.Context, q ForecastQuery) (Forecast, er
 var errForecastTooLarge = problem.Unprocessable("cash.amount_too_large", "The amounts of the liquidity forecast add up to more than an amount can hold.")
 
 // forecastFlows are the legal entity's supplier payments on their
-// expected days (source payable, expected; supplierFlows) and the
-// payments of runs not yet released (payment_run, confirmed), whose items
-// the payables port leaves out: never both.
+// expected days (supplierFlows: payable, invoice_unposted, down_payment,
+// and payable_blocked apart) and the payments of runs not yet released
+// (payment_run, confirmed), whose items and requests the payables port
+// leaves out: never both.
 func (e *Endpoints) forecastFlows(ctx context.Context, r reader, legalEntity uuid.UUID) ([]datedFlow, error) {
 	payables, err := e.Payments.Payables(ctx, legalEntity, r.read)
 	if err != nil {
@@ -193,63 +210,119 @@ func (e *Endpoints) forecastFlows(ctx context.Context, r reader, legalEntity uui
 	return out, nil
 }
 
-// payee is a supplier's items in one currency: what one run pays as one
-// payment.
-type payee struct {
-	supplier uuid.UUID
-	currency string
+// netting is what one run payment pays (ADR-0051 §5): a supplier's
+// documents of one source and certainty in one currency, which a run nets
+// into one payment; a down payment request alone (request > 0), which a
+// run pays whole and never nets.
+type netting struct {
+	supplier                    uuid.UUID
+	currency, source, certainty string
+	request                     int
+}
+
+// planned is a document on the day a run is expected to pay it.
+type planned struct {
+	day time.Time
+	p   Payable
 }
 
 // supplierFlows are the payments the runs on the suppliers' expected
-// payment days make, as a run nets them (ADR-0051 §5): per supplier and
-// currency, each item on its payment day (payDay), and on each day what
-// the items due then and those carried from before pay, each at what it
-// pays on that day. A day whose items owe nothing net (a credit memo, or
-// credits above the invoices) pays nothing, as the proposer excludes a
-// supplier with a debit balance (DebitBalance), and its items are carried
-// to the supplier's next day; what is still a debit balance after the
-// supplier's last day is no cash flow and is left out. A blocked
-// supplier's items are left out of the totals.
+// payment days make, as a run nets them (ADR-0051 §5): per supplier,
+// currency, source and certainty, each document on its day (expected),
+// and on each day what the documents due then and those carried from
+// before pay, each at what it pays on that day. A day whose documents owe
+// nothing net (a credit memo, or credits above the invoices) pays
+// nothing, as the proposer excludes a supplier with a debit balance
+// (DebitBalance), and they are carried to the supplier's next day; what
+// is still a debit balance after the supplier's last day is no cash flow
+// and is left out. A down payment request is paid alone. A blocked
+// supplier's documents are netted the same way on their due dates, as
+// payable_blocked.
 func (r reader) supplierFlows(payables []Payable) ([]datedFlow, error) {
-	type dated struct {
-		day time.Time
-		p   Payable
-	}
-	byPayee := map[payee][]dated{}
-	var order []payee
-	for _, p := range payables {
-		if p.Blocked {
-			continue
+	groups := map[netting][]planned{}
+	var order []netting
+	for i, p := range payables {
+		k, day := r.expected(p)
+		if p.Source == SourceDownPayment {
+			k.request = i + 1
 		}
-		k := payee{p.Supplier, p.Currency}
-		if byPayee[k] == nil {
+		if groups[k] == nil {
 			order = append(order, k)
 		}
-		byPayee[k] = append(byPayee[k], dated{r.payDay(p), p})
+		groups[k] = append(groups[k], planned{day, p})
 	}
 	var out []datedFlow
 	for _, k := range order {
-		items := byPayee[k]
-		slices.SortStableFunc(items, func(a, b dated) int { return a.day.Compare(b.day) })
-		var carried []Payable
-		for i, it := range items {
-			carried = append(carried, it.p)
-			if i+1 < len(items) && items[i+1].day.Equal(it.day) {
-				continue
-			}
-			paid, err := r.pays(carried, it.day)
-			if err != nil {
-				return nil, err
-			}
-			if paid <= 0 {
-				continue
-			}
-			at := r.onOrAfter(it.day.AddDate(0, 0, r.settings.ValueDaysFor(it.p.BankCode, it.p.Method)))
-			out = append(out, datedFlow{flow: flow{date: at, source: SourcePayable, certainty: CertaintyExpected, amount: -paid}, currency: k.currency})
-			carried = nil
+		flows, err := r.netted(k, groups[k])
+		if err != nil {
+			return nil, err
 		}
+		out = append(out, flows...)
 	}
 	return out, nil
+}
+
+// expected is the run payment a document is in, its source and certainty,
+// and the day a run is expected to pay it: a blocked supplier's on its due
+// date (the read date when overdue), a down payment request on its due
+// date, any other on its payment day (payDay).
+func (r reader) expected(p Payable) (netting, time.Time) {
+	k := netting{supplier: p.Supplier, currency: p.Currency, source: p.Source, certainty: CertaintyExpected}
+	if p.Source == SourceInvoiceUnposted {
+		k.certainty = CertaintyPlanned
+	}
+	switch {
+	case p.Blocked:
+		k.source = SourcePayableBlocked
+		if p.Due.Before(r.read) {
+			return k, r.read
+		}
+		return k, p.Due
+	case p.Source == SourceDownPayment:
+		return k, p.Due
+	}
+	return k, r.payDay(p)
+}
+
+// netted are the flows of one run payment's documents (netting): on each
+// of their days what those due then and those carried pay, when it is
+// more than nothing, at the bank on its day (atBankOn).
+func (r reader) netted(k netting, items []planned) ([]datedFlow, error) {
+	slices.SortStableFunc(items, func(a, b planned) int { return a.day.Compare(b.day) })
+	var out []datedFlow
+	var carried []Payable
+	for i, it := range items {
+		carried = append(carried, it.p)
+		if i+1 < len(items) && items[i+1].day.Equal(it.day) {
+			continue
+		}
+		paid, err := r.pays(carried, it.day)
+		if err != nil {
+			return nil, err
+		}
+		if paid <= 0 {
+			continue
+		}
+		at, late := r.atBankOn(k.source, it)
+		out = append(out, datedFlow{flow: flow{date: at, source: k.source, certainty: k.certainty, late: late, amount: -paid}, currency: k.currency})
+		carried = nil
+	}
+	return out, nil
+}
+
+// atBankOn is the day a run payment is at the bank: a blocked supplier's
+// on its day as it is (no run pays it); a down payment request's on the
+// working day on or after its due date, late when that is before the read
+// date (atBank); any other its payment day plus the value days of the bank
+// that would pay it, on the working day on or after.
+func (r reader) atBankOn(source string, it planned) (time.Time, bool) {
+	switch source {
+	case SourcePayableBlocked:
+		return it.day, false
+	case SourceDownPayment:
+		return r.atBank(it.day)
+	}
+	return r.onOrAfter(it.day.AddDate(0, 0, r.settings.ValueDaysFor(it.p.BankCode, it.p.Method))), false
 }
 
 // pays is what a run on the day pays for the items: each at what it pays
@@ -339,8 +412,10 @@ func buckets(read time.Time, bs []config.Bucket) []Bucket {
 }
 
 // byCurrency sums the flows per currency, by currency code, into the
-// buckets their days fall in; a flow after the last bucket is beyond.
-func (r reader) byCurrency(ctx context.Context, tx pgx.Tx, bs []Bucket, flows []datedFlow) ([]ForecastCurrency, error) {
+// buckets their days fall in; a flow after the last bucket is beyond. The
+// blocked suppliers' flows are listed in the buckets and summed in
+// Blocked, and counted in the totals and Beyond only with includeBlocked.
+func (r reader) byCurrency(ctx context.Context, tx pgx.Tx, bs []Bucket, flows []datedFlow, includeBlocked bool) ([]ForecastCurrency, error) {
 	var out []ForecastCurrency
 	at := map[string]int{}
 	for _, f := range flows {
@@ -356,20 +431,39 @@ func (r reader) byCurrency(ctx context.Context, tx pgx.Tx, bs []Bucket, flows []
 				out[i].Buckets[b].Flows = []FlowTotal{}
 			}
 		}
-		c := &out[i]
-		// The first bucket ending on or after the day, found or not: its
-		// start is on or before the day, as no flow is before the read date.
-		b, _ := slices.BinarySearchFunc(bs, f.date, func(b Bucket, d time.Time) int {
-			return cmp.Compare(b.End.Unix(), d.Unix())
-		})
-		if b == len(bs) {
-			c.Beyond = Beyond{Amount: r.sums.add(c.Beyond.Amount, f.amount), Count: c.Beyond.Count + 1}
-			continue
-		}
-		bf := &c.Buckets[b]
-		bf.Flows = r.sums.addTotal(bf.Flows, FlowTotal{Source: f.source, Certainty: f.certainty, Late: f.late, Amount: f.amount, Count: 1})
-		bf.Total, c.Total = r.sums.add(bf.Total, f.amount), r.sums.add(c.Total, f.amount)
+		r.into(&out[i], bs, f, includeBlocked)
 	}
 	slices.SortFunc(out, func(a, b ForecastCurrency) int { return cmp.Compare(a.Currency, b.Currency) })
 	return out, nil
+}
+
+// into adds a flow to its currency: to the bucket its day falls in, else
+// beyond, and to the totals, unless it is a blocked supplier's not asked
+// for, which is listed in its bucket and summed in Blocked only.
+func (r reader) into(c *ForecastCurrency, bs []Bucket, f datedFlow, includeBlocked bool) {
+	blocked := f.source == SourcePayableBlocked
+	if blocked {
+		c.Blocked = r.sums.addTo(c.Blocked, f.amount)
+	}
+	counted := includeBlocked || !blocked
+	// The first bucket ending on or after the day, found or not: its start
+	// is on or before the day, as no flow is before the read date.
+	b, _ := slices.BinarySearchFunc(bs, f.date, func(b Bucket, d time.Time) int {
+		return cmp.Compare(b.End.Unix(), d.Unix())
+	})
+	switch {
+	case b < len(bs):
+		bf := &c.Buckets[b]
+		bf.Flows = r.sums.addTotal(bf.Flows, FlowTotal{Source: f.source, Certainty: f.certainty, Late: f.late, Amount: f.amount, Count: 1})
+		if counted {
+			bf.Total, c.Total = r.sums.add(bf.Total, f.amount), r.sums.add(c.Total, f.amount)
+		}
+	case counted:
+		c.Beyond = r.sums.addTo(c.Beyond, f.amount)
+	}
+}
+
+// addTo adds a flow's amount to a sum and counts it.
+func (s *sums) addTo(b Beyond, amount money.Minor) Beyond {
+	return Beyond{Amount: s.add(b.Amount, amount), Count: b.Count + 1}
 }
