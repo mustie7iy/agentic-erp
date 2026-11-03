@@ -2467,7 +2467,7 @@ paths:
         - config.rules_not_simulated
         - config.unknown_base_version
         - config.unknown_keys
-        - ledger.asset_reconciliation_posted
+        - ledger.asset_reconciliation_not_new
         - ledger.controlling_invalid
         - ledger.down_payment_account_fixed
         - ledger.gr_ir_account_fixed

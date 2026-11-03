@@ -163,7 +163,7 @@ func (s Setup) checkCompany(ctx context.Context, tx pgx.Tx, co config.Company, w
 	if err := checkOpenItemsUnposted(ctx, tx, p, le.ID, co, was, out); err != nil {
 		return err
 	}
-	if err := checkAssetReconciliationUnposted(ctx, tx, p, le.ID, co, was, out); err != nil {
+	if err := checkAssetReconciliationNew(ctx, tx, p, co, was, out); err != nil {
 		return err
 	}
 	if dated {
@@ -200,20 +200,28 @@ func checkOpenItemsUnposted(ctx context.Context, tx pgx.Tx, p string, le uuid.UU
 	return nil
 }
 
-// checkAssetReconciliationUnposted reports accounts the proposal makes
-// asset reconciliation accounts that already have postings (ADR-0057 §3):
-// their balance would not be the assets' movements, and lines no assets
-// document posted could stay on them. The company flags a new account
-// before any balance is migrated onto it.
-func checkAssetReconciliationUnposted(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, co config.Company, was *config.Company, out *findings) error {
+// checkAssetReconciliationNew reports accounts the proposal makes asset
+// reconciliation accounts that the chart already has (ADR-0057 §3, As
+// built T57a): only an account the activation itself creates becomes one.
+// An existing account could take a posting in flight while it is turned,
+// which no check before the commit would see, and a line no assets
+// document posted would stay on it for good; a new account has no lines
+// until the activation commits.
+func checkAssetReconciliationNew(ctx context.Context, tx pgx.Tx, p string, co config.Company, was *config.Company, out *findings) error {
 	turned := turnedOn(co, was, func(a *config.Account) bool { return a.AssetReconciliation })
-	posted, err := postedAccounts(ctx, tx, le, co.Code, turned)
+	if len(turned) == 0 {
+		return nil
+	}
+	rows, _ := tx.Query(ctx, `SELECT g.number FROM ledger.gl_account g
+		JOIN ledger.chart_of_accounts c ON c.tenant_id = g.tenant_id AND c.id = g.chart_id AND c.code = $1
+		WHERE g.number = ANY($2) AND g.reconciliation_kind <> 'asset' ORDER BY 1`, co.Code, turned)
+	existing, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
 		return fmt.Errorf("ledger: check company %s: asset reconciliation accounts: %w", co.Code, err)
 	}
-	for _, number := range posted {
-		out.add(p+".chart_of_accounts["+number+"].asset_reconciliation", "account %s has postings, so it cannot become an asset reconciliation "+
-			"account; flag a new account before any balance is posted or migrated onto it", number)
+	for _, number := range existing {
+		out.add(p+".chart_of_accounts["+number+"].asset_reconciliation", "account %s exists already, so it cannot become an asset reconciliation "+
+			"account; add a new account flagged asset_reconciliation, before any balance is posted or migrated onto it", number)
 	}
 	return nil
 }
@@ -484,20 +492,20 @@ func applyAccounts(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart
 		ON CONFLICT DO NOTHING`, p.TenantID, le, chart, p.ID, numbers); err != nil {
 		return fmt.Errorf("ledger: apply company %s: company accounts: %w", co.Code, err)
 	}
-	if err := applyAssetReconciliation(ctx, tx, p, le, chart, co); err != nil {
+	if err := applyAssetReconciliation(ctx, tx, chart, co); err != nil {
 		return err
 	}
 	return applyOpenItems(ctx, tx, p, le, chart, co)
 }
 
-// applyAssetReconciliation makes the accounts the document flags
-// asset_reconciliation asset reconciliation accounts (ADR-0057 §3): a new
-// account is inserted as one, an existing one that reconciles nothing
-// becomes one, and the activation is refused when such an account has
-// postings in the legal entity (409 ledger.asset_reconciliation_posted).
-// Check refuses the same on submission; an entry posted while the change
+// applyAssetReconciliation refuses the activation when the document
+// flags asset_reconciliation an account the chart already had (409
+// ledger.asset_reconciliation_not_new): applyAccounts inserts a new
+// account as one and never changes an existing account's kind, so such an
+// account is left reconciling nothing. Check refuses the same on
+// submission; an account another activation created while the change
 // awaited approval is caught here, and the activation rolls back.
-func applyAssetReconciliation(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart uuid.UUID, co config.Company) error {
+func applyAssetReconciliation(ctx context.Context, tx pgx.Tx, chart uuid.UUID, co config.Company) error {
 	var numbers []string
 	for _, a := range co.ChartOfAccounts {
 		if a.AssetReconciliation {
@@ -507,23 +515,14 @@ func applyAssetReconciliation(ctx context.Context, tx pgx.Tx, p reqctx.Principal
 	if len(numbers) == 0 {
 		return nil
 	}
-	rows, _ := tx.Query(ctx, `UPDATE ledger.gl_account g SET reconciliation_kind = 'asset', version = g.version + 1, updated_by = $4
-		WHERE g.chart_id = $2 AND g.number = ANY($3) AND g.reconciliation_kind = 'none'
-		RETURNING g.number, EXISTS (SELECT FROM ledger.journal_line l WHERE l.tenant_id = g.tenant_id AND l.legal_entity_id = $1 AND l.account_id = g.id)`,
-		le, chart, numbers, p.ID)
-	type turned struct {
-		Number string
-		Posted bool
-	}
-	on, err := pgx.CollectRows(rows, pgx.RowToStructByPos[turned])
-	if err != nil {
+	var number *string
+	if err := tx.QueryRow(ctx, `SELECT min(number) FROM ledger.gl_account WHERE chart_id = $1 AND number = ANY($2) AND reconciliation_kind <> 'asset'`,
+		chart, numbers).Scan(&number); err != nil {
 		return fmt.Errorf("ledger: apply company %s: asset reconciliation accounts: %w", co.Code, err)
 	}
-	for _, a := range on {
-		if a.Posted {
-			return problem.Conflict("ledger.asset_reconciliation_posted", "Account "+a.Number+" of company "+co.Code+
-				" has postings, so it cannot become an asset reconciliation account; flag a new account before any balance is posted or migrated onto it.")
-		}
+	if number != nil {
+		return problem.Conflict("ledger.asset_reconciliation_not_new", "Account "+*number+" of company "+co.Code+
+			" existed before, so it cannot become an asset reconciliation account; add a new account flagged asset_reconciliation.")
 	}
 	return nil
 }

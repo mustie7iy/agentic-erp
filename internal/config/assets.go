@@ -118,6 +118,20 @@ func (v *validator) assetClasses(c *Config) {
 	}
 	for _, co := range c.Companies {
 		v.assetAccounts(c, "companies["+co.Code+"]", &co)
+		v.notAutomatic("companies["+co.Code+"]", &co)
+	}
+}
+
+// notAutomatic refuses an asset reconciliation account wherever the
+// company names an account the system posts to automatically (account
+// determination, tax codes, withholding taxes, foreign-currency valuation,
+// house banks, statement posting rules): only assets post to it
+// (ADR-0057 §3), so every such posting would be refused.
+func (v *validator) notAutomatic(p string, co *Company) {
+	for _, a := range co.AutomaticAccounts() {
+		if acc := co.Account(a.Account); acc != nil && acc.AssetReconciliation {
+			v.err(p+"."+a.Path, "account %s is an asset reconciliation account, posted only through assets", a.Account)
+		}
 	}
 }
 

@@ -1118,8 +1118,8 @@ an entry whose `source_context` is `assets`, or `integration` (a migration's
 balances): `ledger.check_line` refuses every other
 (`journal_line_asset_reconciliation`, 422
 `ledger.asset_reconciliation_account`), and the posting paths refuse it
-first, naming the line. An account becomes one only while it has no
-postings in the legal entity, and never stops being one (`ledger.Setup`);
+first, naming the line. Only an account the activation creates becomes
+one, and it never stops being one (`ledger.Setup`);
 it is not open-item managed: `company_account.is_open_item_managed` starts
 true for supplier and customer reconciliation accounts only. The asset
 classes and each company's asset accounts are configuration

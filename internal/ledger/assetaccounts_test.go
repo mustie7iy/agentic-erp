@@ -46,17 +46,24 @@ func apply(t *testing.T, e env, doc *config.Config) error {
 	})
 }
 
-// TestAssetReconciliationSetup: an account becomes an asset reconciliation
-// account only while it has no postings in the legal entity, on
-// submission and at activation (ADR-0057 §3), and stays one; it is not
-// open-item managed, as supplier reconciliation accounts are.
+// TestAssetReconciliationSetup: only an account the activation creates
+// becomes an asset reconciliation account (ADR-0057 §3, As built T57a):
+// an existing one, posted or not, is refused on submission and at
+// activation, since a posting in flight while it turned could stay on it;
+// a flagged account stays one, and is not open-item managed, as supplier
+// reconciliation accounts are.
 func TestAssetReconciliationSetup(t *testing.T) {
 	e := setup(t)
 	s := ledger.Setup{LegalEntities: tenancy.Directory{}}
 	bank := e.account(t, "2000", "100000")
 	e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{e.account(t, "2000", "510000"), "10.00", ""}, line{bank, "-10.00", ""}), "")
-	posted := "companies[2000].chart_of_accounts[100000].asset_reconciliation: account 100000 has postings, so it cannot become an asset " +
-		"reconciliation account; flag a new account before any balance is posted or migrated onto it"
+	if err := apply(t, e, withUnflagged102000(t)); err != nil {
+		t.Fatal(err)
+	}
+	existing := func(number string) string {
+		return "companies[2000].chart_of_accounts[" + number + "].asset_reconciliation: account " + number + " exists already, so it cannot become " +
+			"an asset reconciliation account; add a new account flagged asset_reconciliation, before any balance is posted or migrated onto it"
+	}
 	turnedOff := "companies[2000].chart_of_accounts[160000].asset_reconciliation: an asset reconciliation account stays one once activated"
 	for _, c := range []struct {
 		name           string
@@ -64,9 +71,9 @@ func TestAssetReconciliationSetup(t *testing.T) {
 		want           string
 	}{
 		{"a new account", withUnflagged102000(t), withAssetAccount(t), ""},
-		{"an applied account without postings", withUnflagged102000(t), withAssetAccount(t, "102000"), ""},
-		{"a posted account", withUnflagged102000(t), withAssetAccount(t, "100000"), posted},
-		{"a posted account, first activation", nil, withAssetAccount(t, "100000"), posted},
+		{"an existing account without postings", withUnflagged102000(t), withAssetAccount(t, "102000"), existing("102000")},
+		{"a posted account", withUnflagged102000(t), withAssetAccount(t, "100000"), existing("100000")},
+		{"a posted account, first activation", nil, withAssetAccount(t, "100000"), existing("100000")},
 		{"already flagged", withAssetAccount(t, "100000"), withAssetAccount(t, "100000"), ""},
 		{"turned off", withAssetAccount(t), unflagged160000(t), turnedOff},
 	} {
@@ -86,28 +93,22 @@ func TestAssetReconciliationSetup(t *testing.T) {
 			}
 		})
 	}
-	if err := apply(t, e, withUnflagged102000(t)); err != nil {
+	err := apply(t, e, withAssetAccount(t, "102000"))
+	if p := (*problem.Problem)(nil); !errors.As(err, &p) || p.Code != "ledger.asset_reconciliation_not_new" || p.Status != 409 {
+		t.Fatalf("activation flagging an existing account: got %v, want 409 ledger.asset_reconciliation_not_new", err)
+	}
+	if got := reconciliationKind(t, e, e.account(t, "2000", "102000")); got != "none" {
+		t.Errorf("account 102000 after the refused activation: got %s, want none", got)
+	}
+	if err := apply(t, e, withAssetAccount(t)); err != nil {
 		t.Fatal(err)
 	}
-	err := apply(t, e, withAssetAccount(t, "100000"))
-	if p := (*problem.Problem)(nil); !errors.As(err, &p) || p.Code != "ledger.asset_reconciliation_posted" || p.Status != 409 {
-		t.Fatalf("activation flagging a posted account: got %v, want 409 ledger.asset_reconciliation_posted", err)
+	cost := e.account(t, "2000", "160000")
+	if got := reconciliationKind(t, e, cost); got != "asset" {
+		t.Errorf("account 160000: got reconciliation kind %s, want asset", got)
 	}
-	if got := reconciliationKind(t, e, bank); got != "none" {
-		t.Errorf("account 100000 after the refused activation: got %s, want none", got)
-	}
-	doc := withAssetAccount(t, "102000")
-	if err := apply(t, e, doc); err != nil {
-		t.Fatal(err)
-	}
-	for _, number := range []string{"160000", "102000"} {
-		id := e.account(t, "2000", number)
-		if got := reconciliationKind(t, e, id); got != "asset" {
-			t.Errorf("account %s: got reconciliation kind %s, want asset", number, got)
-		}
-		if openItemManaged(t, e, id) {
-			t.Errorf("account %s open-item managed: got true, want false", number)
-		}
+	if openItemManaged(t, e, cost) {
+		t.Error("account 160000 open-item managed: got true, want false")
 	}
 	if !openItemManaged(t, e, e.account(t, "2000", "211000")) {
 		t.Error("supplier reconciliation account 211000 open-item managed: got false, want true")
@@ -124,7 +125,7 @@ func unflagged160000(tb testing.TB) *config.Config {
 }
 
 // withUnflagged102000 is the document with company 2000's account 102000,
-// an asset account that reconciles nothing and has no postings.
+// an asset account that reconciles nothing.
 func withUnflagged102000(tb testing.TB) *config.Config {
 	tb.Helper()
 	doc := document(tb)

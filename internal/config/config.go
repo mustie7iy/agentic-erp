@@ -380,8 +380,8 @@ type Account struct {
 	// AssetReconciliation makes the account an asset reconciliation account
 	// (ADR-0057 §3): only the assets context (and a migration's balances)
 	// posts to it, so its balance is the assets' acquisition cost or
-	// accumulated depreciation. It is set only on an account without
-	// postings and never removed (ledger.Setup.Check).
+	// accumulated depreciation. It is set only on an account the
+	// activation creates and never removed (ledger.Setup).
 	AssetReconciliation bool `yaml:"asset_reconciliation,omitempty" json:"asset_reconciliation,omitempty"`
 	// CostElement says which cost object a line on the account needs
 	// (ADR-0050 §4); empty takes the default of the account's type

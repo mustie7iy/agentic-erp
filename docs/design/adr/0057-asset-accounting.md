@@ -1427,11 +1427,11 @@ depreciation, depreciation, clearing, gain, loss, sale clearing) and
 `chart_of_accounts[].asset_reconciliation` in `internal/config`
 (`assets.go`), validated with the problems on their fields; tiers: a
 class's name 1, its terms and the asset accounts 3, the flag 4 (the
-chart's rule). `ledger.Setup` writes `reconciliation_kind = 'asset'` (a new
-account inserted as one, an unposted one that reconciled nothing turned
-into one), refuses an account with postings on submission
-(`chart_of_accounts[n].asset_reconciliation`) and at activation, and
-refuses removing the flag; `company_account.is_open_item_managed` starts
+chart's rule). `ledger.Setup` inserts a new account flagged
+`asset_reconciliation` with `reconciliation_kind = 'asset'`, refuses the
+flag on an account the chart already has on submission
+(`chart_of_accounts[n].asset_reconciliation`) and at activation (409
+`ledger.asset_reconciliation_not_new`), and refuses removing the flag; `company_account.is_open_item_managed` starts
 true for supplier and customer reconciliation accounts only. Migration
 000189 adds the asset rule to `ledger.check_line`
 (`journal_line_asset_reconciliation`, schema test
@@ -1458,17 +1458,26 @@ operation. Decided by default, for the product owner to overrule:
   cost and accumulated depreciation accounts differ, and so do the clearing
   and sale clearing accounts; accounts may be shared across classes.
 - An asset reconciliation account is refused wherever the document names
-  an account for another use (account determination, house banks,
-  statement posting rules, withholding taxes): only assets post to it.
+  an account the system posts to automatically (`AutomaticAccounts`:
+  account determination, tax codes, withholding taxes, foreign-currency
+  valuation, house banks, statement posting rules): only assets post to it
+  (review round 1).
+- §3's "an account becomes one only while it has no postings" is narrowed
+  to "only an account the activation creates" (review round 1): turning an
+  existing account, even an unposted one, could race a posting in flight
+  that read it as reconciling nothing, and no check before the commit sees
+  that posting's line, which would then stay on the account for good
+  (ADR-0008). A new account has no lines until the activation commits. A
+  company flags new accounts before it migrates balances onto them, as §3
+  already asks.
 - The number ranges `asset`, `journal_aa` and `journal_af` are required
   for the fiscal year the company's date falls in, when a change is
   submitted (`ledger.Setup.Check`, which knows the company's date); a
   document activated later in the year keeps them, as every range check
   is made on submission.
-- An entry posted on a newly flagged account between submission and
-  activation fails the activation with 409
-  `ledger.asset_reconciliation_posted`, as `open_items` does with
-  `ledger.open_items_account_posted` (a new code beside §10's).
+- An account the chart gained between submission and activation (by
+  another change) and that the document flags fails the activation with
+  409 `ledger.asset_reconciliation_not_new` (a new code beside §10's).
 - The posting paths that take lines from a caller (manual and parked
   entries, templates, other contexts through `ledger.Postings.Post`)
   refuse a line on an asset reconciliation account outside `assets` and

@@ -450,7 +450,7 @@ func (v *validator) bankStatements(p string, co *Company, exp int, known bool) {
 		switch {
 		case a == nil:
 			v.err(rp+".account", "account %q is not in the chart of accounts", r.Account)
-		case a.VendorReconciliation, a.AssetReconciliation, co.isTaxAccount(r.Account), banks[r.Account]:
+		case a.VendorReconciliation, co.isTaxAccount(r.Account), banks[r.Account]:
 			v.err(rp+".account", "account %s is posted only by its own documents, not by a statement's charges or interest", r.Account)
 		}
 	}
@@ -613,8 +613,7 @@ func (v *validator) rankedBanks(rp string, banks map[string]string, r BankRankin
 
 // account checks that the account is in the chart with the type its use
 // needs, a vendor reconciliation account where the use is one and no other
-// account, and no asset reconciliation account, which only assets post to
-// (ADR-0057 §3).
+// account.
 func (v *validator) account(path string, co *Company, number string, want AccountType, recon bool) {
 	a := co.Account(number)
 	switch {
@@ -628,8 +627,6 @@ func (v *validator) account(path string, co *Company, number string, want Accoun
 		v.err(path, "account %s is not a vendor reconciliation account", number)
 	case !recon && a.VendorReconciliation:
 		v.err(path, "account %s is a vendor reconciliation account, posted only through the supplier's items", number)
-	case a.AssetReconciliation:
-		v.err(path, "account %s is an asset reconciliation account, posted only through assets", number)
 	}
 }
 
@@ -729,7 +726,7 @@ func (v *validator) withholdingTaxCodes(p string, co *Company) {
 		if w.Posting != WithholdingAtInvoice && w.Posting != WithholdingAtPayment {
 			v.err(wp+".posting", "invoice or payment")
 		}
-		if a := co.Account(w.Account); a == nil || a.Type != Liability || a.VendorReconciliation || a.AssetReconciliation {
+		if a := co.Account(w.Account); a == nil || a.Type != Liability || a.VendorReconciliation {
 			v.err(wp+".account", "account %s: the withholding tax payable is a liability of the chart that reconciles no supplier", w.Account)
 		}
 	}

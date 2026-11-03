@@ -39,6 +39,7 @@ func TestAssetClassesValid(t *testing.T) {
 		t.Fatalf("asset classes configured: got %v, want no errors", fs)
 	}
 	const cls, acc = "asset_classes[MACHINES]", "companies[1000].asset_accounts[MACHINES]"
+	c0tax := withAssets(t).Companies[0].TaxCodes[0].Code
 	terms := func(i int, mutate func(*AssetTerms)) func(c *Config) {
 		return func(c *Config) { mutate(&c.AssetClasses[0].Terms[i]) }
 	}
@@ -102,6 +103,12 @@ func TestAssetClassesValid(t *testing.T) {
 		{"a reconciliation account for statements' charges", func(c *Config) {
 			c.Companies[0].BankStatements.PostingRules = []StatementPostingRule{{TransactionCode: "NCHG", Description: "Charges", Account: "160000"}}
 		}, "companies[1000].bank_statements.posting_rules[NCHG].account"},
+		{"a clearing account not in the chart", accounts(func(a *AssetAccounts) { a.Clearing = "999999" }), acc + ".clearing"},
+		{"a reconciliation account for a tax code", func(c *Config) { c.Companies[0].TaxCodes[0].Account = "160000" },
+			"companies[1000].tax_codes[" + c0tax + "].account"},
+		{"a reconciliation account as an FX adjustment", func(c *Config) {
+			c.Companies[0].FXValuation.Accounts = []FXValuationAccount{{Account: "211000", Adjustment: "160000", UnrealisedGain: "400000", UnrealisedLoss: "610000"}}
+		}, "companies[1000].fx_valuation.accounts[211000].adjustment"},
 		{"a reconciliation account for withholding", func(c *Config) {
 			c.Companies[0].Account("160000").Type = Liability
 			c.Companies[0].WithholdingTaxCodes = []WithholdingTaxCode{{Code: "W1", Description: "Withholding", RatePercent: "10", Account: "160000",
