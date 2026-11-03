@@ -18,26 +18,74 @@ func memoFlows(ctx context.Context, tx pgx.Tx, r reader, legalEntity uuid.UUID, 
 	for i, b := range banks {
 		ids[i] = b.ID
 	}
-	rows, _ := tx.Query(ctx, memoSelect+` WHERE m.legal_entity_id = $1 AND m.house_bank_id = ANY($2) AND m.status = 'active'
-		AND (m.counts_until IS NULL OR m.counts_until >= $3) AND m.value_date <= $4 ORDER BY m.value_date, m.id`, legalEntity, ids, r.read, last)
+	occs, err := memoOccurrences(ctx, tx, r, legalEntity, ids, last)
+	for _, o := range occs {
+		out[*o.record.HouseBankID] = append(out[*o.record.HouseBankID], o.flow)
+	}
+	return err
+}
+
+// memoForecast are the legal entity's active memo records' occurrences in
+// the forecast (T53e4), with a house bank or none, each classified by its
+// record's own liquidity item and naming the record: a series' up to the
+// last day, a one-off record whatever its day, so one after the last
+// bucket is beyond.
+func memoForecast(ctx context.Context, tx pgx.Tx, r reader, legalEntity uuid.UUID, last time.Time) ([]datedFlow, error) {
+	occs, err := memoOccurrences(ctx, tx, r, legalEntity, nil, last)
+	out := make([]datedFlow, len(occs))
+	for i, o := range occs {
+		m := o.record
+		out[i] = datedFlow{flow: o.flow, currency: m.Currency, parts: []part{{amount: m.Amount, item: m.Item}},
+			documents: []paidDocument{{Document: Document{Kind: DocMemoRecord, ID: m.ID, Number: deref(m.Reference)}, amount: m.Amount}},
+			identity:  o.on.Format(time.DateOnly)}
+	}
+	return out, err
+}
+
+// deref is the text, "" for none.
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// memoOccurrence is an occurrence of an active memo record as a flow.
+type memoOccurrence struct {
+	record MemoRecord
+	on     time.Time // the occurrence's own date, before it is moved to a working day
+	flow   flow
+}
+
+// memoOccurrences are the occurrences of the legal entity's active memo
+// records that count at the read: on the banks, those dated up to the last
+// day; with no banks (nil), every record, with a bank or none, a one-off
+// whatever its day. Each occurrence of a series up to the last day is on
+// its day at the bank, an occurrence a series' override replaces left to
+// the override, an expired one left out.
+func memoOccurrences(ctx context.Context, tx pgx.Tx, r reader, legalEntity uuid.UUID, banks []uuid.UUID, last time.Time) ([]memoOccurrence, error) {
+	every := banks == nil
+	rows, _ := tx.Query(ctx, memoSelect+` WHERE m.legal_entity_id = $1 AND ($2 OR m.house_bank_id = ANY($3)) AND m.status = 'active'
+		AND (m.counts_until IS NULL OR m.counts_until >= $4) AND ($2 OR m.value_date <= $5) ORDER BY m.value_date, m.id`, legalEntity, every, banks, r.read, last)
 	ms, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (MemoRecord, error) { return scanMemo(row) })
 	if err != nil {
-		return fmt.Errorf("cash: memo records of %s: %w", legalEntity, err)
+		return nil, fmt.Errorf("cash: memo records of %s: %w", legalEntity, err)
 	}
 	overridden, err := overriddenOccurrences(ctx, tx, ms)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var out []memoOccurrence
 	for _, m := range ms {
 		for _, d := range m.days(last) {
 			if overridden[occurrence{m.ID, d}] || d.AddDate(0, 0, m.expiryDays()).Before(r.read) {
 				continue
 			}
 			day, late := r.atBank(d)
-			out[*m.HouseBankID] = append(out[*m.HouseBankID], flow{date: day, source: SourceMemo, certainty: m.Certainty, late: late, amount: m.Amount})
+			out = append(out, memoOccurrence{record: m, on: d, flow: flow{date: day, source: SourceMemo, certainty: m.Certainty, late: late, amount: m.Amount}})
 		}
 	}
-	return nil
+	return out, nil
 }
 
 // occurrence is a series' occurrence on a day.

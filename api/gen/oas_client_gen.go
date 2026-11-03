@@ -389,22 +389,33 @@ type Invoker interface {
 	CreateAsset(ctx context.Context, request *AssetCreate, params CreateAssetParams) (CreateAssetRes, error)
 	// CreateAssetAcquisition invokes createAssetAcquisition operation.
 	//
-	// Capitalises a posted journal line on an asset clearing account onto an asset (ADR-0057 §6, T57c;
-	// SAP's acquisition with automatic offsetting entry): a supplier invoice item, a goods receipt or a
-	// manual entry posted on the clearing account of the asset's class in the asset's company. The line is
-	// named by its leading-ledger entry and line number (`GET /v1/asset-clearing-items` lists them); one
-	// that is not such a line is 422 `assets.not_clearing_line`, a line of a reversed entry or of a
-	// reversal 422 `assets.source_reversed`, and a line whose entry has no copy in every ledger the
-	// company keeps (a ledger-specific entry) 422 `assets.source_not_in_every_ledger`. `amount` is in the
-	// line's currency, all that is left of the line by default; it has the line's sign (a credit line, a
-	// supplier credit memo, is capitalised as a negative acquisition, which reduces cost) and is at most
-	// what is left (422 `assets.amount_exceeds_line`); a negative acquisition that would leave the asset's
-	// cost below zero in a ledger, or one onto an asset holding no cost, is 422 `assets.cost_negative`.
-	// One line may be split across several assets, and an asset acquired by several acquisitions. Its
-	// local and group amounts are the line's in proportion, rounded half away from zero, the acquisition
-	// that uses the rest of the line taking the rest of its local and group amounts, so a line capitalised
-	// in full leaves the clearing account at zero in all three currencies. The value date defaults to the
-	// line's posting date and may lie in any period up to the end of the posting date's (422
+	// Capitalises onto an asset a posted journal line on an asset clearing account (`source`; ADR-0057
+	// §6, T57c; SAP's acquisition with automatic offsetting entry) or, by manual entry, an amount against
+	// an offset account (`offset_account_id`, T57d); one of the two is given (422
+	// `request.validation_failed` on `source` for both or neither). From a line: a supplier invoice item,
+	// a goods receipt or a manual entry posted on the clearing account of the asset's class in the asset's
+	// company. The line is named by its leading-ledger entry and line number
+	// (`GET /v1/asset-clearing-items` lists them); one that is not such a line is 422
+	// `assets.not_clearing_line`, a line of a reversed entry 422 `assets.source_reversed`, and a line
+	// whose entry has no copy in every ledger the company keeps (a ledger-specific entry) 422
+	// `assets.source_not_in_every_ledger`. The line of a reversal, reversing a line L, takes cost off
+	// again: only onto an asset holding posted acquisitions from L (422 `assets.source_reversed` onto any
+	// other asset, and for the reversal of a line nothing was capitalised from), each asset taking from it
+	// at most its posted acquisitions from L less what it already took from the reversal's line (422
+	// `assets.amount_exceeds_line` above that; the worklist offers each asset that bound, all of it by
+	// default). So a supplier invoice reversed in payables after its line was capitalised is corrected on
+	// the asset when the acquisition can no longer be reversed (409 `assets.later_movements` on its
+	// `:reverse`); once taken, the asset's acquisitions from L are not reversed until this one is (409
+	// `assets.reversal_line_capitalised`). `amount` is in the line's currency, all that is left of the
+	// line by default; it has the line's sign (a credit line, a supplier credit memo, is capitalised as a
+	// negative acquisition, which reduces cost) and is at most what is left (422
+	// `assets.amount_exceeds_line`); a negative acquisition that would leave the asset's cost below zero
+	// in a ledger, or one onto an asset holding no cost, is 422 `assets.cost_negative`. One line may be
+	// split across several assets, and an asset acquired by several acquisitions. Its local and group
+	// amounts are the line's in proportion, rounded half away from zero, the acquisition that uses the
+	// rest of the line taking the rest of its local and group amounts, so a line capitalised in full
+	// leaves the clearing account at zero in all three currencies. The value date defaults to the line's
+	// posting date and may lie in any period up to the end of the posting date's (422
 	// `assets.value_date_in_future` after it); the posting date defaults to the company's date today, and
 	// lies on or after the start of the asset's latest center assignment (409
 	// `assets.posting_before_center_transfer`). It posts in the line's currency, to every ledger the
@@ -412,7 +423,15 @@ type Invoker interface {
 	// account on the line's profit center (document type AA, source context `assets`; 422
 	// `ledger.period_not_open` when the period is not open in a ledger), writes the asset's movements per
 	// ledger, and makes a `planned` asset `active` with its capitalisation date the earliest value date of
-	// its acquisitions. A cancelled or retired asset is 422 `assets.asset_cancelled` or
+	// its acquisitions that add cost. Against an offset account: `amount` is required and positive, in any
+	// currency; the offset account is a G/L account set up in the company, active and not blocked, that is
+	// no reconciliation account of any kind, not the GR/IR account and no asset clearing account of the
+	// company (422 `assets.offset_account_invalid`). It posts Dr the class's acquisition cost account on
+	// the asset's profit center / Cr the offset account, converted at the posting date's rate (422
+	// `ledger.no_exchange_rate` without one), to every ledger the company keeps; the asset's cost per
+	// ledger is the cost line's local and group amounts as the ledger posted them. It serves what has no
+	// supplier line (own work capitalised, a contribution in kind). Its value date defaults to its posting
+	// date; the date rules above apply. A cancelled or retired asset is 422 `assets.asset_cancelled` or
 	// `assets.asset_retired`; an asset the caller cannot act in is 404. Audited, and published as
 	// AssetMovementPosted.
 	//
@@ -1228,8 +1247,32 @@ type Invoker interface {
 	// them, so the top rows add up to each bucket's `total`, and the item's own flows by source and
 	// certainty; a row without `liquidity_item` holds what no rule assigns and no default covers.
 	// `min_certainty` cuts the less certain flows (actual, confirmed, expected, planned; default planned,
-	// every flow). Memo records, converted totals, the opening position and drill-down are a later step
-	// (T53e4). A legal entity the caller cannot act in is 404.
+	// every flow). T53e4 adds two sources, the opening position, one grain over a range, conversion and
+	// drill-down. `in_transit` (`confirmed`): the payments released from the company's active house banks
+	// whose line on the bank's clearing account is still open and that no statement line up to the bank's
+	// opening statement matches, as in the cash position (`getCashPosition`), on their run date plus the
+	// bank's value days moved to the next working day, `late` before the read date. `memo`: the `active`
+	// memo records of the legal entity, with or without a house bank, at their own certainty and liquidity
+	// item, each on its value date moved to the next working day (`late` before the read date) and not
+	// after it expires; a series' occurrences up to the last bucket's end, each once (an override
+	// replacing its occurrence), a one-off record also after the last bucket (`beyond`). Each currency
+	// gives its `opening`, the cash position's opening of the read date: the sum of its active house
+	// banks' latest statement closing balances before the read date (zero without a bank; a currency with
+	// a bank and no flow is listed too), and each bucket its `closing`, the opening plus the bucket's
+	// `total` and those of every bucket before it. `grain` with `to` asks for one grain over a range
+	// instead of the company's buckets: periods of the grain from the read date up to the one holding
+	// `to`, at most 92 days, 104 weeks or 36 months (the configuration's limits); one without the other, a
+	// `to` before the read date or more periods are 422. `display_currency` adds `converted` (ADR-0051
+	// §10): each currency's opening, buckets' totals and `beyond` converted into it at one rate for every
+	// bucket, the latest of the company's `cash.rate_type` valid on the read date (default `planning`;
+	// with no planning rate, `average`), each amount rounded once to the display currency's minor unit,
+	// half away from zero, then summed over the currencies; the converted `closing` is the converted
+	// opening plus the converted totals so far, so it adds up as the currencies' own do. A rate valid from
+	// more than `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`; a
+	// currency without a rate is left out of the converted figures and listed in `incomplete_currencies`
+	// (its own figures stand), never counted as zero. A display currency the reference data does not know
+	// is 422 `cash.unknown_currency`. The flows and documents behind a bucket and liquidity item are
+	// `listLiquidityForecastFlows`. A legal entity the caller cannot act in is 404.
 	//
 	// GET /v1/liquidity-forecast
 	GetLiquidityForecast(ctx context.Context, params GetLiquidityForecastParams) (GetLiquidityForecastRes, error)
@@ -1573,11 +1616,14 @@ type Invoker interface {
 	// currency, what acquisitions used of it and what is left, its document and origin (for a supplier
 	// invoice its number, the supplier's reference and the supplier's name), and the acquisitions made
 	// from it. The lines of a reversed entry and of its reversal are left out while nothing was
-	// capitalised from the reversed one; a reversed line with acquisitions is shown with
-	// `source_reversed`. With `remaining=true`, only lines an acquisition can still take something from
-	// (not reversed, something left). A legal entity the caller cannot act in has none. Ordered by posting
-	// date, entry and line. The lines are ledger amounts, so besides `assets.asset.read` the caller needs
-	// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	// capitalised from the reversed one; a reversed line with acquisitions is shown with `source_reversed`
+	// and its reversal's line beside it (`reversal`, T57d), offered to each asset holding posted
+	// acquisitions from the reversed line with the most it may take from it: those acquisitions less what
+	// it already took from the reversal's line. With `remaining=true`, only lines an acquisition can still
+	// take something from: not reversed with something left, or reversed with something offered. A legal
+	// entity the caller cannot act in has none. Ordered by posting date, entry and line. The lines are
+	// ledger amounts, so besides `assets.asset.read` the caller needs `ledger.entry.read`
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
 	//
 	// GET /v1/asset-clearing-items
 	ListAssetClearingItems(ctx context.Context, params ListAssetClearingItemsParams) (ListAssetClearingItemsRes, error)
@@ -1880,6 +1926,25 @@ type Invoker interface {
 	//
 	// GET /v1/legal-entities
 	ListLegalEntities(ctx context.Context, params ListLegalEntitiesParams) (ListLegalEntitiesRes, error)
+	// ListLiquidityForecastFlows invokes listLiquidityForecastFlows operation.
+	//
+	// The drill-down of the liquidity forecast (ADR-0051 §9, T53e4): the flows of one currency whose day
+	// is from `from` (default the read date) to `to` (default no end, so the flows after the last bucket
+	// are reached too), computed as `getLiquidityForecast` computes them from one database state, by day;
+	// with `liquidity_item`, only the flows with a share of that item or its descendants, each with that
+	// `share` (as the item's row adds them up); with `unclassified=true`, only the shares no rule assigns
+	// and no default covers; else every flow, its `share` its whole amount. A memo series' occurrences are
+	// listed up to `to`, else up to the last of the company's buckets. `total` adds up the shares of every
+	// page's flows that the forecast counts (a `payable_blocked` one only with `include_blocked`), so a
+	// bucket's drill-down totals its cell of the item's row; `count` counts the flows of every page. Each
+	// flow names its supplier (number and name) only to a caller who may use `partner.supplier.read`, and
+	// each document only to one who may use its context's read permission (`ledger.entry.read`,
+	// `payables.invoice.read`, `payments.run.read`, `cash.memo.read`); for others it is left out, never
+	// refused, and `document_count` still counts it. A liquidity item the configuration does not have
+	// lists nothing. A legal entity the caller cannot act in is 404.
+	//
+	// GET /v1/liquidity-forecast-flows
+	ListLiquidityForecastFlows(ctx context.Context, params ListLiquidityForecastFlowsParams) (ListLiquidityForecastFlowsRes, error)
 	// ListMatchResults invokes listMatchResults operation.
 	//
 	// History of three-way match evaluations, newest first.
@@ -2914,6 +2979,28 @@ type Invoker interface {
 	//
 	// POST /v1/entry-templates/{id}:retire
 	RetireEntryTemplate(ctx context.Context, params RetireEntryTemplateParams) (RetireEntryTemplateRes, error)
+	// ReverseAssetAcquisition invokes reverseAssetAcquisition operation.
+	//
+	// Reverses a posted acquisition (ADR-0057 §6, T57d): its entry in every ledger through the ledger's
+	// reversal path, on `posting_date` (default the acquisition's posting date), never before the
+	// acquisition's posting date (422 `assets.reversal_before_original`) and in a period open in every
+	// ledger (409 `ledger.period_not_open`); each entry's reversal is shown beside it in `entries`. It
+	// writes the asset's movements negated, gives the amount back to the source line, which the worklist
+	// offers again, and derives the asset's status and capitalisation date again from the acquisitions
+	// left: reversing the earliest of several moves `capitalised_on` to the earliest left, reversing the
+	// only one returns the asset to `planned`. Refused while a retirement or transfer posted on the asset
+	// after it is not reversed (409 `assets.later_movements`: the last posted is reversed first); where it
+	// would leave the asset's cost below zero in a ledger (422 `assets.cost_negative`: a reduction
+	// capitalised since took off cost this one brought); and, for an acquisition from a line, while an
+	// acquisition from that line's reversal's line stands on the asset (409
+	// `assets.reversal_line_capitalised`: that one is reversed first). One already reversed is 409
+	// `assets.acquisition_not_posted`. Payables is not told: an invoice whose line was capitalised stays
+	// as it is. Depreciation posted on the asset since is posted back by its next depreciation run (T57f).
+	// The If-Match is the acquisition's ETag; an acquisition the caller cannot act in is 404. Audited, and
+	// published as AssetMovementReversed. Human-only.
+	//
+	// POST /v1/asset-acquisitions/{id}:reverse
+	ReverseAssetAcquisition(ctx context.Context, request *AssetAcquisitionReverse, params ReverseAssetAcquisitionParams) (ReverseAssetAcquisitionRes, error)
 	// ReverseGoodsReceipt invokes reverseGoodsReceipt operation.
 	//
 	// Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
@@ -2938,9 +3025,12 @@ type Invoker interface {
 	// entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with
 	// `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409
 	// `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with
-	// `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any other context are
-	// 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new
-	// reversal entry. Human-only.
+	// `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. An assets document's entry
+	// (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is
+	// reversed with `POST /v1/asset-acquisitions/{id}:reverse` (retirements and transfers with their own
+	// `:reverse`, a depreciation run's entries never one by one). Entries of any other context are 409
+	// `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal
+	// entry. Human-only.
 	//
 	// POST /v1/journal-entries/{id}:reverse
 	ReverseJournalEntry(ctx context.Context, request OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error)
@@ -8770,22 +8860,33 @@ func (c *Client) sendCreateAsset(ctx context.Context, request *AssetCreate, para
 
 // CreateAssetAcquisition invokes createAssetAcquisition operation.
 //
-// Capitalises a posted journal line on an asset clearing account onto an asset (ADR-0057 §6, T57c;
-// SAP's acquisition with automatic offsetting entry): a supplier invoice item, a goods receipt or a
-// manual entry posted on the clearing account of the asset's class in the asset's company. The line is
-// named by its leading-ledger entry and line number (`GET /v1/asset-clearing-items` lists them); one
-// that is not such a line is 422 `assets.not_clearing_line`, a line of a reversed entry or of a
-// reversal 422 `assets.source_reversed`, and a line whose entry has no copy in every ledger the
-// company keeps (a ledger-specific entry) 422 `assets.source_not_in_every_ledger`. `amount` is in the
-// line's currency, all that is left of the line by default; it has the line's sign (a credit line, a
-// supplier credit memo, is capitalised as a negative acquisition, which reduces cost) and is at most
-// what is left (422 `assets.amount_exceeds_line`); a negative acquisition that would leave the asset's
-// cost below zero in a ledger, or one onto an asset holding no cost, is 422 `assets.cost_negative`.
-// One line may be split across several assets, and an asset acquired by several acquisitions. Its
-// local and group amounts are the line's in proportion, rounded half away from zero, the acquisition
-// that uses the rest of the line taking the rest of its local and group amounts, so a line capitalised
-// in full leaves the clearing account at zero in all three currencies. The value date defaults to the
-// line's posting date and may lie in any period up to the end of the posting date's (422
+// Capitalises onto an asset a posted journal line on an asset clearing account (`source`; ADR-0057
+// §6, T57c; SAP's acquisition with automatic offsetting entry) or, by manual entry, an amount against
+// an offset account (`offset_account_id`, T57d); one of the two is given (422
+// `request.validation_failed` on `source` for both or neither). From a line: a supplier invoice item,
+// a goods receipt or a manual entry posted on the clearing account of the asset's class in the asset's
+// company. The line is named by its leading-ledger entry and line number
+// (`GET /v1/asset-clearing-items` lists them); one that is not such a line is 422
+// `assets.not_clearing_line`, a line of a reversed entry 422 `assets.source_reversed`, and a line
+// whose entry has no copy in every ledger the company keeps (a ledger-specific entry) 422
+// `assets.source_not_in_every_ledger`. The line of a reversal, reversing a line L, takes cost off
+// again: only onto an asset holding posted acquisitions from L (422 `assets.source_reversed` onto any
+// other asset, and for the reversal of a line nothing was capitalised from), each asset taking from it
+// at most its posted acquisitions from L less what it already took from the reversal's line (422
+// `assets.amount_exceeds_line` above that; the worklist offers each asset that bound, all of it by
+// default). So a supplier invoice reversed in payables after its line was capitalised is corrected on
+// the asset when the acquisition can no longer be reversed (409 `assets.later_movements` on its
+// `:reverse`); once taken, the asset's acquisitions from L are not reversed until this one is (409
+// `assets.reversal_line_capitalised`). `amount` is in the line's currency, all that is left of the
+// line by default; it has the line's sign (a credit line, a supplier credit memo, is capitalised as a
+// negative acquisition, which reduces cost) and is at most what is left (422
+// `assets.amount_exceeds_line`); a negative acquisition that would leave the asset's cost below zero
+// in a ledger, or one onto an asset holding no cost, is 422 `assets.cost_negative`. One line may be
+// split across several assets, and an asset acquired by several acquisitions. Its local and group
+// amounts are the line's in proportion, rounded half away from zero, the acquisition that uses the
+// rest of the line taking the rest of its local and group amounts, so a line capitalised in full
+// leaves the clearing account at zero in all three currencies. The value date defaults to the line's
+// posting date and may lie in any period up to the end of the posting date's (422
 // `assets.value_date_in_future` after it); the posting date defaults to the company's date today, and
 // lies on or after the start of the asset's latest center assignment (409
 // `assets.posting_before_center_transfer`). It posts in the line's currency, to every ledger the
@@ -8793,7 +8894,15 @@ func (c *Client) sendCreateAsset(ctx context.Context, request *AssetCreate, para
 // account on the line's profit center (document type AA, source context `assets`; 422
 // `ledger.period_not_open` when the period is not open in a ledger), writes the asset's movements per
 // ledger, and makes a `planned` asset `active` with its capitalisation date the earliest value date of
-// its acquisitions. A cancelled or retired asset is 422 `assets.asset_cancelled` or
+// its acquisitions that add cost. Against an offset account: `amount` is required and positive, in any
+// currency; the offset account is a G/L account set up in the company, active and not blocked, that is
+// no reconciliation account of any kind, not the GR/IR account and no asset clearing account of the
+// company (422 `assets.offset_account_invalid`). It posts Dr the class's acquisition cost account on
+// the asset's profit center / Cr the offset account, converted at the posting date's rate (422
+// `ledger.no_exchange_rate` without one), to every ledger the company keeps; the asset's cost per
+// ledger is the cost line's local and group amounts as the ledger posted them. It serves what has no
+// supplier line (own work capitalised, a contribution in kind). Its value date defaults to its posting
+// date; the date rules above apply. A cancelled or retired asset is 422 `assets.asset_cancelled` or
 // `assets.asset_retired`; an asset the caller cannot act in is 404. Audited, and published as
 // AssetMovementPosted.
 //
@@ -20674,8 +20783,32 @@ func (c *Client) sendGetLegalEntityToday(ctx context.Context, params GetLegalEnt
 // them, so the top rows add up to each bucket's `total`, and the item's own flows by source and
 // certainty; a row without `liquidity_item` holds what no rule assigns and no default covers.
 // `min_certainty` cuts the less certain flows (actual, confirmed, expected, planned; default planned,
-// every flow). Memo records, converted totals, the opening position and drill-down are a later step
-// (T53e4). A legal entity the caller cannot act in is 404.
+// every flow). T53e4 adds two sources, the opening position, one grain over a range, conversion and
+// drill-down. `in_transit` (`confirmed`): the payments released from the company's active house banks
+// whose line on the bank's clearing account is still open and that no statement line up to the bank's
+// opening statement matches, as in the cash position (`getCashPosition`), on their run date plus the
+// bank's value days moved to the next working day, `late` before the read date. `memo`: the `active`
+// memo records of the legal entity, with or without a house bank, at their own certainty and liquidity
+// item, each on its value date moved to the next working day (`late` before the read date) and not
+// after it expires; a series' occurrences up to the last bucket's end, each once (an override
+// replacing its occurrence), a one-off record also after the last bucket (`beyond`). Each currency
+// gives its `opening`, the cash position's opening of the read date: the sum of its active house
+// banks' latest statement closing balances before the read date (zero without a bank; a currency with
+// a bank and no flow is listed too), and each bucket its `closing`, the opening plus the bucket's
+// `total` and those of every bucket before it. `grain` with `to` asks for one grain over a range
+// instead of the company's buckets: periods of the grain from the read date up to the one holding
+// `to`, at most 92 days, 104 weeks or 36 months (the configuration's limits); one without the other, a
+// `to` before the read date or more periods are 422. `display_currency` adds `converted` (ADR-0051
+// §10): each currency's opening, buckets' totals and `beyond` converted into it at one rate for every
+// bucket, the latest of the company's `cash.rate_type` valid on the read date (default `planning`;
+// with no planning rate, `average`), each amount rounded once to the display currency's minor unit,
+// half away from zero, then summed over the currencies; the converted `closing` is the converted
+// opening plus the converted totals so far, so it adds up as the currencies' own do. A rate valid from
+// more than `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`; a
+// currency without a rate is left out of the converted figures and listed in `incomplete_currencies`
+// (its own figures stand), never counted as zero. A display currency the reference data does not know
+// is 422 `cash.unknown_currency`. The flows and documents behind a bucket and liquidity item are
+// `listLiquidityForecastFlows`. A legal entity the caller cannot act in is 404.
 //
 // GET /v1/liquidity-forecast
 func (c *Client) GetLiquidityForecast(ctx context.Context, params GetLiquidityForecastParams) (GetLiquidityForecastRes, error) {
@@ -20736,6 +20869,57 @@ func (c *Client) sendGetLiquidityForecast(ctx context.Context, params GetLiquidi
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "grain" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "grain",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Grain.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.To.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "display_currency" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "display_currency",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DisplayCurrency.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
 		}); err != nil {
 			return res, errors.Wrap(err, "encode query")
 		}
@@ -27253,11 +27437,14 @@ func (c *Client) sendListAssetClasses(ctx context.Context, params ListAssetClass
 // currency, what acquisitions used of it and what is left, its document and origin (for a supplier
 // invoice its number, the supplier's reference and the supplier's name), and the acquisitions made
 // from it. The lines of a reversed entry and of its reversal are left out while nothing was
-// capitalised from the reversed one; a reversed line with acquisitions is shown with
-// `source_reversed`. With `remaining=true`, only lines an acquisition can still take something from
-// (not reversed, something left). A legal entity the caller cannot act in has none. Ordered by posting
-// date, entry and line. The lines are ledger amounts, so besides `assets.asset.read` the caller needs
-// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+// capitalised from the reversed one; a reversed line with acquisitions is shown with `source_reversed`
+// and its reversal's line beside it (`reversal`, T57d), offered to each asset holding posted
+// acquisitions from the reversed line with the most it may take from it: those acquisitions less what
+// it already took from the reversal's line. With `remaining=true`, only lines an acquisition can still
+// take something from: not reversed with something left, or reversed with something offered. A legal
+// entity the caller cannot act in has none. Ordered by posting date, entry and line. The lines are
+// ledger amounts, so besides `assets.asset.read` the caller needs `ledger.entry.read`
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
 //
 // GET /v1/asset-clearing-items
 func (c *Client) ListAssetClearingItems(ctx context.Context, params ListAssetClearingItemsParams) (ListAssetClearingItemsRes, error) {
@@ -36210,6 +36397,300 @@ func (c *Client) sendListLegalEntities(ctx context.Context, params ListLegalEnti
 
 	stage = "DecodeResponse"
 	result, err := decodeListLegalEntitiesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListLiquidityForecastFlows invokes listLiquidityForecastFlows operation.
+//
+// The drill-down of the liquidity forecast (ADR-0051 §9, T53e4): the flows of one currency whose day
+// is from `from` (default the read date) to `to` (default no end, so the flows after the last bucket
+// are reached too), computed as `getLiquidityForecast` computes them from one database state, by day;
+// with `liquidity_item`, only the flows with a share of that item or its descendants, each with that
+// `share` (as the item's row adds them up); with `unclassified=true`, only the shares no rule assigns
+// and no default covers; else every flow, its `share` its whole amount. A memo series' occurrences are
+// listed up to `to`, else up to the last of the company's buckets. `total` adds up the shares of every
+// page's flows that the forecast counts (a `payable_blocked` one only with `include_blocked`), so a
+// bucket's drill-down totals its cell of the item's row; `count` counts the flows of every page. Each
+// flow names its supplier (number and name) only to a caller who may use `partner.supplier.read`, and
+// each document only to one who may use its context's read permission (`ledger.entry.read`,
+// `payables.invoice.read`, `payments.run.read`, `cash.memo.read`); for others it is left out, never
+// refused, and `document_count` still counts it. A liquidity item the configuration does not have
+// lists nothing. A legal entity the caller cannot act in is 404.
+//
+// GET /v1/liquidity-forecast-flows
+func (c *Client) ListLiquidityForecastFlows(ctx context.Context, params ListLiquidityForecastFlowsParams) (ListLiquidityForecastFlowsRes, error) {
+	res, err := c.sendListLiquidityForecastFlows(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListLiquidityForecastFlows(ctx context.Context, params ListLiquidityForecastFlowsParams) (res ListLiquidityForecastFlowsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listLiquidityForecastFlows"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/liquidity-forecast-flows"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListLiquidityForecastFlowsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/liquidity-forecast-flows"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "currency" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "currency",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.Currency))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.From.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.To.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "liquidity_item" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "liquidity_item",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LiquidityItem.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "unclassified" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "unclassified",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Unclassified.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "min_certainty" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "min_certainty",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MinCertainty.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include_blocked" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include_blocked",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.IncludeBlocked.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListLiquidityForecastFlowsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListLiquidityForecastFlowsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -53743,6 +54224,182 @@ func (c *Client) sendRetireEntryTemplate(ctx context.Context, params RetireEntry
 	return result, nil
 }
 
+// ReverseAssetAcquisition invokes reverseAssetAcquisition operation.
+//
+// Reverses a posted acquisition (ADR-0057 §6, T57d): its entry in every ledger through the ledger's
+// reversal path, on `posting_date` (default the acquisition's posting date), never before the
+// acquisition's posting date (422 `assets.reversal_before_original`) and in a period open in every
+// ledger (409 `ledger.period_not_open`); each entry's reversal is shown beside it in `entries`. It
+// writes the asset's movements negated, gives the amount back to the source line, which the worklist
+// offers again, and derives the asset's status and capitalisation date again from the acquisitions
+// left: reversing the earliest of several moves `capitalised_on` to the earliest left, reversing the
+// only one returns the asset to `planned`. Refused while a retirement or transfer posted on the asset
+// after it is not reversed (409 `assets.later_movements`: the last posted is reversed first); where it
+// would leave the asset's cost below zero in a ledger (422 `assets.cost_negative`: a reduction
+// capitalised since took off cost this one brought); and, for an acquisition from a line, while an
+// acquisition from that line's reversal's line stands on the asset (409
+// `assets.reversal_line_capitalised`: that one is reversed first). One already reversed is 409
+// `assets.acquisition_not_posted`. Payables is not told: an invoice whose line was capitalised stays
+// as it is. Depreciation posted on the asset since is posted back by its next depreciation run (T57f).
+// The If-Match is the acquisition's ETag; an acquisition the caller cannot act in is 404. Audited, and
+// published as AssetMovementReversed. Human-only.
+//
+// POST /v1/asset-acquisitions/{id}:reverse
+func (c *Client) ReverseAssetAcquisition(ctx context.Context, request *AssetAcquisitionReverse, params ReverseAssetAcquisitionParams) (ReverseAssetAcquisitionRes, error) {
+	res, err := c.sendReverseAssetAcquisition(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendReverseAssetAcquisition(ctx context.Context, request *AssetAcquisitionReverse, params ReverseAssetAcquisitionParams) (res ReverseAssetAcquisitionRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("reverseAssetAcquisition"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/asset-acquisitions/{id}:reverse"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ReverseAssetAcquisitionOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/asset-acquisitions/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":reverse"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeReverseAssetAcquisitionRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ReverseAssetAcquisitionOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeReverseAssetAcquisitionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ReverseGoodsReceipt invokes reverseGoodsReceipt operation.
 //
 // Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
@@ -53921,9 +54578,12 @@ func (c *Client) sendReverseGoodsReceipt(ctx context.Context, request OptGoodsRe
 // entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with
 // `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409
 // `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with
-// `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any other context are
-// 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new
-// reversal entry. Human-only.
+// `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. An assets document's entry
+// (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is
+// reversed with `POST /v1/asset-acquisitions/{id}:reverse` (retirements and transfers with their own
+// `:reverse`, a depreciation run's entries never one by one). Entries of any other context are 409
+// `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal
+// entry. Human-only.
 //
 // POST /v1/journal-entries/{id}:reverse
 func (c *Client) ReverseJournalEntry(ctx context.Context, request OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error) {

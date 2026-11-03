@@ -3101,15 +3101,18 @@ type AssetAcquisition struct {
 	// In local currency; negative from a credit line.
 	AmountLc Money `json:"amount_lc"`
 	// In group currency; negative from a credit line.
-	AmountGc Money                     `json:"amount_gc"`
-	Source   OptAssetAcquisitionSource `json:"source"`
+	AmountGc      Money                     `json:"amount_gc"`
+	Source        OptAssetAcquisitionSource `json:"source"`
+	OffsetAccount OptAssetOffsetAccount     `json:"offset_account"`
 	// The acquisition's text.
 	Text OptString `json:"text"`
 	// `posted`, or `reversed`. Open enumeration: clients must accept and preserve values not listed here;
 	// values may be added within /v1.
 	Status string `json:"status"`
-	// Its journal entries, one per ledger, the leading ledger first and then by ledger code.
-	Entries []AssetDocumentEntry `json:"entries"`
+	// Its journal entries, one per ledger, the leading ledger first and then by ledger code, each with its
+	// reversal once reversed.
+	Entries  []AssetDocumentEntry        `json:"entries"`
+	Reversal OptAssetAcquisitionReversal `json:"reversal"`
 }
 
 // GetID returns the value of ID.
@@ -3202,6 +3205,11 @@ func (s *AssetAcquisition) GetSource() OptAssetAcquisitionSource {
 	return s.Source
 }
 
+// GetOffsetAccount returns the value of OffsetAccount.
+func (s *AssetAcquisition) GetOffsetAccount() OptAssetOffsetAccount {
+	return s.OffsetAccount
+}
+
 // GetText returns the value of Text.
 func (s *AssetAcquisition) GetText() OptString {
 	return s.Text
@@ -3215,6 +3223,11 @@ func (s *AssetAcquisition) GetStatus() string {
 // GetEntries returns the value of Entries.
 func (s *AssetAcquisition) GetEntries() []AssetDocumentEntry {
 	return s.Entries
+}
+
+// GetReversal returns the value of Reversal.
+func (s *AssetAcquisition) GetReversal() OptAssetAcquisitionReversal {
+	return s.Reversal
 }
 
 // SetID sets the value of ID.
@@ -3307,6 +3320,11 @@ func (s *AssetAcquisition) SetSource(val OptAssetAcquisitionSource) {
 	s.Source = val
 }
 
+// SetOffsetAccount sets the value of OffsetAccount.
+func (s *AssetAcquisition) SetOffsetAccount(val OptAssetOffsetAccount) {
+	s.OffsetAccount = val
+}
+
 // SetText sets the value of Text.
 func (s *AssetAcquisition) SetText(val OptString) {
 	s.Text = val
@@ -3322,17 +3340,26 @@ func (s *AssetAcquisition) SetEntries(val []AssetDocumentEntry) {
 	s.Entries = val
 }
 
+// SetReversal sets the value of Reversal.
+func (s *AssetAcquisition) SetReversal(val OptAssetAcquisitionReversal) {
+	s.Reversal = val
+}
+
 // An acquisition from a posted line on an asset clearing account (ADR-0057 §6).
 // Ref: #/components/schemas/AssetAcquisitionCreate
 type AssetAcquisitionCreate struct {
-	// The asset the line's amount is capitalised onto.
-	AssetID uuid.UUID                 `json:"asset_id"`
-	Source  AssetAcquisitionSourceRef `json:"source"`
-	// In the line's currency, with the line's sign (negative from a credit line); default all that is left
-	// of the line.
+	// The asset the amount is capitalised onto.
+	AssetID uuid.UUID                    `json:"asset_id"`
+	Source  OptAssetAcquisitionSourceRef `json:"source"`
+	// For an acquisition by manual entry (T57d), instead of `source`: the G/L account credited
+	// (`GET /v1/accounts`); no reconciliation account and no asset clearing account.
+	OffsetAccountID OptUUID `json:"offset_account_id"`
+	// From a line: in the line's currency, with the line's sign (negative from a credit line or a
+	// reversal's line); default all that is left of the line, or of a reversal's line what the asset may
+	// take from it. Against an offset account: required, positive, in any currency.
 	Amount OptMoney `json:"amount"`
-	// The date the cost counts from for depreciation; default the line's posting date. At most the end of
-	// the posting date's period.
+	// The date the cost counts from for depreciation; default the line's posting date, or against an
+	// offset account the posting date. At most the end of the posting date's period.
 	ValueDate OptDate `json:"value_date"`
 	// The acquisition's posting date; default the company's date today.
 	PostingDate OptDate `json:"posting_date"`
@@ -3346,8 +3373,13 @@ func (s *AssetAcquisitionCreate) GetAssetID() uuid.UUID {
 }
 
 // GetSource returns the value of Source.
-func (s *AssetAcquisitionCreate) GetSource() AssetAcquisitionSourceRef {
+func (s *AssetAcquisitionCreate) GetSource() OptAssetAcquisitionSourceRef {
 	return s.Source
+}
+
+// GetOffsetAccountID returns the value of OffsetAccountID.
+func (s *AssetAcquisitionCreate) GetOffsetAccountID() OptUUID {
+	return s.OffsetAccountID
 }
 
 // GetAmount returns the value of Amount.
@@ -3376,8 +3408,13 @@ func (s *AssetAcquisitionCreate) SetAssetID(val uuid.UUID) {
 }
 
 // SetSource sets the value of Source.
-func (s *AssetAcquisitionCreate) SetSource(val AssetAcquisitionSourceRef) {
+func (s *AssetAcquisitionCreate) SetSource(val OptAssetAcquisitionSourceRef) {
 	s.Source = val
+}
+
+// SetOffsetAccountID sets the value of OffsetAccountID.
+func (s *AssetAcquisitionCreate) SetOffsetAccountID(val OptUUID) {
+	s.OffsetAccountID = val
 }
 
 // SetAmount sets the value of Amount.
@@ -3480,6 +3517,65 @@ func (s *AssetAcquisitionPage) SetNextPageToken(val OptString) {
 }
 
 func (*AssetAcquisitionPage) listAssetAcquisitionsRes() {}
+
+// The reversal of an acquisition; its entries are shown beside the acquisition's in `entries`.
+// Ref: #/components/schemas/AssetAcquisitionReversal
+type AssetAcquisitionReversal struct {
+	// The reversal's posting date.
+	PostingDate time.Time `json:"posting_date"`
+	// Why it was reversed.
+	Reason string `json:"reason"`
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetAcquisitionReversal) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetReason returns the value of Reason.
+func (s *AssetAcquisitionReversal) GetReason() string {
+	return s.Reason
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetAcquisitionReversal) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetReason sets the value of Reason.
+func (s *AssetAcquisitionReversal) SetReason(val string) {
+	s.Reason = val
+}
+
+// The reversal of an asset acquisition (ADR-0057 §6).
+// Ref: #/components/schemas/AssetAcquisitionReverse
+type AssetAcquisitionReverse struct {
+	// Why the acquisition is reversed.
+	Reason string `json:"reason"`
+	// The reversal's posting date; default the acquisition's. On or after the acquisition's posting date,
+	// in a period open in every ledger.
+	PostingDate OptDate `json:"posting_date"`
+}
+
+// GetReason returns the value of Reason.
+func (s *AssetAcquisitionReverse) GetReason() string {
+	return s.Reason
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetAcquisitionReverse) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// SetReason sets the value of Reason.
+func (s *AssetAcquisitionReverse) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetAcquisitionReverse) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
 
 // The line an acquisition capitalised: its leading-ledger entry and line, the entry's document number
 // and origin, and for a supplier invoice its number, reference and supplier.
@@ -4007,10 +4103,11 @@ type AssetClearingItem struct {
 	// What is left in group currency, with its sign.
 	RemainingGc Money `json:"remaining_gc"`
 	// The line's entry was reversed after acquisitions were made from it; nothing more can be taken from
-	// it.
+	// it, and its reversal's line (`reversal`) takes the cost off the assets holding it.
 	SourceReversed bool `json:"source_reversed"`
 	// The acquisitions made from the line, by posting order.
 	Acquisitions []AssetClearingAcquisition `json:"acquisitions"`
+	Reversal     OptAssetClearingReversal   `json:"reversal"`
 }
 
 // GetFiscalYear returns the value of FiscalYear.
@@ -4123,6 +4220,11 @@ func (s *AssetClearingItem) GetAcquisitions() []AssetClearingAcquisition {
 	return s.Acquisitions
 }
 
+// GetReversal returns the value of Reversal.
+func (s *AssetClearingItem) GetReversal() OptAssetClearingReversal {
+	return s.Reversal
+}
+
 // SetFiscalYear sets the value of FiscalYear.
 func (s *AssetClearingItem) SetFiscalYear(val int32) {
 	s.FiscalYear = val
@@ -4233,6 +4335,11 @@ func (s *AssetClearingItem) SetAcquisitions(val []AssetClearingAcquisition) {
 	s.Acquisitions = val
 }
 
+// SetReversal sets the value of Reversal.
+func (s *AssetClearingItem) SetReversal(val OptAssetClearingReversal) {
+	s.Reversal = val
+}
+
 // One page of lines on asset clearing accounts.
 // Ref: #/components/schemas/AssetClearingItemPage
 type AssetClearingItemPage struct {
@@ -4263,6 +4370,152 @@ func (s *AssetClearingItemPage) SetNextPageToken(val OptString) {
 }
 
 func (*AssetClearingItemPage) listAssetClearingItemsRes() {}
+
+// What an asset may take from a reversal's line: its posted acquisitions from the reversed line less
+// what it took from the reversal's line.
+// Ref: #/components/schemas/AssetClearingOffer
+type AssetClearingOffer struct {
+	// The asset.
+	AssetID uuid.UUID `json:"asset_id"`
+	// The asset's number.
+	AssetNumber string `json:"asset_number"`
+	// The asset's description.
+	AssetDescription string `json:"asset_description"`
+	// In the line's currency, with the reversal line's sign.
+	Amount Money `json:"amount"`
+}
+
+// GetAssetID returns the value of AssetID.
+func (s *AssetClearingOffer) GetAssetID() uuid.UUID {
+	return s.AssetID
+}
+
+// GetAssetNumber returns the value of AssetNumber.
+func (s *AssetClearingOffer) GetAssetNumber() string {
+	return s.AssetNumber
+}
+
+// GetAssetDescription returns the value of AssetDescription.
+func (s *AssetClearingOffer) GetAssetDescription() string {
+	return s.AssetDescription
+}
+
+// GetAmount returns the value of Amount.
+func (s *AssetClearingOffer) GetAmount() Money {
+	return s.Amount
+}
+
+// SetAssetID sets the value of AssetID.
+func (s *AssetClearingOffer) SetAssetID(val uuid.UUID) {
+	s.AssetID = val
+}
+
+// SetAssetNumber sets the value of AssetNumber.
+func (s *AssetClearingOffer) SetAssetNumber(val string) {
+	s.AssetNumber = val
+}
+
+// SetAssetDescription sets the value of AssetDescription.
+func (s *AssetClearingOffer) SetAssetDescription(val string) {
+	s.AssetDescription = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AssetClearingOffer) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// The line of the reversal of a reversed clearing line (ADR-0057 §6, T57d): capitalised as an
+// acquisition of its sign (`source` its entry and line) onto an asset that holds acquisitions from the
+// reversed line, at most what it offers that asset.
+// Ref: #/components/schemas/AssetClearingReversal
+type AssetClearingReversal struct {
+	// The reversal entry's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The reversal entry (the leading ledger's).
+	EntryID uuid.UUID `json:"entry_id"`
+	// The line's number, the reversed line's.
+	LineNo int32 `json:"line_no"`
+	// The reversal's posting date.
+	PostingDate time.Time `json:"posting_date"`
+	// The reversal entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The acquisitions made from the reversal's line, by posting order.
+	Acquisitions []AssetClearingAcquisition `json:"acquisitions"`
+	// Per asset holding posted acquisitions from the reversed line, by asset number, what it may still
+	// take from the reversal's line; none once each has taken all.
+	Offers []AssetClearingOffer `json:"offers"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetClearingReversal) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetEntryID returns the value of EntryID.
+func (s *AssetClearingReversal) GetEntryID() uuid.UUID {
+	return s.EntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *AssetClearingReversal) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetClearingReversal) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *AssetClearingReversal) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetAcquisitions returns the value of Acquisitions.
+func (s *AssetClearingReversal) GetAcquisitions() []AssetClearingAcquisition {
+	return s.Acquisitions
+}
+
+// GetOffers returns the value of Offers.
+func (s *AssetClearingReversal) GetOffers() []AssetClearingOffer {
+	return s.Offers
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetClearingReversal) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetEntryID sets the value of EntryID.
+func (s *AssetClearingReversal) SetEntryID(val uuid.UUID) {
+	s.EntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *AssetClearingReversal) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetClearingReversal) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *AssetClearingReversal) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetAcquisitions sets the value of Acquisitions.
+func (s *AssetClearingReversal) SetAcquisitions(val []AssetClearingAcquisition) {
+	s.Acquisitions = val
+}
+
+// SetOffers sets the value of Offers.
+func (s *AssetClearingReversal) SetOffers(val []AssetClearingOffer) {
+	s.Offers = val
+}
 
 // A new asset: its company, class, description and centers. Its terms come from the class.
 // Ref: #/components/schemas/AssetCreate
@@ -4344,6 +4597,12 @@ type AssetDocumentEntry struct {
 	JournalEntryID uuid.UUID `json:"journal_entry_id"`
 	// The entry's document number.
 	DocumentNumber string `json:"document_number"`
+	// Its reversal's fiscal year, once reversed.
+	ReversalFiscalYear OptInt32 `json:"reversal_fiscal_year"`
+	// Its reversal entry, once reversed.
+	ReversalJournalEntryID OptUUID `json:"reversal_journal_entry_id"`
+	// Its reversal entry's document number, once reversed.
+	ReversalDocumentNumber OptString `json:"reversal_document_number"`
 }
 
 // GetLedgerID returns the value of LedgerID.
@@ -4376,6 +4635,21 @@ func (s *AssetDocumentEntry) GetDocumentNumber() string {
 	return s.DocumentNumber
 }
 
+// GetReversalFiscalYear returns the value of ReversalFiscalYear.
+func (s *AssetDocumentEntry) GetReversalFiscalYear() OptInt32 {
+	return s.ReversalFiscalYear
+}
+
+// GetReversalJournalEntryID returns the value of ReversalJournalEntryID.
+func (s *AssetDocumentEntry) GetReversalJournalEntryID() OptUUID {
+	return s.ReversalJournalEntryID
+}
+
+// GetReversalDocumentNumber returns the value of ReversalDocumentNumber.
+func (s *AssetDocumentEntry) GetReversalDocumentNumber() OptString {
+	return s.ReversalDocumentNumber
+}
+
 // SetLedgerID sets the value of LedgerID.
 func (s *AssetDocumentEntry) SetLedgerID(val uuid.UUID) {
 	s.LedgerID = val
@@ -4404,6 +4678,21 @@ func (s *AssetDocumentEntry) SetJournalEntryID(val uuid.UUID) {
 // SetDocumentNumber sets the value of DocumentNumber.
 func (s *AssetDocumentEntry) SetDocumentNumber(val string) {
 	s.DocumentNumber = val
+}
+
+// SetReversalFiscalYear sets the value of ReversalFiscalYear.
+func (s *AssetDocumentEntry) SetReversalFiscalYear(val OptInt32) {
+	s.ReversalFiscalYear = val
+}
+
+// SetReversalJournalEntryID sets the value of ReversalJournalEntryID.
+func (s *AssetDocumentEntry) SetReversalJournalEntryID(val OptUUID) {
+	s.ReversalJournalEntryID = val
+}
+
+// SetReversalDocumentNumber sets the value of ReversalDocumentNumber.
+func (s *AssetDocumentEntry) SetReversalDocumentNumber(val OptString) {
+	s.ReversalDocumentNumber = val
 }
 
 // AssetHeaders wraps Asset with response headers.
@@ -4563,6 +4852,47 @@ func (s *AssetLedgerValues) SetNetBookValue(val Money) {
 // SetNetBookValueGc sets the value of NetBookValueGc.
 func (s *AssetLedgerValues) SetNetBookValueGc(val Money) {
 	s.NetBookValueGc = val
+}
+
+// The offset account of an acquisition by manual entry, by its number and name.
+// Ref: #/components/schemas/AssetOffsetAccount
+type AssetOffsetAccount struct {
+	// The account (`GET /v1/accounts/{id}`).
+	ID uuid.UUID `json:"id"`
+	// The account's number.
+	Number string `json:"number"`
+	// The account's name.
+	Name string `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *AssetOffsetAccount) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetNumber returns the value of Number.
+func (s *AssetOffsetAccount) GetNumber() string {
+	return s.Number
+}
+
+// GetName returns the value of Name.
+func (s *AssetOffsetAccount) GetName() string {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *AssetOffsetAccount) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *AssetOffsetAccount) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetName sets the value of Name.
+func (s *AssetOffsetAccount) SetName(val string) {
+	s.Name = val
 }
 
 // One page of assets.
@@ -12554,6 +12884,7 @@ func (*ConflictHeaders) requestBankAccountChangeRes()         {}
 func (*ConflictHeaders) requestBankAccountEndRes()            {}
 func (*ConflictHeaders) resumeWebhookSubscriptionRes()        {}
 func (*ConflictHeaders) retireEntryTemplateRes()              {}
+func (*ConflictHeaders) reverseAssetAcquisitionRes()          {}
 func (*ConflictHeaders) reverseGoodsReceiptRes()              {}
 func (*ConflictHeaders) reverseJournalEntryRes()              {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()           {}
@@ -25265,8 +25596,9 @@ type LiquidityForecast struct {
 	IncludeBlocked bool `json:"include_blocked"`
 	// The columns, in order: consecutive periods from the read date.
 	Buckets []LiquidityForecastBucket `json:"buckets"`
-	// The flows of each currency with any, by currency code.
-	Currencies []LiquidityForecastCurrency `json:"currencies"`
+	// The flows of each currency with any flow or an active house bank, by currency code.
+	Currencies []LiquidityForecastCurrency   `json:"currencies"`
+	Converted  OptLiquidityForecastConverted `json:"converted"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -25304,6 +25636,11 @@ func (s *LiquidityForecast) GetCurrencies() []LiquidityForecastCurrency {
 	return s.Currencies
 }
 
+// GetConverted returns the value of Converted.
+func (s *LiquidityForecast) GetConverted() OptLiquidityForecastConverted {
+	return s.Converted
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *LiquidityForecast) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -25337,6 +25674,11 @@ func (s *LiquidityForecast) SetBuckets(val []LiquidityForecastBucket) {
 // SetCurrencies sets the value of Currencies.
 func (s *LiquidityForecast) SetCurrencies(val []LiquidityForecastCurrency) {
 	s.Currencies = val
+}
+
+// SetConverted sets the value of Converted.
+func (s *LiquidityForecast) SetConverted(val OptLiquidityForecastConverted) {
+	s.Converted = val
 }
 
 func (*LiquidityForecast) getLiquidityForecastRes() {}
@@ -25442,15 +25784,17 @@ func (s *LiquidityForecastBucket) SetEnd(val time.Time) {
 	s.End = val
 }
 
-// A bucket's flows in one currency by source, certainty and lateness, and their total.
+// A bucket's flows in one currency by source, certainty and lateness, their total, and the closing
+// balance after them.
 // Ref: #/components/schemas/LiquidityForecastBucketFlows
 type LiquidityForecastBucketFlows struct {
 	// The bucket's first day.
 	Start time.Time `json:"start"`
 	// The bucket's flows by source, certainty and whether late; empty when none. The bucket's `total`
 	// counts its `payable_blocked` flows only with `include_blocked`.
-	Flows []CashFlowTotal `json:"flows"`
-	Total Money           `json:"total"`
+	Flows   []CashFlowTotal `json:"flows"`
+	Total   Money           `json:"total"`
+	Closing Money           `json:"closing"`
 }
 
 // GetStart returns the value of Start.
@@ -25468,6 +25812,11 @@ func (s *LiquidityForecastBucketFlows) GetTotal() Money {
 	return s.Total
 }
 
+// GetClosing returns the value of Closing.
+func (s *LiquidityForecastBucketFlows) GetClosing() Money {
+	return s.Closing
+}
+
 // SetStart sets the value of Start.
 func (s *LiquidityForecastBucketFlows) SetStart(val time.Time) {
 	s.Start = val
@@ -25483,13 +25832,147 @@ func (s *LiquidityForecastBucketFlows) SetTotal(val Money) {
 	s.Total = val
 }
 
+// SetClosing sets the value of Closing.
+func (s *LiquidityForecastBucketFlows) SetClosing(val Money) {
+	s.Closing = val
+}
+
+// The forecast's currencies converted into the display currency (ADR-0051 §10, T53e4) at one rate per
+// currency for every bucket, each amount rounded once to the display currency's minor unit, half away
+// from zero, and summed; the currencies without a rate are left out and listed.
+// Ref: #/components/schemas/LiquidityForecastConverted
+type LiquidityForecastConverted struct {
+	// The display currency (ISO 4217).
+	Currency string `json:"currency"`
+	// The rates used, by currency.
+	Rates []CashPositionRate `json:"rates"`
+	// The currencies without a rate into the display currency, left out of every converted figure; empty
+	// when the figures are complete.
+	IncompleteCurrencies []string `json:"incomplete_currencies"`
+	Opening              Money    `json:"opening"`
+	// One per bucket of the forecast, in the same order.
+	Buckets []LiquidityForecastConvertedBucket `json:"buckets"`
+	Total   Money                              `json:"total"`
+	Beyond  Money                              `json:"beyond"`
+}
+
+// GetCurrency returns the value of Currency.
+func (s *LiquidityForecastConverted) GetCurrency() string {
+	return s.Currency
+}
+
+// GetRates returns the value of Rates.
+func (s *LiquidityForecastConverted) GetRates() []CashPositionRate {
+	return s.Rates
+}
+
+// GetIncompleteCurrencies returns the value of IncompleteCurrencies.
+func (s *LiquidityForecastConverted) GetIncompleteCurrencies() []string {
+	return s.IncompleteCurrencies
+}
+
+// GetOpening returns the value of Opening.
+func (s *LiquidityForecastConverted) GetOpening() Money {
+	return s.Opening
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *LiquidityForecastConverted) GetBuckets() []LiquidityForecastConvertedBucket {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *LiquidityForecastConverted) GetTotal() Money {
+	return s.Total
+}
+
+// GetBeyond returns the value of Beyond.
+func (s *LiquidityForecastConverted) GetBeyond() Money {
+	return s.Beyond
+}
+
+// SetCurrency sets the value of Currency.
+func (s *LiquidityForecastConverted) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetRates sets the value of Rates.
+func (s *LiquidityForecastConverted) SetRates(val []CashPositionRate) {
+	s.Rates = val
+}
+
+// SetIncompleteCurrencies sets the value of IncompleteCurrencies.
+func (s *LiquidityForecastConverted) SetIncompleteCurrencies(val []string) {
+	s.IncompleteCurrencies = val
+}
+
+// SetOpening sets the value of Opening.
+func (s *LiquidityForecastConverted) SetOpening(val Money) {
+	s.Opening = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *LiquidityForecastConverted) SetBuckets(val []LiquidityForecastConvertedBucket) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *LiquidityForecastConverted) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetBeyond sets the value of Beyond.
+func (s *LiquidityForecastConverted) SetBeyond(val Money) {
+	s.Beyond = val
+}
+
+// A bucket's converted total, and the converted opening plus the converted totals up to it.
+// Ref: #/components/schemas/LiquidityForecastConvertedBucket
+type LiquidityForecastConvertedBucket struct {
+	// The bucket's first day.
+	Start   time.Time `json:"start"`
+	Total   Money     `json:"total"`
+	Closing Money     `json:"closing"`
+}
+
+// GetStart returns the value of Start.
+func (s *LiquidityForecastConvertedBucket) GetStart() time.Time {
+	return s.Start
+}
+
+// GetTotal returns the value of Total.
+func (s *LiquidityForecastConvertedBucket) GetTotal() Money {
+	return s.Total
+}
+
+// GetClosing returns the value of Closing.
+func (s *LiquidityForecastConvertedBucket) GetClosing() Money {
+	return s.Closing
+}
+
+// SetStart sets the value of Start.
+func (s *LiquidityForecastConvertedBucket) SetStart(val time.Time) {
+	s.Start = val
+}
+
+// SetTotal sets the value of Total.
+func (s *LiquidityForecastConvertedBucket) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetClosing sets the value of Closing.
+func (s *LiquidityForecastConvertedBucket) SetClosing(val Money) {
+	s.Closing = val
+}
+
 // The flows of one currency: per bucket, in the buckets' order, their total over the horizon, what is
 // expected after it, and what suppliers no run pays are owed; and the same flows by liquidity item and
 // its hierarchy.
 // Ref: #/components/schemas/LiquidityForecastCurrency
 type LiquidityForecastCurrency struct {
 	// The currency (ISO 4217).
-	Currency string `json:"currency"`
+	Currency string                   `json:"currency"`
+	Opening  LiquidityForecastOpening `json:"opening"`
 	// One per bucket of the forecast, in the same order.
 	Buckets []LiquidityForecastBucketFlows `json:"buckets"`
 	Total   Money                          `json:"total"`
@@ -25505,6 +25988,11 @@ type LiquidityForecastCurrency struct {
 // GetCurrency returns the value of Currency.
 func (s *LiquidityForecastCurrency) GetCurrency() string {
 	return s.Currency
+}
+
+// GetOpening returns the value of Opening.
+func (s *LiquidityForecastCurrency) GetOpening() LiquidityForecastOpening {
+	return s.Opening
 }
 
 // GetBuckets returns the value of Buckets.
@@ -25537,6 +26025,11 @@ func (s *LiquidityForecastCurrency) SetCurrency(val string) {
 	s.Currency = val
 }
 
+// SetOpening sets the value of Opening.
+func (s *LiquidityForecastCurrency) SetOpening(val LiquidityForecastOpening) {
+	s.Opening = val
+}
+
 // SetBuckets sets the value of Buckets.
 func (s *LiquidityForecastCurrency) SetBuckets(val []LiquidityForecastBucketFlows) {
 	s.Buckets = val
@@ -25561,6 +26054,372 @@ func (s *LiquidityForecastCurrency) SetBlocked(val LiquidityForecastBlocked) {
 func (s *LiquidityForecastCurrency) SetItems(val []LiquidityForecastItem) {
 	s.Items = val
 }
+
+// A document a forecast flow pays, to read through its own context's API: a posted supplier open
+// item's journal entry (`getJournalEntry`), a parked or held supplier invoice (`getSupplierInvoice`),
+// a down payment request (`getDownPaymentRequest`), a payment run (`getPaymentRun`) or a memo record
+// (`getMemoRecord`).
+// Ref: #/components/schemas/LiquidityForecastDocument
+type LiquidityForecastDocument struct {
+	// What the document is. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Kind string `json:"kind"`
+	// The document's id in its context.
+	ID uuid.UUID `json:"id"`
+	// Its document number (a memo record's reference); absent for a memo record without one, or an invoice
+	// not numbered yet.
+	Number OptString `json:"number"`
+	Amount Money     `json:"amount"`
+}
+
+// GetKind returns the value of Kind.
+func (s *LiquidityForecastDocument) GetKind() string {
+	return s.Kind
+}
+
+// GetID returns the value of ID.
+func (s *LiquidityForecastDocument) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetNumber returns the value of Number.
+func (s *LiquidityForecastDocument) GetNumber() OptString {
+	return s.Number
+}
+
+// GetAmount returns the value of Amount.
+func (s *LiquidityForecastDocument) GetAmount() Money {
+	return s.Amount
+}
+
+// SetKind sets the value of Kind.
+func (s *LiquidityForecastDocument) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetID sets the value of ID.
+func (s *LiquidityForecastDocument) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *LiquidityForecastDocument) SetNumber(val OptString) {
+	s.Number = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *LiquidityForecastDocument) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// A flow of the liquidity forecast (ADR-0051 §4): one supplier payment as a run would make it, a
+// run's payment, a payment in transit, a down payment request or a memo record's occurrence, with the
+// documents it pays. Its supplier and each document are given only to a caller who may read them in
+// their own context (`partner.supplier.read`; `ledger.entry.read` for a journal entry,
+// `payables.invoice.read` for a supplier invoice or down payment request, `payments.run.read` for a
+// payment run, `cash.memo.read` for a memo record), as an expansion is (04 §4.4); `document_count`
+// counts them all.
+// Ref: #/components/schemas/LiquidityForecastFlow
+type LiquidityForecastFlow struct {
+	// The day the flow is expected at the bank (a blocked supplier's on its due date).
+	Date time.Time `json:"date"`
+	// Where the flow comes from (ADR-0051 §4). Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	Source string `json:"source"`
+	// How certain the flow is. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Certainty string `json:"certainty"`
+	// True when it was due at the bank before the read date and is expected the working day after it.
+	Late bool `json:"late"`
+	// Whether the forecast's totals count it: false for a `payable_blocked` flow without
+	// `include_blocked`.
+	Counted  bool           `json:"counted"`
+	Amount   Money          `json:"amount"`
+	Share    Money          `json:"share"`
+	Supplier OptPartnerName `json:"supplier"`
+	// How many documents the flow pays, those not shown included.
+	DocumentCount int32 `json:"document_count"`
+	// The documents the flow pays that the caller may read, each with what the flow pays of it; empty when
+	// it may read none.
+	Documents []LiquidityForecastDocument `json:"documents"`
+}
+
+// GetDate returns the value of Date.
+func (s *LiquidityForecastFlow) GetDate() time.Time {
+	return s.Date
+}
+
+// GetSource returns the value of Source.
+func (s *LiquidityForecastFlow) GetSource() string {
+	return s.Source
+}
+
+// GetCertainty returns the value of Certainty.
+func (s *LiquidityForecastFlow) GetCertainty() string {
+	return s.Certainty
+}
+
+// GetLate returns the value of Late.
+func (s *LiquidityForecastFlow) GetLate() bool {
+	return s.Late
+}
+
+// GetCounted returns the value of Counted.
+func (s *LiquidityForecastFlow) GetCounted() bool {
+	return s.Counted
+}
+
+// GetAmount returns the value of Amount.
+func (s *LiquidityForecastFlow) GetAmount() Money {
+	return s.Amount
+}
+
+// GetShare returns the value of Share.
+func (s *LiquidityForecastFlow) GetShare() Money {
+	return s.Share
+}
+
+// GetSupplier returns the value of Supplier.
+func (s *LiquidityForecastFlow) GetSupplier() OptPartnerName {
+	return s.Supplier
+}
+
+// GetDocumentCount returns the value of DocumentCount.
+func (s *LiquidityForecastFlow) GetDocumentCount() int32 {
+	return s.DocumentCount
+}
+
+// GetDocuments returns the value of Documents.
+func (s *LiquidityForecastFlow) GetDocuments() []LiquidityForecastDocument {
+	return s.Documents
+}
+
+// SetDate sets the value of Date.
+func (s *LiquidityForecastFlow) SetDate(val time.Time) {
+	s.Date = val
+}
+
+// SetSource sets the value of Source.
+func (s *LiquidityForecastFlow) SetSource(val string) {
+	s.Source = val
+}
+
+// SetCertainty sets the value of Certainty.
+func (s *LiquidityForecastFlow) SetCertainty(val string) {
+	s.Certainty = val
+}
+
+// SetLate sets the value of Late.
+func (s *LiquidityForecastFlow) SetLate(val bool) {
+	s.Late = val
+}
+
+// SetCounted sets the value of Counted.
+func (s *LiquidityForecastFlow) SetCounted(val bool) {
+	s.Counted = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *LiquidityForecastFlow) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetShare sets the value of Share.
+func (s *LiquidityForecastFlow) SetShare(val Money) {
+	s.Share = val
+}
+
+// SetSupplier sets the value of Supplier.
+func (s *LiquidityForecastFlow) SetSupplier(val OptPartnerName) {
+	s.Supplier = val
+}
+
+// SetDocumentCount sets the value of DocumentCount.
+func (s *LiquidityForecastFlow) SetDocumentCount(val int32) {
+	s.DocumentCount = val
+}
+
+// SetDocuments sets the value of Documents.
+func (s *LiquidityForecastFlow) SetDocuments(val []LiquidityForecastDocument) {
+	s.Documents = val
+}
+
+// A page of the liquidity forecast's flows of one currency in a range of days (ADR-0051 §9
+// drill-down, T53e4), with what the whole range adds up to.
+// Ref: #/components/schemas/LiquidityForecastFlowPage
+type LiquidityForecastFlowPage struct {
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's date when the forecast was read, in `time_zone`.
+	ReadDate time.Time `json:"read_date"`
+	// The IANA time zone the read date is in.
+	TimeZone string `json:"time_zone"`
+	// The currency (ISO 4217).
+	Currency string `json:"currency"`
+	// The first day of the range.
+	From time.Time `json:"from"`
+	// The last day of the range; absent when it has no end.
+	To OptDate `json:"to"`
+	// The liquidity item asked for, its descendants included; absent when every flow is listed.
+	LiquidityItem OptString `json:"liquidity_item"`
+	// Whether only the shares no derivation rule assigns and no default covers are listed.
+	Unclassified bool `json:"unclassified"`
+	// The least certain flows listed. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	MinCertainty string `json:"min_certainty"`
+	// Whether the `payable_blocked` flows count in `total`; they are listed either way, marked
+	// `counted: false` without it.
+	IncludeBlocked bool  `json:"include_blocked"`
+	Total          Money `json:"total"`
+	// How many flows the range lists, over every page.
+	Count int32 `json:"count"`
+	// The flows on this page, by day.
+	Items []LiquidityForecastFlow `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *LiquidityForecastFlowPage) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *LiquidityForecastFlowPage) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *LiquidityForecastFlowPage) GetTimeZone() string {
+	return s.TimeZone
+}
+
+// GetCurrency returns the value of Currency.
+func (s *LiquidityForecastFlowPage) GetCurrency() string {
+	return s.Currency
+}
+
+// GetFrom returns the value of From.
+func (s *LiquidityForecastFlowPage) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *LiquidityForecastFlowPage) GetTo() OptDate {
+	return s.To
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *LiquidityForecastFlowPage) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetUnclassified returns the value of Unclassified.
+func (s *LiquidityForecastFlowPage) GetUnclassified() bool {
+	return s.Unclassified
+}
+
+// GetMinCertainty returns the value of MinCertainty.
+func (s *LiquidityForecastFlowPage) GetMinCertainty() string {
+	return s.MinCertainty
+}
+
+// GetIncludeBlocked returns the value of IncludeBlocked.
+func (s *LiquidityForecastFlowPage) GetIncludeBlocked() bool {
+	return s.IncludeBlocked
+}
+
+// GetTotal returns the value of Total.
+func (s *LiquidityForecastFlowPage) GetTotal() Money {
+	return s.Total
+}
+
+// GetCount returns the value of Count.
+func (s *LiquidityForecastFlowPage) GetCount() int32 {
+	return s.Count
+}
+
+// GetItems returns the value of Items.
+func (s *LiquidityForecastFlowPage) GetItems() []LiquidityForecastFlow {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *LiquidityForecastFlowPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *LiquidityForecastFlowPage) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *LiquidityForecastFlowPage) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *LiquidityForecastFlowPage) SetTimeZone(val string) {
+	s.TimeZone = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *LiquidityForecastFlowPage) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetFrom sets the value of From.
+func (s *LiquidityForecastFlowPage) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *LiquidityForecastFlowPage) SetTo(val OptDate) {
+	s.To = val
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *LiquidityForecastFlowPage) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetUnclassified sets the value of Unclassified.
+func (s *LiquidityForecastFlowPage) SetUnclassified(val bool) {
+	s.Unclassified = val
+}
+
+// SetMinCertainty sets the value of MinCertainty.
+func (s *LiquidityForecastFlowPage) SetMinCertainty(val string) {
+	s.MinCertainty = val
+}
+
+// SetIncludeBlocked sets the value of IncludeBlocked.
+func (s *LiquidityForecastFlowPage) SetIncludeBlocked(val bool) {
+	s.IncludeBlocked = val
+}
+
+// SetTotal sets the value of Total.
+func (s *LiquidityForecastFlowPage) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetCount sets the value of Count.
+func (s *LiquidityForecastFlowPage) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetItems sets the value of Items.
+func (s *LiquidityForecastFlowPage) SetItems(val []LiquidityForecastFlow) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *LiquidityForecastFlowPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*LiquidityForecastFlowPage) listLiquidityForecastFlowsRes() {}
 
 // A row of a currency's liquidity forecast by liquidity item (ADR-0051 §4, §9, T53e3): the shares of
 // the flows its item derives, with its descendants', per bucket, counted as the buckets' totals count
@@ -25733,6 +26592,62 @@ func (s *LiquidityForecastItemFlows) SetTotal(val Money) {
 // SetBeyond sets the value of Beyond.
 func (s *LiquidityForecastItemFlows) SetBeyond(val Money) {
 	s.Beyond = val
+}
+
+// What a currency's forecast opens at (ADR-0051 §9, T53e4): the cash position's opening of the read
+// date, the sum of the currency's active house banks' latest statement closing balances before it;
+// zero without a bank.
+// Ref: #/components/schemas/LiquidityForecastOpening
+type LiquidityForecastOpening struct {
+	Amount Money `json:"amount"`
+	// How many active house banks of the currency it sums.
+	Banks int32 `json:"banks"`
+	// True when one of the banks has no statement, or its latest closes before the working day before the
+	// read date, as the cash position marks it.
+	Stale bool `json:"stale"`
+	// True when a statement of one of the banks up to its opening one does not open at its previous one's
+	// closing balance (ADR-0047).
+	Gap bool `json:"gap"`
+}
+
+// GetAmount returns the value of Amount.
+func (s *LiquidityForecastOpening) GetAmount() Money {
+	return s.Amount
+}
+
+// GetBanks returns the value of Banks.
+func (s *LiquidityForecastOpening) GetBanks() int32 {
+	return s.Banks
+}
+
+// GetStale returns the value of Stale.
+func (s *LiquidityForecastOpening) GetStale() bool {
+	return s.Stale
+}
+
+// GetGap returns the value of Gap.
+func (s *LiquidityForecastOpening) GetGap() bool {
+	return s.Gap
+}
+
+// SetAmount sets the value of Amount.
+func (s *LiquidityForecastOpening) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetBanks sets the value of Banks.
+func (s *LiquidityForecastOpening) SetBanks(val int32) {
+	s.Banks = val
+}
+
+// SetStale sets the value of Stale.
+func (s *LiquidityForecastOpening) SetStale(val bool) {
+	s.Stale = val
+}
+
+// SetGap sets the value of Gap.
+func (s *LiquidityForecastOpening) SetGap(val bool) {
+	s.Gap = val
 }
 
 type ListAccountsBadRequest Problem
@@ -26110,6 +27025,22 @@ func (*ListLegalEntitiesBadRequest) listLegalEntitiesRes() {}
 type ListLegalEntitiesForbidden Problem
 
 func (*ListLegalEntitiesForbidden) listLegalEntitiesRes() {}
+
+type ListLiquidityForecastFlowsBadRequest Problem
+
+func (*ListLiquidityForecastFlowsBadRequest) listLiquidityForecastFlowsRes() {}
+
+type ListLiquidityForecastFlowsForbidden Problem
+
+func (*ListLiquidityForecastFlowsForbidden) listLiquidityForecastFlowsRes() {}
+
+type ListLiquidityForecastFlowsNotFound Problem
+
+func (*ListLiquidityForecastFlowsNotFound) listLiquidityForecastFlowsRes() {}
+
+type ListLiquidityForecastFlowsUnprocessableEntity Problem
+
+func (*ListLiquidityForecastFlowsUnprocessableEntity) listLiquidityForecastFlowsRes() {}
 
 type ListMatchResultsBadRequest Problem
 
@@ -30711,6 +31642,52 @@ func (o OptAnalyticsDerived) Or(d AnalyticsDerived) AnalyticsDerived {
 	return d
 }
 
+// NewOptAssetAcquisitionReversal returns new OptAssetAcquisitionReversal with value set to v.
+func NewOptAssetAcquisitionReversal(v AssetAcquisitionReversal) OptAssetAcquisitionReversal {
+	return OptAssetAcquisitionReversal{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetAcquisitionReversal is optional AssetAcquisitionReversal.
+type OptAssetAcquisitionReversal struct {
+	Value AssetAcquisitionReversal
+	Set   bool
+}
+
+// IsSet returns true if OptAssetAcquisitionReversal was set.
+func (o OptAssetAcquisitionReversal) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetAcquisitionReversal) Reset() {
+	var v AssetAcquisitionReversal
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetAcquisitionReversal) SetTo(v AssetAcquisitionReversal) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetAcquisitionReversal) Get() (v AssetAcquisitionReversal, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetAcquisitionReversal) Or(d AssetAcquisitionReversal) AssetAcquisitionReversal {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptAssetAcquisitionSource returns new OptAssetAcquisitionSource with value set to v.
 func NewOptAssetAcquisitionSource(v AssetAcquisitionSource) OptAssetAcquisitionSource {
 	return OptAssetAcquisitionSource{
@@ -30751,6 +31728,144 @@ func (o OptAssetAcquisitionSource) Get() (v AssetAcquisitionSource, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAssetAcquisitionSource) Or(d AssetAcquisitionSource) AssetAcquisitionSource {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssetAcquisitionSourceRef returns new OptAssetAcquisitionSourceRef with value set to v.
+func NewOptAssetAcquisitionSourceRef(v AssetAcquisitionSourceRef) OptAssetAcquisitionSourceRef {
+	return OptAssetAcquisitionSourceRef{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetAcquisitionSourceRef is optional AssetAcquisitionSourceRef.
+type OptAssetAcquisitionSourceRef struct {
+	Value AssetAcquisitionSourceRef
+	Set   bool
+}
+
+// IsSet returns true if OptAssetAcquisitionSourceRef was set.
+func (o OptAssetAcquisitionSourceRef) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetAcquisitionSourceRef) Reset() {
+	var v AssetAcquisitionSourceRef
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetAcquisitionSourceRef) SetTo(v AssetAcquisitionSourceRef) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetAcquisitionSourceRef) Get() (v AssetAcquisitionSourceRef, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetAcquisitionSourceRef) Or(d AssetAcquisitionSourceRef) AssetAcquisitionSourceRef {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssetClearingReversal returns new OptAssetClearingReversal with value set to v.
+func NewOptAssetClearingReversal(v AssetClearingReversal) OptAssetClearingReversal {
+	return OptAssetClearingReversal{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetClearingReversal is optional AssetClearingReversal.
+type OptAssetClearingReversal struct {
+	Value AssetClearingReversal
+	Set   bool
+}
+
+// IsSet returns true if OptAssetClearingReversal was set.
+func (o OptAssetClearingReversal) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetClearingReversal) Reset() {
+	var v AssetClearingReversal
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetClearingReversal) SetTo(v AssetClearingReversal) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetClearingReversal) Get() (v AssetClearingReversal, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetClearingReversal) Or(d AssetClearingReversal) AssetClearingReversal {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssetOffsetAccount returns new OptAssetOffsetAccount with value set to v.
+func NewOptAssetOffsetAccount(v AssetOffsetAccount) OptAssetOffsetAccount {
+	return OptAssetOffsetAccount{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetOffsetAccount is optional AssetOffsetAccount.
+type OptAssetOffsetAccount struct {
+	Value AssetOffsetAccount
+	Set   bool
+}
+
+// IsSet returns true if OptAssetOffsetAccount was set.
+func (o OptAssetOffsetAccount) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetOffsetAccount) Reset() {
+	var v AssetOffsetAccount
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetOffsetAccount) SetTo(v AssetOffsetAccount) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetOffsetAccount) Get() (v AssetOffsetAccount, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetOffsetAccount) Or(d AssetOffsetAccount) AssetOffsetAccount {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -31999,6 +33114,52 @@ func (o OptJournalEntryReverse) Or(d JournalEntryReverse) JournalEntryReverse {
 	return d
 }
 
+// NewOptLiquidityForecastConverted returns new OptLiquidityForecastConverted with value set to v.
+func NewOptLiquidityForecastConverted(v LiquidityForecastConverted) OptLiquidityForecastConverted {
+	return OptLiquidityForecastConverted{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptLiquidityForecastConverted is optional LiquidityForecastConverted.
+type OptLiquidityForecastConverted struct {
+	Value LiquidityForecastConverted
+	Set   bool
+}
+
+// IsSet returns true if OptLiquidityForecastConverted was set.
+func (o OptLiquidityForecastConverted) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptLiquidityForecastConverted) Reset() {
+	var v LiquidityForecastConverted
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptLiquidityForecastConverted) SetTo(v LiquidityForecastConverted) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptLiquidityForecastConverted) Get() (v LiquidityForecastConverted, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptLiquidityForecastConverted) Or(d LiquidityForecastConverted) LiquidityForecastConverted {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptMatchDecision returns new OptMatchDecision with value set to v.
 func NewOptMatchDecision(v MatchDecision) OptMatchDecision {
 	return OptMatchDecision{
@@ -32929,6 +34090,52 @@ func (o OptParkedEntryLimit) Get() (v ParkedEntryLimit, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptParkedEntryLimit) Or(d ParkedEntryLimit) ParkedEntryLimit {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptPartnerName returns new OptPartnerName with value set to v.
+func NewOptPartnerName(v PartnerName) OptPartnerName {
+	return OptPartnerName{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptPartnerName is optional PartnerName.
+type OptPartnerName struct {
+	Value PartnerName
+	Set   bool
+}
+
+// IsSet returns true if OptPartnerName was set.
+func (o OptPartnerName) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptPartnerName) Reset() {
+	var v PartnerName
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptPartnerName) SetTo(v PartnerName) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptPartnerName) Get() (v PartnerName, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptPartnerName) Or(d PartnerName) PartnerName {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -43788,6 +44995,69 @@ func (s *RevaluationTotal) SetDifferenceGc(val Money) {
 	s.DifferenceGc = val
 }
 
+type ReverseAssetAcquisitionBadRequest Problem
+
+func (*ReverseAssetAcquisitionBadRequest) reverseAssetAcquisitionRes() {}
+
+type ReverseAssetAcquisitionForbidden Problem
+
+func (*ReverseAssetAcquisitionForbidden) reverseAssetAcquisitionRes() {}
+
+type ReverseAssetAcquisitionNotFound Problem
+
+func (*ReverseAssetAcquisitionNotFound) reverseAssetAcquisitionRes() {}
+
+// ReverseAssetAcquisitionOKHeaders wraps AssetAcquisition with response headers.
+type ReverseAssetAcquisitionOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           AssetAcquisition
+}
+
+// GetETag returns the value of ETag.
+func (s *ReverseAssetAcquisitionOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ReverseAssetAcquisitionOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ReverseAssetAcquisitionOKHeaders) GetResponse() AssetAcquisition {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ReverseAssetAcquisitionOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ReverseAssetAcquisitionOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReverseAssetAcquisitionOKHeaders) SetResponse(val AssetAcquisition) {
+	s.Response = val
+}
+
+func (*ReverseAssetAcquisitionOKHeaders) reverseAssetAcquisitionRes() {}
+
+type ReverseAssetAcquisitionPreconditionFailed Problem
+
+func (*ReverseAssetAcquisitionPreconditionFailed) reverseAssetAcquisitionRes() {}
+
+type ReverseAssetAcquisitionPreconditionRequired Problem
+
+func (*ReverseAssetAcquisitionPreconditionRequired) reverseAssetAcquisitionRes() {}
+
+type ReverseAssetAcquisitionUnprocessableEntity Problem
+
+func (*ReverseAssetAcquisitionUnprocessableEntity) reverseAssetAcquisitionRes() {}
+
 type ReverseGoodsReceiptBadRequest Problem
 
 func (*ReverseGoodsReceiptBadRequest) reverseGoodsReceiptRes() {}
@@ -45228,6 +46498,7 @@ func (*ServiceUnavailableHeaders) requestBankAccountChangeRes()         {}
 func (*ServiceUnavailableHeaders) requestBankAccountEndRes()            {}
 func (*ServiceUnavailableHeaders) resumeWebhookSubscriptionRes()        {}
 func (*ServiceUnavailableHeaders) retireEntryTemplateRes()              {}
+func (*ServiceUnavailableHeaders) reverseAssetAcquisitionRes()          {}
 func (*ServiceUnavailableHeaders) reverseGoodsReceiptRes()              {}
 func (*ServiceUnavailableHeaders) reverseJournalEntryRes()              {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()           {}
@@ -49572,6 +50843,7 @@ func (*TooManyRequestsHeaders) listLedgerReconciliationEntriesRes()  {}
 func (*TooManyRequestsHeaders) listLedgerReconciliationRes()         {}
 func (*TooManyRequestsHeaders) listLedgersRes()                      {}
 func (*TooManyRequestsHeaders) listLegalEntitiesRes()                {}
+func (*TooManyRequestsHeaders) listLiquidityForecastFlowsRes()       {}
 func (*TooManyRequestsHeaders) listMatchResultsRes()                 {}
 func (*TooManyRequestsHeaders) listMemoRecordsRes()                  {}
 func (*TooManyRequestsHeaders) listMigrationRunsRes()                {}
@@ -49662,6 +50934,7 @@ func (*TooManyRequestsHeaders) requestBankAccountChangeRes()         {}
 func (*TooManyRequestsHeaders) requestBankAccountEndRes()            {}
 func (*TooManyRequestsHeaders) resumeWebhookSubscriptionRes()        {}
 func (*TooManyRequestsHeaders) retireEntryTemplateRes()              {}
+func (*TooManyRequestsHeaders) reverseAssetAcquisitionRes()          {}
 func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()              {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()              {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()           {}
@@ -49955,6 +51228,7 @@ func (*UnauthorizedHeaders) listLedgerReconciliationEntriesRes()  {}
 func (*UnauthorizedHeaders) listLedgerReconciliationRes()         {}
 func (*UnauthorizedHeaders) listLedgersRes()                      {}
 func (*UnauthorizedHeaders) listLegalEntitiesRes()                {}
+func (*UnauthorizedHeaders) listLiquidityForecastFlowsRes()       {}
 func (*UnauthorizedHeaders) listMatchResultsRes()                 {}
 func (*UnauthorizedHeaders) listMemoRecordsRes()                  {}
 func (*UnauthorizedHeaders) listMigrationRunsRes()                {}
@@ -50045,6 +51319,7 @@ func (*UnauthorizedHeaders) requestBankAccountChangeRes()         {}
 func (*UnauthorizedHeaders) requestBankAccountEndRes()            {}
 func (*UnauthorizedHeaders) resumeWebhookSubscriptionRes()        {}
 func (*UnauthorizedHeaders) retireEntryTemplateRes()              {}
+func (*UnauthorizedHeaders) reverseAssetAcquisitionRes()          {}
 func (*UnauthorizedHeaders) reverseGoodsReceiptRes()              {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()              {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()           {}

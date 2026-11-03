@@ -121,7 +121,17 @@ The requester, human or agent, may
   `next_page_token` (absent on the last page). `page_size` defaults to 50,
   maximum 500. Tokens are opaque, signed and encode the sort keys, so pages
   stay stable while rows are inserted, and every page is an index range scan
-  whatever the table size (05-scalability).
+  whatever the table size (05-scalability). A token is signed with the
+  listing's scope, its name and the filters' values as text, and refused
+  under other filters. A filter goes into the scope as its value, never as
+  a pointer, whose printed address the next request does not share;
+  `internal/layout`'s `TestPageScopes` traces every scope given to the
+  codec, refuses a formatted value that does not print as itself under its
+  verb, and refuses a scope it cannot follow (an interface's method, a
+  buffer, a function used as a value, a local written through its
+  address); a function outside the module is followed into its string and
+  byte arguments (batch 46, after `listHierarchies`'
+  `is_standard`).
 - No total counts by default. `?include=total_estimate` returns a planner
   estimate where it is cheap.
 - Filters are named query parameters documented per resource
@@ -415,8 +425,11 @@ at most one bank file.
   `supplier-invoices/{id}:reverse`), so `ledger.entry.post` cannot stand in
   for `payables.invoice.post`; a goods movement's WE entry is refused the
   same way, naming `goods-receipts/{id}:reverse` (a 102 posts its own
-  entry, T33). Entries of contexts with no reversal path yet (receivables,
-  assets) are refused the same way, saying so.
+  entry, T33); an assets document's entry names its document's path
+  (`asset-acquisitions/{id}:reverse`, and the retirements' and transfers'
+  with their slices; a depreciation run's entries are never reversed one by
+  one, ADR-0057 §4, T57d). Entries of contexts with no reversal path yet
+  (receivables) are refused the same way, saying so.
 - Approval decisions (`:approve`, `:reject` on approval requests) require a
   human principal; agent tokens are refused with `403 identity.agent_not_allowed`
   and the database enforces the same rule (ADR-0010).

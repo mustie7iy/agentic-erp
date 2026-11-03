@@ -314,11 +314,13 @@ start() {
   say "  - the GST34's lines (T61j-T61l): step 2 configures one"
   say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
-  say "  - the liquidity forecast's conversion, drill-down and other sources (T53e4-T53k): step 13 shows the daily cash"
+  say "  - the liquidity forecast's purchase orders, snapshots and variance (T53f-T53k): step 13 shows the daily cash"
   say "    position with a memo record and the forecast of the supplier open items, payment runs, parked invoices, down"
-  say "    payment requests and blocked suppliers; step 21 its rows by liquidity item"
+  say "    payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening, memo records"
+  say "    and payments in transit, conversion and drill-down"
   say "  - cost center postings, reports and planning (T56d-T56j)"
-  say "  - asset acquisition, depreciation and the rest of asset accounting (T57c-T57i): steps 19 and 20 show the classes and the master"
+  say "  - asset depreciation, retirements, transfers and the rest of asset accounting (T57e-T57i): steps 19 and 20 show the classes"
+  say "    and the master, steps 22 and 24 acquisitions and their corrections"
   say "  - accounts receivable, the period close beyond its checklist (T64c-T64k), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
@@ -2565,13 +2567,14 @@ step_cash_items() {
   invoice_etag=$ETAG
   as tom
   say "Tom reads the forecast by liquidity item (T53e3): each flow is split over the items its documents' lines"
-  say "derive; with only the default rule of step 2 every supplier payment is Supplier payments, under Operating:"
+  say "derive; with only the default rule of step 2 every supplier payment is Supplier payments, under Operating, and"
+  say "step 13's memo records are the Customer receipts they name (T53e4):"
   api 200 '.currencies[] | .currency as $c | (.items[] | "  \($c) \("  " * .level)\(.liquidity_item // "unclassified") \(.name // ""): total \(.total.amount), beyond \(.beyond.amount)")' \
     getLiquidityForecast -p "legal_entity_id=$LE"
   expect "the top rows add up to each bucket's total" \
     "$(field '[.currencies[] | . as $c | range(0; $c.buckets | length) as $i
       | ([$c.items[] | select(.level == 0) | .buckets[$i].amount | sub("\\."; "") | tonumber] | add // 0) == ($c.buckets[$i].total.amount | sub("\\."; "") | tonumber)] | all')" true
-  expect "the CAD items" "$(field '[.currencies[] | select(.currency == "CAD") | .items[] | .liquidity_item] | join(" ")')" "OPERATING OP_SUPPLIERS"
+  expect "the CAD items" "$(field '[.currencies[] | select(.currency == "CAD") | .items[] | .liquidity_item] | join(" ")')" "OPERATING OP_SUPPLIERS REC_CUSTOMERS"
   as ada
   say "Ada proposes an item for professional services under Operating, and a rule taking account 6100 to it. A"
   say "derivation rule is tier 2 and needs a simulation: the open flows whose items the rule moves."
@@ -2608,7 +2611,7 @@ step_cash_items() {
   api 200 '.currencies[] | select(.currency == "CAD") | (.items[] | ("  " * .level) as $in | "  CAD \($in)\(.liquidity_item) \(.name): total \(.total.amount)",
     (.flows[] | "  CAD \($in)    \(.source) \(.certainty): \(.total.amount)"))' getLiquidityForecast -p "legal_entity_id=$LE"
   expect "the CAD items" "$(field '[.currencies[] | select(.currency == "CAD") | .items[] | "\(.level) \(.liquidity_item)"] | join(", ")')" \
-    "0 OPERATING, 1 OP_SERVICES, 1 OP_SUPPLIERS"
+    "0 OPERATING, 1 OP_SERVICES, 1 OP_SUPPLIERS, 1 REC_CUSTOMERS"
   expect "the services' row, the parked invoice at what a run would pay" \
     "$(field '.currencies[] | select(.currency == "CAD") | .items[] | select(.liquidity_item == "OP_SERVICES") | [.flows[] | "\(.source) \(.certainty) \(.total.amount | startswith("-"))"] | join(", ")')" \
     "invoice_unposted planned true"
@@ -2675,6 +2678,160 @@ step_asset_acquisitions() {
       listBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "ledger_id=${l#*=}" -p "account_id=$(account 1690)" -p page_size=500
     expect "the clearing account in ledger ${l%%=*}" "$(field '[.items[] | (.debit.amount | tonumber) - (.credit.amount | tonumber), (.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber), (.debit_gc.amount | tonumber) - (.credit_gc.amount | tonumber)] | map(. * 100 | round) | unique | join(" ")')" 0
   done
+  passed
+}
+
+# step_cash_forecast is the liquidity forecast's opening and closing, its
+# memo records and payments in transit, one grain over a range, its
+# conversion and its drill-down (T53e4, ADR-0051 §7, §9, §10).
+step_cash_forecast() {
+  heading "Step 23 — The liquidity forecast opened, converted and drilled down to its documents"
+  as tom
+  local next to memo memo_etag cells
+  next=$(date_add "$TODAY" 40)
+  say "Tom expects a US customer's USD 2,000.00 on $next and records it without a house bank: a memo record the"
+  say "forecast counts and the cash position does not (T53e4)."
+  api 201 '"memo record \(.reference): \(.amount.amount) \(.amount.currency) on \(.value_date), \(.house_bank_code // "no house bank"), \(.liquidity_item)"' \
+    createMemoRecord -body "{\"legal_entity_id\": \"$LE\", \"amount\": {\"amount\": \"2000.00\", \"currency\": \"USD\"}, \"value_date\": \"$next\", \"liquidity_item\": \"REC_CUSTOMERS\", \"description\": \"Acme Corp, order 77\", \"reference\": \"WT-2001\"}"
+  memo=$(field .id)
+  memo_etag=$ETAG
+  say "The forecast opens at the cash position's first day (each currency's house banks' statement balances), closes each"
+  say "bucket at the opening plus the totals so far, counts the memo records (with a bank or none) and the payments in"
+  say "transit, and, asked for a display currency, converts each currency at Maple's planning rate (else the average):"
+  api 200 '.currencies[] | "  \(.currency): opens at \(.opening.amount.amount) (\(.opening.banks) banks\(if .opening.stale then ", stale" else "" end)), closes at \(.buckets[-1].closing.amount) after \(.total.amount)",
+      "    memo records \([.buckets[].flows[] | select(.source == "memo") | .amount.amount] | join(", ")); in transit \([.buckets[].flows[] | select(.source == "in_transit") | .amount.amount] | join(", "))"' \
+    getLiquidityForecast -p "legal_entity_id=$LE" -p display_currency=CAD
+  excerpt '.converted | "  in \(.currency): opens at \(.opening.amount), closes at \(.buckets[-1].closing.amount); rates \([.rates[] | "\(.currency) \(.rate_type) \(.rate)\(if .stale then " stale" else "" end)"] | join(", ")); without a rate: \(.incomplete_currencies | join(", "))"'
+  expect "each bucket closes at the opening plus the totals so far" \
+    "$(field 'def c: sub("\\."; "") | tonumber; [.currencies[] | (.opening.amount.amount | c) as $o | [foreach .buckets[] as $b ($o; . + ($b.total.amount | c); .)] == [.buckets[].closing.amount | c]] | all')" true
+  expect "WT-1042 (step 13, at RBC) and WT-2001 (no bank), memo flows" \
+    "$(field '[.currencies[] | .currency as $c | .buckets[].flows[] | select(.source == "memo") | "\($c) \(.amount.amount)"] | map(select(. == "CAD 25000.00" or . == "USD 2000.00")) | unique | join(", ")')" \
+    "CAD 25000.00, USD 2000.00"
+  expect "the converted closing, the converted opening plus the converted totals" \
+    "$(field 'def c: sub("\\."; "") | tonumber; .converted | ((.opening.amount | c) + ([.buckets[].total.amount | c] | add)) == (.buckets[-1].closing.amount | c)')" true
+  expect "USD converted or listed without a rate, never as zero" \
+    "$(field '.converted | ([.rates[].currency] + .incomplete_currencies) | index("USD") != null')" true
+  cells=$(field '[.currencies[] | select(.currency == "CAD") | .items[] | select(.liquidity_item == "REC_CUSTOMERS") | .buckets[0:14][].amount | sub("\\."; "") | tonumber] | add // 0')
+  to=$(date_add "$TODAY" 55)
+  say "One grain over a range instead of Maple's buckets: weeks up to $to."
+  api 200 '"\(.buckets | length) \(.buckets[0].grain)s from \(.buckets[0].start) to \(.buckets[-1].end)"' getLiquidityForecast -p "legal_entity_id=$LE" -p grain=week -p "to=$to"
+  expect "the weeks up to the one holding $to" "$(field '.buckets | length')" 8
+  say "Tom drills the first two weeks of Customer receipts down to their flows and the documents behind them, each"
+  say "to read in its own context (getMemoRecord here), and the drill-down totals the row's cells:"
+  api 200 '"  \(.count) flows, total \(.total.amount) \(.total.currency)", (.items[] | "  \(.date) \(.source) \(.certainty) \(.share.amount): \([.documents[] | "\(.kind) \(.number // "-") \(.amount.amount)"] | join(", ")) (\(.document_count))")' \
+    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "to=$(date_add "$TODAY" 13)" -p liquidity_item=REC_CUSTOMERS
+  expect "the drill-down's total, the row's cells of the two weeks" "$(field '.total.amount | sub("\\."; "") | tonumber')" "$cells"
+  expect "WT-1042 named by its reference" "$(field '[.items[].documents[] | select(.kind == "memo_record") | .number] | index("WT-1042") != null')" true
+  as ada
+  say "Ada gives Rita in reporting the forecast alone (cash.forecast.read): she sees the flows, never the documents or"
+  say "suppliers, which need their own context's read permission; they are left out, not refused."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "cash_reporting", "name": "Cash reporting"}'
+  grant "$(field .id)" cash.forecast.read
+  QUIET=1 api 200 '' listRoles -p page_size=100
+  cp "$WORK/last.json" "$WORK/roles.json"
+  person rita "Rita Reporting" cash_reporting
+  as rita
+  api 200 '"  \(.count) flows, total \(.total.amount) \(.total.currency)", (.items[] | "  \(.date) \(.source) \(.share.amount): \(.documents | length) of \(.document_count) documents shown, supplier \(.supplier.name // "not shown")")' \
+    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "to=$(date_add "$TODAY" 13)" -p liquidity_item=REC_CUSTOMERS
+  expect "Rita's total, Tom's" "$(field '.total.amount | sub("\\."; "") | tonumber')" "$cells"
+  expect "documents shown to Rita" "$(field '[.items[].documents[]] | length')" 0
+  expect "documents counted for Rita" "$(field '[.items[].document_count] | add > 0')" true
+  as tom
+  say "Tom cancels WT-2001 again:"
+  api 200 '"memo record \(.reference): \(.status)"' cancelMemoRecord -p "id=$memo" -if-match "$memo_etag"
+  passed
+}
+
+step_asset_reversal() {
+  heading "Step 24 — Asset corrections: a press contributed against share capital, one acquisition reversed; a duplicate invoice's line taken off the press"
+  as carla
+  say "Maple's shareholder contributes a hydraulic press in kind. No supplier invoice brings it, so Carla capitalises it by"
+  say "manual entry against share capital 3000 (ADR-0057 §6, T57d): Dr machinery 1600 / Cr 3000 in every ledger the"
+  say "company keeps, the press's cost the ledger's own amounts."
+  local cc press manual press_cost item invoice entry l rev rl yesterday values
+  accounts
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  api 201 '"asset \(.company_code)/\(.asset_number) \(.description): \(.status)"' createAsset \
+    -body "{\"legal_entity_id\": \"$LE\", \"class_code\": \"MACHINES\", \"description\": \"Hydraulic press\", \"cost_center_id\": \"$cc\"}"
+  press=$(field .id)
+  say "The clearing account is no offset: its lines are the worklist's, settled by acquisitions from them."
+  refused 422 assets.offset_account_invalid createAssetAcquisition \
+    -body "{\"asset_id\": \"$press\", \"offset_account_id\": \"$(account 1690)\", \"amount\": {\"amount\": \"8500.00\", \"currency\": \"CAD\"}}"
+  api 201 '"acquisition onto asset \(.asset_number) against \(.offset_account.number) \(.offset_account.name): \(.amount.amount) \(.amount.currency), group \(.amount_gc.amount) \(.amount_gc.currency); entries \([.entries[] | "\(.ledger_code) \(.document_number)"] | join(", "))"' \
+    createAssetAcquisition -body "{\"asset_id\": \"$press\", \"offset_account_id\": \"$(account 3000)\", \"amount\": {\"amount\": \"8500.00\", \"currency\": \"CAD\"}, \"text\": \"Press contributed in kind\"}"
+  manual=$(field .id)
+  expect "the offset account" "$(field '"\(.offset_account.number) \(.source // "no source")"')" "3000 no source"
+  values='"  asset \(.asset_number) \(.description): \(.status), capitalised on \(.capitalised_on); \([.values[] | "\(.ledger_code) cost \(.cost.amount) \(.cost.currency)"] | join(", "))"'
+  api 200 "$values" getAsset -p "id=$press"
+  expect "the press's status" "$(field .status)" active
+  say "The valuation said 7,500.00, not 8,500.00. Carla reverses the acquisition; a reversal is never dated before what"
+  say "it reverses:"
+  yesterday=$(date_add "$TODAY" -1)
+  QUIET=1 api 200 '' getAssetAcquisition -p "id=$manual"
+  refused 422 assets.reversal_before_original reverseAssetAcquisition -p "id=$manual" -if-match "$ETAG" \
+    -body "{\"reason\": \"Valued at 8,500.00 in error\", \"posting_date\": \"$yesterday\"}"
+  QUIET=1 api 200 '' getAssetAcquisition -p "id=$manual"
+  api 200 '"acquisition \(.status) on \(.reversal.posting_date): \(.reversal.reason); \([.entries[] | "\(.ledger_code) \(.document_number) reversed by \(.reversal_document_number)"] | join(", "))"' \
+    reverseAssetAcquisition -p "id=$manual" -if-match "$ETAG" -body "{\"reason\": \"Valued at 8,500.00 in error\"}"
+  expect "the acquisition's status" "$(field .status)" reversed
+  expect "a reversal entry in every ledger" "$(field '[.entries[] | select(.reversal_journal_entry_id != null)] | length')" "$(field '.entries | length')"
+  say "With its only acquisition reversed the press is planned again, at no cost:"
+  api 200 "$values" getAsset -p "id=$press"
+  expect "the press, planned again" "$(field '"\(.status) \(.capitalised_on) \([.values[].cost.amount] | unique | join(" "))"')" "planned null 0.00"
+  api 201 '"acquisition onto asset \(.asset_number) against \(.offset_account.number): \(.amount.amount) \(.amount.currency)"' createAssetAcquisition \
+    -body "{\"asset_id\": \"$press\", \"offset_account_id\": \"$(account 3000)\", \"amount\": {\"amount\": \"7500.00\", \"currency\": \"CAD\"}, \"text\": \"Press contributed in kind\"}"
+
+  as alex
+  say "Tyrell invoices the press's tooling, CAD 1,200.00 plus GST, on the asset clearing account; Carla capitalises it onto"
+  say "the press. The invoice turns out to duplicate one already settled: Alex reverses it in payables, which is not told"
+  say "about the asset."
+  item="{\"account_id\": \"$(account 1690)\", \"description\": \"Press tooling\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"1200.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TOOLS-7\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"1260.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"60.00\", \"currency\": \"CAD\"}, \"items\": [$item]}"
+  invoice=$(field .id)
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  entry=$(field .journal_entry_id)
+  as carla
+  QUIET=1 api 200 '' listAssetClearingItems -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p remaining=true
+  l=$(field "[.items[] | select(.entry_id == \"$entry\") | .line_no][0]")
+  api 201 '"acquisition onto asset \(.asset_number): \(.amount.amount) \(.amount.currency) from entry \(.source.document_number) line \(.source.line_no)"' \
+    createAssetAcquisition -body "{\"asset_id\": \"$press\", \"source\": {\"entry_id\": \"$entry\", \"line_no\": $l}}"
+  press_cost=$(field .id)
+  as alex
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$invoice"
+  api 200 '"\(.document_number): \(.status), reversal entry \(.reversal_entry_id)"' reverseSupplierInvoice -p "id=$invoice" -if-match "$ETAG" \
+    -body "{\"reason\": \"Posted twice\", \"posting_date\": \"$TODAY\"}"
+  as carla
+  say "Carla's worklist shows the invoice's line reversed, with its reversal's line beside it offering the press what it"
+  say "holds from the line:"
+  api 200 '.items[] | select(.entry_id == "'"$entry"'") | "  entry \(.document_number) line \(.line_no): reversed \(.source_reversed); reversal entry \(.reversal.document_number) line \(.reversal.line_no) offers \([.reversal.offers[] | "\(.asset_number) \(.asset_description) \(.amount.amount) \(.amount.currency)"] | join(", "))"' \
+    listAssetClearingItems -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p remaining=true
+  rev=$(field ".items[] | select(.entry_id == \"$entry\") | .reversal.entry_id")
+  rl=$(field ".items[] | select(.entry_id == \"$entry\") | .reversal.line_no")
+  expect "the press's offer" "$(field ".items[] | select(.entry_id == \"$entry\") | [.reversal.offers[] | .amount.amount] | join(\" \")")" "-1200.00"
+  say "She takes the cost off the press through the reversal's line, at most what the press holds from the invoice:"
+  refused 422 assets.amount_exceeds_line createAssetAcquisition \
+    -body "{\"asset_id\": \"$press\", \"source\": {\"entry_id\": \"$rev\", \"line_no\": $rl}, \"amount\": {\"amount\": \"-1500.00\", \"currency\": \"CAD\"}}"
+  api 201 '"acquisition onto asset \(.asset_number): \(.amount.amount) \(.amount.currency), local \(.amount_lc.amount), group \(.amount_gc.amount) \(.amount_gc.currency), from reversal entry \(.source.document_number)"' \
+    createAssetAcquisition -body "{\"asset_id\": \"$press\", \"source\": {\"entry_id\": \"$rev\", \"line_no\": $rl}}"
+  expect "the take-off" "$(field .amount.amount)" "-1200.00"
+  say "While the take-off stands, the tooling's own acquisition is not reversed: the take-off is bounded by it."
+  QUIET=1 api 200 '' getAssetAcquisition -p "id=$press_cost"
+  refused 409 assets.reversal_line_capitalised reverseAssetAcquisition -p "id=$press_cost" -if-match "$ETAG" -body '{"reason": "Duplicate invoice"}'
+  api 200 "$values" getAsset -p "id=$press"
+  expect "the press's cost in every ledger" "$(field '[.values[].cost.amount] | unique | join(" ")')" "7500.00"
+  api 200 '"the reversed line on the worklist with something left: \([.items[] | select(.entry_id == "'"$entry"'")] | length)"' \
+    listAssetClearingItems -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p remaining=true
+  expect "the reversed line, nothing left to offer" "$(field "[.items[] | select(.entry_id == \"$entry\")] | length")" 0
+  QUIET=1 api 200 '' listAssetAcquisitions -p "asset_id=$press" -p status=reversed
+  expect "the press's reversed acquisitions" "$(field '[.items[].id] | join(" ")')" "$manual"
+  QUIET=1 api 200 '' listLedgers
+  for l in $(field '.items[] | "\(.code)=\(.id)"'); do
+    QUIET=1 api 200 '' listBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "ledger_id=${l#*=}" -p "account_id=$(account 1690)" -p page_size=500
+    expect "the clearing account in ledger ${l%%=*}" "$(field '[.items[] | (.debit.amount | tonumber) - (.credit.amount | tonumber), (.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber), (.debit_gc.amount | tonumber) - (.credit_gc.amount | tonumber)] | map(. * 100 | round) | unique | join(" ")')" 0
+  done
+  say "  the clearing account is at zero in every ledger and all three currencies"
   passed
 }
 
@@ -2804,7 +2961,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_close'
 
 main() {
   start

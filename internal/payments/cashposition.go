@@ -75,6 +75,8 @@ type CashStatement struct {
 // it pays, positive, in Currency, from the house bank.
 type CashPayment struct {
 	ID, RunID   uuid.UUID
+	RunNumber   string    // its run's document number
+	SupplierID  uuid.UUID // the business partner it pays
 	HouseBankID uuid.UUID
 	Method      string // "" for a run proposed for its bank
 	RunDate     time.Time
@@ -135,7 +137,7 @@ func (c CashPosition) Banks(ctx context.Context, legalEntity uuid.UUID, before t
 
 // cashPaymentSelect reads payments with their paying bank, their run and
 // the statement that booked them; $1 is the filter's argument.
-const cashPaymentSelect = `SELECT p.id, p.payment_run_id, coalesce(p.house_bank_id, r.house_bank_id), coalesce(p.payment_method, ''), r.run_date, p.amount,
+const cashPaymentSelect = `SELECT p.id, p.payment_run_id, r.document_number, p.supplier_id, coalesce(p.house_bank_id, r.house_bank_id), coalesce(p.payment_method, ''), r.run_date, p.amount,
 		p.currency, p.journal_entry_id,
 		(SELECT max(s.closing_date) FROM payments.statement_match_target t
 			JOIN payments.statement_match m ON m.tenant_id = t.tenant_id AND m.id = t.match_id AND m.status = 'matched'
@@ -152,7 +154,7 @@ func (CashPosition) payments(ctx context.Context, what, filter string, arg any) 
 	rows, _ := tx.Query(ctx, cashPaymentSelect+` AND `+filter+` ORDER BY r.run_date, p.id`, arg)
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (CashPayment, error) {
 		var p CashPayment
-		err := r.Scan(&p.ID, &p.RunID, &p.HouseBankID, &p.Method, &p.RunDate, &p.Amount, &p.Currency, &p.EntryID, &p.MatchedOn)
+		err := r.Scan(&p.ID, &p.RunID, &p.RunNumber, &p.SupplierID, &p.HouseBankID, &p.Method, &p.RunDate, &p.Amount, &p.Currency, &p.EntryID, &p.MatchedOn)
 		return p, errs.Wrapf(err, "scan payment")
 	})
 	if err != nil {

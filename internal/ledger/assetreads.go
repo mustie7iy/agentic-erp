@@ -146,9 +146,11 @@ func (AssetReads) CenterNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UU
 // AssetLine is a journal line as the assets context reads a source of an
 // acquisition (ADR-0057 §6, T57c): its entry's company, currencies,
 // posting date, document and origin, its amounts in all three currencies
-// (debit positive), its profit center, and whether its entry is the
-// leading ledger's, has a copy in every ledger the company keeps, was
-// reversed, or reverses another.
+// (debit positive), its profit center, whether its entry is the leading
+// ledger's and has a copy in every ledger the company keeps, the entry it
+// reverses, and the entry that reversed it (T57d). A reversal keeps its
+// original's lines in order, so the line reversing line n of an entry is
+// line n of its reversal.
 type AssetLine struct {
 	FiscalYear                       int16
 	EntryID                          uuid.UUID
@@ -160,7 +162,16 @@ type AssetLine struct {
 	DocumentNumber, SourceContext    string
 	SourceDocumentID, ProfitCenterID *uuid.UUID
 	Leading, InEveryLedger           bool
-	Reversed, Reversal               bool
+	Reverses, ReversedBy             *ReversalEntry
+}
+
+// ReversalEntry is the other entry of a reversal pair: the entry reversed,
+// or its reversal with its document number and posting date.
+type ReversalEntry struct {
+	FiscalYear     int16
+	EntryID        uuid.UUID
+	DocumentNumber string
+	PostingDate    time.Time
 }
 
 // assetLineSelect reads lines as AssetLine, l the line and e its entry.
@@ -173,17 +184,39 @@ const assetLineSelect = `SELECT l.fiscal_year, l.journal_entry_id, l.line_no, l.
 		NOT EXISTS (SELECT FROM ledger.ledger k WHERE ledger.company_keeps(l.legal_entity_id, k.id)
 			AND NOT EXISTS (SELECT FROM ledger.journal_entry c WHERE c.tenant_id = e.tenant_id AND c.fiscal_year = e.fiscal_year AND c.ledger_id = k.id
 				AND (c.id = e.id OR c.posting_group_id = e.posting_group_id))),
-		EXISTS (SELECT FROM ledger.reversal r WHERE r.tenant_id = e.tenant_id AND r.original_entry_id = e.id), e.reversal_of_id IS NOT NULL
+		o.fiscal_year, o.id, o.document_number, o.posting_date, r.fiscal_year, r.id, r.document_number, r.posting_date
 	FROM ledger.journal_line l
 	JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
-	JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id`
+	JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id
+	LEFT JOIN ledger.journal_entry o ON o.tenant_id = e.tenant_id AND o.fiscal_year = e.reversal_of_year AND o.id = e.reversal_of_id
+	LEFT JOIN ledger.reversal rv ON rv.tenant_id = e.tenant_id AND rv.original_year = e.fiscal_year AND rv.original_entry_id = e.id
+	LEFT JOIN ledger.journal_entry r ON r.tenant_id = rv.tenant_id AND r.fiscal_year = rv.reversal_year AND r.id = rv.reversal_entry_id`
 
 func scanAssetLine(r pgx.Row) (AssetLine, error) {
 	var a AssetLine
+	var reverses, reversedBy nullableEntry
 	err := r.Scan(&a.FiscalYear, &a.EntryID, &a.LineNo, &a.LegalEntityID, &a.AccountID, &a.Currency, &a.CurrencyLC, &a.CurrencyGC,
 		&a.Amount, &a.LC, &a.GC, &a.PostingDate, &a.DocumentNumber, &a.SourceContext, &a.SourceDocumentID, &a.ProfitCenterID,
-		&a.Leading, &a.InEveryLedger, &a.Reversed, &a.Reversal)
+		&a.Leading, &a.InEveryLedger, &reverses.year, &reverses.id, &reverses.number, &reverses.date,
+		&reversedBy.year, &reversedBy.id, &reversedBy.number, &reversedBy.date)
+	a.Reverses, a.ReversedBy = reverses.entry(), reversedBy.entry()
 	return a, errs.Wrapf(err, "scan asset line")
+}
+
+// nullableEntry is a ReversalEntry read from an outer join, all null when
+// there is none.
+type nullableEntry struct {
+	year   *int16
+	id     *uuid.UUID
+	number *string
+	date   *time.Time
+}
+
+func (n nullableEntry) entry() *ReversalEntry {
+	if n.id == nil {
+		return nil
+	}
+	return &ReversalEntry{FiscalYear: *n.year, EntryID: *n.id, DocumentNumber: *n.number, PostingDate: *n.date}
 }
 
 // Line reads line lineNo of journal entry entryID (of any fiscal year),
@@ -205,9 +238,10 @@ func (AssetReads) Line(ctx context.Context, entryID uuid.UUID, lineNo int32) (As
 
 // ClearingQuery selects the leading ledger's lines on accounts of a
 // company in a fiscal year, in the order of (posting date, entry, line)
-// after After, at most Limit: Skip and the lines of entries ExceptContext
-// posted are left out, and lines of a reversed entry and of a reversal are
-// left out unless Keep names them.
+// after After, at most Limit: the lines of entries ExceptContext posted
+// are left out, of the other lines those Skip names, and the lines of a
+// reversed entry and of a reversal unless Keep names them (Skip binds
+// only the others, Keep only these).
 type ClearingQuery struct {
 	LegalEntityID uuid.UUID
 	Accounts      []uuid.UUID
@@ -226,7 +260,10 @@ type ClearingKey struct {
 }
 
 // ClearingLines reads the lines the query selects (ADR-0057 §6's
-// worklist): one fiscal year's partition, by the account index.
+// worklist): one fiscal year's partition, by the account index. The page
+// is chosen first and only its lines are joined to their reversal pair:
+// joining every line of the year before the limit doubled the query's
+// time (TestClearingItemsBudget in batch 48).
 func (AssetReads) ClearingLines(ctx context.Context, q ClearingQuery) ([]AssetLine, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -238,12 +275,18 @@ func (AssetReads) ClearingLines(ctx context.Context, q ClearingQuery) ([]AssetLi
 	}
 	sy, se, sl := columns(q.Skip)
 	ky, ke, kl := columns(q.Keep)
-	rows, _ := tx.Query(ctx, assetLineSelect+` WHERE l.legal_entity_id = $1 AND l.account_id = ANY($2) AND l.fiscal_year = $3 AND g.is_leading AND e.source_context <> $15
-			AND ($4 OR (l.posting_date, l.journal_entry_id, l.line_no) > ($5, $6, $7))
-			AND (l.fiscal_year, l.journal_entry_id, l.line_no) NOT IN (SELECT * FROM unnest($9::smallint[], $10::uuid[], $11::integer[]))
-			AND ((e.reversal_of_id IS NULL AND NOT EXISTS (SELECT FROM ledger.reversal r WHERE r.tenant_id = e.tenant_id AND r.original_entry_id = e.id))
-				OR (l.fiscal_year, l.journal_entry_id, l.line_no) IN (SELECT * FROM unnest($12::smallint[], $13::uuid[], $14::integer[])))
-		ORDER BY l.posting_date, l.journal_entry_id, l.line_no LIMIT $8`,
+	rows, _ := tx.Query(ctx, assetLineSelect+` JOIN (SELECT l.tenant_id, l.fiscal_year, l.journal_entry_id, l.line_no FROM ledger.journal_line l
+			JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
+			JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id
+			WHERE l.legal_entity_id = $1 AND l.account_id = ANY($2) AND l.fiscal_year = $3 AND g.is_leading AND e.source_context <> $15
+				AND ($4 OR (l.posting_date, l.journal_entry_id, l.line_no) > ($5, $6, $7))
+				AND (CASE WHEN e.reversal_of_id IS NULL AND NOT EXISTS (SELECT FROM ledger.reversal x WHERE x.tenant_id = e.tenant_id
+						AND x.original_year = e.fiscal_year AND x.original_entry_id = e.id)
+					THEN (l.fiscal_year, l.journal_entry_id, l.line_no) NOT IN (SELECT * FROM unnest($9::smallint[], $10::uuid[], $11::integer[]))
+					ELSE (l.fiscal_year, l.journal_entry_id, l.line_no) IN (SELECT * FROM unnest($12::smallint[], $13::uuid[], $14::integer[])) END)
+			ORDER BY l.posting_date, l.journal_entry_id, l.line_no LIMIT $8) p
+			ON p.tenant_id = l.tenant_id AND p.fiscal_year = l.fiscal_year AND p.journal_entry_id = l.journal_entry_id AND p.line_no = l.line_no
+		ORDER BY l.posting_date, l.journal_entry_id, l.line_no`,
 		q.LegalEntityID, q.Accounts, q.FiscalYear, q.After == nil, after.PostingDate, after.EntryID, after.LineNo, q.Limit, sy, se, sl, ky, ke, kl, q.ExceptContext)
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (AssetLine, error) { return scanAssetLine(r) })
 	return out, errs.Wrapf(err, "ledger: clearing lines of %s in %d", q.LegalEntityID, q.FiscalYear)
@@ -289,4 +332,40 @@ func (AssetReads) Accounts(ctx context.Context, legalEntity uuid.UUID, numbers [
 	var id uuid.UUID
 	_, err = pgx.ForEachRow(rows, []any{&number, &id}, func() error { out[number] = id; return nil })
 	return out, errs.Wrapf(err, "ledger: accounts %v of %s", numbers, legalEntity)
+}
+
+// OffsetAccount reads an account a manual acquisition may credit
+// (ADR-0057 §6, T57d), found false unless it is set up in the company,
+// active and not blocked there, and neither a reconciliation account of
+// any kind nor the company's GR/IR account: the accounts IsPostable
+// admits.
+func (AssetReads) OffsetAccount(ctx context.Context, legalEntity, account uuid.UUID) (AccountRef, bool, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return AccountRef{}, false, err
+	}
+	a := AccountRef{ID: account}
+	err = tx.QueryRow(ctx, `SELECT a.number, a.name FROM ledger.gl_account a
+		JOIN ledger.company_account ca ON ca.tenant_id = a.tenant_id AND ca.account_id = a.id AND ca.legal_entity_id = $1
+		WHERE a.id = $2 AND a.status = 'active' AND NOT ca.is_posting_blocked AND a.reconciliation_kind = 'none'
+			AND NOT EXISTS (SELECT FROM ledger.account_determination d WHERE d.tenant_id = a.tenant_id AND d.legal_entity_id = $1
+				AND d.key = 'gr_ir' AND d.account_id = a.id)`, legalEntity, account).Scan(&a.Number, &a.Name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AccountRef{}, false, nil
+	}
+	return a, err == nil, errs.Wrapf(err, "ledger: offset account %s of %s", account, legalEntity)
+}
+
+// AccountNames reads accounts' numbers and names by id; an id of none is
+// left out.
+func (AssetReads) AccountNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]AccountRef, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, number, name FROM ledger.gl_account WHERE id = ANY($1)`, ids)
+	out := map[uuid.UUID]AccountRef{}
+	var a AccountRef
+	_, err = pgx.ForEachRow(rows, []any{&a.ID, &a.Number, &a.Name}, func() error { out[a.ID] = a; return nil })
+	return out, errs.Wrapf(err, "ledger: names of %d accounts", len(ids))
 }

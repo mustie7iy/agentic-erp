@@ -165,6 +165,17 @@ type grain struct {
 	max  int
 }
 
+// MaxPeriods is the most periods of the grain a forecast may have, false
+// for a grain that is not one: the limits of a company's buckets, which a
+// forecast asked for one grain over a range keeps too (ADR-0051 §9, T53e4).
+func MaxPeriods(name string) (int, bool) {
+	i := slices.IndexFunc(grains, func(g grain) bool { return g.name == name })
+	if i < 0 {
+		return 0, false
+	}
+	return grains[i].max, true
+}
+
 // DefaultBuckets are the "13-week cash flow" with a year's tail: daily for
 // two weeks, weekly to week 13, monthly to month 12.
 var DefaultBuckets = []Bucket{{GrainDay, 14}, {GrainWeek, 11}, {GrainMonth, 9}}

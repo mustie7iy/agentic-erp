@@ -793,6 +793,10 @@ type ListLegalEntitiesRes interface {
 	listLegalEntitiesRes()
 }
 
+type ListLiquidityForecastFlowsRes interface {
+	listLiquidityForecastFlowsRes()
+}
+
 type ListMatchResultsRes interface {
 	listMatchResultsRes()
 }
@@ -1151,6 +1155,10 @@ type ResumeWebhookSubscriptionRes interface {
 
 type RetireEntryTemplateRes interface {
 	retireEntryTemplateRes()
+}
+
+type ReverseAssetAcquisitionRes interface {
+	reverseAssetAcquisitionRes()
 }
 
 type ReverseGoodsReceiptRes interface {

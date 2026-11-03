@@ -33,6 +33,7 @@ type Endpoints struct {
 	Payments      Payments
 	Ledger        Ledger
 	Sessions      Sessions          // agents' sessions, for their proposals
+	Partners      Partners          // suppliers' names, for the forecast's drill-down (T53e4)
 	Pages         *pagination.Codec // list page tokens
 	Now           func() time.Time  // the read date's clock; nil: time.Now
 }
@@ -127,10 +128,15 @@ type Book struct {
 // positive, in Currency.
 type Payment struct {
 	ID, HouseBankID uuid.UUID
-	Method          string
-	RunDate         time.Time
-	Amount          money.Minor
-	Currency        string
+	// RunID and RunNumber are its payment run and the run's document
+	// number, SupplierID the business partner it pays: what the forecast's
+	// drill-down names (T53e4).
+	RunID, SupplierID uuid.UUID
+	RunNumber         string
+	Method            string
+	RunDate           time.Time
+	Amount            money.Minor
+	Currency          string
 	// MatchedOn is the closing date of the statement that booked it, nil
 	// while no statement line's match clears it.
 	MatchedOn *time.Time
@@ -400,11 +406,41 @@ func (r reader) atBank(d time.Time) (time.Time, bool) {
 }
 
 // flows are each bank's payments in transit and of runs not released yet.
-// In transit are the payments' open lines on the bank's clearing account
-// that no statement line up to the opening statement booked: a
-// revaluation's valuation and reset lines there are the ledger's, not a
-// payment's, and never count (ADR-0038, T53a).
 func (e *Endpoints) flows(ctx context.Context, r reader, legalEntity uuid.UUID, banks []Bank) (map[uuid.UUID][]flow, error) {
+	transit, err := e.inTransit(ctx, r, legalEntity, banks)
+	if err != nil {
+		return nil, err
+	}
+	out := map[uuid.UUID][]flow{}
+	for _, t := range transit {
+		out[t.bank] = append(out[t.bank], t.flows...)
+	}
+	pending, err := e.Payments.Pending(ctx, legalEntity)
+	if err != nil {
+		return nil, fmt.Errorf("cash: payments of runs not released of %s: %w", legalEntity, err)
+	}
+	for _, p := range pending {
+		if i := slices.IndexFunc(banks, func(b Bank) bool { return b.ID == p.HouseBankID }); i >= 0 && p.Currency == banks[i].Currency {
+			d, late := r.valueDate(banks[i].Code, p)
+			out[p.HouseBankID] = append(out[p.HouseBankID], flow{date: d, source: SourcePaymentRun, certainty: CertaintyConfirmed, late: late, amount: -p.Amount})
+		}
+	}
+	return out, nil
+}
+
+// transit is a payment in transit from a bank: its open lines on the
+// bank's clearing account, each a flow on the payment's day at the bank.
+type transit struct {
+	bank    uuid.UUID
+	payment Payment
+	flows   []flow
+}
+
+// inTransit are the banks' payments in transit: the payments' open lines
+// on the bank's clearing account that no statement line up to the opening
+// statement booked. A revaluation's valuation and reset lines there are
+// the ledger's, not a payment's, and never count (ADR-0038, T53a).
+func (e *Endpoints) inTransit(ctx context.Context, r reader, legalEntity uuid.UUID, banks []Bank) ([]transit, error) {
 	byID, accounts := map[uuid.UUID]Bank{}, make([]uuid.UUID, len(banks))
 	for i, b := range banks {
 		byID[b.ID], accounts[i] = b, b.ClearingAccountID
@@ -418,20 +454,10 @@ func (e *Endpoints) flows(ctx context.Context, r reader, legalEntity uuid.UUID, 
 	if err != nil {
 		return nil, fmt.Errorf("cash: payments in transit of %s: %w", legalEntity, err)
 	}
-	out := map[uuid.UUID][]flow{}
+	var out []transit
 	for _, p := range released {
 		if b, ok := byID[p.HouseBankID]; ok && !booked(p, b) {
-			out[b.ID] = append(out[b.ID], r.inTransit(b, p, open[p.ID])...)
-		}
-	}
-	pending, err := e.Payments.Pending(ctx, legalEntity)
-	if err != nil {
-		return nil, fmt.Errorf("cash: payments of runs not released of %s: %w", legalEntity, err)
-	}
-	for _, p := range pending {
-		if b, ok := byID[p.HouseBankID]; ok && p.Currency == b.Currency {
-			d, late := r.valueDate(b.Code, p)
-			out[b.ID] = append(out[b.ID], flow{date: d, source: SourcePaymentRun, certainty: CertaintyConfirmed, late: late, amount: -p.Amount})
+			out = append(out, transit{bank: b.ID, payment: p, flows: r.inTransit(b, p, open[p.ID])})
 		}
 	}
 	return out, nil
@@ -483,10 +509,7 @@ func (r reader) banks(banks []Bank, flows map[uuid.UUID][]flow, from time.Time, 
 	}
 	out := make([]BankPosition, len(banks))
 	for i, b := range banks {
-		bp := BankPosition{Bank: b, Opening: Opening{Stale: true}}
-		if s := b.Statement; s != nil {
-			bp.Opening = Opening{Balance: s.Closing, Date: &s.Date, Gap: s.Gap, Stale: s.Date.Before(r.before(r.read))}
-		}
+		bp := BankPosition{Bank: b, Opening: r.opening(b)}
 		if c, ok := credit[b.Code]; ok {
 			// Safe to ignore: the document's validation parsed the amount in
 			// the bank's currency before it was activated (config.creditLines).
@@ -497,6 +520,17 @@ func (r reader) banks(banks []Bank, flows map[uuid.UUID][]flow, from time.Time, 
 		out[i] = bp
 	}
 	return out
+}
+
+// opening is what a bank's first day opens at: its latest statement's
+// closing balance before it, stale when that statement closes before the
+// working day before the read date; none (stale) without one.
+func (r reader) opening(b Bank) Opening {
+	s := b.Statement
+	if s == nil {
+		return Opening{Stale: true}
+	}
+	return Opening{Balance: s.Closing, Date: &s.Date, Gap: s.Gap, Stale: s.Date.Before(r.before(r.read))}
 }
 
 // sums adds amounts and remembers whether a sum fell out of the range of

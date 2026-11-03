@@ -6118,7 +6118,7 @@ paths:
       tags:
         - ledger
       summary: Reverse a journal entry
-      description: "Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a copy in a parallel ledger is reversed only through its group's first entry (409 `ledger.entry_is_copy`). Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry. Human-only."
+      description: "Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a copy in a parallel ledger is reversed only through its group's first entry (409 `ledger.entry_is_copy`). Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. An assets document's entry (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is reversed with `POST /v1/asset-acquisitions/{id}:reverse` (retirements and transfers with their own `:reverse`, a depreciation run's entries never one by one). Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry. Human-only."
       x-permission: ledger.entry.post
       x-agent: false
       x-problem-codes:
@@ -14490,8 +14490,8 @@ paths:
       operationId: createAssetAcquisition
       tags:
         - assets
-      summary: Capitalise a posted line onto an asset
-      description: "Capitalises a posted journal line on an asset clearing account onto an asset (ADR-0057 §6, T57c; SAP's acquisition with automatic offsetting entry): a supplier invoice item, a goods receipt or a manual entry posted on the clearing account of the asset's class in the asset's company. The line is named by its leading-ledger entry and line number (`GET /v1/asset-clearing-items` lists them); one that is not such a line is 422 `assets.not_clearing_line`, a line of a reversed entry or of a reversal 422 `assets.source_reversed`, and a line whose entry has no copy in every ledger the company keeps (a ledger-specific entry) 422 `assets.source_not_in_every_ledger`. `amount` is in the line's currency, all that is left of the line by default; it has the line's sign (a credit line, a supplier credit memo, is capitalised as a negative acquisition, which reduces cost) and is at most what is left (422 `assets.amount_exceeds_line`); a negative acquisition that would leave the asset's cost below zero in a ledger, or one onto an asset holding no cost, is 422 `assets.cost_negative`. One line may be split across several assets, and an asset acquired by several acquisitions. Its local and group amounts are the line's in proportion, rounded half away from zero, the acquisition that uses the rest of the line taking the rest of its local and group amounts, so a line capitalised in full leaves the clearing account at zero in all three currencies. The value date defaults to the line's posting date and may lie in any period up to the end of the posting date's (422 `assets.value_date_in_future` after it); the posting date defaults to the company's date today, and lies on or after the start of the asset's latest center assignment (409 `assets.posting_before_center_transfer`). It posts in the line's currency, to every ledger the company keeps, Dr the class's acquisition cost account on the asset's profit center, Cr the clearing account on the line's profit center (document type AA, source context `assets`; 422 `ledger.period_not_open` when the period is not open in a ledger), writes the asset's movements per ledger, and makes a `planned` asset `active` with its capitalisation date the earliest value date of its acquisitions. A cancelled or retired asset is 422 `assets.asset_cancelled` or `assets.asset_retired`; an asset the caller cannot act in is 404. Audited, and published as AssetMovementPosted."
+      summary: Capitalise a posted line, or an amount against an offset account, onto an asset
+      description: "Capitalises onto an asset a posted journal line on an asset clearing account (`source`; ADR-0057 §6, T57c; SAP's acquisition with automatic offsetting entry) or, by manual entry, an amount against an offset account (`offset_account_id`, T57d); one of the two is given (422 `request.validation_failed` on `source` for both or neither). **From a line**: a supplier invoice item, a goods receipt or a manual entry posted on the clearing account of the asset's class in the asset's company. The line is named by its leading-ledger entry and line number (`GET /v1/asset-clearing-items` lists them); one that is not such a line is 422 `assets.not_clearing_line`, a line of a reversed entry 422 `assets.source_reversed`, and a line whose entry has no copy in every ledger the company keeps (a ledger-specific entry) 422 `assets.source_not_in_every_ledger`. The line of a reversal, reversing a line L, takes cost off again: only onto an asset holding posted acquisitions from L (422 `assets.source_reversed` onto any other asset, and for the reversal of a line nothing was capitalised from), each asset taking from it at most its posted acquisitions from L less what it already took from the reversal's line (422 `assets.amount_exceeds_line` above that; the worklist offers each asset that bound, all of it by default). So a supplier invoice reversed in payables after its line was capitalised is corrected on the asset when the acquisition can no longer be reversed (409 `assets.later_movements` on its `:reverse`); once taken, the asset's acquisitions from L are not reversed until this one is (409 `assets.reversal_line_capitalised`). `amount` is in the line's currency, all that is left of the line by default; it has the line's sign (a credit line, a supplier credit memo, is capitalised as a negative acquisition, which reduces cost) and is at most what is left (422 `assets.amount_exceeds_line`); a negative acquisition that would leave the asset's cost below zero in a ledger, or one onto an asset holding no cost, is 422 `assets.cost_negative`. One line may be split across several assets, and an asset acquired by several acquisitions. Its local and group amounts are the line's in proportion, rounded half away from zero, the acquisition that uses the rest of the line taking the rest of its local and group amounts, so a line capitalised in full leaves the clearing account at zero in all three currencies. The value date defaults to the line's posting date and may lie in any period up to the end of the posting date's (422 `assets.value_date_in_future` after it); the posting date defaults to the company's date today, and lies on or after the start of the asset's latest center assignment (409 `assets.posting_before_center_transfer`). It posts in the line's currency, to every ledger the company keeps, Dr the class's acquisition cost account on the asset's profit center, Cr the clearing account on the line's profit center (document type AA, source context `assets`; 422 `ledger.period_not_open` when the period is not open in a ledger), writes the asset's movements per ledger, and makes a `planned` asset `active` with its capitalisation date the earliest value date of its acquisitions that add cost. **Against an offset account**: `amount` is required and positive, in any currency; the offset account is a G/L account set up in the company, active and not blocked, that is no reconciliation account of any kind, not the GR/IR account and no asset clearing account of the company (422 `assets.offset_account_invalid`). It posts Dr the class's acquisition cost account on the asset's profit center / Cr the offset account, converted at the posting date's rate (422 `ledger.no_exchange_rate` without one), to every ledger the company keeps; the asset's cost per ledger is the cost line's local and group amounts as the ledger posted them. It serves what has no supplier line (own work capitalised, a contribution in kind). Its value date defaults to its posting date; the date rules above apply. A cancelled or retired asset is 422 `assets.asset_cancelled` or `assets.asset_retired`; an asset the caller cannot act in is 404. Audited, and published as AssetMovementPosted."
       x-permission: assets.asset.post
       x-agent: false
       x-problem-codes:
@@ -14502,6 +14502,7 @@ paths:
         - assets.class_unknown
         - assets.cost_negative
         - assets.not_clearing_line
+        - assets.offset_account_invalid
         - assets.posting_before_center_transfer
         - assets.source_not_in_every_ledger
         - assets.source_reversed
@@ -14630,13 +14631,101 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/asset-acquisitions/{id}:reverse":
+    post:
+      operationId: reverseAssetAcquisition
+      tags:
+        - assets
+      summary: Reverse an asset acquisition
+      description: "Reverses a posted acquisition (ADR-0057 §6, T57d): its entry in every ledger through the ledger's reversal path, on `posting_date` (default the acquisition's posting date), never before the acquisition's posting date (422 `assets.reversal_before_original`) and in a period open in every ledger (409 `ledger.period_not_open`); each entry's reversal is shown beside it in `entries`. It writes the asset's movements negated, gives the amount back to the source line, which the worklist offers again, and derives the asset's status and capitalisation date again from the acquisitions left: reversing the earliest of several moves `capitalised_on` to the earliest left, reversing the only one returns the asset to `planned`. Refused while a retirement or transfer posted on the asset after it is not reversed (409 `assets.later_movements`: the last posted is reversed first); where it would leave the asset's cost below zero in a ledger (422 `assets.cost_negative`: a reduction capitalised since took off cost this one brought); and, for an acquisition from a line, while an acquisition from that line's reversal's line stands on the asset (409 `assets.reversal_line_capitalised`: that one is reversed first). One already reversed is 409 `assets.acquisition_not_posted`. Payables is not told: an invoice whose line was capitalised stays as it is. Depreciation posted on the asset since is posted back by its next depreciation run (T57f). The If-Match is the acquisition's ETag; an acquisition the caller cannot act in is 404. Audited, and published as AssetMovementReversed. Human-only."
+      x-permission: assets.asset.post
+      x-agent: false
+      x-problem-codes:
+        - assets.acquisition_not_posted
+        - assets.cost_negative
+        - assets.later_movements
+        - assets.reversal_before_original
+        - assets.reversal_line_capitalised
+        - config.no_number_range
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.already_reversed
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cannot_reverse_reversal
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.entry_cleared
+        - ledger.entry_is_copy
+        - ledger.entry_owned_elsewhere
+        - ledger.gr_ir_currency_mismatch
+        - ledger.item_already_cleared
+        - ledger.item_reserved
+        - ledger.legal_entity_not_active
+        - ledger.no_fiscal_period
+        - ledger.no_price_difference_account
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.unknown_unit
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The reversal.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssetAcquisitionReverse"
+      responses:
+        "200":
+          description: "The acquisition, `reversed`, with each entry's reversal."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetAcquisition"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/asset-clearing-items:
     get:
       operationId: listAssetClearingItems
       tags:
         - assets
       summary: List the lines on asset clearing accounts
-      description: "The worklist of acquisitions (ADR-0057 §6, T57c): the leading ledger's lines on the company's asset clearing accounts in one fiscal year, each with its amounts in its currency, local and group currency, what acquisitions used of it and what is left, its document and origin (for a supplier invoice its number, the supplier's reference and the supplier's name), and the acquisitions made from it. The lines of a reversed entry and of its reversal are left out while nothing was capitalised from the reversed one; a reversed line with acquisitions is shown with `source_reversed`. With `remaining=true`, only lines an acquisition can still take something from (not reversed, something left). A legal entity the caller cannot act in has none. Ordered by posting date, entry and line. The lines are ledger amounts, so besides `assets.asset.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      description: "The worklist of acquisitions (ADR-0057 §6, T57c): the leading ledger's lines on the company's asset clearing accounts in one fiscal year, each with its amounts in its currency, local and group currency, what acquisitions used of it and what is left, its document and origin (for a supplier invoice its number, the supplier's reference and the supplier's name), and the acquisitions made from it. The lines of a reversed entry and of its reversal are left out while nothing was capitalised from the reversed one; a reversed line with acquisitions is shown with `source_reversed` and its reversal's line beside it (`reversal`, T57d), offered to each asset holding posted acquisitions from the reversed line with the most it may take from it: those acquisitions less what it already took from the reversal's line. With `remaining=true`, only lines an acquisition can still take something from: not reversed with something left, or reversed with something offered. A legal entity the caller cannot act in has none. Ordered by posting date, entry and line. The lines are ledger amounts, so besides `assets.asset.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
       x-permission: assets.asset.read
       x-also-permissions:
         - ledger.entry.read
@@ -14664,7 +14753,7 @@ paths:
         - name: remaining
           in: query
           required: false
-          description: "Only lines an acquisition can still take something from; default false."
+          description: "Only lines an acquisition can still take something from (not reversed with something left, or reversed with something its reversal's line offers); default false."
           schema:
             type: boolean
         - $ref: "#/components/parameters/PageSize"
@@ -14756,12 +14845,13 @@ paths:
       tags:
         - cash
       summary: Get a company's liquidity forecast
-      description: "The liquidity forecast of a legal entity (ADR-0051 §9, T53e), computed at the read from one database state (a repeatable-read snapshot): the flows expected from the read date (the company's date in its configured time zone, shown as `time_zone`) in the company's buckets (`cash.buckets`; default 14 days, 11 weeks and 9 months: each grain's periods follow the previous grain's, a week being seven days and a month running to the same day of the next month, its last day when shorter), per currency, never converted. Flows: `payable` (`expected`), the posted supplier open items (not special G/L items such as down payments) that no live payment run holds, each expected when a payment run would pay it (ADR-0051 §5, P5): while the company takes cash discounts (`cash.take_discounts`, default true), the last day of the earliest discount tier still open, else the net due date (by the terms the item was posted with, else its supplier's net days; a credit memo's is its document date), moved back to the company's last payment day (`cash.payment_days`; none: any day) on or before it but not before the read date (a tier that would be is passed over for the next, or the net due date), an overdue item on the next payment day; then the value days (`cash.value_days`) of the house bank the supplier's first payment method ranks for the item's currency, moved to the next working day of the company's calendar (weekends and its holidays). Its amount is what a run on that payment day pays: what the item owes less the cash discount it then takes and the withholding tax deducted at payment, as the proposer computes them (one rule, `ledger.ItemTerms`), netted per supplier and currency as a run nets them: one flow per supplier payment; a day whose items owe nothing net pays nothing and its items are carried to the supplier's next payment day, and a debit balance left after the last is no flow. `payment_run` (`confirmed`), the payments of runs `proposed` or `releasing` not posted yet, whose items they hold, on their run date plus their bank's value days moved to the next working day, `late` when that is before the read date (then expected the working day after it), as in the cash position. `invoice_unposted` (`planned`, T53e2), the supplier invoices, credit memos and subsequent debits and credits `parked` or `on_hold`, which are no open items yet: each at what it would be owed posted now, by the payment terms and withholding tax codes it would post with (its order's term, else its supplier's, from its invoice date; a correction naming an invoice that invoice's terms; a credit memo none), expected by the same rule as `payable` and netted per supplier and currency among themselves (not with the posted items, which are more certain); what would refuse its posting does not refuse the forecast: a term not configured gives way to its supplier's net days, and withholding tax codes that would refuse it are left out. `down_payment` (`expected`, T53e2), the open down payment requests that no live run pays, each whole and never netted (a run pays a request on its own), on its due date moved to the next working day, `late` when that is before the read date. A supplier blocked for payment or posting, inactive, or not set up in the company is paid by no run: its items, unposted invoices and requests are `payable_blocked` (each keeping its own certainty), on their net due date (a request's due date; an overdue one on the read date), at what they owe then, netted as a run would, apart from the totals: listed in each bucket's flows and summed per currency in `blocked`, but counted in the buckets' `total`s, the currency's `total` and `beyond` only with `include_blocked=true`. Amounts are signed: a payment out is negative. Each currency gives its flows per bucket by source, certainty and lateness with the bucket's total, the total over the horizon, and what is expected after the last bucket (`beyond`, in no bucket). Each currency also gives its rows by liquidity item and its hierarchy (`items`, T53e3; ADR-0051 §4, §9): every flow is split over the liquidity items (`cash.liquidity_items`) its documents derive by the configuration's `cash.derivation`: a supplier payment over the documents it pays, each at what the payment pays of it, and each document over its offsetting lines (a posted item's expense, asset and tax lines, an unposted invoice's items; never the supplier's line nor a withholding tax withheld at invoice), in proportion to their signed amounts, a line taking the item of the first account rule covering its account, else its supplier's planning group's, else the default of the flow's direction; a tax line follows the base lines of its tax code in proportion to their amounts, and a self-assessed pair (`self_output`/`self_input` of a reverse charge or import code), which moves no cash, is left out before the split. A down payment request, and a run's payment of one, has no lines and takes its supplier's planning group's item or the default. Each split rounds once to minor units by largest remainder (ties to the item named first), so an item's shares add up to the flow. Each row gives the item's code, name, parent and level, its flows and its descendants' per bucket (`buckets`, in the forecast's buckets' order), over the horizon (`total`) and after the last bucket (`beyond`), counted as the buckets' totals count them, so the top rows add up to each bucket's `total`, and the item's own flows by source and certainty; a row without `liquidity_item` holds what no rule assigns and no default covers. `min_certainty` cuts the less certain flows (actual, confirmed, expected, planned; default planned, every flow). Memo records, converted totals, the opening position and drill-down are a later step (T53e4). A legal entity the caller cannot act in is 404."
+      description: "The liquidity forecast of a legal entity (ADR-0051 §9, T53e), computed at the read from one database state (a repeatable-read snapshot): the flows expected from the read date (the company's date in its configured time zone, shown as `time_zone`) in the company's buckets (`cash.buckets`; default 14 days, 11 weeks and 9 months: each grain's periods follow the previous grain's, a week being seven days and a month running to the same day of the next month, its last day when shorter), per currency, never converted. Flows: `payable` (`expected`), the posted supplier open items (not special G/L items such as down payments) that no live payment run holds, each expected when a payment run would pay it (ADR-0051 §5, P5): while the company takes cash discounts (`cash.take_discounts`, default true), the last day of the earliest discount tier still open, else the net due date (by the terms the item was posted with, else its supplier's net days; a credit memo's is its document date), moved back to the company's last payment day (`cash.payment_days`; none: any day) on or before it but not before the read date (a tier that would be is passed over for the next, or the net due date), an overdue item on the next payment day; then the value days (`cash.value_days`) of the house bank the supplier's first payment method ranks for the item's currency, moved to the next working day of the company's calendar (weekends and its holidays). Its amount is what a run on that payment day pays: what the item owes less the cash discount it then takes and the withholding tax deducted at payment, as the proposer computes them (one rule, `ledger.ItemTerms`), netted per supplier and currency as a run nets them: one flow per supplier payment; a day whose items owe nothing net pays nothing and its items are carried to the supplier's next payment day, and a debit balance left after the last is no flow. `payment_run` (`confirmed`), the payments of runs `proposed` or `releasing` not posted yet, whose items they hold, on their run date plus their bank's value days moved to the next working day, `late` when that is before the read date (then expected the working day after it), as in the cash position. `invoice_unposted` (`planned`, T53e2), the supplier invoices, credit memos and subsequent debits and credits `parked` or `on_hold`, which are no open items yet: each at what it would be owed posted now, by the payment terms and withholding tax codes it would post with (its order's term, else its supplier's, from its invoice date; a correction naming an invoice that invoice's terms; a credit memo none), expected by the same rule as `payable` and netted per supplier and currency among themselves (not with the posted items, which are more certain); what would refuse its posting does not refuse the forecast: a term not configured gives way to its supplier's net days, and withholding tax codes that would refuse it are left out. `down_payment` (`expected`, T53e2), the open down payment requests that no live run pays, each whole and never netted (a run pays a request on its own), on its due date moved to the next working day, `late` when that is before the read date. A supplier blocked for payment or posting, inactive, or not set up in the company is paid by no run: its items, unposted invoices and requests are `payable_blocked` (each keeping its own certainty), on their net due date (a request's due date; an overdue one on the read date), at what they owe then, netted as a run would, apart from the totals: listed in each bucket's flows and summed per currency in `blocked`, but counted in the buckets' `total`s, the currency's `total` and `beyond` only with `include_blocked=true`. Amounts are signed: a payment out is negative. Each currency gives its flows per bucket by source, certainty and lateness with the bucket's total, the total over the horizon, and what is expected after the last bucket (`beyond`, in no bucket). Each currency also gives its rows by liquidity item and its hierarchy (`items`, T53e3; ADR-0051 §4, §9): every flow is split over the liquidity items (`cash.liquidity_items`) its documents derive by the configuration's `cash.derivation`: a supplier payment over the documents it pays, each at what the payment pays of it, and each document over its offsetting lines (a posted item's expense, asset and tax lines, an unposted invoice's items; never the supplier's line nor a withholding tax withheld at invoice), in proportion to their signed amounts, a line taking the item of the first account rule covering its account, else its supplier's planning group's, else the default of the flow's direction; a tax line follows the base lines of its tax code in proportion to their amounts, and a self-assessed pair (`self_output`/`self_input` of a reverse charge or import code), which moves no cash, is left out before the split. A down payment request, and a run's payment of one, has no lines and takes its supplier's planning group's item or the default. Each split rounds once to minor units by largest remainder (ties to the item named first), so an item's shares add up to the flow. Each row gives the item's code, name, parent and level, its flows and its descendants' per bucket (`buckets`, in the forecast's buckets' order), over the horizon (`total`) and after the last bucket (`beyond`), counted as the buckets' totals count them, so the top rows add up to each bucket's `total`, and the item's own flows by source and certainty; a row without `liquidity_item` holds what no rule assigns and no default covers. `min_certainty` cuts the less certain flows (actual, confirmed, expected, planned; default planned, every flow). T53e4 adds two sources, the opening position, one grain over a range, conversion and drill-down. `in_transit` (`confirmed`): the payments released from the company's active house banks whose line on the bank's clearing account is still open and that no statement line up to the bank's opening statement matches, as in the cash position (`getCashPosition`), on their run date plus the bank's value days moved to the next working day, `late` before the read date. `memo`: the `active` memo records of the legal entity, with or without a house bank, at their own certainty and liquidity item, each on its value date moved to the next working day (`late` before the read date) and not after it expires; a series' occurrences up to the last bucket's end, each once (an override replacing its occurrence), a one-off record also after the last bucket (`beyond`). Each currency gives its `opening`, the cash position's opening of the read date: the sum of its active house banks' latest statement closing balances before the read date (zero without a bank; a currency with a bank and no flow is listed too), and each bucket its `closing`, the opening plus the bucket's `total` and those of every bucket before it. `grain` with `to` asks for one grain over a range instead of the company's buckets: periods of the grain from the read date up to the one holding `to`, at most 92 days, 104 weeks or 36 months (the configuration's limits); one without the other, a `to` before the read date or more periods are 422. `display_currency` adds `converted` (ADR-0051 §10): each currency's opening, buckets' totals and `beyond` converted into it at one rate for every bucket, the latest of the company's `cash.rate_type` valid on the read date (default `planning`; with no planning rate, `average`), each amount rounded once to the display currency's minor unit, half away from zero, then summed over the currencies; the converted `closing` is the converted opening plus the converted totals so far, so it adds up as the currencies' own do. A rate valid from more than `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`; a currency without a rate is left out of the converted figures and listed in `incomplete_currencies` (its own figures stand), never counted as zero. A display currency the reference data does not know is 422 `cash.unknown_currency`. The flows and documents behind a bucket and liquidity item are `listLiquidityForecastFlows`. A legal entity the caller cannot act in is 404."
       x-permission: cash.forecast.read
       x-slo-class: report
       x-snapshot: true
       x-problem-codes:
         - cash.amount_too_large
+        - cash.unknown_currency
         - config.not_bootstrapped
         - payables.unknown_payment_term
         - payables.withholding_exceeds_invoice
@@ -14775,6 +14865,28 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: grain
+          in: query
+          required: false
+          description: "One grain over a range (with `to`): `day`, `week` (seven days) or `month` (to the same day of the next month, its last day when shorter), instead of the company's `cash.buckets`."
+          schema:
+            type: string
+            description: "A bucket's length. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [day, week, month]
+        - name: to
+          in: query
+          required: false
+          description: "With `grain`: the last bucket is the one holding this day, on or after the read date; at most 92 days, 104 weeks or 36 months from the read date."
+          schema:
+            type: string
+            format: date
+        - name: display_currency
+          in: query
+          required: false
+          description: "Convert the currencies' opening, totals and `beyond` into this currency (ISO 4217) as `converted`; absent, nothing is converted. One the reference data does not know is 422 `cash.unknown_currency`."
+          schema:
+            type: string
+            pattern: "^[A-Z]{3}$"
         - name: min_certainty
           in: query
           required: false
@@ -14797,6 +14909,105 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LiquidityForecast"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/liquidity-forecast-flows:
+    get:
+      operationId: listLiquidityForecastFlows
+      tags:
+        - cash
+      summary: List the flows and documents behind a liquidity forecast's bucket and item
+      description: "The drill-down of the liquidity forecast (ADR-0051 §9, T53e4): the flows of one currency whose day is from `from` (default the read date) to `to` (default no end, so the flows after the last bucket are reached too), computed as `getLiquidityForecast` computes them from one database state, by day; with `liquidity_item`, only the flows with a share of that item or its descendants, each with that `share` (as the item's row adds them up); with `unclassified=true`, only the shares no rule assigns and no default covers; else every flow, its `share` its whole amount. A memo series' occurrences are listed up to `to`, else up to the last of the company's buckets. `total` adds up the shares of every page's flows that the forecast counts (a `payable_blocked` one only with `include_blocked`), so a bucket's drill-down totals its cell of the item's row; `count` counts the flows of every page. Each flow names its supplier (number and name) only to a caller who may use `partner.supplier.read`, and each document only to one who may use its context's read permission (`ledger.entry.read`, `payables.invoice.read`, `payments.run.read`, `cash.memo.read`); for others it is left out, never refused, and `document_count` still counts it. A liquidity item the configuration does not have lists nothing. A legal entity the caller cannot act in is 404."
+      x-permission: cash.forecast.read
+      x-slo-class: report
+      x-snapshot: true
+      x-problem-codes:
+        - cash.amount_too_large
+        - cash.unknown_currency
+        - config.not_bootstrapped
+        - payables.unknown_payment_term
+        - payables.withholding_exceeds_invoice
+        - payables.withholding_tax_code_unknown
+        - request.invalid_page_size
+        - request.invalid_page_token
+        - request.validation_failed
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: currency
+          in: query
+          required: true
+          description: "The currency of the flows (ISO 4217); one the reference data does not know is 422 `cash.unknown_currency`."
+          schema:
+            type: string
+            pattern: "^[A-Z]{3}$"
+        - name: from
+          in: query
+          required: false
+          description: "The first day; default the read date (no flow is earlier)."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          description: "The last day, on or after `from` (else 422); default no end."
+          schema:
+            type: string
+            format: date
+        - name: liquidity_item
+          in: query
+          required: false
+          description: "Only the flows with a share of this liquidity item or its descendants (its code); not with `unclassified=true` (422)."
+          schema:
+            type: string
+            maxLength: 40
+        - name: unclassified
+          in: query
+          required: false
+          description: "Only the shares no derivation rule assigns and no default covers (the forecast's row without `liquidity_item`)."
+          schema:
+            type: boolean
+            default: false
+        - name: min_certainty
+          in: query
+          required: false
+          description: "The least certain flows listed: `actual`, `confirmed`, `expected` or `planned` (default, every flow); another value is 422."
+          schema:
+            type: string
+            description: "A certainty level. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [actual, confirmed, expected, planned]
+        - name: include_blocked
+          in: query
+          required: false
+          description: "Count the `payable_blocked` flows in `total`, as `getLiquidityForecast` does with it; they are listed either way."
+          schema:
+            type: boolean
+            default: false
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: A page of the forecast's flows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiquidityForecastFlowPage"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -33930,14 +34141,15 @@ components:
     AssetAcquisitionCreate:
       type: object
       description: "An acquisition from a posted line on an asset clearing account (ADR-0057 §6)."
-      required: [asset_id, source]
+      required: [asset_id]
       properties:
-        asset_id: {type: string, format: uuid, description: "The asset the line's amount is capitalised onto."}
+        asset_id: {type: string, format: uuid, description: "The asset the amount is capitalised onto."}
         source: {$ref: "#/components/schemas/AssetAcquisitionSourceRef"}
+        offset_account_id: {type: string, format: uuid, description: "For an acquisition by manual entry (T57d), instead of `source`: the G/L account credited (`GET /v1/accounts`); no reconciliation account and no asset clearing account."}
         amount:
           $ref: "#/components/schemas/Money"
-          description: "In the line's currency, with the line's sign (negative from a credit line); default all that is left of the line."
-        value_date: {type: string, format: date, description: "The date the cost counts from for depreciation; default the line's posting date. At most the end of the posting date's period."}
+          description: "From a line: in the line's currency, with the line's sign (negative from a credit line or a reversal's line); default all that is left of the line, or of a reversal's line what the asset may take from it. Against an offset account: required, positive, in any currency."
+        value_date: {type: string, format: date, description: "The date the cost counts from for depreciation; default the line's posting date, or against an offset account the posting date. At most the end of the posting date's period."}
         posting_date: {type: string, format: date, description: "The acquisition's posting date; default the company's date today."}
         text: {type: string, minLength: 1, maxLength: 200, description: "A text for the acquisition and its entries."}
       additionalProperties: false
@@ -33945,6 +34157,16 @@ components:
         - asset_id: 0192a000-0000-7000-8000-000000000f01
           source: {entry_id: 0192a000-0000-7000-8000-000000000e01, line_no: 2}
           amount: {amount: "6000.00", currency: CAD}
+    AssetAcquisitionReverse:
+      type: object
+      description: "The reversal of an asset acquisition (ADR-0057 §6)."
+      required: [reason]
+      properties:
+        reason: {type: string, minLength: 1, maxLength: 2000, description: Why the acquisition is reversed.}
+        posting_date: {type: string, format: date, description: "The reversal's posting date; default the acquisition's. On or after the acquisition's posting date, in a period open in every ledger."}
+      additionalProperties: false
+      examples:
+        - reason: Capitalised onto the wrong machine.
     AssetAcquisitionSourceRef:
       type: object
       description: "A line of a journal entry of the leading ledger, on an asset clearing account."
@@ -33954,7 +34176,7 @@ components:
         line_no: {type: integer, format: int32, minimum: 1, description: "The line's number in the entry."}
       additionalProperties: false
     AssetAcquisition:
-      description: "An asset acquisition (ADR-0057 §6, T57c): a posted line's amount capitalised onto an asset, with its local and group amounts, its source line and the supplier invoice behind it, and its journal entries per ledger."
+      description: "An asset acquisition (ADR-0057 §6, T57c, T57d): a posted line's amount, or an amount against an offset account, capitalised onto an asset, with its local and group amounts, its source line and the supplier invoice behind it or its offset account, its journal entries per ledger and, once reversed, the reversal."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -33972,6 +34194,7 @@ components:
             amount_lc: {$ref: "#/components/schemas/Money", description: "In local currency; negative from a credit line."}
             amount_gc: {$ref: "#/components/schemas/Money", description: "In group currency; negative from a credit line."}
             source: {$ref: "#/components/schemas/AssetAcquisitionSource"}
+            offset_account: {$ref: "#/components/schemas/AssetOffsetAccount"}
             text: {type: string, description: "The acquisition's text.", readOnly: true}
             status:
               type: string
@@ -33981,8 +34204,9 @@ components:
             entries:
               type: array
               items: {$ref: "#/components/schemas/AssetDocumentEntry"}
-              description: "Its journal entries, one per ledger, the leading ledger first and then by ledger code."
+              description: "Its journal entries, one per ledger, the leading ledger first and then by ledger code, each with its reversal once reversed."
               readOnly: true
+            reversal: {$ref: "#/components/schemas/AssetAcquisitionReversal"}
       examples:
         - id: 0192a000-0000-7000-8000-000000000a01
           version: 1
@@ -34011,6 +34235,21 @@ components:
           status: posted
           entries:
             - {ledger_id: 0192a000-0000-7000-8000-000000000301, ledger_code: 0L, ledger_name: Leading ledger, fiscal_year: 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000e11, document_number: "1"}
+    AssetOffsetAccount:
+      type: object
+      description: "The offset account of an acquisition by manual entry, by its number and name."
+      required: [id, number, name]
+      properties:
+        id: {type: string, format: uuid, description: "The account (`GET /v1/accounts/{id}`).", readOnly: true}
+        number: {type: string, description: "The account's number.", readOnly: true}
+        name: {type: string, description: "The account's name.", readOnly: true}
+    AssetAcquisitionReversal:
+      type: object
+      description: "The reversal of an acquisition; its entries are shown beside the acquisition's in `entries`."
+      required: [posting_date, reason]
+      properties:
+        posting_date: {type: string, format: date, description: "The reversal's posting date.", readOnly: true}
+        reason: {type: string, description: Why it was reversed., readOnly: true}
     AssetAcquisitionSource:
       type: object
       description: "The line an acquisition capitalised: its leading-ledger entry and line, the entry's document number and origin, and for a supplier invoice its number, reference and supplier."
@@ -34043,6 +34282,9 @@ components:
         fiscal_year: {type: integer, format: int32, description: "The entry's fiscal year.", readOnly: true}
         journal_entry_id: {type: string, format: uuid, description: "The journal entry (`GET /v1/journal-entries/{id}`).", readOnly: true}
         document_number: {type: string, description: "The entry's document number.", readOnly: true}
+        reversal_fiscal_year: {type: integer, format: int32, description: "Its reversal's fiscal year, once reversed.", readOnly: true}
+        reversal_journal_entry_id: {type: string, format: uuid, description: "Its reversal entry, once reversed.", readOnly: true}
+        reversal_document_number: {type: string, description: "Its reversal entry's document number, once reversed.", readOnly: true}
     AssetAcquisitionPage:
       type: object
       description: One page of asset acquisitions.
@@ -34085,12 +34327,13 @@ components:
         remaining: {$ref: "#/components/schemas/Money", description: "What is left of it in its currency, with its sign."}
         remaining_lc: {$ref: "#/components/schemas/Money", description: "What is left in local currency, with its sign."}
         remaining_gc: {$ref: "#/components/schemas/Money", description: "What is left in group currency, with its sign."}
-        source_reversed: {type: boolean, description: "The line's entry was reversed after acquisitions were made from it; nothing more can be taken from it.", readOnly: true}
+        source_reversed: {type: boolean, description: "The line's entry was reversed after acquisitions were made from it; nothing more can be taken from it, and its reversal's line (`reversal`) takes the cost off the assets holding it.", readOnly: true}
         acquisitions:
           type: array
           items: {$ref: "#/components/schemas/AssetClearingAcquisition"}
           description: "The acquisitions made from the line, by posting order."
           readOnly: true
+        reversal: {$ref: "#/components/schemas/AssetClearingReversal"}
     AssetClearingAcquisition:
       type: object
       description: "An acquisition made from a clearing line."
@@ -34105,6 +34348,35 @@ components:
           description: "`posted` or `reversed`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum: [posted, reversed]
           readOnly: true
+    AssetClearingReversal:
+      type: object
+      description: "The line of the reversal of a reversed clearing line (ADR-0057 §6, T57d): capitalised as an acquisition of its sign (`source` its entry and line) onto an asset that holds acquisitions from the reversed line, at most what it offers that asset."
+      required: [fiscal_year, entry_id, line_no, posting_date, document_number, acquisitions, offers]
+      properties:
+        fiscal_year: {type: integer, format: int32, description: "The reversal entry's fiscal year.", readOnly: true}
+        entry_id: {type: string, format: uuid, description: "The reversal entry (the leading ledger's).", readOnly: true}
+        line_no: {type: integer, format: int32, description: "The line's number, the reversed line's.", readOnly: true}
+        posting_date: {type: string, format: date, description: "The reversal's posting date.", readOnly: true}
+        document_number: {type: string, description: "The reversal entry's document number.", readOnly: true}
+        acquisitions:
+          type: array
+          items: {$ref: "#/components/schemas/AssetClearingAcquisition"}
+          description: "The acquisitions made from the reversal's line, by posting order."
+          readOnly: true
+        offers:
+          type: array
+          items: {$ref: "#/components/schemas/AssetClearingOffer"}
+          description: "Per asset holding posted acquisitions from the reversed line, by asset number, what it may still take from the reversal's line; none once each has taken all."
+          readOnly: true
+    AssetClearingOffer:
+      type: object
+      description: "What an asset may take from a reversal's line: its posted acquisitions from the reversed line less what it took from the reversal's line."
+      required: [asset_id, asset_number, asset_description, amount]
+      properties:
+        asset_id: {type: string, format: uuid, description: The asset., readOnly: true}
+        asset_number: {type: string, description: "The asset's number.", readOnly: true}
+        asset_description: {type: string, description: "The asset's description.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "In the line's currency, with the reversal line's sign."}
     AssetClearingItemPage:
       type: object
       description: One page of lines on asset clearing accounts.
@@ -34330,8 +34602,9 @@ components:
         currencies:
           type: array
           items: {$ref: "#/components/schemas/LiquidityForecastCurrency"}
-          description: "The flows of each currency with any, by currency code."
+          description: "The flows of each currency with any flow or an active house bank, by currency code."
           readOnly: true
+        converted: {$ref: "#/components/schemas/LiquidityForecastConverted"}
       examples:
         - legal_entity_id: 0192a000-0000-7000-8000-000000000201
           read_date: "2026-04-17"
@@ -34343,15 +34616,18 @@ components:
             - {grain: week, start: "2026-04-18", end: "2026-04-24"}
           currencies:
             - currency: CAD
+              opening: {amount: {amount: "10000.00", currency: CAD}, banks: 1, stale: false, gap: false}
               buckets:
                 - start: "2026-04-17"
                   flows: [{source: payment_run, certainty: confirmed, late: false, amount: {amount: "-500.00", currency: CAD}, count: 1}]
                   total: {amount: "-500.00", currency: CAD}
+                  closing: {amount: "9500.00", currency: CAD}
                 - start: "2026-04-18"
                   flows:
                     - {source: payable, certainty: expected, late: false, amount: {amount: "-1176.00", currency: CAD}, count: 2}
                     - {source: payable_blocked, certainty: expected, late: false, amount: {amount: "-300.00", currency: CAD}, count: 1}
                   total: {amount: "-1176.00", currency: CAD}
+                  closing: {amount: "8324.00", currency: CAD}
               total: {amount: "-1676.00", currency: CAD}
               beyond: {amount: {amount: "-2000.00", currency: CAD}, count: 1}
               blocked: {amount: {amount: "-300.00", currency: CAD}, count: 1}
@@ -34383,6 +34659,144 @@ components:
                     - {source: payable, certainty: expected, buckets: [{amount: "0.00", currency: CAD}, {amount: "-776.00", currency: CAD}], total: {amount: "-776.00", currency: CAD}, beyond: {amount: "-2000.00", currency: CAD}}
                     - {source: payable_blocked, certainty: expected, buckets: [{amount: "0.00", currency: CAD}, {amount: "-300.00", currency: CAD}], total: {amount: "-300.00", currency: CAD}, beyond: {amount: "0.00", currency: CAD}}
                     - {source: payment_run, certainty: confirmed, buckets: [{amount: "-500.00", currency: CAD}, {amount: "0.00", currency: CAD}], total: {amount: "-500.00", currency: CAD}, beyond: {amount: "0.00", currency: CAD}}
+    LiquidityForecastOpening:
+      type: object
+      description: "What a currency's forecast opens at (ADR-0051 §9, T53e4): the cash position's opening of the read date, the sum of the currency's active house banks' latest statement closing balances before it; zero without a bank."
+      required: [amount, banks, stale, gap]
+      properties:
+        amount: {$ref: "#/components/schemas/Money"}
+        banks: {type: integer, format: int32, minimum: 0, description: "How many active house banks of the currency it sums.", readOnly: true}
+        stale: {type: boolean, description: "True when one of the banks has no statement, or its latest closes before the working day before the read date, as the cash position marks it.", readOnly: true}
+        gap: {type: boolean, description: "True when a statement of one of the banks up to its opening one does not open at its previous one's closing balance (ADR-0047).", readOnly: true}
+    LiquidityForecastConverted:
+      type: object
+      description: "The forecast's currencies converted into the display currency (ADR-0051 §10, T53e4) at one rate per currency for every bucket, each amount rounded once to the display currency's minor unit, half away from zero, and summed; the currencies without a rate are left out and listed."
+      required: [currency, rates, incomplete_currencies, opening, buckets, total, beyond]
+      properties:
+        currency: {type: string, description: "The display currency (ISO 4217).", readOnly: true}
+        rates:
+          type: array
+          items: {$ref: "#/components/schemas/CashPositionRate"}
+          description: "The rates used, by currency."
+          readOnly: true
+        incomplete_currencies:
+          type: array
+          items: {type: string}
+          description: "The currencies without a rate into the display currency, left out of every converted figure; empty when the figures are complete."
+          readOnly: true
+        opening: {$ref: "#/components/schemas/Money"}
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastConvertedBucket"}
+          description: "One per bucket of the forecast, in the same order."
+          readOnly: true
+        total: {$ref: "#/components/schemas/Money"}
+        beyond: {$ref: "#/components/schemas/Money"}
+    LiquidityForecastConvertedBucket:
+      type: object
+      description: "A bucket's converted total, and the converted opening plus the converted totals up to it."
+      required: [start, total, closing]
+      properties:
+        start: {type: string, format: date, description: "The bucket's first day.", readOnly: true}
+        total: {$ref: "#/components/schemas/Money"}
+        closing: {$ref: "#/components/schemas/Money"}
+    LiquidityForecastFlowPage:
+      type: object
+      description: "A page of the liquidity forecast's flows of one currency in a range of days (ADR-0051 §9 drill-down, T53e4), with what the whole range adds up to."
+      required: [legal_entity_id, read_date, time_zone, currency, from, unclassified, min_certainty, include_blocked, total, count, items]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        read_date: {type: string, format: date, description: "The company's date when the forecast was read, in `time_zone`.", readOnly: true}
+        time_zone: {type: string, description: "The IANA time zone the read date is in.", readOnly: true}
+        currency: {type: string, description: "The currency (ISO 4217).", readOnly: true}
+        from: {type: string, format: date, description: "The first day of the range.", readOnly: true}
+        to: {type: string, format: date, description: "The last day of the range; absent when it has no end.", readOnly: true}
+        liquidity_item: {type: string, description: "The liquidity item asked for, its descendants included; absent when every flow is listed.", readOnly: true}
+        unclassified: {type: boolean, description: "Whether only the shares no derivation rule assigns and no default covers are listed.", readOnly: true}
+        min_certainty:
+          type: string
+          description: "The least certain flows listed. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [actual, confirmed, expected, planned]
+          readOnly: true
+        include_blocked: {type: boolean, description: "Whether the `payable_blocked` flows count in `total`; they are listed either way, marked `counted: false` without it.", readOnly: true}
+        total: {$ref: "#/components/schemas/Money"}
+        count: {type: integer, format: int32, minimum: 0, description: "How many flows the range lists, over every page.", readOnly: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastFlow"}
+          description: "The flows on this page, by day."
+          readOnly: true
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+          readOnly: true
+      examples:
+        - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          read_date: "2026-04-17"
+          time_zone: America/Toronto
+          currency: CAD
+          from: "2026-04-18"
+          to: "2026-04-24"
+          liquidity_item: OP_SUPPLIERS
+          unclassified: false
+          min_certainty: planned
+          include_blocked: false
+          total: {amount: "-776.00", currency: CAD}
+          count: 1
+          items:
+            - date: "2026-04-21"
+              source: payable
+              certainty: expected
+              late: false
+              counted: true
+              amount: {amount: "-1176.00", currency: CAD}
+              share: {amount: "-776.00", currency: CAD}
+              supplier: {id: 0192a000-0000-7000-8000-000000000301, number: BP10000001, name: Tyrell Office Supplies}
+              document_count: 2
+              documents:
+                - {kind: journal_entry, id: 0192a000-0000-7000-8000-000000000401, number: "5100000012", amount: {amount: "-784.00", currency: CAD}}
+                - {kind: journal_entry, id: 0192a000-0000-7000-8000-000000000402, number: "5100000013", amount: {amount: "-392.00", currency: CAD}}
+    LiquidityForecastFlow:
+      type: object
+      description: "A flow of the liquidity forecast (ADR-0051 §4): one supplier payment as a run would make it, a run's payment, a payment in transit, a down payment request or a memo record's occurrence, with the documents it pays. Its supplier and each document are given only to a caller who may read them in their own context (`partner.supplier.read`; `ledger.entry.read` for a journal entry, `payables.invoice.read` for a supplier invoice or down payment request, `payments.run.read` for a payment run, `cash.memo.read` for a memo record), as an expansion is (04 §4.4); `document_count` counts them all."
+      required: [date, source, certainty, late, counted, amount, share, document_count, documents]
+      properties:
+        date: {type: string, format: date, description: "The day the flow is expected at the bank (a blocked supplier's on its due date).", readOnly: true}
+        source:
+          type: string
+          description: "Where the flow comes from (ADR-0051 §4). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [in_transit, payment_run, memo, payable, payable_blocked, invoice_unposted, down_payment]
+          readOnly: true
+        certainty:
+          type: string
+          description: "How certain the flow is. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [actual, confirmed, expected, planned]
+          readOnly: true
+        late: {type: boolean, description: "True when it was due at the bank before the read date and is expected the working day after it.", readOnly: true}
+        counted: {type: boolean, description: "Whether the forecast's totals count it: false for a `payable_blocked` flow without `include_blocked`.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money"}
+        share: {$ref: "#/components/schemas/Money"}
+        supplier: {$ref: "#/components/schemas/PartnerName"}
+        document_count: {type: integer, format: int32, minimum: 1, description: "How many documents the flow pays, those not shown included.", readOnly: true}
+        documents:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastDocument"}
+          description: "The documents the flow pays that the caller may read, each with what the flow pays of it; empty when it may read none."
+          readOnly: true
+    LiquidityForecastDocument:
+      type: object
+      description: "A document a forecast flow pays, to read through its own context's API: a posted supplier open item's journal entry (`getJournalEntry`), a parked or held supplier invoice (`getSupplierInvoice`), a down payment request (`getDownPaymentRequest`), a payment run (`getPaymentRun`) or a memo record (`getMemoRecord`)."
+      required: [kind, id, amount]
+      properties:
+        kind:
+          type: string
+          description: "What the document is. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [journal_entry, supplier_invoice, down_payment_request, payment_run, memo_record]
+          readOnly: true
+        id: {type: string, format: uuid, description: "The document's id in its context.", readOnly: true}
+        number: {type: string, description: "Its document number (a memo record's reference); absent for a memo record without one, or an invoice not numbered yet.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money"}
     LiquidityForecastBucket:
       type: object
       description: "A column of the forecast: the days from `start` to `end`."
@@ -34398,9 +34812,10 @@ components:
     LiquidityForecastCurrency:
       type: object
       description: "The flows of one currency: per bucket, in the buckets' order, their total over the horizon, what is expected after it, and what suppliers no run pays are owed; and the same flows by liquidity item and its hierarchy."
-      required: [currency, buckets, total, beyond, blocked, items]
+      required: [currency, opening, buckets, total, beyond, blocked, items]
       properties:
         currency: {type: string, description: The currency (ISO 4217)., readOnly: true}
+        opening: {$ref: "#/components/schemas/LiquidityForecastOpening"}
         buckets:
           type: array
           items: {$ref: "#/components/schemas/LiquidityForecastBucketFlows"}
@@ -34443,7 +34858,7 @@ components:
         source:
           type: string
           description: "Where the flows come from (ADR-0051 §4). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-          x-extensible-enum: [payment_run, payable, payable_blocked, invoice_unposted, down_payment]
+          x-extensible-enum: [in_transit, payment_run, memo, payable, payable_blocked, invoice_unposted, down_payment]
           readOnly: true
         certainty:
           type: string
@@ -34459,8 +34874,8 @@ components:
         beyond: {$ref: "#/components/schemas/Money"}
     LiquidityForecastBucketFlows:
       type: object
-      description: "A bucket's flows in one currency by source, certainty and lateness, and their total."
-      required: [start, flows, total]
+      description: "A bucket's flows in one currency by source, certainty and lateness, their total, and the closing balance after them."
+      required: [start, flows, total, closing]
       properties:
         start: {type: string, format: date, description: "The bucket's first day.", readOnly: true}
         flows:
@@ -34469,6 +34884,7 @@ components:
           description: "The bucket's flows by source, certainty and whether late; empty when none. The bucket's `total` counts its `payable_blocked` flows only with `include_blocked`."
           readOnly: true
         total: {$ref: "#/components/schemas/Money"}
+        closing: {$ref: "#/components/schemas/Money"}
     LiquidityForecastBeyond:
       type: object
       description: "The flows of one currency expected after the last bucket, counted in no bucket nor in the total; `payable_blocked` flows only with `include_blocked`."

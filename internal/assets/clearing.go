@@ -19,24 +19,41 @@ import (
 )
 
 // used is what acquisitions used of a capitalised line in its currency,
-// local and group currency, whether all of it, and whether a posted
-// acquisition holds some.
+// local and group currency, whether all of it, whether a posted
+// acquisition holds some, whether it is a reversal's line, and whether an
+// asset holds some of it net of what it took off through the line's
+// reversal's line: what that line offers, once the line is reversed.
 type used struct {
 	share
-	all, held bool
+	all, held, reversal, offer bool
 }
 
 // usesOf reads what acquisitions used of the company's lines of a fiscal
-// year, by line.
+// year, by line. Whether a line offers something is read in one pass over
+// the company's lines, its own acquisitions and those through its
+// reversal's line as two index-friendly halves, rather than per line with
+// an OR across both: that form scanned every acquisition for every line
+// (9 s over 10,000 used lines, TestClearingItemsBudget in batch 48).
 func usesOf(ctx context.Context, tx pgx.Tx, le uuid.UUID, year int16) (map[LineRef]used, error) {
 	rows, _ := tx.Query(ctx, `SELECT u.entry_year, u.entry_id, u.line_no, u.used, u.used_lc, u.used_gc, u.used = u.line_amount,
 			EXISTS (SELECT FROM assets.acquisition q WHERE q.tenant_id = u.tenant_id AND q.source_entry_id = u.entry_id AND q.source_line_no = u.line_no
-				AND q.status = 'posted')
+				AND q.status = 'posted'),
+			u.reverses_entry_id IS NOT NULL,
+			(u.entry_year, u.entry_id, u.line_no) IN (SELECT h.entry_year, h.entry_id, h.line_no FROM (
+					SELECT v.entry_year, v.entry_id, v.line_no, q.asset_id, q.amount FROM assets.clearing_use v
+						JOIN assets.acquisition q ON q.tenant_id = v.tenant_id AND q.source_entry_id = v.entry_id AND q.source_line_no = v.line_no AND q.status = 'posted'
+						WHERE v.legal_entity_id = $1 AND v.entry_year = $2
+					UNION ALL SELECT v.entry_year, v.entry_id, v.line_no, q.asset_id, q.amount FROM assets.clearing_use v
+						JOIN assets.acquisition q ON q.tenant_id = v.tenant_id AND q.source_line_no = v.line_no AND q.status = 'posted'
+							AND q.source_entry_id IN (SELECT r.entry_id FROM assets.clearing_use r WHERE r.tenant_id = v.tenant_id
+								AND r.reverses_entry_id = v.entry_id AND r.line_no = v.line_no)
+						WHERE v.legal_entity_id = $1 AND v.entry_year = $2) h
+				GROUP BY h.entry_year, h.entry_id, h.line_no, h.asset_id HAVING sum(h.amount) <> 0)
 		FROM assets.clearing_use u WHERE u.legal_entity_id = $1 AND u.entry_year = $2`, le, year)
 	out := map[LineRef]used{}
 	var r LineRef
 	var u used
-	_, err := pgx.ForEachRow(rows, []any{&r.FiscalYear, &r.EntryID, &r.LineNo, &u.tc, &u.lc, &u.gc, &u.all, &u.held}, func() error {
+	_, err := pgx.ForEachRow(rows, []any{&r.FiscalYear, &r.EntryID, &r.LineNo, &u.tc, &u.lc, &u.gc, &u.all, &u.held, &u.reversal, &u.offer}, func() error {
 		out[r] = u
 		return nil
 	})
@@ -54,7 +71,7 @@ type clearingAcquisition struct {
 
 // acquisitionsFrom reads the acquisitions made from the lines, by line, in
 // posting order.
-func acquisitionsFrom(ctx context.Context, tx pgx.Tx, lines []Line) (map[LineRef][]clearingAcquisition, error) {
+func acquisitionsFrom(ctx context.Context, tx pgx.Tx, lines []LineRef) (map[LineRef][]clearingAcquisition, error) {
 	entries, nos := make([]uuid.UUID, len(lines)), make([]int32, len(lines))
 	for i, l := range lines {
 		entries[i], nos[i] = l.EntryID, l.LineNo
@@ -177,9 +194,11 @@ type clearingPage struct {
 }
 
 // clearingLines reads the page's lines and one more, leaving out the
-// clearing lines of the acquisitions' own entries. With remaining, the
-// lines used in full and every reversed line are left out; otherwise a
-// reversed line is kept while a posted acquisition holds some of it.
+// clearing lines of the acquisitions' own entries and the lines of
+// reversals, which are shown beside the lines they reverse. With
+// remaining, the lines used in full are left out, and a reversed line is
+// kept while its reversal's line offers something to an asset; otherwise
+// a reversed line is kept while a posted acquisition holds some of it.
 func (e *Endpoints) clearingLines(ctx context.Context, tx pgx.Tx, w worklist) (clearingPage, error) {
 	uses, err := usesOf(ctx, tx, w.co.ID, w.year)
 	if err != nil {
@@ -190,10 +209,10 @@ func (e *Endpoints) clearingLines(ctx context.Context, tx pgx.Tx, w worklist) (c
 		q.Accounts = append(q.Accounts, id)
 	}
 	for r, u := range uses {
-		switch {
-		case w.remaining && u.all:
+		if w.remaining && u.all {
 			q.Skip = append(q.Skip, r)
-		case !w.remaining && u.held:
+		}
+		if !u.reversal && ((w.remaining && u.offer) || (!w.remaining && u.held)) {
 			q.Keep = append(q.Keep, r)
 		}
 	}
@@ -204,10 +223,22 @@ func (e *Endpoints) clearingLines(ctx context.Context, tx pgx.Tx, w worklist) (c
 	return clearingPage{lines: lines, uses: uses}, nil
 }
 
-// clearingItems shows the page's lines with their acquisitions and the
-// supplier invoices they came from.
+// clearingItems shows the page's lines with their acquisitions, the
+// supplier invoices they came from, and a reversed line's reversal's line
+// with its acquisitions and offers.
 func (e *Endpoints) clearingItems(ctx context.Context, tx pgx.Tx, w worklist, p clearingPage) ([]gen.AssetClearingItem, error) {
-	acqs, err := acquisitionsFrom(ctx, tx, p.lines)
+	refs, reversed := make([]LineRef, 0, len(p.lines)), []Line{}
+	for _, l := range p.lines {
+		refs = append(refs, l.LineRef)
+		if r := l.ReversedBy; r != nil {
+			refs, reversed = append(refs, LineRef{FiscalYear: r.FiscalYear, EntryID: r.EntryID, LineNo: l.LineNo}), append(reversed, l)
+		}
+	}
+	acqs, err := acquisitionsFrom(ctx, tx, refs)
+	if err != nil {
+		return nil, err
+	}
+	offers, err := offersOf(ctx, tx, reversed)
 	if err != nil {
 		return nil, err
 	}
@@ -226,8 +257,67 @@ func (e *Endpoints) clearingItems(ctx context.Context, tx pgx.Tx, w worklist, p 
 	items := make([]gen.AssetClearingItem, len(p.lines))
 	for i, l := range p.lines {
 		items[i] = v.clearingItem(l, w.accounts[l.AccountID], p.uses[l.LineRef], acqs[l.LineRef])
+		if r := l.ReversedBy; r != nil {
+			ref := LineRef{FiscalYear: r.FiscalYear, EntryID: r.EntryID, LineNo: l.LineNo}
+			items[i].Reversal = gen.NewOptAssetClearingReversal(gen.AssetClearingReversal{FiscalYear: int32(r.FiscalYear), EntryID: r.EntryID,
+				LineNo: l.LineNo, PostingDate: r.PostingDate, DocumentNumber: r.DocumentNumber, Acquisitions: v.clearingAcquisitions(acqs[ref], l.Currency),
+				Offers: v.clearingOffers(offers[l.LineRef], l.Currency)})
+		}
 	}
 	return items, nil
+}
+
+// offer is what an asset may take off through a reversal's line: its
+// posted acquisitions from the reversed line less what it took through
+// the reversal's, in the reversal line's sign.
+type offer struct {
+	asset               uuid.UUID
+	number, description string
+	amount              money.Minor
+}
+
+// offersOf reads, per reversed line, what each asset holding posted
+// acquisitions from it may still take off through its reversal's line
+// (ADR-0057 §6, decided by default 23), by asset number; an asset that
+// took all off is left out.
+func offersOf(ctx context.Context, tx pgx.Tx, reversed []Line) (map[LineRef][]offer, error) {
+	years, entries, revs, nos := make([]int16, len(reversed)), make([]uuid.UUID, len(reversed)), make([]uuid.UUID, len(reversed)), make([]int32, len(reversed))
+	for i, l := range reversed {
+		years[i], entries[i], revs[i], nos[i] = l.FiscalYear, l.EntryID, l.ReversedBy.EntryID, l.LineNo
+	}
+	rows, _ := tx.Query(ctx, `SELECT x.y, x.e, x.n, q.asset_id, a.asset_number, a.description, -sum(q.amount)
+		FROM unnest($1::smallint[], $2::uuid[], $3::uuid[], $4::integer[]) AS x(y, e, r, n)
+		JOIN assets.acquisition q ON q.source_line_no = x.n AND q.source_entry_id IN (x.e, x.r) AND q.status = 'posted'
+		JOIN assets.asset a ON a.tenant_id = q.tenant_id AND a.id = q.asset_id
+		GROUP BY x.y, x.e, x.n, q.asset_id, a.asset_number, a.description
+		HAVING bool_or(q.source_entry_id = x.e) AND sum(q.amount) <> 0
+		ORDER BY a.asset_number, q.asset_id`, years, entries, revs, nos)
+	out := map[LineRef][]offer{}
+	var r LineRef
+	var o offer
+	_, err := pgx.ForEachRow(rows, []any{&r.FiscalYear, &r.EntryID, &r.LineNo, &o.asset, &o.number, &o.description, &o.amount}, func() error {
+		out[r] = append(out[r], o)
+		return nil
+	})
+	return out, errs.Wrapf(err, "assets: offers of %d reversed lines", len(reversed))
+}
+
+// clearingAcquisitions shows acquisitions from a line in its currency.
+func (v docView) clearingAcquisitions(acqs []clearingAcquisition, currency string) []gen.AssetClearingAcquisition {
+	out := []gen.AssetClearingAcquisition{}
+	for _, a := range acqs {
+		out = append(out, gen.AssetClearingAcquisition{ID: a.id, AssetID: a.asset, AssetNumber: a.assetNumber, Amount: v.money(a.amount, currency), Status: a.status})
+	}
+	return out
+}
+
+// clearingOffers shows a reversal's line's offers in its currency.
+func (v docView) clearingOffers(offers []offer, currency string) []gen.AssetClearingOffer {
+	out := []gen.AssetClearingOffer{}
+	for _, o := range offers {
+		out = append(out, gen.AssetClearingOffer{AssetID: o.asset, AssetNumber: o.number, AssetDescription: o.description, Amount: v.money(o.amount, currency)})
+	}
+	return out
 }
 
 // clearingItem shows a line with what was used of it and its acquisitions.
@@ -237,10 +327,6 @@ func (v docView) clearingItem(l Line, account *config.Account, u used, acqs []cl
 		SupplierInvoice: v.supplierInvoice(l.SourceContext, l.SourceDocumentID), AccountID: l.AccountID, AccountNumber: account.Number,
 		AccountName: account.Name, Amount: v.money(l.Amount, l.Currency), AmountLc: v.money(l.LC, l.CurrencyLC), AmountGc: v.money(l.GC, l.CurrencyGC),
 		Used: v.money(u.tc, l.Currency), UsedLc: v.money(u.lc, l.CurrencyLC), UsedGc: v.money(u.gc, l.CurrencyGC), Remaining: v.money(l.Amount-u.tc, l.Currency), RemainingLc: v.money(l.LC-u.lc, l.CurrencyLC),
-		RemainingGc: v.money(l.GC-u.gc, l.CurrencyGC), SourceReversed: l.Reversed || l.Reversal, Acquisitions: []gen.AssetClearingAcquisition{}}
-	for _, a := range acqs {
-		it.Acquisitions = append(it.Acquisitions, gen.AssetClearingAcquisition{ID: a.id, AssetID: a.asset, AssetNumber: a.assetNumber,
-			Amount: v.money(a.amount, l.Currency), Status: a.status})
-	}
+		RemainingGc: v.money(l.GC-u.gc, l.CurrencyGC), SourceReversed: l.ReversedBy != nil, Acquisitions: v.clearingAcquisitions(acqs, l.Currency)}
 	return it
 }
