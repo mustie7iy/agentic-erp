@@ -59,16 +59,24 @@ func runOK(ctx context.Context, r Run) (*gen.RejectPaymentRunOKHeaders, error) {
 }
 
 // paymentToAPI is payment p of run r, named by refs; a payment that names
-// no house bank is paid by its run's.
+// no house bank is paid by its run's. Its supplier's bank account is given
+// only when refs hold it, that is to a caller who may read business
+// partners (paymentRefs).
 func paymentToAPI(p Payment, r Run, refs paymentRefs) gen.Payment {
-	currency, exp, numbers, account := r.Currency, r.Exponent, refs.numbers, refs.accounts[p.BankAccountID]
+	currency, exp, numbers := r.Currency, r.Exponent, refs.numbers
 	out := gen.Payment{ID: p.ID, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, PaymentRunID: p.RunID, SupplierID: p.SupplierID, SupplierName: refs.suppliers[p.SupplierID].Name,
-		BankAccountID: p.BankAccountID, BankAccountLast4: account.AccountLast4, BankAccountScheme: account.AccountScheme, BankAccountHolderName: account.HolderName,
-		BankAccountBic: apitypes.OptString(account.BIC), BankAccountInstitutionNumber: apitypes.OptString(account.InstitutionNumber),
-		BankAccountTransitNumber: apitypes.OptString(account.TransitNumber), Amount: apitypes.Money(p.Amount, currency, exp),
+		BankAccountID: p.BankAccountID, Amount: apitypes.Money(p.Amount, currency, exp),
 		DiscountAmount: gen.NewOptMoney(apitypes.Money(p.Discount, currency, exp)), WithholdingAmount: gen.NewOptMoney(apitypes.Money(p.Withholding, currency, exp)),
 		EndToEndID: p.EndToEndID, JournalEntryID: apitypes.OptUUID(p.JournalEntryID), Kind: gen.NewOptString(p.Kind),
 		DownPaymentRequestID: apitypes.OptUUID(p.RequestID), HouseBankID: apitypes.OptUUID(bankOf(r, p)), Items: make([]gen.PaymentItem, len(p.Items))}
+	if account, ok := refs.accounts[p.BankAccountID]; ok {
+		out.BankAccountLast4.SetTo(account.AccountLast4)
+		out.BankAccountScheme.SetTo(account.AccountScheme)
+		out.BankAccountHolderName.SetTo(account.HolderName)
+		out.BankAccountBic = apitypes.OptString(account.BIC)
+		out.BankAccountInstitutionNumber = apitypes.OptString(account.InstitutionNumber)
+		out.BankAccountTransitNumber = apitypes.OptString(account.TransitNumber)
+	}
 	if bank := bankOf(r, p); bank != nil {
 		out.HouseBankCode.SetTo(refs.houseBanks[*bank])
 	}
@@ -321,7 +329,9 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 // paymentRefs are what a page's payments reference, each keyed by id: the
 // suppliers' names, the document numbers of the down payment requests and
 // journal entries (the payments' postings and their items'), the house
-// banks' codes, and the suppliers' bank accounts, masked.
+// banks' codes, and the suppliers' bank accounts, masked; none for a
+// caller who may not use partner.ReadPermission (product owner
+// 2026-11-02, T45e).
 type paymentRefs struct {
 	suppliers           map[uuid.UUID]partner.Named
 	numbers, houseBanks map[uuid.UUID]string
@@ -339,15 +349,33 @@ func (e *Endpoints) paymentRefs(ctx context.Context, r Run, page []Payment) (pay
 	if refs.numbers, err = e.paymentNumbers(ctx, page); err != nil {
 		return refs, err
 	}
-	accounts := make([]uuid.UUID, len(page))
-	for i, p := range page {
-		accounts[i] = p.BankAccountID
-	}
-	if refs.accounts, err = idref.Resolve(ctx, e.Payees.BankAccounts, accounts, accountRef); err != nil {
+	if refs.accounts, err = supplierAccounts(ctx, e.Payees, page); err != nil {
 		return refs, err
 	}
 	refs.houseBanks, err = bankCodes(ctx, page, func(p Payment) *uuid.UUID { return bankOf(r, p) })
 	return refs, err
+}
+
+// supplierAccounts reads the suppliers' bank accounts the page's payments pay
+// to, masked, for a caller who may use partner.ReadPermission, as
+// Authorize decides it (held, and not barred by a segregation-of-duties
+// rule); for any other caller, person or agent, none, so the payments are
+// answered without their bank details rather than refused (product owner
+// 2026-11-02, T45e; 04 §4.4). The permission is read only for a page with
+// payments.
+func supplierAccounts(ctx context.Context, payees Payees, page []Payment) (map[uuid.UUID]partner.BankAccount, error) {
+	if len(page) == 0 {
+		return nil, nil
+	}
+	may, err := authz.MayUse(ctx, partner.ReadPermission)
+	if err != nil || !may {
+		return nil, err
+	}
+	accounts := make([]uuid.UUID, len(page))
+	for i, p := range page {
+		accounts[i] = p.BankAccountID
+	}
+	return idref.Resolve(ctx, payees.BankAccounts, accounts, accountRef)
 }
 
 // paymentNumbers gives the document numbers of the down payment requests

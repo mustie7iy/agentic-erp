@@ -964,6 +964,13 @@
         "r": "api/openapi.yaml CashPositionBank house_bank_code · code deprecated · internal/cash bankToAPI · ADR-0038 As built (review:batch24, migration run and cash position) · walkthrough step 13",
         "src": "review:batch24",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "A payment's supplier bank account details only to a caller who may read business partners (product owner 2026-11-02, security posture): a run's payments (listPayments) and a statement's payment search (listBankStatementPayments) gave bank_account_last4, _scheme, _holder_name, _bic, _institution_number and _transit_number to any caller with payments.run.read or payments.statement.match; now given only to a caller who may use partner.supplier.read (held and not barred by a segregation-of-duties rule), person or agent, and otherwise left out, the payment answered with bank_account_id alone rather than refused. Supplier names, the problems that name a supplier, exclusions (which carry no bank details), bank files and the migration reconciliation report are unchanged",
+        "r": "T45e · internal/payments api.go supplierAccounts (authz.MayUse, partner.ReadPermission) · paymentToAPI · api/openapi.yaml Payment (last4, scheme, holder_name no longer required) · api/breaking-accepted.txt (T45e) · internal/web statement_search.go · TestBankDetailsNeedPartnerRead · TestLineSearchStubbed · ADR-0038 As built · ADR-0052 (expansions and partner names within permissions) · 04 §4.4",
+        "src": "po:2026-11-02",
+        "c": []
        }
       ]
      },

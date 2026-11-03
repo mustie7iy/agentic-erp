@@ -968,3 +968,46 @@ release runbook. The cell now refuses such an activation itself.
   lacks a key and no step can show the refusal through the public API;
   `configuration`'s tests show it through `:activate` with a recorded
   older replica, and the contract names the code.
+
+## As built: a payment's bank details only with partner.supplier.read (T45e, product owner 2026-11-02)
+
+The batch 44 review left one question of security posture (ADR-0052,
+"Expansions and partner names within permissions"): a payment gives its
+supplier's bank account under `payments.run.read`, though reading that
+account (`getBankAccount`) needs `partner.supplier.read`. The product
+owner decided on 2026-11-02:
+
+- **What is gated.** A payment's `bank_account_last4`,
+  `bank_account_scheme`, `bank_account_holder_name`, `bank_account_bic`,
+  `bank_account_institution_number` and `bank_account_transit_number`, on
+  a run's payments (`listPayments`) and on a statement's payment search
+  (`listBankStatementPayments`), the two responses that carry a `Payment`.
+  They are given only to a caller who may use `partner.supplier.read` as
+  `Authorize` decides it (`authz.MayUse`: held, and not barred by a
+  segregation-of-duties rule in force), person or agent.
+- **Left out, never refused.** Any other caller gets the payments with
+  `bank_account_id` alone, the payment's own reference, as an expansion is
+  left out (04 §4.4). The partner context's accounts are then not read at
+  all (`supplierAccounts`), and the permission is read once a page, only
+  for a page with payments.
+- **The contract.** `bank_account_last4`, `bank_account_scheme` and
+  `bank_account_holder_name` were required; they are now optional, which a
+  consumer that relied on them notices: an accepted break before v1, listed
+  under T45e in `api/breaking-accepted.txt` (oasdiff reports it as a
+  warning). The other three were optional already. Each description says
+  when the field is absent.
+- **Unchanged, as decided.** Supplier names on payments and exclusions, the
+  problems that name a supplier, and the migration reconciliation report.
+  Exclusions carry no bank details; bank files are sent to the bank, not
+  read by people, and their resource (`BankFile`) names the house bank
+  only.
+- **The workspace.** A found payment on a statement line already showed
+  "paid to the account ending …" only when the API gave the last four
+  characters; no page shows the other fields.
+- **Tests.** `TestBankDetailsNeedPartnerRead` lists a run's payments as a
+  person and an agent and searches a statement's payments as a person,
+  with the permission held, barred by a segregation-of-duties rule and not
+  held; the payments package's tenant holds it, so every other test still
+  checks the details; `TestDatabaseFailures` fails the permission's read.
+  No walkthrough step: the walkthrough's caller holds every permission, and
+  this is a security fix, not a capability.

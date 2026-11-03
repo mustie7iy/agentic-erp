@@ -12,3 +12,12 @@ POST /v1/payment-runs/{id}:release removed the success response with the status 
 GET /v1/payment-runs the response property `items/items/allOf[subschema #2]/house_bank_id` became optional for the status `200`
 GET /v1/payment-runs/{id} the response property `allOf[subschema #2]/house_bank_id` became optional for the status `200`
 POST /v1/payment-runs/{id}:reject the response property `allOf[subschema #2]/house_bank_id` became optional for the status `200`
+# A payment's supplier bank account details are left out for a caller who
+# may not use partner.supplier.read, so they can no longer be required.
+# T45e (product owner 2026-11-02, security posture): a payment's bank details only with partner.supplier.read.
+GET /v1/payment-runs/{id}/payments the response property `items/items/allOf[subschema #2]/bank_account_holder_name` became optional for the status `200`
+GET /v1/payment-runs/{id}/payments the response property `items/items/allOf[subschema #2]/bank_account_last4` became optional for the status `200`
+GET /v1/payment-runs/{id}/payments the response property `items/items/allOf[subschema #2]/bank_account_scheme` became optional for the status `200`
+GET /v1/bank-statements/{id}/payments the response property `items/items/allOf[subschema #2]/bank_account_holder_name` became optional for the status `200`
+GET /v1/bank-statements/{id}/payments the response property `items/items/allOf[subschema #2]/bank_account_last4` became optional for the status `200`
+GET /v1/bank-statements/{id}/payments the response property `items/items/allOf[subschema #2]/bank_account_scheme` became optional for the status `200`

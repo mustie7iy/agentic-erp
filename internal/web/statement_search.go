@@ -115,7 +115,7 @@ func (s *Server) searchPayments(w http.ResponseWriter, r *http.Request, p *perso
 	}
 	for _, pay := range page.Items {
 		res.Found = append(res.Found, ui.Choice{Value: ui.ChoicePayments + ":" + pay.ID.String(), Kind: ui.ChoiceFound, Payments: []string{pay.ID.String()},
-			Found: &ui.FoundPayment{EndToEnd: pay.EndToEndID, Supplier: pay.SupplierName, Account: pay.BankAccountLast4, Amount: moneyOf(pay.Amount),
+			Found: &ui.FoundPayment{EndToEnd: pay.EndToEndID, Supplier: pay.SupplierName, Account: pay.BankAccountLast4.Value, Amount: moneyOf(pay.Amount),
 				Entry: pay.JournalEntryNumber.Or("")}})
 	}
 	res.More = page.NextPageToken.Or("")

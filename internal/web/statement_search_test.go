@@ -155,15 +155,18 @@ func TestLineSearch(t *testing.T) {
 }
 
 // foundPaymentsJSON is a page of two payments found, the first's payee's
-// name planted, and a next page.
+// name planted, and a next page. The second comes without its bank
+// account's details, as the API answers a caller who may not read
+// business partners (T45e).
 func foundPaymentsJSON(pay1, pay2 uuid.UUID) string {
 	u := uuid.NewString
-	one := func(id uuid.UUID, e2e, name, amount string) string {
+	one := func(id uuid.UUID, e2e, name, amount, bank string) string {
 		return fmt.Sprintf(`{"id":%q,"created_at":"2026-10-22T10:00:00Z","created_by":%q,"payment_run_id":%q,"supplier_id":%q,"supplier_name":%q,
-			"bank_account_id":%q,"bank_account_last4":"3000","bank_account_scheme":"iban","bank_account_holder_name":"Holder","amount":{"amount":%q,"currency":"AED"},
-			"end_to_end_id":%q,"journal_entry_id":%q,"journal_entry_number":"100042","items":[]}`, id, u(), u(), u(), name, u(), amount, e2e, u())
+			"bank_account_id":%q,%s"amount":{"amount":%q,"currency":"AED"},
+			"end_to_end_id":%q,"journal_entry_id":%q,"journal_entry_number":"100042","items":[]}`, id, u(), u(), u(), name, u(), bank, amount, e2e, u())
 	}
-	return `{"items":[` + one(pay1, "2000-PY1-000002", planted, "20.00") + "," + one(pay2, "2000-PY1-000001", "Tyrell", "19.50") +
+	details := `"bank_account_last4":"3000","bank_account_scheme":"iban","bank_account_holder_name":"Holder",`
+	return `{"items":[` + one(pay1, "2000-PY1-000002", planted, "20.00", details) + "," + one(pay2, "2000-PY1-000001", "Tyrell", "19.50", "") +
 		`],"next_page_token":"p2"}`
 }
 
@@ -212,6 +215,9 @@ func TestLineSearchStubbed(t *testing.T) {
 	checkInert(t, p)
 	holds(t, "the search", p.mainText(), "2000-PY1-000002", "Pay now <script>", "AED 20.00", "paid to the account ending 3000",
 		"journal entry 100042", "2000-PY1-000001 Tyrell AED 19.50")
+	if got := strings.Count(p.mainText(), "paid to the account ending"); got != 1 {
+		t.Errorf("accounts shown: got %d, want 1 (the payment without its bank details shows none)", got)
+	}
 	var values []string
 	for _, in := range p.all("input", "radio__input") {
 		values = append(values, attrOf(in, "value"))

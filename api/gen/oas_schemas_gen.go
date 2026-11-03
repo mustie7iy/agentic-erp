@@ -31180,23 +31180,30 @@ type Payment struct {
 	SupplierID uuid.UUID `json:"supplier_id"`
 	// The supplier's name (its business partner's `name`), as it is now.
 	SupplierName string `json:"supplier_name"`
-	// Supplier bank account valid on the run date.
+	// Supplier bank account valid on the run date. Given to every caller, as the payment's own reference;
+	// reading the account (`getBankAccount`) needs `partner.supplier.read`.
 	BankAccountID uuid.UUID `json:"bank_account_id"`
 	// The bank account's `account_last4`, as the partner's bank account gives it: the last up to four
-	// characters of its number, which is never returned.
-	BankAccountLast4 string `json:"bank_account_last4"`
+	// characters of its number, which is never returned. Like every `bank_account_` field but
+	// `bank_account_id`, absent for a caller who may not use `partner.supplier.read` (held and not barred
+	// by a segregation-of-duties rule), person or agent: the payment is answered without its supplier's
+	// bank details, never refused (product owner 2026-11-02, T45e).
+	BankAccountLast4 OptString `json:"bank_account_last4"`
 	// The bank account's `account_scheme`: `iban`, `domestic`, or `ca` for a Canadian account. Open
 	// enumeration: clients must accept and preserve values not listed here; values may be added within
-	// /v1.
-	BankAccountScheme string `json:"bank_account_scheme"`
-	// The bank account's `holder_name`, as it is now.
-	BankAccountHolderName string `json:"bank_account_holder_name"`
-	// The bank account's `bic`; absent when it has none.
+	// /v1. Absent for a caller who may not use `partner.supplier.read`, as `bank_account_last4` is.
+	BankAccountScheme OptString `json:"bank_account_scheme"`
+	// The bank account's `holder_name`, as it is now; absent for a caller who may not use
+	// `partner.supplier.read`, as `bank_account_last4` is.
+	BankAccountHolderName OptString `json:"bank_account_holder_name"`
+	// The bank account's `bic`; absent when it has none, or for a caller who may not use
+	// `partner.supplier.read`, as `bank_account_last4` is.
 	BankAccountBic OptString `json:"bank_account_bic"`
 	// The bank account's `institution_number`, of a scheme `ca` account (the bank, not masked); absent for
-	// the others.
+	// the others, and for a caller who may not use `partner.supplier.read`, as `bank_account_last4` is.
 	BankAccountInstitutionNumber OptString `json:"bank_account_institution_number"`
-	// The bank account's `transit_number`, of a scheme `ca` account (the branch); absent for the others.
+	// The bank account's `transit_number`, of a scheme `ca` account (the branch); absent for the others,
+	// and for a caller who may not use `partner.supplier.read`, as `bank_account_last4` is.
 	BankAccountTransitNumber OptString `json:"bank_account_transit_number"`
 	// Amount paid, after the cash discounts taken on the items and the withholding tax deducted from them;
 	// positive. The bank file pays it.
@@ -31274,17 +31281,17 @@ func (s *Payment) GetBankAccountID() uuid.UUID {
 }
 
 // GetBankAccountLast4 returns the value of BankAccountLast4.
-func (s *Payment) GetBankAccountLast4() string {
+func (s *Payment) GetBankAccountLast4() OptString {
 	return s.BankAccountLast4
 }
 
 // GetBankAccountScheme returns the value of BankAccountScheme.
-func (s *Payment) GetBankAccountScheme() string {
+func (s *Payment) GetBankAccountScheme() OptString {
 	return s.BankAccountScheme
 }
 
 // GetBankAccountHolderName returns the value of BankAccountHolderName.
-func (s *Payment) GetBankAccountHolderName() string {
+func (s *Payment) GetBankAccountHolderName() OptString {
 	return s.BankAccountHolderName
 }
 
@@ -31409,17 +31416,17 @@ func (s *Payment) SetBankAccountID(val uuid.UUID) {
 }
 
 // SetBankAccountLast4 sets the value of BankAccountLast4.
-func (s *Payment) SetBankAccountLast4(val string) {
+func (s *Payment) SetBankAccountLast4(val OptString) {
 	s.BankAccountLast4 = val
 }
 
 // SetBankAccountScheme sets the value of BankAccountScheme.
-func (s *Payment) SetBankAccountScheme(val string) {
+func (s *Payment) SetBankAccountScheme(val OptString) {
 	s.BankAccountScheme = val
 }
 
 // SetBankAccountHolderName sets the value of BankAccountHolderName.
-func (s *Payment) SetBankAccountHolderName(val string) {
+func (s *Payment) SetBankAccountHolderName(val OptString) {
 	s.BankAccountHolderName = val
 }
 
