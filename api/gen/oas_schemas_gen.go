@@ -122,6 +122,70 @@ type AcceptMemoRecordProposalUnprocessableEntity Problem
 
 func (*AcceptMemoRecordProposalUnprocessableEntity) acceptMemoRecordProposalRes() {}
 
+type AcceptVarianceCommentBadRequest Problem
+
+func (*AcceptVarianceCommentBadRequest) acceptVarianceCommentRes() {}
+
+type AcceptVarianceCommentForbidden Problem
+
+func (*AcceptVarianceCommentForbidden) acceptVarianceCommentRes() {}
+
+type AcceptVarianceCommentNotFound Problem
+
+func (*AcceptVarianceCommentNotFound) acceptVarianceCommentRes() {}
+
+// AcceptVarianceCommentOKHeaders wraps VarianceComment with response headers.
+type AcceptVarianceCommentOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           VarianceComment
+}
+
+// GetETag returns the value of ETag.
+func (s *AcceptVarianceCommentOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AcceptVarianceCommentOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *AcceptVarianceCommentOKHeaders) GetResponse() VarianceComment {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *AcceptVarianceCommentOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AcceptVarianceCommentOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AcceptVarianceCommentOKHeaders) SetResponse(val VarianceComment) {
+	s.Response = val
+}
+
+func (*AcceptVarianceCommentOKHeaders) acceptVarianceCommentRes() {}
+func (*AcceptVarianceCommentOKHeaders) rejectVarianceCommentRes() {}
+
+type AcceptVarianceCommentPreconditionFailed Problem
+
+func (*AcceptVarianceCommentPreconditionFailed) acceptVarianceCommentRes() {}
+
+type AcceptVarianceCommentPreconditionRequired Problem
+
+func (*AcceptVarianceCommentPreconditionRequired) acceptVarianceCommentRes() {}
+
+type AcceptVarianceCommentUnprocessableEntity Problem
+
+func (*AcceptVarianceCommentUnprocessableEntity) acceptVarianceCommentRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/Account
 type Account struct {
@@ -11514,6 +11578,12 @@ type CloseCheckResult struct {
 	// `revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted
 	// revaluation run keyed on its period's last day, if it has one; absent for another check.
 	Ledgers []CloseCheckLedger `json:"ledgers"`
+	// `variances_explained`: how many rows of the company's configured bases require a comment and have no
+	// accepted one that is current (T64i); absent for another check.
+	UnexplainedRowsCount OptInt32 `json:"unexplained_rows_count"`
+	// `variances_explained`: the first 20 of them, by basis as the company configures them, then by
+	// account number; absent for another check.
+	UnexplainedRows []CloseCheckVariance `json:"unexplained_rows"`
 }
 
 // GetCheck returns the value of Check.
@@ -11561,6 +11631,16 @@ func (s *CloseCheckResult) GetLedgers() []CloseCheckLedger {
 	return s.Ledgers
 }
 
+// GetUnexplainedRowsCount returns the value of UnexplainedRowsCount.
+func (s *CloseCheckResult) GetUnexplainedRowsCount() OptInt32 {
+	return s.UnexplainedRowsCount
+}
+
+// GetUnexplainedRows returns the value of UnexplainedRows.
+func (s *CloseCheckResult) GetUnexplainedRows() []CloseCheckVariance {
+	return s.UnexplainedRows
+}
+
 // SetCheck sets the value of Check.
 func (s *CloseCheckResult) SetCheck(val string) {
 	s.Check = val
@@ -11604,6 +11684,95 @@ func (s *CloseCheckResult) SetParkedEntries(val []CloseCheckParkedEntry) {
 // SetLedgers sets the value of Ledgers.
 func (s *CloseCheckResult) SetLedgers(val []CloseCheckLedger) {
 	s.Ledgers = val
+}
+
+// SetUnexplainedRowsCount sets the value of UnexplainedRowsCount.
+func (s *CloseCheckResult) SetUnexplainedRowsCount(val OptInt32) {
+	s.UnexplainedRowsCount = val
+}
+
+// SetUnexplainedRows sets the value of UnexplainedRows.
+func (s *CloseCheckResult) SetUnexplainedRows(val []CloseCheckVariance) {
+	s.UnexplainedRows = val
+}
+
+// A variance report row a `variances_explained` check found unexplained: it requires a comment and has
+// no accepted one, or only a stale one.
+// Ref: #/components/schemas/CloseCheckVariance
+type CloseCheckVariance struct {
+	// The row's basis. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Basis string `json:"basis"`
+	// The row's account.
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name.
+	AccountName string `json:"account_name"`
+	// The row's variance when the check ran.
+	Variance Money `json:"variance"`
+	// Whether the row has an accepted comment that is stale (true) or none (false).
+	StaleComment bool `json:"stale_comment"`
+}
+
+// GetBasis returns the value of Basis.
+func (s *CloseCheckVariance) GetBasis() string {
+	return s.Basis
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *CloseCheckVariance) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *CloseCheckVariance) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *CloseCheckVariance) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetVariance returns the value of Variance.
+func (s *CloseCheckVariance) GetVariance() Money {
+	return s.Variance
+}
+
+// GetStaleComment returns the value of StaleComment.
+func (s *CloseCheckVariance) GetStaleComment() bool {
+	return s.StaleComment
+}
+
+// SetBasis sets the value of Basis.
+func (s *CloseCheckVariance) SetBasis(val string) {
+	s.Basis = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *CloseCheckVariance) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *CloseCheckVariance) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *CloseCheckVariance) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetVariance sets the value of Variance.
+func (s *CloseCheckVariance) SetVariance(val Money) {
+	s.Variance = val
+}
+
+// SetStaleComment sets the value of StaleComment.
+func (s *CloseCheckVariance) SetStaleComment(val bool) {
+	s.StaleComment = val
 }
 
 type CloseFiscalPeriodBadRequest Problem
@@ -12802,6 +12971,7 @@ func (s *ConflictHeaders) SetResponse(val Problem) {
 func (*ConflictHeaders) acceptBankStatementGapRes()           {}
 func (*ConflictHeaders) acceptBankStatementLineProposalRes()  {}
 func (*ConflictHeaders) acceptMemoRecordProposalRes()         {}
+func (*ConflictHeaders) acceptVarianceCommentRes()            {}
 func (*ConflictHeaders) activateChangeRequestRes()            {}
 func (*ConflictHeaders) activateLegalEntityRes()              {}
 func (*ConflictHeaders) activateOrgUnitRes()                  {}
@@ -12865,6 +13035,7 @@ func (*ConflictHeaders) createSegmentRes()                    {}
 func (*ConflictHeaders) createSodRuleRes()                    {}
 func (*ConflictHeaders) createSupplierInvoiceRes()            {}
 func (*ConflictHeaders) createUploadRes()                     {}
+func (*ConflictHeaders) createVarianceCommentRes()            {}
 func (*ConflictHeaders) createWebhookSubscriptionRes()        {}
 func (*ConflictHeaders) decideRecommendationRes()             {}
 func (*ConflictHeaders) deleteWebhookSubscriptionRes()        {}
@@ -12884,6 +13055,7 @@ func (*ConflictHeaders) getLegalEntityTodayRes()              {}
 func (*ConflictHeaders) getPeriodCloseRes()                   {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()         {}
 func (*ConflictHeaders) getTaxReturnDraftRes()                {}
+func (*ConflictHeaders) getVarianceCommentRes()               {}
 func (*ConflictHeaders) grantRolePermissionRes()              {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()              {}
 func (*ConflictHeaders) importBankStatementsRes()             {}
@@ -12892,6 +13064,7 @@ func (*ConflictHeaders) listPeriodCloseVariancesRes()         {}
 func (*ConflictHeaders) listPeriodClosesRes()                 {}
 func (*ConflictHeaders) listTaxPeriodsRes()                   {}
 func (*ConflictHeaders) listTaxReturnDraftItemsRes()          {}
+func (*ConflictHeaders) listVarianceCommentsRes()             {}
 func (*ConflictHeaders) lockCostCenterRes()                   {}
 func (*ConflictHeaders) lockFiscalPeriodRes()                 {}
 func (*ConflictHeaders) lockPlanCategoryRes()                 {}
@@ -12919,6 +13092,7 @@ func (*ConflictHeaders) previewRevaluationRes()               {}
 func (*ConflictHeaders) proposeBankStatementLineRes()         {}
 func (*ConflictHeaders) proposeMemoRecordRes()                {}
 func (*ConflictHeaders) proposePaymentRunRes()                {}
+func (*ConflictHeaders) proposeVarianceCommentRes()           {}
 func (*ConflictHeaders) realiseMemoRecordRes()                {}
 func (*ConflictHeaders) reconcileMigrationRunRes()            {}
 func (*ConflictHeaders) recordAgentToolCallRes()              {}
@@ -12929,6 +13103,7 @@ func (*ConflictHeaders) rejectApprovalRequestRes()            {}
 func (*ConflictHeaders) rejectBankStatementLineProposalRes()  {}
 func (*ConflictHeaders) rejectMemoRecordProposalRes()         {}
 func (*ConflictHeaders) rejectPaymentRunRes()                 {}
+func (*ConflictHeaders) rejectVarianceCommentRes()            {}
 func (*ConflictHeaders) releaseContractRes()                  {}
 func (*ConflictHeaders) releasePaymentRunRes()                {}
 func (*ConflictHeaders) releasePurchaseOrderRes()             {}
@@ -16111,6 +16286,26 @@ func (*CreateUploadPreconditionRequired) createUploadRes() {}
 type CreateUploadUnprocessableEntity Problem
 
 func (*CreateUploadUnprocessableEntity) createUploadRes() {}
+
+type CreateVarianceCommentBadRequest Problem
+
+func (*CreateVarianceCommentBadRequest) createVarianceCommentRes() {}
+
+type CreateVarianceCommentForbidden Problem
+
+func (*CreateVarianceCommentForbidden) createVarianceCommentRes() {}
+
+type CreateVarianceCommentNotFound Problem
+
+func (*CreateVarianceCommentNotFound) createVarianceCommentRes() {}
+
+type CreateVarianceCommentPreconditionRequired Problem
+
+func (*CreateVarianceCommentPreconditionRequired) createVarianceCommentRes() {}
+
+type CreateVarianceCommentUnprocessableEntity Problem
+
+func (*CreateVarianceCommentUnprocessableEntity) createVarianceCommentRes() {}
 
 type CreateWebhookSubscriptionBadRequest Problem
 
@@ -21153,6 +21348,46 @@ func (s *GetUploadOKHeaders) SetResponse(val Upload) {
 }
 
 func (*GetUploadOKHeaders) getUploadRes() {}
+
+type GetVarianceCommentBadRequest Problem
+
+func (*GetVarianceCommentBadRequest) getVarianceCommentRes() {}
+
+type GetVarianceCommentForbidden Problem
+
+func (*GetVarianceCommentForbidden) getVarianceCommentRes() {}
+
+type GetVarianceCommentNotFound Problem
+
+func (*GetVarianceCommentNotFound) getVarianceCommentRes() {}
+
+// GetVarianceCommentOKHeaders wraps VarianceComment with response headers.
+type GetVarianceCommentOKHeaders struct {
+	ETag     OptString
+	Response VarianceComment
+}
+
+// GetETag returns the value of ETag.
+func (s *GetVarianceCommentOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetVarianceCommentOKHeaders) GetResponse() VarianceComment {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetVarianceCommentOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetVarianceCommentOKHeaders) SetResponse(val VarianceComment) {
+	s.Response = val
+}
+
+func (*GetVarianceCommentOKHeaders) getVarianceCommentRes() {}
 
 type GetWebhookDeliveryBadRequest Problem
 
@@ -26907,6 +27142,14 @@ func (*ListTaxReturnsForbidden) listTaxReturnsRes() {}
 type ListTaxReturnsNotFound Problem
 
 func (*ListTaxReturnsNotFound) listTaxReturnsRes() {}
+
+type ListVarianceCommentsBadRequest Problem
+
+func (*ListVarianceCommentsBadRequest) listVarianceCommentsRes() {}
+
+type ListVarianceCommentsForbidden Problem
+
+func (*ListVarianceCommentsForbidden) listVarianceCommentsRes() {}
 
 type ListWebhookDeliveriesBadRequest Problem
 
@@ -34040,6 +34283,98 @@ func (o OptUUID) Or(d uuid.UUID) uuid.UUID {
 	return d
 }
 
+// NewOptVarianceCommentAccept returns new OptVarianceCommentAccept with value set to v.
+func NewOptVarianceCommentAccept(v VarianceCommentAccept) OptVarianceCommentAccept {
+	return OptVarianceCommentAccept{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptVarianceCommentAccept is optional VarianceCommentAccept.
+type OptVarianceCommentAccept struct {
+	Value VarianceCommentAccept
+	Set   bool
+}
+
+// IsSet returns true if OptVarianceCommentAccept was set.
+func (o OptVarianceCommentAccept) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptVarianceCommentAccept) Reset() {
+	var v VarianceCommentAccept
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptVarianceCommentAccept) SetTo(v VarianceCommentAccept) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptVarianceCommentAccept) Get() (v VarianceCommentAccept, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptVarianceCommentAccept) Or(d VarianceCommentAccept) VarianceCommentAccept {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptVarianceRowComment returns new OptVarianceRowComment with value set to v.
+func NewOptVarianceRowComment(v VarianceRowComment) OptVarianceRowComment {
+	return OptVarianceRowComment{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptVarianceRowComment is optional VarianceRowComment.
+type OptVarianceRowComment struct {
+	Value VarianceRowComment
+	Set   bool
+}
+
+// IsSet returns true if OptVarianceRowComment was set.
+func (o OptVarianceRowComment) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptVarianceRowComment) Reset() {
+	var v VarianceRowComment
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptVarianceRowComment) SetTo(v VarianceRowComment) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptVarianceRowComment) Get() (v VarianceRowComment, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptVarianceRowComment) Or(d VarianceRowComment) VarianceRowComment {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // Merged schema.
 // Ref: #/components/schemas/OrgUnit
 type OrgUnit struct {
@@ -37923,6 +38258,13 @@ type PeriodCloseVariance struct {
 	// Whether the variance reaches the company's thresholds, so that it needs a comment before the close
 	// is signed off.
 	RequiresComment bool `json:"requires_comment"`
+	// Whether the row has an accepted comment that is not stale (T64i).
+	Explained bool `json:"explained"`
+	// The row's accepted comment, with whether it is stale; absent without one (T64i).
+	Comment OptVarianceRowComment `json:"comment"`
+	// How many of the agents' comments on the row wait for a person
+	// (`listVarianceComments?status=proposed`) (T64i).
+	ProposedComments int32 `json:"proposed_comments"`
 }
 
 // GetAccountID returns the value of AccountID.
@@ -37965,6 +38307,21 @@ func (s *PeriodCloseVariance) GetRequiresComment() bool {
 	return s.RequiresComment
 }
 
+// GetExplained returns the value of Explained.
+func (s *PeriodCloseVariance) GetExplained() bool {
+	return s.Explained
+}
+
+// GetComment returns the value of Comment.
+func (s *PeriodCloseVariance) GetComment() OptVarianceRowComment {
+	return s.Comment
+}
+
+// GetProposedComments returns the value of ProposedComments.
+func (s *PeriodCloseVariance) GetProposedComments() int32 {
+	return s.ProposedComments
+}
+
 // SetAccountID sets the value of AccountID.
 func (s *PeriodCloseVariance) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
@@ -38003,6 +38360,21 @@ func (s *PeriodCloseVariance) SetVariancePercent(val OptDecimal) {
 // SetRequiresComment sets the value of RequiresComment.
 func (s *PeriodCloseVariance) SetRequiresComment(val bool) {
 	s.RequiresComment = val
+}
+
+// SetExplained sets the value of Explained.
+func (s *PeriodCloseVariance) SetExplained(val bool) {
+	s.Explained = val
+}
+
+// SetComment sets the value of Comment.
+func (s *PeriodCloseVariance) SetComment(val OptVarianceRowComment) {
+	s.Comment = val
+}
+
+// SetProposedComments sets the value of ProposedComments.
+func (s *PeriodCloseVariance) SetProposedComments(val int32) {
+	s.ProposedComments = val
 }
 
 // One page of a period close's variance report against one basis (ADR-0058 §9), with what it compares
@@ -38297,6 +38669,8 @@ type PeriodCloseVarianceTotals struct {
 	Rows int32 `json:"rows"`
 	// How many of them require a comment.
 	RowsRequiringComment int32 `json:"rows_requiring_comment"`
+	// How many of them have an accepted comment that is not stale (T64i).
+	RowsExplained int32 `json:"rows_explained"`
 }
 
 // GetActual returns the value of Actual.
@@ -38324,6 +38698,11 @@ func (s *PeriodCloseVarianceTotals) GetRowsRequiringComment() int32 {
 	return s.RowsRequiringComment
 }
 
+// GetRowsExplained returns the value of RowsExplained.
+func (s *PeriodCloseVarianceTotals) GetRowsExplained() int32 {
+	return s.RowsExplained
+}
+
 // SetActual sets the value of Actual.
 func (s *PeriodCloseVarianceTotals) SetActual(val Money) {
 	s.Actual = val
@@ -38347,6 +38726,11 @@ func (s *PeriodCloseVarianceTotals) SetRows(val int32) {
 // SetRowsRequiringComment sets the value of RowsRequiringComment.
 func (s *PeriodCloseVarianceTotals) SetRowsRequiringComment(val int32) {
 	s.RowsRequiringComment = val
+}
+
+// SetRowsExplained sets the value of RowsExplained.
+func (s *PeriodCloseVarianceTotals) SetRowsExplained(val int32) {
+	s.RowsExplained = val
 }
 
 type PingWebhookSubscriptionBadRequest Problem
@@ -40983,6 +41367,77 @@ type ProposePaymentRunUnprocessableEntity Problem
 
 func (*ProposePaymentRunUnprocessableEntity) proposePaymentRunRes() {}
 
+type ProposeVarianceCommentBadRequest Problem
+
+func (*ProposeVarianceCommentBadRequest) proposeVarianceCommentRes() {}
+
+// ProposeVarianceCommentCreatedHeaders wraps VarianceComment with response headers.
+type ProposeVarianceCommentCreatedHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           VarianceComment
+}
+
+// GetETag returns the value of ETag.
+func (s *ProposeVarianceCommentCreatedHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ProposeVarianceCommentCreatedHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *ProposeVarianceCommentCreatedHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *ProposeVarianceCommentCreatedHeaders) GetResponse() VarianceComment {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ProposeVarianceCommentCreatedHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ProposeVarianceCommentCreatedHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *ProposeVarianceCommentCreatedHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ProposeVarianceCommentCreatedHeaders) SetResponse(val VarianceComment) {
+	s.Response = val
+}
+
+func (*ProposeVarianceCommentCreatedHeaders) createVarianceCommentRes()  {}
+func (*ProposeVarianceCommentCreatedHeaders) proposeVarianceCommentRes() {}
+
+type ProposeVarianceCommentForbidden Problem
+
+func (*ProposeVarianceCommentForbidden) proposeVarianceCommentRes() {}
+
+type ProposeVarianceCommentNotFound Problem
+
+func (*ProposeVarianceCommentNotFound) proposeVarianceCommentRes() {}
+
+type ProposeVarianceCommentPreconditionRequired Problem
+
+func (*ProposeVarianceCommentPreconditionRequired) proposeVarianceCommentRes() {}
+
+type ProposeVarianceCommentUnprocessableEntity Problem
+
+func (*ProposeVarianceCommentUnprocessableEntity) proposeVarianceCommentRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/PurchaseOrder
 type PurchaseOrder struct {
@@ -43304,6 +43759,30 @@ func (*RejectPaymentRunPreconditionRequired) rejectPaymentRunRes() {}
 type RejectPaymentRunUnprocessableEntity Problem
 
 func (*RejectPaymentRunUnprocessableEntity) rejectPaymentRunRes() {}
+
+type RejectVarianceCommentBadRequest Problem
+
+func (*RejectVarianceCommentBadRequest) rejectVarianceCommentRes() {}
+
+type RejectVarianceCommentForbidden Problem
+
+func (*RejectVarianceCommentForbidden) rejectVarianceCommentRes() {}
+
+type RejectVarianceCommentNotFound Problem
+
+func (*RejectVarianceCommentNotFound) rejectVarianceCommentRes() {}
+
+type RejectVarianceCommentPreconditionFailed Problem
+
+func (*RejectVarianceCommentPreconditionFailed) rejectVarianceCommentRes() {}
+
+type RejectVarianceCommentPreconditionRequired Problem
+
+func (*RejectVarianceCommentPreconditionRequired) rejectVarianceCommentRes() {}
+
+type RejectVarianceCommentUnprocessableEntity Problem
+
+func (*RejectVarianceCommentUnprocessableEntity) rejectVarianceCommentRes() {}
 
 type ReleaseContractBadRequest Problem
 
@@ -46482,6 +46961,7 @@ func (s *ServiceUnavailableHeaders) SetResponse(val Problem) {
 func (*ServiceUnavailableHeaders) acceptBankStatementGapRes()           {}
 func (*ServiceUnavailableHeaders) acceptBankStatementLineProposalRes()  {}
 func (*ServiceUnavailableHeaders) acceptMemoRecordProposalRes()         {}
+func (*ServiceUnavailableHeaders) acceptVarianceCommentRes()            {}
 func (*ServiceUnavailableHeaders) activateChangeRequestRes()            {}
 func (*ServiceUnavailableHeaders) activateLegalEntityRes()              {}
 func (*ServiceUnavailableHeaders) activateOrgUnitRes()                  {}
@@ -46546,6 +47026,7 @@ func (*ServiceUnavailableHeaders) createSegmentRes()                    {}
 func (*ServiceUnavailableHeaders) createSodRuleRes()                    {}
 func (*ServiceUnavailableHeaders) createSupplierInvoiceRes()            {}
 func (*ServiceUnavailableHeaders) createUploadRes()                     {}
+func (*ServiceUnavailableHeaders) createVarianceCommentRes()            {}
 func (*ServiceUnavailableHeaders) createWebhookSubscriptionRes()        {}
 func (*ServiceUnavailableHeaders) decideRecommendationRes()             {}
 func (*ServiceUnavailableHeaders) deleteWebhookSubscriptionRes()        {}
@@ -46589,6 +47070,7 @@ func (*ServiceUnavailableHeaders) prepareTaxReturnRes()                 {}
 func (*ServiceUnavailableHeaders) proposeBankStatementLineRes()         {}
 func (*ServiceUnavailableHeaders) proposeMemoRecordRes()                {}
 func (*ServiceUnavailableHeaders) proposePaymentRunRes()                {}
+func (*ServiceUnavailableHeaders) proposeVarianceCommentRes()           {}
 func (*ServiceUnavailableHeaders) realiseMemoRecordRes()                {}
 func (*ServiceUnavailableHeaders) reconcileMigrationRunRes()            {}
 func (*ServiceUnavailableHeaders) recordAgentToolCallRes()              {}
@@ -46599,6 +47081,7 @@ func (*ServiceUnavailableHeaders) rejectApprovalRequestRes()            {}
 func (*ServiceUnavailableHeaders) rejectBankStatementLineProposalRes()  {}
 func (*ServiceUnavailableHeaders) rejectMemoRecordProposalRes()         {}
 func (*ServiceUnavailableHeaders) rejectPaymentRunRes()                 {}
+func (*ServiceUnavailableHeaders) rejectVarianceCommentRes()            {}
 func (*ServiceUnavailableHeaders) releaseContractRes()                  {}
 func (*ServiceUnavailableHeaders) releasePaymentRunRes()                {}
 func (*ServiceUnavailableHeaders) releasePurchaseOrderRes()             {}
@@ -50787,6 +51270,7 @@ func (s *TooManyRequestsHeaders) SetResponse(val Problem) {
 func (*TooManyRequestsHeaders) acceptBankStatementGapRes()           {}
 func (*TooManyRequestsHeaders) acceptBankStatementLineProposalRes()  {}
 func (*TooManyRequestsHeaders) acceptMemoRecordProposalRes()         {}
+func (*TooManyRequestsHeaders) acceptVarianceCommentRes()            {}
 func (*TooManyRequestsHeaders) activateChangeRequestRes()            {}
 func (*TooManyRequestsHeaders) activateLegalEntityRes()              {}
 func (*TooManyRequestsHeaders) activateOrgUnitRes()                  {}
@@ -50851,6 +51335,7 @@ func (*TooManyRequestsHeaders) createSegmentRes()                    {}
 func (*TooManyRequestsHeaders) createSodRuleRes()                    {}
 func (*TooManyRequestsHeaders) createSupplierInvoiceRes()            {}
 func (*TooManyRequestsHeaders) createUploadRes()                     {}
+func (*TooManyRequestsHeaders) createVarianceCommentRes()            {}
 func (*TooManyRequestsHeaders) createWebhookSubscriptionRes()        {}
 func (*TooManyRequestsHeaders) decideRecommendationRes()             {}
 func (*TooManyRequestsHeaders) deleteWebhookSubscriptionRes()        {}
@@ -50934,6 +51419,7 @@ func (*TooManyRequestsHeaders) getSupplierInvoiceRes()               {}
 func (*TooManyRequestsHeaders) getTaxReturnDraftRes()                {}
 func (*TooManyRequestsHeaders) getTaxReturnRes()                     {}
 func (*TooManyRequestsHeaders) getUploadRes()                        {}
+func (*TooManyRequestsHeaders) getVarianceCommentRes()               {}
 func (*TooManyRequestsHeaders) getWebhookDeliveryRes()               {}
 func (*TooManyRequestsHeaders) getWebhookSubscriptionRes()           {}
 func (*TooManyRequestsHeaders) grantRolePermissionRes()              {}
@@ -51021,6 +51507,7 @@ func (*TooManyRequestsHeaders) listTaxPeriodsRes()                   {}
 func (*TooManyRequestsHeaders) listTaxRegistrationsRes()             {}
 func (*TooManyRequestsHeaders) listTaxReturnDraftItemsRes()          {}
 func (*TooManyRequestsHeaders) listTaxReturnsRes()                   {}
+func (*TooManyRequestsHeaders) listVarianceCommentsRes()             {}
 func (*TooManyRequestsHeaders) listWebhookDeliveriesRes()            {}
 func (*TooManyRequestsHeaders) listWebhookSubscriptionsRes()         {}
 func (*TooManyRequestsHeaders) lockCostCenterRes()                   {}
@@ -51050,6 +51537,7 @@ func (*TooManyRequestsHeaders) previewRevaluationRes()               {}
 func (*TooManyRequestsHeaders) proposeBankStatementLineRes()         {}
 func (*TooManyRequestsHeaders) proposeMemoRecordRes()                {}
 func (*TooManyRequestsHeaders) proposePaymentRunRes()                {}
+func (*TooManyRequestsHeaders) proposeVarianceCommentRes()           {}
 func (*TooManyRequestsHeaders) realiseMemoRecordRes()                {}
 func (*TooManyRequestsHeaders) reconcileMigrationRunRes()            {}
 func (*TooManyRequestsHeaders) recordAgentToolCallRes()              {}
@@ -51060,6 +51548,7 @@ func (*TooManyRequestsHeaders) rejectApprovalRequestRes()            {}
 func (*TooManyRequestsHeaders) rejectBankStatementLineProposalRes()  {}
 func (*TooManyRequestsHeaders) rejectMemoRecordProposalRes()         {}
 func (*TooManyRequestsHeaders) rejectPaymentRunRes()                 {}
+func (*TooManyRequestsHeaders) rejectVarianceCommentRes()            {}
 func (*TooManyRequestsHeaders) releaseContractRes()                  {}
 func (*TooManyRequestsHeaders) releasePaymentRunRes()                {}
 func (*TooManyRequestsHeaders) releasePurchaseOrderRes()             {}
@@ -51173,6 +51662,7 @@ func (s *UnauthorizedHeaders) SetResponse(val Problem) {
 func (*UnauthorizedHeaders) acceptBankStatementGapRes()           {}
 func (*UnauthorizedHeaders) acceptBankStatementLineProposalRes()  {}
 func (*UnauthorizedHeaders) acceptMemoRecordProposalRes()         {}
+func (*UnauthorizedHeaders) acceptVarianceCommentRes()            {}
 func (*UnauthorizedHeaders) activateChangeRequestRes()            {}
 func (*UnauthorizedHeaders) activateLegalEntityRes()              {}
 func (*UnauthorizedHeaders) activateOrgUnitRes()                  {}
@@ -51237,6 +51727,7 @@ func (*UnauthorizedHeaders) createSegmentRes()                    {}
 func (*UnauthorizedHeaders) createSodRuleRes()                    {}
 func (*UnauthorizedHeaders) createSupplierInvoiceRes()            {}
 func (*UnauthorizedHeaders) createUploadRes()                     {}
+func (*UnauthorizedHeaders) createVarianceCommentRes()            {}
 func (*UnauthorizedHeaders) createWebhookSubscriptionRes()        {}
 func (*UnauthorizedHeaders) decideRecommendationRes()             {}
 func (*UnauthorizedHeaders) deleteWebhookSubscriptionRes()        {}
@@ -51320,6 +51811,7 @@ func (*UnauthorizedHeaders) getSupplierInvoiceRes()               {}
 func (*UnauthorizedHeaders) getTaxReturnDraftRes()                {}
 func (*UnauthorizedHeaders) getTaxReturnRes()                     {}
 func (*UnauthorizedHeaders) getUploadRes()                        {}
+func (*UnauthorizedHeaders) getVarianceCommentRes()               {}
 func (*UnauthorizedHeaders) getWebhookDeliveryRes()               {}
 func (*UnauthorizedHeaders) getWebhookSubscriptionRes()           {}
 func (*UnauthorizedHeaders) grantRolePermissionRes()              {}
@@ -51407,6 +51899,7 @@ func (*UnauthorizedHeaders) listTaxPeriodsRes()                   {}
 func (*UnauthorizedHeaders) listTaxRegistrationsRes()             {}
 func (*UnauthorizedHeaders) listTaxReturnDraftItemsRes()          {}
 func (*UnauthorizedHeaders) listTaxReturnsRes()                   {}
+func (*UnauthorizedHeaders) listVarianceCommentsRes()             {}
 func (*UnauthorizedHeaders) listWebhookDeliveriesRes()            {}
 func (*UnauthorizedHeaders) listWebhookSubscriptionsRes()         {}
 func (*UnauthorizedHeaders) lockCostCenterRes()                   {}
@@ -51436,6 +51929,7 @@ func (*UnauthorizedHeaders) previewRevaluationRes()               {}
 func (*UnauthorizedHeaders) proposeBankStatementLineRes()         {}
 func (*UnauthorizedHeaders) proposeMemoRecordRes()                {}
 func (*UnauthorizedHeaders) proposePaymentRunRes()                {}
+func (*UnauthorizedHeaders) proposeVarianceCommentRes()           {}
 func (*UnauthorizedHeaders) realiseMemoRecordRes()                {}
 func (*UnauthorizedHeaders) reconcileMigrationRunRes()            {}
 func (*UnauthorizedHeaders) recordAgentToolCallRes()              {}
@@ -51446,6 +51940,7 @@ func (*UnauthorizedHeaders) rejectApprovalRequestRes()            {}
 func (*UnauthorizedHeaders) rejectBankStatementLineProposalRes()  {}
 func (*UnauthorizedHeaders) rejectMemoRecordProposalRes()         {}
 func (*UnauthorizedHeaders) rejectPaymentRunRes()                 {}
+func (*UnauthorizedHeaders) rejectVarianceCommentRes()            {}
 func (*UnauthorizedHeaders) releaseContractRes()                  {}
 func (*UnauthorizedHeaders) releasePaymentRunRes()                {}
 func (*UnauthorizedHeaders) releasePurchaseOrderRes()             {}
@@ -53244,6 +53739,847 @@ func (*UploadMemoRecordsPreconditionRequired) uploadMemoRecordsRes() {}
 type UploadMemoRecordsUnprocessableEntity Problem
 
 func (*UploadMemoRecordsUnprocessableEntity) uploadMemoRecordsRes() {}
+
+// A journal entry a variance comment cites, as it was when cited (a posted entry does not change).
+// Ref: #/components/schemas/VarianceCitation
+type VarianceCitation struct {
+	// The journal entry (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// Its fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// Its document number.
+	DocumentNumber string `json:"document_number"`
+	// Its posting date.
+	PostingDate time.Time `json:"posting_date"`
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *VarianceCitation) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *VarianceCitation) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *VarianceCitation) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *VarianceCitation) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *VarianceCitation) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *VarianceCitation) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *VarianceCitation) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *VarianceCitation) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// A comment explaining one row (an account) of one basis of a period close's variance report (ADR-0058
+// §10, T64i): proposed by the close agent or written by a person, with the row's figures when it was
+// written, in the company's local currency, and the journal entries it cites. A row has at most one
+// `accepted` comment; it is `stale` once the row's figures differ from those it was written against.
+// Ref: #/components/schemas/VarianceComment
+type VarianceComment struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The period close (`GET /v1/period-closes/{id}`).
+	CloseID uuid.UUID `json:"close_id"`
+	// The close's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The close's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The close's regular period.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The row's basis. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Basis string `json:"basis"`
+	// The row's account.
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name, as it was when the comment was written.
+	AccountName string `json:"account_name"`
+	// The explanation; the accepting person's when they replaced the proposal's.
+	Text string `json:"text"`
+	// Whether the person accepting the proposal replaced its text.
+	Edited bool `json:"edited"`
+	// The proposal's text, when the person accepting it replaced it; absent otherwise.
+	ProposedText OptString `json:"proposed_text"`
+	// Who wrote it: the agent that proposed it, or the person.
+	AuthorID uuid.UUID `json:"author_id"`
+	// Whether an agent or a person wrote it. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	AuthorKind string `json:"author_kind"`
+	// Their name.
+	AuthorName string `json:"author_name"`
+	// The agent's session it was proposed in (`GET /v1/agent-sessions/{id}`); absent for a person's
+	// comment.
+	SessionID OptUUID `json:"session_id"`
+	// The row's actual when the comment was written.
+	Actual Money `json:"actual"`
+	// The row's comparison when the comment was written.
+	Comparison Money `json:"comparison"`
+	// The actual less the comparison, as they were when the comment was written.
+	Variance Money `json:"variance"`
+	// Whether the row's figures now differ from those it was written against (an entry posted or reversed
+	// since, or the plan changed): a stale comment explains nothing until a person accepts or writes a
+	// current one. Absent when the company no longer compares against the basis.
+	Stale OptBool `json:"stale"`
+	// The journal entries it cites, in the order given.
+	Citations []VarianceCitation `json:"citations"`
+	// `proposed` (an agent's, waiting for a person), `accepted`, `rejected` or `superseded` (accepted,
+	// then replaced by the row's next accepted comment). Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The person who accepted or rejected it (the author, for a person's comment); absent while it is
+	// proposed.
+	DecidedBy OptUUID `json:"decided_by"`
+	// Their name; absent while it is proposed.
+	DecidedByName OptString `json:"decided_by_name"`
+	// When; absent while it is proposed.
+	DecidedAt OptDateTime `json:"decided_at"`
+	// Why it was rejected; absent otherwise.
+	DecisionReason OptString `json:"decision_reason"`
+	// The comment's version, its ETag.
+	Version int32 `json:"version"`
+	// When it was written.
+	CreatedAt time.Time `json:"created_at"`
+	// When it last changed.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *VarianceComment) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCloseID returns the value of CloseID.
+func (s *VarianceComment) GetCloseID() uuid.UUID {
+	return s.CloseID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *VarianceComment) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *VarianceComment) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *VarianceComment) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *VarianceComment) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *VarianceComment) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetBasis returns the value of Basis.
+func (s *VarianceComment) GetBasis() string {
+	return s.Basis
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *VarianceComment) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *VarianceComment) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *VarianceComment) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetText returns the value of Text.
+func (s *VarianceComment) GetText() string {
+	return s.Text
+}
+
+// GetEdited returns the value of Edited.
+func (s *VarianceComment) GetEdited() bool {
+	return s.Edited
+}
+
+// GetProposedText returns the value of ProposedText.
+func (s *VarianceComment) GetProposedText() OptString {
+	return s.ProposedText
+}
+
+// GetAuthorID returns the value of AuthorID.
+func (s *VarianceComment) GetAuthorID() uuid.UUID {
+	return s.AuthorID
+}
+
+// GetAuthorKind returns the value of AuthorKind.
+func (s *VarianceComment) GetAuthorKind() string {
+	return s.AuthorKind
+}
+
+// GetAuthorName returns the value of AuthorName.
+func (s *VarianceComment) GetAuthorName() string {
+	return s.AuthorName
+}
+
+// GetSessionID returns the value of SessionID.
+func (s *VarianceComment) GetSessionID() OptUUID {
+	return s.SessionID
+}
+
+// GetActual returns the value of Actual.
+func (s *VarianceComment) GetActual() Money {
+	return s.Actual
+}
+
+// GetComparison returns the value of Comparison.
+func (s *VarianceComment) GetComparison() Money {
+	return s.Comparison
+}
+
+// GetVariance returns the value of Variance.
+func (s *VarianceComment) GetVariance() Money {
+	return s.Variance
+}
+
+// GetStale returns the value of Stale.
+func (s *VarianceComment) GetStale() OptBool {
+	return s.Stale
+}
+
+// GetCitations returns the value of Citations.
+func (s *VarianceComment) GetCitations() []VarianceCitation {
+	return s.Citations
+}
+
+// GetStatus returns the value of Status.
+func (s *VarianceComment) GetStatus() string {
+	return s.Status
+}
+
+// GetDecidedBy returns the value of DecidedBy.
+func (s *VarianceComment) GetDecidedBy() OptUUID {
+	return s.DecidedBy
+}
+
+// GetDecidedByName returns the value of DecidedByName.
+func (s *VarianceComment) GetDecidedByName() OptString {
+	return s.DecidedByName
+}
+
+// GetDecidedAt returns the value of DecidedAt.
+func (s *VarianceComment) GetDecidedAt() OptDateTime {
+	return s.DecidedAt
+}
+
+// GetDecisionReason returns the value of DecisionReason.
+func (s *VarianceComment) GetDecisionReason() OptString {
+	return s.DecisionReason
+}
+
+// GetVersion returns the value of Version.
+func (s *VarianceComment) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *VarianceComment) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *VarianceComment) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *VarianceComment) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCloseID sets the value of CloseID.
+func (s *VarianceComment) SetCloseID(val uuid.UUID) {
+	s.CloseID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *VarianceComment) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *VarianceComment) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *VarianceComment) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *VarianceComment) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *VarianceComment) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetBasis sets the value of Basis.
+func (s *VarianceComment) SetBasis(val string) {
+	s.Basis = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *VarianceComment) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *VarianceComment) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *VarianceComment) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetText sets the value of Text.
+func (s *VarianceComment) SetText(val string) {
+	s.Text = val
+}
+
+// SetEdited sets the value of Edited.
+func (s *VarianceComment) SetEdited(val bool) {
+	s.Edited = val
+}
+
+// SetProposedText sets the value of ProposedText.
+func (s *VarianceComment) SetProposedText(val OptString) {
+	s.ProposedText = val
+}
+
+// SetAuthorID sets the value of AuthorID.
+func (s *VarianceComment) SetAuthorID(val uuid.UUID) {
+	s.AuthorID = val
+}
+
+// SetAuthorKind sets the value of AuthorKind.
+func (s *VarianceComment) SetAuthorKind(val string) {
+	s.AuthorKind = val
+}
+
+// SetAuthorName sets the value of AuthorName.
+func (s *VarianceComment) SetAuthorName(val string) {
+	s.AuthorName = val
+}
+
+// SetSessionID sets the value of SessionID.
+func (s *VarianceComment) SetSessionID(val OptUUID) {
+	s.SessionID = val
+}
+
+// SetActual sets the value of Actual.
+func (s *VarianceComment) SetActual(val Money) {
+	s.Actual = val
+}
+
+// SetComparison sets the value of Comparison.
+func (s *VarianceComment) SetComparison(val Money) {
+	s.Comparison = val
+}
+
+// SetVariance sets the value of Variance.
+func (s *VarianceComment) SetVariance(val Money) {
+	s.Variance = val
+}
+
+// SetStale sets the value of Stale.
+func (s *VarianceComment) SetStale(val OptBool) {
+	s.Stale = val
+}
+
+// SetCitations sets the value of Citations.
+func (s *VarianceComment) SetCitations(val []VarianceCitation) {
+	s.Citations = val
+}
+
+// SetStatus sets the value of Status.
+func (s *VarianceComment) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetDecidedBy sets the value of DecidedBy.
+func (s *VarianceComment) SetDecidedBy(val OptUUID) {
+	s.DecidedBy = val
+}
+
+// SetDecidedByName sets the value of DecidedByName.
+func (s *VarianceComment) SetDecidedByName(val OptString) {
+	s.DecidedByName = val
+}
+
+// SetDecidedAt sets the value of DecidedAt.
+func (s *VarianceComment) SetDecidedAt(val OptDateTime) {
+	s.DecidedAt = val
+}
+
+// SetDecisionReason sets the value of DecisionReason.
+func (s *VarianceComment) SetDecisionReason(val OptString) {
+	s.DecisionReason = val
+}
+
+// SetVersion sets the value of Version.
+func (s *VarianceComment) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *VarianceComment) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *VarianceComment) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// The acceptance of a proposed variance comment.
+// Ref: #/components/schemas/VarianceCommentAccept
+type VarianceCommentAccept struct {
+	// A text replacing the proposal's; the comment is then `edited`, the proposal's text kept as
+	// `proposed_text`.
+	Text OptString `json:"text"`
+}
+
+// GetText returns the value of Text.
+func (s *VarianceCommentAccept) GetText() OptString {
+	return s.Text
+}
+
+// SetText sets the value of Text.
+func (s *VarianceCommentAccept) SetText(val OptString) {
+	s.Text = val
+}
+
+// VarianceCommentHeaders wraps VarianceComment with response headers.
+type VarianceCommentHeaders struct {
+	ETag     OptString
+	Location OptString
+	Response VarianceComment
+}
+
+// GetETag returns the value of ETag.
+func (s *VarianceCommentHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetLocation returns the value of Location.
+func (s *VarianceCommentHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *VarianceCommentHeaders) GetResponse() VarianceComment {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *VarianceCommentHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetLocation sets the value of Location.
+func (s *VarianceCommentHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *VarianceCommentHeaders) SetResponse(val VarianceComment) {
+	s.Response = val
+}
+
+func (*VarianceCommentHeaders) proposeVarianceCommentRes() {}
+
+// A comment explaining one row of a period close's variance report (ADR-0058 §10).
+// Ref: #/components/schemas/VarianceCommentInput
+type VarianceCommentInput struct {
+	// The period close (`GET /v1/period-closes/{id}`).
+	CloseID uuid.UUID `json:"close_id"`
+	// The row's basis, one the company configures. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Basis string `json:"basis"`
+	// The row's account, a row of the report against the basis (`GET /v1/period-closes/{id}/variances`).
+	AccountID uuid.UUID `json:"account_id"`
+	// The explanation.
+	Text string `json:"text"`
+	// The journal entries the explanation rests on (`GET /v1/journal-entries/{id}`), each with a line on
+	// the account in the leading ledger in the close's period or, for a prior basis, in the period
+	// compared against; none when absent.
+	Citations []uuid.UUID `json:"citations"`
+}
+
+// GetCloseID returns the value of CloseID.
+func (s *VarianceCommentInput) GetCloseID() uuid.UUID {
+	return s.CloseID
+}
+
+// GetBasis returns the value of Basis.
+func (s *VarianceCommentInput) GetBasis() string {
+	return s.Basis
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *VarianceCommentInput) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetText returns the value of Text.
+func (s *VarianceCommentInput) GetText() string {
+	return s.Text
+}
+
+// GetCitations returns the value of Citations.
+func (s *VarianceCommentInput) GetCitations() []uuid.UUID {
+	return s.Citations
+}
+
+// SetCloseID sets the value of CloseID.
+func (s *VarianceCommentInput) SetCloseID(val uuid.UUID) {
+	s.CloseID = val
+}
+
+// SetBasis sets the value of Basis.
+func (s *VarianceCommentInput) SetBasis(val string) {
+	s.Basis = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *VarianceCommentInput) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetText sets the value of Text.
+func (s *VarianceCommentInput) SetText(val string) {
+	s.Text = val
+}
+
+// SetCitations sets the value of Citations.
+func (s *VarianceCommentInput) SetCitations(val []uuid.UUID) {
+	s.Citations = val
+}
+
+// One page of variance comments.
+// Ref: #/components/schemas/VarianceCommentPage
+type VarianceCommentPage struct {
+	// The variance comments on this page.
+	Items []VarianceComment `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *VarianceCommentPage) GetItems() []VarianceComment {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *VarianceCommentPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *VarianceCommentPage) SetItems(val []VarianceComment) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *VarianceCommentPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*VarianceCommentPage) listVarianceCommentsRes() {}
+
+// An agent's proposed comment explaining one row of a period close's variance report, in its running
+// session (ADR-0058 §10).
+// Ref: #/components/schemas/VarianceCommentProposal
+type VarianceCommentProposal struct {
+	// The agent's running session (`startAgentSession`).
+	SessionID uuid.UUID `json:"session_id"`
+	// The period close (`GET /v1/period-closes/{id}`).
+	CloseID uuid.UUID `json:"close_id"`
+	// The row's basis, one the company configures. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Basis string `json:"basis"`
+	// The row's account, a row of the report against the basis (`GET /v1/period-closes/{id}/variances`).
+	AccountID uuid.UUID `json:"account_id"`
+	// The explanation.
+	Text string `json:"text"`
+	// The journal entries the explanation rests on (`GET /v1/journal-entries/{id}`), each with a line on
+	// the account in the leading ledger in the close's period or, for a prior basis, in the period
+	// compared against; none when absent.
+	Citations []uuid.UUID `json:"citations"`
+}
+
+// GetSessionID returns the value of SessionID.
+func (s *VarianceCommentProposal) GetSessionID() uuid.UUID {
+	return s.SessionID
+}
+
+// GetCloseID returns the value of CloseID.
+func (s *VarianceCommentProposal) GetCloseID() uuid.UUID {
+	return s.CloseID
+}
+
+// GetBasis returns the value of Basis.
+func (s *VarianceCommentProposal) GetBasis() string {
+	return s.Basis
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *VarianceCommentProposal) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetText returns the value of Text.
+func (s *VarianceCommentProposal) GetText() string {
+	return s.Text
+}
+
+// GetCitations returns the value of Citations.
+func (s *VarianceCommentProposal) GetCitations() []uuid.UUID {
+	return s.Citations
+}
+
+// SetSessionID sets the value of SessionID.
+func (s *VarianceCommentProposal) SetSessionID(val uuid.UUID) {
+	s.SessionID = val
+}
+
+// SetCloseID sets the value of CloseID.
+func (s *VarianceCommentProposal) SetCloseID(val uuid.UUID) {
+	s.CloseID = val
+}
+
+// SetBasis sets the value of Basis.
+func (s *VarianceCommentProposal) SetBasis(val string) {
+	s.Basis = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *VarianceCommentProposal) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetText sets the value of Text.
+func (s *VarianceCommentProposal) SetText(val string) {
+	s.Text = val
+}
+
+// SetCitations sets the value of Citations.
+func (s *VarianceCommentProposal) SetCitations(val []uuid.UUID) {
+	s.Citations = val
+}
+
+// A variance report row's accepted comment (ADR-0058 §9, §10): what explains it, who wrote and
+// accepted it, the figures it was written against, and whether the row's figures now differ (`stale`).
+// Ref: #/components/schemas/VarianceRowComment
+type VarianceRowComment struct {
+	// The comment (`GET /v1/variance-comments/{id}`).
+	ID uuid.UUID `json:"id"`
+	// The explanation.
+	Text string `json:"text"`
+	// Whether the person accepting an agent's proposal replaced its text.
+	Edited bool `json:"edited"`
+	// Who wrote it.
+	AuthorID uuid.UUID `json:"author_id"`
+	// Whether an agent or a person wrote it. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	AuthorKind string `json:"author_kind"`
+	// Their name.
+	AuthorName string `json:"author_name"`
+	// The person who accepted it (the author, for a person's comment).
+	DecidedBy uuid.UUID `json:"decided_by"`
+	// Their name.
+	DecidedByName string `json:"decided_by_name"`
+	// When.
+	DecidedAt time.Time `json:"decided_at"`
+	// The row's actual when the comment was written.
+	Actual Money `json:"actual"`
+	// The row's comparison when the comment was written.
+	Comparison Money `json:"comparison"`
+	// Whether the row's figures now differ from those: a stale comment does not explain the row.
+	Stale bool `json:"stale"`
+	// The comment's version, its ETag.
+	Version int32 `json:"version"`
+}
+
+// GetID returns the value of ID.
+func (s *VarianceRowComment) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetText returns the value of Text.
+func (s *VarianceRowComment) GetText() string {
+	return s.Text
+}
+
+// GetEdited returns the value of Edited.
+func (s *VarianceRowComment) GetEdited() bool {
+	return s.Edited
+}
+
+// GetAuthorID returns the value of AuthorID.
+func (s *VarianceRowComment) GetAuthorID() uuid.UUID {
+	return s.AuthorID
+}
+
+// GetAuthorKind returns the value of AuthorKind.
+func (s *VarianceRowComment) GetAuthorKind() string {
+	return s.AuthorKind
+}
+
+// GetAuthorName returns the value of AuthorName.
+func (s *VarianceRowComment) GetAuthorName() string {
+	return s.AuthorName
+}
+
+// GetDecidedBy returns the value of DecidedBy.
+func (s *VarianceRowComment) GetDecidedBy() uuid.UUID {
+	return s.DecidedBy
+}
+
+// GetDecidedByName returns the value of DecidedByName.
+func (s *VarianceRowComment) GetDecidedByName() string {
+	return s.DecidedByName
+}
+
+// GetDecidedAt returns the value of DecidedAt.
+func (s *VarianceRowComment) GetDecidedAt() time.Time {
+	return s.DecidedAt
+}
+
+// GetActual returns the value of Actual.
+func (s *VarianceRowComment) GetActual() Money {
+	return s.Actual
+}
+
+// GetComparison returns the value of Comparison.
+func (s *VarianceRowComment) GetComparison() Money {
+	return s.Comparison
+}
+
+// GetStale returns the value of Stale.
+func (s *VarianceRowComment) GetStale() bool {
+	return s.Stale
+}
+
+// GetVersion returns the value of Version.
+func (s *VarianceRowComment) GetVersion() int32 {
+	return s.Version
+}
+
+// SetID sets the value of ID.
+func (s *VarianceRowComment) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetText sets the value of Text.
+func (s *VarianceRowComment) SetText(val string) {
+	s.Text = val
+}
+
+// SetEdited sets the value of Edited.
+func (s *VarianceRowComment) SetEdited(val bool) {
+	s.Edited = val
+}
+
+// SetAuthorID sets the value of AuthorID.
+func (s *VarianceRowComment) SetAuthorID(val uuid.UUID) {
+	s.AuthorID = val
+}
+
+// SetAuthorKind sets the value of AuthorKind.
+func (s *VarianceRowComment) SetAuthorKind(val string) {
+	s.AuthorKind = val
+}
+
+// SetAuthorName sets the value of AuthorName.
+func (s *VarianceRowComment) SetAuthorName(val string) {
+	s.AuthorName = val
+}
+
+// SetDecidedBy sets the value of DecidedBy.
+func (s *VarianceRowComment) SetDecidedBy(val uuid.UUID) {
+	s.DecidedBy = val
+}
+
+// SetDecidedByName sets the value of DecidedByName.
+func (s *VarianceRowComment) SetDecidedByName(val string) {
+	s.DecidedByName = val
+}
+
+// SetDecidedAt sets the value of DecidedAt.
+func (s *VarianceRowComment) SetDecidedAt(val time.Time) {
+	s.DecidedAt = val
+}
+
+// SetActual sets the value of Actual.
+func (s *VarianceRowComment) SetActual(val Money) {
+	s.Actual = val
+}
+
+// SetComparison sets the value of Comparison.
+func (s *VarianceRowComment) SetComparison(val Money) {
+	s.Comparison = val
+}
+
+// SetStale sets the value of Stale.
+func (s *VarianceRowComment) SetStale(val bool) {
+	s.Stale = val
+}
+
+// SetVersion sets the value of Version.
+func (s *VarianceRowComment) SetVersion(val int32) {
+	s.Version = val
+}
 
 type VerifyAuditChainBadRequest Problem
 

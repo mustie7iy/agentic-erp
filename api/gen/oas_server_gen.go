@@ -50,6 +50,21 @@ type Handler interface {
 	//
 	// POST /v1/memo-records/{id}:acceptProposal
 	AcceptMemoRecordProposal(ctx context.Context, req OptMemoRecordAccept, params AcceptMemoRecordProposalParams) (AcceptMemoRecordProposalRes, error)
+	// AcceptVarianceComment implements acceptVarianceComment operation.
+	//
+	// A person accepts an agent's proposed comment (409 `closing.comment_not_proposed` for any other)
+	// (ADR-0058 §10, T64i), with its text as it is or replaced by `text` (`edited`, the proposal's text
+	// kept as `proposed_text`). It keeps the figures it was proposed against: when the row's figures
+	// changed since, it is `stale` at once, and the person writes a new comment instead. The row's comment
+	// accepted before it is `superseded` in the same transaction. `If-Match` is the comment's ETag. Under
+	// a lock on the close; a signed-off close whose covered periods are all locked refuses it (409
+	// `closing.close_signed_off`), and once one of them was unlocked it sets the close open again first.
+	// People only. Besides `closing.variance.comment` the caller needs `ledger.entry.read`
+	// (`x-also-permissions`). Audited, and published as VarianceCommentChanged (`accepted`, and
+	// `superseded` for the comment it replaces).
+	//
+	// POST /v1/variance-comments/{id}:acceptProposal
+	AcceptVarianceComment(ctx context.Context, req OptVarianceCommentAccept, params AcceptVarianceCommentParams) (AcceptVarianceCommentRes, error)
 	// ActivateChangeRequest implements activateChangeRequest operation.
 	//
 	// Creates and activates a new configuration version from an approved change request; each context
@@ -315,14 +330,17 @@ type Handler interface {
 	// of the company dated in the period (the leading ledger's period's first to last day) is `parked` or
 	// `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted`
 	// passes when each covered ledger has a posted revaluation run keyed on its period's last day, and
-	// names each ledger with its run. A check is a statement about the moment it ran: run it again to
-	// refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and
-	// for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the
-	// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
-	// (`task_checked`, with `check_passed`). A signed-off close whose covered periods are all locked
-	// refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved
-	// `unlockFiscalPeriod` request), the change sets the close open again first, published as
-	// PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d).
+	// names each ledger with its run; `variances_explained` (T64i) passes when every row requiring a
+	// comment of each basis the company configures (`companies[].close.variance`; none configured fails)
+	// has an accepted comment that is not stale, and names the first 20 that have none, or only a stale
+	// one. A check is a statement about the moment it ran: run it again to refresh it. Refused while a
+	// task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409
+	// `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's
+	// new ETag. People only. Audited, and published as PeriodCloseChanged (`task_checked`, with
+	// `check_passed`). A signed-off close whose covered periods are all locked refuses it (409
+	// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
+	// request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`)
+	// (ADR-0058 §7, T64d).
 	//
 	// POST /v1/period-closes/{id}/tasks/{code}:check
 	CheckCloseTask(ctx context.Context, params CheckCloseTaskParams) (CheckCloseTaskRes, error)
@@ -724,6 +742,22 @@ type Handler interface {
 	//
 	// POST /v1/uploads
 	CreateUpload(ctx context.Context, req *UploadCreate, params CreateUploadParams) (CreateUploadRes, error)
+	// CreateVarianceComment implements createVarianceComment operation.
+	//
+	// A person explains one row of a period close's variance report (ADR-0058 §10, T64i): the same body
+	// and checks as `proposeVarianceComment` without a session (the row's account, 422
+	// `closing.variance_row_unknown`; the basis, 422 `closing.basis_not_configured`; each citation, 422
+	// `closing.citation_invalid` on `citations[i]`). The comment is `accepted` at once, with the row's
+	// actual and comparison as they are now; the row's comment accepted before it is `superseded` in the
+	// same transaction, so a row has one accepted comment. Under a lock on the close; a signed-off close
+	// whose covered periods are all locked refuses it (409 `closing.close_signed_off`), and once one of
+	// them was unlocked it sets the close open again first (PeriodCloseChanged `reopened`). People only.
+	// Besides `closing.variance.comment` the caller needs `ledger.entry.read` (`x-also-permissions`).
+	// Audited, and published as VarianceCommentChanged (`accepted`, and `superseded` for the comment it
+	// replaces).
+	//
+	// POST /v1/variance-comments
+	CreateVarianceComment(ctx context.Context, req *VarianceCommentInput, params CreateVarianceCommentParams) (CreateVarianceCommentRes, error)
 	// CreateWebhookSubscription implements createWebhookSubscription operation.
 	//
 	// Subscribes an HTTPS endpoint to event types (ADR-0041). The URL's host must resolve to public
@@ -1470,6 +1504,15 @@ type Handler interface {
 	//
 	// GET /v1/uploads/{id}
 	GetUpload(ctx context.Context, params GetUploadParams) (GetUploadRes, error)
+	// GetVarianceComment implements getVarianceComment operation.
+	//
+	// One variance comment (ADR-0058 §10, T64i), as `listVarianceComments` shows it; its ETag is the
+	// version `:acceptProposal` and `:rejectProposal` take as `If-Match`. A comment of a close of a legal
+	// entity the caller cannot act in is not found. Besides `closing.close.read` the caller needs
+	// `ledger.entry.read` (`x-also-permissions`).
+	//
+	// GET /v1/variance-comments/{id}
+	GetVarianceComment(ctx context.Context, params GetVarianceCommentParams) (GetVarianceCommentRes, error)
 	// GetWebhookDelivery implements getWebhookDelivery operation.
 	//
 	// Returns one delivery: its event, status and the outcome of its last attempt.
@@ -1986,13 +2029,17 @@ type Handler interface {
 	// and, when a `threshold_percent` is configured and the row has a percent, the percent's absolute
 	// value (as shown, two places) is at least it. The bases and thresholds are the active configuration's
 	// `companies[].close.variance` (tier 2); a basis the company does not configure is 422
-	// `closing.basis_not_configured`. Rows are in account number order (as the database orders text, byte
-	// by byte), cursor-paged; `requires_comment` keeps only the rows that do (`true`) or do not (`false`).
-	// `totals` sum the whole report, every row whatever the filter and on every page alike: the actuals
-	// summed are the period's profit and loss in the trial balance (a loss positive). Variance comments
-	// and the rows they explain are T64i's. A close of a legal entity the caller cannot act in is not
-	// found. The figures are ledger amounts, so besides `closing.close.read` the caller needs
-	// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	// `closing.basis_not_configured`. Each row carries its accepted comment (`comment`, with `stale`:
+	// whether the row's figures now differ from those it was written against), `explained` (an accepted
+	// comment that is not stale) and how many agents' proposals wait for a person (`proposed_comments`)
+	// (ADR-0058 §10, T64i). Rows are in account number order (as the database orders text, byte by byte),
+	// cursor-paged; `requires_comment` keeps only the rows that do (`true`) or do not (`false`),
+	// `unexplained` only the rows not explained (`true`) or explained (`false`). `totals` sum the whole
+	// report, every row whatever the filters and on every page alike: the actuals summed are the period's
+	// profit and loss in the trial balance (a loss positive), and `rows_explained` counts the rows
+	// explained. A close of a legal entity the caller cannot act in is not found. The figures are ledger
+	// amounts, so besides `closing.close.read` the caller needs `ledger.entry.read` (`x-also-permissions`;
+	// 403 `identity.permission_missing` otherwise).
 	//
 	// GET /v1/period-closes/{id}/variances
 	ListPeriodCloseVariances(ctx context.Context, params ListPeriodCloseVariancesParams) (ListPeriodCloseVariancesRes, error)
@@ -2204,6 +2251,17 @@ type Handler interface {
 	//
 	// GET /v1/tax-registrations/{id}/returns
 	ListTaxReturns(ctx context.Context, params ListTaxReturnsParams) (ListTaxReturnsRes, error)
+	// ListVarianceComments implements listVarianceComments operation.
+	//
+	// The variance comments of the period closes of the legal entities the caller may act in (ADR-0058
+	// §10, T64i), oldest first (sortable by `created_at`, the default), each with its row's account, the
+	// figures it was written against and whether they still are the row's (`stale`), its citations, its
+	// author and who decided it. Filters: the close, the basis, the account, the status and the agent's
+	// session. Besides `closing.close.read` the caller needs `ledger.entry.read`, since the figures and
+	// cited entries are ledger data (`x-also-permissions`).
+	//
+	// GET /v1/variance-comments
+	ListVarianceComments(ctx context.Context, params ListVarianceCommentsParams) (ListVarianceCommentsRes, error)
 	// ListWebhookDeliveries implements listWebhookDeliveries operation.
 	//
 	// The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:
@@ -2659,6 +2717,28 @@ type Handler interface {
 	//
 	// POST /v1/payment-runs:propose
 	ProposePaymentRun(ctx context.Context, req *PaymentRunPropose, params ProposePaymentRunParams) (ProposePaymentRunRes, error)
+	// ProposeVarianceComment implements proposeVarianceComment operation.
+	//
+	// The close agent proposes a comment explaining one row of a period close's variance report (ADR-0058
+	// §10, T64i): the close, the basis and the row's account (a row of the report against that basis: 422
+	// `closing.variance_row_unknown`; a basis the company does not configure is 422
+	// `closing.basis_not_configured`), a text of at most 2,000 characters, and 0-20 cited journal entries,
+	// each with a line on the account in the leading ledger in the close's period or, for `prior_period`
+	// and `prior_year`, in the period compared against (422 `closing.citation_invalid` on `citations[i]`):
+	// the agent cites what the figures are made of. Made in the agent's running session (`session_id`;
+	// another's or an ended one is refused as `proposeMemoRecord` refuses it); agents only (403
+	// `agents.not_an_agent`). The comment is `proposed`, with the row's actual and comparison as they are
+	// now, and counts for nothing until a person accepts it (`:acceptProposal`) or rejects it
+	// (`:rejectProposal`). One proposal per session and row: the same again (same text and citations)
+	// answers 200 with it, another is 409 `closing.comment_already_proposed`. Under a lock on the close; a
+	// signed-off close whose covered periods are all locked refuses it (409 `closing.close_signed_off`),
+	// and once one of them was unlocked it sets the close open again first (PeriodCloseChanged `reopened`,
+	// ADR-0058 §7). The figures and the cited entries are ledger data, so besides
+	// `closing.variance.propose` the caller needs `ledger.entry.read` (`x-also-permissions`). Audited, and
+	// published as VarianceCommentChanged (`proposed`).
+	//
+	// POST /v1/variance-comment-proposals
+	ProposeVarianceComment(ctx context.Context, req *VarianceCommentProposal, params ProposeVarianceCommentParams) (ProposeVarianceCommentRes, error)
 	// RealiseMemoRecord implements realiseMemoRecord operation.
 	//
 	// Marks an `active` or `expired` memo record `realised` (409 `cash.memo_record_closed`; an agent's
@@ -2777,6 +2857,17 @@ type Handler interface {
 	//
 	// POST /v1/payment-runs/{id}:reject
 	RejectPaymentRun(ctx context.Context, req *ReasonInput, params RejectPaymentRunParams) (RejectPaymentRunRes, error)
+	// RejectVarianceComment implements rejectVarianceComment operation.
+	//
+	// A person rejects an agent's proposed comment, with a reason (409 `closing.comment_not_proposed` for
+	// any other comment) (ADR-0058 §10, T64i). `If-Match` is the comment's ETag. Under a lock on the
+	// close; a signed-off close whose covered periods are all locked refuses it (409
+	// `closing.close_signed_off`), and once one of them was unlocked it sets the close open again first.
+	// People only. Besides `closing.variance.comment` the caller needs `ledger.entry.read`
+	// (`x-also-permissions`). Audited, and published as VarianceCommentChanged (`rejected`).
+	//
+	// POST /v1/variance-comments/{id}:rejectProposal
+	RejectVarianceComment(ctx context.Context, req *ReasonInput, params RejectVarianceCommentParams) (RejectVarianceCommentRes, error)
 	// ReleaseContract implements releaseContract operation.
 	//
 	// Makes a draft contract `active` so orders can be priced against it. Requires status `draft`.

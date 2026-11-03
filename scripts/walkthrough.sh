@@ -319,10 +319,13 @@ start() {
   say "    payment requests and blocked suppliers; step 21 its rows by liquidity item"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - asset acquisition, depreciation and the rest of asset accounting (T57c-T57i): steps 19 and 20 show the classes and the master"
-  say "  - accounts receivable, the period close beyond its checklist (T64c-T64k), consolidation (T68)"
+  say "  - accounts receivable, the period close's accruals, close agent and depreciation check (T64e-T64g, T64j, T64k), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
-  export DATABASE_URL ERP_ENV=development ERP_DEV_ISSUER=true ERP_MIGRATE_ON_START=true
+  # ERP_EVAL_CELL: the close agent's principal runs at level 1 before its
+  # type is certified, as an evaluation cell raises its agents (ADR-0058
+  # §12, ADR-0039); production refuses it.
+  export DATABASE_URL ERP_ENV=development ERP_DEV_ISSUER=true ERP_MIGRATE_ON_START=true ERP_EVAL_CELL=true
   export ERP_HTTP_ADDR="$API_ADDR" ERP_ADMIN_ADDR="$ADMIN_ADDR"
   export ERP_API_URL="http://$API_ADDR" ERP_ADMIN_URL="http://$ADMIN_ADDR" ERP_CONTROL_URL="http://$ADMIN_ADDR"
   export ERP_EXTRACT_DIR="$WORK/data" ERP_OBJECT_DIR="$WORK/data/objects"
@@ -2684,7 +2687,8 @@ step_asset_acquisitions() {
 # the process owner approves; Carla reads the year's close calendar, each
 # period's planned first and last due dates on the company's business days.
 # Then the close's checklist (T64b), its checks (T64c), its variances
-# (T64h) and, last, its sign-off (T64d), which locks the period.
+# (T64h) and their comments (T64i) and, last, its sign-off (T64d), which
+# locks the period.
 step_close() {
   heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off"
   as ada
@@ -2700,13 +2704,14 @@ step_close() {
       {\"code\": \"CUTOFF_NOTICE\", \"name\": \"Cut-off reminder sent to the team\", \"kind\": \"manual\", \"due_day\": -2},
       {\"code\": \"AP_CUTOFF\", \"name\": \"Supplier invoices of the period entered\", \"kind\": \"manual\", \"due_day\": 1, \"depends_on\": [\"CUTOFF_NOTICE\"]},
       {\"code\": \"TB_REVIEW\", \"name\": \"Trial balance reviewed\", \"kind\": \"manual\", \"due_day\": 3, \"depends_on\": [\"AP_CUTOFF\"]},
-      {\"code\": \"NO_PARKED\", \"name\": \"No entry of the period left parked\", \"kind\": \"check\", \"check\": \"no_parked_entries\", \"due_day\": 3, \"depends_on\": [\"AP_CUTOFF\"]}])}" \
+      {\"code\": \"NO_PARKED\", \"name\": \"No entry of the period left parked\", \"kind\": \"check\", \"check\": \"no_parked_entries\", \"due_day\": 3, \"depends_on\": [\"AP_CUTOFF\"]},
+      {\"code\": \"VARIANCES\", \"name\": \"Variances explained\", \"kind\": \"check\", \"check\": \"variances_explained\", \"due_day\": 4, \"depends_on\": [\"TB_REVIEW\"]}])}" \
     "$WORK/last.json" >"$WORK/close.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @close.json
   cr=$(field .id)
   api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
   expect "the change's tier" "$(field .tier)" 2
-  expect "the tasks among the changes" "$(field '[.items[] | select(.path | startswith("close.tasks["))] | length')" 4
+  expect "the tasks among the changes" "$(field '[.items[] | select(.path | startswith("close.tasks["))] | length')" 5
   expect "status after submit" "$(field .status)" pending_approval
   request=$(field .workflow_request_id)
   approve priya "$request" "The monthly close checklist, as agreed with the controller"
@@ -2734,6 +2739,7 @@ step_close() {
   close_checklist
   close_checks
   close_variances
+  close_comments
   close_sign_off
   passed
 }
@@ -2754,7 +2760,7 @@ close_checklist() {
     createPeriodClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
   close=$(field .id)
   tag=$ETAG
-  expect "the close's tasks" "$(field '[.tasks[].code] | join(" ")')" "CUTOFF_NOTICE AP_CUTOFF TB_REVIEW NO_PARKED"
+  expect "the close's tasks" "$(field '[.tasks[].code] | join(" ")')" "CUTOFF_NOTICE AP_CUTOFF TB_REVIEW NO_PARKED VARIANCES"
   expect "the leading ledger first" "$(field '.ledgers[0].ledger_code')" 0L
   say "A second close of the period is refused, and names the first:"
   refused 409 closing.close_exists createPeriodClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
@@ -2830,7 +2836,8 @@ close_checks() {
   expect "the check's verdict" "$(field '.check_result.passed')" true
   expect "the task after a passing check" "$(field .status)" done
   QUIET=1 api 200 '' getPeriodClose -p "id=$close"
-  expect "every task done" "$(field '.tasks_done == .tasks_total')" true
+  expect "every task done but the variances' check, which comes with their comments" \
+    "$(field '[.tasks[] | select(.status != "done") | .code] | join(" ")')" VARIANCES
 }
 
 # close_variances is T64h's part of step_close (ADR-0058 §9): Ada sets the
@@ -2894,6 +2901,87 @@ close_variances() {
   expect "the totals still the whole report's" "$(field '.totals.actual.amount | tonumber * 100 | round')" "$actual"
   say "The plan is no basis $CC configures:"
   refused 422 closing.basis_not_configured listPeriodCloseVariances -p "id=$close" -p basis=plan
+}
+
+# close_comments is T64i's part of step_close (ADR-0058 §10): the close
+# agent, a level-1 agent principal, proposes a comment on a flagged row
+# citing the entry behind it, as the agent will (T64j); a citation of an
+# entry with no line on the row's account is refused. Carla accepts the
+# proposal and explains the other flagged rows herself; the report shows
+# each row's accepted comment, the unexplained filter and the rows
+# explained, and the variances check passes.
+close_comments() {
+  local period close role agent session row account entry other comment tag basis n
+  period=$((10#${TODAY:5:2}))
+  as ada
+  say "Ada sets up the close agent (ADR-0058 §12): an agent principal at autonomy level 1, which proposes and"
+  say "decides nothing; its role reads closes and the ledger, and proposes variance comments in its sessions."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "close_agent", "name": "Close agent"}'
+  role=$(field .id)
+  grant "$role" closing.close.read closing.variance.propose ledger.entry.read agents.session.record
+  api 201 '"\(.kind) \(.display_name), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' createPrincipal \
+    -body '{"kind": "agent", "external_subject": "close-agent", "display_name": "Close agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "model": "erp-default", "description": "Proposes accruals and variance comments for people to decide (ADR-0058)"}}'
+  agent=$(field .id)
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$agent\", \"role_id\": \"$role\"}"
+  token close-agent "Close agent"
+  printf '%s\tClose agent\n' "$agent" >>"$WORK/names"
+  as carla
+  QUIET=1 api 200 '' listPeriodCloses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  close=$(field ".items[] | select(.fiscal_period == $period) | .id")
+  QUIET=1 api 200 '' listPeriodCloseVariances -p "id=$close" -p basis=prior_period -p requires_comment=true -p page_size=500
+  row=$(field '.items[0].account_number // empty')
+  [ -n "$row" ] || fail "no row of the prior period requires a comment"
+  account=$(field '.items[0].account_id')
+  as close-agent
+  say "The agent starts a session and finds the entries behind the flagged row $row against the prior period:"
+  api 201 '"session \(.id[0:8])…: \(.status)"' startAgentSession -body '{"purpose": "Explain the variances of the close", "model": "erp-default"}'
+  session=$(field .id)
+  api 200 '(.items[] | "  entry \(.document_number) of \(.posting_date): \(.header_text // "")")' \
+    listJournalEntries -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "fiscal_period=$period" -p "account_id=$account" -p page_size=5
+  entry=$(field '.items[0].id')
+  QUIET=1 api 200 '' listJournalEntries -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "fiscal_period=$period" -p page_size=200
+  other=$(field "[.items[] | select([.lines[].account_id] | index(\"$account\") | not)][0].id // empty")
+  [ -n "$other" ] || fail "every entry of the period has a line on account $row"
+  say "A citation of an entry with no line on the row's account is refused: a comment cites what its figures are made of."
+  refused 422 closing.citation_invalid proposeVarianceComment \
+    -body "{\"session_id\": \"$session\", \"close_id\": \"$close\", \"basis\": \"prior_period\", \"account_id\": \"$account\", \"text\": \"Explained by another entry\", \"citations\": [\"$other\"]}"
+  say "It proposes a comment citing the entry, for a person to decide:"
+  api 201 '"  \(.account_number) \(.account_name) against \(.basis): \(.status) by \(.author_name), \(.actual.amount) against \(.comparison.amount) \(.actual.currency), citing \([.citations[].document_number] | join(", "))"' \
+    proposeVarianceComment -body "{\"session_id\": \"$session\", \"close_id\": \"$close\", \"basis\": \"prior_period\", \"account_id\": \"$account\", \"text\": \"The period's movement on this account comes from the entry cited.\", \"citations\": [\"$entry\"]}"
+  comment=$(field .id)
+  tag=$ETAG
+  expect "the proposal" "$(field .status)" proposed
+  say "Proposing is all it may do: accepting a comment is a person's."
+  refused 403 identity.agent_not_allowed acceptVarianceComment -p "id=$comment" -if-match "$tag" -body '{}'
+  QUIET=1 api 200 '' endAgentSession -p "id=$session" -if-match '*' -body '{"status": "completed", "input_tokens": 0, "output_tokens": 0}'
+  as carla
+  say "Carla sees the proposal on the row, reads it and accepts it:"
+  api 200 ".items[] | select(.account_number == \"$row\") | \"  \\(.account_number): \\(.proposed_comments) proposed, explained \\(.explained)\"" \
+    listPeriodCloseVariances -p "id=$close" -p basis=prior_period -p requires_comment=true -p page_size=500
+  api 200 '"  \(.status) by \(.decided_by_name), proposed by \(.author_name) (\(.author_kind))"' acceptVarianceComment -p "id=$comment" -if-match "$tag" -body '{}'
+  say "She explains the other flagged rows herself, against each basis $CC compares, as the unexplained filter lists them:"
+  for basis in prior_period prior_year; do
+    QUIET=1 api 200 '' listPeriodCloseVariances -p "id=$close" -p "basis=$basis" -p requires_comment=true -p unexplained=true -p page_size=500
+    for account in $(field '.items[].account_id'); do
+      api 201 '"  \(.basis) \(.account_number) \(.account_name): \(.status), by \(.author_name)"' createVarianceComment \
+        -body "{\"close_id\": \"$close\", \"basis\": \"$basis\", \"account_id\": \"$account\", \"text\": \"Reviewed with the department: the movement is expected.\"}"
+    done
+    api 200 '"  against \(.basis): \(.totals.rows_requiring_comment) rows need a comment, \(.totals.rows_explained) explained", (.items[] | select(.comment) | "    \(.account_number): \(.comment.text) (\(.comment.author_name), accepted by \(.comment.decided_by_name), stale \(.comment.stale))")' \
+      listPeriodCloseVariances -p "id=$close" -p "basis=$basis" -p requires_comment=true -p page_size=500
+    expect "every flagged row explained against $basis" "$(field '[.items[] | .explained] | all')" true
+    n=$(field .totals.rows_requiring_comment)
+    expect "the rows explained against $basis" "$(field .totals.rows_explained)" "$n"
+    QUIET=1 api 200 '' listPeriodCloseVariances -p "id=$close" -p "basis=$basis" -p requires_comment=true -p unexplained=true
+    expect "the unexplained flagged rows against $basis" "$(field '.items | length')" 0
+  done
+  QUIET=1 api 200 '' listPeriodCloseVariances -p "id=$close" -p basis=prior_period -p page_size=500
+  expect "the agent's comment on row $row" "$(field ".items[] | select(.account_number == \"$row\") | \"\(.comment.author_name) \(.comment.stale)\"")" "Close agent false"
+  say "The variances check passes: every flagged row has an accepted comment that is current."
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  api 200 '"  \(.code) \(.status): \(.check_result.summary)"' checkCloseTask -p "id=$close" -p code=VARIANCES -if-match "$ETAG"
+  expect "the check's verdict" "$(field '.check_result.passed')" true
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  expect "every task done" "$(field '.tasks_done == .tasks_total')" true
 }
 
 # close_sign_off is T64d's part of step_close, its end (ADR-0058 §7): the

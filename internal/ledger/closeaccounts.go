@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -62,6 +63,54 @@ func (CloseAccounts) ProfitAndLoss(ctx context.Context, legalEntity uuid.UUID, f
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ledger: profit and loss of %s in %d/%d: %w", legalEntity, fiscalYear, period, err)
+	}
+	return out, nil
+}
+
+// CitedEntry is a posted journal entry a variance comment cites (T64i):
+// its fiscal year, document number and posting date, and the periods of
+// its fiscal year in which it has a line on the account asked about.
+type CitedEntry struct {
+	ID             uuid.UUID
+	FiscalYear     int16
+	DocumentNumber string
+	PostingDate    time.Time
+	Periods        []int16
+}
+
+// Cited returns those of the entries that are posted journal entries of
+// the legal entity in the leading ledger, each with the periods in which
+// it has a line on the account (none when it has no such line); an id
+// that is no such entry is absent. A legal entity the caller may not act
+// in has none.
+func (CloseAccounts) Cited(ctx context.Context, legalEntity, account uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]CitedEntry, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !access.Allows(legalEntity) || len(ids) == 0 {
+		return map[uuid.UUID]CitedEntry{}, nil
+	}
+	leading, _, err := ledgerOrLeading(ctx, tx, nil)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT e.id, e.fiscal_year, e.document_number, e.posting_date,
+			ARRAY(SELECT DISTINCT l.fiscal_period FROM ledger.journal_line l WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year
+				AND l.journal_entry_id = e.id AND l.account_id = $3 ORDER BY 1)
+		FROM ledger.journal_entry e WHERE e.id = ANY($2) AND e.legal_entity_id = $1 AND e.ledger_id = $4`, legalEntity, ids, account, leading)
+	out := map[uuid.UUID]CitedEntry{}
+	var c CitedEntry
+	_, err = pgx.ForEachRow(rows, []any{&c.ID, &c.FiscalYear, &c.DocumentNumber, &c.PostingDate, &c.Periods}, func() error {
+		out[c.ID] = c
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ledger: entries cited on account %s: %w", account, err)
 	}
 	return out, nil
 }

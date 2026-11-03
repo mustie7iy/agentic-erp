@@ -42,8 +42,9 @@ const (
 // CloseChecks are the checks this build runs (ADR-0058 §6); each slice
 // that builds a check adds it, and a template naming another is refused.
 // T64c: no parked entry left in the period; each covered ledger's
-// revaluation posted at the period's last day.
-var CloseChecks = []string{"no_parked_entries", "revaluation_posted"}
+// revaluation posted at the period's last day. T64i: every variance
+// requiring a comment explained by an accepted, current one.
+var CloseChecks = []string{"no_parked_entries", "revaluation_posted", "variances_explained"}
 
 // Close template bounds (ADR-0058 §3).
 const (

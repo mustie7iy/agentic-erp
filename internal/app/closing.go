@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/agents"
 	"github.com/mustie7iy/agentic-erp/internal/closing"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/controlling"
@@ -16,12 +17,12 @@ import (
 )
 
 // Closing is the financial close context as the API wires it (ADR-0058
-// §2): a leaf that reads the configuration, tenancy, ledger, identity
-// and controlling contexts through the adapters below, so none of them
+// §2): a leaf that reads the configuration, tenancy, ledger, identity,
+// controlling and agents contexts through the adapters below, so none of them
 // imports it and it imports none of them.
 func Closing(cfg Config) *closing.Endpoints {
 	return &closing.Endpoints{Settings: configuration.Settings{}, Companies: closingCompanies{}, Ledger: closingLedger{}, People: closingPeople{},
-		Plans: closingPlans{}, Pages: cfg.Pages, Now: cfg.Now}
+		Plans: closingPlans{}, Sessions: agents.Sessions{}, Pages: cfg.Pages, Now: cfg.Now}
 }
 
 // closingCompanies gives the closing context a legal entity's code, name
@@ -34,8 +35,9 @@ func (closingCompanies) Company(ctx context.Context, id uuid.UUID) (closing.Comp
 }
 
 // closingLedger gives the closing context the ledger's posting periods,
-// what a close's checks read (parked entries and revaluation runs), and
-// the period lock a sign-off takes.
+// what a close's checks read (parked entries and revaluation runs), the
+// period lock a sign-off takes, the variance report's profit and loss and
+// the journal entries its comments cite.
 type closingLedger struct{}
 
 func (closingLedger) LeadingPeriods(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]closing.Period, error) {
@@ -84,6 +86,15 @@ func (closingLedger) ProfitAndLoss(ctx context.Context, legalEntity uuid.UUID, f
 	out := make([]closing.AccountNet, len(ns))
 	for i, n := range ns {
 		out[i] = closing.AccountNet{AccountID: n.AccountID, Number: n.Number, Name: n.Name, Net: n.Net}
+	}
+	return out, err
+}
+
+func (closingLedger) Cited(ctx context.Context, legalEntity, account uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]closing.CitedEntry, error) {
+	cs, err := ledger.CloseAccounts{}.Cited(ctx, legalEntity, account, ids)
+	out := make(map[uuid.UUID]closing.CitedEntry, len(cs))
+	for id, c := range cs {
+		out[id] = closing.CitedEntry{ID: c.ID, FiscalYear: c.FiscalYear, DocumentNumber: c.DocumentNumber, PostingDate: c.PostingDate, Periods: c.Periods}
 	}
 	return out, err
 }

@@ -1181,3 +1181,86 @@ owner to overrule:
 - The balance projector helper the ledger's and controlling's tests each
   kept is `fixture.Project`, which closing's tests use too.
 
+
+**T64i (variance comments).** Built as §10: migration 000198 creates
+`variance_comment` and `variance_citation` (RLS, `tenant_id` leading every
+key, no foreign key leaving the schema) and the permissions
+`closing.variance.propose` and `closing.variance.comment`. `POST
+/v1/variance-comment-proposals` (`proposeVarianceComment`, agents only:
+403 `agents.not_an_agent` for a person; `x-autonomy: propose`; in the
+agent's running session through the new port `closing.Sessions`, adapted
+by `agents.Sessions` as cash's) and `POST /v1/variance-comments`
+(`createVarianceComment`, people only, accepted at once) read the close
+`FOR UPDATE`, compute the row's figures from the report (§9), check each
+citation through `closing.Ledger.Cited`, over the ledger's new read
+`ledger.CloseAccounts.Cited` (a posted entry of the company in the
+leading ledger, with the periods it has a line on the account in), and
+write the comment with the row's actual and comparison. `:acceptProposal`
+(optional replacement text) and `:rejectProposal` (a reason) decide a
+`proposed` one (409 `closing.comment_not_proposed`), If-Match on the
+comment's version, under the close's lock. Accepting or writing a comment
+sets the row's accepted one `superseded` in the same transaction. `GET
+/v1/variance-comments` (filters close, basis, account, status, session;
+cursor-paged by creation) and `GET /v1/variance-comments/{id}` show each
+comment with its company, account, figures and their currency, `stale`,
+citations, author and decider named. The variance report's rows carry
+`comment` (the accepted one, with `stale`), `explained` and
+`proposed_comments`, the filter `unexplained` and the total
+`rows_explained`. `config.CloseChecks` gains `variances_explained`, run
+by `:check` and the sign-off. Every write is audited
+(`closing.variance_comment.propose|write|accept|reject|supersede`) and
+published as `VarianceCommentChanged`. A write on a signed-off close
+follows §7 (refused while its periods are all locked, reopening it
+after an unlock). Walkthrough: `close_comments` in `step_close`, before
+the sign-off, with the walkthrough's first agent principal. Decided by
+default, for the product owner to overrule:
+- The actions are `:acceptProposal` and `:rejectProposal`, not `:accept`
+  and `:reject`: the contract reserves `:reject` for approval requests
+  (`TestOperations`), and memo record proposals use these names.
+- `GET /v1/variance-comments/{id}` (`getVarianceComment`) is added beside
+  the list (§13 names none): a created comment's `Location` and the ETag
+  its decisions take need it.
+- A comment names a row of the report against the basis (422
+  `closing.variance_row_unknown` on `account_id` otherwise, a code beside
+  §13's): an account with a figure in either period; a row need not
+  require a comment to be explained. A basis the company does not
+  configure is 422 `closing.basis_not_configured`, as for the report.
+- The figures a comment keeps are the row's actual and comparison when it
+  was written, and it keeps them when accepted: a proposal accepted after
+  the figures changed is stale at once, so the person writes a current
+  comment instead. `stale` is shown on every comment (on the report's
+  rows and in the list), judged at the read; it is absent where the
+  company no longer compares against the basis.
+- An accepted text replaced by the person is kept with the proposal's
+  text (`proposed_text`, a column beside §5's) and shown as `edited`; the
+  comment also keeps the account's number and name as they were when it
+  was written, and each citation its document number and posting date
+  (a posted entry never changes), so the reads need no ledger call per
+  row.
+- Citations are 0-20 journal entry ids, each once (`uniqueItems`); an
+  entry must be a posted one of the company in the leading ledger with a
+  line on the account in the close's period or, for `prior_period` and
+  `prior_year`, in the period compared against (422
+  `closing.citation_invalid` on `citations[i]`). A text or reason of white
+  space alone is 422 `request.validation_failed`.
+- One proposal per session and row (`variance_comment_proposed_once`):
+  the same text and citations again answer 200 with it, whatever its
+  status now; other content is 409 `closing.comment_already_proposed`.
+  Proposals of other sessions for the row stay `proposed` when one is
+  accepted or a person writes one; a person rejects them or they wait.
+- `variances_explained` runs every basis the company configures, in the
+  configured order; it fails, saying so, when the company configures no
+  basis, since the template asks for variances to be explained. Its
+  result names the first 20 unexplained rows (basis, account, variance
+  with its currency, whether its accepted comment is stale) and counts
+  them all (`unexplained_rows`, `unexplained_rows_count`).
+- `VarianceCommentChanged`'s `change` is `accepted` for a person's
+  comment too (§13 lists proposed, accepted, rejected, superseded), with
+  `author_kind` telling a person's from an agent's.
+- The walkthrough's agent principal (the close agent, untyped until T64g
+  adds the type `close`) is created by Ada in `close_comments`, at level
+  1 with a role of `closing.close.read`, `closing.variance.propose`,
+  `ledger.entry.read` and `agents.session.record`; the walkthrough's server
+  runs with `ERP_EVAL_CELL=true` (§12). T64e, when built, takes it over.
+- No performance budget: §10 asks for none. A list page computes each
+  close and basis's report once, to tell its comments' staleness.

@@ -13,6 +13,10 @@ type AcceptMemoRecordProposalRes interface {
 	acceptMemoRecordProposalRes()
 }
 
+type AcceptVarianceCommentRes interface {
+	acceptVarianceCommentRes()
+}
+
 type ActivateChangeRequestRes interface {
 	activateChangeRequestRes()
 }
@@ -267,6 +271,10 @@ type CreateSupplierInvoiceRes interface {
 
 type CreateUploadRes interface {
 	createUploadRes()
+}
+
+type CreateVarianceCommentRes interface {
+	createVarianceCommentRes()
 }
 
 type CreateWebhookSubscriptionRes interface {
@@ -599,6 +607,10 @@ type GetTaxReturnRes interface {
 
 type GetUploadRes interface {
 	getUploadRes()
+}
+
+type GetVarianceCommentRes interface {
+	getVarianceCommentRes()
 }
 
 type GetWebhookDeliveryRes interface {
@@ -949,6 +961,10 @@ type ListTaxReturnsRes interface {
 	listTaxReturnsRes()
 }
 
+type ListVarianceCommentsRes interface {
+	listVarianceCommentsRes()
+}
+
 type ListWebhookDeliveriesRes interface {
 	listWebhookDeliveriesRes()
 }
@@ -1065,6 +1081,10 @@ type ProposePaymentRunRes interface {
 	proposePaymentRunRes()
 }
 
+type ProposeVarianceCommentRes interface {
+	proposeVarianceCommentRes()
+}
+
 type RealiseMemoRecordRes interface {
 	realiseMemoRecordRes()
 }
@@ -1103,6 +1123,10 @@ type RejectMemoRecordProposalRes interface {
 
 type RejectPaymentRunRes interface {
 	rejectPaymentRunRes()
+}
+
+type RejectVarianceCommentRes interface {
+	rejectVarianceCommentRes()
 }
 
 type ReleaseContractRes interface {

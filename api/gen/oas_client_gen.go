@@ -71,6 +71,21 @@ type Invoker interface {
 	//
 	// POST /v1/memo-records/{id}:acceptProposal
 	AcceptMemoRecordProposal(ctx context.Context, request OptMemoRecordAccept, params AcceptMemoRecordProposalParams) (AcceptMemoRecordProposalRes, error)
+	// AcceptVarianceComment invokes acceptVarianceComment operation.
+	//
+	// A person accepts an agent's proposed comment (409 `closing.comment_not_proposed` for any other)
+	// (ADR-0058 §10, T64i), with its text as it is or replaced by `text` (`edited`, the proposal's text
+	// kept as `proposed_text`). It keeps the figures it was proposed against: when the row's figures
+	// changed since, it is `stale` at once, and the person writes a new comment instead. The row's comment
+	// accepted before it is `superseded` in the same transaction. `If-Match` is the comment's ETag. Under
+	// a lock on the close; a signed-off close whose covered periods are all locked refuses it (409
+	// `closing.close_signed_off`), and once one of them was unlocked it sets the close open again first.
+	// People only. Besides `closing.variance.comment` the caller needs `ledger.entry.read`
+	// (`x-also-permissions`). Audited, and published as VarianceCommentChanged (`accepted`, and
+	// `superseded` for the comment it replaces).
+	//
+	// POST /v1/variance-comments/{id}:acceptProposal
+	AcceptVarianceComment(ctx context.Context, request OptVarianceCommentAccept, params AcceptVarianceCommentParams) (AcceptVarianceCommentRes, error)
 	// ActivateChangeRequest invokes activateChangeRequest operation.
 	//
 	// Creates and activates a new configuration version from an approved change request; each context
@@ -336,14 +351,17 @@ type Invoker interface {
 	// of the company dated in the period (the leading ledger's period's first to last day) is `parked` or
 	// `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted`
 	// passes when each covered ledger has a posted revaluation run keyed on its period's last day, and
-	// names each ledger with its run. A check is a statement about the moment it ran: run it again to
-	// refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and
-	// for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the
-	// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
-	// (`task_checked`, with `check_passed`). A signed-off close whose covered periods are all locked
-	// refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved
-	// `unlockFiscalPeriod` request), the change sets the close open again first, published as
-	// PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d).
+	// names each ledger with its run; `variances_explained` (T64i) passes when every row requiring a
+	// comment of each basis the company configures (`companies[].close.variance`; none configured fails)
+	// has an accepted comment that is not stale, and names the first 20 that have none, or only a stale
+	// one. A check is a statement about the moment it ran: run it again to refresh it. Refused while a
+	// task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409
+	// `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's
+	// new ETag. People only. Audited, and published as PeriodCloseChanged (`task_checked`, with
+	// `check_passed`). A signed-off close whose covered periods are all locked refuses it (409
+	// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
+	// request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`)
+	// (ADR-0058 §7, T64d).
 	//
 	// POST /v1/period-closes/{id}/tasks/{code}:check
 	CheckCloseTask(ctx context.Context, params CheckCloseTaskParams) (CheckCloseTaskRes, error)
@@ -745,6 +763,22 @@ type Invoker interface {
 	//
 	// POST /v1/uploads
 	CreateUpload(ctx context.Context, request *UploadCreate, params CreateUploadParams) (CreateUploadRes, error)
+	// CreateVarianceComment invokes createVarianceComment operation.
+	//
+	// A person explains one row of a period close's variance report (ADR-0058 §10, T64i): the same body
+	// and checks as `proposeVarianceComment` without a session (the row's account, 422
+	// `closing.variance_row_unknown`; the basis, 422 `closing.basis_not_configured`; each citation, 422
+	// `closing.citation_invalid` on `citations[i]`). The comment is `accepted` at once, with the row's
+	// actual and comparison as they are now; the row's comment accepted before it is `superseded` in the
+	// same transaction, so a row has one accepted comment. Under a lock on the close; a signed-off close
+	// whose covered periods are all locked refuses it (409 `closing.close_signed_off`), and once one of
+	// them was unlocked it sets the close open again first (PeriodCloseChanged `reopened`). People only.
+	// Besides `closing.variance.comment` the caller needs `ledger.entry.read` (`x-also-permissions`).
+	// Audited, and published as VarianceCommentChanged (`accepted`, and `superseded` for the comment it
+	// replaces).
+	//
+	// POST /v1/variance-comments
+	CreateVarianceComment(ctx context.Context, request *VarianceCommentInput, params CreateVarianceCommentParams) (CreateVarianceCommentRes, error)
 	// CreateWebhookSubscription invokes createWebhookSubscription operation.
 	//
 	// Subscribes an HTTPS endpoint to event types (ADR-0041). The URL's host must resolve to public
@@ -1491,6 +1525,15 @@ type Invoker interface {
 	//
 	// GET /v1/uploads/{id}
 	GetUpload(ctx context.Context, params GetUploadParams) (GetUploadRes, error)
+	// GetVarianceComment invokes getVarianceComment operation.
+	//
+	// One variance comment (ADR-0058 §10, T64i), as `listVarianceComments` shows it; its ETag is the
+	// version `:acceptProposal` and `:rejectProposal` take as `If-Match`. A comment of a close of a legal
+	// entity the caller cannot act in is not found. Besides `closing.close.read` the caller needs
+	// `ledger.entry.read` (`x-also-permissions`).
+	//
+	// GET /v1/variance-comments/{id}
+	GetVarianceComment(ctx context.Context, params GetVarianceCommentParams) (GetVarianceCommentRes, error)
 	// GetWebhookDelivery invokes getWebhookDelivery operation.
 	//
 	// Returns one delivery: its event, status and the outcome of its last attempt.
@@ -2007,13 +2050,17 @@ type Invoker interface {
 	// and, when a `threshold_percent` is configured and the row has a percent, the percent's absolute
 	// value (as shown, two places) is at least it. The bases and thresholds are the active configuration's
 	// `companies[].close.variance` (tier 2); a basis the company does not configure is 422
-	// `closing.basis_not_configured`. Rows are in account number order (as the database orders text, byte
-	// by byte), cursor-paged; `requires_comment` keeps only the rows that do (`true`) or do not (`false`).
-	// `totals` sum the whole report, every row whatever the filter and on every page alike: the actuals
-	// summed are the period's profit and loss in the trial balance (a loss positive). Variance comments
-	// and the rows they explain are T64i's. A close of a legal entity the caller cannot act in is not
-	// found. The figures are ledger amounts, so besides `closing.close.read` the caller needs
-	// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	// `closing.basis_not_configured`. Each row carries its accepted comment (`comment`, with `stale`:
+	// whether the row's figures now differ from those it was written against), `explained` (an accepted
+	// comment that is not stale) and how many agents' proposals wait for a person (`proposed_comments`)
+	// (ADR-0058 §10, T64i). Rows are in account number order (as the database orders text, byte by byte),
+	// cursor-paged; `requires_comment` keeps only the rows that do (`true`) or do not (`false`),
+	// `unexplained` only the rows not explained (`true`) or explained (`false`). `totals` sum the whole
+	// report, every row whatever the filters and on every page alike: the actuals summed are the period's
+	// profit and loss in the trial balance (a loss positive), and `rows_explained` counts the rows
+	// explained. A close of a legal entity the caller cannot act in is not found. The figures are ledger
+	// amounts, so besides `closing.close.read` the caller needs `ledger.entry.read` (`x-also-permissions`;
+	// 403 `identity.permission_missing` otherwise).
 	//
 	// GET /v1/period-closes/{id}/variances
 	ListPeriodCloseVariances(ctx context.Context, params ListPeriodCloseVariancesParams) (ListPeriodCloseVariancesRes, error)
@@ -2225,6 +2272,17 @@ type Invoker interface {
 	//
 	// GET /v1/tax-registrations/{id}/returns
 	ListTaxReturns(ctx context.Context, params ListTaxReturnsParams) (ListTaxReturnsRes, error)
+	// ListVarianceComments invokes listVarianceComments operation.
+	//
+	// The variance comments of the period closes of the legal entities the caller may act in (ADR-0058
+	// §10, T64i), oldest first (sortable by `created_at`, the default), each with its row's account, the
+	// figures it was written against and whether they still are the row's (`stale`), its citations, its
+	// author and who decided it. Filters: the close, the basis, the account, the status and the agent's
+	// session. Besides `closing.close.read` the caller needs `ledger.entry.read`, since the figures and
+	// cited entries are ledger data (`x-also-permissions`).
+	//
+	// GET /v1/variance-comments
+	ListVarianceComments(ctx context.Context, params ListVarianceCommentsParams) (ListVarianceCommentsRes, error)
 	// ListWebhookDeliveries invokes listWebhookDeliveries operation.
 	//
 	// The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:
@@ -2680,6 +2738,28 @@ type Invoker interface {
 	//
 	// POST /v1/payment-runs:propose
 	ProposePaymentRun(ctx context.Context, request *PaymentRunPropose, params ProposePaymentRunParams) (ProposePaymentRunRes, error)
+	// ProposeVarianceComment invokes proposeVarianceComment operation.
+	//
+	// The close agent proposes a comment explaining one row of a period close's variance report (ADR-0058
+	// §10, T64i): the close, the basis and the row's account (a row of the report against that basis: 422
+	// `closing.variance_row_unknown`; a basis the company does not configure is 422
+	// `closing.basis_not_configured`), a text of at most 2,000 characters, and 0-20 cited journal entries,
+	// each with a line on the account in the leading ledger in the close's period or, for `prior_period`
+	// and `prior_year`, in the period compared against (422 `closing.citation_invalid` on `citations[i]`):
+	// the agent cites what the figures are made of. Made in the agent's running session (`session_id`;
+	// another's or an ended one is refused as `proposeMemoRecord` refuses it); agents only (403
+	// `agents.not_an_agent`). The comment is `proposed`, with the row's actual and comparison as they are
+	// now, and counts for nothing until a person accepts it (`:acceptProposal`) or rejects it
+	// (`:rejectProposal`). One proposal per session and row: the same again (same text and citations)
+	// answers 200 with it, another is 409 `closing.comment_already_proposed`. Under a lock on the close; a
+	// signed-off close whose covered periods are all locked refuses it (409 `closing.close_signed_off`),
+	// and once one of them was unlocked it sets the close open again first (PeriodCloseChanged `reopened`,
+	// ADR-0058 §7). The figures and the cited entries are ledger data, so besides
+	// `closing.variance.propose` the caller needs `ledger.entry.read` (`x-also-permissions`). Audited, and
+	// published as VarianceCommentChanged (`proposed`).
+	//
+	// POST /v1/variance-comment-proposals
+	ProposeVarianceComment(ctx context.Context, request *VarianceCommentProposal, params ProposeVarianceCommentParams) (ProposeVarianceCommentRes, error)
 	// RealiseMemoRecord invokes realiseMemoRecord operation.
 	//
 	// Marks an `active` or `expired` memo record `realised` (409 `cash.memo_record_closed`; an agent's
@@ -2798,6 +2878,17 @@ type Invoker interface {
 	//
 	// POST /v1/payment-runs/{id}:reject
 	RejectPaymentRun(ctx context.Context, request *ReasonInput, params RejectPaymentRunParams) (RejectPaymentRunRes, error)
+	// RejectVarianceComment invokes rejectVarianceComment operation.
+	//
+	// A person rejects an agent's proposed comment, with a reason (409 `closing.comment_not_proposed` for
+	// any other comment) (ADR-0058 §10, T64i). `If-Match` is the comment's ETag. Under a lock on the
+	// close; a signed-off close whose covered periods are all locked refuses it (409
+	// `closing.close_signed_off`), and once one of them was unlocked it sets the close open again first.
+	// People only. Besides `closing.variance.comment` the caller needs `ledger.entry.read`
+	// (`x-also-permissions`). Audited, and published as VarianceCommentChanged (`rejected`).
+	//
+	// POST /v1/variance-comments/{id}:rejectProposal
+	RejectVarianceComment(ctx context.Context, request *ReasonInput, params RejectVarianceCommentParams) (RejectVarianceCommentRes, error)
 	// ReleaseContract invokes releaseContract operation.
 	//
 	// Makes a draft contract `active` so orders can be priced against it. Requires status `draft`.
@@ -4004,6 +4095,175 @@ func (c *Client) sendAcceptMemoRecordProposal(ctx context.Context, request OptMe
 
 	stage = "DecodeResponse"
 	result, err := decodeAcceptMemoRecordProposalResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// AcceptVarianceComment invokes acceptVarianceComment operation.
+//
+// A person accepts an agent's proposed comment (409 `closing.comment_not_proposed` for any other)
+// (ADR-0058 §10, T64i), with its text as it is or replaced by `text` (`edited`, the proposal's text
+// kept as `proposed_text`). It keeps the figures it was proposed against: when the row's figures
+// changed since, it is `stale` at once, and the person writes a new comment instead. The row's comment
+// accepted before it is `superseded` in the same transaction. `If-Match` is the comment's ETag. Under
+// a lock on the close; a signed-off close whose covered periods are all locked refuses it (409
+// `closing.close_signed_off`), and once one of them was unlocked it sets the close open again first.
+// People only. Besides `closing.variance.comment` the caller needs `ledger.entry.read`
+// (`x-also-permissions`). Audited, and published as VarianceCommentChanged (`accepted`, and
+// `superseded` for the comment it replaces).
+//
+// POST /v1/variance-comments/{id}:acceptProposal
+func (c *Client) AcceptVarianceComment(ctx context.Context, request OptVarianceCommentAccept, params AcceptVarianceCommentParams) (AcceptVarianceCommentRes, error) {
+	res, err := c.sendAcceptVarianceComment(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendAcceptVarianceComment(ctx context.Context, request OptVarianceCommentAccept, params AcceptVarianceCommentParams) (res AcceptVarianceCommentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("acceptVarianceComment"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/variance-comments/{id}:acceptProposal"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, AcceptVarianceCommentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/variance-comments/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":acceptProposal"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeAcceptVarianceCommentRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, AcceptVarianceCommentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeAcceptVarianceCommentResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -8047,14 +8307,17 @@ func (c *Client) sendCaptureSupplierInvoice(ctx context.Context, request *Suppli
 // of the company dated in the period (the leading ledger's period's first to last day) is `parked` or
 // `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted`
 // passes when each covered ledger has a posted revaluation run keyed on its period's last day, and
-// names each ledger with its run. A check is a statement about the moment it ran: run it again to
-// refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and
-// for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the
-// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
-// (`task_checked`, with `check_passed`). A signed-off close whose covered periods are all locked
-// refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved
-// `unlockFiscalPeriod` request), the change sets the close open again first, published as
-// PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d).
+// names each ledger with its run; `variances_explained` (T64i) passes when every row requiring a
+// comment of each basis the company configures (`companies[].close.variance`; none configured fails)
+// has an accepted comment that is not stale, and names the first 20 that have none, or only a stale
+// one. A check is a statement about the moment it ran: run it again to refresh it. Refused while a
+// task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409
+// `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's
+// new ETag. People only. Audited, and published as PeriodCloseChanged (`task_checked`, with
+// `check_passed`). A signed-off close whose covered periods are all locked refuses it (409
+// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
+// request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`)
+// (ADR-0058 §7, T64d).
 //
 // POST /v1/period-closes/{id}/tasks/{code}:check
 func (c *Client) CheckCloseTask(ctx context.Context, params CheckCloseTaskParams) (CheckCloseTaskRes, error) {
@@ -13502,6 +13765,146 @@ func (c *Client) sendCreateUpload(ctx context.Context, request *UploadCreate, pa
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateUploadResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateVarianceComment invokes createVarianceComment operation.
+//
+// A person explains one row of a period close's variance report (ADR-0058 §10, T64i): the same body
+// and checks as `proposeVarianceComment` without a session (the row's account, 422
+// `closing.variance_row_unknown`; the basis, 422 `closing.basis_not_configured`; each citation, 422
+// `closing.citation_invalid` on `citations[i]`). The comment is `accepted` at once, with the row's
+// actual and comparison as they are now; the row's comment accepted before it is `superseded` in the
+// same transaction, so a row has one accepted comment. Under a lock on the close; a signed-off close
+// whose covered periods are all locked refuses it (409 `closing.close_signed_off`), and once one of
+// them was unlocked it sets the close open again first (PeriodCloseChanged `reopened`). People only.
+// Besides `closing.variance.comment` the caller needs `ledger.entry.read` (`x-also-permissions`).
+// Audited, and published as VarianceCommentChanged (`accepted`, and `superseded` for the comment it
+// replaces).
+//
+// POST /v1/variance-comments
+func (c *Client) CreateVarianceComment(ctx context.Context, request *VarianceCommentInput, params CreateVarianceCommentParams) (CreateVarianceCommentRes, error) {
+	res, err := c.sendCreateVarianceComment(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateVarianceComment(ctx context.Context, request *VarianceCommentInput, params CreateVarianceCommentParams) (res CreateVarianceCommentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createVarianceComment"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/variance-comments"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateVarianceCommentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/variance-comments"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateVarianceCommentRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateVarianceCommentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateVarianceCommentResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -25413,6 +25816,140 @@ func (c *Client) sendGetUpload(ctx context.Context, params GetUploadParams) (res
 
 	stage = "DecodeResponse"
 	result, err := decodeGetUploadResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetVarianceComment invokes getVarianceComment operation.
+//
+// One variance comment (ADR-0058 §10, T64i), as `listVarianceComments` shows it; its ETag is the
+// version `:acceptProposal` and `:rejectProposal` take as `If-Match`. A comment of a close of a legal
+// entity the caller cannot act in is not found. Besides `closing.close.read` the caller needs
+// `ledger.entry.read` (`x-also-permissions`).
+//
+// GET /v1/variance-comments/{id}
+func (c *Client) GetVarianceComment(ctx context.Context, params GetVarianceCommentParams) (GetVarianceCommentRes, error) {
+	res, err := c.sendGetVarianceComment(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetVarianceComment(ctx context.Context, params GetVarianceCommentParams) (res GetVarianceCommentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getVarianceComment"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/variance-comments/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetVarianceCommentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/variance-comments/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetVarianceCommentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetVarianceCommentResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -39321,13 +39858,17 @@ func (c *Client) sendListPayments(ctx context.Context, params ListPaymentsParams
 // and, when a `threshold_percent` is configured and the row has a percent, the percent's absolute
 // value (as shown, two places) is at least it. The bases and thresholds are the active configuration's
 // `companies[].close.variance` (tier 2); a basis the company does not configure is 422
-// `closing.basis_not_configured`. Rows are in account number order (as the database orders text, byte
-// by byte), cursor-paged; `requires_comment` keeps only the rows that do (`true`) or do not (`false`).
-// `totals` sum the whole report, every row whatever the filter and on every page alike: the actuals
-// summed are the period's profit and loss in the trial balance (a loss positive). Variance comments
-// and the rows they explain are T64i's. A close of a legal entity the caller cannot act in is not
-// found. The figures are ledger amounts, so besides `closing.close.read` the caller needs
-// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+// `closing.basis_not_configured`. Each row carries its accepted comment (`comment`, with `stale`:
+// whether the row's figures now differ from those it was written against), `explained` (an accepted
+// comment that is not stale) and how many agents' proposals wait for a person (`proposed_comments`)
+// (ADR-0058 §10, T64i). Rows are in account number order (as the database orders text, byte by byte),
+// cursor-paged; `requires_comment` keeps only the rows that do (`true`) or do not (`false`),
+// `unexplained` only the rows not explained (`true`) or explained (`false`). `totals` sum the whole
+// report, every row whatever the filters and on every page alike: the actuals summed are the period's
+// profit and loss in the trial balance (a loss positive), and `rows_explained` counts the rows
+// explained. A close of a legal entity the caller cannot act in is not found. The figures are ledger
+// amounts, so besides `closing.close.read` the caller needs `ledger.entry.read` (`x-also-permissions`;
+// 403 `identity.permission_missing` otherwise).
 //
 // GET /v1/period-closes/{id}/variances
 func (c *Client) ListPeriodCloseVariances(ctx context.Context, params ListPeriodCloseVariancesParams) (ListPeriodCloseVariancesRes, error) {
@@ -39421,6 +39962,23 @@ func (c *Client) sendListPeriodCloseVariances(ctx context.Context, params ListPe
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.RequiresComment.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "unexplained" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "unexplained",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Unexplained.Get(); ok {
 				return e.EncodeValue(conv.BoolToString(val))
 			}
 			return nil
@@ -45332,6 +45890,264 @@ func (c *Client) sendListTaxReturns(ctx context.Context, params ListTaxReturnsPa
 	return result, nil
 }
 
+// ListVarianceComments invokes listVarianceComments operation.
+//
+// The variance comments of the period closes of the legal entities the caller may act in (ADR-0058
+// §10, T64i), oldest first (sortable by `created_at`, the default), each with its row's account, the
+// figures it was written against and whether they still are the row's (`stale`), its citations, its
+// author and who decided it. Filters: the close, the basis, the account, the status and the agent's
+// session. Besides `closing.close.read` the caller needs `ledger.entry.read`, since the figures and
+// cited entries are ledger data (`x-also-permissions`).
+//
+// GET /v1/variance-comments
+func (c *Client) ListVarianceComments(ctx context.Context, params ListVarianceCommentsParams) (ListVarianceCommentsRes, error) {
+	res, err := c.sendListVarianceComments(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListVarianceComments(ctx context.Context, params ListVarianceCommentsParams) (res ListVarianceCommentsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listVarianceComments"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/variance-comments"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListVarianceCommentsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/variance-comments"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "close_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "close_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CloseID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "basis" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "basis",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Basis.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "account_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "account_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.AccountID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "session_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "session_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.SessionID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListVarianceCommentsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListVarianceCommentsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListWebhookDeliveries invokes listWebhookDeliveries operation.
 //
 // The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:
@@ -50187,6 +51003,152 @@ func (c *Client) sendProposePaymentRun(ctx context.Context, request *PaymentRunP
 	return result, nil
 }
 
+// ProposeVarianceComment invokes proposeVarianceComment operation.
+//
+// The close agent proposes a comment explaining one row of a period close's variance report (ADR-0058
+// §10, T64i): the close, the basis and the row's account (a row of the report against that basis: 422
+// `closing.variance_row_unknown`; a basis the company does not configure is 422
+// `closing.basis_not_configured`), a text of at most 2,000 characters, and 0-20 cited journal entries,
+// each with a line on the account in the leading ledger in the close's period or, for `prior_period`
+// and `prior_year`, in the period compared against (422 `closing.citation_invalid` on `citations[i]`):
+// the agent cites what the figures are made of. Made in the agent's running session (`session_id`;
+// another's or an ended one is refused as `proposeMemoRecord` refuses it); agents only (403
+// `agents.not_an_agent`). The comment is `proposed`, with the row's actual and comparison as they are
+// now, and counts for nothing until a person accepts it (`:acceptProposal`) or rejects it
+// (`:rejectProposal`). One proposal per session and row: the same again (same text and citations)
+// answers 200 with it, another is 409 `closing.comment_already_proposed`. Under a lock on the close; a
+// signed-off close whose covered periods are all locked refuses it (409 `closing.close_signed_off`),
+// and once one of them was unlocked it sets the close open again first (PeriodCloseChanged `reopened`,
+// ADR-0058 §7). The figures and the cited entries are ledger data, so besides
+// `closing.variance.propose` the caller needs `ledger.entry.read` (`x-also-permissions`). Audited, and
+// published as VarianceCommentChanged (`proposed`).
+//
+// POST /v1/variance-comment-proposals
+func (c *Client) ProposeVarianceComment(ctx context.Context, request *VarianceCommentProposal, params ProposeVarianceCommentParams) (ProposeVarianceCommentRes, error) {
+	res, err := c.sendProposeVarianceComment(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendProposeVarianceComment(ctx context.Context, request *VarianceCommentProposal, params ProposeVarianceCommentParams) (res ProposeVarianceCommentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("proposeVarianceComment"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/variance-comment-proposals"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ProposeVarianceCommentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/variance-comment-proposals"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeProposeVarianceCommentRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ProposeVarianceCommentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeProposeVarianceCommentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // RealiseMemoRecord invokes realiseMemoRecord operation.
 //
 // Marks an `active` or `expired` memo record `realised` (409 `cash.memo_record_closed`; an agent's
@@ -51859,6 +52821,171 @@ func (c *Client) sendRejectPaymentRun(ctx context.Context, request *ReasonInput,
 
 	stage = "DecodeResponse"
 	result, err := decodeRejectPaymentRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// RejectVarianceComment invokes rejectVarianceComment operation.
+//
+// A person rejects an agent's proposed comment, with a reason (409 `closing.comment_not_proposed` for
+// any other comment) (ADR-0058 §10, T64i). `If-Match` is the comment's ETag. Under a lock on the
+// close; a signed-off close whose covered periods are all locked refuses it (409
+// `closing.close_signed_off`), and once one of them was unlocked it sets the close open again first.
+// People only. Besides `closing.variance.comment` the caller needs `ledger.entry.read`
+// (`x-also-permissions`). Audited, and published as VarianceCommentChanged (`rejected`).
+//
+// POST /v1/variance-comments/{id}:rejectProposal
+func (c *Client) RejectVarianceComment(ctx context.Context, request *ReasonInput, params RejectVarianceCommentParams) (RejectVarianceCommentRes, error) {
+	res, err := c.sendRejectVarianceComment(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendRejectVarianceComment(ctx context.Context, request *ReasonInput, params RejectVarianceCommentParams) (res RejectVarianceCommentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("rejectVarianceComment"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/variance-comments/{id}:rejectProposal"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RejectVarianceCommentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/variance-comments/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":rejectProposal"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeRejectVarianceCommentRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RejectVarianceCommentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRejectVarianceCommentResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
