@@ -40,14 +40,23 @@ func deprSetup(t *testing.T) *deprScenario {
 	t.Helper()
 	e := fixture.NewWith(t, nil, fixture.AssetClasses, "assets.asset.read", "assets.asset.change", "assets.asset.post", "assets.depreciation.run",
 		"ledger.entry.post")
-	a, _ := e.Must(201, "POST", "/v1/assets", fmt.Sprintf(`{"legal_entity_id": %q, "class_code": "MACHINES", "description": "Mill"}`, e.DE), "")
+	s := &deprScenario{e: e, d: &workflows.Depreciations{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Runs: app.Assets(app.Config{}),
+		Actors: identity.Actors{}}}
+	s.machine(t, "Mill")
+	return s
+}
+
+// machine is a machine of company 2000 capitalised at 1,200.00 EUR
+// valued 10 June 2026.
+func (s *deprScenario) machine(t *testing.T, description string) {
+	t.Helper()
+	e := s.e
+	a, _ := e.Must(201, "POST", "/v1/assets", fmt.Sprintf(`{"legal_entity_id": %q, "class_code": "MACHINES", "description": %q}`, e.DE, description), "")
 	je, _ := e.Must(201, "POST", "/v1/journal-entries", fmt.Sprintf(`{"legal_entity_id": %q, "document_date": "2026-06-10", "posting_date": "2026-06-10",
 		"currency": "EUR", "lines": [{"account_id": %q, "amount": {"amount": "1200.00", "currency": "EUR"}},
 		{"account_id": %q, "amount": {"amount": "-1200.00", "currency": "EUR"}}]}`, e.DE, e.Account(t, "2000", "169000"), e.Account(t, "2000", "100000")), "")
 	e.Must(201, "POST", "/v1/asset-acquisitions", fmt.Sprintf(`{"asset_id": %q, "source": {"entry_id": %q, "line_no": 1}, "posting_date": "2026-06-15"}`,
 		a["id"], je["id"]), "")
-	return &deprScenario{e: e, d: &workflows.Depreciations{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Runs: app.Assets(app.Config{}),
-		Actors: identity.Actors{}}}
 }
 
 // start starts the run of the period in the leading ledger.
@@ -292,5 +301,25 @@ func TestDepreciationRunReplay(t *testing.T) {
 	r.RegisterWorkflowWithOptions(workflows.DepreciationRun, sdkworkflow.RegisterOptions{Name: workflows.DepreciationWorkflow})
 	if err := r.ReplayWorkflowHistoryFromJSONFile(nil, filepath.Join("testdata", "depreciation_run_v1.json")); err != nil {
 		t.Fatalf("replay of the version 1 history: %v", err)
+	}
+}
+
+// TestDepreciatorFailsARun: without a workflow engine a run whose period
+// was closed after it started fails at its first batch with the ledger's
+// problem, its later batches left pending.
+func TestDepreciatorFailsARun(t *testing.T) {
+	s := deprSetup(t)
+	s.machine(t, "Lathe")
+	h := app.Assets(app.Config{})
+	h.BatchSize = 1
+	s.d.Runs = h
+	in := s.start(t, 6)
+	s.close(t, 6)
+	w := &workflows.Depreciator{Depreciations: s.d, Log: slog.New(slog.DiscardHandler)}
+	if err := w.Depreciate(context.Background(), in); err != nil {
+		t.Fatalf("the run: got %v, want it failed without an error", err)
+	}
+	if got := deprStateOf(t, in); !strings.HasPrefix(got.Run, "failed/") || got.Batches != "pending pending" {
+		t.Errorf("the run: got %+v, want it failed, both batches pending", got)
 	}
 }
