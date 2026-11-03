@@ -1673,12 +1673,16 @@ leave it open):
   nothing (two decimals), as a snapshot's lines do, rather than 422.
 - **What the lines reveal** (security posture: the rule T53e4 set, not
   widened). `cash.forecast.read` shows a line's day, bank (by code),
-  status, match, posting rule, amount and shares; its statement (id and
-  line number) only to a caller who may use `payments.statement.read`,
-  its payments (id, run and run number, what each paid) only with
-  `payments.run.read`, and their suppliers only with
-  `partner.supplier.read`, each as `authz.MayUse` decides it, read once a
-  page, else left out (`payment_count` counts them all). The product
+  status, match, posting rule, amount and shares; its statement (id, line
+  number, the statement's reference and the line's bank reference, which
+  tell the line at the bank without reading the statement; review round 1)
+  only to a caller who may use `payments.statement.read`, its payments
+  (id, run and run number, what each paid) only with `payments.run.read`,
+  and the suppliers (each payment's own, and once each in `suppliers` for
+  a caller who may not see the payments; review round 1: a line of two
+  payments names who received what) only with `partner.supplier.read`,
+  each as `authz.MayUse` decides it, read once a page, else left out
+  (`payment_count` counts them all). The product
   owner's open question of T53e4 covers these lines too: whether a single
   line's amount and day, unnamed, should need more than
   `cash.forecast.read`.
@@ -1700,7 +1704,9 @@ leave it open):
   of no line), `TestCashActualLinesGated` (barred by a
   segregation-of-duties rule, and not held), `TestCashActualsRefusals`,
   `TestCashActualsTooLarge`, `TestCashActualsOutOfRange`,
-  `TestCashActualsFailures` (every database failure); the walkthrough's
+  `TestCashActualsFailures` (every database failure),
+  `TestCashActualLinesTwoPayments` (a line of two suppliers' payments);
+  the walkthrough's
   step 24: the week of step 8's statement by item, every line matched to
   a payment, and Rita shown the lines without their statements, payments
   or suppliers.

@@ -148,7 +148,8 @@ func (c cashPayments) Actuals(ctx context.Context, legalEntity uuid.UUID, from, 
 	ls, err := c.position.Actuals(ctx, legalEntity, from, to)
 	out := make([]cash.ActualLine, len(ls))
 	for i, l := range ls {
-		out[i] = cash.ActualLine{StatementID: l.StatementID, LineNo: l.LineNo, HouseBankID: l.HouseBankID, Currency: l.Currency, Amount: l.Amount,
+		out[i] = cash.ActualLine{StatementID: l.StatementID, LineNo: l.LineNo, StatementRef: l.StatementRef,
+			BankReference: l.BankReference, HouseBankID: l.HouseBankID, Currency: l.Currency, Amount: l.Amount,
 			ValueDate: l.ValueDate, Status: l.Status, Match: cashMatches[l.Match], PostingRule: l.PostingRule, Payments: cashPaymentsOf(l.Payments)}
 	}
 	return out, err

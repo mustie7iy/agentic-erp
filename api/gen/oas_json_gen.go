@@ -21662,13 +21662,20 @@ func (s *CashActualPayment) encodeFields(e *jx.Encoder) {
 		e.FieldStart("amount")
 		s.Amount.Encode(e)
 	}
+	{
+		if s.Supplier.Set {
+			e.FieldStart("supplier")
+			s.Supplier.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfCashActualPayment = [4]string{
+var jsonFieldsNameOfCashActualPayment = [5]string{
 	0: "payment_id",
 	1: "payment_run_id",
 	2: "payment_run_number",
 	3: "amount",
+	4: "supplier",
 }
 
 // Decode decodes CashActualPayment from json.
@@ -21725,6 +21732,16 @@ func (s *CashActualPayment) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"amount\"")
+			}
+		case "supplier":
+			if err := func() error {
+				s.Supplier.Reset()
+				if err := s.Supplier.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"supplier\"")
 			}
 		default:
 			return d.Skip()
@@ -21910,11 +21927,21 @@ func (s *CashActualStatementLine) encodeFields(e *jx.Encoder) {
 		e.FieldStart("line_no")
 		e.Int32(s.LineNo)
 	}
+	{
+		e.FieldStart("statement_ref")
+		e.Str(s.StatementRef)
+	}
+	{
+		e.FieldStart("bank_reference")
+		e.Str(s.BankReference)
+	}
 }
 
-var jsonFieldsNameOfCashActualStatementLine = [2]string{
+var jsonFieldsNameOfCashActualStatementLine = [4]string{
 	0: "statement_id",
 	1: "line_no",
+	2: "statement_ref",
+	3: "bank_reference",
 }
 
 // Decode decodes CashActualStatementLine from json.
@@ -21950,6 +21977,30 @@ func (s *CashActualStatementLine) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"line_no\"")
 			}
+		case "statement_ref":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.StatementRef = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"statement_ref\"")
+			}
+		case "bank_reference":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Str()
+				s.BankReference = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"bank_reference\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -21960,7 +22011,7 @@ func (s *CashActualStatementLine) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00000011,
+		0b00001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

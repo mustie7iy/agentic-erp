@@ -26,18 +26,22 @@ const (
 // CashActualLine is a bank statement line as the cash actuals read it: its
 // statement and number, house bank and currency, signed amount, value date
 // and status, and what its decided match clears: the payments, in the
-// match's order, or the posting rule's transaction code.
+// match's order, or the posting rule's transaction code. StatementRef is
+// the statement's reference (camt Stmt/Id, MT940 :20:) and BankReference
+// the bank's reference of the line: what tells the line at the bank.
 type CashActualLine struct {
-	StatementID uuid.UUID
-	LineNo      int32
-	HouseBankID uuid.UUID
-	Currency    string
-	Amount      money.Minor
-	ValueDate   time.Time
-	Status      string
-	Match       string
-	PostingRule string
-	Payments    []CashPayment
+	StatementID   uuid.UUID
+	LineNo        int32
+	StatementRef  string
+	BankReference string
+	HouseBankID   uuid.UUID
+	Currency      string
+	Amount        money.Minor
+	ValueDate     time.Time
+	Status        string
+	Match         string
+	PostingRule   string
+	Payments      []CashPayment
 }
 
 // Actuals are the legal entity's bank statement lines whose value date is
@@ -58,7 +62,7 @@ func (c CashPosition) Actuals(ctx context.Context, legalEntity uuid.UUID, from, 
 		rule     *string
 		payments []uuid.UUID
 	}
-	rows, _ := tx.Query(ctx, `SELECT l.statement_id, l.line_no, s.house_bank_id, s.currency, l.amount, l.value_date, l.status, m.status,
+	rows, _ := tx.Query(ctx, `SELECT l.statement_id, l.line_no, s.statement_ref, l.bank_reference, s.house_bank_id, s.currency, l.amount, l.value_date, l.status, m.status,
 			coalesce(t.incoming, false), t.posting_rule, coalesce(t.payments, '{}')
 		FROM payments.bank_statement_line l JOIN payments.bank_statement s ON s.tenant_id = l.tenant_id AND s.id = l.statement_id
 		LEFT JOIN payments.statement_match m ON m.tenant_id = l.tenant_id AND m.statement_id = l.statement_id AND m.line_no = l.line_no
@@ -70,7 +74,7 @@ func (c CashPosition) Actuals(ctx context.Context, legalEntity uuid.UUID, from, 
 		ORDER BY l.value_date, s.house_bank_id, l.statement_id, l.line_no`, legalEntity, from, to)
 	lines, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (lineRow, error) {
 		var l lineRow
-		err := r.Scan(&l.StatementID, &l.LineNo, &l.HouseBankID, &l.Currency, &l.Amount, &l.ValueDate, &l.Status, &l.decided, &l.incoming, &l.rule, &l.payments)
+		err := r.Scan(&l.StatementID, &l.LineNo, &l.StatementRef, &l.BankReference, &l.HouseBankID, &l.Currency, &l.Amount, &l.ValueDate, &l.Status, &l.decided, &l.incoming, &l.rule, &l.payments)
 		return l, errs.Wrapf(err, "scan statement line")
 	})
 	if err != nil {

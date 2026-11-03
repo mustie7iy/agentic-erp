@@ -80,18 +80,23 @@ type ListedActual struct {
 	Suppliers    []PartnerName
 }
 
-// StatementRef is a bank statement's line by its statement and number.
+// StatementRef is a bank statement's line by its statement and number,
+// with the statement's reference and the line's at the bank.
 type StatementRef struct {
-	ID     uuid.UUID
-	LineNo int32
+	ID            uuid.UUID
+	LineNo        int32
+	Reference     string
+	BankReference string
 }
 
-// ListedPayment is a payment a line was matched to, with its run, and
-// what it paid, signed as the line (negative: money out).
+// ListedPayment is a payment a line was matched to, with its run, what
+// it paid, signed as the line (negative: money out), and its supplier (nil
+// for a caller who may not read suppliers).
 type ListedPayment struct {
 	ID, RunID uuid.UUID
 	RunNumber string
 	Amount    money.Minor
+	Supplier  *PartnerName
 }
 
 // keyedActual is a line the page lists, with its share of the item asked
@@ -240,14 +245,19 @@ func shownActual(k keyedActual, names map[uuid.UUID]PartnerName, statements, pay
 		Unclassified: a.unclassified(), Amount: a.Amount, Share: k.share, Shares: a.shares, PaymentCount: len(a.Payments), Payments: []ListedPayment{},
 		Suppliers: []PartnerName{}}
 	if statements {
-		l.Statement = &StatementRef{ID: a.StatementID, LineNo: a.LineNo}
+		l.Statement = &StatementRef{ID: a.StatementID, LineNo: a.LineNo, Reference: a.StatementRef, BankReference: a.BankReference}
 	}
 	var named []uuid.UUID
 	for _, p := range a.Payments {
+		n, ok := names[p.SupplierID]
 		if payments {
-			l.Payments = append(l.Payments, ListedPayment{ID: p.ID, RunID: p.RunID, RunNumber: p.RunNumber, Amount: -p.Amount})
+			lp := ListedPayment{ID: p.ID, RunID: p.RunID, RunNumber: p.RunNumber, Amount: -p.Amount}
+			if ok {
+				lp.Supplier = &n
+			}
+			l.Payments = append(l.Payments, lp)
 		}
-		if n, ok := names[p.SupplierID]; ok && !slices.Contains(named, p.SupplierID) {
+		if ok && !slices.Contains(named, p.SupplierID) {
 			named, l.Suppliers = append(named, p.SupplierID), append(l.Suppliers, n)
 		}
 	}

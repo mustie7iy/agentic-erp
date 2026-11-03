@@ -8093,8 +8093,9 @@ func (*CashActualLinePage) listCashActualLinesRes() {}
 
 type CashActualMatch string
 
-// A payment a statement line was matched to, with its payment run and what it paid, signed as the line
-// (negative: money out).
+// A payment a statement line was matched to, with its payment run, what it paid, signed as the line
+// (negative: money out), and the supplier it paid, given only to a caller who may use
+// `partner.supplier.read`.
 // Ref: #/components/schemas/CashActualPayment
 type CashActualPayment struct {
 	// The payment.
@@ -8102,8 +8103,9 @@ type CashActualPayment struct {
 	// Its payment run.
 	PaymentRunID uuid.UUID `json:"payment_run_id"`
 	// The run's document number.
-	PaymentRunNumber string `json:"payment_run_number"`
-	Amount           Money  `json:"amount"`
+	PaymentRunNumber string         `json:"payment_run_number"`
+	Amount           Money          `json:"amount"`
+	Supplier         OptPartnerName `json:"supplier"`
 }
 
 // GetPaymentID returns the value of PaymentID.
@@ -8126,6 +8128,11 @@ func (s *CashActualPayment) GetAmount() Money {
 	return s.Amount
 }
 
+// GetSupplier returns the value of Supplier.
+func (s *CashActualPayment) GetSupplier() OptPartnerName {
+	return s.Supplier
+}
+
 // SetPaymentID sets the value of PaymentID.
 func (s *CashActualPayment) SetPaymentID(val uuid.UUID) {
 	s.PaymentID = val
@@ -8144,6 +8151,11 @@ func (s *CashActualPayment) SetPaymentRunNumber(val string) {
 // SetAmount sets the value of Amount.
 func (s *CashActualPayment) SetAmount(val Money) {
 	s.Amount = val
+}
+
+// SetSupplier sets the value of Supplier.
+func (s *CashActualPayment) SetSupplier(val OptPartnerName) {
+	s.Supplier = val
 }
 
 // The part of a statement line's amount a liquidity item has.
@@ -8174,14 +8186,19 @@ func (s *CashActualShare) SetAmount(val Money) {
 	s.Amount = val
 }
 
-// The bank statement and line number (`getBankStatement`), for a caller who may use
-// `payments.statement.read`.
+// The bank statement and line (`getBankStatement`), for a caller who may use
+// `payments.statement.read`: the statement's reference and the line's at the bank tell the line
+// without reading the statement.
 // Ref: #/components/schemas/CashActualStatementLine
 type CashActualStatementLine struct {
 	// The bank statement.
 	StatementID uuid.UUID `json:"statement_id"`
 	// The line's number in the statement.
 	LineNo int32 `json:"line_no"`
+	// The statement's reference from the bank (camt `Stmt/Id`, MT940 `:20:`).
+	StatementRef string `json:"statement_ref"`
+	// The bank's reference of the line, as the statement gives it; empty when it gives none.
+	BankReference string `json:"bank_reference"`
 }
 
 // GetStatementID returns the value of StatementID.
@@ -8194,6 +8211,16 @@ func (s *CashActualStatementLine) GetLineNo() int32 {
 	return s.LineNo
 }
 
+// GetStatementRef returns the value of StatementRef.
+func (s *CashActualStatementLine) GetStatementRef() string {
+	return s.StatementRef
+}
+
+// GetBankReference returns the value of BankReference.
+func (s *CashActualStatementLine) GetBankReference() string {
+	return s.BankReference
+}
+
 // SetStatementID sets the value of StatementID.
 func (s *CashActualStatementLine) SetStatementID(val uuid.UUID) {
 	s.StatementID = val
@@ -8202,6 +8229,16 @@ func (s *CashActualStatementLine) SetStatementID(val uuid.UUID) {
 // SetLineNo sets the value of LineNo.
 func (s *CashActualStatementLine) SetLineNo(val int32) {
 	s.LineNo = val
+}
+
+// SetStatementRef sets the value of StatementRef.
+func (s *CashActualStatementLine) SetStatementRef(val string) {
+	s.StatementRef = val
+}
+
+// SetBankReference sets the value of BankReference.
+func (s *CashActualStatementLine) SetBankReference(val string) {
+	s.BankReference = val
 }
 
 // A legal entity's actual cash flows (ADR-0051 §11, T53f2): its bank statement lines by value date,

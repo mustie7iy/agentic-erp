@@ -33262,7 +33262,7 @@ components:
             - value_date: "2026-04-14"
               house_bank_id: 0192a000-0000-7000-8000-000000000b02
               house_bank_code: MAIN
-              statement: {statement_id: 0192a000-0000-7000-8000-000000000c01, line_no: 1}
+              statement: {statement_id: 0192a000-0000-7000-8000-000000000c01, line_no: 1, statement_ref: RBC-1000001-2026-04-14, bank_reference: "0000123"}
               status: posted
               match: payment
               unclassified: false
@@ -33271,7 +33271,7 @@ components:
               shares: [{liquidity_item: OP_SUPPLIERS, amount: {amount: "-800.00", currency: CAD}}]
               payment_count: 1
               payments:
-                - {payment_id: 0192a000-0000-7000-8000-000000000d01, payment_run_id: 0192a000-0000-7000-8000-000000000e01, payment_run_number: "2000000001", amount: {amount: "-800.00", currency: CAD}}
+                - {payment_id: 0192a000-0000-7000-8000-000000000d01, payment_run_id: 0192a000-0000-7000-8000-000000000e01, payment_run_number: "2000000001", amount: {amount: "-800.00", currency: CAD}, supplier: {id: 0192a000-0000-7000-8000-000000000301, number: BP10000001, name: Tyrell Office Supplies}}
               suppliers: [{id: 0192a000-0000-7000-8000-000000000301, number: BP10000001, name: Tyrell Office Supplies}]
     CashActualLine:
       type: object
@@ -33310,11 +33310,13 @@ components:
           readOnly: true
     CashActualStatementLine:
       type: object
-      description: "The bank statement and line number (`getBankStatement`), for a caller who may use `payments.statement.read`."
-      required: [statement_id, line_no]
+      description: "The bank statement and line (`getBankStatement`), for a caller who may use `payments.statement.read`: the statement's reference and the line's at the bank tell the line without reading the statement."
+      required: [statement_id, line_no, statement_ref, bank_reference]
       properties:
         statement_id: {type: string, format: uuid, description: The bank statement., readOnly: true}
         line_no: {type: integer, format: int32, minimum: 1, description: "The line's number in the statement.", readOnly: true}
+        statement_ref: {type: string, description: "The statement's reference from the bank (camt `Stmt/Id`, MT940 `:20:`).", readOnly: true}
+        bank_reference: {type: string, description: "The bank's reference of the line, as the statement gives it; empty when it gives none.", readOnly: true}
     CashActualShare:
       type: object
       description: "The part of a statement line's amount a liquidity item has."
@@ -33324,13 +33326,14 @@ components:
         amount: {$ref: "#/components/schemas/Money"}
     CashActualPayment:
       type: object
-      description: "A payment a statement line was matched to, with its payment run and what it paid, signed as the line (negative: money out)."
+      description: "A payment a statement line was matched to, with its payment run, what it paid, signed as the line (negative: money out), and the supplier it paid, given only to a caller who may use `partner.supplier.read`."
       required: [payment_id, payment_run_id, payment_run_number, amount]
       properties:
         payment_id: {type: string, format: uuid, description: The payment., readOnly: true}
         payment_run_id: {type: string, format: uuid, description: "Its payment run.", readOnly: true}
         payment_run_number: {type: string, description: "The run's document number.", readOnly: true}
         amount: {$ref: "#/components/schemas/Money"}
+        supplier: {$ref: "#/components/schemas/PartnerName"}
     CashPosition:
       type: object
       description: "A legal entity's daily cash position (ADR-0051 §8, T53c): per house bank and per currency first, then the converted total. Amounts are signed: money in the bank is positive, a payment out negative."

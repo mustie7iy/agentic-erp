@@ -277,13 +277,16 @@ func actualLineToAPI(l ListedActual, amount func(money.Minor) gen.Money) gen.Cas
 		Shares: make([]gen.CashActualShare, len(l.Shares)), PaymentCount: int32(l.PaymentCount), Payments: make([]gen.CashActualPayment, len(l.Payments)),
 		Suppliers: make([]gen.PartnerName, len(l.Suppliers))}
 	if s := l.Statement; s != nil {
-		out.Statement.SetTo(gen.CashActualStatementLine{StatementID: s.ID, LineNo: s.LineNo})
+		out.Statement.SetTo(gen.CashActualStatementLine{StatementID: s.ID, LineNo: s.LineNo, StatementRef: s.Reference, BankReference: s.BankReference})
 	}
 	for i, sh := range l.Shares {
 		out.Shares[i] = gen.CashActualShare{LiquidityItem: apitypes.OptText(sh.Item), Amount: amount(sh.Amount)}
 	}
 	for i, p := range l.Payments {
 		out.Payments[i] = gen.CashActualPayment{PaymentID: p.ID, PaymentRunID: p.RunID, PaymentRunNumber: p.RunNumber, Amount: amount(p.Amount)}
+		if s := p.Supplier; s != nil {
+			out.Payments[i].Supplier.SetTo(gen.PartnerName{ID: s.ID, Number: s.Number, Name: s.Name})
+		}
 	}
 	for i, s := range l.Suppliers {
 		out.Suppliers[i] = gen.PartnerName{ID: s.ID, Number: s.Number, Name: s.Name}

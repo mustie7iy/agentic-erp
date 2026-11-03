@@ -275,7 +275,11 @@ func (e actualsEnv) actualLinesOf(t *testing.T, query string, size int) (map[str
 			first = p
 		}
 		for _, it := range p["items"].([]any) {
-			out = append(out, e.actualLineOf(it.(map[string]any)))
+			line := e.actualLineOf(it.(map[string]any))
+			if len(out) > 0 && line[:10] < out[len(out)-1][:10] {
+				t.Errorf("value dates: got %s after %s, want them never earlier", line[:10], out[len(out)-1][:10])
+			}
+			out = append(out, line)
 		}
 		next, _ := p["next_page_token"].(string)
 		if next == "" {
@@ -306,14 +310,18 @@ func (e actualsEnv) actualLineOf(l map[string]any) string {
 				name = n
 			}
 		}
-		pays = append(pays, fmt.Sprintf("%s %v %s", name, pm["payment_run_number"] != "", num(pm["amount"])))
+		supplier := "-"
+		if s, ok := pm["supplier"].(map[string]any); ok {
+			supplier = fmt.Sprint(s["number"])
+		}
+		pays = append(pays, fmt.Sprintf("%s %v %s to %s", name, pm["payment_run_number"] != "", num(pm["amount"]), supplier))
 	}
 	for _, s := range l["suppliers"].([]any) {
 		sups = append(sups, fmt.Sprint(s.(map[string]any)["number"]))
 	}
 	statement := "-"
 	if s, ok := l["statement"].(map[string]any); ok {
-		statement = fmt.Sprint(s["line_no"])
+		statement = fmt.Sprintf("%v(%v,%v)", s["line_no"], s["statement_ref"] != "", s["bank_reference"])
 	}
 	return fmt.Sprintf("%s %s #%s %s %s%v unclassified=%v %s share %s %v; %v of %v; %v", l["value_date"], l["house_bank_code"], statement, l["status"], l["match"],
 		map[bool]string{true: "/" + fmt.Sprint(l["posting_rule"]), false: ""}[l["posting_rule"] != nil], l["unclassified"], amount(l["amount"]), num(l["share"]),
@@ -331,13 +339,13 @@ func TestCashActualLines(t *testing.T) {
 	want(t, "page", fmt.Sprint(p["company_code"], " ", p["from"], " ", p["to"], " ", amount(p["total"]), " ", p["count"], " ", p["unclassified"]),
 		"3000 2026-04-13 2026-04-16 1327.00 CAD 7 false")
 	wantLines := []string{
-		"2026-04-13 MAIN #2 posted payment unclassified=false -800.00 CAD share -800.00 [OP_RENT -500.00 CAPEX -300.00]; [invoice payment true -800.00] of 1; [BP90000051]",
-		"2026-04-14 MAIN #4 posted posting_rule/NCHG unclassified=false -15.00 CAD share -15.00 [BANK_CHARGES -15.00]; [] of 0; []",
-		"2026-04-14 MAIN #3 matched payment unclassified=false -101.00 CAD share -101.00 [TAX -101.00]; [tax payment true -100.00] of 1; [BP90000052]",
-		"2026-04-15 MAIN #5 unmatched unmatched unclassified=true 2000.00 CAD share 2000.00 [REC_CUSTOMERS 2000.00]; [] of 0; []",
-		"2026-04-15 MAIN #6 proposed unmatched unclassified=true -50.00 CAD share -50.00 [OP_SUPPLIERS -50.00]; [] of 0; []",
-		"2026-04-16 MAIN #7 excluded excluded unclassified=false -7.00 CAD share -7.00 [OP_SUPPLIERS -7.00]; [] of 0; []",
-		"2026-04-16 MAIN #8 matched incoming unclassified=false 300.00 CAD share 300.00 [REC_CUSTOMERS 300.00]; [] of 0; []",
+		"2026-04-13 MAIN #2(true,B) posted payment unclassified=false -800.00 CAD share -800.00 [OP_RENT -500.00 CAPEX -300.00]; [invoice payment true -800.00 to BP90000051] of 1; [BP90000051]",
+		"2026-04-14 MAIN #4(true,B) posted posting_rule/NCHG unclassified=false -15.00 CAD share -15.00 [BANK_CHARGES -15.00]; [] of 0; []",
+		"2026-04-14 MAIN #3(true,B) matched payment unclassified=false -101.00 CAD share -101.00 [TAX -101.00]; [tax payment true -100.00 to BP90000052] of 1; [BP90000052]",
+		"2026-04-15 MAIN #5(true,B) unmatched unmatched unclassified=true 2000.00 CAD share 2000.00 [REC_CUSTOMERS 2000.00]; [] of 0; []",
+		"2026-04-15 MAIN #6(true,B) proposed unmatched unclassified=true -50.00 CAD share -50.00 [OP_SUPPLIERS -50.00]; [] of 0; []",
+		"2026-04-16 MAIN #7(true,B) excluded excluded unclassified=false -7.00 CAD share -7.00 [OP_SUPPLIERS -7.00]; [] of 0; []",
+		"2026-04-16 MAIN #8(true,B) matched incoming unclassified=false 300.00 CAD share 300.00 [REC_CUSTOMERS 300.00]; [] of 0; []",
 	}
 	slices.Sort(lines)
 	slices.Sort(wantLines)
@@ -357,7 +365,7 @@ func TestCashActualLines(t *testing.T) {
 	}
 	_, capex := e.actualLinesOf(t, "&currency=CAD&liquidity_item=INVESTING", 50)
 	want(t, "a share of a line", capex, []string{
-		"2026-04-13 MAIN #2 posted payment unclassified=false -800.00 CAD share -300.00 [OP_RENT -500.00 CAPEX -300.00]; [invoice payment true -800.00] of 1; [BP90000051]"})
+		"2026-04-13 MAIN #2(true,B) posted payment unclassified=false -800.00 CAD share -300.00 [OP_RENT -500.00 CAPEX -300.00]; [invoice payment true -800.00 to BP90000051] of 1; [BP90000051]"})
 }
 
 // TestCashActualLinesGated: a caller holding cash.forecast.read alone sees
@@ -496,4 +504,26 @@ func TestCashActualsOutOfRange(t *testing.T) {
 	if _, err := (payments.CashPosition{}).Actuals(context.Background(), e.le, day, day); !errors.Is(err, reqctx.ErrOutsideRequest) {
 		t.Errorf("statement lines outside a unit of work: got %v, want reqctx.ErrOutsideRequest", err)
 	}
+}
+
+// TestCashActualLinesTwoPayments: a line matched to two payments of two
+// suppliers names each payment's supplier, and its amount is shared out
+// over what they settled; without partner.supplier.read the payments are
+// listed without their suppliers.
+func TestCashActualLinesTwoPayments(t *testing.T) {
+	e := actualsEnv{forecastEnv: setupForecast(t, withActuals, actualPerms...), docs: map[string]uuid.UUID{}}
+	a, b := e.NewSupplier(t, "BP90000061"), e.NewSupplier(t, "BP90000062")
+	rent := e.document(t, a, "2026-04-01", -30000, docLine{"530000", 30000, "", ""})
+	equipment := e.document(t, b, "2026-04-01", -10000, docLine{"510000", 10000, "", ""})
+	e.docs["rent payment"] = e.paid(t, a, 30000, map[uuid.UUID]int64{rent: 30000})
+	e.docs["equipment payment"] = e.paid(t, b, 10000, map[uuid.UUID]int64{equipment: 10000})
+	e.cadLines = e.statement(t, e.main, "CAD", "2026-04-14", "2026-04-14", 0, -40000, nil, "imported")
+	e.actualLine(t, e.cadLines, 1, "2026-04-14", -40000, "posted", "matched", target{payments: []uuid.UUID{e.docs["rent payment"], e.docs["equipment payment"]}})
+	_, lines := e.actualLinesOf(t, "&currency=CAD", 50)
+	want(t, "two payments", lines, []string{"2026-04-14 MAIN #1(true,B) posted payment unclassified=false -400.00 CAD share -400.00 [OP_RENT -300.00 CAPEX -100.00];" +
+		" [rent payment true -300.00 to BP90000061 equipment payment true -100.00 to BP90000062] of 2; [BP90000061 BP90000062]"})
+	e.Tenant.Revoke(t, "partner.supplier.read", e.Tenant.Human)
+	_, lines = e.actualLinesOf(t, "&currency=CAD", 50)
+	want(t, "without suppliers", lines, []string{"2026-04-14 MAIN #1(true,B) posted payment unclassified=false -400.00 CAD share -400.00 [OP_RENT -300.00 CAPEX -100.00];" +
+		" [rent payment true -300.00 to - equipment payment true -100.00 to -] of 2; []"})
 }

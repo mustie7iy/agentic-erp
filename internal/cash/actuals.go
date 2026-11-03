@@ -31,22 +31,25 @@ import (
 // and the forecast are, from one database state (x-snapshot).
 
 // ActualLine is a bank statement line as the cash actuals read it: its
-// statement and number, house bank and currency, signed amount, value date
+// statement and number, the statement's reference and the line's at the
+// bank, its house bank and currency, signed amount, value date
 // and status in reconciliation (ADR-0047), and what its decided match
 // clears (Match: MatchPayment, MatchPostingRule, MatchIncoming,
 // MatchExcluded or MatchNone): the payments, or the posting rule's
 // transaction code.
 type ActualLine struct {
-	StatementID uuid.UUID
-	LineNo      int32
-	HouseBankID uuid.UUID
-	Currency    string
-	Amount      money.Minor
-	ValueDate   time.Time
-	Status      string
-	Match       string
-	PostingRule string
-	Payments    []Payment
+	StatementID   uuid.UUID
+	LineNo        int32
+	StatementRef  string
+	BankReference string
+	HouseBankID   uuid.UUID
+	Currency      string
+	Amount        money.Minor
+	ValueDate     time.Time
+	Status        string
+	Match         string
+	PostingRule   string
+	Payments      []Payment
 }
 
 // What classified a statement line.
@@ -260,6 +263,9 @@ func (e *Endpoints) classifyActuals(ctx context.Context, ar actualsRead, legalEn
 // a posting rule the rule's item, else its direction's default; any other
 // line its direction's default.
 func actualShares(d *rules, s *sums, l ActualLine, paying map[uuid.UUID]Paying) ([]Share, error) {
+	// A payment match whose payments are not read (the cash position reads
+	// none its run dropped, and no match can name one) is classified as an
+	// excluded line is, by its direction's default: nothing traces it.
 	if l.Match == MatchPayment && len(l.Payments) > 0 {
 		var parts []part
 		for _, p := range l.Payments {
