@@ -28,7 +28,9 @@ func (e *Endpoints) ListPeriodCloses(ctx context.Context, params gen.ListPeriodC
 		return nil, err
 	}
 	le, year := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[int32](params.FiscalYear)
-	scope := fmt.Sprintf("listPeriodCloses|%s|%v|%s", le, year, params.Status.Value)
+	// The year by its Opt value: a pointer prints its address, which would
+	// bind the token to one request.
+	scope := fmt.Sprintf("listPeriodCloses|%s|%v|%s", le, params.FiscalYear, params.Status.Value)
 	ks, err := e.Pages.Keyset(closeSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err

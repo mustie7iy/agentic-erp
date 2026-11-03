@@ -56,6 +56,16 @@ func taskLine(k map[string]any) string {
 		k["assignee_name"], k["completed_by_name"], k["note"])
 }
 
+// wantFields checks fields of a response, one message per field.
+func wantFields(t *testing.T, what string, got map[string]any, want map[string]any) {
+	t.Helper()
+	for k, w := range want {
+		if got[k] != w {
+			t.Errorf("%s, %s: got %v, want %v", what, k, got[k], w)
+		}
+	}
+}
+
 func wantLines(t *testing.T, what string, got, want []string) {
 	t.Helper()
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -92,19 +102,22 @@ func TestCreatePeriodClose(t *testing.T) {
 		"REPORT 2026-02-09 open overdue=false blocked=[AP_CUTOFF] assignee=<nil> done_by=<nil> note=<nil>",
 	})
 	ledgers := apitest.List(t, got, "ledgers")
-	if len(ledgers) != 1 || ledgers[0].(map[string]any)["ledger_code"] != config.LeadingLedger || ledgers[0].(map[string]any)["period_status"] != "open" {
-		t.Errorf("ledgers of company 1000: got %v, want the leading ledger's open period", ledgers)
+	if len(ledgers) != 1 {
+		t.Fatalf("ledgers of company 1000: got %v, want the leading ledger alone", ledgers)
 	}
+	wantFields(t, "the ledger of company 1000", ledgers[0].(map[string]any), map[string]any{"ledger_code": config.LeadingLedger, "period_status": "open"})
 	id := apitest.String(t, got, "id")
 	read, readTag := c.Must(200, "GET", "/v1/period-closes/"+id, "", "")
-	if readTag != tag || read["tasks_overdue"] != got["tasks_overdue"] {
-		t.Errorf("read back: got %s %v, want %s %v", readTag, read["tasks_overdue"], tag, got["tasks_overdue"])
+	if readTag != tag {
+		t.Errorf("read back's ETag: got %s, want %s", readTag, tag)
 	}
+	wantFields(t, "read back", read, map[string]any{"tasks_overdue": got["tasks_overdue"]})
 
 	events := apitest.Published(t, e.Tenant, outbox.Event{Context: "closing", Name: "period_close_changed"})
-	if len(events) != 1 || events[0]["change"] != "created" || events[0]["period_close_id"] != id || events[0]["task_code"] != nil {
-		t.Errorf("events: got %v, want one created event of the close", events)
+	if len(events) != 1 {
+		t.Fatalf("events: got %v, want one", events)
 	}
+	wantFields(t, "the event", events[0], map[string]any{"change": "created", "period_close_id": id, "task_code": nil})
 
 	cal, _ := c.Must(200, "GET", "/v1/close-calendar?legal_entity_id="+e.US.String()+"&fiscal_year=2026", "", "")
 	row := apitest.List(t, cal, "periods")[0].(map[string]any)
@@ -183,8 +196,8 @@ func TestCreatePeriodCloseRefusals(t *testing.T) {
 	first, _ := open(t, e.Client, e.US, 4, "")
 	r := e.API.Do(apitest.Req{Method: "POST", Path: "/v1/period-closes", Body: body(e.US, 2026, 4, ""), Tenant: e.Tenant.ID, As: e.Tenant.Human,
 		Key: apitest.NewKey()})
-	if got := apitest.JSON(t, r)["code"]; r.Code != http.StatusConflict || got != "closing.close_exists" {
-		t.Errorf("a second close: got %d %v, want 409 closing.close_exists", r.Code, got)
+	if got, want := fmt.Sprintf("%d %v", r.Code, apitest.JSON(t, r)["code"]), fmt.Sprintf("%d closing.close_exists", http.StatusConflict); got != want {
+		t.Errorf("a second close: got %s, want %s", got, want)
 	}
 	if got, want := r.Header().Get("Location"), "/v1/period-closes/"+apitest.String(t, first, "id"); got != want {
 		t.Errorf("a second close's Location: got %q, want %q", got, want)

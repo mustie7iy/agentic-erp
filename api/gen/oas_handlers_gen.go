@@ -33177,9 +33177,10 @@ func (s *Server) handleListClearingsRequest(args [0]string, argsEscaped bool, w 
 // Tasks across the period closes of the legal entities the caller may act in (ADR-0058 §6, T64b): a
 // person's worklist, each task with its close's id and ETag version (`close_version`, the `If-Match`
 // of its actions), company, fiscal year and period. Paged in due date, close and code order.
-// `assignee=me` lists the caller's tasks, a principal's id that principal's. `overdue` and
-// `due_before` judge each task on its company's date at the read in its time zone (`read_date`).
-// Besides `closing.close.read` the caller needs `ledger.entry.read` (`x-also-permissions`).
+// `assignee=me` lists the caller's tasks, a principal's id that principal's. Each item's `overdue` is
+// judged on its company's date at the read in its time zone (`read_date`); `due_before` compares the
+// due date with the day given. Besides `closing.close.read` the caller needs `ledger.entry.read`
+// (`x-also-permissions`).
 //
 // GET /v1/close-tasks
 func (s *Server) handleListCloseTasksRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

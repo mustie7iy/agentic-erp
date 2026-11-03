@@ -55,6 +55,10 @@ func TestListPeriodCloses(t *testing.T) {
 		t.Errorf("a reader of company 2000: got %d closes, want 1", got)
 	}
 	e.Problem(400, "request.invalid_order_by", "GET", "/v1/period-closes?order_by=status", "", "")
+	year, _ := c.Must(200, "GET", "/v1/period-closes?fiscal_year=2026&page_size=2", "", "")
+	yearRest, _ := c.Must(200, "GET", "/v1/period-closes?fiscal_year=2026&page_size=2&page_token="+apitest.String(t, year, "next_page_token"), "", "")
+	wantLines(t, "a year's closes, paged", append(codes(t, year, closeItem), codes(t, yearRest, closeItem)...),
+		[]string{"1000 2026/1 open 0/3 overdue 2", "2000 2026/1 open 0/2 overdue 2", "1000 2026/2 open 0/3 overdue 0"})
 	byCreation, _ := c.Must(200, "GET", "/v1/period-closes?order_by=created_at&page_size=2", "", "")
 	rest, _ := c.Must(200, "GET", "/v1/period-closes?order_by=created_at&page_size=2&page_token="+apitest.String(t, byCreation, "next_page_token"), "", "")
 	wantLines(t, "by creation", append(codes(t, byCreation, closeItem), codes(t, rest, closeItem)...),
@@ -99,8 +103,9 @@ func TestListCloseTasks(t *testing.T) {
 	}
 	mine, _ := c.Must(200, "GET", "/v1/close-tasks?assignee=me", "", "")
 	item := apitest.List(t, mine, "items")[0].(map[string]any)
-	if item["close_id"] != us["id"] || item["close_version"] != 4.0 || item["company_name"] != "Acme Corp US" || item["assignee_name"] == nil {
-		t.Errorf("a task's close: got %v version %v of %v by %v", item["close_id"], item["close_version"], item["company_name"], item["assignee_name"])
+	wantFields(t, "a task of the worklist", item, map[string]any{"close_id": us["id"], "close_version": 4.0, "company_name": "Acme Corp US"})
+	if item["assignee_name"] == nil {
+		t.Errorf("a task of the worklist: got no assignee_name, want the assignee's name")
 	}
 	e.Problem(400, "request.invalid_page_token", "GET", "/v1/close-tasks?assignee=me&page_token="+apitest.String(t, page, "next_page_token"), "", "")
 }

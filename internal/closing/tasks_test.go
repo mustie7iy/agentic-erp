@@ -2,7 +2,6 @@ package closing_test
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -26,25 +25,22 @@ func TestCloseTasks(t *testing.T) {
 	me := fmt.Sprintf(`{"assignee_id": %q}`, e.Tenant.Human.ID)
 
 	task, next := c.Must(200, "PATCH", base+"AP_CUTOFF", me, tag)
-	if next != `"2"` || task["assignee_id"] != e.Tenant.Human.ID.String() || task["close_version"] != 2.0 {
-		t.Errorf("assigned: got %s %v version %v, want \"2\", the caller and version 2", next, task["assignee_id"], task["close_version"])
+	if next != `"2"` {
+		t.Errorf("assigned, ETag: got %s, want \"2\"", next)
 	}
+	wantFields(t, "assigned", task, map[string]any{"assignee_id": e.Tenant.Human.ID.String(), "close_version": 2.0})
 	c.Problem(412, "request.version_mismatch", "PATCH", base+"AP_CUTOFF", me, tag)
 	c.Problem(409, "closing.task_blocked", "POST", base+"REPORT:complete", "", next)
 	task, next = c.Must(200, "POST", base+"AP_CUTOFF:complete", `{"note": "Entered"}`, next)
-	if got := taskLine(task); !strings.HasPrefix(got, "AP_CUTOFF 2026-02-04 done overdue=false blocked=[] assignee=") || !strings.HasSuffix(got, "note=Entered") {
-		t.Errorf("completed: got %q", got)
-	}
-	if task["completed_by"] != e.Tenant.Human.ID.String() || task["completed_at"] == nil || task["completed_by_name"] != task["assignee_name"] {
-		t.Errorf("completed by: got %v %v %v, want the caller, named, and when", task["completed_by"], task["completed_by_name"], task["completed_at"])
+	wantFields(t, "completed", task, map[string]any{"status": "done", "overdue": false, "note": "Entered", "completed_by": e.Tenant.Human.ID.String(),
+		"completed_by_name": task["assignee_name"]})
+	if task["completed_at"] == nil {
+		t.Errorf("completed: got no completed_at, want when")
 	}
 	c.Problem(409, "closing.task_already_done", "POST", base+"AP_CUTOFF:complete", "", next)
 	_, next = c.Must(200, "POST", base+"REPORT:complete", "", next)
 	task, next = c.Must(200, "POST", base+"AP_CUTOFF:reopen", `{"reason": "A late invoice arrived"}`, next)
-	if got := taskLine(task); !strings.HasPrefix(got, "AP_CUTOFF 2026-02-04 open overdue=true blocked=[] assignee=") ||
-		!strings.HasSuffix(got, "done_by=<nil> note=<nil>") {
-		t.Errorf("reopened: got %q", got)
-	}
+	wantFields(t, "reopened", task, map[string]any{"status": "open", "overdue": true, "note": nil, "completed_by": nil, "completed_by_name": nil})
 	c.Problem(409, "closing.task_not_done", "POST", base+"AP_CUTOFF:reopen", `{"reason": "Again"}`, next)
 	task, next = c.Must(200, "PATCH", base+"AP_CUTOFF", `{"assignee_id": null}`, next)
 	if _, ok := task["assignee_id"]; ok {
@@ -60,9 +56,7 @@ func TestCloseTasks(t *testing.T) {
 		"REVIEW 2026-01-30 open overdue=true blocked=[] assignee=<nil> done_by=<nil> note=<nil>",
 		fmt.Sprintf("REPORT 2026-02-09 done overdue=false blocked=[AP_CUTOFF] assignee=<nil> done_by=%s note=<nil>", read["tasks"].([]any)[2].(map[string]any)["completed_by_name"]),
 	})
-	if read["tasks_done"] != 1.0 || read["version"] != 6.0 {
-		t.Errorf("counts: got %v done at version %v, want 1 at 6", read["tasks_done"], read["version"])
-	}
+	wantFields(t, "the close", read, map[string]any{"tasks_done": 1.0, "version": 6.0})
 	var changes []string
 	for _, ev := range apitest.Published(t, e.Tenant, outbox.Event{Context: "closing", Name: "period_close_changed"}) {
 		changes = append(changes, fmt.Sprintf("%v %v %v %v", ev["change"], ev["task_code"], ev["reason"], ev["version"]))
