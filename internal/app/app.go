@@ -286,7 +286,7 @@ func Configuration(cfg Config) configuration.Dependencies {
 			// After the other sections that lock supplier codes: a partner
 			// change takes the planning group lock last too.
 			cash.Setup{}, partner.PlanningGroupCodes{LegalEntities: tenancy.Directory{}},
-			taxfiling.Setup{LegalEntities: tenancy.Directory{}, Keys: cfg.FieldKeys}},
+			taxfiling.Setup{LegalEntities: tenancy.Directory{}, Keys: cfg.FieldKeys}, closing.Setup{Plans: closingPlans{}}},
 		Approvals: opener(),
 		Simulator: configuration.Simulators{payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
 			endpoint.Simulation{Endpoints: analyticsEndpoints(cfg, nil), Now: cfg.Now},

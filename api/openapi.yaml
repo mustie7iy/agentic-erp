@@ -14211,6 +14211,61 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/period-closes/{id}/variances":
+    get:
+      operationId: listPeriodCloseVariances
+      x-slo-class: report
+      tags:
+        - closing
+      summary: List a period close's variances
+      description: "The variance report of a period close (ADR-0058 §9, T64h): one row per profit and loss account of the company's leading ledger with a non-zero actual or comparison, in the company's local currency, debit positive as the trial balance signs it (`GET /v1/balances`). `actual` is the account's net movement in the close's period, exact at the moment of the read; `comparison` is, by `basis`, the net movement of the previous regular period (`prior_period`: period 12 of the previous fiscal year for period 1), of the same period of the previous fiscal year (`prior_year`), or the plan of the company's configured plan category for the period (`plan`: its lines on cost centers or on profit centers, as `companies[].close.variance.plan_centers` says, never both); a comparison period the company has no posting period for compares as zero. `variance` is the actual less the comparison and `variance_percent` the variance in percent of the comparison's absolute value, two places, computed exactly and rounded half away from zero, absent when the comparison is zero. A row `requires_comment` when the variance's absolute value is at least the company's `threshold_amount` and, when a `threshold_percent` is configured and the row has a percent, the percent's absolute value (as shown, two places) is at least it. The bases and thresholds are the active configuration's `companies[].close.variance` (tier 2); a basis the company does not configure is 422 `closing.basis_not_configured`. Rows are in account number order (as the database orders text, byte by byte), cursor-paged; `requires_comment` keeps only the rows that do (`true`) or do not (`false`). `totals` sum the whole report, every row whatever the filter and on every page alike: the actuals summed are the period's profit and loss in the trial balance (a loss positive). Variance comments and the rows they explain are T64i's. A close of a legal entity the caller cannot act in is not found. The figures are ledger amounts, so besides `closing.close.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: closing.close.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - closing.basis_not_configured
+        - config.not_bootstrapped
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: basis
+          in: query
+          required: true
+          description: "What the period is compared against: `prior_period`, `prior_year` or `plan` (required); one of the bases the company configures."
+          schema:
+            type: string
+            description: "Variance basis. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [prior_period, prior_year, plan]
+        - name: requires_comment
+          in: query
+          required: false
+          description: "Only the rows that require a comment (`true`) or that do not (`false`); the totals stay the whole report's."
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the variance report, with its totals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PeriodCloseVariancePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/close-tasks:
     get:
       operationId: listCloseTasks
@@ -34022,6 +34077,243 @@ components:
         summary:
           type: string
           description: "What it found, in one sentence; `:check` on the task records it whole."
+    PeriodCloseVariancePage:
+      type: object
+      description: "One page of a period close's variance report against one basis (ADR-0058 §9), with what it compares and its totals over the whole report."
+      required:
+        - close_id
+        - legal_entity_id
+        - company_code
+        - company_name
+        - fiscal_year
+        - fiscal_period
+        - ledger_id
+        - ledger_code
+        - ledger_name
+        - currency
+        - basis
+        - comparison_fiscal_year
+        - comparison_fiscal_period
+        - threshold_amount
+        - totals
+        - items
+      properties:
+        close_id:
+          type: string
+          format: uuid
+          description: The period close.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The close's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The legal entity's company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The legal entity's name.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: The close's fiscal year.
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          description: The close's period.
+          readOnly: true
+        ledger_id:
+          type: string
+          format: uuid
+          description: "The leading ledger, whose figures the report reads."
+          readOnly: true
+        ledger_code:
+          type: string
+          description: "The leading ledger's code."
+          readOnly: true
+        ledger_name:
+          type: string
+          description: "The leading ledger's name."
+          readOnly: true
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+          description: "The legal entity's local currency, every amount's."
+          readOnly: true
+        basis:
+          type: string
+          description: "What the period is compared against. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [prior_period, prior_year, plan]
+          readOnly: true
+        comparison_fiscal_year:
+          type: integer
+          format: int32
+          description: "The fiscal year compared against: the previous one for `prior_year` (and for `prior_period` of period 1), the close's for the others."
+          readOnly: true
+        comparison_fiscal_period:
+          type: integer
+          format: int32
+          description: "The period compared against: the previous regular period for `prior_period`, the close's own for `prior_year` and `plan`."
+          readOnly: true
+        plan_category_id:
+          type: string
+          format: uuid
+          description: "The plan category compared against; present for `plan` only."
+          readOnly: true
+        plan_category_code:
+          type: string
+          description: "The plan category's code; present for `plan` only."
+          readOnly: true
+        plan_category_name:
+          type: string
+          description: "The plan category's name; present for `plan` only."
+          readOnly: true
+        plan_centers:
+          type: string
+          description: "Which of the category's plan lines are summed, those on cost centers or those on profit centers; present for `plan` only. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [cost, profit]
+          readOnly: true
+        threshold_amount:
+          $ref: "#/components/schemas/Money"
+          description: "The company's amount threshold: a variance of at least this much, either way, requires a comment."
+          readOnly: true
+        threshold_percent:
+          $ref: "#/components/schemas/Decimal"
+          description: "The company's percent threshold, if it configures one: a row with a percent requires a comment only when the percent, either way, is at least this much."
+          readOnly: true
+        totals:
+          $ref: "#/components/schemas/PeriodCloseVarianceTotals"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PeriodCloseVariance"
+          description: The rows on this page, by account number.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - close_id: "0192a000-0000-7000-8000-000000000c01"
+          legal_entity_id: "0192a000-0000-7000-8000-000000000201"
+          company_code: "1000"
+          company_name: Maple Inc.
+          fiscal_year: 2026
+          fiscal_period: 10
+          ledger_id: "0192a000-0000-7000-8000-000000000301"
+          ledger_code: 0L
+          ledger_name: Leading ledger
+          currency: CAD
+          basis: prior_period
+          comparison_fiscal_year: 2026
+          comparison_fiscal_period: 9
+          threshold_amount: {amount: "1000.00", currency: CAD}
+          threshold_percent: "10"
+          totals:
+            actual: {amount: "2500.00", currency: CAD}
+            comparison: {amount: "1200.00", currency: CAD}
+            variance: {amount: "1300.00", currency: CAD}
+            rows: 2
+            rows_requiring_comment: 1
+          items:
+            - account_id: "0192a000-0000-7000-8000-000000000401"
+              account_number: "400000"
+              account_name: Sales revenue
+              actual: {amount: "-500.00", currency: CAD}
+              comparison: {amount: "-800.00", currency: CAD}
+              variance: {amount: "300.00", currency: CAD}
+              variance_percent: "37.50"
+              requires_comment: false
+            - account_id: "0192a000-0000-7000-8000-000000000402"
+              account_number: "6000"
+              account_name: Office supplies
+              actual: {amount: "3000.00", currency: CAD}
+              comparison: {amount: "2000.00", currency: CAD}
+              variance: {amount: "1000.00", currency: CAD}
+              variance_percent: "50.00"
+              requires_comment: true
+    PeriodCloseVarianceTotals:
+      type: object
+      description: "A variance report's totals: every row of the report summed, whatever the filter and on every page alike. The actuals summed are the period's profit and loss in the trial balance, debit positive (a loss positive, a profit negative)."
+      required:
+        - actual
+        - comparison
+        - variance
+        - rows
+        - rows_requiring_comment
+      properties:
+        actual:
+          $ref: "#/components/schemas/Money"
+          description: The rows' actuals summed.
+          readOnly: true
+        comparison:
+          $ref: "#/components/schemas/Money"
+          description: The rows' comparisons summed.
+          readOnly: true
+        variance:
+          $ref: "#/components/schemas/Money"
+          description: "The rows' variances summed: the actual less the comparison."
+          readOnly: true
+        rows:
+          type: integer
+          format: int32
+          minimum: 0
+          description: How many rows the report has.
+          readOnly: true
+        rows_requiring_comment:
+          type: integer
+          format: int32
+          minimum: 0
+          description: How many of them require a comment.
+          readOnly: true
+    PeriodCloseVariance:
+      type: object
+      description: "A row of a variance report: a profit and loss account's actual of the period, its comparison and their variance, in the legal entity's local currency, debit positive."
+      required:
+        - account_id
+        - account_number
+        - account_name
+        - actual
+        - comparison
+        - variance
+        - requires_comment
+      properties:
+        account_id:
+          type: string
+          format: uuid
+          description: The account.
+          readOnly: true
+        account_number:
+          type: string
+          description: "The account's number."
+          readOnly: true
+        account_name:
+          type: string
+          description: "The account's name."
+          readOnly: true
+        actual:
+          $ref: "#/components/schemas/Money"
+          description: "The account's net movement in the close's period in the leading ledger."
+          readOnly: true
+        comparison:
+          $ref: "#/components/schemas/Money"
+          description: "What the basis compares it against: a prior period's net movement, or the plan."
+          readOnly: true
+        variance:
+          $ref: "#/components/schemas/Money"
+          description: The actual less the comparison.
+          readOnly: true
+        variance_percent:
+          $ref: "#/components/schemas/Decimal"
+          description: "The variance in percent of the comparison's absolute value, two places, rounded half away from zero; absent when the comparison is zero."
+          readOnly: true
+        requires_comment:
+          type: boolean
+          description: "Whether the variance reaches the company's thresholds, so that it needs a comment before the close is signed off."
+          readOnly: true
     CloseTaskComplete:
       type: object
       description: "A manual task's completion."

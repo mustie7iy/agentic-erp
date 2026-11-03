@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/nfr"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -66,7 +67,7 @@ func reconBudgetData(t *testing.T) reconEnv {
 	t.Helper()
 	r := reconEnv{parallelEnv: setupParallel(t)}
 	r.T = t
-	project(t)
+	fixture.Project(t)
 	var chart uuid.UUID
 	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT id FROM ledger.chart_of_accounts WHERE tenant_id = $1 AND code = '2000'`, r.ten.ID).Scan(&chart); err != nil {
 		t.Fatalf("read chart 2000: %v", err)

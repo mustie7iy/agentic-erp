@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/nfr"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -63,7 +64,7 @@ func TestCenterBalancesBudget(t *testing.T) {
 func centerBudgetData(t *testing.T) assigned {
 	t.Helper()
 	r := setupAssigned(t)
-	project(t)
+	fixture.Project(t)
 	var chart uuid.UUID
 	pgtest.Scan(t, `SELECT id FROM ledger.chart_of_accounts WHERE tenant_id = $1 AND code = '2000'`, []any{r.ten.ID}, &chart)
 	pgtest.Exec(t, `INSERT INTO ledger.gl_account (tenant_id, id, chart_id, number, name, account_type, cost_element, status, created_by, updated_by)

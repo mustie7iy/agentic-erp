@@ -263,6 +263,7 @@ var operationRolesOidc = map[string][]string{
 	ListPaymentExclusionsOperation:            []string{},
 	ListPaymentRunsOperation:                  []string{},
 	ListPaymentsOperation:                     []string{},
+	ListPeriodCloseVariancesOperation:         []string{},
 	ListPeriodClosesOperation:                 []string{},
 	ListPlanCategoriesOperation:               []string{},
 	ListPlanLinesOperation:                    []string{},

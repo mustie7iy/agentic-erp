@@ -1581,7 +1581,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The variance report: companies[].close.variance (bases prior_period, prior_year, plan; threshold amount and percent; plan category and centers; tier 2); GET /v1/period-closes/{id}/variances per profit and loss account of the leading ledger in local currency (actual, comparison, variance, exact percent, requires_comment, filters, paging by account number, totals over the report); closing.Plans over controlling; closing.basis_not_configured; walkthrough: the variances against the prior period, the flagged rows, the totals equal to the period's profit and loss",
         "r": "ADR-0058 · T64h",
         "src": "adr:ADR-0058",
@@ -1589,7 +1589,7 @@
        },
        {
         "s": "T",
-        "t": "Variance comments: variance_comment and variance_citation; POST /v1/variance-comment-proposals (agents, in session, citations checked: closing.citation_invalid), POST /v1/variance-comments (people), :accept with optional edited text, :reject, superseded, stale when the figures change; check variances_explained; VarianceCommentChanged; closing.variance.propose|comment, ledger.entry.read also; walkthrough: the agent principal proposes a comment citing the entry behind a flagged row, Carla accepts it, the check passes, a citation on another account refused",
+        "t": "Variance comments: variance_comment and variance_citation; POST /v1/variance-comment-proposals (agents, in session, citations checked: closing.citation_invalid), POST /v1/variance-comments (people), :accept with optional edited text, :reject, superseded, stale when the figures change; check variances_explained; VarianceCommentChanged; closing.variance.propose|comment, ledger.entry.read also; walkthrough: the agent principal proposes a comment citing the entry behind a flagged row, Carla accepts it, the check passes, a citation on another account refused; the variance report's row comments (the accepted one with stale, the count proposed), its unexplained filter and its rows explained total (ADR-0058 §9, deferred from T64h, which has no comments to read)",
         "r": "ADR-0058 · T64i",
         "src": "adr:ADR-0058",
         "c": []

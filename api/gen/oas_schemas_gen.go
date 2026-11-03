@@ -12888,6 +12888,7 @@ func (*ConflictHeaders) grantRolePermissionRes()              {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()              {}
 func (*ConflictHeaders) importBankStatementsRes()             {}
 func (*ConflictHeaders) listCloseTasksRes()                   {}
+func (*ConflictHeaders) listPeriodCloseVariancesRes()         {}
 func (*ConflictHeaders) listPeriodClosesRes()                 {}
 func (*ConflictHeaders) listTaxPeriodsRes()                   {}
 func (*ConflictHeaders) listTaxReturnDraftItemsRes()          {}
@@ -26663,6 +26664,22 @@ type ListPaymentsNotFound Problem
 
 func (*ListPaymentsNotFound) listPaymentsRes() {}
 
+type ListPeriodCloseVariancesBadRequest Problem
+
+func (*ListPeriodCloseVariancesBadRequest) listPeriodCloseVariancesRes() {}
+
+type ListPeriodCloseVariancesForbidden Problem
+
+func (*ListPeriodCloseVariancesForbidden) listPeriodCloseVariancesRes() {}
+
+type ListPeriodCloseVariancesNotFound Problem
+
+func (*ListPeriodCloseVariancesNotFound) listPeriodCloseVariancesRes() {}
+
+type ListPeriodCloseVariancesUnprocessableEntity Problem
+
+func (*ListPeriodCloseVariancesUnprocessableEntity) listPeriodCloseVariancesRes() {}
+
 type ListPeriodClosesBadRequest Problem
 
 func (*ListPeriodClosesBadRequest) listPeriodClosesRes() {}
@@ -37882,6 +37899,454 @@ func (s *PeriodCloseSignOffLedger) SetFiscalPeriodID(val uuid.UUID) {
 // SetLocked sets the value of Locked.
 func (s *PeriodCloseSignOffLedger) SetLocked(val bool) {
 	s.Locked = val
+}
+
+// A row of a variance report: a profit and loss account's actual of the period, its comparison and
+// their variance, in the legal entity's local currency, debit positive.
+// Ref: #/components/schemas/PeriodCloseVariance
+type PeriodCloseVariance struct {
+	// The account.
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name.
+	AccountName string `json:"account_name"`
+	// The account's net movement in the close's period in the leading ledger.
+	Actual Money `json:"actual"`
+	// What the basis compares it against: a prior period's net movement, or the plan.
+	Comparison Money `json:"comparison"`
+	// The actual less the comparison.
+	Variance Money `json:"variance"`
+	// The variance in percent of the comparison's absolute value, two places, rounded half away from zero;
+	// absent when the comparison is zero.
+	VariancePercent OptDecimal `json:"variance_percent"`
+	// Whether the variance reaches the company's thresholds, so that it needs a comment before the close
+	// is signed off.
+	RequiresComment bool `json:"requires_comment"`
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *PeriodCloseVariance) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *PeriodCloseVariance) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *PeriodCloseVariance) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetActual returns the value of Actual.
+func (s *PeriodCloseVariance) GetActual() Money {
+	return s.Actual
+}
+
+// GetComparison returns the value of Comparison.
+func (s *PeriodCloseVariance) GetComparison() Money {
+	return s.Comparison
+}
+
+// GetVariance returns the value of Variance.
+func (s *PeriodCloseVariance) GetVariance() Money {
+	return s.Variance
+}
+
+// GetVariancePercent returns the value of VariancePercent.
+func (s *PeriodCloseVariance) GetVariancePercent() OptDecimal {
+	return s.VariancePercent
+}
+
+// GetRequiresComment returns the value of RequiresComment.
+func (s *PeriodCloseVariance) GetRequiresComment() bool {
+	return s.RequiresComment
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *PeriodCloseVariance) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *PeriodCloseVariance) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *PeriodCloseVariance) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetActual sets the value of Actual.
+func (s *PeriodCloseVariance) SetActual(val Money) {
+	s.Actual = val
+}
+
+// SetComparison sets the value of Comparison.
+func (s *PeriodCloseVariance) SetComparison(val Money) {
+	s.Comparison = val
+}
+
+// SetVariance sets the value of Variance.
+func (s *PeriodCloseVariance) SetVariance(val Money) {
+	s.Variance = val
+}
+
+// SetVariancePercent sets the value of VariancePercent.
+func (s *PeriodCloseVariance) SetVariancePercent(val OptDecimal) {
+	s.VariancePercent = val
+}
+
+// SetRequiresComment sets the value of RequiresComment.
+func (s *PeriodCloseVariance) SetRequiresComment(val bool) {
+	s.RequiresComment = val
+}
+
+// One page of a period close's variance report against one basis (ADR-0058 §9), with what it compares
+// and its totals over the whole report.
+// Ref: #/components/schemas/PeriodCloseVariancePage
+type PeriodCloseVariancePage struct {
+	// The period close.
+	CloseID uuid.UUID `json:"close_id"`
+	// The close's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// The legal entity's name.
+	CompanyName string `json:"company_name"`
+	// The close's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The close's period.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The leading ledger, whose figures the report reads.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The leading ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The leading ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// The legal entity's local currency, every amount's.
+	Currency string `json:"currency"`
+	// What the period is compared against. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Basis string `json:"basis"`
+	// The fiscal year compared against: the previous one for `prior_year` (and for `prior_period` of
+	// period 1), the close's for the others.
+	ComparisonFiscalYear int32 `json:"comparison_fiscal_year"`
+	// The period compared against: the previous regular period for `prior_period`, the close's own for
+	// `prior_year` and `plan`.
+	ComparisonFiscalPeriod int32 `json:"comparison_fiscal_period"`
+	// The plan category compared against; present for `plan` only.
+	PlanCategoryID OptUUID `json:"plan_category_id"`
+	// The plan category's code; present for `plan` only.
+	PlanCategoryCode OptString `json:"plan_category_code"`
+	// The plan category's name; present for `plan` only.
+	PlanCategoryName OptString `json:"plan_category_name"`
+	// Which of the category's plan lines are summed, those on cost centers or those on profit centers;
+	// present for `plan` only. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	PlanCenters OptString `json:"plan_centers"`
+	// The company's amount threshold: a variance of at least this much, either way, requires a comment.
+	ThresholdAmount Money `json:"threshold_amount"`
+	// The company's percent threshold, if it configures one: a row with a percent requires a comment only
+	// when the percent, either way, is at least this much.
+	ThresholdPercent OptDecimal                `json:"threshold_percent"`
+	Totals           PeriodCloseVarianceTotals `json:"totals"`
+	// The rows on this page, by account number.
+	Items []PeriodCloseVariance `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetCloseID returns the value of CloseID.
+func (s *PeriodCloseVariancePage) GetCloseID() uuid.UUID {
+	return s.CloseID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *PeriodCloseVariancePage) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *PeriodCloseVariancePage) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *PeriodCloseVariancePage) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *PeriodCloseVariancePage) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *PeriodCloseVariancePage) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *PeriodCloseVariancePage) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *PeriodCloseVariancePage) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *PeriodCloseVariancePage) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetCurrency returns the value of Currency.
+func (s *PeriodCloseVariancePage) GetCurrency() string {
+	return s.Currency
+}
+
+// GetBasis returns the value of Basis.
+func (s *PeriodCloseVariancePage) GetBasis() string {
+	return s.Basis
+}
+
+// GetComparisonFiscalYear returns the value of ComparisonFiscalYear.
+func (s *PeriodCloseVariancePage) GetComparisonFiscalYear() int32 {
+	return s.ComparisonFiscalYear
+}
+
+// GetComparisonFiscalPeriod returns the value of ComparisonFiscalPeriod.
+func (s *PeriodCloseVariancePage) GetComparisonFiscalPeriod() int32 {
+	return s.ComparisonFiscalPeriod
+}
+
+// GetPlanCategoryID returns the value of PlanCategoryID.
+func (s *PeriodCloseVariancePage) GetPlanCategoryID() OptUUID {
+	return s.PlanCategoryID
+}
+
+// GetPlanCategoryCode returns the value of PlanCategoryCode.
+func (s *PeriodCloseVariancePage) GetPlanCategoryCode() OptString {
+	return s.PlanCategoryCode
+}
+
+// GetPlanCategoryName returns the value of PlanCategoryName.
+func (s *PeriodCloseVariancePage) GetPlanCategoryName() OptString {
+	return s.PlanCategoryName
+}
+
+// GetPlanCenters returns the value of PlanCenters.
+func (s *PeriodCloseVariancePage) GetPlanCenters() OptString {
+	return s.PlanCenters
+}
+
+// GetThresholdAmount returns the value of ThresholdAmount.
+func (s *PeriodCloseVariancePage) GetThresholdAmount() Money {
+	return s.ThresholdAmount
+}
+
+// GetThresholdPercent returns the value of ThresholdPercent.
+func (s *PeriodCloseVariancePage) GetThresholdPercent() OptDecimal {
+	return s.ThresholdPercent
+}
+
+// GetTotals returns the value of Totals.
+func (s *PeriodCloseVariancePage) GetTotals() PeriodCloseVarianceTotals {
+	return s.Totals
+}
+
+// GetItems returns the value of Items.
+func (s *PeriodCloseVariancePage) GetItems() []PeriodCloseVariance {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *PeriodCloseVariancePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetCloseID sets the value of CloseID.
+func (s *PeriodCloseVariancePage) SetCloseID(val uuid.UUID) {
+	s.CloseID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *PeriodCloseVariancePage) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *PeriodCloseVariancePage) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *PeriodCloseVariancePage) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *PeriodCloseVariancePage) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *PeriodCloseVariancePage) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *PeriodCloseVariancePage) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *PeriodCloseVariancePage) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *PeriodCloseVariancePage) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *PeriodCloseVariancePage) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetBasis sets the value of Basis.
+func (s *PeriodCloseVariancePage) SetBasis(val string) {
+	s.Basis = val
+}
+
+// SetComparisonFiscalYear sets the value of ComparisonFiscalYear.
+func (s *PeriodCloseVariancePage) SetComparisonFiscalYear(val int32) {
+	s.ComparisonFiscalYear = val
+}
+
+// SetComparisonFiscalPeriod sets the value of ComparisonFiscalPeriod.
+func (s *PeriodCloseVariancePage) SetComparisonFiscalPeriod(val int32) {
+	s.ComparisonFiscalPeriod = val
+}
+
+// SetPlanCategoryID sets the value of PlanCategoryID.
+func (s *PeriodCloseVariancePage) SetPlanCategoryID(val OptUUID) {
+	s.PlanCategoryID = val
+}
+
+// SetPlanCategoryCode sets the value of PlanCategoryCode.
+func (s *PeriodCloseVariancePage) SetPlanCategoryCode(val OptString) {
+	s.PlanCategoryCode = val
+}
+
+// SetPlanCategoryName sets the value of PlanCategoryName.
+func (s *PeriodCloseVariancePage) SetPlanCategoryName(val OptString) {
+	s.PlanCategoryName = val
+}
+
+// SetPlanCenters sets the value of PlanCenters.
+func (s *PeriodCloseVariancePage) SetPlanCenters(val OptString) {
+	s.PlanCenters = val
+}
+
+// SetThresholdAmount sets the value of ThresholdAmount.
+func (s *PeriodCloseVariancePage) SetThresholdAmount(val Money) {
+	s.ThresholdAmount = val
+}
+
+// SetThresholdPercent sets the value of ThresholdPercent.
+func (s *PeriodCloseVariancePage) SetThresholdPercent(val OptDecimal) {
+	s.ThresholdPercent = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *PeriodCloseVariancePage) SetTotals(val PeriodCloseVarianceTotals) {
+	s.Totals = val
+}
+
+// SetItems sets the value of Items.
+func (s *PeriodCloseVariancePage) SetItems(val []PeriodCloseVariance) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *PeriodCloseVariancePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*PeriodCloseVariancePage) listPeriodCloseVariancesRes() {}
+
+// A variance report's totals: every row of the report summed, whatever the filter and on every page
+// alike. The actuals summed are the period's profit and loss in the trial balance, debit positive (a
+// loss positive, a profit negative).
+// Ref: #/components/schemas/PeriodCloseVarianceTotals
+type PeriodCloseVarianceTotals struct {
+	// The rows' actuals summed.
+	Actual Money `json:"actual"`
+	// The rows' comparisons summed.
+	Comparison Money `json:"comparison"`
+	// The rows' variances summed: the actual less the comparison.
+	Variance Money `json:"variance"`
+	// How many rows the report has.
+	Rows int32 `json:"rows"`
+	// How many of them require a comment.
+	RowsRequiringComment int32 `json:"rows_requiring_comment"`
+}
+
+// GetActual returns the value of Actual.
+func (s *PeriodCloseVarianceTotals) GetActual() Money {
+	return s.Actual
+}
+
+// GetComparison returns the value of Comparison.
+func (s *PeriodCloseVarianceTotals) GetComparison() Money {
+	return s.Comparison
+}
+
+// GetVariance returns the value of Variance.
+func (s *PeriodCloseVarianceTotals) GetVariance() Money {
+	return s.Variance
+}
+
+// GetRows returns the value of Rows.
+func (s *PeriodCloseVarianceTotals) GetRows() int32 {
+	return s.Rows
+}
+
+// GetRowsRequiringComment returns the value of RowsRequiringComment.
+func (s *PeriodCloseVarianceTotals) GetRowsRequiringComment() int32 {
+	return s.RowsRequiringComment
+}
+
+// SetActual sets the value of Actual.
+func (s *PeriodCloseVarianceTotals) SetActual(val Money) {
+	s.Actual = val
+}
+
+// SetComparison sets the value of Comparison.
+func (s *PeriodCloseVarianceTotals) SetComparison(val Money) {
+	s.Comparison = val
+}
+
+// SetVariance sets the value of Variance.
+func (s *PeriodCloseVarianceTotals) SetVariance(val Money) {
+	s.Variance = val
+}
+
+// SetRows sets the value of Rows.
+func (s *PeriodCloseVarianceTotals) SetRows(val int32) {
+	s.Rows = val
+}
+
+// SetRowsRequiringComment sets the value of RowsRequiringComment.
+func (s *PeriodCloseVarianceTotals) SetRowsRequiringComment(val int32) {
+	s.RowsRequiringComment = val
 }
 
 type PingWebhookSubscriptionBadRequest Problem
@@ -50530,6 +50995,7 @@ func (*TooManyRequestsHeaders) listPartnerChangesRes()               {}
 func (*TooManyRequestsHeaders) listPaymentExclusionsRes()            {}
 func (*TooManyRequestsHeaders) listPaymentRunsRes()                  {}
 func (*TooManyRequestsHeaders) listPaymentsRes()                     {}
+func (*TooManyRequestsHeaders) listPeriodCloseVariancesRes()         {}
 func (*TooManyRequestsHeaders) listPeriodClosesRes()                 {}
 func (*TooManyRequestsHeaders) listPlanCategoriesRes()               {}
 func (*TooManyRequestsHeaders) listPlanLinesRes()                    {}
@@ -50915,6 +51381,7 @@ func (*UnauthorizedHeaders) listPartnerChangesRes()               {}
 func (*UnauthorizedHeaders) listPaymentExclusionsRes()            {}
 func (*UnauthorizedHeaders) listPaymentRunsRes()                  {}
 func (*UnauthorizedHeaders) listPaymentsRes()                     {}
+func (*UnauthorizedHeaders) listPeriodCloseVariancesRes()         {}
 func (*UnauthorizedHeaders) listPeriodClosesRes()                 {}
 func (*UnauthorizedHeaders) listPlanCategoriesRes()               {}
 func (*UnauthorizedHeaders) listPlanLinesRes()                    {}

@@ -1,10 +1,13 @@
 package config
 
 import (
+	"math/big"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
 // Close is the tenant's close template (ADR-0058 §3): the tasks a
@@ -245,4 +248,112 @@ func reaches(byCode map[string]*CloseTask, from []string, target string, seen ma
 		}
 	}
 	return false
+}
+
+// CompanyClose is how a company's period close works (ADR-0058 §3): the
+// variance report's settings (T64h); nil Variance, no basis configured.
+type CompanyClose struct {
+	Variance *CloseVariance `yaml:"variance,omitempty" json:"variance,omitempty"`
+}
+
+// CloseVariance is a company's variance report (ADR-0058 §9): the bases it
+// compares the period against, and the thresholds from which a row needs a
+// comment: its variance at least ThresholdAmount (local currency, a
+// decimal string) and, when ThresholdPercent is set and the row has a
+// percent, that percent at least it. The plan basis is PlanCategory's
+// amounts summed over its cost center lines or its profit center lines
+// (PlanCenters), never both, since a category may plan both and summing
+// them would count one amount twice.
+type CloseVariance struct {
+	Bases            []string `yaml:"bases" json:"bases"`
+	ThresholdAmount  string   `yaml:"threshold_amount" json:"threshold_amount"`
+	ThresholdPercent string   `yaml:"threshold_percent,omitempty" json:"threshold_percent,omitempty"`
+	PlanCategory     string   `yaml:"plan_category,omitempty" json:"plan_category,omitempty"`
+	PlanCenters      string   `yaml:"plan_centers,omitempty" json:"plan_centers,omitempty"`
+}
+
+// Variance bases (ADR-0058 §9) and the plan's kinds of center.
+const (
+	BasisPriorPeriod  = "prior_period"
+	BasisPriorYear    = "prior_year"
+	BasisPlan         = "plan"
+	PlanCentersCost   = "cost"
+	PlanCentersProfit = "profit"
+)
+
+// VarianceBases are the bases a variance report compares against.
+var VarianceBases = []string{BasisPriorPeriod, BasisPriorYear, BasisPlan}
+
+// planCategoryRe is a plan category's code, as controlling keeps it.
+var planCategoryRe = regexp.MustCompile(`^[0-9A-Z_]{1,10}$`)
+
+// Variance is the company's variance setting for the basis, nil when the
+// basis is not one it is configured for.
+func (co *Company) Variance(basis string) *CloseVariance {
+	if v := co.Close.Variance; v != nil && slices.Contains(v.Bases, basis) {
+		return v
+	}
+	return nil
+}
+
+// companyClose checks a company's close settings: the variance report's
+// bases known and each once, its amount threshold positive in the
+// company's currency, its percent threshold, if any, positive with at
+// most two places (the report's percents have two), and a plan category
+// and kind of center exactly when plan is a basis. Whether the category
+// exists is controlling's, checked by the closing context's section.
+func (v *validator) companyClose(p string, co *Company, exp int, known bool) {
+	cv := co.Close.Variance
+	if cv == nil {
+		return
+	}
+	p += ".close.variance"
+	if len(cv.Bases) == 0 {
+		v.err(p+".bases", "at least one basis: %s", strings.Join(VarianceBases, ", "))
+	}
+	for i, b := range cv.Bases {
+		switch {
+		case !slices.Contains(VarianceBases, b):
+			v.err(p+".bases", "%q is not a basis (%s)", b, strings.Join(VarianceBases, ", "))
+		case slices.Index(cv.Bases, b) < i:
+			v.err(p+".bases", "%s is named twice", b)
+		}
+	}
+	if known {
+		if m, ok := v.amount(p+".threshold_amount", cv.ThresholdAmount, exp); ok && m == 0 {
+			v.err(p+".threshold_amount", "must be more than zero")
+		}
+	}
+	if cv.ThresholdPercent != "" {
+		pct, err := money.ParseDecimalRat(cv.ThresholdPercent)
+		switch {
+		case err != nil:
+			v.err(p+".threshold_percent", "%v", err)
+		case pct.Sign() <= 0:
+			v.err(p+".threshold_percent", "must be more than zero")
+		case !new(big.Rat).Mul(pct, big.NewRat(100, 1)).IsInt():
+			v.err(p+".threshold_percent", "at most two decimal places, as the report's percents have")
+		}
+	}
+	v.variancePlan(p, cv)
+}
+
+// variancePlan checks the plan basis's settings: a category code and cost
+// or profit centers with the basis, neither without it.
+func (v *validator) variancePlan(p string, cv *CloseVariance) {
+	if !slices.Contains(cv.Bases, BasisPlan) {
+		if cv.PlanCategory != "" {
+			v.err(p+".plan_category", "only with the basis plan")
+		}
+		if cv.PlanCenters != "" {
+			v.err(p+".plan_centers", "only with the basis plan")
+		}
+		return
+	}
+	if !planCategoryRe.MatchString(cv.PlanCategory) {
+		v.err(p+".plan_category", "the plan basis names a plan category's code (1-10 upper-case letters, digits or underscores)")
+	}
+	if cv.PlanCenters != PlanCentersCost && cv.PlanCenters != PlanCentersProfit {
+		v.err(p+".plan_centers", "cost or profit: which of the category's plan lines the plan basis sums")
+	}
 }

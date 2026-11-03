@@ -195,3 +195,27 @@ func (m Minor) Abs() Minor {
 	}
 	return m
 }
+
+// PercentOf returns part in percent of whole, part * 100 / whole, as a
+// decimal string of two places computed exactly and rounded half away from
+// zero ("12.35", "-0.40"); a negative result that rounds to zero is "0.00",
+// without a sign. whole must not be zero: a percent of nothing has no
+// value, and callers show none (ADR-0050 §8).
+func PercentOf(part, whole Minor) string {
+	return percent(big.NewInt(int64(part)), big.NewInt(int64(whole)))
+}
+
+// PercentOfMagnitude is PercentOf over whole's absolute value, so the
+// result has part's sign whatever whole's (ADR-0058 §9: a variance in
+// percent of a comparison that may be a credit). whole must not be zero.
+func PercentOfMagnitude(part, whole Minor) string {
+	return percent(big.NewInt(int64(part)), new(big.Int).Abs(big.NewInt(int64(whole))))
+}
+
+func percent(part, whole *big.Int) string {
+	s := new(big.Rat).SetFrac(part.Mul(part, big.NewInt(100)), whole).FloatString(2)
+	if s == "-0.00" {
+		return "0.00"
+	}
+	return s
+}

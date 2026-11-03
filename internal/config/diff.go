@@ -150,6 +150,9 @@ var tierRules = []struct {
 	// (ADR-0058 §3). A company's weekend is its calendar's, operational
 	// by the calendars rule above.
 	{rx(`^close\.tasks\[\*\]\.name$`), TierCosmetic},
+	// A company's variance settings decide which rows of its variance
+	// report need a comment before sign-off and post nothing (ADR-0058 §3).
+	{rx(`^companies\[\*\]\.close\.variance(\.|$)`), TierOperational},
 	{rx(`^close(\.|$)`), TierOperational},
 }
 

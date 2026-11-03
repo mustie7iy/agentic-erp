@@ -217,6 +217,7 @@ const (
 	ListPaymentExclusionsOperation            OperationName = "ListPaymentExclusions"
 	ListPaymentRunsOperation                  OperationName = "ListPaymentRuns"
 	ListPaymentsOperation                     OperationName = "ListPayments"
+	ListPeriodCloseVariancesOperation         OperationName = "ListPeriodCloseVariances"
 	ListPeriodClosesOperation                 OperationName = "ListPeriodCloses"
 	ListPlanCategoriesOperation               OperationName = "ListPlanCategories"
 	ListPlanLinesOperation                    OperationName = "ListPlanLines"

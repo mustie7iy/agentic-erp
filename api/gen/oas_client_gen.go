@@ -1990,6 +1990,33 @@ type Invoker interface {
 	//
 	// GET /v1/payment-runs/{id}/payments
 	ListPayments(ctx context.Context, params ListPaymentsParams) (ListPaymentsRes, error)
+	// ListPeriodCloseVariances invokes listPeriodCloseVariances operation.
+	//
+	// The variance report of a period close (ADR-0058 §9, T64h): one row per profit and loss account of
+	// the company's leading ledger with a non-zero actual or comparison, in the company's local currency,
+	// debit positive as the trial balance signs it (`GET /v1/balances`). `actual` is the account's net
+	// movement in the close's period, exact at the moment of the read; `comparison` is, by `basis`, the
+	// net movement of the previous regular period (`prior_period`: period 12 of the previous fiscal year
+	// for period 1), of the same period of the previous fiscal year (`prior_year`), or the plan of the
+	// company's configured plan category for the period (`plan`: its lines on cost centers or on profit
+	// centers, as `companies[].close.variance.plan_centers` says, never both); a comparison period the
+	// company has no posting period for compares as zero. `variance` is the actual less the comparison and
+	// `variance_percent` the variance in percent of the comparison's absolute value, two places, computed
+	// exactly and rounded half away from zero, absent when the comparison is zero. A row
+	// `requires_comment` when the variance's absolute value is at least the company's `threshold_amount`
+	// and, when a `threshold_percent` is configured and the row has a percent, the percent's absolute
+	// value (as shown, two places) is at least it. The bases and thresholds are the active configuration's
+	// `companies[].close.variance` (tier 2); a basis the company does not configure is 422
+	// `closing.basis_not_configured`. Rows are in account number order (as the database orders text, byte
+	// by byte), cursor-paged; `requires_comment` keeps only the rows that do (`true`) or do not (`false`).
+	// `totals` sum the whole report, every row whatever the filter and on every page alike: the actuals
+	// summed are the period's profit and loss in the trial balance (a loss positive). Variance comments
+	// and the rows they explain are T64i's. A close of a legal entity the caller cannot act in is not
+	// found. The figures are ledger amounts, so besides `closing.close.read` the caller needs
+	// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/period-closes/{id}/variances
+	ListPeriodCloseVariances(ctx context.Context, params ListPeriodCloseVariancesParams) (ListPeriodCloseVariancesRes, error)
 	// ListPeriodCloses invokes listPeriodCloses operation.
 	//
 	// The period closes of the legal entities the caller may act in (ADR-0058 §6, T64b), without their
@@ -39270,6 +39297,228 @@ func (c *Client) sendListPayments(ctx context.Context, params ListPaymentsParams
 
 	stage = "DecodeResponse"
 	result, err := decodeListPaymentsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListPeriodCloseVariances invokes listPeriodCloseVariances operation.
+//
+// The variance report of a period close (ADR-0058 §9, T64h): one row per profit and loss account of
+// the company's leading ledger with a non-zero actual or comparison, in the company's local currency,
+// debit positive as the trial balance signs it (`GET /v1/balances`). `actual` is the account's net
+// movement in the close's period, exact at the moment of the read; `comparison` is, by `basis`, the
+// net movement of the previous regular period (`prior_period`: period 12 of the previous fiscal year
+// for period 1), of the same period of the previous fiscal year (`prior_year`), or the plan of the
+// company's configured plan category for the period (`plan`: its lines on cost centers or on profit
+// centers, as `companies[].close.variance.plan_centers` says, never both); a comparison period the
+// company has no posting period for compares as zero. `variance` is the actual less the comparison and
+// `variance_percent` the variance in percent of the comparison's absolute value, two places, computed
+// exactly and rounded half away from zero, absent when the comparison is zero. A row
+// `requires_comment` when the variance's absolute value is at least the company's `threshold_amount`
+// and, when a `threshold_percent` is configured and the row has a percent, the percent's absolute
+// value (as shown, two places) is at least it. The bases and thresholds are the active configuration's
+// `companies[].close.variance` (tier 2); a basis the company does not configure is 422
+// `closing.basis_not_configured`. Rows are in account number order (as the database orders text, byte
+// by byte), cursor-paged; `requires_comment` keeps only the rows that do (`true`) or do not (`false`).
+// `totals` sum the whole report, every row whatever the filter and on every page alike: the actuals
+// summed are the period's profit and loss in the trial balance (a loss positive). Variance comments
+// and the rows they explain are T64i's. A close of a legal entity the caller cannot act in is not
+// found. The figures are ledger amounts, so besides `closing.close.read` the caller needs
+// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/period-closes/{id}/variances
+func (c *Client) ListPeriodCloseVariances(ctx context.Context, params ListPeriodCloseVariancesParams) (ListPeriodCloseVariancesRes, error) {
+	res, err := c.sendListPeriodCloseVariances(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListPeriodCloseVariances(ctx context.Context, params ListPeriodCloseVariancesParams) (res ListPeriodCloseVariancesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listPeriodCloseVariances"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/period-closes/{id}/variances"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListPeriodCloseVariancesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/period-closes/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/variances"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "basis" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "basis",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.Basis))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "requires_comment" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "requires_comment",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.RequiresComment.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListPeriodCloseVariancesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListPeriodCloseVariancesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

@@ -2683,8 +2683,8 @@ step_asset_acquisitions() {
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
 # the process owner approves; Carla reads the year's close calendar, each
 # period's planned first and last due dates on the company's business days.
-# Then the close's checklist (T64b), its checks (T64c) and, last, its
-# sign-off (T64d), which locks the period.
+# Then the close's checklist (T64b), its checks (T64c), its variances
+# (T64h) and, last, its sign-off (T64d), which locks the period.
 step_close() {
   heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off"
   as ada
@@ -2733,6 +2733,7 @@ step_close() {
     "$(field '[.periods[] | .first_due_on < .end_date and .last_due_on > .end_date] | all')" true
   close_checklist
   close_checks
+  close_variances
   close_sign_off
   passed
 }
@@ -2830,6 +2831,69 @@ close_checks() {
   expect "the task after a passing check" "$(field .status)" done
   QUIET=1 api 200 '' getPeriodClose -p "id=$close"
   expect "every task done" "$(field '.tasks_done == .tasks_total')" true
+}
+
+# close_variances is T64h's part of step_close (ADR-0058 §9): Ada sets the
+# company's variance thresholds through a tier 2 change; Carla reads the
+# period's variances against the prior period, the rows past the
+# thresholds flagged, and its totals, whose actuals are the period's
+# profit and loss in the trial balance; the plan, not configured, is
+# refused.
+close_variances() {
+  local period close base cr request threshold=500 percent=10
+  period=$((10#${TODAY:5:2}))
+  as ada
+  say "Ada proposes $CC's variance settings (ADR-0058 §3): its close compares each profit and loss account with the"
+  say "prior period and the same period of the prior year, and a variance of at least $threshold.00 CAD and $percent %"
+  say "needs a comment before sign-off. They post nothing, so the change is tier 2."
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Variance thresholds\", rationale: \"The close's variance report (T64h)\", base_version: $base,
+    proposed: (.items[0].document | .companies |= map(if .code == \"$CC\" then .close.variance = {bases: [\"prior_period\", \"prior_year\"],
+      threshold_amount: \"$threshold.00\", threshold_percent: \"$percent\"} else . end))}" "$WORK/last.json" >"$WORK/variance.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @variance.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 2
+  request=$(field .workflow_request_id)
+  approve priya "$request" "The variance thresholds, as agreed with the controller"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  as carla
+  accounts
+  QUIET=1 api 200 '' listPeriodCloses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  close=$(field ".items[] | select(.fiscal_period == $period) | .id")
+  say "Carla reads the close's variances against the prior period: per profit and loss account of the leading ledger,"
+  say "the period's net movement in CAD (debit positive), the prior period's, the variance and its percent, flagged"
+  say "where it reaches the thresholds:"
+  api 200 '"\(.company_code) \(.fiscal_year)/\(.fiscal_period) against \(.comparison_fiscal_year)/\(.comparison_fiscal_period), \(.ledger_code), \(.currency):",
+    (.items[] | "  \(.account_number) \(.account_name): \(.actual.amount) against \(.comparison.amount), \(.variance.amount)\(if .variance_percent then " (" + .variance_percent + " %)" else "" end)\(if .requires_comment then ", needs a comment" else "" end)"),
+    "  totals: \(.totals.actual.amount) against \(.totals.comparison.amount), \(.totals.variance.amount); \(.totals.rows) rows, \(.totals.rows_requiring_comment) needing a comment"' \
+    listPeriodCloseVariances -p "id=$close" -p basis=prior_period -p page_size=500
+  expect "a report with rows" "$(field '.totals.rows > 0')" true
+  expect "every row flagged exactly when it reaches the thresholds" \
+    "$(field "[.items[] | ((.variance.amount | tonumber) as \$v | (if \$v < 0 then -\$v else \$v end) >= $threshold
+      and (.variance_percent == null or ((.variance_percent | tonumber) as \$p | (if \$p < 0 then -\$p else \$p end) >= $percent))) == .requires_comment] | all")" true
+  expect "the flagged rows counted" "$(field '[.items[] | select(.requires_comment)] | length')" "$(field .totals.rows_requiring_comment)"
+  local actual comparison flagged
+  actual=$(field '.totals.actual.amount | tonumber * 100 | round')
+  comparison=$(field '.totals.comparison.amount | tonumber * 100 | round')
+  flagged=$(field .totals.rows_requiring_comment)
+  expect "the variance the actual less the comparison" "$(field '.totals.variance.amount | tonumber * 100 | round')" "$((actual - comparison))"
+  local pl
+  pl=$(jq -c '[.items[] | select(.is_balance_sheet | not) | .id]' "$WORK/accounts.json")
+  api 200 "\"  the trial balance's profit and loss of period $period: \\([.items[] | select(.account_id as \$a | $pl | index(\$a)) | (.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)] | add // 0 | . * 100 | round / 100) CAD\"" \
+    listBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "fiscal_period=$period" -p page_size=500
+  expect "the totals' actuals the period's profit and loss in the trial balance" \
+    "$(field "[.items[] | select(.account_id as \$a | $pl | index(\$a)) | (.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)] | add // 0 | . * 100 | round")" "$actual"
+  say "The rows that need a comment alone:"
+  api 200 '(.items[] | "  \(.account_number) \(.account_name): \(.variance.amount)")' \
+    listPeriodCloseVariances -p "id=$close" -p basis=prior_period -p requires_comment=true -p page_size=500
+  expect "the flagged rows" "$(field '.items | length')" "$flagged"
+  expect "the totals still the whole report's" "$(field '.totals.actual.amount | tonumber * 100 | round')" "$actual"
+  say "The plan is no basis $CC configures:"
+  refused 422 closing.basis_not_configured listPeriodCloseVariances -p "id=$close" -p basis=plan
 }
 
 # close_sign_off is T64d's part of step_close, its end (ADR-0058 §7): the
