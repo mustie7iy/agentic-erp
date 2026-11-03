@@ -162,6 +162,14 @@ func TestSimulation(t *testing.T) {
 			t.Errorf("without analytics.query.run: got %v, want 403", err)
 		}
 	})
+	inRequestWith(t, []string{"analytics.query.run", "ledger.entry.read", "audit.chain.verify"}, 0, func(ctx context.Context) {
+		p, _ := reqctx.PrincipalFrom(ctx) // inRequestWith put it there
+		pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
+			VALUES ($1, gen_random_uuid(), 'analytics.query.run', 'audit.chain.verify', 'Run or verify', current_date, $2)`, p.TenantID, p.ID)
+		if err := errOf(sim(reader{}).Simulate(ctx, nil, margin, 0)); problem.From(err).Code != "identity.sod_conflict" {
+			t.Errorf("barred from analytics.query.run: got %v, want 403 identity.sod_conflict", err)
+		}
+	})
 	inRequestWith(t, allPermissions, 0, func(ctx context.Context) {
 		fresh(t, ctx)
 		zero := reader{rows: []wire.Row{{By: []string{"2000", "2026"}, Currency: "EUR", Exponent: 2}}}

@@ -135,6 +135,27 @@ func TestApproveThroughTheAPI(t *testing.T) {
 	}
 }
 
+// TestDecisionBarredBySoD: an approver who holds the object type's
+// approval permission but may not use it, as a segregation-of-duties rule
+// in force pairs it with another permission they hold, may neither approve
+// nor reject (403 identity.sod_conflict, as Authorize answers, ADR-0010 As
+// built 2026-11-02); once the rule is gone the same approver decides.
+func TestDecisionBarredBySoD(t *testing.T) {
+	f := setup(t)
+	r := partnerChange(t, f, "Barred Partner")
+	pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
+		VALUES ($1, gen_random_uuid(), 'partner.change.approve', 'partner.supplier.change', 'Change or approve', current_date, $2)`, f.Tenant.ID, f.Tenant.Human.ID)
+	for _, action := range []string{"approve", "reject"} {
+		t.Run(action, func(t *testing.T) {
+			f.As(f.Approver).Problem(403, "identity.sod_conflict", "POST", path(r, action), `{"comment": "Barred"}`, tag(r))
+		})
+	}
+	pgtest.Exec(t, `DELETE FROM identity.sod_rule WHERE tenant_id = $1`, f.Tenant.ID)
+	if got, _ := f.As(f.Approver).Must(200, "POST", path(r, "approve"), "", tag(r)); got["status"] != "approved" {
+		t.Errorf("status without the rule: got %v, want approved", got["status"])
+	}
+}
+
 // person creates a human holding the roles with the given codes.
 func person(t *testing.T, f fixture.Env, name string, roles ...string) pgtest.Actor {
 	t.Helper()

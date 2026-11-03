@@ -229,6 +229,7 @@ func TestParity(t *testing.T) {
 	}
 	t.Run("endpoint", p.endpoint)
 	t.Run("permissions", p.permissions)
+	t.Run("permissions in read order", p.permissionsInReadOrder)
 	t.Run("metric change", p.metricChange) // last: it activates a configuration version
 	t.Run("not vacuous", func(t *testing.T) {
 		m := model(t)
@@ -304,8 +305,10 @@ func (p parity) endpoint(t *testing.T) {
 }
 
 // permissions: a caller lacking a permission the database path's reads
-// need (the companies, the vendors' names, the accounts' names) is refused
-// by the store exactly as by the database, before any dimension is named.
+// need (the companies, the vendors' names, the accounts' names), or barred
+// from it by a segregation-of-duties rule in force (ADR-0010 As built
+// 2026-11-02), is refused by the store exactly as by the database, before
+// any dimension is named.
 func (p parity) permissions(t *testing.T) {
 	api := apitest.NewWith(t, func(c *app.Config) { c.Analytics = direct{p.r} })
 	queries := map[string]string{
@@ -314,26 +317,82 @@ func (p parity) permissions(t *testing.T) {
 		"orders":   `{"measures": ["purchase_order_value"], "by": ["account_name", "vendor_name"]%s}`,
 	}
 	for _, perm := range []string{"tenancy.org.read", "partner.supplier.read", "ledger.account.read"} {
-		t.Run(perm, func(t *testing.T) {
-			c := apitest.Client{T: t, API: api, Tenant: p.Tenant, As: p.lacking(t, perm)}
-			for name, q := range queries {
-				storeStatus, fromStore, _ := c.Do("POST", "/v1/analytics-queries", fmt.Sprintf(q, ""), "")
-				dbStatus, fromDB, _ := c.Do("POST", "/v1/analytics-queries", fmt.Sprintf(q, `, "as_of": "2999-01-01T00:00:00Z"`), "")
-				// Invoices name no account: the database path reads no chart for them.
-				want := 403
-				if perm == "ledger.account.read" && name == "vendors" {
-					want = 200
+		for how, c := range map[string]struct {
+			as   func(t *testing.T, perm string) pgtest.Actor
+			code string
+		}{"lacking": {p.lacking, "identity.permission_missing"}, "barred": {p.barred, "identity.sod_conflict"}} {
+			t.Run(perm+"/"+how, func(t *testing.T) {
+				cl := apitest.Client{T: t, API: api, Tenant: p.Tenant, As: c.as(t, perm)}
+				for name, q := range queries {
+					storeStatus, fromStore, _ := cl.Do("POST", "/v1/analytics-queries", fmt.Sprintf(q, ""), "")
+					dbStatus, fromDB, _ := cl.Do("POST", "/v1/analytics-queries", fmt.Sprintf(q, `, "as_of": "2999-01-01T00:00:00Z"`), "")
+					// Invoices name no account: the database path reads no chart for them.
+					want, code := 403, c.code
+					if perm == "ledger.account.read" && name == "vendors" {
+						want, code = 200, ""
+					}
+					if storeStatus != want || fromStore["code"] != nilIfEmpty(code) {
+						t.Errorf("%s from the store: got %d %v, want %d %s", name, storeStatus, fromStore, want, code)
+					}
+					if storeStatus != dbStatus || fromStore["code"] != fromDB["code"] || fromStore["detail"] != fromDB["detail"] ||
+						!reflect.DeepEqual(fromStore["rows"], fromDB["rows"]) {
+						t.Errorf("%s: got %d %v from the store and %d %v from the database, want the same", name, storeStatus, fromStore, dbStatus, fromDB)
+					}
 				}
-				if storeStatus != want {
-					t.Errorf("%s from the store: got %d %v, want %d", name, storeStatus, fromStore, want)
-				}
-				if storeStatus != dbStatus || fromStore["code"] != fromDB["code"] || fromStore["detail"] != fromDB["detail"] ||
-					!reflect.DeepEqual(fromStore["rows"], fromDB["rows"]) {
-					t.Errorf("%s: got %d %v from the store and %d %v from the database, want the same", name, storeStatus, fromStore, dbStatus, fromDB)
-				}
-			}
-		})
+			})
+		}
 	}
+}
+
+// permissionsInReadOrder: a caller barred from a permission the database
+// path reads first and lacking one it reads later is refused for the first,
+// by the store as by the database (each read is authorized before the
+// next).
+func (p parity) permissionsInReadOrder(t *testing.T) {
+	api := apitest.NewWith(t, func(c *app.Config) { c.Analytics = direct{p.r} })
+	cl := apitest.Client{T: t, API: api, Tenant: p.Tenant, As: p.barredLacking(t, "tenancy.org.read", "partner.supplier.read")}
+	q := `{"measures": ["invoice_count"], "by": ["vendor_name"]%s}`
+	storeStatus, fromStore, _ := cl.Do("POST", "/v1/analytics-queries", fmt.Sprintf(q, ""), "")
+	dbStatus, fromDB, _ := cl.Do("POST", "/v1/analytics-queries", fmt.Sprintf(q, `, "as_of": "2999-01-01T00:00:00Z"`), "")
+	if storeStatus != 403 || fromStore["code"] != "identity.sod_conflict" {
+		t.Errorf("from the store: got %d %v, want 403 identity.sod_conflict", storeStatus, fromStore)
+	}
+	if storeStatus != dbStatus || fromStore["code"] != fromDB["code"] || fromStore["detail"] != fromDB["detail"] {
+		t.Errorf("got %d %v from the store and %d %v from the database, want the same", storeStatus, fromStore, dbStatus, fromDB)
+	}
+}
+
+// nilIfEmpty is code as a decoded body holds it: absent when "".
+func nilIfEmpty(code string) any {
+	if code == "" {
+		return nil
+	}
+	return code
+}
+
+// barred is a person of every company holding the parity permissions and
+// audit.chain.verify, which a segregation-of-duties rule in force pairs
+// with perm until the test ends. No other person holds audit.chain.verify,
+// so the rule bars this person alone.
+func (p parity) barred(t *testing.T, perm string) pgtest.Actor {
+	t.Helper()
+	return p.barredLacking(t, perm, "")
+}
+
+// barredLacking is barred, lacking the parity permission lacking too.
+func (p parity) barredLacking(t *testing.T, perm, lacking string) pgtest.Actor {
+	t.Helper()
+	a := p.person(t, lacking, nil)
+	pgtest.Exec(t, `INSERT INTO identity.role_permission (tenant_id, id, role_id, permission_code, valid_from, created_by)
+		SELECT tenant_id, gen_random_uuid(), role_id, 'audit.chain.verify', current_date - 1, $2 FROM identity.principal_role WHERE tenant_id = $1 AND principal_id = $2`,
+		p.Tenant.ID, a.ID)
+	rule := uuid.New()
+	pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
+		VALUES ($1, $2, 'audit.chain.verify', $3, 'Read or verify', current_date, $4)`, p.Tenant.ID, rule, perm, a.ID)
+	t.Cleanup(func() {
+		pgtest.Exec(t, `DELETE FROM identity.sod_rule WHERE tenant_id = $1 AND id = $2`, p.Tenant.ID, rule)
+	})
+	return a
 }
 
 // lacking is a person of every company holding the parity permissions but

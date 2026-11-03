@@ -133,6 +133,12 @@ func TestInbox(t *testing.T) {
 		"without the decide permission": noDecide, "without an approval permission": noObject}
 	want := map[string][]uuid.UUID{"approver": {plain}, "approver 2": {plain, twoSteps, barred, own}}
 	s.agrees(t, people, want, []uuid.UUID{plain, twoSteps, barred, rejected, own})
+	// A segregation-of-duties rule barring the object type's approval
+	// permission bars its requests, as the decision refuses them.
+	pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
+		VALUES ($1, gen_random_uuid(), 'partner.supplier.read', 'procurement.requisition.approve', 'object', current_date, $2)`, f.Tenant.ID, f.Tenant.Human.ID)
+	s.agrees(t, map[string]pgtest.Actor{"approver under an object type's rule": f.Approver}, nil, []uuid.UUID{plain, twoSteps})
+	pgtest.Exec(t, `DELETE FROM identity.sod_rule WHERE tenant_id = $1 AND description = 'object'`, f.Tenant.ID)
 	// Holding both permissions of a segregation-of-duties rule bars the
 	// decision itself: nothing is decidable.
 	pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
