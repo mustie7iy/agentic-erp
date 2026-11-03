@@ -9076,6 +9076,13 @@
       "src": "design:07 §7.7",
       "pilot": "po:2026-10-31 · design:07 §7.7",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "The walkthrough reads UTC's day when step 4 asks for the supplier's order desk address, not when the run began (finding of the T57a review): a run crossing 00:00 UTC (19:00 or 20:00 in Toronto) sent the day before as the address's start and was refused partner.backdated_address, since a business partner's dates are judged on the database's day (database.Today, UTC); UTC's day is used nowhere else, and the company's days are Toronto's, which 00:00 UTC does not change",
+      "r": "scripts/walkthrough.sh order_document · scripts/walkthrough/dates.sh utc_day",
+      "src": "review:T57a",
+      "c": []
      }
     ]
    }

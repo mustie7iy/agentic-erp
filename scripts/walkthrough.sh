@@ -40,10 +40,6 @@ PAUSE="${WALKTHROUGH_PAUSE:-0}"
 # shellcheck source=walkthrough/dates.sh
 . "$ROOT/scripts/walkthrough/dates.sh"
 TODAY=$(company_day)
-# UTC_TODAY is the database's day, UTC's: a business partner belongs to no
-# company and so has no zone, and its address may start no earlier than
-# that day (partner.backdated_address, database.Today).
-UTC_TODAY=$(utc_day)
 # A payment run is dated TODAY, the company's day. The migration (step 3)
 # loads the suppliers' bank accounts valid from the day before UTC's
 # (partner.Migration's one-day exemption from the backdating control,
@@ -1157,11 +1153,17 @@ step_procure() {
 # holds no street, and shows the released order's document for Tyrell
 # (T72g, ADR-0054).
 order_document() {
-  local number change
+  local number change utc_today
   number=$(field .document_number)
+  # The address starts on the database's day, UTC's: a business partner
+  # belongs to no company and so has no zone, and its address may start no
+  # earlier than that day (partner.backdated_address, database.Today). It
+  # is read as the change is asked for, not when the run began, so a run
+  # that crosses 00:00 UTC (19:00 or 20:00 in Toronto) asks for that day.
+  utc_today=$(utc_day)
   say "SAP's extract has no street for Tyrell. Ben asks for the address Tyrell takes orders at; Carla, who"
   say "approves supplier master data, approves it."
-  api 201 '"partner change \(.id): \(.status)"' createPartnerChange -body "{\"partner_id\": \"$SUPPLIER\", \"kind\": \"update\", \"reason\": \"Order desk address confirmed by Tyrell\", \"payload\": {\"addresses\": [{\"purpose\": \"order_from\", \"line1\": \"220 King Street West\", \"line2\": \"Order desk, floor 3\", \"city\": \"Toronto\", \"region\": \"ON\", \"postal_code\": \"M5H 1K4\", \"country_code\": \"CA\", \"valid_from\": \"$UTC_TODAY\"}]}}"
+  api 201 '"partner change \(.id): \(.status)"' createPartnerChange -body "{\"partner_id\": \"$SUPPLIER\", \"kind\": \"update\", \"reason\": \"Order desk address confirmed by Tyrell\", \"payload\": {\"addresses\": [{\"purpose\": \"order_from\", \"line1\": \"220 King Street West\", \"line2\": \"Order desk, floor 3\", \"city\": \"Toronto\", \"region\": \"ON\", \"postal_code\": \"M5H 1K4\", \"country_code\": \"CA\", \"valid_from\": \"$utc_today\"}]}}"
   change=$(field .id)
   approve carla "$(field .workflow_request_id)" "Address confirmed"
   as ben
