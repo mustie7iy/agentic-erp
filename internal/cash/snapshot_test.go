@@ -512,7 +512,10 @@ func TestCashSnapshotFailures(t *testing.T) {
 	t.Run("a snapshot of a legal entity the directory does not hold", func(t *testing.T) {
 		pgtest.Exec(t, `INSERT INTO cash.snapshot (tenant_id, id, legal_entity_id, kind, snapshot_date, time_zone, horizon_end, config_version, taken_by)
 			VALUES ($1, $2, $3, 'daily', '2026-04-16', 'UTC', '2027-04-15', 1, $4)`, e.Tenant.ID, uuid.Must(uuid.NewV7()), uuid.New(), cash.SnapshotterActor)
-		err := inRequestAs(func(ctx context.Context) error { _, _, err := endpoints().Snapshots(ctx, cash.SnapshotsQuery{}); return err })
+		err := inRequestAs(func(ctx context.Context) error {
+			_, _, err := endpoints().Snapshots(ctx, cash.SnapshotsQuery{})
+			return err
+		})
 		if err == nil || !strings.Contains(err.Error(), "not held by the tenancy context") {
 			t.Errorf("got %v, want the list refused as broken data", err)
 		}
