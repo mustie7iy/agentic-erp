@@ -129,17 +129,35 @@ func Effective(ctx context.Context) (usable, barred []string, err error) {
 	return usable, barred, nil
 }
 
-// Require checks one permission, for checks beyond the operation's own (for
-// example the approval permission of an object type).
-func Require(ctx context.Context, permission string) error {
+// Require checks permissions beyond the operation's own (for example the
+// approval permission of an object type) as Authorize checks the
+// operation's: each must be held, the first missing in the order given is
+// 403 identity.permission_missing, and one a segregation-of-duties rule in
+// force bars is 403 identity.sod_conflict (ADR-0010 As built 2026-11-02).
+// People, agents and services are held to it alike, as Authorize holds them.
+func Require(ctx context.Context, permissions ...string) error {
+	tx, ok := reqctx.TxFrom(ctx)
+	if !ok {
+		return errOutsideRequest
+	}
+	return holdsAll(ctx, tx, permissions)
+}
+
+// MayUse reports whether the principal may use the permission, as
+// Authorize decides it: held, and not barred by a segregation-of-duties
+// rule in force. It is for a step a missing permission skips rather than
+// refuses, where a 403 would refuse the whole request.
+func MayUse(ctx context.Context, permission string) (bool, error) {
 	set, err := Permissions(ctx)
+	if err != nil || !set[permission] {
+		return false, err
+	}
+	tx, _ := reqctx.TxFrom(ctx) // Permissions found it
+	other, err := barredBy(ctx, tx, permission, set)
 	if err != nil {
-		return err
+		return false, err // fails closed: an unread rule may bar it
 	}
-	if !set[permission] {
-		return problem.Forbidden("identity.permission_missing", "This action requires the permission "+permission+".")
-	}
-	return nil
+	return other == "", nil
 }
 
 // Authorize checks the operation's agent rule, permissions and the
@@ -258,6 +276,17 @@ func atLevel(ctx context.Context, tx pgx.Tx, agent uuid.UUID, need int, what str
 // anyway (rules introduced while grants were already in place, or grants
 // made outside the API).
 func checkSoD(ctx context.Context, tx pgx.Tx, permission string, held map[string]bool) error {
+	other, err := barredBy(ctx, tx, permission, held)
+	if err != nil || other == "" {
+		return err
+	}
+	return problem.Forbidden("identity.sod_conflict",
+		"Segregation of duties: you hold both "+permission+" and "+other+", so you may use neither until one is removed.")
+}
+
+// barredBy is the held permission a segregation-of-duties rule in force
+// pairs with permission, which bars both; "" when none does.
+func barredBy(ctx context.Context, tx pgx.Tx, permission string, held map[string]bool) (string, error) {
 	// CollectRows below returns the query's error.
 	rows, _ := tx.Query(ctx, `SELECT CASE WHEN permission_a = $1 THEN permission_b ELSE permission_a END
 		FROM identity.sod_rule
@@ -265,15 +294,14 @@ func checkSoD(ctx context.Context, tx pgx.Tx, permission string, held map[string
 		  AND current_date >= valid_from AND (valid_to IS NULL OR current_date < valid_to)`, permission)
 	others, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
-		return fmt.Errorf("authz: sod rules: %w", err)
+		return "", fmt.Errorf("authz: sod rules: %w", err)
 	}
 	for _, other := range others {
 		if held[other] {
-			return problem.Forbidden("identity.sod_conflict",
-				"Segregation of duties: you hold both "+permission+" and "+other+", so you may use neither until one is removed.")
+			return other, nil
 		}
 	}
-	return nil
+	return "", nil
 }
 
 // Access is the set of legal entities a principal may act in today.

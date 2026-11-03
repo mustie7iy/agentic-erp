@@ -107,7 +107,7 @@ func TestCompanyAccess(t *testing.T) {
 
 // TestPermissions: a query reads only the fact types its metrics need, so
 // a permission another needs does not refuse it; one it needs and the
-// caller lacks refuses it, as the API's read would.
+// caller lacks, or may not use, refuses it, as the API's read would.
 func TestPermissions(t *testing.T) {
 	e := seeded(t, "ledger.entry.post", "ledger.entry.read", "ledger.account.read", "partner.supplier.read", "tenancy.org.read", "analytics.query.run")
 	res, _ := e.Must(200, "POST", "/v1/analytics-queries", `{"measures": ["revenue"], "by": ["company"]}`, "")
@@ -125,5 +125,15 @@ func TestPermissions(t *testing.T) {
 	blind := seeded(t, "ledger.entry.post", "ledger.entry.read", "ledger.account.read", "partner.supplier.read", "analytics.query.run")
 	if code, body, _ := blind.Do("POST", "/v1/analytics-queries", `{"measures": ["revenue"]}`, ""); code != 403 {
 		t.Errorf("without tenancy.org.read: got %d %v, want the API's 403", code, body)
+	}
+	// A fact type's permission held but barred by a segregation-of-duties
+	// rule in force refuses the query as the API's read would (ADR-0010 As
+	// built 2026-11-02).
+	barred := seeded(t, "ledger.entry.post", "ledger.entry.read", "ledger.account.read", "partner.supplier.read", "tenancy.org.read", "analytics.query.run",
+		"audit.chain.verify")
+	pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
+		VALUES ($1, gen_random_uuid(), 'audit.chain.verify', 'ledger.entry.read', 'Read or verify', current_date, $2)`, barred.Tenant.ID, barred.Tenant.Human.ID)
+	if code, body, _ := barred.Do("POST", "/v1/analytics-queries", `{"measures": ["revenue"]}`, ""); code != 403 || body["code"] != "identity.sod_conflict" {
+		t.Errorf("barred from ledger.entry.read: got %d %v, want 403 identity.sod_conflict", code, body)
 	}
 }

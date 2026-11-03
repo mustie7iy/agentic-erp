@@ -190,9 +190,10 @@ func (e *Endpoints) principalOf(ctx context.Context, access authz.Access, asked 
 }
 
 // datasets are the fact datasets the query's metrics read. A dataset the
-// caller's permissions do not read refuses the query as the API would
-// refuse that read, whichever path answers; one the query does not need is
-// read by neither.
+// caller's permissions do not read, or may not use for a
+// segregation-of-duties rule, refuses the query as the API would refuse
+// that read, whichever path answers; one the query does not need is read
+// by neither.
 func (e *Endpoints) datasets(ctx context.Context, m *analytics.Model, q analytics.Query) ([]string, error) {
 	perms, err := authz.Permissions(ctx)
 	if err != nil {
@@ -204,7 +205,7 @@ func (e *Endpoints) datasets(ctx context.Context, m *analytics.Model, q analytic
 			needed[m.Metric(base).Source] = true
 		}
 	}
-	out := []string{}
+	out, read := []string{}, []string{}
 	for _, f := range analytics.FactDatasets {
 		if !needed[f.Dataset] {
 			continue
@@ -213,6 +214,12 @@ func (e *Endpoints) datasets(ctx context.Context, m *analytics.Model, q analytic
 			return nil, problem.Forbidden("identity.permission_missing", "This query reads "+f.Dataset+", which requires the permission "+f.Permission+".")
 		}
 		out = append(out, f.Dataset)
+		read = append(read, f.Permission)
+	}
+	// A permission held but barred by a segregation-of-duties rule refuses
+	// the query as the API refuses that read (ADR-0010 As built 2026-11-02).
+	if err := authz.Require(ctx, read...); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

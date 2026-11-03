@@ -249,12 +249,105 @@ func TestOutsideARequest(t *testing.T) {
 	}
 }
 
-func TestRequireGrantedPermission(t *testing.T) {
-	ten := pgtest.NewTenant(t, "platform.operation.read")
-	as(t, ten, ten.Human, func(ctx context.Context) {
-		if err := authz.Require(ctx, "platform.operation.read"); err != nil {
-			t.Error(err)
+// TestRequire: Require decides permissions as Authorize does (ADR-0010 As
+// built 2026-11-02): each must be held, the first missing in the order
+// given is reported, and one a segregation-of-duties rule in force bars is
+// refused for a person and an agent alike, while a rule of which the
+// principal holds one side, or one not yet in force, bars nothing.
+func TestRequire(t *testing.T) {
+	ten := pgtest.NewTenant(t, "platform.operation.read", "platform.operation.cancel", "audit.event.read")
+	pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by) VALUES
+		($1, gen_random_uuid(), 'audit.event.read', 'platform.operation.cancel', 'now', current_date, $2),
+		($1, gen_random_uuid(), 'audit.chain.verify', 'platform.operation.read', 'one side', current_date, $2),
+		($1, gen_random_uuid(), 'platform.operation.cancel', 'platform.operation.read', 'later', current_date + 3, $2)`, ten.ID, ten.Human.ID)
+	for name, c := range map[string]struct {
+		permissions []string
+		want        string
+	}{
+		"held":                  {[]string{"platform.operation.read"}, ""},
+		"none":                  {nil, ""},
+		"barred":                {[]string{"audit.event.read"}, "identity.sod_conflict"},
+		"the other side barred": {[]string{"platform.operation.cancel"}, "identity.sod_conflict"},
+		"missing":               {[]string{"audit.chain.verify"}, "identity.permission_missing"},
+		"missing before barred": {[]string{"audit.event.read", "audit.chain.verify"}, "identity.permission_missing"},
+		"one of several barred": {[]string{"platform.operation.read", "audit.event.read"}, "identity.sod_conflict"},
+	} {
+		for _, actor := range []pgtest.Actor{ten.Human, ten.Agent, ten.Service} {
+			t.Run(name+" "+actor.Kind, func(t *testing.T) {
+				as(t, ten, actor, func(ctx context.Context) {
+					got := ""
+					if err := authz.Require(ctx, c.permissions...); err != nil {
+						got = problem.From(err).Code
+					}
+					if got != c.want {
+						t.Errorf("Require(%v): got %q, want %q (empty: allowed)", c.permissions, got, c.want)
+					}
+				})
+			})
 		}
+	}
+	t.Run("the rule is named", func(t *testing.T) {
+		as(t, ten, ten.Human, func(ctx context.Context) {
+			want := "Segregation of duties: you hold both audit.event.read and platform.operation.cancel, so you may use neither until one is removed."
+			if got := problem.From(authz.Require(ctx, "audit.event.read")).Detail; got != want {
+				t.Errorf("detail: got %q, want %q", got, want)
+			}
+		})
+	})
+	for n := 1; n <= 2; n++ {
+		t.Run(fmt.Sprintf("statement %d fails", n), func(t *testing.T) {
+			err := failing(t, ten, n, func(ctx context.Context) error { return authz.Require(ctx, "platform.operation.read") })
+			if !errors.Is(err, pgtest.ErrInjected) {
+				t.Errorf("got %v, want %v", err, pgtest.ErrInjected)
+			}
+		})
+	}
+}
+
+// TestMayUse: a permission may be used when held and barred by no
+// segregation-of-duties rule in force; a failed read of either the
+// permissions or the rules answers false with the error (fails closed).
+func TestMayUse(t *testing.T) {
+	ten := pgtest.NewTenant(t, "platform.operation.read", "platform.operation.cancel", "workflow.request.decide")
+	pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
+		VALUES ($1, gen_random_uuid(), 'platform.operation.cancel', 'workflow.request.decide', 'd', current_date, $2)`, ten.ID, ten.Human.ID)
+	for permission, want := range map[string]bool{"platform.operation.read": true, "platform.operation.cancel": false, "audit.event.read": false} {
+		t.Run(permission, func(t *testing.T) {
+			as(t, ten, ten.Human, func(ctx context.Context) {
+				got, err := authz.MayUse(ctx, permission)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got != want {
+					t.Errorf("MayUse(%s): got %v, want %v", permission, got, want)
+				}
+			})
+		})
+	}
+	for n := 1; n <= 2; n++ {
+		t.Run(fmt.Sprintf("statement %d fails", n), func(t *testing.T) {
+			may := true
+			err := failing(t, ten, n, func(ctx context.Context) (err error) {
+				may, err = authz.MayUse(ctx, "platform.operation.read")
+				return err
+			})
+			if !errors.Is(err, pgtest.ErrInjected) {
+				t.Errorf("got %v, want %v", err, pgtest.ErrInjected)
+			}
+			if may {
+				t.Error("MayUse after a failed read: got true, want false")
+			}
+		})
+	}
+}
+
+// failing runs fn as the tenant's person in a transaction whose nth
+// statement fails.
+func failing(t *testing.T, ten pgtest.Tenant, n int, fn func(ctx context.Context) error) error {
+	t.Helper()
+	return pgtest.Pool(t).InTx(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID, ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+		ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, &pgtest.FailingTx{Tx: tx, FailAt: n}), reqctx.Principal{ID: ten.Human.ID, Kind: "human", TenantID: ten.ID})
+		return fn(ctx)
 	})
 }
 

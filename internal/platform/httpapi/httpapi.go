@@ -133,12 +133,7 @@ func modelRoute(p Pipeline, unit *uow.Middleware, permissions []string) http.Han
 		})
 	}
 	chain := unit.Authenticated(func(ctx context.Context) error {
-		for _, permission := range permissions {
-			if err := authz.Require(ctx, permission); err != nil {
-				return err
-			}
-		}
-		return nil
+		return authz.Require(ctx, permissions...)
 	}, p.Model)
 	if p.Limits != nil {
 		chain = p.Limits.Middleware(chain)
