@@ -124,11 +124,19 @@ func (v *validator) assetClasses(c *Config) {
 
 // notAutomatic refuses an asset reconciliation account wherever the
 // company names an account the system posts to automatically (account
-// determination, tax codes, withholding taxes, foreign-currency valuation,
+// determination, tax codes and their components, withholding taxes, foreign-currency valuation,
 // house banks, statement posting rules): only assets post to it
 // (ADR-0057 §3), so every such posting would be refused.
 func (v *validator) notAutomatic(p string, co *Company) {
-	for _, a := range co.AutomaticAccounts() {
+	uses := co.AutomaticAccounts()
+	// A tax code's components post to their own accounts (T61a), which
+	// AutomaticAccounts lists only in the single-rate form.
+	for _, t := range co.TaxCodes {
+		for _, c := range t.Components {
+			uses = append(uses, AutomaticAccount{Path: "tax_codes[" + t.Code + "].components[" + c.Key + "].account", Account: c.Account})
+		}
+	}
+	for _, a := range uses {
 		if acc := co.Account(a.Account); acc != nil && acc.AssetReconciliation {
 			v.err(p+"."+a.Path, "account %s is an asset reconciliation account, posted only through assets", a.Account)
 		}

@@ -106,6 +106,9 @@ func TestAssetClassesValid(t *testing.T) {
 		{"a clearing account not in the chart", accounts(func(a *AssetAccounts) { a.Clearing = "999999" }), acc + ".clearing"},
 		{"a reconciliation account for a tax code", func(c *Config) { c.Companies[0].TaxCodes[0].Account = "160000" },
 			"companies[1000].tax_codes[" + c0tax + "].account"},
+		{"a reconciliation account for a tax component", func(c *Config) {
+			c.Companies[0].TaxCodes[0].Components = []TaxComponent{{Key: "gst", AccountKey: KeyInput, Account: "160000", Rates: []TaxRate{{RatePercent: "5"}}}}
+		}, "companies[1000].tax_codes[" + c0tax + "].components[gst].account"},
 		{"a reconciliation account as an FX adjustment", func(c *Config) {
 			c.Companies[0].FXValuation.Accounts = []FXValuationAccount{{Account: "211000", Adjustment: "160000", UnrealisedGain: "400000", UnrealisedLoss: "610000"}}
 		}, "companies[1000].fx_valuation.accounts[211000].adjustment"},

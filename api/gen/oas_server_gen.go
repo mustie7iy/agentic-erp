@@ -64,7 +64,9 @@ type Handler interface {
 	// replica's version does not know, which it would ignore (a company's `release_dual_limit`), is
 	// refused: 409 `config.replica_lacks_key`, each such key in `errors` (`field` the key's path, e.g.
 	// `companies[].release_dual_limit`, and the versions lacking it in `message`); activate it once every
-	// replica runs a version that knows the key (ADR-0038).
+	// replica runs a version that knows the key (ADR-0038). An account flagged `asset_reconciliation` that
+	// the chart already has is refused (409 `ledger.asset_reconciliation_not_new`, ADR-0057): only a new
+	// account becomes an asset reconciliation account.
 	//
 	// POST /v1/change-requests/{id}:activate
 	ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (ActivateChangeRequestRes, error)
