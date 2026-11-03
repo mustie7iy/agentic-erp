@@ -14770,6 +14770,267 @@ func decodeGetLiquidityForecastParams(args [0]string, argsEscaped bool, r *http.
 	return params, nil
 }
 
+// GetLiquidityForecastVarianceParams is parameters of getLiquidityForecastVariance operation.
+type GetLiquidityForecastVarianceParams struct {
+	// Legal entity (required).
+	LegalEntityID uuid.UUID
+	// The period's first day.
+	From time.Time
+	// The period's last day: on or after `from`, on or before the company's date (`read_date`) and the
+	// snapshot's `horizon_end`, else 422.
+	To time.Time
+	// How many days before `from` the snapshot compared against was taken: 0, 7 (default) or 30; another
+	// value is 422.
+	Lag OptInt32 `json:",omitempty,omitzero"`
+	// The buckets' length: `day` (default), `week` (seven days) or `month` (to the same day of the next
+	// month, its last day when shorter), from `from`; at most 92 days, 104 weeks or 36 months from `from`
+	// to `to`.
+	Grain OptString `json:",omitempty,omitzero"`
+}
+
+func unpackGetLiquidityForecastVarianceParams(packed middleware.Parameters) (params GetLiquidityForecastVarianceParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "legal_entity_id",
+			In:   "query",
+		}
+		params.LegalEntityID = packed[key].(uuid.UUID)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "from",
+			In:   "query",
+		}
+		params.From = packed[key].(time.Time)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "to",
+			In:   "query",
+		}
+		params.To = packed[key].(time.Time)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "lag",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Lag = v.(OptInt32)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "grain",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Grain = v.(OptString)
+		}
+	}
+	return params
+}
+
+func decodeGetLiquidityForecastVarianceParams(args [0]string, argsEscaped bool, r *http.Request) (params GetLiquidityForecastVarianceParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
+	// Decode query: legal_entity_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.LegalEntityID = c
+				return nil
+			}); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "legal_entity_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: from.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToDate(val)
+				if err != nil {
+					return err
+				}
+
+				params.From = c
+				return nil
+			}); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "from",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: to.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToDate(val)
+				if err != nil {
+					return err
+				}
+
+				params.To = c
+				return nil
+			}); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "to",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Set default value for query: lag.
+	{
+		val := int32(7)
+		params.Lag.SetTo(val)
+	}
+	// Decode query: lag.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "lag",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotLagVal int32
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToInt32(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotLagVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Lag.SetTo(paramsDotLagVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "lag",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: grain.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "grain",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotGrainVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotGrainVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Grain.SetTo(paramsDotGrainVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "grain",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // GetMatchResultParams is parameters of getMatchResult operation.
 type GetMatchResultParams struct {
 	// Resource identifier (UUIDv7).

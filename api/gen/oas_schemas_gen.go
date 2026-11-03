@@ -12269,6 +12269,7 @@ func (*ConflictHeaders) fileTaxReturnRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                {}
 func (*ConflictHeaders) getBankFileContentRes()               {}
 func (*ConflictHeaders) getLegalEntityTodayRes()              {}
+func (*ConflictHeaders) getLiquidityForecastVarianceRes()     {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()         {}
 func (*ConflictHeaders) getTaxReturnDraftRes()                {}
 func (*ConflictHeaders) grantRolePermissionRes()              {}
@@ -19314,6 +19315,22 @@ type GetLiquidityForecastUnprocessableEntity Problem
 
 func (*GetLiquidityForecastUnprocessableEntity) getLiquidityForecastRes() {}
 
+type GetLiquidityForecastVarianceBadRequest Problem
+
+func (*GetLiquidityForecastVarianceBadRequest) getLiquidityForecastVarianceRes() {}
+
+type GetLiquidityForecastVarianceForbidden Problem
+
+func (*GetLiquidityForecastVarianceForbidden) getLiquidityForecastVarianceRes() {}
+
+type GetLiquidityForecastVarianceNotFound Problem
+
+func (*GetLiquidityForecastVarianceNotFound) getLiquidityForecastVarianceRes() {}
+
+type GetLiquidityForecastVarianceUnprocessableEntity Problem
+
+func (*GetLiquidityForecastVarianceUnprocessableEntity) getLiquidityForecastVarianceRes() {}
+
 type GetMatchResultBadRequest Problem
 
 func (*GetMatchResultBadRequest) getMatchResultRes() {}
@@ -25991,6 +26008,631 @@ func (s *LiquidityForecastOpening) SetGap(val bool) {
 	s.Gap = val
 }
 
+// A legal entity's forecast variance over a period (ADR-0051 §11, T53f3): the forecast of a snapshot
+// against the bank statements' actuals, per currency, liquidity item and bucket, attributed within the
+// days the snapshot keeps per document. Amounts are signed as the flows: money into the bank positive,
+// a payment out negative; the variance is the actual less the forecast.
+// Ref: #/components/schemas/LiquidityForecastVariance
+type LiquidityForecastVariance struct {
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// The company's date when the variance was read, in `time_zone`.
+	ReadDate time.Time `json:"read_date"`
+	// The IANA time zone the read date is in.
+	TimeZone string `json:"time_zone"`
+	// The period's first day.
+	From time.Time `json:"from"`
+	// The period's last day.
+	To time.Time `json:"to"`
+	// How many days before `from` the snapshot was taken.
+	Lag int32 `json:"lag"`
+	// The buckets' length. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Grain    string                            `json:"grain"`
+	Snapshot LiquidityForecastVarianceSnapshot `json:"snapshot"`
+	// The attributed columns: periods of `grain` from `from`, the last ending on `to` or on the snapshot's
+	// `document_level_until`, whichever is first.
+	Buckets []LiquidityForecastBucket          `json:"buckets"`
+	Beyond  OptLiquidityForecastVariancePeriod `json:"beyond"`
+	// Per currency of a flow forecast or paid in the days compared, by currency code.
+	Currencies []LiquidityForecastVarianceCurrency `json:"currencies"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *LiquidityForecastVariance) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *LiquidityForecastVariance) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *LiquidityForecastVariance) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *LiquidityForecastVariance) GetTimeZone() string {
+	return s.TimeZone
+}
+
+// GetFrom returns the value of From.
+func (s *LiquidityForecastVariance) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *LiquidityForecastVariance) GetTo() time.Time {
+	return s.To
+}
+
+// GetLag returns the value of Lag.
+func (s *LiquidityForecastVariance) GetLag() int32 {
+	return s.Lag
+}
+
+// GetGrain returns the value of Grain.
+func (s *LiquidityForecastVariance) GetGrain() string {
+	return s.Grain
+}
+
+// GetSnapshot returns the value of Snapshot.
+func (s *LiquidityForecastVariance) GetSnapshot() LiquidityForecastVarianceSnapshot {
+	return s.Snapshot
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *LiquidityForecastVariance) GetBuckets() []LiquidityForecastBucket {
+	return s.Buckets
+}
+
+// GetBeyond returns the value of Beyond.
+func (s *LiquidityForecastVariance) GetBeyond() OptLiquidityForecastVariancePeriod {
+	return s.Beyond
+}
+
+// GetCurrencies returns the value of Currencies.
+func (s *LiquidityForecastVariance) GetCurrencies() []LiquidityForecastVarianceCurrency {
+	return s.Currencies
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *LiquidityForecastVariance) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *LiquidityForecastVariance) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *LiquidityForecastVariance) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *LiquidityForecastVariance) SetTimeZone(val string) {
+	s.TimeZone = val
+}
+
+// SetFrom sets the value of From.
+func (s *LiquidityForecastVariance) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *LiquidityForecastVariance) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetLag sets the value of Lag.
+func (s *LiquidityForecastVariance) SetLag(val int32) {
+	s.Lag = val
+}
+
+// SetGrain sets the value of Grain.
+func (s *LiquidityForecastVariance) SetGrain(val string) {
+	s.Grain = val
+}
+
+// SetSnapshot sets the value of Snapshot.
+func (s *LiquidityForecastVariance) SetSnapshot(val LiquidityForecastVarianceSnapshot) {
+	s.Snapshot = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *LiquidityForecastVariance) SetBuckets(val []LiquidityForecastBucket) {
+	s.Buckets = val
+}
+
+// SetBeyond sets the value of Beyond.
+func (s *LiquidityForecastVariance) SetBeyond(val OptLiquidityForecastVariancePeriod) {
+	s.Beyond = val
+}
+
+// SetCurrencies sets the value of Currencies.
+func (s *LiquidityForecastVariance) SetCurrencies(val []LiquidityForecastVarianceCurrency) {
+	s.Currencies = val
+}
+
+func (*LiquidityForecastVariance) getLiquidityForecastVarianceRes() {}
+
+// The variance by its cause (ADR-0051 §11); the five add up to the variance: `timing`, documents
+// forecast in one bucket and paid in another (a run moved, a discount not taken); `amount`, documents
+// paid in the bucket they were forecast in at another amount (a discount, a partial payment, a bank
+// charge); `new`, statement lines paying nothing the snapshot forecast (an invoice posted after it, an
+// unforecast receipt); `missing`, documents forecast and not paid (blocked later, a memo record not
+// realised); `unclassified`, statement lines with no decided match that pay nothing the snapshot
+// forecast.
+// Ref: #/components/schemas/LiquidityForecastVarianceAttribution
+type LiquidityForecastVarianceAttribution struct {
+	Timing       Money `json:"timing"`
+	Amount       Money `json:"amount"`
+	New          Money `json:"new"`
+	Missing      Money `json:"missing"`
+	Unclassified Money `json:"unclassified"`
+}
+
+// GetTiming returns the value of Timing.
+func (s *LiquidityForecastVarianceAttribution) GetTiming() Money {
+	return s.Timing
+}
+
+// GetAmount returns the value of Amount.
+func (s *LiquidityForecastVarianceAttribution) GetAmount() Money {
+	return s.Amount
+}
+
+// GetNew returns the value of New.
+func (s *LiquidityForecastVarianceAttribution) GetNew() Money {
+	return s.New
+}
+
+// GetMissing returns the value of Missing.
+func (s *LiquidityForecastVarianceAttribution) GetMissing() Money {
+	return s.Missing
+}
+
+// GetUnclassified returns the value of Unclassified.
+func (s *LiquidityForecastVarianceAttribution) GetUnclassified() Money {
+	return s.Unclassified
+}
+
+// SetTiming sets the value of Timing.
+func (s *LiquidityForecastVarianceAttribution) SetTiming(val Money) {
+	s.Timing = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *LiquidityForecastVarianceAttribution) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetNew sets the value of New.
+func (s *LiquidityForecastVarianceAttribution) SetNew(val Money) {
+	s.New = val
+}
+
+// SetMissing sets the value of Missing.
+func (s *LiquidityForecastVarianceAttribution) SetMissing(val Money) {
+	s.Missing = val
+}
+
+// SetUnclassified sets the value of Unclassified.
+func (s *LiquidityForecastVarianceAttribution) SetUnclassified(val Money) {
+	s.Unclassified = val
+}
+
+// A bucket's figures, or the buckets' together, with the variance attributed.
+// Ref: #/components/schemas/LiquidityForecastVarianceCell
+type LiquidityForecastVarianceCell struct {
+	Forecast Money `json:"forecast"`
+	Actual   Money `json:"actual"`
+	Variance Money `json:"variance"`
+	// The variance's size in percent of the forecast's size (absolute), two decimals, rounded half away
+	// from zero; absent when the forecast is zero.
+	VariancePercent OptDecimal                           `json:"variance_percent"`
+	Attribution     LiquidityForecastVarianceAttribution `json:"attribution"`
+}
+
+// GetForecast returns the value of Forecast.
+func (s *LiquidityForecastVarianceCell) GetForecast() Money {
+	return s.Forecast
+}
+
+// GetActual returns the value of Actual.
+func (s *LiquidityForecastVarianceCell) GetActual() Money {
+	return s.Actual
+}
+
+// GetVariance returns the value of Variance.
+func (s *LiquidityForecastVarianceCell) GetVariance() Money {
+	return s.Variance
+}
+
+// GetVariancePercent returns the value of VariancePercent.
+func (s *LiquidityForecastVarianceCell) GetVariancePercent() OptDecimal {
+	return s.VariancePercent
+}
+
+// GetAttribution returns the value of Attribution.
+func (s *LiquidityForecastVarianceCell) GetAttribution() LiquidityForecastVarianceAttribution {
+	return s.Attribution
+}
+
+// SetForecast sets the value of Forecast.
+func (s *LiquidityForecastVarianceCell) SetForecast(val Money) {
+	s.Forecast = val
+}
+
+// SetActual sets the value of Actual.
+func (s *LiquidityForecastVarianceCell) SetActual(val Money) {
+	s.Actual = val
+}
+
+// SetVariance sets the value of Variance.
+func (s *LiquidityForecastVarianceCell) SetVariance(val Money) {
+	s.Variance = val
+}
+
+// SetVariancePercent sets the value of VariancePercent.
+func (s *LiquidityForecastVarianceCell) SetVariancePercent(val OptDecimal) {
+	s.VariancePercent = val
+}
+
+// SetAttribution sets the value of Attribution.
+func (s *LiquidityForecastVarianceCell) SetAttribution(val LiquidityForecastVarianceAttribution) {
+	s.Attribution = val
+}
+
+// The variance of one currency: per bucket, in the buckets' order, over them, beyond them, and by
+// liquidity item and its hierarchy.
+// Ref: #/components/schemas/LiquidityForecastVarianceCurrency
+type LiquidityForecastVarianceCurrency struct {
+	// The currency (ISO 4217).
+	Currency string `json:"currency"`
+	// One per bucket, in the same order.
+	Buckets []LiquidityForecastVarianceCell     `json:"buckets"`
+	Total   LiquidityForecastVarianceCell       `json:"total"`
+	Beyond  OptLiquidityForecastVarianceFigures `json:"beyond"`
+	// The rows by liquidity item, depth first: each item followed by its children, siblings by code, an
+	// item listed when it or a descendant has a forecast or actual share; the row of what no rule assigns
+	// and no default covers (without `liquidity_item`) last. The top rows (`level` 0) add up to the
+	// currency's figures. A snapshot's items are those of the configuration it was taken with
+	// (`config_version`); the hierarchy and names are today's, an item no longer configured a top row
+	// without a name.
+	Items []LiquidityForecastVarianceItem `json:"items"`
+}
+
+// GetCurrency returns the value of Currency.
+func (s *LiquidityForecastVarianceCurrency) GetCurrency() string {
+	return s.Currency
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *LiquidityForecastVarianceCurrency) GetBuckets() []LiquidityForecastVarianceCell {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *LiquidityForecastVarianceCurrency) GetTotal() LiquidityForecastVarianceCell {
+	return s.Total
+}
+
+// GetBeyond returns the value of Beyond.
+func (s *LiquidityForecastVarianceCurrency) GetBeyond() OptLiquidityForecastVarianceFigures {
+	return s.Beyond
+}
+
+// GetItems returns the value of Items.
+func (s *LiquidityForecastVarianceCurrency) GetItems() []LiquidityForecastVarianceItem {
+	return s.Items
+}
+
+// SetCurrency sets the value of Currency.
+func (s *LiquidityForecastVarianceCurrency) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *LiquidityForecastVarianceCurrency) SetBuckets(val []LiquidityForecastVarianceCell) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *LiquidityForecastVarianceCurrency) SetTotal(val LiquidityForecastVarianceCell) {
+	s.Total = val
+}
+
+// SetBeyond sets the value of Beyond.
+func (s *LiquidityForecastVarianceCurrency) SetBeyond(val OptLiquidityForecastVarianceFigures) {
+	s.Beyond = val
+}
+
+// SetItems sets the value of Items.
+func (s *LiquidityForecastVarianceCurrency) SetItems(val []LiquidityForecastVarianceItem) {
+	s.Items = val
+}
+
+// What was forecast and what was actual over some days, and the variance (the actual less the
+// forecast); present beyond the document level only when the variance has `beyond`.
+// Ref: #/components/schemas/LiquidityForecastVarianceFigures
+type LiquidityForecastVarianceFigures struct {
+	Forecast Money `json:"forecast"`
+	Actual   Money `json:"actual"`
+	Variance Money `json:"variance"`
+	// The variance's size in percent of the forecast's size (absolute), two decimals, rounded half away
+	// from zero; absent when the forecast is zero.
+	VariancePercent OptDecimal `json:"variance_percent"`
+}
+
+// GetForecast returns the value of Forecast.
+func (s *LiquidityForecastVarianceFigures) GetForecast() Money {
+	return s.Forecast
+}
+
+// GetActual returns the value of Actual.
+func (s *LiquidityForecastVarianceFigures) GetActual() Money {
+	return s.Actual
+}
+
+// GetVariance returns the value of Variance.
+func (s *LiquidityForecastVarianceFigures) GetVariance() Money {
+	return s.Variance
+}
+
+// GetVariancePercent returns the value of VariancePercent.
+func (s *LiquidityForecastVarianceFigures) GetVariancePercent() OptDecimal {
+	return s.VariancePercent
+}
+
+// SetForecast sets the value of Forecast.
+func (s *LiquidityForecastVarianceFigures) SetForecast(val Money) {
+	s.Forecast = val
+}
+
+// SetActual sets the value of Actual.
+func (s *LiquidityForecastVarianceFigures) SetActual(val Money) {
+	s.Actual = val
+}
+
+// SetVariance sets the value of Variance.
+func (s *LiquidityForecastVarianceFigures) SetVariance(val Money) {
+	s.Variance = val
+}
+
+// SetVariancePercent sets the value of VariancePercent.
+func (s *LiquidityForecastVarianceFigures) SetVariancePercent(val OptDecimal) {
+	s.VariancePercent = val
+}
+
+// A row of a currency's variance by liquidity item: the item's and its descendants' figures per
+// bucket, over the buckets and beyond them.
+// Ref: #/components/schemas/LiquidityForecastVarianceItem
+type LiquidityForecastVarianceItem struct {
+	// The liquidity item's code (`cash.liquidity_items`); absent on the row of the shares no derivation
+	// rule assigns and no default covers.
+	LiquidityItem OptString `json:"liquidity_item"`
+	// The liquidity item's name; absent without `liquidity_item`, or for an item no longer configured.
+	Name OptString `json:"name"`
+	// The code of the item's parent in the hierarchy; absent for a top item.
+	Parent OptString `json:"parent"`
+	// The item's depth in the hierarchy: 0 for a top item (and the row without `liquidity_item`), its
+	// parent's plus one below.
+	Level int32 `json:"level"`
+	// One per bucket, in the buckets' order.
+	Buckets []LiquidityForecastVarianceCell     `json:"buckets"`
+	Total   LiquidityForecastVarianceCell       `json:"total"`
+	Beyond  OptLiquidityForecastVarianceFigures `json:"beyond"`
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *LiquidityForecastVarianceItem) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetName returns the value of Name.
+func (s *LiquidityForecastVarianceItem) GetName() OptString {
+	return s.Name
+}
+
+// GetParent returns the value of Parent.
+func (s *LiquidityForecastVarianceItem) GetParent() OptString {
+	return s.Parent
+}
+
+// GetLevel returns the value of Level.
+func (s *LiquidityForecastVarianceItem) GetLevel() int32 {
+	return s.Level
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *LiquidityForecastVarianceItem) GetBuckets() []LiquidityForecastVarianceCell {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *LiquidityForecastVarianceItem) GetTotal() LiquidityForecastVarianceCell {
+	return s.Total
+}
+
+// GetBeyond returns the value of Beyond.
+func (s *LiquidityForecastVarianceItem) GetBeyond() OptLiquidityForecastVarianceFigures {
+	return s.Beyond
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *LiquidityForecastVarianceItem) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetName sets the value of Name.
+func (s *LiquidityForecastVarianceItem) SetName(val OptString) {
+	s.Name = val
+}
+
+// SetParent sets the value of Parent.
+func (s *LiquidityForecastVarianceItem) SetParent(val OptString) {
+	s.Parent = val
+}
+
+// SetLevel sets the value of Level.
+func (s *LiquidityForecastVarianceItem) SetLevel(val int32) {
+	s.Level = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *LiquidityForecastVarianceItem) SetBuckets(val []LiquidityForecastVarianceCell) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *LiquidityForecastVarianceItem) SetTotal(val LiquidityForecastVarianceCell) {
+	s.Total = val
+}
+
+// SetBeyond sets the value of Beyond.
+func (s *LiquidityForecastVarianceItem) SetBeyond(val OptLiquidityForecastVarianceFigures) {
+	s.Beyond = val
+}
+
+// The days after the snapshot's document level compared per liquidity item only, without attribution;
+// absent when the period has none that can be compared.
+// Ref: #/components/schemas/LiquidityForecastVariancePeriod
+type LiquidityForecastVariancePeriod struct {
+	// The first day: the day after `document_level_until`.
+	From time.Time `json:"from"`
+	// The last day: `to`, or the day before a snapshot bucket that ends after it.
+	To time.Time `json:"to"`
+}
+
+// GetFrom returns the value of From.
+func (s *LiquidityForecastVariancePeriod) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *LiquidityForecastVariancePeriod) GetTo() time.Time {
+	return s.To
+}
+
+// SetFrom sets the value of From.
+func (s *LiquidityForecastVariancePeriod) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *LiquidityForecastVariancePeriod) SetTo(val time.Time) {
+	s.To = val
+}
+
+// The snapshot a variance compares against (`getCashSnapshot`).
+// Ref: #/components/schemas/LiquidityForecastVarianceSnapshot
+type LiquidityForecastVarianceSnapshot struct {
+	// The snapshot.
+	ID uuid.UUID `json:"id"`
+	// `daily` or `on_demand`. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Kind string `json:"kind"`
+	// The name an on-demand snapshot was taken under; absent for a daily one.
+	Name OptString `json:"name"`
+	// The company's date it was taken on, `lag` days before `from`.
+	SnapshotDate time.Time `json:"snapshot_date"`
+	// When it was taken.
+	TakenAt time.Time `json:"taken_at"`
+	// The last day it forecast.
+	HorizonEnd time.Time `json:"horizon_end"`
+	// The last day it kept per document: the variance is attributed up to it.
+	DocumentLevelUntil time.Time `json:"document_level_until"`
+	// The configuration version whose derivation classified its flows.
+	ConfigVersion int32 `json:"config_version"`
+}
+
+// GetID returns the value of ID.
+func (s *LiquidityForecastVarianceSnapshot) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetKind returns the value of Kind.
+func (s *LiquidityForecastVarianceSnapshot) GetKind() string {
+	return s.Kind
+}
+
+// GetName returns the value of Name.
+func (s *LiquidityForecastVarianceSnapshot) GetName() OptString {
+	return s.Name
+}
+
+// GetSnapshotDate returns the value of SnapshotDate.
+func (s *LiquidityForecastVarianceSnapshot) GetSnapshotDate() time.Time {
+	return s.SnapshotDate
+}
+
+// GetTakenAt returns the value of TakenAt.
+func (s *LiquidityForecastVarianceSnapshot) GetTakenAt() time.Time {
+	return s.TakenAt
+}
+
+// GetHorizonEnd returns the value of HorizonEnd.
+func (s *LiquidityForecastVarianceSnapshot) GetHorizonEnd() time.Time {
+	return s.HorizonEnd
+}
+
+// GetDocumentLevelUntil returns the value of DocumentLevelUntil.
+func (s *LiquidityForecastVarianceSnapshot) GetDocumentLevelUntil() time.Time {
+	return s.DocumentLevelUntil
+}
+
+// GetConfigVersion returns the value of ConfigVersion.
+func (s *LiquidityForecastVarianceSnapshot) GetConfigVersion() int32 {
+	return s.ConfigVersion
+}
+
+// SetID sets the value of ID.
+func (s *LiquidityForecastVarianceSnapshot) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetKind sets the value of Kind.
+func (s *LiquidityForecastVarianceSnapshot) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetName sets the value of Name.
+func (s *LiquidityForecastVarianceSnapshot) SetName(val OptString) {
+	s.Name = val
+}
+
+// SetSnapshotDate sets the value of SnapshotDate.
+func (s *LiquidityForecastVarianceSnapshot) SetSnapshotDate(val time.Time) {
+	s.SnapshotDate = val
+}
+
+// SetTakenAt sets the value of TakenAt.
+func (s *LiquidityForecastVarianceSnapshot) SetTakenAt(val time.Time) {
+	s.TakenAt = val
+}
+
+// SetHorizonEnd sets the value of HorizonEnd.
+func (s *LiquidityForecastVarianceSnapshot) SetHorizonEnd(val time.Time) {
+	s.HorizonEnd = val
+}
+
+// SetDocumentLevelUntil sets the value of DocumentLevelUntil.
+func (s *LiquidityForecastVarianceSnapshot) SetDocumentLevelUntil(val time.Time) {
+	s.DocumentLevelUntil = val
+}
+
+// SetConfigVersion sets the value of ConfigVersion.
+func (s *LiquidityForecastVarianceSnapshot) SetConfigVersion(val int32) {
+	s.ConfigVersion = val
+}
+
 type ListAccountsBadRequest Problem
 
 func (*ListAccountsBadRequest) listAccountsRes() {}
@@ -32227,6 +32869,98 @@ func (o OptLiquidityForecastConverted) Get() (v LiquidityForecastConverted, ok b
 
 // Or returns value if set, or given parameter if does not.
 func (o OptLiquidityForecastConverted) Or(d LiquidityForecastConverted) LiquidityForecastConverted {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptLiquidityForecastVarianceFigures returns new OptLiquidityForecastVarianceFigures with value set to v.
+func NewOptLiquidityForecastVarianceFigures(v LiquidityForecastVarianceFigures) OptLiquidityForecastVarianceFigures {
+	return OptLiquidityForecastVarianceFigures{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptLiquidityForecastVarianceFigures is optional LiquidityForecastVarianceFigures.
+type OptLiquidityForecastVarianceFigures struct {
+	Value LiquidityForecastVarianceFigures
+	Set   bool
+}
+
+// IsSet returns true if OptLiquidityForecastVarianceFigures was set.
+func (o OptLiquidityForecastVarianceFigures) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptLiquidityForecastVarianceFigures) Reset() {
+	var v LiquidityForecastVarianceFigures
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptLiquidityForecastVarianceFigures) SetTo(v LiquidityForecastVarianceFigures) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptLiquidityForecastVarianceFigures) Get() (v LiquidityForecastVarianceFigures, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptLiquidityForecastVarianceFigures) Or(d LiquidityForecastVarianceFigures) LiquidityForecastVarianceFigures {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptLiquidityForecastVariancePeriod returns new OptLiquidityForecastVariancePeriod with value set to v.
+func NewOptLiquidityForecastVariancePeriod(v LiquidityForecastVariancePeriod) OptLiquidityForecastVariancePeriod {
+	return OptLiquidityForecastVariancePeriod{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptLiquidityForecastVariancePeriod is optional LiquidityForecastVariancePeriod.
+type OptLiquidityForecastVariancePeriod struct {
+	Value LiquidityForecastVariancePeriod
+	Set   bool
+}
+
+// IsSet returns true if OptLiquidityForecastVariancePeriod was set.
+func (o OptLiquidityForecastVariancePeriod) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptLiquidityForecastVariancePeriod) Reset() {
+	var v LiquidityForecastVariancePeriod
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptLiquidityForecastVariancePeriod) SetTo(v LiquidityForecastVariancePeriod) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptLiquidityForecastVariancePeriod) Get() (v LiquidityForecastVariancePeriod, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptLiquidityForecastVariancePeriod) Or(d LiquidityForecastVariancePeriod) LiquidityForecastVariancePeriod {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -49109,6 +49843,7 @@ func (*TooManyRequestsHeaders) getJournalEntryRes()                  {}
 func (*TooManyRequestsHeaders) getLegalEntityRes()                   {}
 func (*TooManyRequestsHeaders) getLegalEntityTodayRes()              {}
 func (*TooManyRequestsHeaders) getLiquidityForecastRes()             {}
+func (*TooManyRequestsHeaders) getLiquidityForecastVarianceRes()     {}
 func (*TooManyRequestsHeaders) getMatchResultRes()                   {}
 func (*TooManyRequestsHeaders) getMemoRecordRes()                    {}
 func (*TooManyRequestsHeaders) getMigrationRunRes()                  {}
@@ -49487,6 +50222,7 @@ func (*UnauthorizedHeaders) getJournalEntryRes()                  {}
 func (*UnauthorizedHeaders) getLegalEntityRes()                   {}
 func (*UnauthorizedHeaders) getLegalEntityTodayRes()              {}
 func (*UnauthorizedHeaders) getLiquidityForecastRes()             {}
+func (*UnauthorizedHeaders) getLiquidityForecastVarianceRes()     {}
 func (*UnauthorizedHeaders) getMatchResultRes()                   {}
 func (*UnauthorizedHeaders) getMemoRecordRes()                    {}
 func (*UnauthorizedHeaders) getMigrationRunRes()                  {}

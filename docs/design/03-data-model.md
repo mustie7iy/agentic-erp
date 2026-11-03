@@ -2811,6 +2811,18 @@ or the incoming payments clearing account), through the payments
 context's port; a matched payment's settled items as T53e3 reads a run's
 payment's. No migration; reading the actuals is `cash.forecast.read`.
 
+T53f3 compares a snapshot with the actuals, storing nothing: the
+`cash.snapshot` of the legal entity and date (`daily` first, else the
+last `on_demand`) and its `cash.snapshot_flow`s but `payable_blocked`;
+the actuals' lines as T53f2 reads them, each matched payment's settled
+items with their `ledger.journal_entry` and that entry's
+`source_document_id` when `payables` posted it (the supplier invoice), a
+down payment payment's `payments.payment.down_payment_request_id`; and
+the `cash.memo_record`s the snapshot names (whether each is a series) or
+a line realised (`realised_statement_id`, `realised_line_no`, an
+override's `recurrence_of` and `occurrence_date`). No migration; reading
+the variance is `cash.forecast.read`.
+
 ## 3.19 Controlling (`controlling`)
 
 Plan values and plan against actual (ADR-0050 §2, §8, decision P5; T56g).

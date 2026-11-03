@@ -128,16 +128,17 @@ func (c cashPayments) Payables(ctx context.Context, legalEntity uuid.UUID, on ti
 }
 
 // Paying gives the forecast what the payments of runs not released pay,
-// to derive their liquidity items from (T53e3).
+// to derive their liquidity items from (T53e3), and the variance the
+// documents a payment paid (T53f3).
 func (c cashPayments) Paying(ctx context.Context, legalEntity uuid.UUID, ids []uuid.UUID, on time.Time) (map[uuid.UUID]cash.Paying, error) {
 	ps, err := c.position.Paying(ctx, legalEntity, ids, on)
 	out := make(map[uuid.UUID]cash.Paying, len(ps))
 	for id, p := range ps {
 		items := make([]cash.Paid, len(p.Items))
 		for i, it := range p.Items {
-			items[i] = cash.Paid{Amount: it.Amount, Lines: cashLines(it.Lines)}
+			items[i] = cash.Paid{Amount: it.Amount, Lines: cashLines(it.Lines), Entry: it.Entry, Invoice: it.Invoice}
 		}
-		out[id] = cash.Paying{PlanningGroup: p.PlanningGroup, Items: items}
+		out[id] = cash.Paying{PlanningGroup: p.PlanningGroup, Items: items, Request: p.Request}
 	}
 	return out, err
 }

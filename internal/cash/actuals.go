@@ -113,12 +113,23 @@ type ActualBank struct {
 	Count   int
 }
 
-// actual is a statement line classified: its bank's code and its shares
-// by liquidity item.
+// actual is a statement line classified: its bank's code, its shares by
+// liquidity item, and those shares by the documents behind them (pieces),
+// which the forecast variance matches to a snapshot's (T53f3).
 type actual struct {
 	ActualLine
 	bankCode string
 	shares   []Share
+	pieces   []actualPiece
+}
+
+// actualPiece is the part of a statement line one document behind it
+// pays, by liquidity item: the keys it is known by in a snapshot
+// (docKey), most specific first, and its shares. A line no payment
+// traces is one piece of no key.
+type actualPiece struct {
+	keys   []string
+	shares []Share
 }
 
 // unclassified reports whether no decided match classifies the line.
@@ -249,7 +260,7 @@ func (e *Endpoints) classifyActuals(ctx context.Context, ar actualsRead, legalEn
 	out := make([]actual, len(lines))
 	for i, l := range lines {
 		out[i] = actual{ActualLine: l, bankCode: codes[l.HouseBankID]}
-		if out[i].shares, err = actualShares(d, ar.r.sums, l, paying); err != nil {
+		if out[i].shares, out[i].pieces, err = actualShares(d, ar.r.sums, l, paying); err != nil {
 			return nil, err
 		}
 	}
@@ -261,23 +272,43 @@ func (e *Endpoints) classifyActuals(ctx context.Context, ar actualsRead, legalEn
 // own and shared out over the line's amount (classify), so a bank charge
 // deducted from a payment takes its items' shares down; a line matched to
 // a posting rule the rule's item, else its direction's default; any other
-// line its direction's default.
-func actualShares(d *rules, s *sums, l ActualLine, paying map[uuid.UUID]Paying) ([]Share, error) {
+// line its direction's default. The pieces are those shares by the
+// documents the payments settled, each with the keys a snapshot knows the
+// document by.
+func actualShares(d *rules, s *sums, l ActualLine, paying map[uuid.UUID]Paying) ([]Share, []actualPiece, error) {
 	// A payment match whose payments are not read (the cash position reads
 	// none its run dropped, and no match can name one) is classified as an
 	// excluded line is, by its direction's default: nothing traces it.
 	if l.Match == MatchPayment && len(l.Payments) > 0 {
 		var parts []part
+		var keys [][]string
 		for _, p := range l.Payments {
 			parts = append(parts, paymentParts(-p.Amount, paying[p.ID])...)
+			keys = append(keys, paymentKeys(p.ID, paying[p.ID])...)
 		}
-		return classify(d, s, l.Amount, parts)
+		each, err := partsShares(d, l.Amount, parts)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(each) != len(keys) {
+			// Parts that cancel out are one, the line's: known by its payments.
+			keys = [][]string{{}}
+			for _, p := range l.Payments {
+				keys[0] = append(keys[0], paymentKey(p.ID))
+			}
+		}
+		pieces := make([]actualPiece, len(each))
+		for i, shares := range each {
+			pieces[i] = actualPiece{keys: keys[i], shares: shares}
+		}
+		return sumShares(s, each), pieces, nil
 	}
 	b := Basis{Direction: directionOf(l.Amount)}
 	if l.Match == MatchPostingRule {
 		b.PostingRule = l.PostingRule
 	}
-	return d.derive(l.Amount, b)
+	shares, err := d.derive(l.Amount, b)
+	return shares, []actualPiece{{shares: shares}}, err
 }
 
 // directionOf is the direction of a flow of the amount: money in is an

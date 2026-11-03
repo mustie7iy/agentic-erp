@@ -23335,6 +23335,229 @@ func (s *Server) handleGetLiquidityForecastRequest(args [0]string, argsEscaped b
 	}
 }
 
+// handleGetLiquidityForecastVarianceRequest handles getLiquidityForecastVariance operation.
+//
+// What the liquidity forecast said of a period against what the bank statements show (ADR-0051 §11,
+// T53f3), computed at the read from one database state (a repeatable-read snapshot), per currency,
+// liquidity item and bucket: the forecast is that of the legal entity's snapshot taken `lag` days
+// before `from` (its daily snapshot of that date, else the last taken on demand that day; 409
+// `cash.snapshot_not_taken` when none was), without what blocked suppliers were owed, as the
+// forecast's totals leave them out; the actuals are the statement lines by value date as
+// `getCashActuals` classifies them; the variance is the actual less the forecast, and
+// `variance_percent` its size in percent of the forecast's size. A snapshot keeps each document it
+// forecast for 31 days from its date (`document_level_until`) and bucket sums after (T53f), so the
+// period's days up to that day are in `buckets` (of `grain` from `from`, the last ending on `to` or on
+// that day) with the variance attributed: each document the snapshot forecast is matched to the
+// statement lines that paid it (a run's payment or a payment in transit by the payment, a supplier
+// item by its journal entry, an invoice forecast before it was posted by the entry it posted, a down
+// payment request by its payment, a memo record by the line that realised it, a series' occurrence by
+// its override), and its part of the variance is `timing` when it was forecast in one bucket and paid
+// in another (paid before or after the period included), `amount` when paid in the bucket it was
+// forecast in, `missing` when nothing paid it; a statement line's part that pays no document the
+// snapshot forecast is `new`, or `unclassified` when the line has no decided match. The five add up to
+// the variance. The days after the document level up to `to` are compared per item only (`beyond`), up
+// to the day before a snapshot bucket that ends after `to` (its sum cannot be told apart by day). The
+// variance names no document or supplier, so `cash.forecast.read` is all it needs.
+//
+// GET /v1/liquidity-forecast-variance
+func (s *Server) handleGetLiquidityForecastVarianceRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getLiquidityForecastVariance"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/liquidity-forecast-variance"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetLiquidityForecastVarianceOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetLiquidityForecastVarianceOperation,
+			ID:   "getLiquidityForecastVariance",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetLiquidityForecastVarianceOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetLiquidityForecastVarianceParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetLiquidityForecastVarianceRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetLiquidityForecastVarianceOperation,
+			OperationSummary: "Get a company's forecast variance for a period, attributed",
+			OperationID:      "getLiquidityForecastVariance",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "legal_entity_id",
+					In:   "query",
+				}: params.LegalEntityID,
+				{
+					Name: "from",
+					In:   "query",
+				}: params.From,
+				{
+					Name: "to",
+					In:   "query",
+				}: params.To,
+				{
+					Name: "lag",
+					In:   "query",
+				}: params.Lag,
+				{
+					Name: "grain",
+					In:   "query",
+				}: params.Grain,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetLiquidityForecastVarianceParams
+			Response = GetLiquidityForecastVarianceRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetLiquidityForecastVarianceParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetLiquidityForecastVariance(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetLiquidityForecastVariance(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetLiquidityForecastVarianceResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleGetMatchResultRequest handles getMatchResult operation.
 //
 // Returns one three-way match evaluation.

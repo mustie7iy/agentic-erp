@@ -121,6 +121,7 @@ const (
 	GetLegalEntityOperation                   OperationName = "GetLegalEntity"
 	GetLegalEntityTodayOperation              OperationName = "GetLegalEntityToday"
 	GetLiquidityForecastOperation             OperationName = "GetLiquidityForecast"
+	GetLiquidityForecastVarianceOperation     OperationName = "GetLiquidityForecastVariance"
 	GetMatchResultOperation                   OperationName = "GetMatchResult"
 	GetMemoRecordOperation                    OperationName = "GetMemoRecord"
 	GetMigrationRunOperation                  OperationName = "GetMigrationRun"

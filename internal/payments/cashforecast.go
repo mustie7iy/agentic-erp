@@ -240,18 +240,25 @@ func (c CashPosition) withNumbers(ctx context.Context, legalEntity uuid.UUID, it
 // liquidity forecast classifies it (ADR-0051 §4, T53e3): its supplier's
 // planning group in the legal entity, and each open item it settles with
 // what it pays of it and the item's offsetting lines. A down payment
-// request's payment settles no item.
+// request's payment settles no item and names the request it pays
+// (Request), which the forecast variance matches (T53f3).
 type CashPaying struct {
 	PlanningGroup string
 	Items         []CashPaid
+	Request       *uuid.UUID
 }
 
 // CashPaid is an open item a payment settles: what it pays of it, after
 // its cash discount and withholding tax (negative for a credit memo it
-// nets), and the item's offsetting lines.
+// nets), the item's offsetting lines, its journal entry, and the supplier
+// invoice that entry was posted for (nil for none: a manual entry, a
+// migrated item), by which the forecast variance knows the documents a
+// payment paid (T53f3).
 type CashPaid struct {
-	Amount money.Minor
-	Lines  []ledger.OffsettingLine
+	Amount  money.Minor
+	Lines   []ledger.OffsettingLine
+	Entry   uuid.UUID
+	Invoice *uuid.UUID
 }
 
 // Paying is what each of the payments pays, keyed by payment; a payment
@@ -277,12 +284,20 @@ func (c CashPosition) Paying(ctx context.Context, legalEntity uuid.UUID, ids []u
 	if err != nil {
 		return nil, err
 	}
+	invoices, err := c.Owed.Sources(ctx, "payables", entries)
+	if err != nil {
+		return nil, err
+	}
 	out := map[uuid.UUID]CashPaying{}
 	for _, x := range all {
 		pay := out[x.payment]
-		pay.PlanningGroup = payees[x.supplier].PlanningGroup
+		pay.PlanningGroup, pay.Request = payees[x.supplier].PlanningGroup, x.request
 		if x.entry != nil {
-			pay.Items = append(pay.Items, CashPaid{Amount: x.amount, Lines: lines[*x.entry]})
+			paid := CashPaid{Amount: x.amount, Lines: lines[*x.entry], Entry: x.entry.EntryID}
+			if inv, ok := invoices[*x.entry]; ok {
+				paid.Invoice = &inv
+			}
+			pay.Items = append(pay.Items, paid)
 		}
 		out[x.payment] = pay
 	}
@@ -290,11 +305,12 @@ func (c CashPosition) Paying(ctx context.Context, legalEntity uuid.UUID, ids []u
 }
 
 // cashSettled is an open item a payment settles, or a payment that settles none
-// (entry nil).
+// (entry nil), with the down payment request a payment of one pays.
 type cashSettled struct {
 	payment, supplier uuid.UUID
 	entry             *ledger.EntryRef
 	amount            money.Minor
+	request           *uuid.UUID
 }
 
 // paidItems are the active items the legal entity's payments among the
@@ -305,7 +321,8 @@ func paidItems(ctx context.Context, legalEntity uuid.UUID, ids []uuid.UUID) ([]c
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT p.id, p.supplier_id, i.item_fiscal_year, i.item_entry_id, i.amount - i.discount_amount - i.withholding_amount
+	rows, _ := tx.Query(ctx, `SELECT p.id, p.supplier_id, p.down_payment_request_id, i.item_fiscal_year, i.item_entry_id,
+			i.amount - i.discount_amount - i.withholding_amount
 		FROM payments.payment p JOIN payments.payment_run r ON r.tenant_id = p.tenant_id AND r.id = p.payment_run_id
 		LEFT JOIN payments.payment_item i ON i.tenant_id = p.tenant_id AND i.payment_id = p.id AND i.is_active
 		WHERE p.id = ANY($1) AND r.legal_entity_id = $2
@@ -315,8 +332,13 @@ func paidItems(ctx context.Context, legalEntity uuid.UUID, ids []uuid.UUID) ([]c
 	var year *int16
 	var entry *uuid.UUID
 	var amount *money.Minor
-	_, err = pgx.ForEachRow(rows, []any{&p.payment, &p.supplier, &year, &entry, &amount}, func() error {
-		p.entry, p.amount = nil, 0
+	var request *uuid.UUID
+	_, err = pgx.ForEachRow(rows, []any{&p.payment, &p.supplier, &request, &year, &entry, &amount}, func() error {
+		p.entry, p.amount, p.request = nil, 0, nil
+		if request != nil {
+			r := *request // a copy: the scan reuses its target
+			p.request = &r
+		}
 		if entry != nil {
 			p.entry, p.amount = &ledger.EntryRef{FiscalYear: *year, EntryID: *entry}, *amount
 		}

@@ -1525,6 +1525,35 @@ func (UnimplementedHandler) GetLiquidityForecast(ctx context.Context, params Get
 	return r, ht.ErrNotImplemented
 }
 
+// GetLiquidityForecastVariance implements getLiquidityForecastVariance operation.
+//
+// What the liquidity forecast said of a period against what the bank statements show (ADR-0051 §11,
+// T53f3), computed at the read from one database state (a repeatable-read snapshot), per currency,
+// liquidity item and bucket: the forecast is that of the legal entity's snapshot taken `lag` days
+// before `from` (its daily snapshot of that date, else the last taken on demand that day; 409
+// `cash.snapshot_not_taken` when none was), without what blocked suppliers were owed, as the
+// forecast's totals leave them out; the actuals are the statement lines by value date as
+// `getCashActuals` classifies them; the variance is the actual less the forecast, and
+// `variance_percent` its size in percent of the forecast's size. A snapshot keeps each document it
+// forecast for 31 days from its date (`document_level_until`) and bucket sums after (T53f), so the
+// period's days up to that day are in `buckets` (of `grain` from `from`, the last ending on `to` or on
+// that day) with the variance attributed: each document the snapshot forecast is matched to the
+// statement lines that paid it (a run's payment or a payment in transit by the payment, a supplier
+// item by its journal entry, an invoice forecast before it was posted by the entry it posted, a down
+// payment request by its payment, a memo record by the line that realised it, a series' occurrence by
+// its override), and its part of the variance is `timing` when it was forecast in one bucket and paid
+// in another (paid before or after the period included), `amount` when paid in the bucket it was
+// forecast in, `missing` when nothing paid it; a statement line's part that pays no document the
+// snapshot forecast is `new`, or `unclassified` when the line has no decided match. The five add up to
+// the variance. The days after the document level up to `to` are compared per item only (`beyond`), up
+// to the day before a snapshot bucket that ends after `to` (its sum cannot be told apart by day). The
+// variance names no document or supplier, so `cash.forecast.read` is all it needs.
+//
+// GET /v1/liquidity-forecast-variance
+func (UnimplementedHandler) GetLiquidityForecastVariance(ctx context.Context, params GetLiquidityForecastVarianceParams) (r GetLiquidityForecastVarianceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetMatchResult implements getMatchResult operation.
 //
 // Returns one three-way match evaluation.

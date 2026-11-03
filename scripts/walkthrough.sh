@@ -2754,6 +2754,53 @@ step_cash_actuals() {
   passed
 }
 
+# step_cash_variance is the forecast of the day's snapshot against the
+# day's statement lines, attributed by document (T53f3, ADR-0051 §11).
+step_cash_variance() {
+  heading "Step 25 — Forecast variance: what the snapshot forecast for the day against what the statements show, attributed"
+  as tom
+  local day board snap kind adds actual forecast
+  QUIET=1 api 200 '' listCashSnapshots -p "legal_entity_id=$LE" -p kind=on_demand
+  board=$(field '[.items[] | select(.name == "Board meeting")][0].id')
+  day=$(field '[.items[] | select(.name == "Board meeting")][0].snapshot_date')
+  say "Tom compares the forecast of the snapshot taken on $day (lag 0: the day itself) with what the bank statements show"
+  say "for that day (T53f3): per liquidity item and bucket the forecast, the actual and the variance (actual less forecast),"
+  say "its size in percent of the forecast's; each document the snapshot forecast is matched to the statement lines that"
+  say "paid it, and the variance is attributed to timing, amount, new (paid, not forecast), missing (forecast, not paid)"
+  say "and unclassified (not matched yet). The daily snapshot is compared if one was taken, else the last taken on demand."
+  api 200 '"snapshot \(.snapshot.kind) of \(.snapshot.snapshot_date), per document to \(.snapshot.document_level_until); \(.from)..\(.to) lag \(.lag) by \(.grain), read on \(.read_date) in \(.time_zone)",
+      (.currencies[] | .currency as $c
+      | "  \($c): forecast \(.total.forecast.amount), actual \(.total.actual.amount), variance \(.total.variance.amount) (\(.total.variance_percent // "-")%)",
+        "    timing \(.total.attribution.timing.amount), amount \(.total.attribution.amount.amount), new \(.total.attribution.new.amount), missing \(.total.attribution.missing.amount), unclassified \(.total.attribution.unclassified.amount)",
+        (.items[] | "    \("  " * .level)\(.liquidity_item // "unclassified"): \(.total.forecast.amount) -> \(.total.actual.amount), variance \(.total.variance.amount)"))' \
+    getLiquidityForecastVariance -p "legal_entity_id=$LE" -p "from=$day" -p "to=$day" -p lag=0
+  snap=$(field .snapshot.id)
+  kind=$(field .snapshot.kind)
+  adds=$(field 'def c: sub("\\."; "") | tonumber; [.currencies[] | (.buckets[], .total, .items[].total, .items[].buckets[])
+    | ([.attribution[] | .amount | c] | add) == (.variance.amount | c)] | all')
+  expect "every cell's attribution adds up to its variance" "$adds" true
+  actual=$(field '[.currencies[] | select(.currency == "CAD") | .total.actual.amount][0] // "0.00"')
+  forecast=$(field '[.currencies[] | select(.currency == "CAD") | .total.forecast.amount][0] // "0.00"')
+  QUIET=1 api 200 '' getCashActuals -p "legal_entity_id=$LE" -p "from=$day" -p "to=$day"
+  expect "the CAD actual, the day's statement lines (getCashActuals)" "$actual" "$(field '[.currencies[] | select(.currency == "CAD") | .total.amount][0] // "0.00"')"
+  QUIET=1 api 200 '' listCashSnapshotFlows -p "id=$snap" -p currency=CAD -p "from=$day" -p "to=$day" -p page_size=500
+  expect "the CAD forecast, the snapshot's lines of the day but blocked suppliers'" "$forecast" \
+    "$(amount "$(field 'def c: sub("\\."; "") | tonumber; [.items[] | select(.source != "payable_blocked") | .amount.amount | c] | add // 0')")"
+  if [ "$kind" = on_demand ]; then
+    expect "the snapshot compared, step 23's" "$snap" "$board"
+  fi
+  as rita
+  say "Rita holds the forecast's read alone: the variance names no document or supplier, so she reads the same figures."
+  api 200 '"  \([.currencies[] | "\(.currency) variance \(.total.variance.amount)"] | join(", "))"' \
+    getLiquidityForecastVariance -p "legal_entity_id=$LE" -p "from=$day" -p "to=$day" -p lag=0
+  expect "Rita's CAD actual, Tom's" "$(field '[.currencies[] | select(.currency == "CAD") | .total.actual.amount][0] // "0.00"')" "$actual"
+  as tom
+  say "A week's lag needs the snapshot of a week before, which this new tenant never took; lags of 0, 7 and 30 days are offered:"
+  refused 409 cash.snapshot_not_taken getLiquidityForecastVariance -p "legal_entity_id=$LE" -p "from=$day" -p "to=$day" -p lag=7
+  refused 422 request.validation_failed getLiquidityForecastVariance -p "legal_entity_id=$LE" -p "from=$day" -p "to=$day" -p lag=5
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -2775,7 +2822,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_cash_forecast step_cash_snapshot step_cash_actuals'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_cash_forecast step_cash_snapshot step_cash_actuals step_cash_variance'
 
 main() {
   start

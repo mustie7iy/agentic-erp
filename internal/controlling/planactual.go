@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"math/big"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -287,13 +286,6 @@ func (q paQuery) toAPI(r planActual) (paRow, error) {
 	}
 	out := paRow{center: r.CenterID, account: r.AccountID, plan: apitypes.Money(r.plan, q.currency, q.exp),
 		actual: apitypes.Money(r.actual, q.currency, q.exp), variance: apitypes.Money(variance, q.currency, q.exp)}
-	if r.plan != 0 {
-		pct := new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(variance)), big.NewInt(100)), big.NewInt(int64(r.plan)))
-		s := pct.FloatString(2)
-		if s == "-0.00" { // a negative variance below half a hundredth of a percent rounds to zero, without a sign
-			s = "0.00"
-		}
-		out.percent.SetTo(gen.Decimal(s))
-	}
+	out.percent = apitypes.Percent(variance, r.plan)
 	return out, nil
 }

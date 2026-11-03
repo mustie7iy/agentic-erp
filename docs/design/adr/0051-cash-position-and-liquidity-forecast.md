@@ -474,7 +474,8 @@ T53f2-T53f4 in the tracker, src `split:T53f`; decided by default where §6,
   §11's order: snapshots (this slice, taken, read and kept); the actuals
   (T53f2, `GET /v1/cash-actuals`, which stand alone on the statements;
   built, see As built T53f2 in §11);
-  the variance with lag and attribution (T53f3, which needs both); and
+  the variance with lag and attribution (T53f3, which needs both; built,
+  see As built T53f3 in §11); and
   variance comments by people (T53f4, which need the variance; an agent's
   proposals are T53i's).
 - **Tables.** Migration 000192 creates `cash.snapshot` and
@@ -1729,6 +1730,119 @@ level, the variance is **attributed**:
 Beyond 31 days the variance is per item only. A **forecast accuracy**
 measure per item and lag over the last periods comes from the analytical
 store (T53j).
+
+As built (T53f3, the variance; decided by default where §6, §11 and §15
+leave it open):
+- **Request.** `GET /v1/liquidity-forecast-variance?legal_entity_id=…&from=…&to=…&lag=…&grain=…`
+  (`getLiquidityForecastVariance`, the report §13 names as the agent's
+  tool; `cash.forecast.read`, `x-slo-class: report`, `x-snapshot: true`),
+  the legal entity as every cash read names it rather than §11's
+  `company`. `lag` is 0, 7 (default) or 30, the three §11 offers, so the
+  accuracy per lag (T53j) compares like with like; another is 422 on
+  `lag`. `grain` and the period's limit are the actuals' (`day` by
+  default, at most 92 days, 104 weeks or 36 months). `to` is on or before
+  the company's date (a variance compares what has happened: a day not
+  yet passed would show every flow still due as missing) and the
+  snapshot's `horizon_end` (nothing was forecast after it), else 422 on
+  `to`. No migration: nothing is stored.
+- **The snapshot.** The legal entity's daily snapshot dated `lag` days
+  before `from`, else the last one taken on demand that day (a tenant
+  whose snapshotter missed a day, or a walkthrough before 07:00, still
+  compares); none is 409 `cash.snapshot_not_taken`. The response names
+  it (id, kind, name, date, `document_level_until`, configuration
+  version). Its lines are read as kept, without `payable_blocked`, as the
+  forecast's totals and the snapshot's `total` leave blocked suppliers
+  out; every certainty counts.
+- **The actuals** are T53f2's lines (`readActuals`, classified by
+  `actualShares`), read from the snapshot's date to the later of `to` and
+  the document level's end, so a document forecast in the period and paid
+  outside it, or the reverse, is told apart from one never paid. The
+  classification keeps each line's shares by the document behind them
+  (`actual.pieces`: what `partsShares` gives per part, which the
+  actuals' shares sum), so the actuals' figures are unchanged.
+- **Matching.** A snapshot line at document level names its document by a
+  key: a run's or in-transit flow's payment (`payment_id`), a memo series'
+  occurrence by the series and its day, else its document (kind and id).
+  A statement line's piece is known by, in order: each payment it was
+  matched to, the journal entry of the item that payment settled, the
+  supplier invoice that entry was posted for (an invoice forecast while
+  parked or held, `ledger.OpenItems.Sources`, through
+  `payments.CashPosition.Paying`, whose `CashPaid` gains `Entry` and
+  `Invoice`), or, for a payment of no item, the down payment request it
+  pays (`CashPaying.Request`); and, for a line that realised memo records
+  (`cash.memo_record.realised_statement_id`), each record, an override of
+  a series' occurrence also as the series and that occurrence's day at
+  the bank as the snapshot dated it (its value date moved to the next
+  working day, `atBank` on the snapshot's date). Each piece is matched to
+  the first key the snapshot names; a line whose payments' items net to
+  nothing is one piece known by its payments.
+- **Attribution** (within the document level: `from` to the earlier of
+  `to` and `document_level_until`, in buckets of the grain). Each forecast
+  line and each paid piece contributes to its currency, bucket and
+  liquidity item (and the item's ancestors); its part of the variance
+  (actual less forecast) is: for a forecast line, `missing` when no piece
+  matched its document anywhere in the window, `amount` when one did in
+  the same bucket, else `timing`; for a piece, `new` when it matched
+  nothing the snapshot forecast (`unclassified` when its line has no
+  decided match, §11), `amount` when its document was forecast in the same
+  bucket, else `timing`. So a document paid in its bucket at another
+  amount is `amount` (its difference), one paid in another bucket is
+  `timing` on both sides, whole, and the five always add up to each
+  cell's variance (`TestForecastVariance` checks every cell). A document
+  is matched in whatever liquidity item each side classified it: the
+  snapshot keeps the items it was taken with (§4), the actuals are
+  classified by today's rules, and a rule changed meanwhile shows in the
+  rows, not in the attribution.
+- **Beyond** the document level the snapshot keeps bucket sums naming no
+  document (T53f), so the variance is per item only (§11), without
+  attribution, over the days from `document_level_until` plus one up to
+  `to`, or up to the day before a snapshot bucket that holds `to` and ends
+  after it, whose sum cannot be split by day; `beyond` gives those days,
+  absent when there are none. No proration.
+- **Figures.** Per currency (of a flow forecast or paid in the days
+  compared; never converted, §10) per bucket, over the buckets and
+  beyond; rows by liquidity item and its hierarchy as the forecast's
+  (depth first, siblings by code, the unclassified row last), today's
+  names and tree. `variance_percent` is the variance's size in percent of
+  the forecast's size (§11: "absolute percentage"), two decimals, half
+  away from zero, absent when nothing was forecast, as controlling's plan
+  against actual computes its percent (ADR-0050 §8); the computation moved
+  to one helper (`apitypes.Percent`, `AbsPercent`) both use. A sum out of
+  the range of an amount is 422 `cash.amount_too_large`.
+- **Visibility.** The variance names no document, supplier, payment or
+  statement, so `cash.forecast.read` is all it needs (T53e4's rule; the
+  documents behind a cell are read through the snapshot's lines and the
+  actuals' lines, each as those show them).
+- **Known limits.** A run rejected and proposed again pays the items by a
+  new payment, which the snapshot did not name: its forecast is `missing`
+  and the new payment `new` (the snapshot keeps a run's payment, not its
+  items). A memo record realised by a person, not by a line, matches
+  nothing. A flow the snapshot dated late (after its read date) matches
+  as any other. Listing the documents behind an attribution, which the
+  agent's citations are checked against (§13), is the agent's step
+  (T53i) to add on these keys.
+- **Budget.** §6 and §11 name none; the read is the actuals' over at most
+  period widened to the snapshot's date and its document level's end (at
+  most 30 days each side) plus a snapshot's lines (a company's 31 days
+  of documents and its buckets). `Paying` gains one query
+  (`OpenItems.Sources`, by entry), which the forecast's budget measures
+  too.
+- **Evidence.** `cash.TestForecastVariance` (Maple Inc's snapshot of 17
+  April against the lines to 21 May by week: a run's payment as forecast,
+  a receipt short, a run a week late, a series' occurrence and a down
+  payment request paid as forecast, a credit memo and a planned payment
+  missing, a parked invoice paid once posted, an invoice posted after the
+  snapshot new, a receipt not matched unclassified, a payment in transit,
+  the days after the document level per item; then by day),
+  `TestForecastVarianceLags` (the daily snapshot before one on demand, a
+  lag of 30 days, a bucket holding `to`), `TestForecastVarianceNettedPayment`,
+  `TestForecastVarianceRefusals`, `TestForecastVarianceTooLarge`,
+  `TestForecastVarianceFailures` (every database failure);
+  `apitypes.TestPercent`; the walkthrough's step 25: step 23's day
+  against its statement lines, each cell's attribution adding up, the
+  actual the actuals' and the forecast the snapshot's lines, Rita shown
+  the same figures, a lag of 7 refused for want of a snapshot and one of
+  5 as not offered.
 
 **Variance comments** (`cash.variance_comment`: company, period, item,
 lag, text, status `proposed | accepted | rejected`, author, session) are

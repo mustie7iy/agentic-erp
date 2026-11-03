@@ -461,6 +461,10 @@ type GetLiquidityForecastRes interface {
 	getLiquidityForecastRes()
 }
 
+type GetLiquidityForecastVarianceRes interface {
+	getLiquidityForecastVarianceRes()
+}
+
 type GetMatchResultRes interface {
 	getMatchResultRes()
 }
