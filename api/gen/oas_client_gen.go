@@ -921,6 +921,23 @@ type Invoker interface {
 	//
 	// GET /v1/clearings/{id}
 	GetClearing(ctx context.Context, params GetClearingParams) (GetClearingRes, error)
+	// GetCloseCalendar invokes getCloseCalendar operation.
+	//
+	// The close calendar of a legal entity's fiscal year (ADR-0058 §3, T64a): one row per regular period
+	// (1-12) of its leading ledger, in period order, so at most 12 and not paged: the period's id, number,
+	// first and last day and posting status, and the planned first and last due dates of its close's
+	// tasks, computed from the active configuration's close template (`close.tasks`, changed only through
+	// the configuration's approval loop): each task the company's close is given (a task listing companies
+	// is given to those only) is due `due_day` business days after the period's last day (0: that day
+	// itself; a negative number: that many business days before it). A business day is one that is neither
+	// one of the company's `weekend` days (its calendar's, `calendars[].weekend`; default Saturday and
+	// Sunday) nor one of its holidays (`calendars[].holidays`), the rule the cash position counts working
+	// days by; the search is bounded at 366 days. Without a template task for the company a row has no
+	// planned dates. A legal entity the caller cannot act in, or that does not exist, has no rows and no
+	// company, as the ledger's list reads answer; a fiscal year the company has no periods in has no rows.
+	//
+	// GET /v1/close-calendar
+	GetCloseCalendar(ctx context.Context, params GetCloseCalendarParams) (GetCloseCalendarRes, error)
 	// GetCompanyAccess invokes getCompanyAccess operation.
 	//
 	// Returns one company access grant.
@@ -16891,6 +16908,162 @@ func (c *Client) sendGetClearing(ctx context.Context, params GetClearingParams) 
 
 	stage = "DecodeResponse"
 	result, err := decodeGetClearingResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetCloseCalendar invokes getCloseCalendar operation.
+//
+// The close calendar of a legal entity's fiscal year (ADR-0058 §3, T64a): one row per regular period
+// (1-12) of its leading ledger, in period order, so at most 12 and not paged: the period's id, number,
+// first and last day and posting status, and the planned first and last due dates of its close's
+// tasks, computed from the active configuration's close template (`close.tasks`, changed only through
+// the configuration's approval loop): each task the company's close is given (a task listing companies
+// is given to those only) is due `due_day` business days after the period's last day (0: that day
+// itself; a negative number: that many business days before it). A business day is one that is neither
+// one of the company's `weekend` days (its calendar's, `calendars[].weekend`; default Saturday and
+// Sunday) nor one of its holidays (`calendars[].holidays`), the rule the cash position counts working
+// days by; the search is bounded at 366 days. Without a template task for the company a row has no
+// planned dates. A legal entity the caller cannot act in, or that does not exist, has no rows and no
+// company, as the ledger's list reads answer; a fiscal year the company has no periods in has no rows.
+//
+// GET /v1/close-calendar
+func (c *Client) GetCloseCalendar(ctx context.Context, params GetCloseCalendarParams) (GetCloseCalendarRes, error) {
+	res, err := c.sendGetCloseCalendar(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCloseCalendar(ctx context.Context, params GetCloseCalendarParams) (res GetCloseCalendarRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCloseCalendar"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/close-calendar"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCloseCalendarOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/close-calendar"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.Int32ToString(params.FiscalYear))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCloseCalendarOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCloseCalendarResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

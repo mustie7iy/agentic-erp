@@ -97,6 +97,7 @@ func Validate(c *Config, exponents currency.Exponents) []Finding {
 	v.controlling(c)
 	v.cash(c)
 	v.assetClasses(c)
+	v.closeTemplate(c)
 	switch c.Output.PurchaseOrderChannel {
 	case "email", "edi", "print":
 	default:
@@ -169,8 +170,9 @@ func (v *validator) packs(c *Config) {
 	}
 }
 
-// calendars checks the companies' holidays (ADR-0048): one calendar per
-// company of the document, each holiday a date (YYYY-MM-DD) once, named.
+// calendars checks the companies' calendars (ADR-0048, ADR-0058 §3): one
+// per company of the document, its weekend weekdays each once, each
+// holiday a date (YYYY-MM-DD) once, named.
 func (v *validator) calendars(c *Config) {
 	seen := map[string]bool{}
 	for _, cal := range c.Calendars {
@@ -182,6 +184,7 @@ func (v *validator) calendars(c *Config) {
 		if c.Company(cal.Company) == nil {
 			v.err(p+".company", "company %q is not in the document", cal.Company)
 		}
+		v.weekend(p, cal.Weekend)
 		dates := map[string]bool{}
 		for _, h := range cal.Holidays {
 			hp := p + ".holidays[" + h.Date + "]"

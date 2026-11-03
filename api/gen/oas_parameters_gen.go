@@ -12594,6 +12594,127 @@ func decodeGetClearingParams(args [1]string, argsEscaped bool, r *http.Request) 
 	return params, nil
 }
 
+// GetCloseCalendarParams is parameters of getCloseCalendar operation.
+type GetCloseCalendarParams struct {
+	// Legal entity (required).
+	LegalEntityID uuid.UUID
+	// Fiscal year (required).
+	FiscalYear int32
+}
+
+func unpackGetCloseCalendarParams(packed middleware.Parameters) (params GetCloseCalendarParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "legal_entity_id",
+			In:   "query",
+		}
+		params.LegalEntityID = packed[key].(uuid.UUID)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "fiscal_year",
+			In:   "query",
+		}
+		params.FiscalYear = packed[key].(int32)
+	}
+	return params
+}
+
+func decodeGetCloseCalendarParams(args [0]string, argsEscaped bool, r *http.Request) (params GetCloseCalendarParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
+	// Decode query: legal_entity_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.LegalEntityID = c
+				return nil
+			}); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "legal_entity_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: fiscal_year.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToInt32(val)
+				if err != nil {
+					return err
+				}
+
+				params.FiscalYear = c
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if err := (validate.Int{
+					MinSet:        true,
+					Min:           1900,
+					MaxSet:        true,
+					Max:           2999,
+					MinExclusive:  false,
+					MaxExclusive:  false,
+					MultipleOfSet: false,
+					MultipleOf:    0,
+					Pattern:       nil,
+				}).Validate(int64(params.FiscalYear)); err != nil {
+					return errors.Wrap(err, "int")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "fiscal_year",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // GetCompanyAccessParams is parameters of getCompanyAccess operation.
 type GetCompanyAccessParams struct {
 	// Resource identifier (UUIDv7).

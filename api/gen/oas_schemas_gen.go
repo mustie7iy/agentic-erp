@@ -9120,6 +9120,203 @@ func (s *ClearingPage) SetTotalEstimate(val OptInt64) {
 
 func (*ClearingPage) listClearingsRes() {}
 
+// A legal entity's close calendar of one fiscal year (ADR-0058 §3): its leading ledger's regular
+// periods with their planned due dates.
+// Ref: #/components/schemas/CloseCalendar
+type CloseCalendar struct {
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code; absent when the caller cannot act in it or it does not exist.
+	CompanyCode OptString `json:"company_code"`
+	// The legal entity's name; absent when `company_code` is.
+	CompanyName OptString `json:"company_name"`
+	// Fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The leading ledger, whose periods the rows are (`0L`).
+	LedgerCode string `json:"ledger_code"`
+	// The leading ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// The company's weekend days, which are no business days (its calendar's; default Saturday and
+	// Sunday); absent when `company_code` is.
+	Weekend []string `json:"weekend"`
+	// The regular periods of the fiscal year, by period number.
+	Periods []CloseCalendarPeriod `json:"periods"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CloseCalendar) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CloseCalendar) GetCompanyCode() OptString {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CloseCalendar) GetCompanyName() OptString {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *CloseCalendar) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *CloseCalendar) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *CloseCalendar) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetWeekend returns the value of Weekend.
+func (s *CloseCalendar) GetWeekend() []string {
+	return s.Weekend
+}
+
+// GetPeriods returns the value of Periods.
+func (s *CloseCalendar) GetPeriods() []CloseCalendarPeriod {
+	return s.Periods
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CloseCalendar) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CloseCalendar) SetCompanyCode(val OptString) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CloseCalendar) SetCompanyName(val OptString) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *CloseCalendar) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *CloseCalendar) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *CloseCalendar) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetWeekend sets the value of Weekend.
+func (s *CloseCalendar) SetWeekend(val []string) {
+	s.Weekend = val
+}
+
+// SetPeriods sets the value of Periods.
+func (s *CloseCalendar) SetPeriods(val []CloseCalendarPeriod) {
+	s.Periods = val
+}
+
+func (*CloseCalendar) getCloseCalendarRes() {}
+
+// One regular period of a close calendar: the leading ledger's posting period and the planned first
+// and last due dates of its close's tasks.
+// Ref: #/components/schemas/CloseCalendarPeriod
+type CloseCalendarPeriod struct {
+	// The leading ledger's posting period (`GET /v1/fiscal-periods/{id}`).
+	FiscalPeriodID uuid.UUID `json:"fiscal_period_id"`
+	// Period number (1-12).
+	Period int32 `json:"period"`
+	// First day.
+	StartDate time.Time `json:"start_date"`
+	// Last day.
+	EndDate time.Time `json:"end_date"`
+	// The period's posting status. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Status string `json:"status"`
+	// The earliest due date of the template's tasks for the company in this period, a business day unless
+	// a task is due on the period's last day itself (`due_day` 0); absent without a task.
+	FirstDueOn OptDate `json:"first_due_on"`
+	// The latest due date of the template's tasks for the company in this period; absent without a task.
+	LastDueOn OptDate `json:"last_due_on"`
+}
+
+// GetFiscalPeriodID returns the value of FiscalPeriodID.
+func (s *CloseCalendarPeriod) GetFiscalPeriodID() uuid.UUID {
+	return s.FiscalPeriodID
+}
+
+// GetPeriod returns the value of Period.
+func (s *CloseCalendarPeriod) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetStartDate returns the value of StartDate.
+func (s *CloseCalendarPeriod) GetStartDate() time.Time {
+	return s.StartDate
+}
+
+// GetEndDate returns the value of EndDate.
+func (s *CloseCalendarPeriod) GetEndDate() time.Time {
+	return s.EndDate
+}
+
+// GetStatus returns the value of Status.
+func (s *CloseCalendarPeriod) GetStatus() string {
+	return s.Status
+}
+
+// GetFirstDueOn returns the value of FirstDueOn.
+func (s *CloseCalendarPeriod) GetFirstDueOn() OptDate {
+	return s.FirstDueOn
+}
+
+// GetLastDueOn returns the value of LastDueOn.
+func (s *CloseCalendarPeriod) GetLastDueOn() OptDate {
+	return s.LastDueOn
+}
+
+// SetFiscalPeriodID sets the value of FiscalPeriodID.
+func (s *CloseCalendarPeriod) SetFiscalPeriodID(val uuid.UUID) {
+	s.FiscalPeriodID = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *CloseCalendarPeriod) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetStartDate sets the value of StartDate.
+func (s *CloseCalendarPeriod) SetStartDate(val time.Time) {
+	s.StartDate = val
+}
+
+// SetEndDate sets the value of EndDate.
+func (s *CloseCalendarPeriod) SetEndDate(val time.Time) {
+	s.EndDate = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CloseCalendarPeriod) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetFirstDueOn sets the value of FirstDueOn.
+func (s *CloseCalendarPeriod) SetFirstDueOn(val OptDate) {
+	s.FirstDueOn = val
+}
+
+// SetLastDueOn sets the value of LastDueOn.
+func (s *CloseCalendarPeriod) SetLastDueOn(val OptDate) {
+	s.LastDueOn = val
+}
+
 type CloseFiscalPeriodBadRequest Problem
 
 func (*CloseFiscalPeriodBadRequest) closeFiscalPeriodRes() {}
@@ -9871,6 +10068,7 @@ func (*ConflictHeaders) excludeBankStatementLineRes()         {}
 func (*ConflictHeaders) fileTaxReturnRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                {}
 func (*ConflictHeaders) getBankFileContentRes()               {}
+func (*ConflictHeaders) getCloseCalendarRes()                 {}
 func (*ConflictHeaders) getLegalEntityTodayRes()              {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()         {}
 func (*ConflictHeaders) getTaxReturnDraftRes()                {}
@@ -16326,6 +16524,14 @@ func (s *GetClearingOKHeaders) SetResponse(val Clearing) {
 }
 
 func (*GetClearingOKHeaders) getClearingRes() {}
+
+type GetCloseCalendarBadRequest Problem
+
+func (*GetCloseCalendarBadRequest) getCloseCalendarRes() {}
+
+type GetCloseCalendarForbidden Problem
+
+func (*GetCloseCalendarForbidden) getCloseCalendarRes() {}
 
 type GetCompanyAccessBadRequest Problem
 
@@ -45732,6 +45938,7 @@ func (*TooManyRequestsHeaders) getCashPositionRes()                  {}
 func (*TooManyRequestsHeaders) getCenterChangeRes()                  {}
 func (*TooManyRequestsHeaders) getChangeRequestRes()                 {}
 func (*TooManyRequestsHeaders) getClearingRes()                      {}
+func (*TooManyRequestsHeaders) getCloseCalendarRes()                 {}
 func (*TooManyRequestsHeaders) getCompanyAccessRes()                 {}
 func (*TooManyRequestsHeaders) getConfigVersionRes()                 {}
 func (*TooManyRequestsHeaders) getConnectorRes()                     {}
@@ -46098,6 +46305,7 @@ func (*UnauthorizedHeaders) getCashPositionRes()                  {}
 func (*UnauthorizedHeaders) getCenterChangeRes()                  {}
 func (*UnauthorizedHeaders) getChangeRequestRes()                 {}
 func (*UnauthorizedHeaders) getClearingRes()                      {}
+func (*UnauthorizedHeaders) getCloseCalendarRes()                 {}
 func (*UnauthorizedHeaders) getCompanyAccessRes()                 {}
 func (*UnauthorizedHeaders) getConfigVersionRes()                 {}
 func (*UnauthorizedHeaders) getConnectorRes()                     {}

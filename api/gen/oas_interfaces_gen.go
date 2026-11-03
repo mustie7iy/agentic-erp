@@ -369,6 +369,10 @@ type GetClearingRes interface {
 	getClearingRes()
 }
 
+type GetCloseCalendarRes interface {
+	getCloseCalendarRes()
+}
+
 type GetCompanyAccessRes interface {
 	getCompanyAccessRes()
 }

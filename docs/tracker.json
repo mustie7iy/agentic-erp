@@ -1518,7 +1518,7 @@
       "r": "ADR-0058 · T64 (split T64a-T64k)",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "Close template, company weekend and the close calendar: close.tasks (code, name, kind manual|check, check, due_day in business days, depends_on without cycles, optional companies) and calendars[company].weekend (default Saturday and Sunday) in the configuration, validated with tiers; config.Config.BusinessDay, cash's working calling it unchanged; the closing leaf (internal/layout) with its Companies and Ledger period ports; GET /v1/close-calendar (each regular period with its close, if any, and the planned first and last due dates); closing.close.read; walkthrough step_close: the template proposed, approved and activated, the year's calendar read",
         "r": "ADR-0058 · T64a",
         "src": "adr:ADR-0058",

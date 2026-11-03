@@ -1181,6 +1181,26 @@ func (UnimplementedHandler) GetClearing(ctx context.Context, params GetClearingP
 	return r, ht.ErrNotImplemented
 }
 
+// GetCloseCalendar implements getCloseCalendar operation.
+//
+// The close calendar of a legal entity's fiscal year (ADR-0058 §3, T64a): one row per regular period
+// (1-12) of its leading ledger, in period order, so at most 12 and not paged: the period's id, number,
+// first and last day and posting status, and the planned first and last due dates of its close's
+// tasks, computed from the active configuration's close template (`close.tasks`, changed only through
+// the configuration's approval loop): each task the company's close is given (a task listing companies
+// is given to those only) is due `due_day` business days after the period's last day (0: that day
+// itself; a negative number: that many business days before it). A business day is one that is neither
+// one of the company's `weekend` days (its calendar's, `calendars[].weekend`; default Saturday and
+// Sunday) nor one of its holidays (`calendars[].holidays`), the rule the cash position counts working
+// days by; the search is bounded at 366 days. Without a template task for the company a row has no
+// planned dates. A legal entity the caller cannot act in, or that does not exist, has no rows and no
+// company, as the ledger's list reads answer; a fiscal year the company has no periods in has no rows.
+//
+// GET /v1/close-calendar
+func (UnimplementedHandler) GetCloseCalendar(ctx context.Context, params GetCloseCalendarParams) (r GetCloseCalendarRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetCompanyAccess implements getCompanyAccess operation.
 //
 // Returns one company access grant.

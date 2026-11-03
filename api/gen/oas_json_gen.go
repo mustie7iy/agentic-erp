@@ -24587,6 +24587,442 @@ func (s *ClearingPage) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode implements json.Marshaler.
+func (s *CloseCalendar) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *CloseCalendar) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("legal_entity_id")
+		json.EncodeUUID(e, s.LegalEntityID)
+	}
+	{
+		if s.CompanyCode.Set {
+			e.FieldStart("company_code")
+			s.CompanyCode.Encode(e)
+		}
+	}
+	{
+		if s.CompanyName.Set {
+			e.FieldStart("company_name")
+			s.CompanyName.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("fiscal_year")
+		e.Int32(s.FiscalYear)
+	}
+	{
+		e.FieldStart("ledger_code")
+		e.Str(s.LedgerCode)
+	}
+	{
+		e.FieldStart("ledger_name")
+		e.Str(s.LedgerName)
+	}
+	{
+		if s.Weekend != nil {
+			e.FieldStart("weekend")
+			e.ArrStart()
+			for _, elem := range s.Weekend {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
+		e.FieldStart("periods")
+		e.ArrStart()
+		for _, elem := range s.Periods {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+}
+
+var jsonFieldsNameOfCloseCalendar = [8]string{
+	0: "legal_entity_id",
+	1: "company_code",
+	2: "company_name",
+	3: "fiscal_year",
+	4: "ledger_code",
+	5: "ledger_name",
+	6: "weekend",
+	7: "periods",
+}
+
+// Decode decodes CloseCalendar from json.
+func (s *CloseCalendar) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CloseCalendar to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "legal_entity_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.LegalEntityID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"legal_entity_id\"")
+			}
+		case "company_code":
+			if err := func() error {
+				s.CompanyCode.Reset()
+				if err := s.CompanyCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_code\"")
+			}
+		case "company_name":
+			if err := func() error {
+				s.CompanyName.Reset()
+				if err := s.CompanyName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_name\"")
+			}
+		case "fiscal_year":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Int32()
+				s.FiscalYear = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fiscal_year\"")
+			}
+		case "ledger_code":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := d.Str()
+				s.LedgerCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ledger_code\"")
+			}
+		case "ledger_name":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Str()
+				s.LedgerName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ledger_name\"")
+			}
+		case "weekend":
+			if err := func() error {
+				s.Weekend = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.Weekend = append(s.Weekend, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"weekend\"")
+			}
+		case "periods":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				s.Periods = make([]CloseCalendarPeriod, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem CloseCalendarPeriod
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Periods = append(s.Periods, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"periods\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode CloseCalendar")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b10111001,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfCloseCalendar) {
+					name = jsonFieldsNameOfCloseCalendar[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CloseCalendar) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CloseCalendar) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *CloseCalendarPeriod) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *CloseCalendarPeriod) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("fiscal_period_id")
+		json.EncodeUUID(e, s.FiscalPeriodID)
+	}
+	{
+		e.FieldStart("period")
+		e.Int32(s.Period)
+	}
+	{
+		e.FieldStart("start_date")
+		json.EncodeDate(e, s.StartDate)
+	}
+	{
+		e.FieldStart("end_date")
+		json.EncodeDate(e, s.EndDate)
+	}
+	{
+		e.FieldStart("status")
+		e.Str(s.Status)
+	}
+	{
+		if s.FirstDueOn.Set {
+			e.FieldStart("first_due_on")
+			s.FirstDueOn.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		if s.LastDueOn.Set {
+			e.FieldStart("last_due_on")
+			s.LastDueOn.Encode(e, json.EncodeDate)
+		}
+	}
+}
+
+var jsonFieldsNameOfCloseCalendarPeriod = [7]string{
+	0: "fiscal_period_id",
+	1: "period",
+	2: "start_date",
+	3: "end_date",
+	4: "status",
+	5: "first_due_on",
+	6: "last_due_on",
+}
+
+// Decode decodes CloseCalendarPeriod from json.
+func (s *CloseCalendarPeriod) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CloseCalendarPeriod to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "fiscal_period_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.FiscalPeriodID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fiscal_period_id\"")
+			}
+		case "period":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int32()
+				s.Period = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"period\"")
+			}
+		case "start_date":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.StartDate = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"start_date\"")
+			}
+		case "end_date":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.EndDate = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"end_date\"")
+			}
+		case "status":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := d.Str()
+				s.Status = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"status\"")
+			}
+		case "first_due_on":
+			if err := func() error {
+				s.FirstDueOn.Reset()
+				if err := s.FirstDueOn.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"first_due_on\"")
+			}
+		case "last_due_on":
+			if err := func() error {
+				s.LastDueOn.Reset()
+				if err := s.LastDueOn.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"last_due_on\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode CloseCalendarPeriod")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00011111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfCloseCalendarPeriod) {
+					name = jsonFieldsNameOfCloseCalendarPeriod[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CloseCalendarPeriod) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CloseCalendarPeriod) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes CloseFiscalPeriodBadRequest as json.
 func (s *CloseFiscalPeriodBadRequest) Encode(e *jx.Encoder) {
 	unwrapped := (*Problem)(s)
@@ -46047,6 +46483,82 @@ func (s *GetClearingNotFound) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *GetClearingNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetCloseCalendarBadRequest as json.
+func (s *GetCloseCalendarBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetCloseCalendarBadRequest from json.
+func (s *GetCloseCalendarBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetCloseCalendarBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetCloseCalendarBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetCloseCalendarBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetCloseCalendarBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetCloseCalendarForbidden as json.
+func (s *GetCloseCalendarForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetCloseCalendarForbidden from json.
+func (s *GetCloseCalendarForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetCloseCalendarForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetCloseCalendarForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetCloseCalendarForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetCloseCalendarForbidden) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

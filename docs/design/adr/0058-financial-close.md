@@ -862,3 +862,52 @@ tracker item only when one does (07 §7.5).
 
 ## As built
 (Filled in by the slices T64a-T64k.)
+
+**T64a (close template, company weekend and the close calendar).** Built
+as §3: `close.tasks` (code, name, kind, check, due day, depends on,
+companies) in `internal/config` (`close.go`), validated with the problems
+on their fields, and `calendars[].weekend`; tiers: a task's name 1, the
+rest of the template and the weekend 2 (the calendars' rule).
+`config.Config.BusinessDay(company, date)` is the business-day rule
+(not a weekend day, not a holiday), and cash's `working` calls it; cash's
+tests pass unchanged. `GET /v1/close-calendar` (`getCloseCalendar`,
+`closing.close.read`, added by migration 000191) is the `closing` leaf's
+first operation, through the ports `closing.Settings` (the active
+document), `closing.Companies` (a legal entity's code and name) and
+`closing.Ledger` (the leading ledger's regular periods of a company and
+year, over the new `ledger.ClosePeriods.Leading`); `internal/layout` lists
+`closing` among the leaves with `config` alone, and 02 §2.2 has its row.
+The walkthrough's `step_close` is created as the story's last step: Ada's
+template of three manual tasks, approved by the process owner and
+activated, and Carla's calendar of the year. Decided by default, for the
+product owner to overrule:
+- `calendars` stays the list keyed by company that ADR-0048 built (§3's
+  example writes it as a map); the weekend is a field of a company's
+  entry. Weekdays are written out in lower case (`saturday`), as §3's
+  example has them, not abbreviated as `cash.payment_days` are; each
+  once, and not all seven, which would leave no business day. An absent
+  or empty weekend is the default, Saturday and Sunday, so a company
+  with no weekend at all cannot be expressed; none is asked for.
+- No check is known in T64a (`config.CloseChecks` is empty): a `check`
+  task is refused until T64c adds the first checks, so the template of
+  this slice is manual tasks alone.
+- A task may depend only on tasks given to every company it is given to
+  (a task restricted to companies 1000 and 2000 may depend on one for
+  every company or for at least those two), so no close receives a task
+  whose dependency it lacks; a dependency names a task once; a task
+  depending on itself is a cycle.
+- The calendar answers `company_code`, `company_name`, `weekend` and the
+  rows only for a legal entity the caller may act in that exists; it
+  always carries the leading ledger's code and name, from the
+  configuration. A year without periods has the company and no rows.
+  `fiscal_year` and `legal_entity_id` are required.
+- Each row's close (§3: "its close if one exists") is not in the contract
+  yet: no close can exist before T64b, which adds the field (additive) with
+  the `closing` schema. The planned dates are always the template's
+  computed for the period until then.
+- Day 0 is the period's last day even when it is no business day (§3:
+  "0 is the last day itself"); a search that finds no business day within
+  366 calendar days stops there, as cash's does.
+- The heading of `step_close` is "Final step — Financial close", without a
+  number, so steps that other lanes add before it keep their numbers and
+  it never needs renumbering.

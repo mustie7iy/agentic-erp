@@ -98,6 +98,7 @@ const (
 	GetCenterChangeOperation                  OperationName = "GetCenterChange"
 	GetChangeRequestOperation                 OperationName = "GetChangeRequest"
 	GetClearingOperation                      OperationName = "GetClearing"
+	GetCloseCalendarOperation                 OperationName = "GetCloseCalendar"
 	GetCompanyAccessOperation                 OperationName = "GetCompanyAccess"
 	GetConfigVersionOperation                 OperationName = "GetConfigVersion"
 	GetConnectorOperation                     OperationName = "GetConnector"

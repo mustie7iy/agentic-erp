@@ -365,7 +365,13 @@ each company's holidays (`calendars[company].holidays[date]`, T62c): one
 calendar per company of the document, each holiday a `YYYY-MM-DD` date
 once, with a name; applying a pack merges its holidays by date. A change
 is operational, a holiday's name cosmetic. No context owns a table for it:
-readers use the active document (`config.Config.Holiday`).
+readers use the active document (`config.Config.Holiday`). A calendar also
+names the company's weekend (`calendars[company].weekend`, T64a, ADR-0058
+§3): lower-case weekday names, each once, not all seven; none given means
+Saturday and Sunday. A business day is neither a weekend day nor a holiday
+(`config.Config.BusinessDay`), the one rule the cash position and the close
+calendar count days by. The `close` section is the close template
+(`close.tasks`, T64a; §3.21).
 `POST /v1/country-pack-applications` (T62d) stores the draft as a change
 request in status `draft` on the active version, with the merge's notes in
 `change_request.notes` (an array of path and message, `[]` for requests
@@ -2870,3 +2876,29 @@ a standing return whose snapshot claims the item, of a company its
 registration covers, dated by its period's end, or released by one ended
 (`tax_item_reported`, a deferred trigger of the tax filing context, served
 by `ledger.tax_item_reported_in`, built concurrently by migration 000180).
+
+## 3.21 Financial close (`closing`)
+
+The financial close (ADR-0058) is a leaf context: it reads the
+configuration, tenancy and the ledger through ports the composition root
+adapts, and no context reads it. Its template is configuration (T64a):
+`close.tasks`, at most 200 tasks, each with a unique `code`
+(`[A-Z0-9_]{1,30}`), a `name` (cosmetic), a `kind` (`manual` or `check`,
+with a `check` this build runs exactly when the kind is `check`; each
+slice that builds a check adds it), a `due_day` (business days after the
+period's last day, -31 to 31, 0 that day itself), `depends_on` (other
+tasks of the template, each once, without a cycle, and given to every
+company the dependent task is) and optional `companies` (only these
+companies' closes get the task). A change is operational, a task's name
+cosmetic.
+
+`GET /v1/close-calendar` (T64a) computes the calendar of a company's
+fiscal year from the leading ledger's regular periods
+(`ledger.period_status` with `ledger.fiscal_period`, special periods left
+out) and the active template: each period's planned first and last due
+dates, each task due `due_day` business days of the company from the
+period's `end_date`. Nothing is stored; migration 000191 adds the
+permission `closing.close.read`. The schema `closing` (period closes,
+their ledgers and tasks, sign-offs, accrual proposals and evidence,
+variance comments and citations) is created by the slices that write it,
+from T64b (ADR-0058 §5).

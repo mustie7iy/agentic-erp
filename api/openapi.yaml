@@ -61,6 +61,8 @@ tags:
     description: "Cash management (ADR-0051): the daily cash position, computed from statements, payments, runs and memo records, the liquidity forecast from supplier open items and runs, and the memo records of expected receipts and payments."
   - name: assets
     description: "Asset accounting (ADR-0057): asset classes with their depreciation terms and accounts."
+  - name: closing
+    description: "Financial close (ADR-0058): the close template, each company's close calendar and its period closes."
   - name: controlling
     description: "Controlling (ADR-0050): plan categories, plan lines by batch and plan against actual by cost center."
   - name: tax
@@ -13700,6 +13702,50 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/close-calendar:
+    get:
+      operationId: getCloseCalendar
+      tags:
+        - closing
+      summary: Get a company's close calendar
+      description: "The close calendar of a legal entity's fiscal year (ADR-0058 §3, T64a): one row per regular period (1-12) of its leading ledger, in period order, so at most 12 and not paged: the period's id, number, first and last day and posting status, and the planned first and last due dates of its close's tasks, computed from the active configuration's close template (`close.tasks`, changed only through the configuration's approval loop): each task the company's close is given (a task listing companies is given to those only) is due `due_day` business days after the period's last day (0: that day itself; a negative number: that many business days before it). A business day is one that is neither one of the company's `weekend` days (its calendar's, `calendars[].weekend`; default Saturday and Sunday) nor one of its holidays (`calendars[].holidays`), the rule the cash position counts working days by; the search is bounded at 366 days. Without a template task for the company a row has no planned dates. A legal entity the caller cannot act in, or that does not exist, has no rows and no company, as the ledger's list reads answer; a fiscal year the company has no periods in has no rows."
+      x-permission: closing.close.read
+      x-problem-codes:
+        - config.not_bootstrapped
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: Fiscal year (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+      responses:
+        "200":
+          description: The close calendar.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CloseCalendar"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/cash-position:
@@ -31773,6 +31819,125 @@ components:
               lines:
                 - {line_no: 1, booking_date: "2026-04-17", amount: {amount: "-10.50", currency: EUR}, is_reversal: false, transaction_code: NCHG, status: posted, match_id: 0192a000-0000-7000-8000-000000000b40, match_kind: rule, match_rule: transaction_code, match_status: matched, posting_date: "2026-04-17", journal_entry_id: 0192a000-0000-7000-8000-000000000d01, journal_entry_year: 2026}
                 - {line_no: 2, booking_date: "2026-04-17", amount: {amount: "-60.00", currency: EUR}, is_reversal: false, transaction_code: NTRF, status: unmatched, proposal_outcome: rejected}
+    CloseCalendar:
+      type: object
+      description: "A legal entity's close calendar of one fiscal year (ADR-0058 §3): its leading ledger's regular periods with their planned due dates."
+      required:
+        - legal_entity_id
+        - fiscal_year
+        - ledger_code
+        - ledger_name
+        - periods
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: "The legal entity's company code; absent when the caller cannot act in it or it does not exist."
+          readOnly: true
+        company_name:
+          type: string
+          description: "The legal entity's name; absent when `company_code` is."
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year.
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+        ledger_code:
+          type: string
+          description: "The leading ledger, whose periods the rows are (`0L`)."
+          readOnly: true
+        ledger_name:
+          type: string
+          description: The leading ledger's name.
+          readOnly: true
+        weekend:
+          type: array
+          items:
+            type: string
+            description: "A weekday in lower case. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [monday, tuesday, wednesday, thursday, friday, saturday, sunday]
+          description: "The company's weekend days, which are no business days (its calendar's; default Saturday and Sunday); absent when `company_code` is."
+          readOnly: true
+        periods:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/CloseCalendarPeriod"
+          description: "The regular periods of the fiscal year, by period number."
+          readOnly: true
+      examples:
+        - legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+          company_code: "1000"
+          company_name: Maple Manufacturing Ltd.
+          fiscal_year: 2026
+          ledger_code: 0L
+          ledger_name: Leading ledger
+          weekend: [saturday, sunday]
+          periods:
+            - fiscal_period_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41
+              period: 10
+              start_date: "2026-10-01"
+              end_date: "2026-10-31"
+              status: open
+              first_due_on: "2026-10-30"
+              last_due_on: "2026-11-04"
+    CloseCalendarPeriod:
+      type: object
+      description: "One regular period of a close calendar: the leading ledger's posting period and the planned first and last due dates of its close's tasks."
+      required:
+        - fiscal_period_id
+        - period
+        - start_date
+        - end_date
+        - status
+      properties:
+        fiscal_period_id:
+          type: string
+          format: uuid
+          description: "The leading ledger's posting period (`GET /v1/fiscal-periods/{id}`)."
+          readOnly: true
+        period:
+          type: integer
+          format: int32
+          description: Period number (1-12).
+          minimum: 1
+          maximum: 12
+          readOnly: true
+        start_date:
+          type: string
+          format: date
+          description: First day.
+          readOnly: true
+        end_date:
+          type: string
+          format: date
+          description: Last day.
+          readOnly: true
+        status:
+          type: string
+          description: "The period's posting status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - open
+            - closed
+            - locked
+          readOnly: true
+        first_due_on:
+          type: string
+          format: date
+          description: "The earliest due date of the template's tasks for the company in this period, a business day unless a task is due on the period's last day itself (`due_day` 0); absent without a task."
+          readOnly: true
+        last_due_on:
+          type: string
+          format: date
+          description: "The latest due date of the template's tasks for the company in this period; absent without a task."
+          readOnly: true
     AssetClassPage:
       type: object
       description: One page of asset classes.

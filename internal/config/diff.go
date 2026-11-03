@@ -145,6 +145,12 @@ var tierRules = []struct {
 	{rx(`^asset_classes\[\*\]\.name$`), TierCosmetic},
 	{rx(`^asset_classes(\[|$)`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.asset_accounts`), TierPostingRelated},
+	// A close task's name is cosmetic; the tasks, their checks, due days
+	// and dependencies decide what a sign-off requires and post nothing
+	// (ADR-0058 §3). A company's weekend is its calendar's, operational
+	// by the calendars rule above.
+	{rx(`^close\.tasks\[\*\]\.name$`), TierCosmetic},
+	{rx(`^close(\.|$)`), TierOperational},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }
@@ -190,6 +196,8 @@ var listKeys = map[string]string{
 	// Asset classes by code, their terms by ledger, a company's asset
 	// accounts by class (ADR-0057 §3).
 	"asset_classes": "code", "terms": "ledger", "asset_accounts": "class",
+	// The close template's tasks by code (ADR-0058 §3).
+	"tasks": "code",
 }
 
 // pathKeys override listKeys for a list at one path, where its name is
