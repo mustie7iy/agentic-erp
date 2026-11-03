@@ -1,13 +1,20 @@
 package assets_test
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // worklist reads company 2000's clearing items of 2026 with the query, one
@@ -61,12 +68,26 @@ func TestClearingItems(t *testing.T) {
 	e.Must(200, "POST", "/v1/journal-entries/"+held.String()+":reverse", "", tag)
 	invoice := e.invoice(t, "MILL-77", "2026-06-04")
 	e.acquire(t, a["id"], split, 1, `, "amount": {"amount": "100.00", "currency": "EUR"}`)
+	// A payables entry whose document is no supplier invoice names none.
+	var payablesEntry uuid.UUID
+	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		day := time.Date(2026, 6, 5, 0, 0, 0, 0, time.UTC)
+		posted, err := ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}}.Post(ctx,
+			ledger.Posting{LegalEntityID: e.DE, DocumentType: "SA", DocumentDate: day, PostingDate: day, Currency: "EUR", SourceContext: "payables",
+				SourceDocumentID: uuid.Must(uuid.NewV7()), Lines: []ledger.PostingLine{{AccountID: e.Account(t, "2000", "169000"), Amount: 500},
+					{AccountID: e.Account(t, "2000", "100000"), Amount: -500}}})
+		payablesEntry = posted.ID
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 	sp, hd := e.number(t, split), e.number(t, held)
 	got, page := e.worklist(t, "")
 	want(t, "the worklist", strings.Join(got, "\n"), strings.Join([]string{
 		sp + "/1 300.00 EUR used 100.00 EUR left 200.00 EUR 200.00 EUR 200.00 EUR reversed false [1:100.00:posted]",
 		hd + "/1 70.00 EUR used 70.00 EUR left 0.00 EUR 0.00 EUR 0.00 EUR reversed true [2:70.00:posted]",
 		e.number(t, invoice) + "/1 100.00 EUR used 0.00 EUR left 100.00 EUR 100.00 EUR 100.00 EUR reversed false []",
+		e.number(t, payablesEntry)+"/1 5.00 EUR used 0.00 EUR left 5.00 EUR 5.00 EUR 5.00 EUR reversed false []",
 	}, "\n"))
 	items := page["items"].([]any)
 	first, last := items[0].(map[string]any), items[2].(map[string]any)
@@ -77,7 +98,8 @@ func TestClearingItems(t *testing.T) {
 
 	e.acquire(t, b["id"], split, 1, "")
 	got, _ = e.worklist(t, "&remaining=true")
-	want(t, "with something left", strings.Join(got, "\n"), e.number(t, invoice)+"/1 100.00 EUR used 0.00 EUR left 100.00 EUR 100.00 EUR 100.00 EUR reversed false []")
+	want(t, "with something left", strings.Join(got, "\n"), e.number(t, invoice)+"/1 100.00 EUR used 0.00 EUR left 100.00 EUR 100.00 EUR 100.00 EUR reversed false []\n"+
+		e.number(t, payablesEntry)+"/1 5.00 EUR used 0.00 EUR left 5.00 EUR 5.00 EUR 5.00 EUR reversed false []")
 
 	var pages []string
 	for token := ""; ; {
@@ -89,7 +111,7 @@ func TestClearingItems(t *testing.T) {
 		}
 		token = "&page_token=" + next
 	}
-	want(t, "pages", len(pages), 3)
+	want(t, "pages", len(pages), 4)
 	e.Problem(400, "request.invalid_page_token", "GET", "/v1/asset-clearing-items?legal_entity_id="+e.DE.String()+"&fiscal_year=2025&page_token=x", "", "")
 
 	reader := e.Client

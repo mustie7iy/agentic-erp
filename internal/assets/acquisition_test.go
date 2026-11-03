@@ -298,3 +298,57 @@ func TestCancelAssetWithMovements(t *testing.T) {
 		t.Errorf("detail: got %v, want the movements named", p["detail"])
 	}
 }
+
+// TestListAssetAcquisitions: acquisitions are listed by posting date or
+// creation in pages, filtered by company, asset, source entry, posting
+// dates and status; one against an offset account (T57d) shows no source.
+func TestListAssetAcquisitions(t *testing.T) {
+	e := newAcquisitions(t)
+	cc := fmt.Sprintf(`, "cost_center_id": %q`, e.c.Admin)
+	a, _ := e.create(t, e.body(e.DE, "MACHINES", cc))
+	b, _ := e.create(t, e.body(e.DE, "MACHINES", cc))
+	entry := e.post(t, "2000", "2026-06-10", "EUR", nil, line{"169000", "300.00"}, line{"100000", "-300.00"})
+	first := e.acquire(t, a["id"], entry, 1, `, "amount": {"amount": "100.00", "currency": "EUR"}, "posting_date": "2026-06-12"`)
+	second := e.acquire(t, b["id"], entry, 1, "")
+	manual := uuid.Must(uuid.NewV7())
+	pgtest.Exec(t, `INSERT INTO assets.acquisition (tenant_id, id, legal_entity_id, asset_id, seq, value_date, posting_date, fiscal_year, currency, amount,
+			amount_lc, amount_gc, currency_lc, currency_gc, offset_account_id, status, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, 9, '2026-06-20', '2026-06-20', 2026, 'EUR', 500, 500, 500, 'EUR', 'EUR', $5, 'posted', $6, $6)`,
+		e.Tenant.ID, manual, e.DE, a["id"], e.Account(t, "2000", "100000"), e.Tenant.Human.ID)
+	got, _ := e.Must(200, "GET", "/v1/asset-acquisitions/"+manual.String(), "", "")
+	if _, ok := got["source"]; ok {
+		t.Errorf("an acquisition against an offset account: got source %v, want none", got["source"])
+	}
+	ids := func(t *testing.T, query string) string {
+		t.Helper()
+		var out []string
+		for token := ""; ; {
+			page, _ := e.Must(200, "GET", "/v1/asset-acquisitions?page_size=1"+query+token, "", "")
+			for _, it := range page["items"].([]any) {
+				out = append(out, it.(map[string]any)["id"].(string))
+			}
+			next, ok := page["next_page_token"].(string)
+			if !ok {
+				return strings.Join(out, " ")
+			}
+			token = "&page_token=" + next
+		}
+	}
+	all := fmt.Sprint(first["id"], " ", second["id"], " ", manual)
+	for name, c := range map[string]struct{ query, want string }{
+		"by posting date":    {"", all},
+		"by creation":        {"&order_by=created_at", fmt.Sprint(first["id"], " ", second["id"], " ", manual)},
+		"of a company":       {"&legal_entity_id=" + e.DE.String(), all},
+		"of another company": {"&legal_entity_id=" + e.US.String(), ""},
+		"of an asset":        {"&asset_id=" + b["id"].(string), fmt.Sprint(second["id"])},
+		"from an entry":      {"&source_entry_id=" + entry.String(), fmt.Sprint(first["id"], " ", second["id"])},
+		"posted from a day":  {"&posting_date_from=2026-06-13", fmt.Sprint(second["id"], " ", manual)},
+		"posted up to a day": {"&posting_date_to=2026-06-12", fmt.Sprint(first["id"])},
+		"reversed":           {"&status=reversed", ""},
+	} {
+		t.Run(name, func(t *testing.T) { want(t, "acquisitions", ids(t, c.query), c.want) })
+	}
+	page, _ := e.Must(200, "GET", "/v1/asset-acquisitions", "", "")
+	want(t, "one page of all", len(page["items"].([]any)), 3)
+	e.Problem(400, "request.invalid_page_token", "GET", "/v1/asset-acquisitions?page_token=x", "", "")
+}

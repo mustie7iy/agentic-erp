@@ -3,6 +3,7 @@ package assets_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -12,10 +13,14 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/assets"
+	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -106,9 +111,65 @@ func TestAcquisitionDatabaseFailures(t *testing.T) {
 			t.Errorf("%s outside a unit of work: got %v, want reqctx.ErrOutsideRequest", name, err)
 		}
 	}
+	// The contract refuses a page size of 0 before the handler; called
+	// directly, the handler refuses it itself.
+	err = apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		_, err := h.ListAssetClearingItems(ctx, gen.ListAssetClearingItemsParams{LegalEntityID: e.DE, FiscalYear: 2026, PageSize: gen.NewOptInt32(0)})
+		return err
+	})
+	pgtest.WantErr(t, err, "request.invalid_page_size")
 	err = apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 		_, err := ledger.Calendar{LegalEntities: tenancy.Directory{}}.Period(ctx, uuid.Must(uuid.NewV7()), assetDay)
 		return err
 	})
 	pgtest.WantErr(t, err, "ledger.no_fiscal_period")
+}
+
+// classesLost is the active document without company 2000's asset
+// accounts, and with its zone one the binary cannot load.
+type classesLost struct{ assets.Settings }
+
+func (c classesLost) Document(ctx context.Context) (*config.Config, int32, error) {
+	doc, n, err := c.Settings.Document(ctx)
+	if err == nil {
+		doc.Company("2000").AssetAccounts = nil
+	}
+	return doc, n, err
+}
+
+// TestAcquisitionSettingsLost: an acquisition onto an asset whose class
+// the company no longer has accounts for is refused, and one without a
+// posting date whose company's zone does not load fails rather than
+// dating it in UTC.
+func TestAcquisitionSettingsLost(t *testing.T) {
+	e := newAcquisitions(t)
+	a, _ := e.create(t, e.body(e.DE, "MACHINES", `, "cost_center_id": "`+e.c.Admin.String()+`"`))
+	entry := e.post(t, "2000", "2026-06-10", "EUR", nil, line{"169000", "300.00"}, line{"100000", "-300.00"})
+	in := &gen.AssetAcquisitionCreate{AssetID: uuid.MustParse(a["id"].(string)), Source: gen.AssetAcquisitionSourceRef{EntryID: entry, LineNo: 1}}
+	for name, c := range map[string]struct {
+		settings assets.Settings
+		want     string
+	}{
+		"no asset accounts": {classesLost{configuration.Settings{}}, "assets.class_not_in_company"},
+		"a zone lost":       {zoneLost{configuration.Settings{}}, "Europe/Nowhere"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := app.Assets(app.Config{})
+			h.Settings = c.settings
+			err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+				_, err := h.CreateAssetAcquisition(ctx, in, gen.CreateAssetAcquisitionParams{})
+				return err
+			})
+			if err == nil || !strings.Contains(fmt.Sprint(err, problemCode(err)), c.want) {
+				t.Errorf("got %v, want %s", err, c.want)
+			}
+		})
+	}
+}
+
+func problemCode(err error) string {
+	if p := problem.From(err); p != nil {
+		return p.Code
+	}
+	return ""
 }

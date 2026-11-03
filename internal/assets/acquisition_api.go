@@ -247,7 +247,9 @@ func (e *Endpoints) ListAssetAcquisitions(ctx context.Context, params gen.ListAs
 	if err != nil {
 		return nil, err
 	}
-	q, args := ks.SQL(acquisitionSelect+` WHERE ($1 OR q.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR q.legal_entity_id = $3)
+	// The keyset pages on (column, id): selected from a subquery, id is the
+	// acquisition's alone, not also its asset's.
+	q, args := ks.SQL(`SELECT * FROM (`+acquisitionSelect+`) q WHERE ($1 OR q.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR q.legal_entity_id = $3)
 		AND ($4::uuid IS NULL OR q.asset_id = $4) AND ($5::uuid IS NULL OR q.source_entry_id = $5) AND ($6::date IS NULL OR q.posting_date >= $6)
 		AND ($7::date IS NULL OR q.posting_date <= $7) AND ($8 = '' OR q.status = $8)`,
 		[]any{access.All, access.IDs, le, asset, entry, from, to, params.Status.Value})

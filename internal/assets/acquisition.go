@@ -241,23 +241,16 @@ func (u clearingUse) take(amount *money.Minor, currency string) (share, error) {
 			"the line's sign up to that.", left, u.currency), "amount", "an amount of the line's sign, at most what is left")
 	}
 	used := u.used.tc + tc
-	lc, err := proportion(u.line.lc, used, u.line.tc)
-	if err != nil {
-		return share{}, err
-	}
-	gc, err := proportion(u.line.gc, used, u.line.tc)
-	if err != nil {
-		return share{}, err
-	}
+	lc, gc := proportion(u.line.lc, used, u.line.tc), proportion(u.line.gc, used, u.line.tc)
 	return share{tc: tc, lc: lc - u.used.lc, gc: gc - u.used.gc}, nil
 }
 
 // proportion is amount × num / den rounded half away from zero; den is
-// never zero (clearing_use's line_amount <> 0) and the result is at most
-// amount in size, as |num| ≤ |den|.
-func proportion(amount, num, den money.Minor) (money.Minor, error) {
+// never zero (clearing_use's line_amount <> 0).
+func proportion(amount, num, den money.Minor) money.Minor {
 	v := new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(amount)), big.NewInt(int64(num))), big.NewInt(int64(den)))
-	return money.Round(v, 0)
+	m, _ := money.Round(v, 0) // never out of range: |num| ≤ |den|, so the result is at most amount in size
+	return m
 }
 
 // entry is the acquisition's entry (ADR-0057 §6): in the line's

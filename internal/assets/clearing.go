@@ -86,9 +86,6 @@ func (e *Endpoints) clearingAccounts(ctx context.Context, doc *config.Config, co
 			numbers = append(numbers, a.Clearing)
 		}
 	}
-	if len(numbers) == 0 {
-		return nil, nil
-	}
 	ids, err := e.Ledger.Accounts(ctx, co.ID, numbers)
 	if err != nil {
 		return nil, fmt.Errorf("assets: clearing accounts of %s: %w", co.Code, err)
@@ -142,10 +139,7 @@ func (e *Endpoints) ListAssetClearingItems(ctx context.Context, params gen.ListA
 	if len(lines.lines) > size {
 		lines.lines = lines.lines[:size]
 		last := lines.lines[size-1]
-		tok, err := e.Pages.Encode(scope, ClearingKey{PostingDate: last.PostingDate, EntryID: last.EntryID, LineNo: last.LineNo})
-		if err != nil {
-			return nil, err
-		}
+		tok, _ := e.Pages.Encode(scope, ClearingKey{PostingDate: last.PostingDate, EntryID: last.EntryID, LineNo: last.LineNo}) // a date, a uuid and an int always encode
 		page.NextPageToken = gen.NewOptString(tok)
 	}
 	if page.Items, err = e.clearingItems(ctx, tx, w, lines); err != nil {
