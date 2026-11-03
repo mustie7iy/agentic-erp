@@ -980,3 +980,52 @@ to overrule:
   open; the close's `open` <-> `signed_off` moves are allowed for T64d.
   Dependencies are checked by the application under the close's lock, not
   by the database.
+
+**T64c (automatic checks: parked entries and revaluation).** Built as §6:
+`config.CloseChecks` is `no_parked_entries` and `revaluation_posted`, so a
+template's `check` task is accepted and copied into a close with its
+check. `POST /v1/period-closes/{id}/tasks/{code}:check` (`checkCloseTask`,
+people only, `closing.close.manage` and `ledger.entry.read`) reads the
+close `FOR UPDATE`, checks `If-Match` against its version, runs the check
+through `closing.Ledger`'s two new reads over the ledger's published port
+`ledger.CloseChecks` (`Parked`: the count and the first entries of a
+company by posting date in given statuses; `PostedRevaluation`: a
+ledger's posted run at a key date), records the result on the task, sets
+it done or open, and writes the audit record
+(`closing.period_close.check_task`) and `PeriodCloseChanged`
+(`task_checked`). `:check` on a manual task is 409
+`closing.task_not_check`, `:complete` on a check task 409
+`closing.task_is_check`. Migration 000195 adds the result columns
+`checked_at`, `checked_by`, `check_passed` and `check_result` with their
+rules (`close_task_checked`, `close_task_check_passed`, the trigger's), NOT
+VALID, and 000196 validates them (06 §6.4). Walkthrough: `close_checks`
+in `step_close`. Decided by default, for the product owner to overrule:
+- `no_parked_entries` reads the company's parked entries whose posting
+  date is in the leading ledger's period (its first to last day), in
+  every ledger, a ledger-specific one included: §6 states the check per
+  company, not per covered ledger. It names the first 20 by posting date
+  and id, each with its id, document type, posting date, status,
+  reference, header text and who parked it (id, kind, name), and counts
+  them all (`parked_entries_count`); no amount is shown.
+- `revaluation_posted` keys each covered ledger's run on that ledger's own
+  period's last day, and counts only a `posted` run, not a cancelled one;
+  the result names each covered ledger with its key date and run.
+- A check runs on a done task as well, so a person refreshes a result
+  without reopening first: a pass keeps the task's completion (who and
+  when it first passed), a failure opens it and clears the completion.
+  Reopening a check task keeps its latest result. A check task can be
+  assigned like a manual one; only `:complete` is refused.
+- The result keeps what the check found as it was when it ran, names of
+  who parked the entries included (`check_result`, jsonb), and a one
+  sentence `summary`; who ran it is named at the read, as for the other
+  principals of a task. The database holds a check task done only while
+  its latest check passed, and a result once recorded is replaced, never
+  removed.
+- `PeriodCloseChanged` gains `check_passed` (nullable, optional in the
+  schema: additive), null for every other change; the audit record keeps
+  the check, whether it passed and its summary.
+- The walkthrough's template (T64a's part) gains the check task
+  `NO_PARKED`, depending on `AP_CUTOFF`, since a close copies the template
+  when it is opened; it has no `revaluation_posted` task, so the sign-off
+  T64d adds needs no revaluation run in the walkthrough. The revaluation
+  check is tested in `internal/closing` with real runs.

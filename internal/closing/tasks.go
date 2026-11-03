@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
@@ -111,11 +112,13 @@ func (e *Endpoints) person(ctx context.Context, id uuid.UUID) error {
 }
 
 // CompleteCloseTask implements POST
-// /v1/period-closes/{id}/tasks/{code}:complete: an open task done, once
-// every task it depends on is.
+// /v1/period-closes/{id}/tasks/{code}:complete: an open manual task done,
+// once every task it depends on is; a check task is done by its check.
 func (e *Endpoints) CompleteCloseTask(ctx context.Context, req gen.OptCloseTaskComplete, params gen.CompleteCloseTaskParams) (gen.CompleteCloseTaskRes, error) {
 	return e.taskAction(ctx, params.ID, params.Code, params.IfMatch, func(ctx context.Context, tx pgx.Tx, p reqctx.Principal, t task) (change, bool, error) {
 		switch {
+		case t.Kind == config.CloseCheck:
+			return change{}, false, problem.Conflict("closing.task_is_check", "Task "+t.Code+" is a check, done by its check passing; run it with :check.")
 		case t.Status == TaskDone:
 			return change{}, false, problem.Conflict("closing.task_already_done", "Task "+t.Code+" is done already; reopen it to complete it again.")
 		case len(t.BlockedBy) > 0:

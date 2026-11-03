@@ -15,7 +15,10 @@ import (
 // done (and the note only then), the completion never rewritten while it
 // stands, a check task naming its check and a manual one none, never
 // depending on itself, and what the template gave them fixed. Nothing is
-// deleted, and every change moves the row's version.
+// deleted, and every change moves the row's version. A check task's result
+// (T64c, migration 000195) is recorded whole, on a check task only, never
+// at its creation and never removed; a check task is done only while its
+// latest check passed.
 func TestPeriodCloseRules(t *testing.T) {
 	need(t)
 	const (
@@ -29,6 +32,16 @@ func TestPeriodCloseRules(t *testing.T) {
 	open := func(s scene) stmt { return step(closeRow, s.tenant, s.close, s.entity, 1, "open", s.actor) }
 	task := func(s scene, code string, seq int) stmt {
 		return step(taskRow, s.tenant, s.close, code, seq, "manual", nil, []string{}, "open", nil, nil, nil, s.actor)
+	}
+	check := func(s scene) stmt {
+		return step(taskRow, s.tenant, s.close, "NP", 1, "check", "no_parked_entries", []string{}, "open", nil, nil, nil, s.actor)
+	}
+	// checked records a check's result, passed or not, and sets the status,
+	// as :check does.
+	checked := func(passed, status string) stmt {
+		return step(`UPDATE closing.close_task SET checked_at = now(), checked_by = updated_by, check_passed = $1::boolean, check_result = '{"summary": "x"}',
+			status = $2, completed_by = CASE WHEN $2 = 'done' THEN updated_by END, completed_at = CASE WHEN $2 = 'done' THEN now() END,
+			version = version + 1 WHERE code = 'NP'`, passed, status)
 	}
 	done := func(code string) stmt {
 		return step(`UPDATE closing.close_task SET status = 'done', completed_by = updated_by, completed_at = now(), note = 'Done', version = version + 1
@@ -95,7 +108,7 @@ func TestPeriodCloseRules(t *testing.T) {
 		}, "keeps its completion while it is done"},
 		{"a task's due date changed", func(tx pgx.Tx, s scene) error {
 			return all(tx, open(s), task(s, "AP", 1), step(`UPDATE closing.close_task SET due_on = '2026-02-10', version = version + 1`))
-		}, "changes only its assignee and status"},
+		}, "changes only its assignee, status and check result"},
 		{"a manual task with a check", func(tx pgx.Tx, s scene) error {
 			return all(tx, open(s), step(taskRow, s.tenant, s.close, "AP", 1, "manual", "no_parked_entries", []string{}, "open", nil, nil, nil, s.actor))
 		}, "close_task_check_kind"},
@@ -114,6 +127,37 @@ func TestPeriodCloseRules(t *testing.T) {
 		{"a task deleted", func(tx pgx.Tx, s scene) error {
 			return all(tx, open(s), task(s, "AP", 1), step(`DELETE FROM closing.close_task`))
 		}, "permission denied"},
+		{"a check failing, then passing, done, reopened and checked again", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), check(s), checked("false", "open"), checked("true", "done"),
+				step(`UPDATE closing.close_task SET status = 'open', completed_by = NULL, completed_at = NULL, version = version + 1`), checked("true", "done"))
+		}, ""},
+		{"a check task done by hand", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), check(s), done("NP"))
+		}, "close_task_check_passed"},
+		{"a check task done on a failing check", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), check(s), checked("false", "done"))
+		}, "close_task_check_passed"},
+		{"a check result on a manual task", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), task(s, "AP", 1), step(`UPDATE closing.close_task SET checked_at = now(), checked_by = updated_by, check_passed = false,
+				check_result = '{}', version = version + 1`))
+		}, "close_task_checked"},
+		{"a check result without whether it passed", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), check(s), step(`UPDATE closing.close_task SET checked_at = now(), checked_by = updated_by, check_result = '{}',
+				version = version + 1`))
+		}, "close_task_checked"},
+		{"a check result that is no object", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), check(s), step(`UPDATE closing.close_task SET checked_at = now(), checked_by = updated_by, check_passed = false,
+				check_result = '[]', version = version + 1`))
+		}, "close_task_checked"},
+		{"a check result removed", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), check(s), checked("false", "open"), step(`UPDATE closing.close_task SET checked_at = NULL, checked_by = NULL,
+				check_passed = NULL, check_result = NULL, version = version + 1`))
+		}, "keeps its check result"},
+		{"a task created checked", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(`INSERT INTO closing.close_task (tenant_id, close_id, code, seq, name, kind, check_kind, due_on, checked_at, checked_by,
+				check_passed, check_result, created_by, updated_by) VALUES ($1, $2, 'NP', 1, 'A check', 'check', 'no_parked_entries', '2026-02-03', now(), $3,
+				true, '{}', $3, $3)`, s.tenant, s.close, s.actor))
+		}, "a close task starts unchecked"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

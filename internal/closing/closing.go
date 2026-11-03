@@ -16,7 +16,10 @@
 // §6): one per company and regular period, its checklist copied from the
 // template when it is opened, its manual tasks assigned, completed and
 // reopened under a lock on the close (ADR-0008), each change audited and
-// published through the closing outbox (ADR-0007, ADR-0011).
+// published through the closing outbox (ADR-0007, ADR-0011). T64c runs a
+// check task's check on demand (ADR-0058 §6): no parked entry left in the
+// period, and each covered ledger's revaluation posted, read through the
+// ledger's port, the result recorded on the task with what it found.
 package closing
 
 import (
@@ -67,14 +70,31 @@ type LedgerPeriod struct {
 	Period     *Period
 }
 
-// Ledger reads the ledger context's posting periods: the leading
-// ledger's regular periods of a legal entity in a fiscal year, by period,
-// and the ledgers it keeps with their period of a fiscal year and period,
-// the leading one first, then by code; none for a legal entity the caller
-// may not act in.
+// ParkedEntry is a parked entry of the ledger context as a close's check
+// names it: what identifies it to a person, and who parked it.
+type ParkedEntry struct {
+	ID                    uuid.UUID
+	DocumentType          string
+	PostingDate           time.Time
+	Status                string
+	Reference, HeaderText *string
+	CreatedBy             uuid.UUID
+	CreatedByKind         string
+}
+
+// Ledger reads the ledger context: the leading ledger's regular periods
+// of a legal entity in a fiscal year, by period; the ledgers it keeps with
+// their period of a fiscal year and period, the leading one first, then by
+// code; how many of its parked entries with a posting date from from to to
+// are in one of the statuses, and the first limit of them by posting date;
+// and its ledger's posted revaluation run at a key date, ok false when
+// there is none. Each reads nothing of a legal entity the caller may not
+// act in.
 type Ledger interface {
 	LeadingPeriods(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]Period, error)
 	PeriodsOf(ctx context.Context, legalEntity uuid.UUID, fiscalYear, period int16) ([]LedgerPeriod, error)
+	Parked(ctx context.Context, legalEntity uuid.UUID, from, to time.Time, statuses []string, limit int) (int, []ParkedEntry, error)
+	PostedRevaluation(ctx context.Context, legalEntity, ledger uuid.UUID, keyDate time.Time) (run uuid.UUID, ok bool, err error)
 }
 
 // Person is a principal as the closing context names it: its name, kind

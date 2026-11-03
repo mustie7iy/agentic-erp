@@ -59,6 +59,7 @@ func (e *Endpoints) view(ctx context.Context, legalEntities []uuid.UUID, tasks [
 		v.companies[id] = companyDay{Company: co, day: day}
 	}
 	ids := append(idref.Of(tasks, func(t task) *uuid.UUID { return t.Assignee }), idref.Of(tasks, func(t task) *uuid.UUID { return t.CompletedBy })...)
+	ids = append(ids, idref.Of(tasks, func(t task) *uuid.UUID { return t.CheckedBy })...)
 	if v.people, err = idref.Resolve(ctx, e.People.Named, ids, personRef); err != nil {
 		return view{}, fmt.Errorf("closing: people of %d tasks: %w", len(tasks), err)
 	}
@@ -82,6 +83,10 @@ func (v view) taskToAPI(t task) gen.CloseTask {
 	}
 	if t.CompletedAt != nil {
 		out.CompletedAt.SetTo(*t.CompletedAt)
+	}
+	if t.CheckedAt != nil {
+		// The database records a result whole (close_task_checked).
+		out.CheckResult.SetTo(t.Found.toAPI(*t.Check, *t.CheckPassed, *t.CheckedAt, *t.CheckedBy, v.people[*t.CheckedBy].Name))
 	}
 	return out
 }

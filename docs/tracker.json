@@ -1539,7 +1539,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Automatic checks: :check with recorded results (closing.close.manage and ledger.entry.read); no_parked_entries (naming up to 20 entries) and revaluation_posted per covered ledger through the ledger's new reads; closing.task_not_check, closing.task_is_check; walkthrough: the parked-entries check fails naming an entry parked in the period, passes once it is cancelled",
         "r": "ADR-0058 · T64c",
         "src": "adr:ADR-0058",

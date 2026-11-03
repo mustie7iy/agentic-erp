@@ -3024,11 +3024,12 @@ components:
       name: PeriodCloseChanged
       x-webhook: true
       title: Period close changed
-      summary: A period close was opened, or one of its tasks assigned, completed or reopened.
+      summary: A period close was opened, or one of its tasks assigned, completed, reopened or checked.
       description: |
         Emitted by `period-closes` (POST, `created`) and its tasks' PATCH
-        (`task_assigned`), `:complete` (`task_completed`) and `:reopen`
-        (`task_reopened`, with the reason) (ADR-0058 §6, T64b). It says
+        (`task_assigned`), `:complete` (`task_completed`), `:reopen`
+        (`task_reopened`, with the reason) (ADR-0058 §6, T64b) and `:check`
+        (`task_checked`, with `check_passed`; T64c). It says
         what changed, not the close, which `GET /v1/period-closes/{id}`
         returns at `version`. Subject is the period close id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
@@ -3582,9 +3583,10 @@ components:
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
         fiscal_year: {type: integer}
         fiscal_period: {type: integer, description: The regular period (1-12).}
-        change: {type: string, description: 'Open enum: created, task_assigned, task_completed, task_reopened.'}
+        change: {type: string, description: 'Open enum: created, task_assigned, task_completed, task_reopened, task_checked.'}
         task_code: {type: [string, 'null'], description: The task changed; null when the close was created.}
         reason: {type: [string, 'null'], description: "Why a task was reopened; null for any other change."}
+        check_passed: {type: [boolean, 'null'], description: "Whether the task's check passed (T64c); null for any change but task_checked. `GET /v1/period-closes/{id}` shows what it found."}
         status: {type: string, description: "The close's status after the change. Open enum: open, signed_off."}
         version: {type: integer, description: "The close's version after the change."}
     AssetChangedV1:
