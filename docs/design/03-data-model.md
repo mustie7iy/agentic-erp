@@ -2735,6 +2735,18 @@ withholding tax codes the ledger keeps); the `open` down payment requests
 and the items of suppliers no run pays (`partner.supplier_company`'s
 blocks, or not set up in the company) shown apart. No migration.
 
+T53e3 classifies the forecast's flows by liquidity item, still storing
+nothing: a posted item's offsetting lines are its entry's lines in the
+leading ledger (`ledger.journal_line`) but those on supplier or customer
+reconciliation accounts and on a withholding tax withheld at invoice
+(`open_item_withholding`, `posting = 'invoice'`), a tax line known by the
+entry's tax items (`ledger.tax_item.account_key`, self-assessed pairs left
+out); an unposted invoice's are its items
+(`payables.supplier_invoice_item`); a run's payment's are its active
+`payments.payment_item`s' items' lines; the supplier's planning group is
+`partner.supplier_company.planning_group`. The derivation rules are read
+from the active document (`cash.derivation`). No migration.
+
 ## 3.19 Controlling (`controlling`)
 
 Plan values and plan against actual (ADR-0050 §2, §8, decision P5; T56g).

@@ -43,6 +43,14 @@ func OptString(v *string) gen.OptString {
 	return gen.NewOptString(*v)
 }
 
+// OptText is an optional response field from a string: unset when empty.
+func OptText(v string) gen.OptString {
+	if v == "" {
+		return gen.OptString{}
+	}
+	return gen.NewOptString(v)
+}
+
 // OptDate is an optional date field from a pointer: unset when nil.
 func OptDate(v *time.Time) gen.OptDate {
 	if v == nil {

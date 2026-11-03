@@ -1102,10 +1102,26 @@ type Handler interface {
 	// buckets' `total`s, the currency's `total` and `beyond` only with `include_blocked=true`. Amounts are
 	// signed: a payment out is negative. Each currency gives its flows per bucket by source, certainty and
 	// lateness with the bucket's total, the total over the horizon, and what is expected after the last
-	// bucket (`beyond`, in no bucket). `min_certainty` cuts the less certain flows (actual, confirmed,
-	// expected, planned; default planned, every flow). Memo records, liquidity items, converted totals,
-	// the opening position and drill-down are later steps (T53e3, T53e4). A legal entity the caller cannot
-	// act in is 404.
+	// bucket (`beyond`, in no bucket). Each currency also gives its rows by liquidity item and its
+	// hierarchy (`items`, T53e3; ADR-0051 §4, §9): every flow is split over the liquidity items
+	// (`cash.liquidity_items`) its documents derive by the configuration's `cash.derivation`: a supplier
+	// payment over the documents it pays, each at what the payment pays of it, and each document over its
+	// offsetting lines (a posted item's expense, asset and tax lines, an unposted invoice's items; never
+	// the supplier's line nor a withholding tax withheld at invoice), in proportion to their signed
+	// amounts, a line taking the item of the first account rule covering its account, else its supplier's
+	// planning group's, else the default of the flow's direction; a tax line follows the base lines of its
+	// tax code in proportion to their amounts, and a self-assessed pair (`self_output`/`self_input` of a
+	// reverse charge or import code), which moves no cash, is left out before the split. A down payment
+	// request, and a run's payment of one, has no lines and takes its supplier's planning group's item or
+	// the default. Each split rounds once to minor units by largest remainder (ties to the item named
+	// first), so an item's shares add up to the flow. Each row gives the item's code, name, parent and
+	// level, its flows and its descendants' per bucket (`buckets`, in the forecast's buckets' order), over
+	// the horizon (`total`) and after the last bucket (`beyond`), counted as the buckets' totals count
+	// them, so the top rows add up to each bucket's `total`, and the item's own flows by source and
+	// certainty; a row without `liquidity_item` holds what no rule assigns and no default covers.
+	// `min_certainty` cuts the less certain flows (actual, confirmed, expected, planned; default planned,
+	// every flow). Memo records, converted totals, the opening position and drill-down are a later step
+	// (T53e4). A legal entity the caller cannot act in is 404.
 	//
 	// GET /v1/liquidity-forecast
 	GetLiquidityForecast(ctx context.Context, params GetLiquidityForecastParams) (GetLiquidityForecastRes, error)
@@ -2797,7 +2813,15 @@ type Handler interface {
 	// entity whose rules change (the last 30 days, at most 200, newest first) under the active and the
 	// proposed rules: the evidence's `detail.rules` lists, per rule, the rows it would newly refuse and
 	// newly pass, with personal custom fields masked, and the rows it cannot evaluate, which fail the
-	// simulation. Requires status `awaiting_evidence`.
+	// simulation. A change of the liquidity item derivation (`cash.derivation`, ADR-0051 §4, T53e3) needs
+	// a simulation whatever its tier: it classifies each company's open flows of the liquidity forecast
+	// (as `getLiquidityForecast` reads them, after its last bucket too) under the active and the proposed
+	// rules, and the evidence's `detail.liquidity_items_by_company` lists, per company the requester may
+	// act in, the flows whose shares by liquidity item would change (currency, day, source, certainty,
+	// amount, the shares before and after; no document or supplier), at most 100 per company by day, with
+	// their count and, per currency and item, what the moved flows give it before and after; the requester
+	// must hold `cash.forecast.read`, else the operation fails with 403. Requires status
+	// `awaiting_evidence`.
 	//
 	// POST /v1/change-requests/{id}:simulate
 	SimulateChangeRequest(ctx context.Context, params SimulateChangeRequestParams) (SimulateChangeRequestRes, error)

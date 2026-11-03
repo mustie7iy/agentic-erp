@@ -39,14 +39,16 @@ func RequiredEvidence(t Tier) []string {
 // Evidence is what a change set needs before approval: its tier's
 // (RequiredEvidence), and a simulation when it changes what a metric
 // means, which shows the approvers the affected metrics' values before
-// and after on recent data (ADR-0044, T55g).
+// and after on recent data (ADR-0044, T55g), or how the liquidity forecast's
+// flows are classified, which shows them the open flows whose liquidity
+// items the change moves (ADR-0051 §4, T53e3).
 func Evidence(changes []Change) []string {
 	out := RequiredEvidence(MaxTier(changes))
 	if slices.Contains(out, "simulation") {
 		return out
 	}
 	for _, c := range changes {
-		if strings.HasPrefix(c.Path, "analytics.") && c.Tier > TierCosmetic {
+		if (strings.HasPrefix(c.Path, "analytics.") || strings.HasPrefix(c.Path, "cash.derivation.")) && c.Tier > TierCosmetic {
 			return append(out, "simulation")
 		}
 	}
