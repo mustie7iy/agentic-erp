@@ -7763,6 +7763,993 @@ type CaptureSupplierInvoiceUnprocessableEntity Problem
 
 func (*CaptureSupplierInvoiceUnprocessableEntity) captureSupplierInvoiceRes() {}
 
+// A bank statement line as the cash actuals classify it (ADR-0051 §4, §11): its value date, house
+// bank, amount and shares by liquidity item, what classified it, and, for a caller who may read them
+// in their own context, its statement, the payments it was matched to and their suppliers.
+// Ref: #/components/schemas/CashActualLine
+type CashActualLine struct {
+	// The day the bank valued it.
+	ValueDate time.Time `json:"value_date"`
+	// The house bank whose statement it is on.
+	HouseBankID uuid.UUID `json:"house_bank_id"`
+	// The house bank's code.
+	HouseBankCode string                     `json:"house_bank_code"`
+	Statement     OptCashActualStatementLine `json:"statement"`
+	// The line's status in reconciliation (ADR-0047). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Status string          `json:"status"`
+	Match  CashActualMatch `json:"match"`
+	// The transaction code of the posting rule it was matched to; present exactly when `match` is
+	// `posting_rule`.
+	PostingRule OptString `json:"posting_rule"`
+	// True when it has no decided match: its direction's default classifies it until reconciliation
+	// decides it.
+	Unclassified bool  `json:"unclassified"`
+	Amount       Money `json:"amount"`
+	Share        Money `json:"share"`
+	// Its amount by liquidity item, adding up to it, in the order the documents behind it first name the
+	// items.
+	Shares []CashActualShare `json:"shares"`
+	// How many payments it was matched to, those not shown included.
+	PaymentCount int32 `json:"payment_count"`
+	// The payments it was matched to (`getPaymentRun`), for a caller who may use `payments.run.read`; else
+	// empty.
+	Payments []CashActualPayment `json:"payments"`
+	// The suppliers those payments paid, each once, for a caller who may use `partner.supplier.read`; else
+	// empty.
+	Suppliers []PartnerName `json:"suppliers"`
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *CashActualLine) GetValueDate() time.Time {
+	return s.ValueDate
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *CashActualLine) GetHouseBankID() uuid.UUID {
+	return s.HouseBankID
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *CashActualLine) GetHouseBankCode() string {
+	return s.HouseBankCode
+}
+
+// GetStatement returns the value of Statement.
+func (s *CashActualLine) GetStatement() OptCashActualStatementLine {
+	return s.Statement
+}
+
+// GetStatus returns the value of Status.
+func (s *CashActualLine) GetStatus() string {
+	return s.Status
+}
+
+// GetMatch returns the value of Match.
+func (s *CashActualLine) GetMatch() CashActualMatch {
+	return s.Match
+}
+
+// GetPostingRule returns the value of PostingRule.
+func (s *CashActualLine) GetPostingRule() OptString {
+	return s.PostingRule
+}
+
+// GetUnclassified returns the value of Unclassified.
+func (s *CashActualLine) GetUnclassified() bool {
+	return s.Unclassified
+}
+
+// GetAmount returns the value of Amount.
+func (s *CashActualLine) GetAmount() Money {
+	return s.Amount
+}
+
+// GetShare returns the value of Share.
+func (s *CashActualLine) GetShare() Money {
+	return s.Share
+}
+
+// GetShares returns the value of Shares.
+func (s *CashActualLine) GetShares() []CashActualShare {
+	return s.Shares
+}
+
+// GetPaymentCount returns the value of PaymentCount.
+func (s *CashActualLine) GetPaymentCount() int32 {
+	return s.PaymentCount
+}
+
+// GetPayments returns the value of Payments.
+func (s *CashActualLine) GetPayments() []CashActualPayment {
+	return s.Payments
+}
+
+// GetSuppliers returns the value of Suppliers.
+func (s *CashActualLine) GetSuppliers() []PartnerName {
+	return s.Suppliers
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *CashActualLine) SetValueDate(val time.Time) {
+	s.ValueDate = val
+}
+
+// SetHouseBankID sets the value of HouseBankID.
+func (s *CashActualLine) SetHouseBankID(val uuid.UUID) {
+	s.HouseBankID = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *CashActualLine) SetHouseBankCode(val string) {
+	s.HouseBankCode = val
+}
+
+// SetStatement sets the value of Statement.
+func (s *CashActualLine) SetStatement(val OptCashActualStatementLine) {
+	s.Statement = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CashActualLine) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetMatch sets the value of Match.
+func (s *CashActualLine) SetMatch(val CashActualMatch) {
+	s.Match = val
+}
+
+// SetPostingRule sets the value of PostingRule.
+func (s *CashActualLine) SetPostingRule(val OptString) {
+	s.PostingRule = val
+}
+
+// SetUnclassified sets the value of Unclassified.
+func (s *CashActualLine) SetUnclassified(val bool) {
+	s.Unclassified = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *CashActualLine) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetShare sets the value of Share.
+func (s *CashActualLine) SetShare(val Money) {
+	s.Share = val
+}
+
+// SetShares sets the value of Shares.
+func (s *CashActualLine) SetShares(val []CashActualShare) {
+	s.Shares = val
+}
+
+// SetPaymentCount sets the value of PaymentCount.
+func (s *CashActualLine) SetPaymentCount(val int32) {
+	s.PaymentCount = val
+}
+
+// SetPayments sets the value of Payments.
+func (s *CashActualLine) SetPayments(val []CashActualPayment) {
+	s.Payments = val
+}
+
+// SetSuppliers sets the value of Suppliers.
+func (s *CashActualLine) SetSuppliers(val []PartnerName) {
+	s.Suppliers = val
+}
+
+// A page of the bank statement lines behind a legal entity's cash actuals in one currency (ADR-0051
+// §11, T53f2), with what the selected lines of every page add up to.
+// Ref: #/components/schemas/CashActualLinePage
+type CashActualLinePage struct {
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// The currency (ISO 4217).
+	Currency string `json:"currency"`
+	// The first value date.
+	From time.Time `json:"from"`
+	// The last value date.
+	To time.Time `json:"to"`
+	// The house bank asked for; absent when none was.
+	HouseBankID OptUUID `json:"house_bank_id"`
+	// The liquidity item asked for, its descendants included; absent when none was.
+	LiquidityItem OptString `json:"liquidity_item"`
+	// Whether only the lines with no decided match are listed.
+	Unclassified bool  `json:"unclassified"`
+	Total        Money `json:"total"`
+	// How many lines the filters select, over every page.
+	Count int32 `json:"count"`
+	// The lines on this page, by value date.
+	Items []CashActualLine `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CashActualLinePage) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CashActualLinePage) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CashActualLinePage) GetCurrency() string {
+	return s.Currency
+}
+
+// GetFrom returns the value of From.
+func (s *CashActualLinePage) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *CashActualLinePage) GetTo() time.Time {
+	return s.To
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *CashActualLinePage) GetHouseBankID() OptUUID {
+	return s.HouseBankID
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *CashActualLinePage) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetUnclassified returns the value of Unclassified.
+func (s *CashActualLinePage) GetUnclassified() bool {
+	return s.Unclassified
+}
+
+// GetTotal returns the value of Total.
+func (s *CashActualLinePage) GetTotal() Money {
+	return s.Total
+}
+
+// GetCount returns the value of Count.
+func (s *CashActualLinePage) GetCount() int32 {
+	return s.Count
+}
+
+// GetItems returns the value of Items.
+func (s *CashActualLinePage) GetItems() []CashActualLine {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CashActualLinePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CashActualLinePage) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CashActualLinePage) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CashActualLinePage) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetFrom sets the value of From.
+func (s *CashActualLinePage) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *CashActualLinePage) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetHouseBankID sets the value of HouseBankID.
+func (s *CashActualLinePage) SetHouseBankID(val OptUUID) {
+	s.HouseBankID = val
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *CashActualLinePage) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetUnclassified sets the value of Unclassified.
+func (s *CashActualLinePage) SetUnclassified(val bool) {
+	s.Unclassified = val
+}
+
+// SetTotal sets the value of Total.
+func (s *CashActualLinePage) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetCount sets the value of Count.
+func (s *CashActualLinePage) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetItems sets the value of Items.
+func (s *CashActualLinePage) SetItems(val []CashActualLine) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CashActualLinePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CashActualLinePage) listCashActualLinesRes() {}
+
+type CashActualMatch string
+
+// A payment a statement line was matched to, with its payment run and what it paid, signed as the line
+// (negative: money out).
+// Ref: #/components/schemas/CashActualPayment
+type CashActualPayment struct {
+	// The payment.
+	PaymentID uuid.UUID `json:"payment_id"`
+	// Its payment run.
+	PaymentRunID uuid.UUID `json:"payment_run_id"`
+	// The run's document number.
+	PaymentRunNumber string `json:"payment_run_number"`
+	Amount           Money  `json:"amount"`
+}
+
+// GetPaymentID returns the value of PaymentID.
+func (s *CashActualPayment) GetPaymentID() uuid.UUID {
+	return s.PaymentID
+}
+
+// GetPaymentRunID returns the value of PaymentRunID.
+func (s *CashActualPayment) GetPaymentRunID() uuid.UUID {
+	return s.PaymentRunID
+}
+
+// GetPaymentRunNumber returns the value of PaymentRunNumber.
+func (s *CashActualPayment) GetPaymentRunNumber() string {
+	return s.PaymentRunNumber
+}
+
+// GetAmount returns the value of Amount.
+func (s *CashActualPayment) GetAmount() Money {
+	return s.Amount
+}
+
+// SetPaymentID sets the value of PaymentID.
+func (s *CashActualPayment) SetPaymentID(val uuid.UUID) {
+	s.PaymentID = val
+}
+
+// SetPaymentRunID sets the value of PaymentRunID.
+func (s *CashActualPayment) SetPaymentRunID(val uuid.UUID) {
+	s.PaymentRunID = val
+}
+
+// SetPaymentRunNumber sets the value of PaymentRunNumber.
+func (s *CashActualPayment) SetPaymentRunNumber(val string) {
+	s.PaymentRunNumber = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *CashActualPayment) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// The part of a statement line's amount a liquidity item has.
+// Ref: #/components/schemas/CashActualShare
+type CashActualShare struct {
+	// The liquidity item's code; absent for a part no derivation rule assigns and no default covers.
+	LiquidityItem OptString `json:"liquidity_item"`
+	Amount        Money     `json:"amount"`
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *CashActualShare) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetAmount returns the value of Amount.
+func (s *CashActualShare) GetAmount() Money {
+	return s.Amount
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *CashActualShare) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *CashActualShare) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// The bank statement and line number (`getBankStatement`), for a caller who may use
+// `payments.statement.read`.
+// Ref: #/components/schemas/CashActualStatementLine
+type CashActualStatementLine struct {
+	// The bank statement.
+	StatementID uuid.UUID `json:"statement_id"`
+	// The line's number in the statement.
+	LineNo int32 `json:"line_no"`
+}
+
+// GetStatementID returns the value of StatementID.
+func (s *CashActualStatementLine) GetStatementID() uuid.UUID {
+	return s.StatementID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *CashActualStatementLine) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// SetStatementID sets the value of StatementID.
+func (s *CashActualStatementLine) SetStatementID(val uuid.UUID) {
+	s.StatementID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *CashActualStatementLine) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// A legal entity's actual cash flows (ADR-0051 §11, T53f2): its bank statement lines by value date,
+// per currency, house bank, liquidity item and bucket. Amounts are signed: money into the bank
+// positive, a payment out negative.
+// Ref: #/components/schemas/CashActuals
+type CashActuals struct {
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// The company's date when the actuals were read, in `time_zone`.
+	ReadDate time.Time `json:"read_date"`
+	// The IANA time zone the read date is in.
+	TimeZone string `json:"time_zone"`
+	// The first value date.
+	From time.Time `json:"from"`
+	// The last value date: the last bucket's end.
+	To time.Time `json:"to"`
+	// The buckets' length. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Grain string `json:"grain"`
+	// The columns: periods of `grain` from `from`, the last ending on `to`.
+	Buckets []LiquidityForecastBucket `json:"buckets"`
+	// Per currency of a line or of an active house bank, by currency code.
+	Currencies []CashActualsCurrency `json:"currencies"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CashActuals) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CashActuals) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *CashActuals) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *CashActuals) GetTimeZone() string {
+	return s.TimeZone
+}
+
+// GetFrom returns the value of From.
+func (s *CashActuals) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *CashActuals) GetTo() time.Time {
+	return s.To
+}
+
+// GetGrain returns the value of Grain.
+func (s *CashActuals) GetGrain() string {
+	return s.Grain
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *CashActuals) GetBuckets() []LiquidityForecastBucket {
+	return s.Buckets
+}
+
+// GetCurrencies returns the value of Currencies.
+func (s *CashActuals) GetCurrencies() []CashActualsCurrency {
+	return s.Currencies
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CashActuals) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CashActuals) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *CashActuals) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *CashActuals) SetTimeZone(val string) {
+	s.TimeZone = val
+}
+
+// SetFrom sets the value of From.
+func (s *CashActuals) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *CashActuals) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetGrain sets the value of Grain.
+func (s *CashActuals) SetGrain(val string) {
+	s.Grain = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *CashActuals) SetBuckets(val []LiquidityForecastBucket) {
+	s.Buckets = val
+}
+
+// SetCurrencies sets the value of Currencies.
+func (s *CashActuals) SetCurrencies(val []CashActualsCurrency) {
+	s.Currencies = val
+}
+
+func (*CashActuals) getCashActualsRes() {}
+
+// A house bank's actual flows per bucket and over the range.
+// Ref: #/components/schemas/CashActualsBank
+type CashActualsBank struct {
+	// The house bank.
+	HouseBankID uuid.UUID `json:"house_bank_id"`
+	// The house bank's code.
+	HouseBankCode string `json:"house_bank_code"`
+	// Whether the house bank is active.
+	Active bool `json:"active"`
+	// Its lines' total per bucket, in the buckets' order.
+	Buckets []Money `json:"buckets"`
+	Total   Money   `json:"total"`
+	// How many statement lines.
+	Count int32 `json:"count"`
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *CashActualsBank) GetHouseBankID() uuid.UUID {
+	return s.HouseBankID
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *CashActualsBank) GetHouseBankCode() string {
+	return s.HouseBankCode
+}
+
+// GetActive returns the value of Active.
+func (s *CashActualsBank) GetActive() bool {
+	return s.Active
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *CashActualsBank) GetBuckets() []Money {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *CashActualsBank) GetTotal() Money {
+	return s.Total
+}
+
+// GetCount returns the value of Count.
+func (s *CashActualsBank) GetCount() int32 {
+	return s.Count
+}
+
+// SetHouseBankID sets the value of HouseBankID.
+func (s *CashActualsBank) SetHouseBankID(val uuid.UUID) {
+	s.HouseBankID = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *CashActualsBank) SetHouseBankCode(val string) {
+	s.HouseBankCode = val
+}
+
+// SetActive sets the value of Active.
+func (s *CashActualsBank) SetActive(val bool) {
+	s.Active = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *CashActualsBank) SetBuckets(val []Money) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *CashActualsBank) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetCount sets the value of Count.
+func (s *CashActualsBank) SetCount(val int32) {
+	s.Count = val
+}
+
+// A bucket's actual flows in one currency: money in, money out, their total, how many lines, and what
+// of it has no decided match.
+// Ref: #/components/schemas/CashActualsBucket
+type CashActualsBucket struct {
+	// The bucket's first day.
+	Start   time.Time `json:"start"`
+	Inflow  Money     `json:"inflow"`
+	Outflow Money     `json:"outflow"`
+	Total   Money     `json:"total"`
+	// How many statement lines.
+	Count        int32                   `json:"count"`
+	Unclassified CashActualsUnclassified `json:"unclassified"`
+}
+
+// GetStart returns the value of Start.
+func (s *CashActualsBucket) GetStart() time.Time {
+	return s.Start
+}
+
+// GetInflow returns the value of Inflow.
+func (s *CashActualsBucket) GetInflow() Money {
+	return s.Inflow
+}
+
+// GetOutflow returns the value of Outflow.
+func (s *CashActualsBucket) GetOutflow() Money {
+	return s.Outflow
+}
+
+// GetTotal returns the value of Total.
+func (s *CashActualsBucket) GetTotal() Money {
+	return s.Total
+}
+
+// GetCount returns the value of Count.
+func (s *CashActualsBucket) GetCount() int32 {
+	return s.Count
+}
+
+// GetUnclassified returns the value of Unclassified.
+func (s *CashActualsBucket) GetUnclassified() CashActualsUnclassified {
+	return s.Unclassified
+}
+
+// SetStart sets the value of Start.
+func (s *CashActualsBucket) SetStart(val time.Time) {
+	s.Start = val
+}
+
+// SetInflow sets the value of Inflow.
+func (s *CashActualsBucket) SetInflow(val Money) {
+	s.Inflow = val
+}
+
+// SetOutflow sets the value of Outflow.
+func (s *CashActualsBucket) SetOutflow(val Money) {
+	s.Outflow = val
+}
+
+// SetTotal sets the value of Total.
+func (s *CashActualsBucket) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetCount sets the value of Count.
+func (s *CashActualsBucket) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetUnclassified sets the value of Unclassified.
+func (s *CashActualsBucket) SetUnclassified(val CashActualsUnclassified) {
+	s.Unclassified = val
+}
+
+// The actual flows of one currency: per bucket, in the buckets' order, and over the range; per house
+// bank; and by liquidity item and its hierarchy.
+// Ref: #/components/schemas/CashActualsCurrency
+type CashActualsCurrency struct {
+	// The currency (ISO 4217).
+	Currency string `json:"currency"`
+	// One per bucket, in the same order.
+	Buckets []CashActualsBucket `json:"buckets"`
+	Inflow  Money               `json:"inflow"`
+	Outflow Money               `json:"outflow"`
+	Total   Money               `json:"total"`
+	// How many statement lines.
+	Count        int32                   `json:"count"`
+	Unclassified CashActualsUnclassified `json:"unclassified"`
+	// Per house bank of the currency: every active one by code, with lines or not, then each one no longer
+	// active that has lines, in the order of its first line.
+	Banks []CashActualsBank `json:"banks"`
+	// The rows by liquidity item, depth first: each item followed by its children, siblings by code, an
+	// item listed when it or a descendant has a share; the row of what no rule assigns and no default
+	// covers (without `liquidity_item`) last. The top rows (`level` 0) add up to each bucket's `total` and
+	// the currency's.
+	Items []CashActualsItem `json:"items"`
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CashActualsCurrency) GetCurrency() string {
+	return s.Currency
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *CashActualsCurrency) GetBuckets() []CashActualsBucket {
+	return s.Buckets
+}
+
+// GetInflow returns the value of Inflow.
+func (s *CashActualsCurrency) GetInflow() Money {
+	return s.Inflow
+}
+
+// GetOutflow returns the value of Outflow.
+func (s *CashActualsCurrency) GetOutflow() Money {
+	return s.Outflow
+}
+
+// GetTotal returns the value of Total.
+func (s *CashActualsCurrency) GetTotal() Money {
+	return s.Total
+}
+
+// GetCount returns the value of Count.
+func (s *CashActualsCurrency) GetCount() int32 {
+	return s.Count
+}
+
+// GetUnclassified returns the value of Unclassified.
+func (s *CashActualsCurrency) GetUnclassified() CashActualsUnclassified {
+	return s.Unclassified
+}
+
+// GetBanks returns the value of Banks.
+func (s *CashActualsCurrency) GetBanks() []CashActualsBank {
+	return s.Banks
+}
+
+// GetItems returns the value of Items.
+func (s *CashActualsCurrency) GetItems() []CashActualsItem {
+	return s.Items
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CashActualsCurrency) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *CashActualsCurrency) SetBuckets(val []CashActualsBucket) {
+	s.Buckets = val
+}
+
+// SetInflow sets the value of Inflow.
+func (s *CashActualsCurrency) SetInflow(val Money) {
+	s.Inflow = val
+}
+
+// SetOutflow sets the value of Outflow.
+func (s *CashActualsCurrency) SetOutflow(val Money) {
+	s.Outflow = val
+}
+
+// SetTotal sets the value of Total.
+func (s *CashActualsCurrency) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetCount sets the value of Count.
+func (s *CashActualsCurrency) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetUnclassified sets the value of Unclassified.
+func (s *CashActualsCurrency) SetUnclassified(val CashActualsUnclassified) {
+	s.Unclassified = val
+}
+
+// SetBanks sets the value of Banks.
+func (s *CashActualsCurrency) SetBanks(val []CashActualsBank) {
+	s.Banks = val
+}
+
+// SetItems sets the value of Items.
+func (s *CashActualsCurrency) SetItems(val []CashActualsItem) {
+	s.Items = val
+}
+
+// A row of a currency's actuals by liquidity item (ADR-0051 §4, §11): the shares of the lines its
+// item classifies, with its descendants', per bucket and over the range, and the item's own shares by
+// what classified them.
+// Ref: #/components/schemas/CashActualsItem
+type CashActualsItem struct {
+	// The liquidity item's code (`cash.liquidity_items`); absent on the row of the shares no derivation
+	// rule assigns and no default covers.
+	LiquidityItem OptString `json:"liquidity_item"`
+	// The liquidity item's name; absent with `liquidity_item`.
+	Name OptString `json:"name"`
+	// The code of the item's parent in the hierarchy; absent for a top item and the row without
+	// `liquidity_item`.
+	Parent OptString `json:"parent"`
+	// The item's depth in the hierarchy: 0 for a top item (and the row without `liquidity_item`), its
+	// parent's plus one below.
+	Level int32 `json:"level"`
+	// The item's and its descendants' shares per bucket, in the buckets' order.
+	Buckets []Money `json:"buckets"`
+	Total   Money   `json:"total"`
+	// The item's own shares (not its descendants') by what classified them, sorted by it; empty for an
+	// item listed for its descendants alone.
+	Matches []CashActualsItemMatch `json:"matches"`
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *CashActualsItem) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetName returns the value of Name.
+func (s *CashActualsItem) GetName() OptString {
+	return s.Name
+}
+
+// GetParent returns the value of Parent.
+func (s *CashActualsItem) GetParent() OptString {
+	return s.Parent
+}
+
+// GetLevel returns the value of Level.
+func (s *CashActualsItem) GetLevel() int32 {
+	return s.Level
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *CashActualsItem) GetBuckets() []Money {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *CashActualsItem) GetTotal() Money {
+	return s.Total
+}
+
+// GetMatches returns the value of Matches.
+func (s *CashActualsItem) GetMatches() []CashActualsItemMatch {
+	return s.Matches
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *CashActualsItem) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetName sets the value of Name.
+func (s *CashActualsItem) SetName(val OptString) {
+	s.Name = val
+}
+
+// SetParent sets the value of Parent.
+func (s *CashActualsItem) SetParent(val OptString) {
+	s.Parent = val
+}
+
+// SetLevel sets the value of Level.
+func (s *CashActualsItem) SetLevel(val int32) {
+	s.Level = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *CashActualsItem) SetBuckets(val []Money) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *CashActualsItem) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetMatches sets the value of Matches.
+func (s *CashActualsItem) SetMatches(val []CashActualsItemMatch) {
+	s.Matches = val
+}
+
+// A liquidity item's own shares of the lines one kind of match classified, per bucket and over the
+// range.
+// Ref: #/components/schemas/CashActualsItemMatch
+type CashActualsItemMatch struct {
+	Match CashActualMatch `json:"match"`
+	// The shares per bucket, in the buckets' order.
+	Buckets []Money `json:"buckets"`
+	Total   Money   `json:"total"`
+}
+
+// GetMatch returns the value of Match.
+func (s *CashActualsItemMatch) GetMatch() CashActualMatch {
+	return s.Match
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *CashActualsItemMatch) GetBuckets() []Money {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *CashActualsItemMatch) GetTotal() Money {
+	return s.Total
+}
+
+// SetMatch sets the value of Match.
+func (s *CashActualsItemMatch) SetMatch(val CashActualMatch) {
+	s.Match = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *CashActualsItemMatch) SetBuckets(val []Money) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *CashActualsItemMatch) SetTotal(val Money) {
+	s.Total = val
+}
+
+// The statement lines with no decided match (not matched yet, or only proposed): classified by their
+// direction's default liquidity item, and counted here until reconciliation decides them (ADR-0051
+// §11).
+// Ref: #/components/schemas/CashActualsUnclassified
+type CashActualsUnclassified struct {
+	Amount Money `json:"amount"`
+	// How many lines.
+	Count int32 `json:"count"`
+}
+
+// GetAmount returns the value of Amount.
+func (s *CashActualsUnclassified) GetAmount() Money {
+	return s.Amount
+}
+
+// GetCount returns the value of Count.
+func (s *CashActualsUnclassified) GetCount() int32 {
+	return s.Count
+}
+
+// SetAmount sets the value of Amount.
+func (s *CashActualsUnclassified) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetCount sets the value of Count.
+func (s *CashActualsUnclassified) SetCount(val int32) {
+	s.Count = val
+}
+
 // A cash discount for payment by a date.
 // Ref: #/components/schemas/CashDiscountTier
 type CashDiscountTier struct {
@@ -17658,6 +18645,22 @@ func (s *GetBusinessPartnerOKHeaders) SetResponse(val BusinessPartner) {
 
 func (*GetBusinessPartnerOKHeaders) getBusinessPartnerRes() {}
 
+type GetCashActualsBadRequest Problem
+
+func (*GetCashActualsBadRequest) getCashActualsRes() {}
+
+type GetCashActualsForbidden Problem
+
+func (*GetCashActualsForbidden) getCashActualsRes() {}
+
+type GetCashActualsNotFound Problem
+
+func (*GetCashActualsNotFound) getCashActualsRes() {}
+
+type GetCashActualsUnprocessableEntity Problem
+
+func (*GetCashActualsUnprocessableEntity) getCashActualsRes() {}
+
 type GetCashPositionBadRequest Problem
 
 func (*GetCashPositionBadRequest) getCashPositionRes() {}
@@ -25079,6 +26082,22 @@ type ListBusinessPartnersForbidden Problem
 
 func (*ListBusinessPartnersForbidden) listBusinessPartnersRes() {}
 
+type ListCashActualLinesBadRequest Problem
+
+func (*ListCashActualLinesBadRequest) listCashActualLinesRes() {}
+
+type ListCashActualLinesForbidden Problem
+
+func (*ListCashActualLinesForbidden) listCashActualLinesRes() {}
+
+type ListCashActualLinesNotFound Problem
+
+func (*ListCashActualLinesNotFound) listCashActualLinesRes() {}
+
+type ListCashActualLinesUnprocessableEntity Problem
+
+func (*ListCashActualLinesUnprocessableEntity) listCashActualLinesRes() {}
+
 type ListCashSnapshotFlowsBadRequest Problem
 
 func (*ListCashSnapshotFlowsBadRequest) listCashSnapshotFlowsRes() {}
@@ -30067,6 +31086,52 @@ func (o OptCalculatedTax) Get() (v CalculatedTax, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptCalculatedTax) Or(d CalculatedTax) CalculatedTax {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptCashActualStatementLine returns new OptCashActualStatementLine with value set to v.
+func NewOptCashActualStatementLine(v CashActualStatementLine) OptCashActualStatementLine {
+	return OptCashActualStatementLine{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptCashActualStatementLine is optional CashActualStatementLine.
+type OptCashActualStatementLine struct {
+	Value CashActualStatementLine
+	Set   bool
+}
+
+// IsSet returns true if OptCashActualStatementLine was set.
+func (o OptCashActualStatementLine) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptCashActualStatementLine) Reset() {
+	var v CashActualStatementLine
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptCashActualStatementLine) SetTo(v CashActualStatementLine) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptCashActualStatementLine) Get() (v CashActualStatementLine, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptCashActualStatementLine) Or(d CashActualStatementLine) CashActualStatementLine {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -47983,6 +49048,7 @@ func (*TooManyRequestsHeaders) getBankStatementFileRes()             {}
 func (*TooManyRequestsHeaders) getBankStatementRes()                 {}
 func (*TooManyRequestsHeaders) getBankStatementRulesRes()            {}
 func (*TooManyRequestsHeaders) getBusinessPartnerRes()               {}
+func (*TooManyRequestsHeaders) getCashActualsRes()                   {}
 func (*TooManyRequestsHeaders) getCashPositionRes()                  {}
 func (*TooManyRequestsHeaders) getCashSnapshotRes()                  {}
 func (*TooManyRequestsHeaders) getCenterChangeRes()                  {}
@@ -48055,6 +49121,7 @@ func (*TooManyRequestsHeaders) listBankStatementMatchesRes()         {}
 func (*TooManyRequestsHeaders) listBankStatementPaymentsRes()        {}
 func (*TooManyRequestsHeaders) listBankStatementsRes()               {}
 func (*TooManyRequestsHeaders) listBusinessPartnersRes()             {}
+func (*TooManyRequestsHeaders) listCashActualLinesRes()              {}
 func (*TooManyRequestsHeaders) listCashSnapshotFlowsRes()            {}
 func (*TooManyRequestsHeaders) listCashSnapshotsRes()                {}
 func (*TooManyRequestsHeaders) listCenterChangesRes()                {}
@@ -48359,6 +49426,7 @@ func (*UnauthorizedHeaders) getBankStatementFileRes()             {}
 func (*UnauthorizedHeaders) getBankStatementRes()                 {}
 func (*UnauthorizedHeaders) getBankStatementRulesRes()            {}
 func (*UnauthorizedHeaders) getBusinessPartnerRes()               {}
+func (*UnauthorizedHeaders) getCashActualsRes()                   {}
 func (*UnauthorizedHeaders) getCashPositionRes()                  {}
 func (*UnauthorizedHeaders) getCashSnapshotRes()                  {}
 func (*UnauthorizedHeaders) getCenterChangeRes()                  {}
@@ -48431,6 +49499,7 @@ func (*UnauthorizedHeaders) listBankStatementMatchesRes()         {}
 func (*UnauthorizedHeaders) listBankStatementPaymentsRes()        {}
 func (*UnauthorizedHeaders) listBankStatementsRes()               {}
 func (*UnauthorizedHeaders) listBusinessPartnersRes()             {}
+func (*UnauthorizedHeaders) listCashActualLinesRes()              {}
 func (*UnauthorizedHeaders) listCashSnapshotFlowsRes()            {}
 func (*UnauthorizedHeaders) listCashSnapshotsRes()                {}
 func (*UnauthorizedHeaders) listCenterChangesRes()                {}

@@ -472,7 +472,8 @@ T53f2-T53f4 in the tracker, src `split:T53f`; decided by default where §6,
 §11 and §15 leave it open):
 - **The split.** T53f is one slice per thing a treasurer can use, in
   §11's order: snapshots (this slice, taken, read and kept); the actuals
-  (T53f2, `GET /v1/cash-actuals`, which stand alone on the statements);
+  (T53f2, `GET /v1/cash-actuals`, which stand alone on the statements;
+  built, see As built T53f2 in §11);
   the variance with lag and attribution (T53f3, which needs both); and
   variance comments by people (T53f4, which need the variance; an agent's
   proposals are T53i's).
@@ -1612,6 +1613,97 @@ date**, per house bank and currency, classified as in §4 (a line not yet
 matched takes its direction's default item and is shown as
 `unclassified`, so variance is visible before reconciliation finishes).
 `GET /v1/cash-actuals` lists them by item and bucket.
+
+As built (T53f2, the actuals; decided by default where §4, §11 and §15
+leave it open):
+- **Two operations.** `GET /v1/cash-actuals` (`getCashActuals`, the
+  report §13 names as the agent's tool) gives the actuals by item and
+  bucket; `GET /v1/cash-actual-lines` (`listCashActualLines`) lists the
+  lines behind a cell, as the forecast has its drill-down (T53e4) and a
+  snapshot its lines (T53f): a report a treasurer reads shows what it adds
+  up. Both read with `cash.forecast.read` (§15 names no permission for the
+  actuals; §13 gives `getCashActuals` to the forecast's readers, and the
+  variance (T53f3) compares the two), `x-slo-class: report`, `x-snapshot:
+  true`. No migration: nothing is stored.
+- **The lines.** Every line of the legal entity's statements whose value
+  date is in the range, posted or not, of every statement status and of
+  banks active or not, read through one port the payments context
+  publishes (`payments.CashPosition.Actuals`, adapted in `internal/app`,
+  so no context gains an import): each with its statement and number,
+  house bank, currency, signed amount, value date, status in
+  reconciliation, and what its **decided** match clears (the line's live
+  `statement_match` that is `matched` or `excluded`; an `open` match, a
+  rule's or an agent's proposal, decides nothing). A reversal is a line
+  like any other, by its sign.
+- **Classification** (§4, `match` on each line and each row). `payment`:
+  over the supplier items its payments settled (`Payments.Paying`, as a
+  run's payment is classified, T53e3), each item derived on its own and
+  shared out over the line's amount in proportion (`money.Allocate`, the
+  forecast's `classify`), so what the bank took beside a payment (a
+  charge) moves the items' shares in proportion; a
+  payment of no item by its supplier's planning group, else the default.
+  `posting_rule`: the rule's item (`cash.derivation.posting_rules`), else
+  the direction's default. `incoming` (matched to the incoming payments
+  clearing account; receivables clear it in phase 3) and `excluded` (a
+  person excluded it from reconciliation): the direction's default, since
+  nothing traces them further. `unmatched` (no decided match): the
+  direction's default too, counted `unclassified` (§11). A line whose
+  amount is positive is an inflow, any other an outflow. The kinds of
+  match are named by each context (`payments.CashMatch*`, `cash.Match*`)
+  and mapped in the composition root.
+- **The report.** Buckets of `grain` (`day` by default, `week`, `month`)
+  from `from`, the last ending on `to` rather than at its grain's end, so
+  the totals are those of the lines asked for; at most the company
+  buckets' limit of the grain (`config.MaxPeriods`: 92 days, 104 weeks,
+  36 months), else 422 `request.validation_failed`, as one grain over a
+  range of the forecast. Per currency: per bucket and over the range the
+  inflow, outflow, total, count and unclassified (amount and count); per
+  house bank its buckets, total and count (every active bank by code,
+  with lines or not, then each bank no longer active that has lines,
+  `active: false`); and rows by item and its hierarchy as the forecast's
+  (T53e3), each with its own shares by `match` instead of source and
+  certainty. Amounts per currency only, never converted (§10 converts on
+  request; nothing asked for it here).
+- **The lines** of one currency in a range of at most 36 months, by value
+  date; filters `house_bank_id`, `liquidity_item` (its subtree, `share`
+  that subtree's part of each line), `unclassified` (the unmatched lines;
+  not with an item, 422); `total` and `count` over every page; paged by a
+  cursor of the value date and a digest of the statement and line, so the
+  token names no statement (as T53e4's). A currency of no line lists
+  nothing (two decimals), as a snapshot's lines do, rather than 422.
+- **What the lines reveal** (security posture: the rule T53e4 set, not
+  widened). `cash.forecast.read` shows a line's day, bank (by code),
+  status, match, posting rule, amount and shares; its statement (id and
+  line number) only to a caller who may use `payments.statement.read`,
+  its payments (id, run and run number, what each paid) only with
+  `payments.run.read`, and their suppliers only with
+  `partner.supplier.read`, each as `authz.MayUse` decides it, read once a
+  page, else left out (`payment_count` counts them all). The product
+  owner's open question of T53e4 covers these lines too: whether a single
+  line's amount and day, unnamed, should need more than
+  `cash.forecast.read`.
+- **Budget.** §6 and §11 name none for the actuals. The port reads every
+  line of the company's statements in the range (no index on the value
+  date; a company's statements are read by legal entity under row-level
+  security); a pilot books a few thousand lines a month. A budget, and an
+  index on `(tenant_id, value_date)` of the lines, are for when a tenant's
+  size asks.
+- **Evidence.** `cash.TestCashActuals` (Maple Inc: a line posted for a
+  payment of rent and equipment split by them, a payment of no item by
+  its supplier's planning group with the bank's extra in it, a posting
+  rule's line, a receipt unmatched and a line only proposed counted
+  unclassified, an excluded line and one to the incoming clearing account
+  by their defaults, lines before and after the range left out, a week, a
+  day without a bank's lines, a bank no longer active),
+  `TestCashActualsUnclassified`, `TestCashActualLines` (pages whose tokens
+  name no statement, an item's subtree and its share, a bank, a currency
+  of no line), `TestCashActualLinesGated` (barred by a
+  segregation-of-duties rule, and not held), `TestCashActualsRefusals`,
+  `TestCashActualsTooLarge`, `TestCashActualsOutOfRange`,
+  `TestCashActualsFailures` (every database failure); the walkthrough's
+  step 24: the week of step 8's statement by item, every line matched to
+  a payment, and Rita shown the lines without their statements, payments
+  or suppliers.
 
 **Variance** (`GET /v1/liquidity-forecast-variance?company=…&from=…&to=…&lag=…`):
 for a period, the forecast of the snapshot taken `lag` days before the

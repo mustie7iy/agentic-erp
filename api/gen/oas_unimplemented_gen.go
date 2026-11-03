@@ -1161,6 +1161,28 @@ func (UnimplementedHandler) GetBusinessPartner(ctx context.Context, params GetBu
 	return r, ht.ErrNotImplemented
 }
 
+// GetCashActuals implements getCashActuals operation.
+//
+// The actual cash flows of a legal entity (ADR-0051 §11, T53f2), computed at the read from one
+// database state (a repeatable-read snapshot): its bank statement lines, posted or not, whose value
+// date is from `from` to `to`, per currency, house bank and bucket, classified by liquidity item as
+// their matches say (ADR-0051 §4): a line matched to payments takes the liquidity items of the
+// supplier items those payments settled (each split over its offsetting lines' items, as the liquidity
+// forecast splits it, shared out over the line's amount in proportion), a line matched to a posting
+// rule the rule's item (`cash.derivation.posting_rules`, else its direction's default), a line matched
+// to the incoming payments clearing account or excluded by a person its direction's default
+// (`cash.derivation.defaults`); a line with no decided match takes its direction's default too and is
+// counted `unclassified`, so the actuals are visible before reconciliation finishes. Buckets are
+// periods of `grain` (default `day`) from `from`, the last ending on `to`; at most 92 days, 104 weeks
+// or 36 months. Every active house bank is listed, with or without lines; a bank no longer active only
+// when it has lines. Amounts are signed: money into the bank positive. The lines themselves are listed
+// by `listCashActualLines`.
+//
+// GET /v1/cash-actuals
+func (UnimplementedHandler) GetCashActuals(ctx context.Context, params GetCashActualsParams) (r GetCashActualsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetCashPosition implements getCashPosition operation.
 //
 // The daily cash position of a legal entity (ADR-0051 §8, T53c), computed at the read from one
@@ -2028,6 +2050,25 @@ func (UnimplementedHandler) ListBankStatements(ctx context.Context, params ListB
 //
 // GET /v1/business-partners
 func (UnimplementedHandler) ListBusinessPartners(ctx context.Context, params ListBusinessPartnersParams) (r ListBusinessPartnersRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListCashActualLines implements listCashActualLines operation.
+//
+// The bank statement lines of one currency that `getCashActuals` sums (ADR-0051 §11, T53f2), whose
+// value date is from `from` to `to` (at most 36 months), computed from one database state, by value
+// date: each with its house bank, its status in reconciliation, what classified it (`match`) and its
+// shares by liquidity item; with `liquidity_item`, only the lines with a share of that item or its
+// descendants, each with that `share`; with `unclassified=true`, only the lines with no decided match;
+// with `house_bank_id`, only that bank's. `total` adds the selected shares of every page, `count` the
+// lines. A line's statement is given only to a caller who may use `payments.statement.read`, the
+// payments it was matched to only with `payments.run.read`, and their suppliers only with
+// `partner.supplier.read` (`authz.MayUse`: held and not barred by a segregation-of-duties rule), else
+// left out, never refused, as the liquidity forecast's drill-down shows its documents. Paged by
+// cursor; the token names no statement.
+//
+// GET /v1/cash-actual-lines
+func (UnimplementedHandler) ListCashActualLines(ctx context.Context, params ListCashActualLinesParams) (r ListCashActualLinesRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

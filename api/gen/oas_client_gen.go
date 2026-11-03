@@ -904,6 +904,25 @@ type Invoker interface {
 	//
 	// GET /v1/business-partners/{id}
 	GetBusinessPartner(ctx context.Context, params GetBusinessPartnerParams) (GetBusinessPartnerRes, error)
+	// GetCashActuals invokes getCashActuals operation.
+	//
+	// The actual cash flows of a legal entity (ADR-0051 §11, T53f2), computed at the read from one
+	// database state (a repeatable-read snapshot): its bank statement lines, posted or not, whose value
+	// date is from `from` to `to`, per currency, house bank and bucket, classified by liquidity item as
+	// their matches say (ADR-0051 §4): a line matched to payments takes the liquidity items of the
+	// supplier items those payments settled (each split over its offsetting lines' items, as the liquidity
+	// forecast splits it, shared out over the line's amount in proportion), a line matched to a posting
+	// rule the rule's item (`cash.derivation.posting_rules`, else its direction's default), a line matched
+	// to the incoming payments clearing account or excluded by a person its direction's default
+	// (`cash.derivation.defaults`); a line with no decided match takes its direction's default too and is
+	// counted `unclassified`, so the actuals are visible before reconciliation finishes. Buckets are
+	// periods of `grain` (default `day`) from `from`, the last ending on `to`; at most 92 days, 104 weeks
+	// or 36 months. Every active house bank is listed, with or without lines; a bank no longer active only
+	// when it has lines. Amounts are signed: money into the bank positive. The lines themselves are listed
+	// by `listCashActualLines`.
+	//
+	// GET /v1/cash-actuals
+	GetCashActuals(ctx context.Context, params GetCashActualsParams) (GetCashActualsRes, error)
 	// GetCashPosition invokes getCashPosition operation.
 	//
 	// The daily cash position of a legal entity (ADR-0051 §8, T53c), computed at the read from one
@@ -1558,6 +1577,22 @@ type Invoker interface {
 	//
 	// GET /v1/business-partners
 	ListBusinessPartners(ctx context.Context, params ListBusinessPartnersParams) (ListBusinessPartnersRes, error)
+	// ListCashActualLines invokes listCashActualLines operation.
+	//
+	// The bank statement lines of one currency that `getCashActuals` sums (ADR-0051 §11, T53f2), whose
+	// value date is from `from` to `to` (at most 36 months), computed from one database state, by value
+	// date: each with its house bank, its status in reconciliation, what classified it (`match`) and its
+	// shares by liquidity item; with `liquidity_item`, only the lines with a share of that item or its
+	// descendants, each with that `share`; with `unclassified=true`, only the lines with no decided match;
+	// with `house_bank_id`, only that bank's. `total` adds the selected shares of every page, `count` the
+	// lines. A line's statement is given only to a caller who may use `payments.statement.read`, the
+	// payments it was matched to only with `payments.run.read`, and their suppliers only with
+	// `partner.supplier.read` (`authz.MayUse`: held and not barred by a segregation-of-duties rule), else
+	// left out, never refused, as the liquidity forecast's drill-down shows its documents. Paged by
+	// cursor; the token names no statement.
+	//
+	// GET /v1/cash-actual-lines
+	ListCashActualLines(ctx context.Context, params ListCashActualLinesParams) (ListCashActualLinesRes, error)
 	// ListCashSnapshotFlows invokes listCashSnapshotFlows operation.
 	//
 	// The flows a snapshot kept (ADR-0051 §6, T53f), of one currency, by value date and line: within 31
@@ -16883,6 +16918,195 @@ func (c *Client) sendGetBusinessPartner(ctx context.Context, params GetBusinessP
 	return result, nil
 }
 
+// GetCashActuals invokes getCashActuals operation.
+//
+// The actual cash flows of a legal entity (ADR-0051 §11, T53f2), computed at the read from one
+// database state (a repeatable-read snapshot): its bank statement lines, posted or not, whose value
+// date is from `from` to `to`, per currency, house bank and bucket, classified by liquidity item as
+// their matches say (ADR-0051 §4): a line matched to payments takes the liquidity items of the
+// supplier items those payments settled (each split over its offsetting lines' items, as the liquidity
+// forecast splits it, shared out over the line's amount in proportion), a line matched to a posting
+// rule the rule's item (`cash.derivation.posting_rules`, else its direction's default), a line matched
+// to the incoming payments clearing account or excluded by a person its direction's default
+// (`cash.derivation.defaults`); a line with no decided match takes its direction's default too and is
+// counted `unclassified`, so the actuals are visible before reconciliation finishes. Buckets are
+// periods of `grain` (default `day`) from `from`, the last ending on `to`; at most 92 days, 104 weeks
+// or 36 months. Every active house bank is listed, with or without lines; a bank no longer active only
+// when it has lines. Amounts are signed: money into the bank positive. The lines themselves are listed
+// by `listCashActualLines`.
+//
+// GET /v1/cash-actuals
+func (c *Client) GetCashActuals(ctx context.Context, params GetCashActualsParams) (GetCashActualsRes, error) {
+	res, err := c.sendGetCashActuals(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCashActuals(ctx context.Context, params GetCashActualsParams) (res GetCashActualsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCashActuals"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/cash-actuals"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCashActualsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/cash-actuals"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.From))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.To))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "grain" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "grain",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Grain.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCashActualsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCashActualsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetCashPosition invokes getCashPosition operation.
 //
 // The daily cash position of a legal entity (ADR-0051 §8, T53c), computed at the read from one
@@ -28287,6 +28511,274 @@ func (c *Client) sendListBusinessPartners(ctx context.Context, params ListBusine
 
 	stage = "DecodeResponse"
 	result, err := decodeListBusinessPartnersResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListCashActualLines invokes listCashActualLines operation.
+//
+// The bank statement lines of one currency that `getCashActuals` sums (ADR-0051 §11, T53f2), whose
+// value date is from `from` to `to` (at most 36 months), computed from one database state, by value
+// date: each with its house bank, its status in reconciliation, what classified it (`match`) and its
+// shares by liquidity item; with `liquidity_item`, only the lines with a share of that item or its
+// descendants, each with that `share`; with `unclassified=true`, only the lines with no decided match;
+// with `house_bank_id`, only that bank's. `total` adds the selected shares of every page, `count` the
+// lines. A line's statement is given only to a caller who may use `payments.statement.read`, the
+// payments it was matched to only with `payments.run.read`, and their suppliers only with
+// `partner.supplier.read` (`authz.MayUse`: held and not barred by a segregation-of-duties rule), else
+// left out, never refused, as the liquidity forecast's drill-down shows its documents. Paged by
+// cursor; the token names no statement.
+//
+// GET /v1/cash-actual-lines
+func (c *Client) ListCashActualLines(ctx context.Context, params ListCashActualLinesParams) (ListCashActualLinesRes, error) {
+	res, err := c.sendListCashActualLines(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCashActualLines(ctx context.Context, params ListCashActualLinesParams) (res ListCashActualLinesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCashActualLines"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/cash-actual-lines"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCashActualLinesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/cash-actual-lines"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "currency" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "currency",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.Currency))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.From))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.To))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "house_bank_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "house_bank_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.HouseBankID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "liquidity_item" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "liquidity_item",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LiquidityItem.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "unclassified" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "unclassified",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Unclassified.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCashActualLinesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCashActualLinesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

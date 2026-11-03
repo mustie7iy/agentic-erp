@@ -13967,6 +13967,156 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/cash-actuals:
+    get:
+      operationId: getCashActuals
+      tags:
+        - cash
+      summary: Get a company's cash actuals by liquidity item and bucket
+      description: "The actual cash flows of a legal entity (ADR-0051 §11, T53f2), computed at the read from one database state (a repeatable-read snapshot): its bank statement lines, posted or not, whose value date is from `from` to `to`, per currency, house bank and bucket, classified by liquidity item as their matches say (ADR-0051 §4): a line matched to payments takes the liquidity items of the supplier items those payments settled (each split over its offsetting lines' items, as the liquidity forecast splits it, shared out over the line's amount in proportion), a line matched to a posting rule the rule's item (`cash.derivation.posting_rules`, else its direction's default), a line matched to the incoming payments clearing account or excluded by a person its direction's default (`cash.derivation.defaults`); a line with no decided match takes its direction's default too and is counted `unclassified`, so the actuals are visible before reconciliation finishes. Buckets are periods of `grain` (default `day`) from `from`, the last ending on `to`; at most 92 days, 104 weeks or 36 months. Every active house bank is listed, with or without lines; a bank no longer active only when it has lines. Amounts are signed: money into the bank positive. The lines themselves are listed by `listCashActualLines`."
+      x-permission: cash.forecast.read
+      x-slo-class: report
+      x-snapshot: true
+      x-problem-codes:
+        - cash.amount_too_large
+        - config.not_bootstrapped
+        - request.validation_failed
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: true
+          description: "The first value date."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: "The last value date, on or after `from` (else 422)."
+          schema:
+            type: string
+            format: date
+        - name: grain
+          in: query
+          required: false
+          description: "The buckets' length: `day` (default), `week` (seven days) or `month` (to the same day of the next month, its last day when shorter), from `from`; the last bucket ends on `to`."
+          schema:
+            type: string
+            description: "A bucket's length. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [day, week, month]
+      responses:
+        "200":
+          description: The cash actuals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashActuals"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/cash-actual-lines:
+    get:
+      operationId: listCashActualLines
+      tags:
+        - cash
+      summary: List the bank statement lines behind a company's cash actuals
+      description: "The bank statement lines of one currency that `getCashActuals` sums (ADR-0051 §11, T53f2), whose value date is from `from` to `to` (at most 36 months), computed from one database state, by value date: each with its house bank, its status in reconciliation, what classified it (`match`) and its shares by liquidity item; with `liquidity_item`, only the lines with a share of that item or its descendants, each with that `share`; with `unclassified=true`, only the lines with no decided match; with `house_bank_id`, only that bank's. `total` adds the selected shares of every page, `count` the lines. A line's statement is given only to a caller who may use `payments.statement.read`, the payments it was matched to only with `payments.run.read`, and their suppliers only with `partner.supplier.read` (`authz.MayUse`: held and not barred by a segregation-of-duties rule), else left out, never refused, as the liquidity forecast's drill-down shows its documents. Paged by cursor; the token names no statement."
+      x-permission: cash.forecast.read
+      x-slo-class: report
+      x-snapshot: true
+      x-problem-codes:
+        - cash.amount_too_large
+        - config.not_bootstrapped
+        - request.invalid_page_size
+        - request.invalid_page_token
+        - request.validation_failed
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: currency
+          in: query
+          required: true
+          description: "The currency of the lines (ISO 4217)."
+          schema:
+            type: string
+            pattern: "^[A-Z]{3}$"
+        - name: from
+          in: query
+          required: true
+          description: "The first value date."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: "The last value date, on or after `from` and at most 36 months after it (else 422)."
+          schema:
+            type: string
+            format: date
+        - name: house_bank_id
+          in: query
+          required: false
+          description: "Only the lines of this house bank."
+          schema:
+            type: string
+            format: uuid
+        - name: liquidity_item
+          in: query
+          required: false
+          description: "Only the lines with a share of this liquidity item or its descendants (its code); not with `unclassified=true` (422)."
+          schema:
+            type: string
+            maxLength: 40
+        - name: unclassified
+          in: query
+          required: false
+          description: "Only the lines with no decided match, counted `unclassified` in the actuals."
+          schema:
+            type: boolean
+            default: false
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: A page of the lines.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashActualLinePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/cash-position:
     get:
       operationId: getCashPosition
@@ -32900,6 +33050,287 @@ components:
           readOnly: true
         id: {type: string, format: uuid, description: "The document's id in its context.", readOnly: true}
         number: {type: string, description: "Its document number (a memo record's reference) when it was taken; absent when it had none.", readOnly: true}
+    CashActuals:
+      type: object
+      description: "A legal entity's actual cash flows (ADR-0051 §11, T53f2): its bank statement lines by value date, per currency, house bank, liquidity item and bucket. Amounts are signed: money into the bank positive, a payment out negative."
+      required: [legal_entity_id, company_code, read_date, time_zone, from, to, grain, buckets, currencies]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        company_code: {type: string, description: "The legal entity's company code.", readOnly: true}
+        read_date: {type: string, format: date, description: "The company's date when the actuals were read, in `time_zone`.", readOnly: true}
+        time_zone: {type: string, description: "The IANA time zone the read date is in.", readOnly: true}
+        from: {type: string, format: date, description: "The first value date.", readOnly: true}
+        to: {type: string, format: date, description: "The last value date: the last bucket's end.", readOnly: true}
+        grain:
+          type: string
+          description: "The buckets' length. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [day, week, month]
+          readOnly: true
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastBucket"}
+          description: "The columns: periods of `grain` from `from`, the last ending on `to`."
+          readOnly: true
+        currencies:
+          type: array
+          items: {$ref: "#/components/schemas/CashActualsCurrency"}
+          description: "Per currency of a line or of an active house bank, by currency code."
+          readOnly: true
+      examples:
+        - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "3000"
+          read_date: "2026-04-17"
+          time_zone: America/Toronto
+          from: "2026-04-13"
+          to: "2026-04-16"
+          grain: week
+          buckets: [{grain: week, start: "2026-04-13", end: "2026-04-16"}]
+          currencies:
+            - currency: CAD
+              buckets:
+                - start: "2026-04-13"
+                  inflow: {amount: "2000.00", currency: CAD}
+                  outflow: {amount: "-800.00", currency: CAD}
+                  total: {amount: "1200.00", currency: CAD}
+                  count: 2
+                  unclassified: {amount: {amount: "2000.00", currency: CAD}, count: 1}
+              inflow: {amount: "2000.00", currency: CAD}
+              outflow: {amount: "-800.00", currency: CAD}
+              total: {amount: "1200.00", currency: CAD}
+              count: 2
+              unclassified: {amount: {amount: "2000.00", currency: CAD}, count: 1}
+              banks:
+                - house_bank_id: 0192a000-0000-7000-8000-000000000b02
+                  house_bank_code: MAIN
+                  active: true
+                  buckets: [{amount: "1200.00", currency: CAD}]
+                  total: {amount: "1200.00", currency: CAD}
+                  count: 2
+              items:
+                - liquidity_item: OPERATING
+                  name: Operating
+                  level: 0
+                  buckets: [{amount: "1200.00", currency: CAD}]
+                  total: {amount: "1200.00", currency: CAD}
+                  matches: []
+                - liquidity_item: OP_SUPPLIERS
+                  name: Supplier payments
+                  parent: OPERATING
+                  level: 1
+                  buckets: [{amount: "-800.00", currency: CAD}]
+                  total: {amount: "-800.00", currency: CAD}
+                  matches: [{match: payment, buckets: [{amount: "-800.00", currency: CAD}], total: {amount: "-800.00", currency: CAD}}]
+                - liquidity_item: REC_CUSTOMERS
+                  name: Customer receipts
+                  parent: OPERATING
+                  level: 1
+                  buckets: [{amount: "2000.00", currency: CAD}]
+                  total: {amount: "2000.00", currency: CAD}
+                  matches: [{match: unmatched, buckets: [{amount: "2000.00", currency: CAD}], total: {amount: "2000.00", currency: CAD}}]
+    CashActualsCurrency:
+      type: object
+      description: "The actual flows of one currency: per bucket, in the buckets' order, and over the range; per house bank; and by liquidity item and its hierarchy."
+      required: [currency, buckets, inflow, outflow, total, count, unclassified, banks, items]
+      properties:
+        currency: {type: string, description: The currency (ISO 4217)., readOnly: true}
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/CashActualsBucket"}
+          description: "One per bucket, in the same order."
+          readOnly: true
+        inflow: {$ref: "#/components/schemas/Money"}
+        outflow: {$ref: "#/components/schemas/Money"}
+        total: {$ref: "#/components/schemas/Money"}
+        count: {type: integer, format: int32, minimum: 0, description: "How many statement lines.", readOnly: true}
+        unclassified: {$ref: "#/components/schemas/CashActualsUnclassified"}
+        banks:
+          type: array
+          items: {$ref: "#/components/schemas/CashActualsBank"}
+          description: "Per house bank of the currency: every active one by code, with lines or not, then each one no longer active that has lines, in the order of its first line."
+          readOnly: true
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CashActualsItem"}
+          description: "The rows by liquidity item, depth first: each item followed by its children, siblings by code, an item listed when it or a descendant has a share; the row of what no rule assigns and no default covers (without `liquidity_item`) last. The top rows (`level` 0) add up to each bucket's `total` and the currency's."
+          readOnly: true
+    CashActualsBucket:
+      type: object
+      description: "A bucket's actual flows in one currency: money in, money out, their total, how many lines, and what of it has no decided match."
+      required: [start, inflow, outflow, total, count, unclassified]
+      properties:
+        start: {type: string, format: date, description: "The bucket's first day.", readOnly: true}
+        inflow: {$ref: "#/components/schemas/Money"}
+        outflow: {$ref: "#/components/schemas/Money"}
+        total: {$ref: "#/components/schemas/Money"}
+        count: {type: integer, format: int32, minimum: 0, description: "How many statement lines.", readOnly: true}
+        unclassified: {$ref: "#/components/schemas/CashActualsUnclassified"}
+    CashActualsUnclassified:
+      type: object
+      description: "The statement lines with no decided match (not matched yet, or only proposed): classified by their direction's default liquidity item, and counted here until reconciliation decides them (ADR-0051 §11)."
+      required: [amount, count]
+      properties:
+        amount: {$ref: "#/components/schemas/Money"}
+        count: {type: integer, format: int32, minimum: 0, description: "How many lines.", readOnly: true}
+    CashActualsBank:
+      type: object
+      description: "A house bank's actual flows per bucket and over the range."
+      required: [house_bank_id, house_bank_code, active, buckets, total, count]
+      properties:
+        house_bank_id: {type: string, format: uuid, description: The house bank., readOnly: true}
+        house_bank_code: {type: string, description: "The house bank's code.", readOnly: true}
+        active: {type: boolean, description: "Whether the house bank is active.", readOnly: true}
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/Money"}
+          description: "Its lines' total per bucket, in the buckets' order."
+          readOnly: true
+        total: {$ref: "#/components/schemas/Money"}
+        count: {type: integer, format: int32, minimum: 0, description: "How many statement lines.", readOnly: true}
+    CashActualsItem:
+      type: object
+      description: "A row of a currency's actuals by liquidity item (ADR-0051 §4, §11): the shares of the lines its item classifies, with its descendants', per bucket and over the range, and the item's own shares by what classified them."
+      required: [level, buckets, total, matches]
+      properties:
+        liquidity_item: {type: string, description: "The liquidity item's code (`cash.liquidity_items`); absent on the row of the shares no derivation rule assigns and no default covers.", readOnly: true}
+        name: {type: string, description: "The liquidity item's name; absent with `liquidity_item`.", readOnly: true}
+        parent: {type: string, description: "The code of the item's parent in the hierarchy; absent for a top item and the row without `liquidity_item`.", readOnly: true}
+        level: {type: integer, format: int32, minimum: 0, maximum: 3, description: "The item's depth in the hierarchy: 0 for a top item (and the row without `liquidity_item`), its parent's plus one below.", readOnly: true}
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/Money"}
+          description: "The item's and its descendants' shares per bucket, in the buckets' order."
+          readOnly: true
+        total: {$ref: "#/components/schemas/Money"}
+        matches:
+          type: array
+          items: {$ref: "#/components/schemas/CashActualsItemMatch"}
+          description: "The item's own shares (not its descendants') by what classified them, sorted by it; empty for an item listed for its descendants alone."
+          readOnly: true
+    CashActualsItemMatch:
+      type: object
+      description: "A liquidity item's own shares of the lines one kind of match classified, per bucket and over the range."
+      required: [match, buckets, total]
+      properties:
+        match: {$ref: "#/components/schemas/CashActualMatch"}
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/Money"}
+          description: "The shares per bucket, in the buckets' order."
+          readOnly: true
+        total: {$ref: "#/components/schemas/Money"}
+    CashActualMatch:
+      type: string
+      description: "What classified a statement line (ADR-0051 §4): `payment`, matched to payments (the supplier items they settled); `posting_rule`, matched to a posting rule (the rule's item); `incoming`, matched to the incoming payments clearing account, `excluded`, excluded from reconciliation by a person, and `unmatched`, no decided match yet (each its direction's default; `unmatched` is counted unclassified). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+      x-extensible-enum: [payment, posting_rule, incoming, excluded, unmatched]
+      readOnly: true
+    CashActualLinePage:
+      type: object
+      description: "A page of the bank statement lines behind a legal entity's cash actuals in one currency (ADR-0051 §11, T53f2), with what the selected lines of every page add up to."
+      required: [legal_entity_id, company_code, currency, from, to, unclassified, total, count, items]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        company_code: {type: string, description: "The legal entity's company code.", readOnly: true}
+        currency: {type: string, description: "The currency (ISO 4217).", readOnly: true}
+        from: {type: string, format: date, description: "The first value date.", readOnly: true}
+        to: {type: string, format: date, description: "The last value date.", readOnly: true}
+        house_bank_id: {type: string, format: uuid, description: "The house bank asked for; absent when none was.", readOnly: true}
+        liquidity_item: {type: string, description: "The liquidity item asked for, its descendants included; absent when none was.", readOnly: true}
+        unclassified: {type: boolean, description: "Whether only the lines with no decided match are listed.", readOnly: true}
+        total: {$ref: "#/components/schemas/Money"}
+        count: {type: integer, format: int32, minimum: 0, description: "How many lines the filters select, over every page.", readOnly: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CashActualLine"}
+          description: "The lines on this page, by value date."
+          readOnly: true
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+          readOnly: true
+      examples:
+        - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "3000"
+          currency: CAD
+          from: "2026-04-13"
+          to: "2026-04-16"
+          liquidity_item: OP_SUPPLIERS
+          unclassified: false
+          total: {amount: "-800.00", currency: CAD}
+          count: 1
+          items:
+            - value_date: "2026-04-14"
+              house_bank_id: 0192a000-0000-7000-8000-000000000b02
+              house_bank_code: MAIN
+              statement: {statement_id: 0192a000-0000-7000-8000-000000000c01, line_no: 1}
+              status: posted
+              match: payment
+              unclassified: false
+              amount: {amount: "-800.00", currency: CAD}
+              share: {amount: "-800.00", currency: CAD}
+              shares: [{liquidity_item: OP_SUPPLIERS, amount: {amount: "-800.00", currency: CAD}}]
+              payment_count: 1
+              payments:
+                - {payment_id: 0192a000-0000-7000-8000-000000000d01, payment_run_id: 0192a000-0000-7000-8000-000000000e01, payment_run_number: "2000000001", amount: {amount: "-800.00", currency: CAD}}
+              suppliers: [{id: 0192a000-0000-7000-8000-000000000301, number: BP10000001, name: Tyrell Office Supplies}]
+    CashActualLine:
+      type: object
+      description: "A bank statement line as the cash actuals classify it (ADR-0051 §4, §11): its value date, house bank, amount and shares by liquidity item, what classified it, and, for a caller who may read them in their own context, its statement, the payments it was matched to and their suppliers."
+      required: [value_date, house_bank_id, house_bank_code, status, match, unclassified, amount, share, shares, payment_count, payments, suppliers]
+      properties:
+        value_date: {type: string, format: date, description: "The day the bank valued it.", readOnly: true}
+        house_bank_id: {type: string, format: uuid, description: "The house bank whose statement it is on.", readOnly: true}
+        house_bank_code: {type: string, description: "The house bank's code.", readOnly: true}
+        statement: {$ref: "#/components/schemas/CashActualStatementLine"}
+        status:
+          type: string
+          description: "The line's status in reconciliation (ADR-0047). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [unmatched, proposed, matched, excluded, pending_approval, posted]
+          readOnly: true
+        match: {$ref: "#/components/schemas/CashActualMatch"}
+        posting_rule: {type: string, description: "The transaction code of the posting rule it was matched to; present exactly when `match` is `posting_rule`.", readOnly: true}
+        unclassified: {type: boolean, description: "True when it has no decided match: its direction's default classifies it until reconciliation decides it.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money"}
+        share: {$ref: "#/components/schemas/Money"}
+        shares:
+          type: array
+          items: {$ref: "#/components/schemas/CashActualShare"}
+          description: "Its amount by liquidity item, adding up to it, in the order the documents behind it first name the items."
+          readOnly: true
+        payment_count: {type: integer, format: int32, minimum: 0, description: "How many payments it was matched to, those not shown included.", readOnly: true}
+        payments:
+          type: array
+          items: {$ref: "#/components/schemas/CashActualPayment"}
+          description: "The payments it was matched to (`getPaymentRun`), for a caller who may use `payments.run.read`; else empty."
+          readOnly: true
+        suppliers:
+          type: array
+          items: {$ref: "#/components/schemas/PartnerName"}
+          description: "The suppliers those payments paid, each once, for a caller who may use `partner.supplier.read`; else empty."
+          readOnly: true
+    CashActualStatementLine:
+      type: object
+      description: "The bank statement and line number (`getBankStatement`), for a caller who may use `payments.statement.read`."
+      required: [statement_id, line_no]
+      properties:
+        statement_id: {type: string, format: uuid, description: The bank statement., readOnly: true}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line's number in the statement.", readOnly: true}
+    CashActualShare:
+      type: object
+      description: "The part of a statement line's amount a liquidity item has."
+      required: [amount]
+      properties:
+        liquidity_item: {type: string, description: "The liquidity item's code; absent for a part no derivation rule assigns and no default covers.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money"}
+    CashActualPayment:
+      type: object
+      description: "A payment a statement line was matched to, with its payment run and what it paid, signed as the line (negative: money out)."
+      required: [payment_id, payment_run_id, payment_run_number, amount]
+      properties:
+        payment_id: {type: string, format: uuid, description: The payment., readOnly: true}
+        payment_run_id: {type: string, format: uuid, description: "Its payment run.", readOnly: true}
+        payment_run_number: {type: string, description: "The run's document number.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money"}
     CashPosition:
       type: object
       description: "A legal entity's daily cash position (ADR-0051 §8, T53c): per house bank and per currency first, then the converted total. Amounts are signed: money in the bank is positive, a payment out negative."

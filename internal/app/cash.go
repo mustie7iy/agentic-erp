@@ -142,6 +142,23 @@ func (c cashPayments) Paying(ctx context.Context, legalEntity uuid.UUID, ids []u
 	return out, err
 }
 
+// Actuals gives the cash actuals the statement lines with what their
+// decided matches clear (T53f2).
+func (c cashPayments) Actuals(ctx context.Context, legalEntity uuid.UUID, from, to time.Time) ([]cash.ActualLine, error) {
+	ls, err := c.position.Actuals(ctx, legalEntity, from, to)
+	out := make([]cash.ActualLine, len(ls))
+	for i, l := range ls {
+		out[i] = cash.ActualLine{StatementID: l.StatementID, LineNo: l.LineNo, HouseBankID: l.HouseBankID, Currency: l.Currency, Amount: l.Amount,
+			ValueDate: l.ValueDate, Status: l.Status, Match: cashMatches[l.Match], PostingRule: l.PostingRule, Payments: cashPaymentsOf(l.Payments)}
+	}
+	return out, err
+}
+
+// cashMatches are the cash actuals' kinds of match of the payments
+// context's (ADR-0051 §4, T53f2).
+var cashMatches = map[string]string{payments.CashMatchPayment: cash.MatchPayment, payments.CashMatchPostingRule: cash.MatchPostingRule,
+	payments.CashMatchIncoming: cash.MatchIncoming, payments.CashMatchExcluded: cash.MatchExcluded, payments.CashMatchNone: cash.MatchNone}
+
 // cashLines are a document's offsetting lines as the cash context reads
 // them.
 func cashLines(ls []ledger.OffsettingLine) []cash.DocumentLine {

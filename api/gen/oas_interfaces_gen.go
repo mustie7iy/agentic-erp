@@ -365,6 +365,10 @@ type GetBusinessPartnerRes interface {
 	getBusinessPartnerRes()
 }
 
+type GetCashActualsRes interface {
+	getCashActualsRes()
+}
+
 type GetCashPositionRes interface {
 	getCashPositionRes()
 }
@@ -651,6 +655,10 @@ type ListBankStatementsRes interface {
 
 type ListBusinessPartnersRes interface {
 	listBusinessPartnersRes()
+}
+
+type ListCashActualLinesRes interface {
+	listCashActualLinesRes()
 }
 
 type ListCashSnapshotFlowsRes interface {

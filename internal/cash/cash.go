@@ -25,6 +25,9 @@
 // T53f keeps snapshots of the forecast (ADR-0051 §6): one a day per
 // company, taken by the TakeCashSnapshot workflow, and those people take,
 // per document within 31 days and per bucket beyond, for 25 months.
+// T53f2 reads the actuals (ADR-0051 §11): the bank statement lines by
+// value date, classified by liquidity item as their matches say, by bucket
+// and house bank, with the lines behind them.
 package cash
 
 import (
