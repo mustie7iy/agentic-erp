@@ -1400,7 +1400,12 @@ default where §7, §9 and §10 leave it open):
   payment's line in transit, a series' occurrence), so it orders the pages
   by day, names no document, and stays with its flow between two reads:
   a payment leaving the run between two pages neither skips nor repeats
-  another (review round 1, `TestLiquidityForecastDrillDownPages`). An
+  another (review round 1, `TestLiquidityForecastDrillDownPages`). One
+  limit is known (review round 2): a payment's line in transit is told by
+  its place among the payment's open clearing lines, so if one payment has
+  two open lines and the earlier is cleared between two pages, the later
+  may be skipped or repeated; naming the line itself needs its entry and
+  line number in the ledger's `OpenLine` port. An
   unknown currency is 422 `cash.unknown_currency`, as the display
   currency is.
 - **What the drill-down reveals** (security posture, decided as the most
