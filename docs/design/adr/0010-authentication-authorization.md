@@ -128,4 +128,7 @@ against the actor's full permission set") and `Authorize` as built:
     (ADR-0047).
 - **Not changed.** `authz.Effective`'s other callers (getCurrentPrincipal,
   recurring entries' owner check) already use the usable permissions alone; `authz.RequireWrites` checks an agent's autonomy
-  level, not a permission.
+  level, not a permission. `MayUse` and `barredBy` came with batch 44's
+  expansions (expperm); their callers there (ledger's entry partners and
+  revaluation names, `authz.Expansions` in procurement and payables) were
+  already SoD-aware.

@@ -1145,8 +1145,9 @@ What the API gaps settled, and where they depart from §3:
   pending requests the caller may approve now, as `approveApprovalRequest`
   decides it: a person, not the requester, who may use
   `workflow.request.decide` (held, and not barred by a
-  segregation-of-duties rule, as `Authorize` checks it), holds the object
-  type's approval permission and the current step's role (identity's
+  segregation-of-duties rule, as `Authorize` checks it), may use the object
+  type's approval permission (held and not barred, ADR-0010 As built
+  2026-11-02) and the current step's role (identity's
   `Directory.RolesHeld`, the same predicate as `HoldsRole`), has not
   approved the request yet, and whom the owning context does not bar
   (`Barrer`: the bank line's matcher). The bar is asked after the page is
