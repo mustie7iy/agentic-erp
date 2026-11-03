@@ -1331,8 +1331,12 @@ default where §7, §9 and §10 leave it open):
   the bank's opening statement matches, on the run date plus value days,
   `late` before the read date, each line a flow. They are classified as a
   run's payment is, by the open items the payment settled
-  (`Payments.Paying`, which reads any payment of the legal entity), and
-  name the payment's run.
+  (`Payments.Paying`, which reads any payment of the legal entity), each
+  line at its own amount: where a flow's documents do not add up to it
+  (a second open line of a payment), they are shared out over it in
+  proportion (`money.Allocate`, rounded once, ties to the earlier
+  document), so the rows by item always add up to the buckets
+  (review round 1). They name the payment's run.
 - **Memo records** (`memo`, at the record's certainty). Every `active`
   record of the legal entity, with a house bank or none, not expired at
   the read, on its value date moved to the next working day (`late`
@@ -1392,8 +1396,13 @@ default where §7, §9 and §10 leave it open):
   down payment request, the payment run (run and in-transit flows), a
   memo record (its reference). Paged by cursor (04 §4.5), 50 by default,
   at most 500; the token holds the last flow's key, its day and a digest
-  of its source, certainty and documents, so it orders the pages by day
-  and names no document.
+  of its source, certainty, documents and identity (a run's payment, a
+  payment's line in transit, a series' occurrence), so it orders the pages
+  by day, names no document, and stays with its flow between two reads:
+  a payment leaving the run between two pages neither skips nor repeats
+  another (review round 1, `TestLiquidityForecastDrillDownPages`). An
+  unknown currency is 422 `cash.unknown_currency`, as the display
+  currency is.
 - **What the drill-down reveals** (security posture, decided as the most
   restrictive reasonable option and put to the product owner). §15 gives
   `cash.forecast.read` to people and agents, and §9 drills "through the
@@ -1432,7 +1441,9 @@ default where §7, §9 and §10 leave it open):
 - **Evidence.** `cash.TestLiquidityForecastOpeningAndSources`,
   `TestLiquidityForecastGrain`, `TestLiquidityForecastConverted`,
   `TestLiquidityForecastDrillDown` (pages, item and descendants, beyond,
-  two lines of one payment, refusals), `TestLiquidityForecastDrillDownGated`
+  two lines of one payment classified each at its own amount, refusals),
+  `TestLiquidityForecastDrillDownPages`, `TestClassify` (parts shared
+  out over a line), `TestLiquidityForecastDrillDownGated`
   (not held, and barred by a segregation-of-duties rule),
   `TestLiquidityForecastBlockedDrillDown`, `TestLiquidityForecastDrillFailures`
   (every database failure), `TestLiquidityForecastBudget`; the existing

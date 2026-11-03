@@ -206,6 +206,10 @@ type datedFlow struct {
 	shares    []Share
 	supplier  *uuid.UUID
 	documents []paidDocument
+	// identity tells a flow from others of its day, source and documents
+	// (a run's payments, a payment's lines in transit, a series'
+	// occurrences) in the drill-down's keys; "" when its documents do.
+	identity string
 }
 
 // paidDocument is a document a flow pays and what the flow pays of it.
@@ -404,20 +408,23 @@ func (e *Endpoints) paymentFlows(ctx context.Context, r reader, legalEntity uuid
 	var out []datedFlow
 	for _, p := range pending {
 		d, late := r.valueDate(codes[p.HouseBankID], p)
-		out = append(out, paymentFlow(flow{date: d, source: SourcePaymentRun, certainty: CertaintyConfirmed, late: late, amount: -p.Amount}, p, paying[p.ID]))
+		out = append(out, paymentFlow(flow{date: d, source: SourcePaymentRun, certainty: CertaintyConfirmed, late: late, amount: -p.Amount}, p, paying[p.ID],
+			p.ID.String()))
 	}
 	for _, t := range transit {
-		for _, f := range t.flows {
-			out = append(out, paymentFlow(f, t.payment, paying[t.payment.ID]))
+		for i, f := range t.flows {
+			out = append(out, paymentFlow(f, t.payment, paying[t.payment.ID], fmt.Sprintf("%s#%d", t.payment.ID, i)))
 		}
 	}
 	return out, nil
 }
 
 // paymentFlow is a payment's flow in its currency, classified by what it
-// pays, its supplier and its run as the document it pays.
-func paymentFlow(f flow, p Payment, paying Paying) datedFlow {
-	return datedFlow{flow: f, currency: p.Currency, parts: paymentParts(f.amount, paying), supplier: &p.SupplierID,
+// pays, its supplier and its run as the document it pays; identity tells
+// it from the run's other payments (and a payment's other lines in
+// transit) in the drill-down's keys.
+func paymentFlow(f flow, p Payment, paying Paying, identity string) datedFlow {
+	return datedFlow{flow: f, currency: p.Currency, parts: paymentParts(f.amount, paying), supplier: &p.SupplierID, identity: identity,
 		documents: []paidDocument{{Document: Document{Kind: DocPaymentRun, ID: p.RunID, Number: p.RunNumber}, amount: f.amount}}}
 }
 
@@ -432,9 +439,10 @@ func ids(ps []Payment) []uuid.UUID {
 
 // paymentParts are the documents a payment of the amount (negative: paid
 // out) pays: each open item it settles at what it pays of it, which add up
-// to the payment (a run pays a supplier the sum of its items, netted); a
-// payment of no item (a down payment request's) whole, by its supplier's
-// planning group.
+// to the payment (a run pays a supplier the sum of its items, netted), and
+// classify shares a line in transit of part of it out over them; a payment
+// of no item (a down payment request's) whole, by its supplier's planning
+// group.
 func paymentParts(amount money.Minor, paying Paying) []part {
 	if len(paying.Items) == 0 {
 		return []part{{amount: amount, planningGroup: paying.PlanningGroup}}

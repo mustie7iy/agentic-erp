@@ -36,7 +36,8 @@ func memoForecast(ctx context.Context, tx pgx.Tx, r reader, legalEntity uuid.UUI
 	for i, o := range occs {
 		m := o.record
 		out[i] = datedFlow{flow: o.flow, currency: m.Currency, parts: []part{{amount: m.Amount, item: m.Item}},
-			documents: []paidDocument{{Document: Document{Kind: DocMemoRecord, ID: m.ID, Number: deref(m.Reference)}, amount: m.Amount}}}
+			documents: []paidDocument{{Document: Document{Kind: DocMemoRecord, ID: m.ID, Number: deref(m.Reference)}, amount: m.Amount}},
+			identity:  o.on.Format(time.DateOnly)}
 	}
 	return out, err
 }
@@ -52,6 +53,7 @@ func deref(s *string) string {
 // memoOccurrence is an occurrence of an active memo record as a flow.
 type memoOccurrence struct {
 	record MemoRecord
+	on     time.Time // the occurrence's own date, before it is moved to a working day
 	flow   flow
 }
 
@@ -80,7 +82,7 @@ func memoOccurrences(ctx context.Context, tx pgx.Tx, r reader, legalEntity uuid.
 				continue
 			}
 			day, late := r.atBank(d)
-			out = append(out, memoOccurrence{record: m, flow: flow{date: day, source: SourceMemo, certainty: m.Certainty, late: late, amount: m.Amount}})
+			out = append(out, memoOccurrence{record: m, on: d, flow: flow{date: day, source: SourceMemo, certainty: m.Certainty, late: late, amount: m.Amount}})
 		}
 	}
 	return out, nil

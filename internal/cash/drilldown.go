@@ -139,7 +139,7 @@ func (e *Endpoints) Flows(ctx context.Context, q FlowsQuery) (FlowPage, error) {
 	if err != nil {
 		return FlowPage{}, err
 	}
-	exp, err := currency.Exponent(ctx, fr.tx, q.Currency, problem.Unprocessable("request.validation_failed", "The currency is not known.",
+	exp, err := currency.Exponent(ctx, fr.tx, q.Currency, problem.Unprocessable("cash.unknown_currency", "The currency is not known.",
 		problem.FieldError{Field: "currency", Code: "unknown", Message: "an ISO 4217 currency in the reference data"}))
 	if err != nil {
 		return FlowPage{}, err
@@ -163,8 +163,9 @@ func (e *Endpoints) Flows(ctx context.Context, q FlowsQuery) (FlowPage, error) {
 	if start < len(listed) && listed[start].key == c.After {
 		start++
 	}
-	page := listed[start:min(start+q.PageSize, len(listed))]
-	if start+q.PageSize < len(listed) {
+	size := max(q.PageSize, 1)
+	page := listed[start:min(start+size, len(listed))]
+	if start+size < len(listed) {
 		// Safe to ignore: a cursor of one string always encodes.
 		p.Next, _ = e.Pages.Encode(scope, flowCursor{After: page[len(page)-1].key})
 	}
@@ -218,18 +219,11 @@ func (r reader) drill(flows []datedFlow, q FlowsQuery, from time.Time) []keyed {
 			out = append(out, keyed{f: f, share: share, key: flowKey(f)})
 		}
 	}
-	slices.SortStableFunc(out, func(a, b keyed) int { return cmp.Compare(a.key, b.key) })
-	// Two flows alike (two lines of one payment in transit) are told apart
-	// by their place among them, after the first: still in key order, as
-	// the separator sorts after every digit of a digest.
-	seen := map[string]int{}
-	for i := range out {
-		n := seen[out[i].key]
-		seen[out[i].key] = n + 1
-		if n > 0 {
-			out[i].key += fmt.Sprintf("|%04d", n)
-		}
-	}
+	// Keys are unique: a supplier payment's documents are its own, and every
+	// other flow carries its identity (a payment, a payment's line in
+	// transit, a series' occurrence), so a key stays with its flow between
+	// two reads and the next page starts after it.
+	slices.SortFunc(out, func(a, b keyed) int { return cmp.Compare(a.key, b.key) })
 	return out
 }
 
@@ -266,11 +260,11 @@ func (r reader) subtree(item string) map[string]bool {
 }
 
 // flowKey is a flow's place in the drill-down: its day, then a digest of
-// its source, certainty and documents, which tells flows of a day apart
-// without naming a document a page token would show.
+// its source, certainty, identity and documents, which tells flows of a
+// day apart without naming a document a page token would show.
 func flowKey(f datedFlow) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s|%s|%v", f.source, f.certainty, f.late)
+	fmt.Fprintf(h, "%s|%s|%v|%s", f.source, f.certainty, f.late, f.identity)
 	for _, d := range f.documents {
 		fmt.Fprintf(h, "|%s:%s", d.Kind, d.ID)
 	}

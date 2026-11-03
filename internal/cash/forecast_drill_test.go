@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -318,13 +319,27 @@ func TestLiquidityForecastDrillDown(t *testing.T) {
 	want(t, "USD in transit", flows, []string{
 		"2026-04-17 in_transit/confirmed counted=true -300.00 USD share -300.00: BP90000001; payment_run transit run true -300.00 (1)"})
 	want(t, "certainty", p["min_certainty"], "confirmed")
-	// A second open line of the payment on the clearing account is a flow
-	// alike in all but its place: both listed, one a page.
+	// The payment settled a USD item on rent (cleared since), and a second
+	// open line of it is on the clearing account: each line is a flow of
+	// its own, classified at its own amount over the item it pays, so the
+	// rent row adds up to the bucket. Flows of a day are paged in their
+	// keys' order, a digest of the payment's random id: sorted here.
+	paid := e.item(t, e.Supplier, "2026-04-01", "USD", -30000, nil)
+	e.exec(t, `SET session_replication_role = replica`)
+	e.exec(t, `UPDATE ledger.journal_line SET account_id = $2 WHERE journal_entry_id = $1 AND line_no = 2`, paid, e.Account(t, "3000", "530000"))
+	e.exec(t, `INSERT INTO ledger.clearing_item (tenant_id, fiscal_year, journal_entry_id, line_no, clearing_id) VALUES ($1, 2026, $2, 1, gen_random_uuid())`,
+		e.Tenant.ID, paid)
+	e.exec(t, `RESET session_replication_role`)
+	e.exec(t, `INSERT INTO payments.payment_item (tenant_id, payment_id, item_fiscal_year, item_entry_id, item_line_no, amount, due_date)
+		VALUES ($1, $2, 2026, $3, 1, 30000, '2026-05-01')`, e.Tenant.ID, e.transit, paid)
 	e.entry(t, e.leading, e.clearing, "2026-04-16", "USD", -100, -135, "payments", &e.transit)
-	_, flows = e.drill(t, "&currency=USD&min_certainty=confirmed", 1)
-	want(t, "two lines of one payment", flows, []string{
-		"2026-04-17 in_transit/confirmed counted=true -300.00 USD share -300.00: BP90000001; payment_run transit run true -300.00 (1)",
-		"2026-04-17 in_transit/confirmed counted=true -1.00 USD share -1.00: BP90000001; payment_run transit run true -1.00 (1)"})
+	p, flows = e.drill(t, "&currency=USD&min_certainty=confirmed&liquidity_item=OP_RENT", 1)
+	slices.Sort(flows)
+	want(t, "two lines of one payment, by the rent they pay", fmt.Sprint(flows, " ", amount(p["total"])), fmt.Sprint([]string{
+		"2026-04-17 in_transit/confirmed counted=true -1.00 USD share -1.00: BP90000001; payment_run transit run true -1.00 (1)",
+		"2026-04-17 in_transit/confirmed counted=true -300.00 USD share -300.00: BP90000001; payment_run transit run true -300.00 (1)"}, " -301.00 USD"))
+	f := e.forecastOf(t, "&min_certainty=confirmed")
+	want(t, "the rent row, the bucket", itemsOf(t, f, "USD")[1], "  OP_RENT Rent (OPERATING): [2026-04-17 -301.00] total -301.00 USD beyond 0.00 USD")
 
 	for name, c := range map[string]struct {
 		status      int
@@ -332,7 +347,7 @@ func TestLiquidityForecastDrillDown(t *testing.T) {
 	}{
 		"an item with the unclassified": {422, "&currency=CAD&liquidity_item=OPERATING&unclassified=true", "request.validation_failed"},
 		"a range ending before it":      {422, "&currency=CAD&from=2026-05-01&to=2026-04-30", "request.validation_failed"},
-		"a currency not known":          {422, "&currency=XYZ", "request.validation_failed"},
+		"a currency not known":          {422, "&currency=XYZ", "cash.unknown_currency"},
 		"a certainty not known":         {422, "&currency=CAD&min_certainty=likely", "request.validation_failed"},
 		"a page token of other filters": {400, "&currency=USD&page_token=" + url.QueryEscape(firstToken(t, e)), "request.invalid_page_token"},
 		"a page size of none":           {400, "&currency=CAD&page_size=0", "request.invalid_parameter"},
@@ -348,6 +363,36 @@ func TestLiquidityForecastDrillDown(t *testing.T) {
 	})
 	other := e.Reader(t, "reader of 1000", e.US)
 	e.As(other).Problem(404, "request.not_found", "GET", "/v1/liquidity-forecast-flows?legal_entity_id="+e.le.String()+"&currency=CAD", "", "")
+}
+
+// TestLiquidityForecastDrillDownPages: a run's payments of one day, which
+// name the same run, are each a flow with a key of its own, so a page
+// token still points after the flow it was issued at when the run changes
+// between two pages: the next page neither skips nor repeats a flow.
+func TestLiquidityForecastDrillDownPages(t *testing.T) {
+	e := setupDrill(t)
+	second := uuid.Must(uuid.NewV7())
+	e.exec(t, `INSERT INTO payments.payment (tenant_id, id, payment_run_id, supplier_id, bank_account_id, amount, currency, end_to_end_id, created_by)
+		VALUES ($1, $2, $3, $4, gen_random_uuid(), 10000, 'CAD', $5, $6)`, e.Tenant.ID, second, e.docs["run"], e.Vendor, endToEnd(second), e.Tenant.Human.ID)
+	query := "/v1/liquidity-forecast-flows?legal_entity_id=" + e.le.String() + "&currency=CAD&from=2026-04-17&to=2026-04-17&page_size=1"
+	first, _ := e.Must(200, "GET", query, "", "")
+	items := first["items"].([]any)
+	want(t, "the first page", fmt.Sprint(first["count"], " ", len(items)), "2 1")
+	shown := amount(items[0].(map[string]any)["amount"])
+	// The payment shown first leaves the run; the other is the next page.
+	gone, rest := second, "-800.00 CAD"
+	if shown == "-800.00 CAD" {
+		pgtest.Scan(t, `SELECT id FROM payments.payment WHERE payment_run_id = $1 AND amount = 80000`, []any{e.docs["run"]}, &gone)
+		rest = "-100.00 CAD"
+	}
+	e.exec(t, `DELETE FROM payments.payment_item WHERE payment_id = $1`, gone)
+	e.exec(t, `DELETE FROM payments.payment WHERE id = $1`, gone)
+	next, _ := e.Must(200, "GET", query+"&page_token="+url.QueryEscape(first["next_page_token"].(string)), "", "")
+	got := []string{}
+	for _, it := range next["items"].([]any) {
+		got = append(got, amount(it.(map[string]any)["amount"]))
+	}
+	want(t, "the next page after the first payment left the run", got, []string{rest})
 }
 
 // firstToken is the next page token of the CAD flows in pages of one.

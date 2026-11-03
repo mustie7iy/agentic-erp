@@ -14127,6 +14127,7 @@ paths:
       x-snapshot: true
       x-problem-codes:
         - cash.amount_too_large
+        - cash.unknown_currency
         - config.not_bootstrapped
         - payables.unknown_payment_term
         - payables.withholding_exceeds_invoice
@@ -14145,7 +14146,7 @@ paths:
         - name: currency
           in: query
           required: true
-          description: "The currency of the flows (ISO 4217)."
+          description: "The currency of the flows (ISO 4217); one the reference data does not know is 422 `cash.unknown_currency`."
           schema:
             type: string
             pattern: "^[A-Z]{3}$"

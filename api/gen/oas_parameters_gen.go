@@ -36884,7 +36884,8 @@ func decodeListLegalEntitiesParams(args [0]string, argsEscaped bool, r *http.Req
 type ListLiquidityForecastFlowsParams struct {
 	// Legal entity (required).
 	LegalEntityID uuid.UUID
-	// The currency of the flows (ISO 4217).
+	// The currency of the flows (ISO 4217); one the reference data does not know is 422
+	// `cash.unknown_currency`.
 	Currency string
 	// The first day; default the read date (no flow is earlier).
 	From OptDate `json:",omitempty,omitzero"`
