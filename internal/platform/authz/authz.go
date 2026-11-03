@@ -129,24 +129,26 @@ func Effective(ctx context.Context) (usable, barred []string, err error) {
 	return usable, barred, nil
 }
 
-// Require checks one permission, for checks beyond the operation's own (for
-// example the approval permission of an object type).
-func Require(ctx context.Context, permission string) error {
-	set, err := Permissions(ctx)
-	if err != nil {
-		return err
+// Require checks permissions beyond the operation's own (for example the
+// approval permission of an object type) as Authorize checks the
+// operation's: each must be held, the first missing in the order given is
+// 403 identity.permission_missing, and one a segregation-of-duties rule in
+// force bars is 403 identity.sod_conflict (ADR-0010 As built 2026-11-02).
+// People, agents and services are held to it alike, as Authorize holds them.
+func Require(ctx context.Context, permissions ...string) error {
+	tx, ok := reqctx.TxFrom(ctx)
+	if !ok {
+		return errOutsideRequest
 	}
-	if !set[permission] {
-		return problem.Forbidden("identity.permission_missing", "This action requires the permission "+permission+".")
-	}
-	return nil
+	return holdsAll(ctx, tx, permissions)
 }
 
 // MayUse reports whether the principal may use the permission, as
 // Authorize decides it: held, and not barred by a segregation-of-duties
-// rule in force. It is for what a response embeds only for a caller who
-// may read it (04 §4.4: an expansion never crosses permissions), where a
-// 403 would refuse the whole resource.
+// rule in force. It is for a step a missing permission skips rather than
+// refuses, and for what a response embeds only for a caller who may read
+// it (04 §4.4: an expansion never crosses permissions), where a 403 would
+// refuse the whole request.
 func MayUse(ctx context.Context, permission string) (bool, error) {
 	set, err := Permissions(ctx)
 	if err != nil || !set[permission] {

@@ -44,17 +44,18 @@ func (d Decider) inboxOf(ctx context.Context, p reqctx.Principal, by string) (in
 	if p.Kind != reqctx.KindHuman {
 		return inbox{on: true, none: true}, nil
 	}
-	usable, barred, err := authz.Effective(ctx)
+	// The object type's permission is checked for SoD as the decision
+	// checks it (authz.Require, ADR-0010 As built 2026-11-02).
+	usable, _, err := authz.Effective(ctx)
 	if err != nil {
 		return inbox{}, err
 	}
 	if !slices.Contains(usable, DecidePermission) {
 		return inbox{on: true, none: true}, nil
 	}
-	held := slices.Concat(usable, barred) // the object type's permission is required, not checked for SoD (decide)
 	var types []string
 	for _, objectType := range slices.Sorted(maps.Keys(ObjectPermissions)) {
-		if slices.Contains(held, ObjectPermissions[objectType]) {
+		if slices.Contains(usable, ObjectPermissions[objectType]) {
 			types = append(types, objectType)
 		}
 	}

@@ -30724,9 +30724,6 @@ components:
             - supplier_id
             - supplier_name
             - bank_account_id
-            - bank_account_last4
-            - bank_account_scheme
-            - bank_account_holder_name
             - amount
             - end_to_end_id
             - items
@@ -30748,16 +30745,16 @@ components:
             bank_account_id:
               type: string
               format: uuid
-              description: Supplier bank account valid on the run date.
+              description: "Supplier bank account valid on the run date. Given to every caller, as the payment's own reference; reading the account (`getBankAccount`) needs `partner.supplier.read`."
               readOnly: true
             bank_account_last4:
               type: string
-              description: "The bank account's `account_last4`, as the partner's bank account gives it: the last up to four characters of its number, which is never returned."
+              description: "The bank account's `account_last4`, as the partner's bank account gives it: the last up to four characters of its number, which is never returned. Like every `bank_account_` field but `bank_account_id`, absent for a caller who may not use `partner.supplier.read` (held and not barred by a segregation-of-duties rule), person or agent: the payment is answered without its supplier's bank details, never refused (product owner 2026-11-02, T45e)."
               pattern: "^[A-Z0-9]{1,4}$"
               readOnly: true
             bank_account_scheme:
               type: string
-              description: "The bank account's `account_scheme`: `iban`, `domestic`, or `ca` for a Canadian account. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "The bank account's `account_scheme`: `iban`, `domestic`, or `ca` for a Canadian account. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. Absent for a caller who may not use `partner.supplier.read`, as `bank_account_last4` is."
               x-extensible-enum:
                 - iban
                 - domestic
@@ -30765,21 +30762,21 @@ components:
               readOnly: true
             bank_account_holder_name:
               type: string
-              description: "The bank account's `holder_name`, as it is now."
+              description: "The bank account's `holder_name`, as it is now; absent for a caller who may not use `partner.supplier.read`, as `bank_account_last4` is."
               readOnly: true
             bank_account_bic:
               type: string
-              description: "The bank account's `bic`; absent when it has none."
+              description: "The bank account's `bic`; absent when it has none, or for a caller who may not use `partner.supplier.read`, as `bank_account_last4` is."
               pattern: "^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$"
               readOnly: true
             bank_account_institution_number:
               type: string
-              description: "The bank account's `institution_number`, of a scheme `ca` account (the bank, not masked); absent for the others."
+              description: "The bank account's `institution_number`, of a scheme `ca` account (the bank, not masked); absent for the others, and for a caller who may not use `partner.supplier.read`, as `bank_account_last4` is."
               pattern: "^[0-9]{3}$"
               readOnly: true
             bank_account_transit_number:
               type: string
-              description: "The bank account's `transit_number`, of a scheme `ca` account (the branch); absent for the others."
+              description: "The bank account's `transit_number`, of a scheme `ca` account (the branch); absent for the others, and for a caller who may not use `partner.supplier.read`, as `bank_account_last4` is."
               pattern: "^[0-9]{5}$"
               readOnly: true
             amount:

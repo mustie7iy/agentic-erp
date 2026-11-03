@@ -538,3 +538,19 @@ func TestAutomaticPostingNeedsThePermission(t *testing.T) {
 		t.Errorf("lines 1-3 imported by a person who may not post: got %v, want matched", got)
 	}
 }
+
+// TestAutomaticPostingBarredBySoD: a person who holds
+// payments.statement.post but may not use it, as a segregation-of-duties
+// rule in force pairs it with another permission they hold, imports and
+// runs the rules, and nothing posts (ADR-0010 As built 2026-11-02).
+func TestAutomaticPostingBarredBySoD(t *testing.T) {
+	e := matchSetupWith(t, "payments.statement.post", "audit.chain.verify")
+	pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
+		VALUES ($1, gen_random_uuid(), 'audit.chain.verify', 'payments.statement.post', 'Post or verify', current_date, $2)`, e.Tenant.ID, e.Tenant.Human.ID)
+	e.statementRules(t, postRules)
+	e.bankPosts(t)
+	sc := matchStatementOf(t, e)
+	if got := e.lineStatuses(t, sc.statement)[:3]; strings.Join(got, ",") != "matched,matched,matched" {
+		t.Errorf("lines 1-3 imported by a person barred from posting: got %v, want matched", got)
+	}
+}

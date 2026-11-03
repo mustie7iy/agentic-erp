@@ -92,7 +92,11 @@ func (e *Endpoints) ListBankStatementPayments(ctx context.Context, params gen.Li
 	}
 	page, next := pagination.Page(ks, pays, func(p Payment) (string, uuid.UUID) { return p.CreatedAt.UTC().Format(time.RFC3339Nano), p.ID })
 	run := Run{Currency: s.Currency, Exponent: s.Exponent, HouseBankID: &s.HouseBankID}
-	refs, err := e.paymentRefs(ctx, run, page)
+	shown, err := mayShowAccounts(ctx, page)
+	if err != nil {
+		return nil, fmt.Errorf("payments: search payments for statement %s: %w", s.ID, err)
+	}
+	refs, err := e.paymentRefs(ctx, run, page, shown)
 	if err != nil {
 		return nil, fmt.Errorf("payments: search payments for statement %s: %w", s.ID, err)
 	}

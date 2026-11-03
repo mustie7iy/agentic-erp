@@ -326,7 +326,8 @@ func (e *Endpoints) ruleAccount(ctx context.Context, s Statement, code string) (
 // autoPost posts, or submits for approval, the lines the rules matched on
 // the statement that were never submitted, unless an agent ran the rules
 // (agents never post), a person or integration without
-// payments.statement.post did, or the bank has a statement in gap; the
+// payments.statement.post, or barred from it by a segregation-of-duties
+// rule, did, or the bank has a statement in gap; the
 // statement fetcher, a system principal, posts. Each line posts
 // under a savepoint: a refusal (a
 // locked period, a bank in gap, no rate) is rolled back and audited, and
@@ -335,9 +336,12 @@ func (e *Endpoints) autoPost(ctx context.Context, tx pgx.Tx, p reqctx.Principal,
 	if p.Kind == reqctx.KindAgent {
 		return false, nil
 	}
-	if p.Kind != reqctx.KindSystem { // the fetcher imports for the bank's company; a person or integration needs the permission to post
-		perms, err := authz.Permissions(ctx)
-		if err != nil || !perms["payments.statement.post"] {
+	// The fetcher imports for the bank's company; a person or integration
+	// needs the permission to post, free of a segregation-of-duties rule,
+	// as Authorize decides it (ADR-0010 As built 2026-11-02).
+	if p.Kind != reqctx.KindSystem {
+		may, err := authz.MayUse(ctx, "payments.statement.post")
+		if err != nil || !may {
 			return false, err
 		}
 	}

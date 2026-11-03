@@ -84613,16 +84613,22 @@ func (s *Payment) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.BankAccountID)
 	}
 	{
-		e.FieldStart("bank_account_last4")
-		e.Str(s.BankAccountLast4)
+		if s.BankAccountLast4.Set {
+			e.FieldStart("bank_account_last4")
+			s.BankAccountLast4.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("bank_account_scheme")
-		e.Str(s.BankAccountScheme)
+		if s.BankAccountScheme.Set {
+			e.FieldStart("bank_account_scheme")
+			s.BankAccountScheme.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("bank_account_holder_name")
-		e.Str(s.BankAccountHolderName)
+		if s.BankAccountHolderName.Set {
+			e.FieldStart("bank_account_holder_name")
+			s.BankAccountHolderName.Encode(e)
+		}
 	}
 	{
 		if s.BankAccountBic.Set {
@@ -84850,11 +84856,9 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"bank_account_id\"")
 			}
 		case "bank_account_last4":
-			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
-				v, err := d.Str()
-				s.BankAccountLast4 = string(v)
-				if err != nil {
+				s.BankAccountLast4.Reset()
+				if err := s.BankAccountLast4.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -84862,11 +84866,9 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"bank_account_last4\"")
 			}
 		case "bank_account_scheme":
-			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
-				v, err := d.Str()
-				s.BankAccountScheme = string(v)
-				if err != nil {
+				s.BankAccountScheme.Reset()
+				if err := s.BankAccountScheme.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -84874,11 +84876,9 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"bank_account_scheme\"")
 			}
 		case "bank_account_holder_name":
-			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
-				v, err := d.Str()
-				s.BankAccountHolderName = string(v)
-				if err != nil {
+				s.BankAccountHolderName.Reset()
+				if err := s.BankAccountHolderName.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -85075,8 +85075,8 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [4]uint8{
-		0b11111111,
-		0b00100011,
+		0b01111111,
+		0b00100000,
 		0b00000010,
 		0b00000100,
 	} {

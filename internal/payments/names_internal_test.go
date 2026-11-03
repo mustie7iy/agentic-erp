@@ -152,7 +152,9 @@ func TestPaymentNumbers(t *testing.T) {
 // their documents' numbers, their bank accounts and their house banks'
 // codes; any of the contexts failing, or not holding what a payment
 // references, fails the page. A page whose payments name no house bank,
-// in a run without one, asks for none.
+// in a run without one, asks for none; a page whose bank accounts are not
+// shown (T45e) reads none, so the partner context's accounts failing does
+// not matter to it.
 func TestPaymentRefs(t *testing.T) {
 	supplier, account, unknown := uuid.New(), uuid.New(), uuid.New()
 	page := []Payment{{ID: uuid.New(), SupplierID: supplier, BankAccountID: account}}
@@ -164,19 +166,21 @@ func TestPaymentRefs(t *testing.T) {
 		partners partners
 		page     []Payment
 		run      Run
+		hidden   bool   // the bank accounts not shown
 		want     string // the error
 	}{
-		"every reference named":        {held, page, Run{}, ""},
-		"the suppliers' names failing": {partners{err: partnerDown}, page, Run{}, partnerDown.Error()},
-		"the ledger failing":           {held, posted, Run{}, ledgerDown.Error()},
-		"the bank accounts failing":    {partners{names: held.names, accountsErr: partnerDown}, page, Run{}, partnerDown.Error()},
-		"a bank account unknown": {partners{names: held.names, accounts: map[uuid.UUID]partner.BankAccount{unknown: {}}}, page, Run{},
+		"every reference named":        {held, page, Run{}, false, ""},
+		"the suppliers' names failing": {partners{err: partnerDown}, page, Run{}, false, partnerDown.Error()},
+		"the ledger failing":           {held, posted, Run{}, false, ledgerDown.Error()},
+		"the bank accounts failing":    {partners{names: held.names, accountsErr: partnerDown}, page, Run{}, false, partnerDown.Error()},
+		"a bank account unknown": {partners{names: held.names, accounts: map[uuid.UUID]partner.BankAccount{unknown: {}}}, page, Run{}, false,
 			"bank account " + account.String() + " is not held by the partner context"},
-		"the house banks outside a request": {held, page, Run{HouseBankID: &bank}, reqctx.ErrOutsideRequest.Error()},
+		"the bank accounts not shown":       {partners{names: held.names, accountsErr: partnerDown}, page, Run{}, true, ""},
+		"the house banks outside a request": {held, page, Run{HouseBankID: &bank}, false, reqctx.ErrOutsideRequest.Error()},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := &Endpoints{Payees: c.partners, DownPayments: requests{}, OpenItems: entries{err: ledgerDown}}
-			refs, err := e.paymentRefs(context.Background(), c.run, c.page)
+			refs, err := e.paymentRefs(context.Background(), c.run, c.page, !c.hidden)
 			got := ""
 			if err != nil {
 				got = err.Error()
@@ -184,7 +188,11 @@ func TestPaymentRefs(t *testing.T) {
 			if got != c.want {
 				t.Fatalf("error: got %q, want %q", got, c.want)
 			}
-			if err == nil && refs.accounts[account].AccountLast4 != "4321" {
+			switch {
+			case err != nil:
+			case c.hidden && refs.accounts != nil:
+				t.Errorf("the bank accounts: got %v, want none read", refs.accounts)
+			case !c.hidden && refs.accounts[account].AccountLast4 != "4321":
 				t.Errorf("the bank account: got %+v, want its last4 4321", refs.accounts[account])
 			}
 		})

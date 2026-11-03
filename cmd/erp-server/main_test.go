@@ -2230,7 +2230,8 @@ func TestAtRestStatedAndChecked(t *testing.T) {
 // TestModelGateway: with a model provider the server serves the gateway
 // (api/model.yaml): an agent holding agents.model.invoke calls a model
 // through its SDK with its own token, the call priced and recorded; an
-// agent without the permission is refused (ADR-0036).
+// agent without the permission is refused (ADR-0036), and so is one a
+// segregation-of-duties rule bars from it (ADR-0010 As built 2026-11-02).
 func TestModelGateway(t *testing.T) {
 	model := llmtest.New(t, llmtest.Final("hello"), llmtest.Final("unused"))
 	pgtest.Exec(t, `INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by)
@@ -2241,6 +2242,9 @@ func TestModelGateway(t *testing.T) {
 	allowed, denied, broke := pgtest.NewTenant(t, "agents.model.invoke"), pgtest.NewTenant(t), pgtest.NewTenant(t, "agents.model.invoke")
 	pgtest.Exec(t, `UPDATE identity.agent_profile SET monthly_budget = 0, budget_currency = 'USD', version = version + 1 WHERE tenant_id = $1 AND principal_id = $2`,
 		broke.ID, broke.Agent.ID)
+	barred := pgtest.NewTenant(t, "agents.model.invoke", "audit.event.read")
+	pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
+		VALUES ($1, gen_random_uuid(), 'agents.model.invoke', 'audit.event.read', 'Invoke or audit', current_date, $2)`, barred.ID, barred.Human.ID)
 	ctx, cancel := context.WithCancel(context.Background())
 	addr := make(chan string, 1)
 	done := make(chan int, 1)
@@ -2271,6 +2275,9 @@ func TestModelGateway(t *testing.T) {
 	}
 	if _, err := call(denied); err == nil || !strings.Contains(err.Error(), "403") {
 		t.Errorf("an agent without the permission: got %v, want 403", err)
+	}
+	if _, err := call(barred); err == nil || !strings.Contains(err.Error(), "identity.sod_conflict") {
+		t.Errorf("an agent barred from the permission: got %v, want 403 identity.sod_conflict", err)
 	}
 	// The agent's budget is identity's, read through its published API.
 	if _, err := call(broke); err == nil || !strings.Contains(err.Error(), "agents.budget_exhausted") {

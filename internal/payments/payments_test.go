@@ -13,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -26,7 +27,7 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 
 var perms = []string{"payments.run.read", "payments.run.propose", "payments.run.release", "payments.file.transmit",
 	"payables.invoice.read", "payables.invoice.capture", "payables.invoice.post", "ledger.entry.read", "ledger.entry.post", "ledger.clearing.post",
-	"platform.operation.read", "platform.operation.cancel"}
+	"platform.operation.read", "platform.operation.cancel", partner.ReadPermission}
 
 // connector records the files it transmits, or fails with err; during,
 // when set, runs while the bank has the file.
