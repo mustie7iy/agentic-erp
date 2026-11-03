@@ -87,7 +87,7 @@ func TestClearingItems(t *testing.T) {
 		sp + "/1 300.00 EUR used 100.00 EUR left 200.00 EUR 200.00 EUR 200.00 EUR reversed false [1:100.00:posted]",
 		hd + "/1 70.00 EUR used 70.00 EUR left 0.00 EUR 0.00 EUR 0.00 EUR reversed true [2:70.00:posted]",
 		e.number(t, invoice) + "/1 100.00 EUR used 0.00 EUR left 100.00 EUR 100.00 EUR 100.00 EUR reversed false []",
-		e.number(t, payablesEntry)+"/1 5.00 EUR used 0.00 EUR left 5.00 EUR 5.00 EUR 5.00 EUR reversed false []",
+		e.number(t, payablesEntry) + "/1 5.00 EUR used 0.00 EUR left 5.00 EUR 5.00 EUR 5.00 EUR reversed false []",
 	}, "\n"))
 	items := page["items"].([]any)
 	first, last := items[0].(map[string]any), items[2].(map[string]any)
