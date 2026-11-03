@@ -2,7 +2,9 @@ package cash_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +15,10 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/cash"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/payments"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // withItems is withForecast with a tree of liquidity items, OPERATING
@@ -122,8 +128,8 @@ func (e forecastEnv) itemsScenario(t *testing.T) {
 	e.exec(t, `INSERT INTO payments.payment_item (tenant_id, payment_id, item_fiscal_year, item_entry_id, item_line_no, amount, due_date)
 		VALUES ($1, $2, 2026, $3, 1, 80000, '2026-05-01'), ($1, $2, 2026, $4, 1, -10000, '2026-04-02')`, e.Tenant.ID, pay, equipment, credit)
 	parked := e.invoice(t, s4, "invoice", "parked", "2026-04-15", "CAD", 20000, 0, nil)
-	e.exec(t, `INSERT INTO payables.supplier_invoice_item (tenant_id, supplier_invoice_id, item_no, quantity, uom_code, amount, account_id)
-		VALUES ($1, $2, 1, 1, 'EA', 20000, $3), ($1, $2, 2, 1, 'EA', 0, $3)`, e.Tenant.ID, parked, e.Account(t, "3000", "530000"))
+	e.exec(t, `INSERT INTO payables.supplier_invoice_item (tenant_id, supplier_invoice_id, item_no, quantity, uom_code, amount, account_id, tax_code)
+		VALUES ($1, $2, 1, 1, 'EA', 20000, $3, 'V0'), ($1, $2, 2, 1, 'EA', 0, $3, NULL)`, e.Tenant.ID, parked, e.Account(t, "3000", "530000"))
 	e.item(t, e.Vendor, "2026-04-01", "CAD", -70000, nil)
 }
 
@@ -247,4 +253,33 @@ func TestLiquidityForecastItemsFailures(t *testing.T) {
 		_, err := app.Cash(app.Config{Now: func() time.Time { return readAt }}).Forecast(ctx, cash.ForecastQuery{LegalEntity: e.le})
 		return err
 	})
+	if _, err := (ledger.OpenItems{}).Offsetting(context.Background(), nil); !errors.Is(err, reqctx.ErrOutsideRequest) {
+		t.Errorf("offsetting lines outside a unit of work: got %v, want reqctx.ErrOutsideRequest", err)
+	}
+	if _, err := (payments.CashPosition{}).Paying(context.Background(), e.le, nil, readAt); !errors.Is(err, reqctx.ErrOutsideRequest) {
+		t.Errorf("what payments pay outside a unit of work: got %v, want reqctx.ErrOutsideRequest", err)
+	}
+}
+
+// outOfRange writes an invoice whose tax cannot be shared out over its
+// base lines in the range of an amount.
+func (e forecastEnv) outOfRange(t *testing.T) {
+	t.Helper()
+	e.document(t, e.NewSupplier(t, "BP90000039"), "2026-04-01", -100, docLine{"530000", math.MaxInt64, "V1", ""},
+		docLine{"510000", -math.MaxInt64 + 1, "V1", ""}, docLine{"140000", math.MaxInt64, "V1", "input"})
+}
+
+// TestLiquidityForecastItemsOutOfRange: a document whose lines cannot be
+// split in the range of an amount fails the forecast rather than
+// classifying it wrongly.
+func TestLiquidityForecastItemsOutOfRange(t *testing.T) {
+	e := setupForecast(t, withItems)
+	e.outOfRange(t)
+	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		_, err := app.Cash(app.Config{Now: func() time.Time { return readAt }}).Forecast(ctx, cash.ForecastQuery{LegalEntity: e.le})
+		return err
+	})
+	if !errors.Is(err, money.ErrOverflow) {
+		t.Errorf("got %v, want money.ErrOverflow", err)
+	}
 }

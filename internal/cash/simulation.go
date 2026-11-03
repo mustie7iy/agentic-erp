@@ -104,14 +104,14 @@ const recordedSummary = "Open flows of the liquidity forecast classified under t
 // flows are the forecast's (every source, every certainty, after its last
 // bucket too), dated by the active document's settings.
 func (s Simulation) Simulate(ctx context.Context, base, proposed *config.Config) (SimulationResult, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return SimulationResult{}, err
+	}
 	if reflect.DeepEqual(base.Cash.Derivation, proposed.Cash.Derivation) {
 		return SimulationResult{Passed: true}, nil
 	}
 	if err := authz.Require(ctx, "cash.forecast.read"); err != nil {
-		return SimulationResult{}, err
-	}
-	tx, _, err := reqctx.Request(ctx)
-	if err != nil {
 		return SimulationResult{}, err
 	}
 	access, err := authz.Companies(ctx)
@@ -150,16 +150,12 @@ func (s Simulation) company(ctx context.Context, tx pgx.Tx, base, proposed *conf
 	}
 	var moved []movedFlow
 	for _, f := range flows {
-		was, err := classify(base.Cash.Derivation, r.sums, f.amount, f.parts)
+		shares, err := classifyUnder(r.sums, f, base.Cash.Derivation, proposed.Cash.Derivation)
 		if err != nil {
 			return out, err
 		}
-		is, err := classify(proposed.Cash.Derivation, r.sums, f.amount, f.parts)
-		if err != nil {
-			return out, err
-		}
-		if !maps.Equal(byItem(was), byItem(is)) {
-			moved = append(moved, movedFlow{datedFlow: f, was: was, is: is})
+		if !maps.Equal(byItem(shares[0]), byItem(shares[1])) {
+			moved = append(moved, movedFlow{datedFlow: f, was: shares[0], is: shares[1]})
 		}
 	}
 	if r.sums.overflow {
@@ -169,6 +165,18 @@ func (s Simulation) company(ctx context.Context, tx pgx.Tx, base, proposed *conf
 		return cmp.Or(a.date.Compare(b.date), cmp.Compare(a.currency, b.currency), cmp.Compare(a.source, b.source))
 	})
 	return r.moves(ctx, tx, out, moved)
+}
+
+// classifyUnder is the flow's shares under each of the derivations.
+func classifyUnder(s *sums, f datedFlow, ds ...config.Derivation) ([][]Share, error) {
+	out := make([][]Share, len(ds))
+	for i, d := range ds {
+		var err error
+		if out[i], err = classify(d, s, f.amount, f.parts); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // movedFlow is a flow with its shares before and after.

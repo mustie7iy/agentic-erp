@@ -45,13 +45,14 @@ type part struct {
 // or whose base lines cancel out, stays a line of its own account.
 func offsetting(lines []DocumentLine) ([]Line, error) {
 	var out []Line
+	var amounts []money.Minor  // the base lines' own amounts, before any tax follows them
 	base := map[string][]int{} // the base lines of each tax code, by index in out
 	for _, l := range lines {
 		if l.TaxKey == "" {
 			if l.TaxCode != "" {
 				base[l.TaxCode] = append(base[l.TaxCode], len(out))
 			}
-			out = append(out, Line{Account: l.Account, Amount: l.Amount})
+			out, amounts = append(out, Line{Account: l.Account, Amount: l.Amount}), append(amounts, l.Amount)
 		}
 	}
 	for _, l := range lines {
@@ -59,7 +60,7 @@ func offsetting(lines []DocumentLine) ([]Line, error) {
 			continue
 		}
 		var err error
-		if out, err = follow(out, base[l.TaxCode], l); err != nil {
+		if out, err = follow(out, amounts, base[l.TaxCode], l); err != nil {
 			return nil, err
 		}
 	}
@@ -67,19 +68,19 @@ func offsetting(lines []DocumentLine) ([]Line, error) {
 }
 
 // follow adds the tax line to the base lines at the indexes in proportion
-// to their amounts, or, when they are none or cancel out, adds it as a line
-// of its own.
-func follow(out []Line, at []int, l DocumentLine) ([]Line, error) {
+// to their own amounts (before any tax followed them), or, when they are
+// none or cancel out, adds it as a line of its own.
+func follow(out []Line, amounts []money.Minor, at []int, l DocumentLine) ([]Line, error) {
 	weights := new(big.Rat)
 	for _, i := range at {
-		weights.Add(weights, new(big.Rat).SetInt64(int64(out[i].Amount)))
+		weights.Add(weights, new(big.Rat).SetInt64(int64(amounts[i])))
 	}
 	if weights.Sign() == 0 {
 		return append(out, Line{Account: l.Account, Amount: l.Amount}), nil
 	}
 	exact := make([]*big.Rat, len(at))
 	for j, i := range at {
-		exact[j] = new(big.Rat).Quo(new(big.Rat).Mul(new(big.Rat).SetInt64(int64(l.Amount)), new(big.Rat).SetInt64(int64(out[i].Amount))), weights)
+		exact[j] = new(big.Rat).Quo(new(big.Rat).Mul(new(big.Rat).SetInt64(int64(l.Amount)), new(big.Rat).SetInt64(int64(amounts[i]))), weights)
 	}
 	shares, err := money.Allocate(exact)
 	if err != nil {

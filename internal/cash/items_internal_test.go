@@ -25,6 +25,8 @@ func TestOffsetting(t *testing.T) {
 			"[{530000 595} {510000 357}]"},
 		{"the residue to the larger remainder", []DocumentLine{{"A", 1, "V1", ""}, {"B", 2, "V1", ""}, {"T", 1, "V1", "input"}}, "[{A 1} {B 3}]"},
 		{"a tie to the earlier line", []DocumentLine{{"A", 1, "V1", ""}, {"B", 1, "V1", ""}, {"T", 1, "V1", "input"}}, "[{A 2} {B 1}]"},
+		{"two tax lines of a code, each by the base amounts", []DocumentLine{{"A", 1, "V1", ""}, {"B", 2, "V1", ""}, {"T", 2, "V1", "input"},
+			{"U", 1, "V1", "input"}}, "[{A 2} {B 4}]"},
 		{"per code", []DocumentLine{{"A", 100, "V1", ""}, {"B", 100, "V0", ""}, {"T", 13, "V1", "input"}}, "[{A 113} {B 100}]"},
 		{"a self-assessed pair left out", []DocumentLine{{"A", 100, "RC", ""}, {"T", 5, "RC", "self_input"}, {"U", -5, "RC", "self_output"}}, "[{A 100}]"},
 		{"tax without a base line", []DocumentLine{{"A", 100, "", ""}, {"T", 5, "IM", "input"}}, "[{A 100} {T 5}]"},
@@ -60,20 +62,38 @@ func TestOffsetting(t *testing.T) {
 func TestClassify(t *testing.T) {
 	d := config.Derivation{Accounts: []config.AccountDerivation{{From: "530000", To: "530000", Item: "RENT"}},
 		Defaults: config.DerivationDefaults{Outflow: "SUPPLIERS", Inflow: "RECEIPTS"}}
-	s := &sums{}
-	got, err := classify(d, s, -900, []part{{amount: -1000, lines: []DocumentLine{{Account: "530000", Amount: 1000}}},
-		{amount: 100, lines: []DocumentLine{{Account: "530000", Amount: -100}}}, {amount: 0}})
-	if err != nil || render(got) != "[{RENT -900} {SUPPLIERS 0}]" {
-		t.Errorf("an outflow: got %v, %v", got, err)
+	for _, c := range []struct {
+		name   string
+		amount money.Minor
+		parts  []part
+		want   string
+	}{
+		{"an outflow, a credit memo in it", -900, []part{{amount: -1000, lines: []DocumentLine{{Account: "530000", Amount: 1000}}},
+			{amount: 100, lines: []DocumentLine{{Account: "530000", Amount: -100}}}, {amount: 0}}, "[{RENT -900} {SUPPLIERS 0}]"},
+		{"an inflow", 50, []part{{amount: 50}}, "[{RECEIPTS 50}]"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := classify(d, &sums{}, c.amount, c.parts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if render(got) != c.want {
+				t.Errorf("got %s, want %s", render(got), c.want)
+			}
+		})
 	}
-	if got, err := classify(d, s, 50, []part{{amount: 50}}); err != nil || render(got) != "[{RECEIPTS 50}]" {
-		t.Errorf("an inflow: got %v, %v", got, err)
-	}
-	if _, err := classify(d, s, -1, []part{{amount: -1, lines: []DocumentLine{{"A", math.MaxInt64, "V1", ""}, {"T", 1, "V1", "input"}}}}); err == nil {
-		t.Error("lines out of range: got no error")
-	}
-	if _, err := classify(d, s, math.MinInt64, []part{{amount: math.MinInt64, lines: []DocumentLine{{Account: "530000", Amount: 1}, {Account: "1", Amount: 1}}}}); err == nil {
-		t.Error("an amount out of range: got no error")
+	for _, c := range []struct {
+		name  string
+		parts []part
+	}{
+		{"lines out of range", []part{{amount: -1, lines: []DocumentLine{{"A", math.MaxInt64, "V1", ""}, {"T", 1, "V1", "input"}}}}},
+		{"an amount out of range", []part{{amount: math.MinInt64, lines: []DocumentLine{{Account: "530000", Amount: 1}, {Account: "1", Amount: 1}}}}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := classify(d, &sums{}, -1, c.parts); !errors.Is(err, money.ErrOverflow) {
+				t.Errorf("got %v, want money.ErrOverflow", err)
+			}
+		})
 	}
 }
 

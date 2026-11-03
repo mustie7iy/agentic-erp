@@ -16,9 +16,11 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/cash"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // documents are the active document and a copy of it to change.
@@ -98,9 +100,9 @@ func TestDerivationSimulation(t *testing.T) {
 	if err := simulate(t, e.Tenant.Human, func(c *config.Config) { c.Cash.LiquidityItems[2].Name = "Rents" }); err != nil {
 		t.Fatal(err)
 	}
-	if !got.Passed || got.Summary != "" || got.Detail != nil {
-		t.Errorf("the derivation unchanged: got %+v, want a pass recording nothing", got)
-	}
+	want(t, "the derivation unchanged: passed", got.Passed, true)
+	want(t, "the derivation unchanged: summary", got.Summary, "")
+	want(t, "the derivation unchanged: detail", got.Detail == nil, true)
 	rentIsCapex := func(c *config.Config) { c.Cash.Derivation.Accounts[0].Item = "CAPEX" }
 	if err := simulate(t, e.Tenant.Human, rentIsCapex); err != nil {
 		t.Fatal(err)
@@ -226,4 +228,64 @@ func TestDerivationSimulationFailures(t *testing.T) {
 	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, run); !errors.As(err, &p) || p.Code != "cash.amount_too_large" {
 		t.Errorf("sums out of range: got %v, want cash.amount_too_large", err)
 	}
+	if _, err := sim.Simulate(context.Background(), nil, nil); !errors.Is(err, reqctx.ErrOutsideRequest) {
+		t.Errorf("outside a unit of work: got %v, want reqctx.ErrOutsideRequest", err)
+	}
+}
+
+// TestDerivationSimulationRefusals: the simulation fails, rather than
+// listing wrong moves, when a company's date cannot be read, a document's
+// lines cannot be split, or the moved flows' totals are out of the range
+// of an amount; a malformed detail fails its disclosure.
+func TestDerivationSimulationRefusals(t *testing.T) {
+	sim := cash.Simulation{Endpoints: app.Cash(app.Config{Now: func() time.Time { return readAt }})}
+	run := func(t *testing.T, e forecastEnv, change func(base, proposed *config.Config)) error {
+		t.Helper()
+		return apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+			base, proposed, err := documents(ctx)
+			if err != nil {
+				return err
+			}
+			proposed.Cash.Derivation.Accounts[0].Item = "CAPEX"
+			change(base, proposed)
+			_, err = sim.Simulate(ctx, base, proposed)
+			return err
+		})
+	}
+	t.Run("a zone that does not load", func(t *testing.T) {
+		e := setupForecast(t, withItems)
+		err := run(t, e, func(base, _ *config.Config) { base.Company("3000").TimeZone = "America/Nowhere" })
+		if err == nil || !strings.Contains(err.Error(), "America/Nowhere") {
+			t.Errorf("got %v, want the company's zone refused", err)
+		}
+	})
+	t.Run("lines out of range", func(t *testing.T) {
+		e := setupForecast(t, withItems)
+		e.outOfRange(t)
+		if err := run(t, e, func(_, _ *config.Config) {}); !errors.Is(err, money.ErrOverflow) {
+			t.Errorf("got %v, want money.ErrOverflow", err)
+		}
+	})
+	t.Run("moved totals out of range", func(t *testing.T) {
+		e := setupForecast(t, withItems)
+		for _, bp := range []string{"BP90000041", "BP90000042"} {
+			e.document(t, e.NewSupplier(t, bp), "2026-04-01", -5_000_000_000_000_000_000, docLine{"530000", 5_000_000_000_000_000_000, "", ""})
+		}
+		var p *problem.Problem
+		if err := run(t, e, func(_, _ *config.Config) {}); !errors.As(err, &p) || p.Code != "cash.amount_too_large" {
+			t.Errorf("got %v, want cash.amount_too_large", err)
+		}
+	})
+	t.Run("a malformed detail", func(t *testing.T) {
+		bad := configuration.Evidence{Kind: "simulation", Detail: json.RawMessage(`{"` + cash.SimulationKey + `": 1}`)}
+		var err error
+		for _, d := range app.Configuration(app.Config{}).Disclosures {
+			if bad, err = d.Disclose(context.Background(), bad, authz.Access{All: true}); err != nil {
+				break
+			}
+		}
+		if err == nil || !strings.Contains(err.Error(), "simulated liquidity items") {
+			t.Errorf("got %v, want the cash disclosure refused", err)
+		}
+	})
 }
