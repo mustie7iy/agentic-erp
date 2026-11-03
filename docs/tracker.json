@@ -1156,9 +1156,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Depreciation schedule and preview: the planned schedule walk (straight-line; declining balance with the switch to straight-line), rounding with d_k = max(0, min(d_k, B_k - R_k)), late acquisitions (one valued before a retirement posted earlier), retirements applied by their recorded amounts, a transfer in's residual value, end of life, planned less booked for a run and a catch-up (negative when the period's own run is posted), table tests per method including two retirements in one period; GET /v1/assets/{id}/schedule; GET /v1/assets/{id}/movements (ledger, year, kind; ADR-0057 §10, given to this slice at batch 47 integration since no slice owned it); POST /v1/depreciation-runs/preview with totals per account and center; walkthrough: the preview of the asset's first period in each ledger",
-        "r": "ADR-0057 · T57e",
+        "r": "internal/assets (schedule.go: Walk, Planned, Month; depreciation.go; schedule_api.go; preview.go) · ledger.Calendar.Periods, port assets.Ledger.Periods (internal/app/assets.go) · GET /v1/assets/{id}/schedule, GET /v1/assets/{id}/movements (ADR-0057 §10, assigned at batch 47's integration), POST /v1/depreciation-runs/preview (x-autonomy read) · TestScheduleWalk, TestCatchUps, TestScheduleWalkRefused, TestAssetSchedule, TestPreviewDepreciationRun, TestAssetMovements, TestDepreciationReadFailures, TestPreviewSettingsLost, TestDepreciationOutOfRange, TestAccountsAndCalendarPorts · walkthrough step_asset_depreciation (step 25) · ADR-0057 (as built, T57e) · 03-data-model §3.21 · T57e",
         "src": "adr:ADR-0057",
         "c": []
        },

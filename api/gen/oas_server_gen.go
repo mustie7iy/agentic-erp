@@ -913,6 +913,28 @@ type Handler interface {
 	//
 	// GET /v1/asset-acquisitions/{id}
 	GetAssetAcquisition(ctx context.Context, params GetAssetAcquisitionParams) (GetAssetAcquisitionRes, error)
+	// GetAssetSchedule implements getAssetSchedule operation.
+	//
+	// The asset's planned and booked depreciation in one ledger for each regular period of a fiscal year
+	// (ADR-0057 §7, T57e), computed at the read from its terms and movements, so it never disagrees with
+	// them. The planned schedule walks the periods from the one depreciation starts in
+	// (`depreciation_start`, the terms' own or else the capitalisation date; one period counts in full
+	// from its start): each movement valued by a period is applied at the start of the period of its value
+	// date (acquisitions add their cost; a transfer in adds the cost, accumulated depreciation and
+	// residual value it brought; a retirement or transfer out takes off those it recorded; a reversal
+	// cancels what it reverses), and each period takes, of its net book value B less its residual value R,
+	// by `straight_line` (B − R) / (n − k + 1) over the n − k + 1 periods of useful life left, or by
+	// `declining_balance` the greater of B × factor / n and that straight-line amount, rounded half away
+	// from zero to minor units and held between zero and B − R; from the last period of the useful life
+	// on, all of B − R. `planned` is that depreciation, `booked` the depreciation posted in the period
+	// (runs' and catch-ups', with their reversals, by posting period), `net_book_value` the planned net
+	// book value at the period's end. `totals` sums the year's periods. `ledger_id` defaults to the
+	// leading ledger. A ledger the asset has no terms in is 422 `assets.ledger_terms_missing`; a fiscal
+	// year that is not set up is 422 `ledger.no_fiscal_period`. Amounts are in the company's local
+	// currency. An asset of a legal entity the caller cannot act in is not found.
+	//
+	// GET /v1/assets/{id}/schedule
+	GetAssetSchedule(ctx context.Context, params GetAssetScheduleParams) (GetAssetScheduleRes, error)
 	// GetBankAccount implements getBankAccount operation.
 	//
 	// Returns one bank account of the partner, masked.
@@ -1624,6 +1646,21 @@ type Handler interface {
 	//
 	// GET /v1/asset-clearing-items
 	ListAssetClearingItems(ctx context.Context, params ListAssetClearingItemsParams) (ListAssetClearingItemsRes, error)
+	// ListAssetMovements implements listAssetMovements operation.
+	//
+	// The asset's movements, its subledger (ADR-0057 §5, T57e): one per ledger and effect of each
+	// acquisition, depreciation, retirement and transfer and of each reversal, with the signed change of
+	// acquisition cost and accumulated depreciation (negative, the credit it is) in the company's local
+	// currency and in group currency as that ledger booked them, the residual value a retirement or
+	// transfer took (negative) or a transfer in brought, a sale's proceeds, the share of cost taken, the
+	// document it belongs to, and that ledger's journal entry with its document number (none for a
+	// catch-up of zero). A reversal names the movement it reverses (`reverses_id`), a reversed movement
+	// the one reversing it (`reversed_by_id`). Filters: ledger, fiscal year of the posting date, kind.
+	// Sortable by: `seq` (default), the asset's posting order. An asset of a legal entity the caller
+	// cannot act in is not found.
+	//
+	// GET /v1/assets/{id}/movements
+	ListAssetMovements(ctx context.Context, params ListAssetMovementsParams) (ListAssetMovementsRes, error)
 	// ListAssets implements listAssets operation.
 	//
 	// The assets of the legal entities the caller may act in (ADR-0057 §5, T57b), each with its class,
@@ -2620,6 +2657,36 @@ type Handler interface {
 	//
 	// POST /v1/tax-registrations/{id}/returns
 	PrepareTaxReturn(ctx context.Context, req *TaxReturnPrepare, params PrepareTaxReturnParams) (PrepareTaxReturnRes, error)
+	// PreviewDepreciationRun implements previewDepreciationRun operation.
+	//
+	// What a depreciation run of a company, ledger and regular period would post (ADR-0057 §7, T57e),
+	// without posting: per asset the planned depreciation through the period (the schedule of
+	// `GET /v1/assets/{id}/schedule` summed from the depreciation start), the depreciation booked in the
+	// ledger (runs' and catch-ups', with their reversals) and the difference, which the run posts:
+	// normally the period's depreciation, more when a movement was posted late with an earlier value date
+	// (a catch-up), less or negative when one was reversed, nothing when the period's run already posted
+	// it. The assets are those a run selects: the company's assets with terms in the ledger that are
+	// `active` with their depreciation start (the terms' own, else the capitalisation date) on or before
+	// the period's last day, or whose accumulated depreciation in the ledger is not zero (a `planned`
+	// asset whose acquisition was reversed after depreciation was posted), passing over an asset booked
+	// through a later period or whose latest center assignment is valid from after the period's last day;
+	// ordered and paged by asset number. Each asset is shown on its accounts (its class's depreciation and
+	// accumulated depreciation accounts in the company) and its centers (its latest assignment's).
+	// `totals`, the same on every page, sum every asset selected: the planned, booked and difference
+	// amounts and the lines the run would post, per depreciation account, cost center and profit center
+	// the expense (debit positive) and per accumulated depreciation account and profit center the credit;
+	// the ledger derives a line's cost center from the account's default assignment for an asset without
+	// one, and a cost center's profit center on the posting date, as every posting does (ADR-0050 §5).
+	// Amounts are in the company's local currency. `ledger_id` defaults to the leading ledger; one the
+	// company does not keep is 422 `ledger.ledger_not_kept`; a special period (13-16) takes no
+	// depreciation, 422 `assets.special_period`; a fiscal year or period that is not set up is 422
+	// `ledger.no_fiscal_period`. Whether the period is open and runs' order are the run's checks. An asset
+	// of a class the active configuration no longer gives the company fails the preview (422
+	// `assets.class_unknown`, `assets.class_not_in_company`), as it would fail the run. A legal entity the
+	// caller cannot act in is 404. Reads only; every agent autonomy level may call it.
+	//
+	// POST /v1/depreciation-runs/preview
+	PreviewDepreciationRun(ctx context.Context, req *DepreciationRunPreviewRequest, params PreviewDepreciationRunParams) (PreviewDepreciationRunRes, error)
 	// PreviewRevaluation implements previewRevaluation operation.
 	//
 	// Values, without posting, what a revaluation run of a legal entity and ledger at a key date would

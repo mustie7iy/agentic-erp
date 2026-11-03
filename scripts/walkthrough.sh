@@ -319,9 +319,9 @@ start() {
   say "    payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening, memo records"
   say "    and payments in transit, conversion and drill-down"
   say "  - cost center postings, reports and planning (T56d-T56j)"
-  say "  - asset depreciation, retirements, transfers and the rest of asset accounting (T57e-T57i): steps 19 and 20 show the classes"
-  say "    and the master, steps 22 and 24 acquisitions and their corrections"
-  say "  - accounts receivable, the period close beyond its checklist (T64c-T64k), consolidation (T68)"
+  say "  - asset depreciation runs, retirements, transfers and the rest of asset accounting (T57f-T57i): steps 19 and 20 show the"
+  say "    classes and the master, steps 22 and 24 acquisitions and their corrections, step 25 the depreciation schedule and preview"
+  say "  - accounts receivable, the period close beyond its checklist and automatic checks (T64d-T64k), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
   export DATABASE_URL ERP_ENV=development ERP_DEV_ISSUER=true ERP_MIGRATE_ON_START=true
@@ -2835,6 +2835,44 @@ step_asset_reversal() {
   passed
 }
 
+step_asset_depreciation() {
+  heading "Step 25 — Depreciation schedule and preview: the lathe's first period in each ledger, before any run posts"
+  as carla
+  say "Carla checks what depreciation will post before the period's run (ADR-0057 §7, T57e). The lathe of step 22 was"
+  say "capitalised today at 5,000.00, so its depreciation starts in this period: straight-line over 120 months in the"
+  say "leading ledger, 5,000.00 / 120 = 41.67, and declining balance at twice the rate in 2L, 5,000.00 x 2 / 120 = 83.33."
+  say "Nothing is stored as a plan: the schedule is computed from the asset's terms and movements at every read."
+  local lathe period l code want
+  QUIET=1 api 200 '' listAssets -p "legal_entity_id=$LE" -p status=active
+  lathe=$(field '[.items[] | select(.description == "CNC lathe") | .id][0]')
+  api 200 '.items[] | "  \(.seq) \(.kind) \(.ledger_code) \(.posting_date): cost \(.cost.amount) \(.cost.currency) (group \(.cost_gc.amount) \(.cost_gc.currency)), entry \(.document_number)"' \
+    listAssetMovements -p "id=$lathe"
+  expect "the lathe's movements" "$(field '[.items[] | "\(.kind) \(.ledger_code) \(.cost.amount)"] | join(", ")')" "acquisition 0L 5000.00, acquisition 2L 5000.00"
+  api 200 '"asset \(.asset_number) \(.description) in \(.ledger_code), \(.method) over \(.useful_life_months) months from \(.depreciation_start):",
+    (.periods[] | select(.planned.amount != "0.00" or .net_book_value.amount != "0.00") | "  \(.fiscal_year)/\(.period): planned \(.planned.amount), booked \(.booked.amount), net book value \(.net_book_value.amount) \(.net_book_value.currency)"),
+    "  the year: planned \(.totals.planned.amount), booked \(.totals.booked.amount)"' \
+    getAssetSchedule -p "id=$lathe" -p "fiscal_year=$YEAR"
+  period=$(field ".periods[] | select(.start_date <= \"$TODAY\" and .end_date >= \"$TODAY\") | .period")
+  expect "the lathe's first period" "$(field ".periods[] | select(.period == $period) | .planned.amount")" 41.67
+  QUIET=1 api 200 '' getAsset -p "id=$lathe"
+  for l in $(field '.terms[] | "\(.ledger_code)=\(.ledger_id)"'); do
+    code=${l%%=*}
+    want=83.33
+    if [ "$code" = 0L ]; then want=41.67; fi
+    say "The run of period $period in $code would post, per asset, the planned depreciation through the period less what is"
+    say "booked, on the class's accounts and the asset's centers:"
+    api 200 '"  \(.company_code) \(.ledger_code) \(.fiscal_year)/\(.period) (\(.period_start)..\(.period_end)), \(.totals.assets) assets:",
+      (.items[] | "  asset \(.asset_number) \(.description): planned \(.planned.amount), booked \(.booked.amount), difference \(.difference.amount) \(.difference.currency) on \(.depreciation_account.number), \(.cost_center_code // "no cost center")"),
+      (.totals.lines[] | "  line \(.account_number) \(.account_name) \(.cost_center_code // "") \(.profit_center_code // ""): \(.amount.amount) \(.amount.currency)")' \
+      previewDepreciationRun -body "{\"legal_entity_id\": \"$LE\", \"ledger_id\": \"${l#*=}\", \"fiscal_year\": $YEAR, \"period\": $period}"
+    expect "the lathe's depreciation in $code" "$(field "[.items[] | select(.asset_id == \"$lathe\") | .difference.amount][0]")" "$want"
+    expect "the totals in $code balance" "$(field '[.totals.lines[].amount.amount | tonumber] | add * 100 | round')" 0
+  done
+  say "A special period takes no depreciation:"
+  refused 422 assets.special_period previewDepreciationRun -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"period\": 13}"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -3007,7 +3045,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_close'
 
 main() {
   start

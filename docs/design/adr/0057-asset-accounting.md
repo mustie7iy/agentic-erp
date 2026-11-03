@@ -1739,3 +1739,81 @@ entry (04 §4.9). Decided by default, for the product owner to overrule:
   own `:reverse` and a run's entries never one by one.
 - **Tracker.** The leaf "Acquisitions from AP and settlement" (T57c, T57d)
   is done with T57d.
+
+**T57e (depreciation schedule and preview).** Built as §7's planned
+schedule and reads, without a migration: `assets.Walk` is the walk, pure Go
+over minor units (`money.Scale`, no float), with table tests per method and
+for each case of the leaf (`TestScheduleWalk`, `TestCatchUps`: the two
+retirements in one period, catch-up −100 then 0, loss 500); `GET
+/v1/assets/{id}/schedule` (`getAssetSchedule`), `GET
+/v1/assets/{id}/movements` (`listAssetMovements`, §10's table, assigned to
+this slice at batch 47's integration) and `POST
+/v1/depreciation-runs/preview` (`previewDepreciationRun`), all
+`assets.asset.read`, the preview `x-autonomy: read` (§10: agents read and
+preview a run). The ledger gains one published read,
+`ledger.Calendar.Periods` (a fiscal year's regular periods in order; 422
+`ledger.no_fiscal_period` for a year not set up), the port's
+`assets.Ledger.Periods`; T57f's run reads its period's dates the same way.
+Decided by default, for the product owner to overrule:
+- **Periods are months.** The ledger's calendars give every fiscal year
+  twelve regular periods, one per calendar month from its start month
+  (`internal/ledger/setup.go`), so the walk counts periods as months
+  (`assets.Month`): a value date's or depreciation start's period is its
+  month, k is the months since the start's plus one, and only the period
+  a request names is read from the calendar (`Periods`). A walk across a
+  fiscal year end needs no lookup, and a value date in a year whose
+  calendar is not set up needs none either.
+- **Rounding.** By declining balance the declining amount B × f / n and
+  the straight-line amount (B − R) / (n − k + 1) are each rounded half away
+  from zero to minor units and the greater taken, then held to
+  max(0, min(d, B − R)); rounding is monotone, so this is the rounded
+  greater amount §7 names.
+- **`residual` on a movement is a signed change**, as `cost` and
+  `accumulated` are: negative when a retirement or transfer out took
+  residual value, positive when a transfer in brought it. The walk adds it
+  to the terms' residual value; T57g and T57h write it so.
+- **Moves.** The walk applies every movement but depreciation at its value
+  date's month, a reversal row with its original's value date (T57d), so
+  the two cancel; booked is minus the sum of the depreciation movements'
+  `accumulated`, all of them, whatever their period (§7: nothing is valued
+  or booked after the run's period on a selectable asset).
+- **The schedule** takes a required `fiscal_year` and a `ledger_id`
+  defaulting to the leading ledger (the first the company keeps); a ledger
+  the asset has no terms in, kept or not, is 422
+  `assets.ledger_terms_missing`. Per regular period it shows the planned
+  d_k, the depreciation booked in that period (the depreciation movements
+  by posting period: a catch-up shows where it was posted, as the history
+  sheet will) and the planned net book value at the period's end; a period
+  before the walk's first (no movement valued and depreciation not
+  started) shows zeros. The totals are the year's planned and booked.
+- **The preview** selects as `PlanDepreciationRun` will (§7: active with
+  its depreciation start by the period's last day, or accumulated
+  depreciation not zero in the ledger; not booked through a later period;
+  latest assignment valid from on or before the period's last day),
+  shows every selected asset, a difference of zero included, by asset
+  number (cursor over number and id), and the totals of all of them on
+  every page: the count, planned, booked and difference, and the lines a
+  run would post per (depreciation account, cost center, profit center)
+  and (accumulated depreciation account, profit center) on each asset's
+  latest assignment's centers, a line summing to zero left out. The
+  ledger's own derivation at posting (an account's default cost center
+  for an asset without one, a cost center's profit center on the posting
+  date, ADR-0050 §5) is not repeated in the preview; its description says
+  so. It refuses a special period (422 `assets.special_period`), a ledger
+  the company does not keep (422 `ledger.ledger_not_kept`) and a year not
+  set up (422 `ledger.no_fiscal_period`); whether the period is open and
+  the runs' order are the run's checks (T57f). An asset of a class the
+  active document no longer gives the company fails it with
+  `assets.class_unknown` or `assets.class_not_in_company`, as it will fail
+  the run. A depreciation out of the range of minor units (an asset of
+  ~10^18) fails the read as an internal error rather than wrapping.
+  Every page reads all the selected assets and their movements, as the
+  totals need them: linear in the company's assets, as the run is; a
+  budget for the preview at the scale of 01 §1.3's run would come with
+  T57f's (review round 1).
+- **Movements** are listed in posting order (`order_by=seq`, ascending by
+  default), filtered by ledger, posting fiscal year and kind, each with its
+  ledger's code and name, its amounts in local and group currency, its
+  document and journal entry with the entry's document number (from
+  `assets.document_entry`; a depreciation run's entries are named by T57f,
+  which records them), and the movement it reverses or that reverses it.

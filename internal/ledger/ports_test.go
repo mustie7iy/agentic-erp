@@ -138,6 +138,7 @@ func TestAccountsAndCalendarPorts(t *testing.T) {
 		if _, err := c.FiscalYear(ctx, uuid.New(), date("2026-07-01")); problem.From(err).Code != "ledger.no_fiscal_period" {
 			t.Errorf("unknown legal entity: %v", err)
 		}
+		calendarPeriods(t, ctx, c, e.de)
 		return nil
 	})
 	if err != nil {
@@ -151,12 +152,37 @@ func TestAccountsAndCalendarPorts(t *testing.T) {
 			return err
 		},
 		"fiscal year": func(ctx context.Context) error { _, err := c.FiscalYear(ctx, e.de, date("2026-07-01")); return err },
+		"periods":     func(ctx context.Context) error { _, err := c.Periods(ctx, e.de, 2026); return err },
 	} {
 		t.Run(name, func(t *testing.T) {
 			if call(context.Background()) == nil {
 				t.Error("outside a unit of work: got no error, want one")
 			}
 			apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+		})
+	}
+}
+
+// calendarPeriods checks Calendar.Periods: a set-up year's twelve regular periods
+// in order, and 422 ledger.no_fiscal_period for a year not set up and for
+// an unknown legal entity.
+func calendarPeriods(t *testing.T, ctx context.Context, c ledger.Calendar, le uuid.UUID) {
+	t.Helper()
+	ps, err := c.Periods(ctx, le, 2026)
+	if err != nil || len(ps) != 12 {
+		t.Fatalf("periods of 2026: got %d %v, want 12", len(ps), err)
+	}
+	if got := fmt.Sprint(ps[0].Number, " ", ps[0].Start.Format(time.DateOnly), " ", ps[11].Number, " ", ps[11].End.Format(time.DateOnly)); got != "1 2026-01-01 12 2026-12-31" {
+		t.Errorf("periods of 2026: got %s, want 1 2026-01-01 12 2026-12-31", got)
+	}
+	for name, tc := range map[string]struct {
+		le   uuid.UUID
+		year int16
+	}{"a year not set up": {le, 2031}, "an unknown legal entity": {uuid.New(), 2026}} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := c.Periods(ctx, tc.le, tc.year); problem.From(err).Code != "ledger.no_fiscal_period" {
+				t.Errorf("got %v, want ledger.no_fiscal_period", err)
+			}
 		})
 	}
 }
