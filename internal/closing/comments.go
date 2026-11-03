@@ -186,6 +186,13 @@ func (e *Endpoints) writeComment(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	if err != nil {
 		return comment{}, false, err
 	}
+	// A retried proposal answers as it is stored, whatever happened to the
+	// row since.
+	if in.Session != nil {
+		if c, found, err := proposedBefore(ctx, tx, in); found || err != nil {
+			return c, false, err
+		}
+	}
 	r, err := e.report(ctx, tx, in.CloseID, in.Basis)
 	if err == nil {
 		err = r.refused()
@@ -199,11 +206,6 @@ func (e *Endpoints) writeComment(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 			" has no row of this account: it is no profit and loss account of the company with a figure in either period.",
 			problem.FieldError{Field: "account_id", Code: "unknown", Message: "an account with a row of the report against the basis"})
 	}
-	if in.Session != nil {
-		if c, found, err := proposedBefore(ctx, tx, in); found || err != nil {
-			return c, false, err
-		}
-	}
 	cited, err := e.cite(ctx, r, in.AccountID, in.Citations)
 	if err != nil {
 		return comment{}, false, err
@@ -216,7 +218,8 @@ func (e *Endpoints) writeComment(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 }
 
 // proposedBefore finds the session's proposal for the row: the same one
-// again (text and citations) answers it, another is refused.
+// again (its text as proposed, before a person replaced it, and its
+// citations) answers it, another is refused.
 func proposedBefore(ctx context.Context, tx pgx.Tx, in commentInput) (comment, bool, error) {
 	var id uuid.UUID
 	err := tx.QueryRow(ctx, `SELECT id FROM closing.variance_comment WHERE close_id = $1 AND basis = $2 AND account_id = $3 AND session_id = $4`,
@@ -235,7 +238,11 @@ func proposedBefore(ctx context.Context, tx pgx.Tx, in commentInput) (comment, b
 	for i, ci := range c.Citations {
 		cited[i] = ci.EntryID
 	}
-	if c.Text != in.Text || !slices.Equal(cited, in.Citations) {
+	proposed := c.Text
+	if c.ProposedText != nil {
+		proposed = *c.ProposedText
+	}
+	if proposed != in.Text || !slices.Equal(cited, in.Citations) {
 		return comment{}, false, problem.Conflict("closing.comment_already_proposed", "The session proposed comment "+c.ID.String()+
 			" for this row already; one proposal per session and row.")
 	}

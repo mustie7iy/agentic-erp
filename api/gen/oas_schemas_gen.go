@@ -11579,7 +11579,8 @@ type CloseCheckResult struct {
 	// revaluation run keyed on its period's last day, if it has one; absent for another check.
 	Ledgers []CloseCheckLedger `json:"ledgers"`
 	// `variances_explained`: how many rows of the company's configured bases require a comment and have no
-	// accepted one that is current (T64i); absent for another check.
+	// accepted one that is current (T64i); absent for another check, and when the company configures no
+	// basis (the summary says so).
 	UnexplainedRowsCount OptInt32 `json:"unexplained_rows_count"`
 	// `variances_explained`: the first 20 of them, by basis as the company configures them, then by
 	// account number; absent for another check.

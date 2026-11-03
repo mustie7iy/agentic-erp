@@ -45,6 +45,7 @@ type found struct {
 	Parked      []foundParked `json:"parked_entries,omitempty"`
 	Ledgers     []foundLedger `json:"ledgers,omitempty"`
 	// variances_explained: how many rows are unexplained, the first of them.
+	Compared         bool            `json:"compared,omitempty"` // a basis was compared: the count is one
 	UnexplainedCount int             `json:"unexplained_rows_count,omitempty"`
 	Unexplained      []foundVariance `json:"unexplained_rows,omitempty"`
 }
@@ -105,7 +106,9 @@ func (f *found) toAPI(check string, passed bool, at time.Time, by uuid.UUID, byN
 				Posted: l.Run != nil, RevaluationRunID: apitypes.OptUUID(l.Run)}
 		}
 	case CheckVariances:
-		out.UnexplainedRowsCount.SetTo(int32(f.UnexplainedCount)) // at most the accounts of one chart per basis
+		if f.Compared {
+			out.UnexplainedRowsCount.SetTo(int32(f.UnexplainedCount)) // at most the accounts of one chart per basis
+		}
 		out.UnexplainedRows = make([]gen.CloseCheckVariance, len(f.Unexplained))
 		for i, u := range f.Unexplained {
 			out.UnexplainedRows[i] = gen.CloseCheckVariance{Basis: u.Basis, AccountID: u.AccountID, AccountNumber: u.AccountNumber, AccountName: u.AccountName,
@@ -240,7 +243,7 @@ func (e *Endpoints) variancesExplained(ctx context.Context, tx pgx.Tx, t task) (
 	if len(bases) == 0 {
 		return false, found{Summary: "Company " + code + " compares its variances against no basis; configure companies[].close.variance first."}, nil
 	}
-	f := found{}
+	f := found{Compared: true}
 	for _, basis := range bases {
 		r, err := e.report(ctx, tx, t.CloseID, basis)
 		if err != nil {

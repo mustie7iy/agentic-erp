@@ -34165,7 +34165,7 @@ components:
           type: integer
           format: int32
           minimum: 0
-          description: "`variances_explained`: how many rows of the company's configured bases require a comment and have no accepted one that is current (T64i); absent for another check."
+          description: "`variances_explained`: how many rows of the company's configured bases require a comment and have no accepted one that is current (T64i); absent for another check, and when the company configures no basis (the summary says so)."
           readOnly: true
         unexplained_rows:
           type: array

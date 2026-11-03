@@ -174,6 +174,8 @@ func TestVarianceComments(t *testing.T) {
 	if tag != `"2"` {
 		t.Errorf("ETag after the acceptance: got %s, want \"2\"", tag)
 	}
+	retried, _ := c.agent.Must(200, "POST", "/v1/variance-comment-proposals", proposal, "")
+	wantFields(t, "the same proposal after its edited acceptance", retried, map[string]any{"id": p["id"], "status": "accepted"})
 	c.Problem(409, "closing.comment_not_proposed", "POST", path+":acceptProposal", "", tag)
 	c.Problem(409, "closing.comment_not_proposed", "POST", path+":rejectProposal", `{"reason": "No"}`, tag)
 	if got, want := c.row(t, "prior_period", "520000"), `explained=true proposed=0 comment "Office Supplies for the new team, bought in January." `+
@@ -375,6 +377,9 @@ func TestVarianceCommentWithoutTheBasis(t *testing.T) {
 	_, tag := c.Must(200, "GET", "/v1/period-closes/"+c.close, "", "")
 	task, _ := c.Must(200, "POST", "/v1/period-closes/"+c.close+"/tasks/EXPLAINED:check", "", tag)
 	r := task["check_result"].(map[string]any)
+	if _, ok := r["unexplained_rows_count"]; ok {
+		t.Errorf("the count without a basis: got %v, want it absent", r["unexplained_rows_count"])
+	}
 	wantFields(t, "the check without a basis", r, map[string]any{"passed": false,
 		"summary": "Company 2000 compares its variances against no basis; configure companies[].close.variance first."})
 }
