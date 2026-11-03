@@ -53,6 +53,12 @@ type PostingLine struct {
 	// other than 0: an exchange difference a source system posted in local
 	// currency alone (Posting.Rate).
 	LC *money.Minor
+	// GC is the line's group amount kept as given, beside LC (ADR-0057
+	// §4, T57c): a value booked earlier carried over unchanged, as an
+	// asset acquisition leaves the clearing line it capitalises at its
+	// booked amounts in all three currencies. Only with LC; nil: the
+	// local amount converted at the posting date's rate.
+	GC *money.Minor
 	// The assignment the document gives the line (ADR-0050 §5): an order
 	// or invoice item's cost center, a profit center for a P&L line
 	// without one; nil: derived by the ledger.
@@ -354,6 +360,11 @@ func (Postings) GRIROrder(ctx context.Context, legalEntity, order uuid.UUID) (GR
 // a foreign currency (postingRates), with GR/IR items only by a take-over
 // giving every item's local balance (checkForeignTakeOver).
 func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
+	for i, l := range in.Lines {
+		if l.GC != nil && l.LC == nil {
+			return Entry{}, fmt.Errorf("ledger: line %d keeps a group amount without its local amount", i+1)
+		}
+	}
 	if len(in.GRIR) > 0 {
 		return p.postGRIR(ctx, in)
 	}
@@ -371,7 +382,7 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 		taxDateChosen: in.TaxDateChosen}
 	for i, l := range in.Lines {
 		entry.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.Amount.Plain(exps[in.Currency]), Currency: in.Currency,
-			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, SpecialGL: l.SpecialGL, lc: l.LC,
+			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, SpecialGL: l.SpecialGL, lc: l.LC, gc: l.GC,
 			CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID}
 	}
 	posted, err := p.endpoints().postJournalEntry(ctx, tx, principal, entry)
@@ -638,13 +649,51 @@ func (c Calendar) FiscalYear(ctx context.Context, legalEntity uuid.UUID, date ti
 			le.FiscalCalendarID, date).Scan(&year)
 	}
 	if !ok || errors.Is(err, pgx.ErrNoRows) {
-		return 0, problem.Unprocessable("ledger.no_fiscal_period", "No fiscal year of the legal entity covers "+date.Format(time.DateOnly)+
-			"; a fiscal year is set up by a number range for it in the configuration.")
+		return 0, noFiscalYear(date)
 	}
 	if err != nil {
 		return year, fmt.Errorf("ledger: fiscal year of %s on %s: %w", legalEntity, date.Format(time.DateOnly), err)
 	}
 	return year, nil
+}
+
+// noFiscalYear refuses a date outside every set-up fiscal year.
+func noFiscalYear(date time.Time) error {
+	return problem.Unprocessable("ledger.no_fiscal_period", "No fiscal year of the legal entity covers "+date.Format(time.DateOnly)+
+		"; a fiscal year is set up by a number range for it in the configuration.")
+}
+
+// FiscalPeriod is a regular posting period of a fiscal year with its
+// dates.
+type FiscalPeriod struct {
+	FiscalYear, Number int16
+	Start, End         time.Time
+}
+
+// Period is the regular posting period of the legal entity the date falls
+// in; a date outside every set-up fiscal year is 422
+// ledger.no_fiscal_period, as FiscalYear.
+func (c Calendar) Period(ctx context.Context, legalEntity uuid.UUID, date time.Time) (FiscalPeriod, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return FiscalPeriod{}, err
+	}
+	le, ok, err := c.LegalEntities.Entity(ctx, legalEntity)
+	if err != nil {
+		return FiscalPeriod{}, err
+	}
+	var p FiscalPeriod
+	if ok {
+		err = tx.QueryRow(ctx, `SELECT fiscal_year, period, start_date, end_date FROM ledger.fiscal_period
+			WHERE calendar_id = $1 AND NOT is_special AND $2 BETWEEN start_date AND end_date`, le.FiscalCalendarID, date).Scan(&p.FiscalYear, &p.Number, &p.Start, &p.End)
+	}
+	if !ok || errors.Is(err, pgx.ErrNoRows) {
+		return FiscalPeriod{}, noFiscalYear(date)
+	}
+	if err != nil {
+		return FiscalPeriod{}, fmt.Errorf("ledger: period of %s on %s: %w", legalEntity, date.Format(time.DateOnly), err)
+	}
+	return p, nil
 }
 
 // WithholdingTaxCode is a legal entity's active withholding tax code

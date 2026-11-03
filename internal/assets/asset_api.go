@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
@@ -26,13 +27,14 @@ const centerReadPermission = "ledger.cost_center.read"
 // view is what assets are shown with: their classes' names, their
 // companies with their currencies' minor-unit digits, the ledgers in
 // order, and the names of their centers (nil when the caller may not
-// read centers).
+// read centers), and the tenant's group currency.
 type view struct {
 	classes   map[string]string
 	companies map[uuid.UUID]Company
 	exponents map[string]int
 	ledgers   []LedgerRef
 	centers   map[uuid.UUID]CenterName
+	group     string
 }
 
 // viewOf reads what the assets are shown with.
@@ -58,6 +60,9 @@ func (e *Endpoints) viewOf(ctx context.Context, tx pgx.Tx, as []Asset) (view, er
 	}
 	if v.ledgers, err = e.Ledger.Ledgers(ctx, nil); err != nil {
 		return view{}, fmt.Errorf("assets: ledgers: %w", err)
+	}
+	if err := v.groupCurrency(ctx, tx, e.Companies); err != nil {
+		return view{}, err
 	}
 	may, err := authz.MayUse(ctx, centerReadPermission)
 	if err != nil || !may || len(centers) == 0 {
@@ -91,6 +96,40 @@ func (v *view) company(ctx context.Context, tx pgx.Tx, companies Companies, le u
 	return nil
 }
 
+// groupCurrency adds the tenant's group currency and its digits to the
+// view.
+func (v *view) groupCurrency(ctx context.Context, tx pgx.Tx, companies Companies) error {
+	group, err := companies.GroupCurrency(ctx)
+	if err != nil {
+		return fmt.Errorf("assets: group currency: %w", err)
+	}
+	exp, err := currency.Exponent(ctx, tx, group, nil)
+	if err != nil {
+		return fmt.Errorf("assets: currency %s: %w", group, err)
+	}
+	v.group, v.exponents[group] = group, exp
+	return nil
+}
+
+// values shows the asset's values in each ledger it has terms or
+// movements in, in ledger order: cost, accumulated depreciation and net
+// book value in local and group currency.
+func (v view) values(a Asset, co Company) []gen.AssetLedgerValues {
+	out := []gen.AssetLedgerValues{}
+	lc := func(m money.Minor) gen.Money { return apitypes.Money(m, co.Currency, v.exponents[co.Currency]) }
+	gc := func(m money.Minor) gen.Money { return apitypes.Money(m, v.group, v.exponents[v.group]) }
+	for _, l := range v.ledgers {
+		x, moved := a.Values[l.ID]
+		if !moved && !slices.ContainsFunc(a.Terms, func(t Terms) bool { return t.LedgerID == l.ID }) {
+			continue
+		}
+		out = append(out, gen.AssetLedgerValues{LedgerID: l.ID, LedgerCode: l.Code, LedgerName: l.Name, Cost: lc(x.Cost), CostGc: gc(x.CostGC),
+			Accumulated: lc(x.Accumulated), AccumulatedGc: gc(x.AccumulatedGC), NetBookValue: lc(x.Cost + x.Accumulated),
+			NetBookValueGc: gc(x.CostGC + x.AccumulatedGC)})
+	}
+	return out
+}
+
 // toAPI shows an asset with its class's name, its company's code, its
 // centers named (when the caller may read them) and its terms in ledger
 // order.
@@ -120,6 +159,7 @@ func (v view) toAPI(a Asset) gen.Asset {
 		}
 		out.Terms = append(out.Terms, at)
 	}
+	out.Values = v.values(a, co)
 	return out
 }
 
@@ -276,8 +316,12 @@ func (e *Endpoints) pageView(ctx context.Context, tx pgx.Tx, page []Asset) (view
 	if err != nil {
 		return view{}, err
 	}
+	values, err := readValues(ctx, tx, ids)
+	if err != nil {
+		return view{}, err
+	}
 	for i := range page {
-		page[i].Terms = terms[page[i].ID]
+		page[i].Terms, page[i].Values = terms[page[i].ID], values[page[i].ID]
 	}
 	return e.viewOf(ctx, tx, page)
 }

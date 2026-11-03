@@ -40,10 +40,6 @@ PAUSE="${WALKTHROUGH_PAUSE:-0}"
 # shellcheck source=walkthrough/dates.sh
 . "$ROOT/scripts/walkthrough/dates.sh"
 TODAY=$(company_day)
-# UTC_TODAY is the database's day, UTC's: a business partner belongs to no
-# company and so has no zone, and its address may start no earlier than
-# that day (partner.backdated_address, database.Today).
-UTC_TODAY=$(utc_day)
 # A payment run is dated TODAY, the company's day. The migration (step 3)
 # loads the suppliers' bank accounts valid from the day before UTC's
 # (partner.Migration's one-day exemption from the backdating control,
@@ -323,7 +319,7 @@ start() {
   say "    payment requests and blocked suppliers; step 21 its rows by liquidity item"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - asset acquisition, depreciation and the rest of asset accounting (T57c-T57i): steps 19 and 20 show the classes and the master"
-  say "  - accounts receivable, period-end close (T64), consolidation (T68)"
+  say "  - accounts receivable, the period close beyond its checklist (T64c-T64k), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
   export DATABASE_URL ERP_ENV=development ERP_DEV_ISSUER=true ERP_MIGRATE_ON_START=true
@@ -1158,11 +1154,17 @@ step_procure() {
 # holds no street, and shows the released order's document for Tyrell
 # (T72g, ADR-0054).
 order_document() {
-  local number change
+  local number change utc_today
   number=$(field .document_number)
+  # The address starts on the database's day, UTC's: a business partner
+  # belongs to no company and so has no zone, and its address may start no
+  # earlier than that day (partner.backdated_address, database.Today). It
+  # is read as the change is asked for, not when the run began, so a run
+  # that crosses 00:00 UTC (19:00 or 20:00 in Toronto) asks for that day.
+  utc_today=$(utc_day)
   say "SAP's extract has no street for Tyrell. Ben asks for the address Tyrell takes orders at; Carla, who"
   say "approves supplier master data, approves it."
-  api 201 '"partner change \(.id): \(.status)"' createPartnerChange -body "{\"partner_id\": \"$SUPPLIER\", \"kind\": \"update\", \"reason\": \"Order desk address confirmed by Tyrell\", \"payload\": {\"addresses\": [{\"purpose\": \"order_from\", \"line1\": \"220 King Street West\", \"line2\": \"Order desk, floor 3\", \"city\": \"Toronto\", \"region\": \"ON\", \"postal_code\": \"M5H 1K4\", \"country_code\": \"CA\", \"valid_from\": \"$UTC_TODAY\"}]}}"
+  api 201 '"partner change \(.id): \(.status)"' createPartnerChange -body "{\"partner_id\": \"$SUPPLIER\", \"kind\": \"update\", \"reason\": \"Order desk address confirmed by Tyrell\", \"payload\": {\"addresses\": [{\"purpose\": \"order_from\", \"line1\": \"220 King Street West\", \"line2\": \"Order desk, floor 3\", \"city\": \"Toronto\", \"region\": \"ON\", \"postal_code\": \"M5H 1K4\", \"country_code\": \"CA\", \"valid_from\": \"$utc_today\"}]}}"
   change=$(field .id)
   approve carla "$(field .workflow_request_id)" "Address confirmed"
   as ben
@@ -2618,6 +2620,169 @@ step_cash_items() {
   passed
 }
 
+step_asset_acquisitions() {
+  heading "Step 22 — Asset acquisitions: an invoice item on the asset clearing account split onto two machines; the clearing account at zero"
+  as alex
+  say "Tyrell invoices two machines, CAD 12,000.00 plus 600.00 GST on V1. Alex posts the item on the asset"
+  say "clearing account 1690 (ADR-0057 §6): the asset accountant settles it onto the assets, so payables stays as it is."
+  local item invoice entry mill lathe first second l
+  item="{\"account_id\": \"$(account 1690)\", \"description\": \"CNC milling machine and CNC lathe\", \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"12000.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"LATHE-2\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"12600.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"600.00\", \"currency\": \"CAD\"}, \"items\": [$item]}"
+  invoice=$(field .id)
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  entry=$(field .journal_entry_id)
+  as carla
+  say "Carla's worklist shows the line on the clearing account with all of it left, and the invoice it came from:"
+  api 200 '.items[] | "  entry \(.document_number) line \(.line_no), \(.supplier_invoice.supplier_name // .source_context) \(.supplier_invoice.supplier_reference // ""): \(.amount.amount) \(.amount.currency), left \(.remaining.amount) (local \(.remaining_lc.amount) \(.remaining_lc.currency), group \(.remaining_gc.amount) \(.remaining_gc.currency))"' \
+    listAssetClearingItems -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p remaining=true
+  expect "the invoice's line on the worklist" "$(field "[.items[] | select(.entry_id == \"$entry\") | \"\(.supplier_invoice.supplier_reference) \(.remaining.amount)\"] | join(\" \")")" \
+    "LATHE-2 12000.00"
+  l=$(field "[.items[] | select(.entry_id == \"$entry\") | .line_no][0]")
+  say "One is the milling machine of step 20; she creates the lathe and splits the line: 7,000.00 onto the milling"
+  say "machine, the rest onto the lathe, which takes the rest of the line's local and group amounts too."
+  QUIET=1 api 200 '' listAssets -p "legal_entity_id=$LE" -p status=planned
+  mill=$(field '[.items[] | select(.description == "CNC milling machine") | .id][0]')
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  api 201 '"asset \(.company_code)/\(.asset_number) \(.description): \(.status)"' createAsset \
+    -body "{\"legal_entity_id\": \"$LE\", \"class_code\": \"MACHINES\", \"description\": \"CNC lathe\", \"cost_center_id\": \"$(field '.items[0].id')\"}"
+  lathe=$(field .id)
+  api 201 '"acquisition onto asset \(.asset_number): \(.amount.amount) \(.amount.currency), local \(.amount_lc.amount) \(.amount_lc.currency), group \(.amount_gc.amount) \(.amount_gc.currency); entries \([.entries[] | "\(.ledger_code) \(.document_number)"] | join(", "))"' \
+    createAssetAcquisition -body "{\"asset_id\": \"$mill\", \"source\": {\"entry_id\": \"$entry\", \"line_no\": $l}, \"amount\": {\"amount\": \"7000.00\", \"currency\": \"CAD\"}}"
+  first=$(field .id)
+  expect "the first acquisition's source" "$(field '"\(.source.supplier_invoice.supplier_reference) \(.source.source_context)"')" "LATHE-2 payables"
+  api 201 '"acquisition onto asset \(.asset_number): \(.amount.amount) \(.amount.currency), local \(.amount_lc.amount) \(.amount_lc.currency), group \(.amount_gc.amount) \(.amount_gc.currency); entries \([.entries[] | "\(.ledger_code) \(.document_number)"] | join(", "))"' \
+    createAssetAcquisition -body "{\"asset_id\": \"$lathe\", \"source\": {\"entry_id\": \"$entry\", \"line_no\": $l}}"
+  second=$(field .id)
+  expect "the rest of the line" "$(field .amount.amount)" 5000.00
+  expect "an entry in every ledger the company keeps" "$(field '[.entries[].ledger_code] | join(" ")')" "0L 2L"
+  say "Both machines are active now, capitalised on the invoice's posting date, each with its cost in every ledger:"
+  for asset in "$mill" "$lathe"; do
+    api 200 '"  asset \(.asset_number) \(.description): \(.status), capitalised on \(.capitalised_on); \([.values[] | "\(.ledger_code) cost \(.cost.amount) \(.cost.currency) (group \(.cost_gc.amount) \(.cost_gc.currency))"] | join(", "))"' getAsset -p "id=$asset"
+    expect "the asset's status" "$(field .status)" active
+  done
+  expect "the lathe's cost per ledger" "$(field '[.values[] | "\(.ledger_code) \(.cost.amount)"] | join(", ")')" "0L 5000.00, 2L 5000.00"
+  api 200 '.items[] | "  \(.asset_number): \(.amount.amount) \(.amount.currency) from entry \(.source.document_number) line \(.source.line_no)"' \
+    listAssetAcquisitions -p "legal_entity_id=$LE" -p "source_entry_id=$entry"
+  expect "the line's acquisitions" "$(field '[.items[].id] | sort | join(" ")')" "$(printf '%s\n' "$first" "$second" | sort | paste -sd' ' -)"
+  say "Nothing is left of the line, and the clearing account is at zero in every ledger and in all three currencies:"
+  api 200 '"lines with something left: \([.items[] | select(.entry_id == "'"$entry"'")] | length)"' \
+    listAssetClearingItems -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p remaining=true
+  expect "the line left on the worklist" "$(field "[.items[] | select(.entry_id == \"$entry\")] | length")" 0
+  QUIET=1 api 200 '' listLedgers
+  for l in $(field '.items[] | "\(.code)=\(.id)"'); do
+    api 200 '"  '"${l%%=*}"' clearing 1690: \([.items[] | (.debit.amount | tonumber) - (.credit.amount | tonumber)] | add // 0) in the transaction currency, \([.items[] | (.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)] | add // 0) local, \([.items[] | (.debit_gc.amount | tonumber) - (.credit_gc.amount | tonumber)] | add // 0) group"' \
+      listBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "ledger_id=${l#*=}" -p "account_id=$(account 1690)" -p page_size=500
+    expect "the clearing account in ledger ${l%%=*}" "$(field '[.items[] | (.debit.amount | tonumber) - (.credit.amount | tonumber), (.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber), (.debit_gc.amount | tonumber) - (.credit_gc.amount | tonumber)] | map(. * 100 | round) | unique | join(" ")')" 0
+  done
+  passed
+}
+
+# step_close is the financial close (ADR-0058), the story's last step: it
+# stays last, and each slice of T64 adds its part before the sign-off
+# (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
+# the process owner approves; Carla reads the year's close calendar, each
+# period's planned first and last due dates on the company's business days.
+step_close() {
+  heading "Final step — Financial close: the close template through a governed change, and the year's close calendar"
+  as ada
+  say "Ada proposes the close template (ADR-0058 §3): the tasks every company's period close is given, each due"
+  say "a number of business days after the period's last day (negative: before it), some waiting for others. The"
+  say "template decides what a sign-off requires, so it is configuration, approved as a tier 2 change."
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  local base cr request
+  base=$(field '.items[0].number')
+  jq "{title: \"Close template\", rationale: \"The monthly close checklist (T64a)\", base_version: $base,
+    proposed: (.items[0].document | .close.tasks = [
+      {\"code\": \"CUTOFF_NOTICE\", \"name\": \"Cut-off reminder sent to the team\", \"kind\": \"manual\", \"due_day\": -2},
+      {\"code\": \"AP_CUTOFF\", \"name\": \"Supplier invoices of the period entered\", \"kind\": \"manual\", \"due_day\": 1, \"depends_on\": [\"CUTOFF_NOTICE\"]},
+      {\"code\": \"TB_REVIEW\", \"name\": \"Trial balance reviewed\", \"kind\": \"manual\", \"due_day\": 3, \"depends_on\": [\"AP_CUTOFF\"]}])}" \
+    "$WORK/last.json" >"$WORK/close.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @close.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 2
+  expect "the tasks among the changes" "$(field '[.items[] | select(.path | startswith("close.tasks["))] | length')" 3
+  expect "status after submit" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve priya "$request" "The monthly close checklist, as agreed with the controller"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  local holidays
+  holidays=$(field "[.items[0].document.calendars[]? | select(.company == \"$CC\") | .holidays[]?.date]")
+  as carla
+  say "Carla reads the close calendar of $CC's fiscal year $YEAR: each regular period of the leading ledger, its"
+  say "status, and the first and last due dates of its close's tasks, counted in the company's business days"
+  say "(neither its weekend nor one of its holidays):"
+  api 200 '"\(.company_code) \(.company_name), \(.ledger_code) \(.ledger_name), weekend \(.weekend | join(" and ")):",
+    (.periods[] | "  period \(.period) \(.start_date) to \(.end_date), \(.status): tasks due \(.first_due_on) to \(.last_due_on)")' \
+    getCloseCalendar -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  expect "the periods" "$(field '[.periods[].period] | map(tostring) | join(" ")')" "1 2 3 4 5 6 7 8 9 10 11 12"
+  expect "the weekend" "$(field '.weekend | join(" ")')" "saturday sunday"
+  expect "every due date a business day" \
+    "$(field "[.periods[] | .first_due_on, .last_due_on] | all(. as \$d | (\$d | strptime(\"%Y-%m-%d\") | mktime | gmtime | .[6]) as \$w
+      | \$w != 0 and \$w != 6 and ($holidays | index(\$d) | not))")" true
+  expect "the cut-off reminder before each period's end, the review after it" \
+    "$(field '[.periods[] | .first_due_on < .end_date and .last_due_on > .end_date] | all')" true
+  close_checklist
+  passed
+}
+
+# close_checklist is T64b's part of step_close (ADR-0058 §6): Carla opens
+# the close of today's period, the template copied into it, and works its
+# manual checklist to the end, every task done for the sign-off to come.
+close_checklist() {
+  local period close tag carla
+  period=$((10#${TODAY:5:2}))
+  carla=$(awk -F'\t' '$2 == "Carla Controller" { print $1 }' "$WORK/names")
+  say "Carla opens the close of $CC's period $period of $YEAR, the period of the company's today ($TODAY): its checklist"
+  say "is the template's tasks for the company, copied with their due dates, so a later change of the template"
+  say "leaves this close as it is; it covers every ledger the company keeps."
+  api 201 '"close of \(.company_code) \(.fiscal_year)/\(.fiscal_period), ending \(.period_end): \(.status), template of configuration version \(.config_version)",
+    (.ledgers[] | "  covers \(.ledger_code) \(.ledger_name), its period \(.period_status)"),
+    (.tasks[] | "  \(.code), due \(.due_on): \(.name)\(if .blocked_by == [] then "" else " (after " + (.blocked_by | join(", ")) + ")" end)")' \
+    createPeriodClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  close=$(field .id)
+  tag=$ETAG
+  expect "the close's tasks" "$(field '[.tasks[].code] | join(" ")')" "CUTOFF_NOTICE AP_CUTOFF TB_REVIEW"
+  expect "the leading ledger first" "$(field '.ledgers[0].ledger_code')" 0L
+  say "A second close of the period is refused, and names the first:"
+  refused 409 closing.close_exists createPeriodClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  say "Carla takes the cut-off reminder herself. The supplier invoices wait for it: completing them first is refused."
+  api 200 '"  \(.code) assigned to \(.assignee_name); the close is now at version \(.close_version)"' \
+    updateCloseTask -p "id=$close" -p code=CUTOFF_NOTICE -if-match "$tag" -body "{\"assignee_id\": \"$carla\"}"
+  tag=$ETAG
+  refused 409 closing.task_blocked completeCloseTask -p "id=$close" -p code=AP_CUTOFF -if-match "$tag" -body '{}'
+  say "Her worklist, the tasks assigned to her across closes:"
+  api 200 '(.items[] | "  \(.company_code) \(.fiscal_year)/\(.fiscal_period) \(.code), due \(.due_on): \(.status)\(if .overdue then ", overdue" else "" end)")' \
+    listCloseTasks -p assignee=me
+  expect "her tasks" "$(field '[.items[].code] | join(" ")')" CUTOFF_NOTICE
+  local code
+  for code in CUTOFF_NOTICE AP_CUTOFF TB_REVIEW; do
+    api 200 '"  \(.code) \(.status) by \(.completed_by_name)\(if .note then ": " + .note else "" end)"' \
+      completeCloseTask -p "id=$close" -p code=$code -if-match "$tag" -body '{"note": "Done for the period"}'
+    tag=$ETAG
+  done
+  say "A late supplier invoice of the period turns up: Carla reopens the invoices task with the reason, which the"
+  say "audit trail keeps, and completes it again once the invoice is entered. The review, which depends on it, stays done."
+  api 200 '"  \(.code) \(.status) again"' reopenCloseTask -p "id=$close" -p code=AP_CUTOFF -if-match "$tag" \
+    -body '{"reason": "A late supplier invoice of the period arrived"}'
+  tag=$ETAG
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  expect "the review after the reopening" "$(field '.tasks[] | select(.code == "TB_REVIEW") | .status')" done
+  QUIET=1 api 200 '' completeCloseTask -p "id=$close" -p code=AP_CUTOFF -if-match "$tag" -body '{"note": "The late invoice entered"}'
+  api 200 '"\(.company_code) \(.fiscal_year)/\(.fiscal_period): \(.tasks_done) of \(.tasks_total) tasks done, \(.tasks_overdue) overdue",
+    (.tasks[] | "  \(.code) \(.status) by \(.completed_by_name)")' getPeriodClose -p "id=$close"
+  expect "every task done" "$(field '.tasks_done == .tasks_total')" true
+  say "The calendar's row of the period now shows its close:"
+  api 200 ".periods[] | select(.period == $period) | \"  period \\(.period): close \\(.close.status), \\(.close.tasks_done) of \\(.close.tasks_total) done\"" \
+    getCloseCalendar -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  expect "the calendar's close" "$(field ".periods[] | select(.period == $period) | .close.id")" "$close"
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -2639,7 +2804,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_close'
 
 main() {
   start

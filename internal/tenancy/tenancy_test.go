@@ -202,6 +202,9 @@ func TestLegalEntityValidation(t *testing.T) {
 	if code, _, _ := c.Do("PATCH", "/v1/legal-entities/"+le["id"].(string), `{}`, `"9"`); code != 412 {
 		t.Errorf("update stale: %d", code)
 	}
+	c.Blank("name", "POST", "/v1/legal-entities", fmt.Sprintf(`{"code": "XX04", "name": "   ", "country_code": "DE", "local_currency": "EUR",
+		"fiscal_calendar_id": %q}`, uuid.NewString()), "")
+	c.Blank("name", "PATCH", "/v1/legal-entities/"+le["id"].(string), `{"name": "   "}`, `"1"`)
 }
 
 func TestCompanyAccess(t *testing.T) {

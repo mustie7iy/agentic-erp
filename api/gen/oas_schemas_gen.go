@@ -2809,6 +2809,10 @@ type Asset struct {
 	// Its depreciation terms, one per ledger it has terms in, the leading ledger first and then by ledger
 	// code.
 	Terms []AssetTerms `json:"terms"`
+	// Its values per ledger it has terms or movements in, in the order of `terms`: the sums of its
+	// movements (ADR-0057 §5), zero before its first acquisition. The asset's `version` moves when they
+	// change.
+	Values []AssetLedgerValues `json:"values"`
 }
 
 // GetID returns the value of ID.
@@ -2916,6 +2920,11 @@ func (s *Asset) GetTerms() []AssetTerms {
 	return s.Terms
 }
 
+// GetValues returns the value of Values.
+func (s *Asset) GetValues() []AssetLedgerValues {
+	return s.Values
+}
+
 // SetID sets the value of ID.
 func (s *Asset) SetID(val uuid.UUID) {
 	s.ID = val
@@ -3021,6 +3030,11 @@ func (s *Asset) SetTerms(val []AssetTerms) {
 	s.Terms = val
 }
 
+// SetValues sets the value of Values.
+func (s *Asset) SetValues(val []AssetLedgerValues) {
+	s.Values = val
+}
+
 // An account of a company's chart of accounts, by number and name (`GET /v1/accounts?number=` gives
 // its id).
 // Ref: #/components/schemas/AssetAccountRef
@@ -3049,6 +3063,541 @@ func (s *AssetAccountRef) SetNumber(val string) {
 // SetName sets the value of Name.
 func (s *AssetAccountRef) SetName(val string) {
 	s.Name = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/AssetAcquisition
+type AssetAcquisition struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The asset.
+	AssetID uuid.UUID `json:"asset_id"`
+	// The asset's number in its company.
+	AssetNumber string `json:"asset_number"`
+	// The asset's description.
+	AssetDescription string `json:"asset_description"`
+	// The date the cost counts from for depreciation.
+	ValueDate time.Time `json:"value_date"`
+	// The posting date of its entries.
+	PostingDate time.Time `json:"posting_date"`
+	// The posting date's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// In the line's currency; negative from a credit line, a reduction of cost.
+	Amount Money `json:"amount"`
+	// In local currency; negative from a credit line.
+	AmountLc Money `json:"amount_lc"`
+	// In group currency; negative from a credit line.
+	AmountGc Money                     `json:"amount_gc"`
+	Source   OptAssetAcquisitionSource `json:"source"`
+	// The acquisition's text.
+	Text OptString `json:"text"`
+	// `posted`, or `reversed`. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+	// Its journal entries, one per ledger, the leading ledger first and then by ledger code.
+	Entries []AssetDocumentEntry `json:"entries"`
+}
+
+// GetID returns the value of ID.
+func (s *AssetAcquisition) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *AssetAcquisition) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *AssetAcquisition) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *AssetAcquisition) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *AssetAcquisition) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *AssetAcquisition) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AssetAcquisition) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *AssetAcquisition) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetAssetID returns the value of AssetID.
+func (s *AssetAcquisition) GetAssetID() uuid.UUID {
+	return s.AssetID
+}
+
+// GetAssetNumber returns the value of AssetNumber.
+func (s *AssetAcquisition) GetAssetNumber() string {
+	return s.AssetNumber
+}
+
+// GetAssetDescription returns the value of AssetDescription.
+func (s *AssetAcquisition) GetAssetDescription() string {
+	return s.AssetDescription
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *AssetAcquisition) GetValueDate() time.Time {
+	return s.ValueDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetAcquisition) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetAcquisition) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetAmount returns the value of Amount.
+func (s *AssetAcquisition) GetAmount() Money {
+	return s.Amount
+}
+
+// GetAmountLc returns the value of AmountLc.
+func (s *AssetAcquisition) GetAmountLc() Money {
+	return s.AmountLc
+}
+
+// GetAmountGc returns the value of AmountGc.
+func (s *AssetAcquisition) GetAmountGc() Money {
+	return s.AmountGc
+}
+
+// GetSource returns the value of Source.
+func (s *AssetAcquisition) GetSource() OptAssetAcquisitionSource {
+	return s.Source
+}
+
+// GetText returns the value of Text.
+func (s *AssetAcquisition) GetText() OptString {
+	return s.Text
+}
+
+// GetStatus returns the value of Status.
+func (s *AssetAcquisition) GetStatus() string {
+	return s.Status
+}
+
+// GetEntries returns the value of Entries.
+func (s *AssetAcquisition) GetEntries() []AssetDocumentEntry {
+	return s.Entries
+}
+
+// SetID sets the value of ID.
+func (s *AssetAcquisition) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *AssetAcquisition) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *AssetAcquisition) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *AssetAcquisition) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *AssetAcquisition) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *AssetAcquisition) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AssetAcquisition) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *AssetAcquisition) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetAssetID sets the value of AssetID.
+func (s *AssetAcquisition) SetAssetID(val uuid.UUID) {
+	s.AssetID = val
+}
+
+// SetAssetNumber sets the value of AssetNumber.
+func (s *AssetAcquisition) SetAssetNumber(val string) {
+	s.AssetNumber = val
+}
+
+// SetAssetDescription sets the value of AssetDescription.
+func (s *AssetAcquisition) SetAssetDescription(val string) {
+	s.AssetDescription = val
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *AssetAcquisition) SetValueDate(val time.Time) {
+	s.ValueDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetAcquisition) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetAcquisition) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AssetAcquisition) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetAmountLc sets the value of AmountLc.
+func (s *AssetAcquisition) SetAmountLc(val Money) {
+	s.AmountLc = val
+}
+
+// SetAmountGc sets the value of AmountGc.
+func (s *AssetAcquisition) SetAmountGc(val Money) {
+	s.AmountGc = val
+}
+
+// SetSource sets the value of Source.
+func (s *AssetAcquisition) SetSource(val OptAssetAcquisitionSource) {
+	s.Source = val
+}
+
+// SetText sets the value of Text.
+func (s *AssetAcquisition) SetText(val OptString) {
+	s.Text = val
+}
+
+// SetStatus sets the value of Status.
+func (s *AssetAcquisition) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetEntries sets the value of Entries.
+func (s *AssetAcquisition) SetEntries(val []AssetDocumentEntry) {
+	s.Entries = val
+}
+
+// An acquisition from a posted line on an asset clearing account (ADR-0057 §6).
+// Ref: #/components/schemas/AssetAcquisitionCreate
+type AssetAcquisitionCreate struct {
+	// The asset the line's amount is capitalised onto.
+	AssetID uuid.UUID                 `json:"asset_id"`
+	Source  AssetAcquisitionSourceRef `json:"source"`
+	// In the line's currency, with the line's sign (negative from a credit line); default all that is left
+	// of the line.
+	Amount OptMoney `json:"amount"`
+	// The date the cost counts from for depreciation; default the line's posting date. At most the end of
+	// the posting date's period.
+	ValueDate OptDate `json:"value_date"`
+	// The acquisition's posting date; default the company's date today.
+	PostingDate OptDate `json:"posting_date"`
+	// A text for the acquisition and its entries.
+	Text OptString `json:"text"`
+}
+
+// GetAssetID returns the value of AssetID.
+func (s *AssetAcquisitionCreate) GetAssetID() uuid.UUID {
+	return s.AssetID
+}
+
+// GetSource returns the value of Source.
+func (s *AssetAcquisitionCreate) GetSource() AssetAcquisitionSourceRef {
+	return s.Source
+}
+
+// GetAmount returns the value of Amount.
+func (s *AssetAcquisitionCreate) GetAmount() OptMoney {
+	return s.Amount
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *AssetAcquisitionCreate) GetValueDate() OptDate {
+	return s.ValueDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetAcquisitionCreate) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetText returns the value of Text.
+func (s *AssetAcquisitionCreate) GetText() OptString {
+	return s.Text
+}
+
+// SetAssetID sets the value of AssetID.
+func (s *AssetAcquisitionCreate) SetAssetID(val uuid.UUID) {
+	s.AssetID = val
+}
+
+// SetSource sets the value of Source.
+func (s *AssetAcquisitionCreate) SetSource(val AssetAcquisitionSourceRef) {
+	s.Source = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AssetAcquisitionCreate) SetAmount(val OptMoney) {
+	s.Amount = val
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *AssetAcquisitionCreate) SetValueDate(val OptDate) {
+	s.ValueDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetAcquisitionCreate) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetText sets the value of Text.
+func (s *AssetAcquisitionCreate) SetText(val OptString) {
+	s.Text = val
+}
+
+// AssetAcquisitionHeaders wraps AssetAcquisition with response headers.
+type AssetAcquisitionHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           AssetAcquisition
+}
+
+// GetETag returns the value of ETag.
+func (s *AssetAcquisitionHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AssetAcquisitionHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *AssetAcquisitionHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *AssetAcquisitionHeaders) GetResponse() AssetAcquisition {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *AssetAcquisitionHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AssetAcquisitionHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *AssetAcquisitionHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AssetAcquisitionHeaders) SetResponse(val AssetAcquisition) {
+	s.Response = val
+}
+
+func (*AssetAcquisitionHeaders) createAssetAcquisitionRes() {}
+
+// One page of asset acquisitions.
+// Ref: #/components/schemas/AssetAcquisitionPage
+type AssetAcquisitionPage struct {
+	// The acquisitions on this page.
+	Items []AssetAcquisition `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *AssetAcquisitionPage) GetItems() []AssetAcquisition {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AssetAcquisitionPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *AssetAcquisitionPage) SetItems(val []AssetAcquisition) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AssetAcquisitionPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*AssetAcquisitionPage) listAssetAcquisitionsRes() {}
+
+// The line an acquisition capitalised: its leading-ledger entry and line, the entry's document number
+// and origin, and for a supplier invoice its number, reference and supplier.
+// Ref: #/components/schemas/AssetAcquisitionSource
+type AssetAcquisitionSource struct {
+	// The entry's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry.
+	EntryID uuid.UUID `json:"entry_id"`
+	// The line's number.
+	LineNo int32 `json:"line_no"`
+	// The entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The context that posted the entry: `payables` for a supplier invoice, `procurement` for a goods
+	// receipt, `ledger` for a manual entry. Open enumeration.
+	SourceContext string `json:"source_context"`
+	// Its document there (a supplier invoice's id); absent for a manual entry.
+	SourceDocumentID OptUUID                    `json:"source_document_id"`
+	SupplierInvoice  OptAssetSupplierInvoiceRef `json:"supplier_invoice"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetAcquisitionSource) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetEntryID returns the value of EntryID.
+func (s *AssetAcquisitionSource) GetEntryID() uuid.UUID {
+	return s.EntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *AssetAcquisitionSource) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *AssetAcquisitionSource) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetSourceContext returns the value of SourceContext.
+func (s *AssetAcquisitionSource) GetSourceContext() string {
+	return s.SourceContext
+}
+
+// GetSourceDocumentID returns the value of SourceDocumentID.
+func (s *AssetAcquisitionSource) GetSourceDocumentID() OptUUID {
+	return s.SourceDocumentID
+}
+
+// GetSupplierInvoice returns the value of SupplierInvoice.
+func (s *AssetAcquisitionSource) GetSupplierInvoice() OptAssetSupplierInvoiceRef {
+	return s.SupplierInvoice
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetAcquisitionSource) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetEntryID sets the value of EntryID.
+func (s *AssetAcquisitionSource) SetEntryID(val uuid.UUID) {
+	s.EntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *AssetAcquisitionSource) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *AssetAcquisitionSource) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetSourceContext sets the value of SourceContext.
+func (s *AssetAcquisitionSource) SetSourceContext(val string) {
+	s.SourceContext = val
+}
+
+// SetSourceDocumentID sets the value of SourceDocumentID.
+func (s *AssetAcquisitionSource) SetSourceDocumentID(val OptUUID) {
+	s.SourceDocumentID = val
+}
+
+// SetSupplierInvoice sets the value of SupplierInvoice.
+func (s *AssetAcquisitionSource) SetSupplierInvoice(val OptAssetSupplierInvoiceRef) {
+	s.SupplierInvoice = val
+}
+
+// A line of a journal entry of the leading ledger, on an asset clearing account.
+// Ref: #/components/schemas/AssetAcquisitionSourceRef
+type AssetAcquisitionSourceRef struct {
+	// The journal entry (the leading ledger's).
+	EntryID uuid.UUID `json:"entry_id"`
+	// The line's number in the entry.
+	LineNo int32 `json:"line_no"`
+}
+
+// GetEntryID returns the value of EntryID.
+func (s *AssetAcquisitionSourceRef) GetEntryID() uuid.UUID {
+	return s.EntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *AssetAcquisitionSourceRef) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// SetEntryID sets the value of EntryID.
+func (s *AssetAcquisitionSourceRef) SetEntryID(val uuid.UUID) {
+	s.EntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *AssetAcquisitionSourceRef) SetLineNo(val int32) {
+	s.LineNo = val
 }
 
 // An asset class (ADR-0057 §3, SAP's asset class): its default depreciation terms per ledger and, per
@@ -3348,6 +3897,373 @@ func (s *AssetClassTerms) SetDecliningFactor(val OptString) {
 	s.DecliningFactor = val
 }
 
+// An acquisition made from a clearing line.
+// Ref: #/components/schemas/AssetClearingAcquisition
+type AssetClearingAcquisition struct {
+	// The acquisition (`GET /v1/asset-acquisitions/{id}`).
+	ID uuid.UUID `json:"id"`
+	// The asset.
+	AssetID uuid.UUID `json:"asset_id"`
+	// The asset's number.
+	AssetNumber string `json:"asset_number"`
+	// In the line's currency, with the line's sign.
+	Amount Money `json:"amount"`
+	// `posted` or `reversed`. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+}
+
+// GetID returns the value of ID.
+func (s *AssetClearingAcquisition) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetAssetID returns the value of AssetID.
+func (s *AssetClearingAcquisition) GetAssetID() uuid.UUID {
+	return s.AssetID
+}
+
+// GetAssetNumber returns the value of AssetNumber.
+func (s *AssetClearingAcquisition) GetAssetNumber() string {
+	return s.AssetNumber
+}
+
+// GetAmount returns the value of Amount.
+func (s *AssetClearingAcquisition) GetAmount() Money {
+	return s.Amount
+}
+
+// GetStatus returns the value of Status.
+func (s *AssetClearingAcquisition) GetStatus() string {
+	return s.Status
+}
+
+// SetID sets the value of ID.
+func (s *AssetClearingAcquisition) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetAssetID sets the value of AssetID.
+func (s *AssetClearingAcquisition) SetAssetID(val uuid.UUID) {
+	s.AssetID = val
+}
+
+// SetAssetNumber sets the value of AssetNumber.
+func (s *AssetClearingAcquisition) SetAssetNumber(val string) {
+	s.AssetNumber = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AssetClearingAcquisition) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetStatus sets the value of Status.
+func (s *AssetClearingAcquisition) SetStatus(val string) {
+	s.Status = val
+}
+
+// A line on an asset clearing account (ADR-0057 §6): its amounts, what acquisitions used and what is
+// left, its document and origin, and the acquisitions made from it.
+// Ref: #/components/schemas/AssetClearingItem
+type AssetClearingItem struct {
+	// The entry's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry (the leading ledger's).
+	EntryID uuid.UUID `json:"entry_id"`
+	// The line's number.
+	LineNo int32 `json:"line_no"`
+	// The line's posting date.
+	PostingDate time.Time `json:"posting_date"`
+	// The entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The context that posted the entry: `payables`, `procurement`, `ledger`. Open enumeration.
+	SourceContext string `json:"source_context"`
+	// Its document there; absent for a manual entry.
+	SourceDocumentID OptUUID                    `json:"source_document_id"`
+	SupplierInvoice  OptAssetSupplierInvoiceRef `json:"supplier_invoice"`
+	// The clearing account.
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name.
+	AccountName string `json:"account_name"`
+	// The line's amount, debit positive: negative for a credit line.
+	Amount Money `json:"amount"`
+	// In local currency, debit positive.
+	AmountLc Money `json:"amount_lc"`
+	// In group currency, debit positive.
+	AmountGc Money `json:"amount_gc"`
+	// What acquisitions used of it in its currency, with its sign.
+	Used Money `json:"used"`
+	// What they used in local currency, with its sign.
+	UsedLc Money `json:"used_lc"`
+	// What they used in group currency, with its sign.
+	UsedGc Money `json:"used_gc"`
+	// What is left of it in its currency, with its sign.
+	Remaining Money `json:"remaining"`
+	// What is left in local currency, with its sign.
+	RemainingLc Money `json:"remaining_lc"`
+	// What is left in group currency, with its sign.
+	RemainingGc Money `json:"remaining_gc"`
+	// The line's entry was reversed after acquisitions were made from it; nothing more can be taken from
+	// it.
+	SourceReversed bool `json:"source_reversed"`
+	// The acquisitions made from the line, by posting order.
+	Acquisitions []AssetClearingAcquisition `json:"acquisitions"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetClearingItem) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetEntryID returns the value of EntryID.
+func (s *AssetClearingItem) GetEntryID() uuid.UUID {
+	return s.EntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *AssetClearingItem) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetClearingItem) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *AssetClearingItem) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetSourceContext returns the value of SourceContext.
+func (s *AssetClearingItem) GetSourceContext() string {
+	return s.SourceContext
+}
+
+// GetSourceDocumentID returns the value of SourceDocumentID.
+func (s *AssetClearingItem) GetSourceDocumentID() OptUUID {
+	return s.SourceDocumentID
+}
+
+// GetSupplierInvoice returns the value of SupplierInvoice.
+func (s *AssetClearingItem) GetSupplierInvoice() OptAssetSupplierInvoiceRef {
+	return s.SupplierInvoice
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *AssetClearingItem) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *AssetClearingItem) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *AssetClearingItem) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetAmount returns the value of Amount.
+func (s *AssetClearingItem) GetAmount() Money {
+	return s.Amount
+}
+
+// GetAmountLc returns the value of AmountLc.
+func (s *AssetClearingItem) GetAmountLc() Money {
+	return s.AmountLc
+}
+
+// GetAmountGc returns the value of AmountGc.
+func (s *AssetClearingItem) GetAmountGc() Money {
+	return s.AmountGc
+}
+
+// GetUsed returns the value of Used.
+func (s *AssetClearingItem) GetUsed() Money {
+	return s.Used
+}
+
+// GetUsedLc returns the value of UsedLc.
+func (s *AssetClearingItem) GetUsedLc() Money {
+	return s.UsedLc
+}
+
+// GetUsedGc returns the value of UsedGc.
+func (s *AssetClearingItem) GetUsedGc() Money {
+	return s.UsedGc
+}
+
+// GetRemaining returns the value of Remaining.
+func (s *AssetClearingItem) GetRemaining() Money {
+	return s.Remaining
+}
+
+// GetRemainingLc returns the value of RemainingLc.
+func (s *AssetClearingItem) GetRemainingLc() Money {
+	return s.RemainingLc
+}
+
+// GetRemainingGc returns the value of RemainingGc.
+func (s *AssetClearingItem) GetRemainingGc() Money {
+	return s.RemainingGc
+}
+
+// GetSourceReversed returns the value of SourceReversed.
+func (s *AssetClearingItem) GetSourceReversed() bool {
+	return s.SourceReversed
+}
+
+// GetAcquisitions returns the value of Acquisitions.
+func (s *AssetClearingItem) GetAcquisitions() []AssetClearingAcquisition {
+	return s.Acquisitions
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetClearingItem) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetEntryID sets the value of EntryID.
+func (s *AssetClearingItem) SetEntryID(val uuid.UUID) {
+	s.EntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *AssetClearingItem) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetClearingItem) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *AssetClearingItem) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetSourceContext sets the value of SourceContext.
+func (s *AssetClearingItem) SetSourceContext(val string) {
+	s.SourceContext = val
+}
+
+// SetSourceDocumentID sets the value of SourceDocumentID.
+func (s *AssetClearingItem) SetSourceDocumentID(val OptUUID) {
+	s.SourceDocumentID = val
+}
+
+// SetSupplierInvoice sets the value of SupplierInvoice.
+func (s *AssetClearingItem) SetSupplierInvoice(val OptAssetSupplierInvoiceRef) {
+	s.SupplierInvoice = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *AssetClearingItem) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *AssetClearingItem) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *AssetClearingItem) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AssetClearingItem) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetAmountLc sets the value of AmountLc.
+func (s *AssetClearingItem) SetAmountLc(val Money) {
+	s.AmountLc = val
+}
+
+// SetAmountGc sets the value of AmountGc.
+func (s *AssetClearingItem) SetAmountGc(val Money) {
+	s.AmountGc = val
+}
+
+// SetUsed sets the value of Used.
+func (s *AssetClearingItem) SetUsed(val Money) {
+	s.Used = val
+}
+
+// SetUsedLc sets the value of UsedLc.
+func (s *AssetClearingItem) SetUsedLc(val Money) {
+	s.UsedLc = val
+}
+
+// SetUsedGc sets the value of UsedGc.
+func (s *AssetClearingItem) SetUsedGc(val Money) {
+	s.UsedGc = val
+}
+
+// SetRemaining sets the value of Remaining.
+func (s *AssetClearingItem) SetRemaining(val Money) {
+	s.Remaining = val
+}
+
+// SetRemainingLc sets the value of RemainingLc.
+func (s *AssetClearingItem) SetRemainingLc(val Money) {
+	s.RemainingLc = val
+}
+
+// SetRemainingGc sets the value of RemainingGc.
+func (s *AssetClearingItem) SetRemainingGc(val Money) {
+	s.RemainingGc = val
+}
+
+// SetSourceReversed sets the value of SourceReversed.
+func (s *AssetClearingItem) SetSourceReversed(val bool) {
+	s.SourceReversed = val
+}
+
+// SetAcquisitions sets the value of Acquisitions.
+func (s *AssetClearingItem) SetAcquisitions(val []AssetClearingAcquisition) {
+	s.Acquisitions = val
+}
+
+// One page of lines on asset clearing accounts.
+// Ref: #/components/schemas/AssetClearingItemPage
+type AssetClearingItemPage struct {
+	// The lines on this page.
+	Items []AssetClearingItem `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *AssetClearingItemPage) GetItems() []AssetClearingItem {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AssetClearingItemPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *AssetClearingItemPage) SetItems(val []AssetClearingItem) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AssetClearingItemPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*AssetClearingItemPage) listAssetClearingItemsRes() {}
+
 // A new asset: its company, class, description and centers. Its terms come from the class.
 // Ref: #/components/schemas/AssetCreate
 type AssetCreate struct {
@@ -3413,6 +4329,83 @@ func (s *AssetCreate) SetProfitCenterID(val OptUUID) {
 	s.ProfitCenterID = val
 }
 
+// One ledger's journal entry of an assets document.
+// Ref: #/components/schemas/AssetDocumentEntry
+type AssetDocumentEntry struct {
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// The entry's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's document number.
+	DocumentNumber string `json:"document_number"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *AssetDocumentEntry) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *AssetDocumentEntry) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *AssetDocumentEntry) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetDocumentEntry) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *AssetDocumentEntry) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *AssetDocumentEntry) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *AssetDocumentEntry) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *AssetDocumentEntry) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *AssetDocumentEntry) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetDocumentEntry) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *AssetDocumentEntry) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *AssetDocumentEntry) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
 // AssetHeaders wraps Asset with response headers.
 type AssetHeaders struct {
 	ETag               OptString
@@ -3463,6 +4456,115 @@ func (s *AssetHeaders) SetResponse(val Asset) {
 
 func (*AssetHeaders) createAssetRes() {}
 
+// An asset's values in one ledger (ADR-0057 §5): its acquisition cost, accumulated depreciation
+// (negative, the credit it is) and net book value, in the company's local currency and in group
+// currency as the ledger booked them.
+// Ref: #/components/schemas/AssetLedgerValues
+type AssetLedgerValues struct {
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName     string `json:"ledger_name"`
+	Cost           Money  `json:"cost"`
+	CostGc         Money  `json:"cost_gc"`
+	Accumulated    Money  `json:"accumulated"`
+	AccumulatedGc  Money  `json:"accumulated_gc"`
+	NetBookValue   Money  `json:"net_book_value"`
+	NetBookValueGc Money  `json:"net_book_value_gc"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *AssetLedgerValues) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *AssetLedgerValues) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *AssetLedgerValues) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetCost returns the value of Cost.
+func (s *AssetLedgerValues) GetCost() Money {
+	return s.Cost
+}
+
+// GetCostGc returns the value of CostGc.
+func (s *AssetLedgerValues) GetCostGc() Money {
+	return s.CostGc
+}
+
+// GetAccumulated returns the value of Accumulated.
+func (s *AssetLedgerValues) GetAccumulated() Money {
+	return s.Accumulated
+}
+
+// GetAccumulatedGc returns the value of AccumulatedGc.
+func (s *AssetLedgerValues) GetAccumulatedGc() Money {
+	return s.AccumulatedGc
+}
+
+// GetNetBookValue returns the value of NetBookValue.
+func (s *AssetLedgerValues) GetNetBookValue() Money {
+	return s.NetBookValue
+}
+
+// GetNetBookValueGc returns the value of NetBookValueGc.
+func (s *AssetLedgerValues) GetNetBookValueGc() Money {
+	return s.NetBookValueGc
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *AssetLedgerValues) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *AssetLedgerValues) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *AssetLedgerValues) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetCost sets the value of Cost.
+func (s *AssetLedgerValues) SetCost(val Money) {
+	s.Cost = val
+}
+
+// SetCostGc sets the value of CostGc.
+func (s *AssetLedgerValues) SetCostGc(val Money) {
+	s.CostGc = val
+}
+
+// SetAccumulated sets the value of Accumulated.
+func (s *AssetLedgerValues) SetAccumulated(val Money) {
+	s.Accumulated = val
+}
+
+// SetAccumulatedGc sets the value of AccumulatedGc.
+func (s *AssetLedgerValues) SetAccumulatedGc(val Money) {
+	s.AccumulatedGc = val
+}
+
+// SetNetBookValue sets the value of NetBookValue.
+func (s *AssetLedgerValues) SetNetBookValue(val Money) {
+	s.NetBookValue = val
+}
+
+// SetNetBookValueGc sets the value of NetBookValueGc.
+func (s *AssetLedgerValues) SetNetBookValueGc(val Money) {
+	s.NetBookValueGc = val
+}
+
 // One page of assets.
 // Ref: #/components/schemas/AssetPage
 type AssetPage struct {
@@ -3493,6 +4595,59 @@ func (s *AssetPage) SetNextPageToken(val OptString) {
 }
 
 func (*AssetPage) listAssetsRes() {}
+
+// A supplier invoice as an asset's acquisition names it.
+// Ref: #/components/schemas/AssetSupplierInvoiceRef
+type AssetSupplierInvoiceRef struct {
+	// The invoice's document number.
+	DocumentNumber string `json:"document_number"`
+	// The supplier's reference.
+	SupplierReference string `json:"supplier_reference"`
+	// The supplier.
+	SupplierID uuid.UUID `json:"supplier_id"`
+	// The supplier's name.
+	SupplierName string `json:"supplier_name"`
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *AssetSupplierInvoiceRef) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetSupplierReference returns the value of SupplierReference.
+func (s *AssetSupplierInvoiceRef) GetSupplierReference() string {
+	return s.SupplierReference
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *AssetSupplierInvoiceRef) GetSupplierID() uuid.UUID {
+	return s.SupplierID
+}
+
+// GetSupplierName returns the value of SupplierName.
+func (s *AssetSupplierInvoiceRef) GetSupplierName() string {
+	return s.SupplierName
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *AssetSupplierInvoiceRef) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetSupplierReference sets the value of SupplierReference.
+func (s *AssetSupplierInvoiceRef) SetSupplierReference(val string) {
+	s.SupplierReference = val
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *AssetSupplierInvoiceRef) SetSupplierID(val uuid.UUID) {
+	s.SupplierID = val
+}
+
+// SetSupplierName sets the value of SupplierName.
+func (s *AssetSupplierInvoiceRef) SetSupplierName(val string) {
+	s.SupplierName = val
+}
 
 // An asset's depreciation terms in one ledger (ADR-0057 §7): one depreciation area.
 // Ref: #/components/schemas/AssetTerms
@@ -9801,6 +10956,282 @@ func (s *ClearingPage) SetTotalEstimate(val OptInt64) {
 
 func (*ClearingPage) listClearingsRes() {}
 
+// A legal entity's close calendar of one fiscal year (ADR-0058 §3): its leading ledger's regular
+// periods with their planned due dates.
+// Ref: #/components/schemas/CloseCalendar
+type CloseCalendar struct {
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code; absent when the caller cannot act in it or it does not exist.
+	CompanyCode OptString `json:"company_code"`
+	// The legal entity's name; absent when `company_code` is.
+	CompanyName OptString `json:"company_name"`
+	// Fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The leading ledger, whose periods the rows are (`0L`).
+	LedgerCode string `json:"ledger_code"`
+	// The leading ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// The company's weekend days, which are no business days (its calendar's; default Saturday and
+	// Sunday); absent when `company_code` is.
+	Weekend []string `json:"weekend"`
+	// The regular periods of the fiscal year, by period number.
+	Periods []CloseCalendarPeriod `json:"periods"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CloseCalendar) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CloseCalendar) GetCompanyCode() OptString {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CloseCalendar) GetCompanyName() OptString {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *CloseCalendar) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *CloseCalendar) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *CloseCalendar) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetWeekend returns the value of Weekend.
+func (s *CloseCalendar) GetWeekend() []string {
+	return s.Weekend
+}
+
+// GetPeriods returns the value of Periods.
+func (s *CloseCalendar) GetPeriods() []CloseCalendarPeriod {
+	return s.Periods
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CloseCalendar) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CloseCalendar) SetCompanyCode(val OptString) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CloseCalendar) SetCompanyName(val OptString) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *CloseCalendar) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *CloseCalendar) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *CloseCalendar) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetWeekend sets the value of Weekend.
+func (s *CloseCalendar) SetWeekend(val []string) {
+	s.Weekend = val
+}
+
+// SetPeriods sets the value of Periods.
+func (s *CloseCalendar) SetPeriods(val []CloseCalendarPeriod) {
+	s.Periods = val
+}
+
+func (*CloseCalendar) getCloseCalendarRes() {}
+
+// A period's close on the close calendar (T64b): its id, status and the counts of its tasks.
+// Ref: #/components/schemas/CloseCalendarClose
+type CloseCalendarClose struct {
+	// The period close (`GET /v1/period-closes/{id}`).
+	ID uuid.UUID `json:"id"`
+	// Period close status. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+	// Its tasks.
+	TasksTotal int32 `json:"tasks_total"`
+	// Its tasks done.
+	TasksDone int32 `json:"tasks_done"`
+	// Its tasks open and due before the company's date at the read.
+	TasksOverdue int32 `json:"tasks_overdue"`
+}
+
+// GetID returns the value of ID.
+func (s *CloseCalendarClose) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetStatus returns the value of Status.
+func (s *CloseCalendarClose) GetStatus() string {
+	return s.Status
+}
+
+// GetTasksTotal returns the value of TasksTotal.
+func (s *CloseCalendarClose) GetTasksTotal() int32 {
+	return s.TasksTotal
+}
+
+// GetTasksDone returns the value of TasksDone.
+func (s *CloseCalendarClose) GetTasksDone() int32 {
+	return s.TasksDone
+}
+
+// GetTasksOverdue returns the value of TasksOverdue.
+func (s *CloseCalendarClose) GetTasksOverdue() int32 {
+	return s.TasksOverdue
+}
+
+// SetID sets the value of ID.
+func (s *CloseCalendarClose) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CloseCalendarClose) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetTasksTotal sets the value of TasksTotal.
+func (s *CloseCalendarClose) SetTasksTotal(val int32) {
+	s.TasksTotal = val
+}
+
+// SetTasksDone sets the value of TasksDone.
+func (s *CloseCalendarClose) SetTasksDone(val int32) {
+	s.TasksDone = val
+}
+
+// SetTasksOverdue sets the value of TasksOverdue.
+func (s *CloseCalendarClose) SetTasksOverdue(val int32) {
+	s.TasksOverdue = val
+}
+
+// One regular period of a close calendar: the leading ledger's posting period and the planned first
+// and last due dates of its close's tasks.
+// Ref: #/components/schemas/CloseCalendarPeriod
+type CloseCalendarPeriod struct {
+	// The leading ledger's posting period (`GET /v1/fiscal-periods/{id}`).
+	FiscalPeriodID uuid.UUID `json:"fiscal_period_id"`
+	// Period number (1-12).
+	Period int32 `json:"period"`
+	// First day.
+	StartDate time.Time `json:"start_date"`
+	// Last day.
+	EndDate time.Time `json:"end_date"`
+	// The period's posting status. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Status string `json:"status"`
+	// The earliest due date of the period's close's tasks when it has a close (T64b), else of the
+	// template's tasks for the company in this period, a business day unless a task is due on the period's
+	// last day itself (`due_day` 0); absent without a task.
+	FirstDueOn OptDate `json:"first_due_on"`
+	// The latest due date of the period's close's tasks when it has a close, else of the template's tasks
+	// for the company in this period; absent without a task.
+	LastDueOn OptDate               `json:"last_due_on"`
+	Close     OptCloseCalendarClose `json:"close"`
+}
+
+// GetFiscalPeriodID returns the value of FiscalPeriodID.
+func (s *CloseCalendarPeriod) GetFiscalPeriodID() uuid.UUID {
+	return s.FiscalPeriodID
+}
+
+// GetPeriod returns the value of Period.
+func (s *CloseCalendarPeriod) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetStartDate returns the value of StartDate.
+func (s *CloseCalendarPeriod) GetStartDate() time.Time {
+	return s.StartDate
+}
+
+// GetEndDate returns the value of EndDate.
+func (s *CloseCalendarPeriod) GetEndDate() time.Time {
+	return s.EndDate
+}
+
+// GetStatus returns the value of Status.
+func (s *CloseCalendarPeriod) GetStatus() string {
+	return s.Status
+}
+
+// GetFirstDueOn returns the value of FirstDueOn.
+func (s *CloseCalendarPeriod) GetFirstDueOn() OptDate {
+	return s.FirstDueOn
+}
+
+// GetLastDueOn returns the value of LastDueOn.
+func (s *CloseCalendarPeriod) GetLastDueOn() OptDate {
+	return s.LastDueOn
+}
+
+// GetClose returns the value of Close.
+func (s *CloseCalendarPeriod) GetClose() OptCloseCalendarClose {
+	return s.Close
+}
+
+// SetFiscalPeriodID sets the value of FiscalPeriodID.
+func (s *CloseCalendarPeriod) SetFiscalPeriodID(val uuid.UUID) {
+	s.FiscalPeriodID = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *CloseCalendarPeriod) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetStartDate sets the value of StartDate.
+func (s *CloseCalendarPeriod) SetStartDate(val time.Time) {
+	s.StartDate = val
+}
+
+// SetEndDate sets the value of EndDate.
+func (s *CloseCalendarPeriod) SetEndDate(val time.Time) {
+	s.EndDate = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CloseCalendarPeriod) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetFirstDueOn sets the value of FirstDueOn.
+func (s *CloseCalendarPeriod) SetFirstDueOn(val OptDate) {
+	s.FirstDueOn = val
+}
+
+// SetLastDueOn sets the value of LastDueOn.
+func (s *CloseCalendarPeriod) SetLastDueOn(val OptDate) {
+	s.LastDueOn = val
+}
+
+// SetClose sets the value of Close.
+func (s *CloseCalendarPeriod) SetClose(val OptCloseCalendarClose) {
+	s.Close = val
+}
+
 type CloseFiscalPeriodBadRequest Problem
 
 func (*CloseFiscalPeriodBadRequest) closeFiscalPeriodRes() {}
@@ -9867,6 +11298,84 @@ type CloseFiscalPeriodUnprocessableEntity Problem
 
 func (*CloseFiscalPeriodUnprocessableEntity) closeFiscalPeriodRes() {}
 
+// A ledger a period close covers, with its period's live posting status.
+// Ref: #/components/schemas/CloseLedger
+type CloseLedger struct {
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code (`0L`, `2L`).
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// Whether it is the leading ledger.
+	IsLeading bool `json:"is_leading"`
+	// The ledger's posting period of the close (`GET /v1/fiscal-periods/{id}`).
+	FiscalPeriodID uuid.UUID `json:"fiscal_period_id"`
+	// The period's posting status now. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	PeriodStatus string `json:"period_status"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *CloseLedger) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *CloseLedger) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *CloseLedger) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetIsLeading returns the value of IsLeading.
+func (s *CloseLedger) GetIsLeading() bool {
+	return s.IsLeading
+}
+
+// GetFiscalPeriodID returns the value of FiscalPeriodID.
+func (s *CloseLedger) GetFiscalPeriodID() uuid.UUID {
+	return s.FiscalPeriodID
+}
+
+// GetPeriodStatus returns the value of PeriodStatus.
+func (s *CloseLedger) GetPeriodStatus() string {
+	return s.PeriodStatus
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *CloseLedger) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *CloseLedger) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *CloseLedger) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetIsLeading sets the value of IsLeading.
+func (s *CloseLedger) SetIsLeading(val bool) {
+	s.IsLeading = val
+}
+
+// SetFiscalPeriodID sets the value of FiscalPeriodID.
+func (s *CloseLedger) SetFiscalPeriodID(val uuid.UUID) {
+	s.FiscalPeriodID = val
+}
+
+// SetPeriodStatus sets the value of PeriodStatus.
+func (s *CloseLedger) SetPeriodStatus(val string) {
+	s.PeriodStatus = val
+}
+
 type ClosePurchaseOrderBadRequest Problem
 
 func (*ClosePurchaseOrderBadRequest) closePurchaseOrderRes() {}
@@ -9890,6 +11399,407 @@ func (*ClosePurchaseOrderPreconditionRequired) closePurchaseOrderRes() {}
 type ClosePurchaseOrderUnprocessableEntity Problem
 
 func (*ClosePurchaseOrderUnprocessableEntity) closePurchaseOrderRes() {}
+
+// A task of a period close (ADR-0058 §6), with its close and company.
+// Ref: #/components/schemas/CloseTask
+type CloseTask struct {
+	// The period close (`GET /v1/period-closes/{id}`).
+	CloseID uuid.UUID `json:"close_id"`
+	// The close's version, whose ETag (`"<close_version>"`) the task's actions take as `If-Match`.
+	CloseVersion int32 `json:"close_version"`
+	// The close's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The close's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The close's period.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The template task's code, unique in the close.
+	Code string `json:"code"`
+	// Its place in the template's order.
+	Seq int32 `json:"seq"`
+	// What is to be done.
+	Name string `json:"name"`
+	// `manual`: a person completes it; `check`: the system runs it (later slices). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Kind string `json:"kind"`
+	// The check a `check` task runs; absent for a manual task.
+	Check OptString `json:"check"`
+	// Its due date: `due_day` business days of the company after the period's last day.
+	DueOn time.Time `json:"due_on"`
+	// The codes of the tasks of the close it waits for.
+	DependsOn []string `json:"depends_on"`
+	// The codes of the tasks it depends on that are still open: while any is, it cannot be completed.
+	BlockedBy []string `json:"blocked_by"`
+	// The person it is assigned to; absent when nobody is.
+	AssigneeID OptUUID `json:"assignee_id"`
+	// The assignee's name; absent when `assignee_id` is.
+	AssigneeName OptString `json:"assignee_name"`
+	// Close task status. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Status string `json:"status"`
+	// Open and due before `read_date`.
+	Overdue bool `json:"overdue"`
+	// The company's date at the read in its time zone, on which `overdue` is judged.
+	ReadDate time.Time `json:"read_date"`
+	// Who completed it; absent while it is open.
+	CompletedBy OptUUID `json:"completed_by"`
+	// Their name; absent while it is open.
+	CompletedByName OptString `json:"completed_by_name"`
+	// When it was completed; absent while it is open.
+	CompletedAt OptDateTime `json:"completed_at"`
+	// The note given when it was completed; absent without one.
+	Note OptString `json:"note"`
+}
+
+// GetCloseID returns the value of CloseID.
+func (s *CloseTask) GetCloseID() uuid.UUID {
+	return s.CloseID
+}
+
+// GetCloseVersion returns the value of CloseVersion.
+func (s *CloseTask) GetCloseVersion() int32 {
+	return s.CloseVersion
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CloseTask) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CloseTask) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CloseTask) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *CloseTask) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *CloseTask) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetCode returns the value of Code.
+func (s *CloseTask) GetCode() string {
+	return s.Code
+}
+
+// GetSeq returns the value of Seq.
+func (s *CloseTask) GetSeq() int32 {
+	return s.Seq
+}
+
+// GetName returns the value of Name.
+func (s *CloseTask) GetName() string {
+	return s.Name
+}
+
+// GetKind returns the value of Kind.
+func (s *CloseTask) GetKind() string {
+	return s.Kind
+}
+
+// GetCheck returns the value of Check.
+func (s *CloseTask) GetCheck() OptString {
+	return s.Check
+}
+
+// GetDueOn returns the value of DueOn.
+func (s *CloseTask) GetDueOn() time.Time {
+	return s.DueOn
+}
+
+// GetDependsOn returns the value of DependsOn.
+func (s *CloseTask) GetDependsOn() []string {
+	return s.DependsOn
+}
+
+// GetBlockedBy returns the value of BlockedBy.
+func (s *CloseTask) GetBlockedBy() []string {
+	return s.BlockedBy
+}
+
+// GetAssigneeID returns the value of AssigneeID.
+func (s *CloseTask) GetAssigneeID() OptUUID {
+	return s.AssigneeID
+}
+
+// GetAssigneeName returns the value of AssigneeName.
+func (s *CloseTask) GetAssigneeName() OptString {
+	return s.AssigneeName
+}
+
+// GetStatus returns the value of Status.
+func (s *CloseTask) GetStatus() string {
+	return s.Status
+}
+
+// GetOverdue returns the value of Overdue.
+func (s *CloseTask) GetOverdue() bool {
+	return s.Overdue
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *CloseTask) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetCompletedBy returns the value of CompletedBy.
+func (s *CloseTask) GetCompletedBy() OptUUID {
+	return s.CompletedBy
+}
+
+// GetCompletedByName returns the value of CompletedByName.
+func (s *CloseTask) GetCompletedByName() OptString {
+	return s.CompletedByName
+}
+
+// GetCompletedAt returns the value of CompletedAt.
+func (s *CloseTask) GetCompletedAt() OptDateTime {
+	return s.CompletedAt
+}
+
+// GetNote returns the value of Note.
+func (s *CloseTask) GetNote() OptString {
+	return s.Note
+}
+
+// SetCloseID sets the value of CloseID.
+func (s *CloseTask) SetCloseID(val uuid.UUID) {
+	s.CloseID = val
+}
+
+// SetCloseVersion sets the value of CloseVersion.
+func (s *CloseTask) SetCloseVersion(val int32) {
+	s.CloseVersion = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CloseTask) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CloseTask) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CloseTask) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *CloseTask) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *CloseTask) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetCode sets the value of Code.
+func (s *CloseTask) SetCode(val string) {
+	s.Code = val
+}
+
+// SetSeq sets the value of Seq.
+func (s *CloseTask) SetSeq(val int32) {
+	s.Seq = val
+}
+
+// SetName sets the value of Name.
+func (s *CloseTask) SetName(val string) {
+	s.Name = val
+}
+
+// SetKind sets the value of Kind.
+func (s *CloseTask) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetCheck sets the value of Check.
+func (s *CloseTask) SetCheck(val OptString) {
+	s.Check = val
+}
+
+// SetDueOn sets the value of DueOn.
+func (s *CloseTask) SetDueOn(val time.Time) {
+	s.DueOn = val
+}
+
+// SetDependsOn sets the value of DependsOn.
+func (s *CloseTask) SetDependsOn(val []string) {
+	s.DependsOn = val
+}
+
+// SetBlockedBy sets the value of BlockedBy.
+func (s *CloseTask) SetBlockedBy(val []string) {
+	s.BlockedBy = val
+}
+
+// SetAssigneeID sets the value of AssigneeID.
+func (s *CloseTask) SetAssigneeID(val OptUUID) {
+	s.AssigneeID = val
+}
+
+// SetAssigneeName sets the value of AssigneeName.
+func (s *CloseTask) SetAssigneeName(val OptString) {
+	s.AssigneeName = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CloseTask) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetOverdue sets the value of Overdue.
+func (s *CloseTask) SetOverdue(val bool) {
+	s.Overdue = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *CloseTask) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetCompletedBy sets the value of CompletedBy.
+func (s *CloseTask) SetCompletedBy(val OptUUID) {
+	s.CompletedBy = val
+}
+
+// SetCompletedByName sets the value of CompletedByName.
+func (s *CloseTask) SetCompletedByName(val OptString) {
+	s.CompletedByName = val
+}
+
+// SetCompletedAt sets the value of CompletedAt.
+func (s *CloseTask) SetCompletedAt(val OptDateTime) {
+	s.CompletedAt = val
+}
+
+// SetNote sets the value of Note.
+func (s *CloseTask) SetNote(val OptString) {
+	s.Note = val
+}
+
+// A manual task's completion.
+// Ref: #/components/schemas/CloseTaskComplete
+type CloseTaskComplete struct {
+	// What was done; kept on the task and in the audit trail.
+	Note OptString `json:"note"`
+}
+
+// GetNote returns the value of Note.
+func (s *CloseTaskComplete) GetNote() OptString {
+	return s.Note
+}
+
+// SetNote sets the value of Note.
+func (s *CloseTaskComplete) SetNote(val OptString) {
+	s.Note = val
+}
+
+// CloseTaskHeaders wraps CloseTask with response headers.
+type CloseTaskHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           CloseTask
+}
+
+// GetETag returns the value of ETag.
+func (s *CloseTaskHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CloseTaskHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *CloseTaskHeaders) GetResponse() CloseTask {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CloseTaskHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CloseTaskHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CloseTaskHeaders) SetResponse(val CloseTask) {
+	s.Response = val
+}
+
+func (*CloseTaskHeaders) completeCloseTaskRes() {}
+func (*CloseTaskHeaders) reopenCloseTaskRes()   {}
+func (*CloseTaskHeaders) updateCloseTaskRes()   {}
+
+// One page of close tasks.
+// Ref: #/components/schemas/CloseTaskPage
+type CloseTaskPage struct {
+	// The close tasks on this page.
+	Items []CloseTask `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CloseTaskPage) GetItems() []CloseTask {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CloseTaskPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CloseTaskPage) SetItems(val []CloseTask) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CloseTaskPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CloseTaskPage) listCloseTasksRes() {}
+
+// Merge patch of a close task.
+// Ref: #/components/schemas/CloseTaskUpdate
+type CloseTaskUpdate struct {
+	// An active person of the tenant. Send null to unassign.
+	AssigneeID OptNilUUID `json:"assignee_id"`
+}
+
+// GetAssigneeID returns the value of AssigneeID.
+func (s *CloseTaskUpdate) GetAssigneeID() OptNilUUID {
+	return s.AssigneeID
+}
+
+// SetAssigneeID sets the value of AssigneeID.
+func (s *CloseTaskUpdate) SetAssigneeID(val OptNilUUID) {
+	s.AssigneeID = val
+}
 
 // The tax calculated at one tax code's rates.
 // Ref: #/components/schemas/CodeTax
@@ -10253,6 +12163,30 @@ func (s *CompanyAccountSettings) SetDeterminationKeys(val []string) {
 	s.DeterminationKeys = val
 }
 
+type CompleteCloseTaskBadRequest Problem
+
+func (*CompleteCloseTaskBadRequest) completeCloseTaskRes() {}
+
+type CompleteCloseTaskForbidden Problem
+
+func (*CompleteCloseTaskForbidden) completeCloseTaskRes() {}
+
+type CompleteCloseTaskNotFound Problem
+
+func (*CompleteCloseTaskNotFound) completeCloseTaskRes() {}
+
+type CompleteCloseTaskPreconditionFailed Problem
+
+func (*CompleteCloseTaskPreconditionFailed) completeCloseTaskRes() {}
+
+type CompleteCloseTaskPreconditionRequired Problem
+
+func (*CompleteCloseTaskPreconditionRequired) completeCloseTaskRes() {}
+
+type CompleteCloseTaskUnprocessableEntity Problem
+
+func (*CompleteCloseTaskUnprocessableEntity) completeCloseTaskRes() {}
+
 // An immutable, activated configuration version. Insert-only; `activated_*` play the role of
 // `created_*`.
 // Ref: #/components/schemas/ConfigVersion
@@ -10509,6 +12443,8 @@ func (*ConflictHeaders) captureSupplierInvoiceRes()           {}
 func (*ConflictHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*ConflictHeaders) closeFiscalPeriodRes()                {}
 func (*ConflictHeaders) closePurchaseOrderRes()               {}
+func (*ConflictHeaders) completeCloseTaskRes()                {}
+func (*ConflictHeaders) createAssetAcquisitionRes()           {}
 func (*ConflictHeaders) createAssetRes()                      {}
 func (*ConflictHeaders) createBusinessPartnerRes()            {}
 func (*ConflictHeaders) createChangeRequestRes()              {}
@@ -10527,6 +12463,7 @@ func (*ConflictHeaders) createMemoRecordRes()                 {}
 func (*ConflictHeaders) createMigrationRunRes()               {}
 func (*ConflictHeaders) createOrgUnitRes()                    {}
 func (*ConflictHeaders) createPartnerChangeRes()              {}
+func (*ConflictHeaders) createPeriodCloseRes()                {}
 func (*ConflictHeaders) createPlanCategoryRes()               {}
 func (*ConflictHeaders) createPrincipalRes()                  {}
 func (*ConflictHeaders) createProfitCenterRes()               {}
@@ -10554,12 +12491,16 @@ func (*ConflictHeaders) excludeBankStatementLineRes()         {}
 func (*ConflictHeaders) fileTaxReturnRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                {}
 func (*ConflictHeaders) getBankFileContentRes()               {}
+func (*ConflictHeaders) getCloseCalendarRes()                 {}
 func (*ConflictHeaders) getLegalEntityTodayRes()              {}
+func (*ConflictHeaders) getPeriodCloseRes()                   {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()         {}
 func (*ConflictHeaders) getTaxReturnDraftRes()                {}
 func (*ConflictHeaders) grantRolePermissionRes()              {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()              {}
 func (*ConflictHeaders) importBankStatementsRes()             {}
+func (*ConflictHeaders) listCloseTasksRes()                   {}
+func (*ConflictHeaders) listPeriodClosesRes()                 {}
 func (*ConflictHeaders) listTaxPeriodsRes()                   {}
 func (*ConflictHeaders) listTaxReturnDraftItemsRes()          {}
 func (*ConflictHeaders) lockCostCenterRes()                   {}
@@ -10606,6 +12547,7 @@ func (*ConflictHeaders) releaseSupplierInvoiceRes()           {}
 func (*ConflictHeaders) removeHierarchyNodeRes()              {}
 func (*ConflictHeaders) renameHierarchyNodeRes()              {}
 func (*ConflictHeaders) renewContractRes()                    {}
+func (*ConflictHeaders) reopenCloseTaskRes()                  {}
 func (*ConflictHeaders) replayWebhookDeliveriesRes()          {}
 func (*ConflictHeaders) reportBankFileStatusRes()             {}
 func (*ConflictHeaders) requestBankAccountChangeRes()         {}
@@ -10634,6 +12576,7 @@ func (*ConflictHeaders) unlockPlanCategoryRes()               {}
 func (*ConflictHeaders) updateAiPolicyRes()                   {}
 func (*ConflictHeaders) updateAssetRes()                      {}
 func (*ConflictHeaders) updateChangeRequestRes()              {}
+func (*ConflictHeaders) updateCloseTaskRes()                  {}
 func (*ConflictHeaders) updateConnectorRes()                  {}
 func (*ConflictHeaders) updateContractRes()                   {}
 func (*ConflictHeaders) updateCostCenterRes()                 {}
@@ -13107,6 +15050,30 @@ func (s *CountryPackSource) SetRetrieved(val string) {
 	s.Retrieved = val
 }
 
+type CreateAssetAcquisitionBadRequest Problem
+
+func (*CreateAssetAcquisitionBadRequest) createAssetAcquisitionRes() {}
+
+type CreateAssetAcquisitionForbidden Problem
+
+func (*CreateAssetAcquisitionForbidden) createAssetAcquisitionRes() {}
+
+type CreateAssetAcquisitionNotFound Problem
+
+func (*CreateAssetAcquisitionNotFound) createAssetAcquisitionRes() {}
+
+type CreateAssetAcquisitionPreconditionFailed Problem
+
+func (*CreateAssetAcquisitionPreconditionFailed) createAssetAcquisitionRes() {}
+
+type CreateAssetAcquisitionPreconditionRequired Problem
+
+func (*CreateAssetAcquisitionPreconditionRequired) createAssetAcquisitionRes() {}
+
+type CreateAssetAcquisitionUnprocessableEntity Problem
+
+func (*CreateAssetAcquisitionUnprocessableEntity) createAssetAcquisitionRes() {}
+
 type CreateAssetBadRequest Problem
 
 func (*CreateAssetBadRequest) createAssetRes() {}
@@ -13460,6 +15427,22 @@ func (*CreatePartnerChangePreconditionRequired) createPartnerChangeRes() {}
 type CreatePartnerChangeUnprocessableEntity Problem
 
 func (*CreatePartnerChangeUnprocessableEntity) createPartnerChangeRes() {}
+
+type CreatePeriodCloseBadRequest Problem
+
+func (*CreatePeriodCloseBadRequest) createPeriodCloseRes() {}
+
+type CreatePeriodCloseForbidden Problem
+
+func (*CreatePeriodCloseForbidden) createPeriodCloseRes() {}
+
+type CreatePeriodClosePreconditionRequired Problem
+
+func (*CreatePeriodClosePreconditionRequired) createPeriodCloseRes() {}
+
+type CreatePeriodCloseUnprocessableEntity Problem
+
+func (*CreatePeriodCloseUnprocessableEntity) createPeriodCloseRes() {}
 
 type CreatePlanCategoryBadRequest Problem
 
@@ -16765,6 +18748,46 @@ type GetApprovalRequestNotFound Problem
 
 func (*GetApprovalRequestNotFound) getApprovalRequestRes() {}
 
+type GetAssetAcquisitionBadRequest Problem
+
+func (*GetAssetAcquisitionBadRequest) getAssetAcquisitionRes() {}
+
+type GetAssetAcquisitionForbidden Problem
+
+func (*GetAssetAcquisitionForbidden) getAssetAcquisitionRes() {}
+
+type GetAssetAcquisitionNotFound Problem
+
+func (*GetAssetAcquisitionNotFound) getAssetAcquisitionRes() {}
+
+// GetAssetAcquisitionOKHeaders wraps AssetAcquisition with response headers.
+type GetAssetAcquisitionOKHeaders struct {
+	ETag     OptString
+	Response AssetAcquisition
+}
+
+// GetETag returns the value of ETag.
+func (s *GetAssetAcquisitionOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetAssetAcquisitionOKHeaders) GetResponse() AssetAcquisition {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetAssetAcquisitionOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetAssetAcquisitionOKHeaders) SetResponse(val AssetAcquisition) {
+	s.Response = val
+}
+
+func (*GetAssetAcquisitionOKHeaders) getAssetAcquisitionRes() {}
+
 type GetAssetBadRequest Problem
 
 func (*GetAssetBadRequest) getAssetRes() {}
@@ -17074,6 +19097,14 @@ func (s *GetClearingOKHeaders) SetResponse(val Clearing) {
 }
 
 func (*GetClearingOKHeaders) getClearingRes() {}
+
+type GetCloseCalendarBadRequest Problem
+
+func (*GetCloseCalendarBadRequest) getCloseCalendarRes() {}
+
+type GetCloseCalendarForbidden Problem
+
+func (*GetCloseCalendarForbidden) getCloseCalendarRes() {}
 
 type GetCompanyAccessBadRequest Problem
 
@@ -17850,6 +19881,46 @@ func (*GetPaymentRunForbidden) getPaymentRunRes() {}
 type GetPaymentRunNotFound Problem
 
 func (*GetPaymentRunNotFound) getPaymentRunRes() {}
+
+type GetPeriodCloseBadRequest Problem
+
+func (*GetPeriodCloseBadRequest) getPeriodCloseRes() {}
+
+type GetPeriodCloseForbidden Problem
+
+func (*GetPeriodCloseForbidden) getPeriodCloseRes() {}
+
+type GetPeriodCloseNotFound Problem
+
+func (*GetPeriodCloseNotFound) getPeriodCloseRes() {}
+
+// GetPeriodCloseOKHeaders wraps PeriodClose with response headers.
+type GetPeriodCloseOKHeaders struct {
+	ETag     OptString
+	Response PeriodClose
+}
+
+// GetETag returns the value of ETag.
+func (s *GetPeriodCloseOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetPeriodCloseOKHeaders) GetResponse() PeriodClose {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetPeriodCloseOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetPeriodCloseOKHeaders) SetResponse(val PeriodClose) {
+	s.Response = val
+}
+
+func (*GetPeriodCloseOKHeaders) getPeriodCloseRes() {}
 
 type GetPlanCategoryBadRequest Problem
 
@@ -23700,6 +25771,14 @@ type ListApprovalRequestsForbidden Problem
 
 func (*ListApprovalRequestsForbidden) listApprovalRequestsRes() {}
 
+type ListAssetAcquisitionsBadRequest Problem
+
+func (*ListAssetAcquisitionsBadRequest) listAssetAcquisitionsRes() {}
+
+type ListAssetAcquisitionsForbidden Problem
+
+func (*ListAssetAcquisitionsForbidden) listAssetAcquisitionsRes() {}
+
 type ListAssetClassesBadRequest Problem
 
 func (*ListAssetClassesBadRequest) listAssetClassesRes() {}
@@ -23707,6 +25786,14 @@ func (*ListAssetClassesBadRequest) listAssetClassesRes() {}
 type ListAssetClassesForbidden Problem
 
 func (*ListAssetClassesForbidden) listAssetClassesRes() {}
+
+type ListAssetClearingItemsBadRequest Problem
+
+func (*ListAssetClearingItemsBadRequest) listAssetClearingItemsRes() {}
+
+type ListAssetClearingItemsForbidden Problem
+
+func (*ListAssetClearingItemsForbidden) listAssetClearingItemsRes() {}
 
 type ListAssetsBadRequest Problem
 
@@ -23815,6 +25902,14 @@ func (*ListClearingsBadRequest) listClearingsRes() {}
 type ListClearingsForbidden Problem
 
 func (*ListClearingsForbidden) listClearingsRes() {}
+
+type ListCloseTasksBadRequest Problem
+
+func (*ListCloseTasksBadRequest) listCloseTasksRes() {}
+
+type ListCloseTasksForbidden Problem
+
+func (*ListCloseTasksForbidden) listCloseTasksRes() {}
 
 type ListCompanyAccessBadRequest Problem
 
@@ -24123,6 +26218,14 @@ func (*ListPaymentsForbidden) listPaymentsRes() {}
 type ListPaymentsNotFound Problem
 
 func (*ListPaymentsNotFound) listPaymentsRes() {}
+
+type ListPeriodClosesBadRequest Problem
+
+func (*ListPeriodClosesBadRequest) listPeriodClosesRes() {}
+
+type ListPeriodClosesForbidden Problem
+
+func (*ListPeriodClosesForbidden) listPeriodClosesRes() {}
 
 type ListPlanCategoriesBadRequest Problem
 
@@ -28608,6 +30711,98 @@ func (o OptAnalyticsDerived) Or(d AnalyticsDerived) AnalyticsDerived {
 	return d
 }
 
+// NewOptAssetAcquisitionSource returns new OptAssetAcquisitionSource with value set to v.
+func NewOptAssetAcquisitionSource(v AssetAcquisitionSource) OptAssetAcquisitionSource {
+	return OptAssetAcquisitionSource{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetAcquisitionSource is optional AssetAcquisitionSource.
+type OptAssetAcquisitionSource struct {
+	Value AssetAcquisitionSource
+	Set   bool
+}
+
+// IsSet returns true if OptAssetAcquisitionSource was set.
+func (o OptAssetAcquisitionSource) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetAcquisitionSource) Reset() {
+	var v AssetAcquisitionSource
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetAcquisitionSource) SetTo(v AssetAcquisitionSource) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetAcquisitionSource) Get() (v AssetAcquisitionSource, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetAcquisitionSource) Or(d AssetAcquisitionSource) AssetAcquisitionSource {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssetSupplierInvoiceRef returns new OptAssetSupplierInvoiceRef with value set to v.
+func NewOptAssetSupplierInvoiceRef(v AssetSupplierInvoiceRef) OptAssetSupplierInvoiceRef {
+	return OptAssetSupplierInvoiceRef{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetSupplierInvoiceRef is optional AssetSupplierInvoiceRef.
+type OptAssetSupplierInvoiceRef struct {
+	Value AssetSupplierInvoiceRef
+	Set   bool
+}
+
+// IsSet returns true if OptAssetSupplierInvoiceRef was set.
+func (o OptAssetSupplierInvoiceRef) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetSupplierInvoiceRef) Reset() {
+	var v AssetSupplierInvoiceRef
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetSupplierInvoiceRef) SetTo(v AssetSupplierInvoiceRef) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetSupplierInvoiceRef) Get() (v AssetSupplierInvoiceRef, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetSupplierInvoiceRef) Or(d AssetSupplierInvoiceRef) AssetSupplierInvoiceRef {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptBankReconciliationFigures returns new OptBankReconciliationFigures with value set to v.
 func NewOptBankReconciliationFigures(v BankReconciliationFigures) OptBankReconciliationFigures {
 	return OptBankReconciliationFigures{
@@ -28832,6 +31027,98 @@ func (o OptChangeRequestUpdateProposed) Get() (v ChangeRequestUpdateProposed, ok
 
 // Or returns value if set, or given parameter if does not.
 func (o OptChangeRequestUpdateProposed) Or(d ChangeRequestUpdateProposed) ChangeRequestUpdateProposed {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptCloseCalendarClose returns new OptCloseCalendarClose with value set to v.
+func NewOptCloseCalendarClose(v CloseCalendarClose) OptCloseCalendarClose {
+	return OptCloseCalendarClose{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptCloseCalendarClose is optional CloseCalendarClose.
+type OptCloseCalendarClose struct {
+	Value CloseCalendarClose
+	Set   bool
+}
+
+// IsSet returns true if OptCloseCalendarClose was set.
+func (o OptCloseCalendarClose) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptCloseCalendarClose) Reset() {
+	var v CloseCalendarClose
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptCloseCalendarClose) SetTo(v CloseCalendarClose) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptCloseCalendarClose) Get() (v CloseCalendarClose, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptCloseCalendarClose) Or(d CloseCalendarClose) CloseCalendarClose {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptCloseTaskComplete returns new OptCloseTaskComplete with value set to v.
+func NewOptCloseTaskComplete(v CloseTaskComplete) OptCloseTaskComplete {
+	return OptCloseTaskComplete{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptCloseTaskComplete is optional CloseTaskComplete.
+type OptCloseTaskComplete struct {
+	Value CloseTaskComplete
+	Set   bool
+}
+
+// IsSet returns true if OptCloseTaskComplete was set.
+func (o OptCloseTaskComplete) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptCloseTaskComplete) Reset() {
+	var v CloseTaskComplete
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptCloseTaskComplete) SetTo(v CloseTaskComplete) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptCloseTaskComplete) Get() (v CloseTaskComplete, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptCloseTaskComplete) Or(d CloseTaskComplete) CloseTaskComplete {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -34039,6 +36326,658 @@ func (s *PaymentRunReleaseApproval) SetApprovedAt(val OptDateTime) {
 	s.ApprovedAt = val
 }
 
+// A company's close of one regular period (ADR-0058 §6): the ledgers it covers and its checklist,
+// copied from the close template when it was opened.
+// Ref: #/components/schemas/PeriodClose
+type PeriodClose struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// Fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// Regular period.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The period's last day, the leading ledger's, which the tasks' due dates count from.
+	PeriodEnd time.Time `json:"period_end"`
+	// The configuration version whose close template the checklist was copied from.
+	ConfigVersion int32 `json:"config_version"`
+	// `open` until it is signed off. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Status string `json:"status"`
+	// The company's date at the read in its time zone, on which `overdue` is judged.
+	ReadDate time.Time `json:"read_date"`
+	// The IANA time zone `read_date` is the company's date in (UTC when its company sets none).
+	TimeZone string `json:"time_zone"`
+	// Its tasks.
+	TasksTotal int32 `json:"tasks_total"`
+	// Its tasks done.
+	TasksDone int32 `json:"tasks_done"`
+	// Its tasks open.
+	TasksOpen int32 `json:"tasks_open"`
+	// Its tasks open and due before `read_date`.
+	TasksOverdue int32 `json:"tasks_overdue"`
+	// The ledgers the close covers, the leading one first, then by code.
+	Ledgers []CloseLedger `json:"ledgers"`
+	// Its tasks, in the template's order.
+	Tasks []CloseTask `json:"tasks"`
+	// Optimistic-lock version, the ETag; moved by every change to the close or its tasks.
+	Version int32 `json:"version"`
+	// Creation time.
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that opened the close.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Last change time.
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that last changed it or its tasks.
+	UpdatedBy uuid.UUID `json:"updated_by"`
+}
+
+// GetID returns the value of ID.
+func (s *PeriodClose) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *PeriodClose) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *PeriodClose) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *PeriodClose) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *PeriodClose) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *PeriodClose) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetPeriodEnd returns the value of PeriodEnd.
+func (s *PeriodClose) GetPeriodEnd() time.Time {
+	return s.PeriodEnd
+}
+
+// GetConfigVersion returns the value of ConfigVersion.
+func (s *PeriodClose) GetConfigVersion() int32 {
+	return s.ConfigVersion
+}
+
+// GetStatus returns the value of Status.
+func (s *PeriodClose) GetStatus() string {
+	return s.Status
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *PeriodClose) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *PeriodClose) GetTimeZone() string {
+	return s.TimeZone
+}
+
+// GetTasksTotal returns the value of TasksTotal.
+func (s *PeriodClose) GetTasksTotal() int32 {
+	return s.TasksTotal
+}
+
+// GetTasksDone returns the value of TasksDone.
+func (s *PeriodClose) GetTasksDone() int32 {
+	return s.TasksDone
+}
+
+// GetTasksOpen returns the value of TasksOpen.
+func (s *PeriodClose) GetTasksOpen() int32 {
+	return s.TasksOpen
+}
+
+// GetTasksOverdue returns the value of TasksOverdue.
+func (s *PeriodClose) GetTasksOverdue() int32 {
+	return s.TasksOverdue
+}
+
+// GetLedgers returns the value of Ledgers.
+func (s *PeriodClose) GetLedgers() []CloseLedger {
+	return s.Ledgers
+}
+
+// GetTasks returns the value of Tasks.
+func (s *PeriodClose) GetTasks() []CloseTask {
+	return s.Tasks
+}
+
+// GetVersion returns the value of Version.
+func (s *PeriodClose) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *PeriodClose) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *PeriodClose) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *PeriodClose) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *PeriodClose) GetUpdatedBy() uuid.UUID {
+	return s.UpdatedBy
+}
+
+// SetID sets the value of ID.
+func (s *PeriodClose) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *PeriodClose) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *PeriodClose) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *PeriodClose) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *PeriodClose) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *PeriodClose) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetPeriodEnd sets the value of PeriodEnd.
+func (s *PeriodClose) SetPeriodEnd(val time.Time) {
+	s.PeriodEnd = val
+}
+
+// SetConfigVersion sets the value of ConfigVersion.
+func (s *PeriodClose) SetConfigVersion(val int32) {
+	s.ConfigVersion = val
+}
+
+// SetStatus sets the value of Status.
+func (s *PeriodClose) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *PeriodClose) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *PeriodClose) SetTimeZone(val string) {
+	s.TimeZone = val
+}
+
+// SetTasksTotal sets the value of TasksTotal.
+func (s *PeriodClose) SetTasksTotal(val int32) {
+	s.TasksTotal = val
+}
+
+// SetTasksDone sets the value of TasksDone.
+func (s *PeriodClose) SetTasksDone(val int32) {
+	s.TasksDone = val
+}
+
+// SetTasksOpen sets the value of TasksOpen.
+func (s *PeriodClose) SetTasksOpen(val int32) {
+	s.TasksOpen = val
+}
+
+// SetTasksOverdue sets the value of TasksOverdue.
+func (s *PeriodClose) SetTasksOverdue(val int32) {
+	s.TasksOverdue = val
+}
+
+// SetLedgers sets the value of Ledgers.
+func (s *PeriodClose) SetLedgers(val []CloseLedger) {
+	s.Ledgers = val
+}
+
+// SetTasks sets the value of Tasks.
+func (s *PeriodClose) SetTasks(val []CloseTask) {
+	s.Tasks = val
+}
+
+// SetVersion sets the value of Version.
+func (s *PeriodClose) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *PeriodClose) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *PeriodClose) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *PeriodClose) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *PeriodClose) SetUpdatedBy(val uuid.UUID) {
+	s.UpdatedBy = val
+}
+
+// A company's regular period to close.
+// Ref: #/components/schemas/PeriodCloseCreate
+type PeriodCloseCreate struct {
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// Period: a regular one (1-12); special periods (13-16) are the year-end close's, which T64 leaves
+	// out.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The ledgers the close covers, the leading one among them; default every ledger the company keeps.
+	LedgerIds []uuid.UUID `json:"ledger_ids"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *PeriodCloseCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *PeriodCloseCreate) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *PeriodCloseCreate) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetLedgerIds returns the value of LedgerIds.
+func (s *PeriodCloseCreate) GetLedgerIds() []uuid.UUID {
+	return s.LedgerIds
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *PeriodCloseCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *PeriodCloseCreate) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *PeriodCloseCreate) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetLedgerIds sets the value of LedgerIds.
+func (s *PeriodCloseCreate) SetLedgerIds(val []uuid.UUID) {
+	s.LedgerIds = val
+}
+
+// PeriodCloseHeaders wraps PeriodClose with response headers.
+type PeriodCloseHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           PeriodClose
+}
+
+// GetETag returns the value of ETag.
+func (s *PeriodCloseHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PeriodCloseHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *PeriodCloseHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *PeriodCloseHeaders) GetResponse() PeriodClose {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *PeriodCloseHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PeriodCloseHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *PeriodCloseHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PeriodCloseHeaders) SetResponse(val PeriodClose) {
+	s.Response = val
+}
+
+func (*PeriodCloseHeaders) createPeriodCloseRes() {}
+
+// A period close as a list shows it: without its ledgers and tasks, with its tasks' counts.
+// Ref: #/components/schemas/PeriodCloseItem
+type PeriodCloseItem struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// Fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// Regular period.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The period's last day, the leading ledger's.
+	PeriodEnd time.Time `json:"period_end"`
+	// The configuration version whose close template the checklist was copied from.
+	ConfigVersion int32 `json:"config_version"`
+	// Period close status. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+	// The company's date at the read in its time zone, on which overdue tasks are judged.
+	ReadDate time.Time `json:"read_date"`
+	// The IANA time zone `read_date` is the company's date in.
+	TimeZone string `json:"time_zone"`
+	// Its tasks.
+	TasksTotal int32 `json:"tasks_total"`
+	// Its tasks done.
+	TasksDone int32 `json:"tasks_done"`
+	// Its tasks open.
+	TasksOpen int32 `json:"tasks_open"`
+	// Its tasks open and due before `read_date`.
+	TasksOverdue int32 `json:"tasks_overdue"`
+	// Optimistic-lock version, the close's ETag.
+	Version int32 `json:"version"`
+	// Creation time.
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that opened the close.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Last change time.
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that last changed it or its tasks.
+	UpdatedBy uuid.UUID `json:"updated_by"`
+}
+
+// GetID returns the value of ID.
+func (s *PeriodCloseItem) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *PeriodCloseItem) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *PeriodCloseItem) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *PeriodCloseItem) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *PeriodCloseItem) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *PeriodCloseItem) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetPeriodEnd returns the value of PeriodEnd.
+func (s *PeriodCloseItem) GetPeriodEnd() time.Time {
+	return s.PeriodEnd
+}
+
+// GetConfigVersion returns the value of ConfigVersion.
+func (s *PeriodCloseItem) GetConfigVersion() int32 {
+	return s.ConfigVersion
+}
+
+// GetStatus returns the value of Status.
+func (s *PeriodCloseItem) GetStatus() string {
+	return s.Status
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *PeriodCloseItem) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *PeriodCloseItem) GetTimeZone() string {
+	return s.TimeZone
+}
+
+// GetTasksTotal returns the value of TasksTotal.
+func (s *PeriodCloseItem) GetTasksTotal() int32 {
+	return s.TasksTotal
+}
+
+// GetTasksDone returns the value of TasksDone.
+func (s *PeriodCloseItem) GetTasksDone() int32 {
+	return s.TasksDone
+}
+
+// GetTasksOpen returns the value of TasksOpen.
+func (s *PeriodCloseItem) GetTasksOpen() int32 {
+	return s.TasksOpen
+}
+
+// GetTasksOverdue returns the value of TasksOverdue.
+func (s *PeriodCloseItem) GetTasksOverdue() int32 {
+	return s.TasksOverdue
+}
+
+// GetVersion returns the value of Version.
+func (s *PeriodCloseItem) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *PeriodCloseItem) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *PeriodCloseItem) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *PeriodCloseItem) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *PeriodCloseItem) GetUpdatedBy() uuid.UUID {
+	return s.UpdatedBy
+}
+
+// SetID sets the value of ID.
+func (s *PeriodCloseItem) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *PeriodCloseItem) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *PeriodCloseItem) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *PeriodCloseItem) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *PeriodCloseItem) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *PeriodCloseItem) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetPeriodEnd sets the value of PeriodEnd.
+func (s *PeriodCloseItem) SetPeriodEnd(val time.Time) {
+	s.PeriodEnd = val
+}
+
+// SetConfigVersion sets the value of ConfigVersion.
+func (s *PeriodCloseItem) SetConfigVersion(val int32) {
+	s.ConfigVersion = val
+}
+
+// SetStatus sets the value of Status.
+func (s *PeriodCloseItem) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *PeriodCloseItem) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *PeriodCloseItem) SetTimeZone(val string) {
+	s.TimeZone = val
+}
+
+// SetTasksTotal sets the value of TasksTotal.
+func (s *PeriodCloseItem) SetTasksTotal(val int32) {
+	s.TasksTotal = val
+}
+
+// SetTasksDone sets the value of TasksDone.
+func (s *PeriodCloseItem) SetTasksDone(val int32) {
+	s.TasksDone = val
+}
+
+// SetTasksOpen sets the value of TasksOpen.
+func (s *PeriodCloseItem) SetTasksOpen(val int32) {
+	s.TasksOpen = val
+}
+
+// SetTasksOverdue sets the value of TasksOverdue.
+func (s *PeriodCloseItem) SetTasksOverdue(val int32) {
+	s.TasksOverdue = val
+}
+
+// SetVersion sets the value of Version.
+func (s *PeriodCloseItem) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *PeriodCloseItem) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *PeriodCloseItem) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *PeriodCloseItem) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *PeriodCloseItem) SetUpdatedBy(val uuid.UUID) {
+	s.UpdatedBy = val
+}
+
+// One page of period closes.
+// Ref: #/components/schemas/PeriodClosePage
+type PeriodClosePage struct {
+	// The period closes on this page.
+	Items []PeriodCloseItem `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *PeriodClosePage) GetItems() []PeriodCloseItem {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *PeriodClosePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *PeriodClosePage) SetItems(val []PeriodCloseItem) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *PeriodClosePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*PeriodClosePage) listPeriodClosesRes() {}
+
 type PingWebhookSubscriptionBadRequest Problem
 
 func (*PingWebhookSubscriptionBadRequest) pingWebhookSubscriptionRes() {}
@@ -39150,6 +42089,30 @@ type RenewContractUnprocessableEntity Problem
 
 func (*RenewContractUnprocessableEntity) renewContractRes() {}
 
+type ReopenCloseTaskBadRequest Problem
+
+func (*ReopenCloseTaskBadRequest) reopenCloseTaskRes() {}
+
+type ReopenCloseTaskForbidden Problem
+
+func (*ReopenCloseTaskForbidden) reopenCloseTaskRes() {}
+
+type ReopenCloseTaskNotFound Problem
+
+func (*ReopenCloseTaskNotFound) reopenCloseTaskRes() {}
+
+type ReopenCloseTaskPreconditionFailed Problem
+
+func (*ReopenCloseTaskPreconditionFailed) reopenCloseTaskRes() {}
+
+type ReopenCloseTaskPreconditionRequired Problem
+
+func (*ReopenCloseTaskPreconditionRequired) reopenCloseTaskRes() {}
+
+type ReopenCloseTaskUnprocessableEntity Problem
+
+func (*ReopenCloseTaskUnprocessableEntity) reopenCloseTaskRes() {}
+
 type ReplayWebhookDeliveriesBadRequest Problem
 
 func (*ReplayWebhookDeliveriesBadRequest) replayWebhookDeliveriesRes() {}
@@ -42163,6 +45126,8 @@ func (*ServiceUnavailableHeaders) captureSupplierInvoiceRes()           {}
 func (*ServiceUnavailableHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*ServiceUnavailableHeaders) closeFiscalPeriodRes()                {}
 func (*ServiceUnavailableHeaders) closePurchaseOrderRes()               {}
+func (*ServiceUnavailableHeaders) completeCloseTaskRes()                {}
+func (*ServiceUnavailableHeaders) createAssetAcquisitionRes()           {}
 func (*ServiceUnavailableHeaders) createAssetRes()                      {}
 func (*ServiceUnavailableHeaders) createBusinessPartnerRes()            {}
 func (*ServiceUnavailableHeaders) createChangeRequestRes()              {}
@@ -42181,6 +45146,7 @@ func (*ServiceUnavailableHeaders) createMemoRecordRes()                 {}
 func (*ServiceUnavailableHeaders) createMigrationRunRes()               {}
 func (*ServiceUnavailableHeaders) createOrgUnitRes()                    {}
 func (*ServiceUnavailableHeaders) createPartnerChangeRes()              {}
+func (*ServiceUnavailableHeaders) createPeriodCloseRes()                {}
 func (*ServiceUnavailableHeaders) createPlanCategoryRes()               {}
 func (*ServiceUnavailableHeaders) createPrincipalRes()                  {}
 func (*ServiceUnavailableHeaders) createProfitCenterRes()               {}
@@ -42255,6 +45221,7 @@ func (*ServiceUnavailableHeaders) releaseSupplierInvoiceRes()           {}
 func (*ServiceUnavailableHeaders) removeHierarchyNodeRes()              {}
 func (*ServiceUnavailableHeaders) renameHierarchyNodeRes()              {}
 func (*ServiceUnavailableHeaders) renewContractRes()                    {}
+func (*ServiceUnavailableHeaders) reopenCloseTaskRes()                  {}
 func (*ServiceUnavailableHeaders) replayWebhookDeliveriesRes()          {}
 func (*ServiceUnavailableHeaders) reportBankFileStatusRes()             {}
 func (*ServiceUnavailableHeaders) requestBankAccountChangeRes()         {}
@@ -42283,6 +45250,7 @@ func (*ServiceUnavailableHeaders) unlockPlanCategoryRes()               {}
 func (*ServiceUnavailableHeaders) updateAiPolicyRes()                   {}
 func (*ServiceUnavailableHeaders) updateAssetRes()                      {}
 func (*ServiceUnavailableHeaders) updateChangeRequestRes()              {}
+func (*ServiceUnavailableHeaders) updateCloseTaskRes()                  {}
 func (*ServiceUnavailableHeaders) updateConnectorRes()                  {}
 func (*ServiceUnavailableHeaders) updateContractRes()                   {}
 func (*ServiceUnavailableHeaders) updateCostCenterRes()                 {}
@@ -46437,6 +49405,8 @@ func (*TooManyRequestsHeaders) captureSupplierInvoiceRes()           {}
 func (*TooManyRequestsHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*TooManyRequestsHeaders) closeFiscalPeriodRes()                {}
 func (*TooManyRequestsHeaders) closePurchaseOrderRes()               {}
+func (*TooManyRequestsHeaders) completeCloseTaskRes()                {}
+func (*TooManyRequestsHeaders) createAssetAcquisitionRes()           {}
 func (*TooManyRequestsHeaders) createAssetRes()                      {}
 func (*TooManyRequestsHeaders) createBusinessPartnerRes()            {}
 func (*TooManyRequestsHeaders) createChangeRequestRes()              {}
@@ -46455,6 +49425,7 @@ func (*TooManyRequestsHeaders) createMemoRecordRes()                 {}
 func (*TooManyRequestsHeaders) createMigrationRunRes()               {}
 func (*TooManyRequestsHeaders) createOrgUnitRes()                    {}
 func (*TooManyRequestsHeaders) createPartnerChangeRes()              {}
+func (*TooManyRequestsHeaders) createPeriodCloseRes()                {}
 func (*TooManyRequestsHeaders) createPlanCategoryRes()               {}
 func (*TooManyRequestsHeaders) createPrincipalRes()                  {}
 func (*TooManyRequestsHeaders) createProfitCenterRes()               {}
@@ -46488,6 +49459,7 @@ func (*TooManyRequestsHeaders) getAiPolicyRes()                      {}
 func (*TooManyRequestsHeaders) getAiUsageRes()                       {}
 func (*TooManyRequestsHeaders) getAnalyticsModelRes()                {}
 func (*TooManyRequestsHeaders) getApprovalRequestRes()               {}
+func (*TooManyRequestsHeaders) getAssetAcquisitionRes()              {}
 func (*TooManyRequestsHeaders) getAssetRes()                         {}
 func (*TooManyRequestsHeaders) getBankAccountRes()                   {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()               {}
@@ -46501,6 +49473,7 @@ func (*TooManyRequestsHeaders) getCashPositionRes()                  {}
 func (*TooManyRequestsHeaders) getCenterChangeRes()                  {}
 func (*TooManyRequestsHeaders) getChangeRequestRes()                 {}
 func (*TooManyRequestsHeaders) getClearingRes()                      {}
+func (*TooManyRequestsHeaders) getCloseCalendarRes()                 {}
 func (*TooManyRequestsHeaders) getCompanyAccessRes()                 {}
 func (*TooManyRequestsHeaders) getConfigVersionRes()                 {}
 func (*TooManyRequestsHeaders) getConnectorRes()                     {}
@@ -46528,6 +49501,7 @@ func (*TooManyRequestsHeaders) getOrgUnitRes()                       {}
 func (*TooManyRequestsHeaders) getParkedJournalEntryRes()            {}
 func (*TooManyRequestsHeaders) getPartnerChangeRes()                 {}
 func (*TooManyRequestsHeaders) getPaymentRunRes()                    {}
+func (*TooManyRequestsHeaders) getPeriodCloseRes()                   {}
 func (*TooManyRequestsHeaders) getPlanCategoryRes()                  {}
 func (*TooManyRequestsHeaders) getPrincipalRes()                     {}
 func (*TooManyRequestsHeaders) getProfitCenterRes()                  {}
@@ -46558,7 +49532,9 @@ func (*TooManyRequestsHeaders) listAccountsRes()                     {}
 func (*TooManyRequestsHeaders) listAgentSessionsRes()                {}
 func (*TooManyRequestsHeaders) listAgentToolCallsRes()               {}
 func (*TooManyRequestsHeaders) listApprovalRequestsRes()             {}
+func (*TooManyRequestsHeaders) listAssetAcquisitionsRes()            {}
 func (*TooManyRequestsHeaders) listAssetClassesRes()                 {}
+func (*TooManyRequestsHeaders) listAssetClearingItemsRes()           {}
 func (*TooManyRequestsHeaders) listAssetsRes()                       {}
 func (*TooManyRequestsHeaders) listAuditEventsRes()                  {}
 func (*TooManyRequestsHeaders) listBalancesRes()                     {}
@@ -46571,6 +49547,7 @@ func (*TooManyRequestsHeaders) listBusinessPartnersRes()             {}
 func (*TooManyRequestsHeaders) listCenterChangesRes()                {}
 func (*TooManyRequestsHeaders) listChangeRequestsRes()               {}
 func (*TooManyRequestsHeaders) listClearingsRes()                    {}
+func (*TooManyRequestsHeaders) listCloseTasksRes()                   {}
 func (*TooManyRequestsHeaders) listCompanyAccessRes()                {}
 func (*TooManyRequestsHeaders) listConfigVersionsRes()               {}
 func (*TooManyRequestsHeaders) listConnectorsRes()                   {}
@@ -46607,6 +49584,7 @@ func (*TooManyRequestsHeaders) listPartnerChangesRes()               {}
 func (*TooManyRequestsHeaders) listPaymentExclusionsRes()            {}
 func (*TooManyRequestsHeaders) listPaymentRunsRes()                  {}
 func (*TooManyRequestsHeaders) listPaymentsRes()                     {}
+func (*TooManyRequestsHeaders) listPeriodClosesRes()                 {}
 func (*TooManyRequestsHeaders) listPlanCategoriesRes()               {}
 func (*TooManyRequestsHeaders) listPlanLinesRes()                    {}
 func (*TooManyRequestsHeaders) listPrincipalNamesRes()               {}
@@ -46677,6 +49655,7 @@ func (*TooManyRequestsHeaders) releaseSupplierInvoiceRes()           {}
 func (*TooManyRequestsHeaders) removeHierarchyNodeRes()              {}
 func (*TooManyRequestsHeaders) renameHierarchyNodeRes()              {}
 func (*TooManyRequestsHeaders) renewContractRes()                    {}
+func (*TooManyRequestsHeaders) reopenCloseTaskRes()                  {}
 func (*TooManyRequestsHeaders) replayWebhookDeliveriesRes()          {}
 func (*TooManyRequestsHeaders) reportBankFileStatusRes()             {}
 func (*TooManyRequestsHeaders) requestBankAccountChangeRes()         {}
@@ -46705,6 +49684,7 @@ func (*TooManyRequestsHeaders) unlockPlanCategoryRes()               {}
 func (*TooManyRequestsHeaders) updateAiPolicyRes()                   {}
 func (*TooManyRequestsHeaders) updateAssetRes()                      {}
 func (*TooManyRequestsHeaders) updateChangeRequestRes()              {}
+func (*TooManyRequestsHeaders) updateCloseTaskRes()                  {}
 func (*TooManyRequestsHeaders) updateConnectorRes()                  {}
 func (*TooManyRequestsHeaders) updateContractRes()                   {}
 func (*TooManyRequestsHeaders) updateCostCenterRes()                 {}
@@ -46808,6 +49788,8 @@ func (*UnauthorizedHeaders) captureSupplierInvoiceRes()           {}
 func (*UnauthorizedHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*UnauthorizedHeaders) closeFiscalPeriodRes()                {}
 func (*UnauthorizedHeaders) closePurchaseOrderRes()               {}
+func (*UnauthorizedHeaders) completeCloseTaskRes()                {}
+func (*UnauthorizedHeaders) createAssetAcquisitionRes()           {}
 func (*UnauthorizedHeaders) createAssetRes()                      {}
 func (*UnauthorizedHeaders) createBusinessPartnerRes()            {}
 func (*UnauthorizedHeaders) createChangeRequestRes()              {}
@@ -46826,6 +49808,7 @@ func (*UnauthorizedHeaders) createMemoRecordRes()                 {}
 func (*UnauthorizedHeaders) createMigrationRunRes()               {}
 func (*UnauthorizedHeaders) createOrgUnitRes()                    {}
 func (*UnauthorizedHeaders) createPartnerChangeRes()              {}
+func (*UnauthorizedHeaders) createPeriodCloseRes()                {}
 func (*UnauthorizedHeaders) createPlanCategoryRes()               {}
 func (*UnauthorizedHeaders) createPrincipalRes()                  {}
 func (*UnauthorizedHeaders) createProfitCenterRes()               {}
@@ -46859,6 +49842,7 @@ func (*UnauthorizedHeaders) getAiPolicyRes()                      {}
 func (*UnauthorizedHeaders) getAiUsageRes()                       {}
 func (*UnauthorizedHeaders) getAnalyticsModelRes()                {}
 func (*UnauthorizedHeaders) getApprovalRequestRes()               {}
+func (*UnauthorizedHeaders) getAssetAcquisitionRes()              {}
 func (*UnauthorizedHeaders) getAssetRes()                         {}
 func (*UnauthorizedHeaders) getBankAccountRes()                   {}
 func (*UnauthorizedHeaders) getBankFileContentRes()               {}
@@ -46872,6 +49856,7 @@ func (*UnauthorizedHeaders) getCashPositionRes()                  {}
 func (*UnauthorizedHeaders) getCenterChangeRes()                  {}
 func (*UnauthorizedHeaders) getChangeRequestRes()                 {}
 func (*UnauthorizedHeaders) getClearingRes()                      {}
+func (*UnauthorizedHeaders) getCloseCalendarRes()                 {}
 func (*UnauthorizedHeaders) getCompanyAccessRes()                 {}
 func (*UnauthorizedHeaders) getConfigVersionRes()                 {}
 func (*UnauthorizedHeaders) getConnectorRes()                     {}
@@ -46899,6 +49884,7 @@ func (*UnauthorizedHeaders) getOrgUnitRes()                       {}
 func (*UnauthorizedHeaders) getParkedJournalEntryRes()            {}
 func (*UnauthorizedHeaders) getPartnerChangeRes()                 {}
 func (*UnauthorizedHeaders) getPaymentRunRes()                    {}
+func (*UnauthorizedHeaders) getPeriodCloseRes()                   {}
 func (*UnauthorizedHeaders) getPlanCategoryRes()                  {}
 func (*UnauthorizedHeaders) getPrincipalRes()                     {}
 func (*UnauthorizedHeaders) getProfitCenterRes()                  {}
@@ -46929,7 +49915,9 @@ func (*UnauthorizedHeaders) listAccountsRes()                     {}
 func (*UnauthorizedHeaders) listAgentSessionsRes()                {}
 func (*UnauthorizedHeaders) listAgentToolCallsRes()               {}
 func (*UnauthorizedHeaders) listApprovalRequestsRes()             {}
+func (*UnauthorizedHeaders) listAssetAcquisitionsRes()            {}
 func (*UnauthorizedHeaders) listAssetClassesRes()                 {}
+func (*UnauthorizedHeaders) listAssetClearingItemsRes()           {}
 func (*UnauthorizedHeaders) listAssetsRes()                       {}
 func (*UnauthorizedHeaders) listAuditEventsRes()                  {}
 func (*UnauthorizedHeaders) listBalancesRes()                     {}
@@ -46942,6 +49930,7 @@ func (*UnauthorizedHeaders) listBusinessPartnersRes()             {}
 func (*UnauthorizedHeaders) listCenterChangesRes()                {}
 func (*UnauthorizedHeaders) listChangeRequestsRes()               {}
 func (*UnauthorizedHeaders) listClearingsRes()                    {}
+func (*UnauthorizedHeaders) listCloseTasksRes()                   {}
 func (*UnauthorizedHeaders) listCompanyAccessRes()                {}
 func (*UnauthorizedHeaders) listConfigVersionsRes()               {}
 func (*UnauthorizedHeaders) listConnectorsRes()                   {}
@@ -46978,6 +49967,7 @@ func (*UnauthorizedHeaders) listPartnerChangesRes()               {}
 func (*UnauthorizedHeaders) listPaymentExclusionsRes()            {}
 func (*UnauthorizedHeaders) listPaymentRunsRes()                  {}
 func (*UnauthorizedHeaders) listPaymentsRes()                     {}
+func (*UnauthorizedHeaders) listPeriodClosesRes()                 {}
 func (*UnauthorizedHeaders) listPlanCategoriesRes()               {}
 func (*UnauthorizedHeaders) listPlanLinesRes()                    {}
 func (*UnauthorizedHeaders) listPrincipalNamesRes()               {}
@@ -47048,6 +50038,7 @@ func (*UnauthorizedHeaders) releaseSupplierInvoiceRes()           {}
 func (*UnauthorizedHeaders) removeHierarchyNodeRes()              {}
 func (*UnauthorizedHeaders) renameHierarchyNodeRes()              {}
 func (*UnauthorizedHeaders) renewContractRes()                    {}
+func (*UnauthorizedHeaders) reopenCloseTaskRes()                  {}
 func (*UnauthorizedHeaders) replayWebhookDeliveriesRes()          {}
 func (*UnauthorizedHeaders) reportBankFileStatusRes()             {}
 func (*UnauthorizedHeaders) requestBankAccountChangeRes()         {}
@@ -47076,6 +50067,7 @@ func (*UnauthorizedHeaders) unlockPlanCategoryRes()               {}
 func (*UnauthorizedHeaders) updateAiPolicyRes()                   {}
 func (*UnauthorizedHeaders) updateAssetRes()                      {}
 func (*UnauthorizedHeaders) updateChangeRequestRes()              {}
+func (*UnauthorizedHeaders) updateCloseTaskRes()                  {}
 func (*UnauthorizedHeaders) updateConnectorRes()                  {}
 func (*UnauthorizedHeaders) updateContractRes()                   {}
 func (*UnauthorizedHeaders) updateCostCenterRes()                 {}
@@ -47402,6 +50394,30 @@ func (*UpdateChangeRequestPreconditionRequired) updateChangeRequestRes() {}
 type UpdateChangeRequestUnprocessableEntity Problem
 
 func (*UpdateChangeRequestUnprocessableEntity) updateChangeRequestRes() {}
+
+type UpdateCloseTaskBadRequest Problem
+
+func (*UpdateCloseTaskBadRequest) updateCloseTaskRes() {}
+
+type UpdateCloseTaskForbidden Problem
+
+func (*UpdateCloseTaskForbidden) updateCloseTaskRes() {}
+
+type UpdateCloseTaskNotFound Problem
+
+func (*UpdateCloseTaskNotFound) updateCloseTaskRes() {}
+
+type UpdateCloseTaskPreconditionFailed Problem
+
+func (*UpdateCloseTaskPreconditionFailed) updateCloseTaskRes() {}
+
+type UpdateCloseTaskPreconditionRequired Problem
+
+func (*UpdateCloseTaskPreconditionRequired) updateCloseTaskRes() {}
+
+type UpdateCloseTaskUnprocessableEntity Problem
+
+func (*UpdateCloseTaskUnprocessableEntity) updateCloseTaskRes() {}
 
 type UpdateConnectorBadRequest Problem
 

@@ -50,6 +50,7 @@ pointing its schema at a separate database. Callers do not change.
 | **analytics** | Read models, semantic layer, saved reports, dataset contracts (ADR-0044) | — (consumes events) |
 | **agents** | Agent sessions, tool calls, recommendations, costs | `RecommendationMade` |
 | **assets** (ADR-0057, a leaf) | Asset classes' use (the classes and accounts are configuration), assets, movements, acquisitions, retirements, transfers, depreciation runs | `AssetChanged`, `AssetMovementPosted`, `DepreciationRunCompleted` |
+| **closing** (ADR-0058, a leaf) | The close calendar (the close template and company weekends are configuration), period closes and their checklists, sign-offs, accrual proposals, variance comments | `PeriodCloseChanged`, `PeriodCloseSignedOff`, `AccrualProposed`, `AccrualProposalRejected`, `VarianceCommentChanged` |
 
 Later phases add `sales`, `receivables`, `inventory`, `manufacturing`,
 `maintenance`, `projects` and `hr` with the same rules.

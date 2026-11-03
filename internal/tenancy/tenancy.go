@@ -156,6 +156,9 @@ func CreateLegalEntity(ctx context.Context, in NewLegalEntity) (LegalEntity, err
 	if err != nil {
 		return LegalEntity{}, err
 	}
+	if err := problem.RequireText("name", in.Name); err != nil {
+		return LegalEntity{}, err
+	}
 	if in.Extensions == nil {
 		in.Extensions = map[string]any{}
 	}
@@ -198,6 +201,9 @@ func UpdateLegalEntity(ctx context.Context, id uuid.UUID, ifMatch func(int32) er
 	}
 	name, ext := e.Name, e.Extensions
 	if ch.Name != nil {
+		if err := problem.RequireText("name", *ch.Name); err != nil {
+			return LegalEntity{}, err
+		}
 		name = *ch.Name
 	}
 	if ch.Extensions != nil {

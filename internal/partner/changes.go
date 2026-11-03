@@ -713,11 +713,14 @@ func recordCreated(ctx context.Context, w extensions.Writes, bp Partner, c Chang
 		event("business_partner_created", bp.ID, "partner.business_partner", payload))
 }
 
-// checkNewPartner requires a known partner kind and known roles; the
-// extensions default to none.
+// checkNewPartner requires a known partner kind, a name and known roles;
+// the extensions default to none.
 func checkNewPartner(in *NewPartner) error {
 	if !slices.Contains(kinds, in.Kind) {
 		return invalid("partner.unknown_kind", "kind", "organization or person")
+	}
+	if err := problem.RequireText("name", in.Name); err != nil {
+		return err
 	}
 	for i, r := range in.Roles {
 		if !slices.Contains(roles, r) {
@@ -847,9 +850,8 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 	if err != nil {
 		return Change{}, problem.Reference(err, "partner_id", "business partner", "no business partner with this id")
 	}
-	if ch.Name == nil && ch.LegalName == nil && ch.Language == nil && ch.Roles == nil && len(ch.SupplierCompanies) == 0 &&
-		len(ch.Addresses) == 0 && len(ch.TaxIdentifiers) == 0 && len(ch.Extensions) == 0 {
-		return Change{}, problem.Unprocessable("partner.no_changes", "The change requests no changes.")
+	if err := checkChanges(ch); err != nil {
+		return Change{}, err
 	}
 	all, err := updatedRoles(bp.Roles, ch.Roles)
 	if err != nil {
@@ -897,6 +899,20 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 		return Change{}, err
 	}
 	return c, audit.Record(ctx, "partner.change.request", "partner.partner_change", c.ID, map[string]any{"kind": c.Kind, "partner_id": partnerID})
+}
+
+// checkChanges refuses an update change that requests nothing, or a
+// name of white space alone, which the partner's check refuses at
+// approval otherwise.
+func checkChanges(ch Changes) error {
+	if ch.Name == nil && ch.LegalName == nil && ch.Language == nil && ch.Roles == nil && len(ch.SupplierCompanies) == 0 &&
+		len(ch.Addresses) == 0 && len(ch.TaxIdentifiers) == 0 && len(ch.Extensions) == 0 {
+		return problem.Unprocessable("partner.no_changes", "The change requests no changes.")
+	}
+	if ch.Name != nil {
+		return problem.RequireText("payload.name", *ch.Name)
+	}
+	return nil
 }
 
 // requested is the partner as an update change leaves its header: what

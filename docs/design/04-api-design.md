@@ -172,6 +172,9 @@ Errors use RFC 9457 Problem Details (`application/problem+json`):
 `code` values are stable and documented; clients and agents branch on `code`,
 never on `detail`. Database constraint violations are translated to these
 codes by the repository layer; a raw database message never reaches a client.
+A required text given as white space alone is 422 `request.validation_failed`
+on its field, checked before the write, not the 409 of the column's check
+(ADR-0013, as built).
 A refusal whose figures a client must show carries them as fields of the
 problem, never only in `detail`: `payables.tax_mismatch` carries
 `calculated_tax` (the tax stated, the tax its codes' rates give, and each

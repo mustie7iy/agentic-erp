@@ -264,6 +264,9 @@ func create(ctx context.Context, in NewChangeRequest, notes []config.Note, detai
 	if err != nil {
 		return ChangeRequest{}, err
 	}
+	if err := problem.RequireText("title", in.Title); err != nil {
+		return ChangeRequest{}, err
+	}
 	if _, err := activeVersion(ctx, tx); err != nil {
 		return ChangeRequest{}, err
 	}
@@ -316,6 +319,9 @@ func UpdateChangeRequest(ctx context.Context, id uuid.UUID, ifMatch func(int32) 
 	}
 	title, rationale, base, proposed := c.Title, c.Rationale, c.BaseVersion, c.Proposed
 	if ch.Title != nil {
+		if err := problem.RequireText("title", *ch.Title); err != nil {
+			return ChangeRequest{}, err
+		}
 		title = *ch.Title
 	}
 	if ch.Rationale != nil {

@@ -48,8 +48,9 @@ type Config struct {
 	// Packs records, per company, the country pack it adopted (ADR-0048):
 	// the base the next upgrade of the pack merges from.
 	Packs []PackAdoption `yaml:"packs,omitempty" json:"packs,omitempty"`
-	// Calendars are the companies' holidays (ADR-0048), one calendar per
-	// company: the days, besides weekends, on which it does no business.
+	// Calendars are the companies' weekends and holidays (ADR-0048,
+	// ADR-0058 §3), one calendar per company: the days on which it does no
+	// business.
 	Calendars []Calendar `yaml:"calendars,omitempty" json:"calendars,omitempty"`
 	// Controlling holds the tenant-wide rules about cost and profit
 	// centers (ADR-0050 §4); the centers themselves are master data.
@@ -61,11 +62,18 @@ type Config struct {
 	// depreciation terms per ledger (ADR-0057 §3); each company names the
 	// accounts of the classes it uses (Company.AssetAccounts).
 	AssetClasses []AssetClass `yaml:"asset_classes,omitempty" json:"asset_classes,omitempty"`
+	// Close is the tenant's close template (ADR-0058 §3): the tasks each
+	// company's period close is given.
+	Close Close `yaml:"close,omitempty" json:"close,omitzero"`
 }
 
-// Calendar is a company's holidays, each date once.
+// Calendar is a company's weekend and holidays, each date once.
 type Calendar struct {
-	Company  string    `yaml:"company" json:"company"`
+	Company string `yaml:"company" json:"company"`
+	// Weekend is the weekdays on which the company does no business
+	// (ADR-0058 §3), by lower-case English name; none given: Saturday and
+	// Sunday (DefaultWeekend).
+	Weekend  []string  `yaml:"weekend,omitempty" json:"weekend,omitempty"`
 	Holidays []Holiday `yaml:"holidays" json:"holidays"`
 }
 

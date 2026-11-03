@@ -17,7 +17,7 @@ var Labels = map[string]int{
 	"operation":  512, // operationIds of the contracts, and "unmatched"
 	"code":       32,  // HTTP status codes the API returns
 	"class":      8,   // api.Classes
-	"context":    16,  // outbox.Contexts
+	"context":    32,  // outbox.Contexts (17 with assets and closing, batch 47)
 	"event":      256, // event names in api/asyncapi.yaml
 	"gauge":      64,  // names of the gauges a process registers
 	"store":      8,   // stores whose encryption at rest is stated

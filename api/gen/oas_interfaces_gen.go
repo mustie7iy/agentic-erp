@@ -125,6 +125,14 @@ type ClosePurchaseOrderRes interface {
 	closePurchaseOrderRes()
 }
 
+type CompleteCloseTaskRes interface {
+	completeCloseTaskRes()
+}
+
+type CreateAssetAcquisitionRes interface {
+	createAssetAcquisitionRes()
+}
+
 type CreateAssetRes interface {
 	createAssetRes()
 }
@@ -195,6 +203,10 @@ type CreateOrgUnitRes interface {
 
 type CreatePartnerChangeRes interface {
 	createPartnerChangeRes()
+}
+
+type CreatePeriodCloseRes interface {
+	createPeriodCloseRes()
 }
 
 type CreatePlanCategoryRes interface {
@@ -329,6 +341,10 @@ type GetApprovalRequestRes interface {
 	getApprovalRequestRes()
 }
 
+type GetAssetAcquisitionRes interface {
+	getAssetAcquisitionRes()
+}
+
 type GetAssetRes interface {
 	getAssetRes()
 }
@@ -379,6 +395,10 @@ type GetChangeRequestRes interface {
 
 type GetClearingRes interface {
 	getClearingRes()
+}
+
+type GetCloseCalendarRes interface {
+	getCloseCalendarRes()
 }
 
 type GetCompanyAccessRes interface {
@@ -487,6 +507,10 @@ type GetPartnerChangeRes interface {
 
 type GetPaymentRunRes interface {
 	getPaymentRunRes()
+}
+
+type GetPeriodCloseRes interface {
+	getPeriodCloseRes()
 }
 
 type GetPlanCategoryRes interface {
@@ -609,8 +633,16 @@ type ListApprovalRequestsRes interface {
 	listApprovalRequestsRes()
 }
 
+type ListAssetAcquisitionsRes interface {
+	listAssetAcquisitionsRes()
+}
+
 type ListAssetClassesRes interface {
 	listAssetClassesRes()
+}
+
+type ListAssetClearingItemsRes interface {
+	listAssetClearingItemsRes()
 }
 
 type ListAssetsRes interface {
@@ -659,6 +691,10 @@ type ListChangeRequestsRes interface {
 
 type ListClearingsRes interface {
 	listClearingsRes()
+}
+
+type ListCloseTasksRes interface {
+	listCloseTasksRes()
 }
 
 type ListCompanyAccessRes interface {
@@ -803,6 +839,10 @@ type ListPaymentRunsRes interface {
 
 type ListPaymentsRes interface {
 	listPaymentsRes()
+}
+
+type ListPeriodClosesRes interface {
+	listPeriodClosesRes()
 }
 
 type ListPlanCategoriesRes interface {
@@ -1085,6 +1125,10 @@ type RenewContractRes interface {
 	renewContractRes()
 }
 
+type ReopenCloseTaskRes interface {
+	reopenCloseTaskRes()
+}
+
 type ReplayWebhookDeliveriesRes interface {
 	replayWebhookDeliveriesRes()
 }
@@ -1195,6 +1239,10 @@ type UpdateAssetRes interface {
 
 type UpdateChangeRequestRes interface {
 	updateChangeRequestRes()
+}
+
+type UpdateCloseTaskRes interface {
+	updateCloseTaskRes()
 }
 
 type UpdateConnectorRes interface {

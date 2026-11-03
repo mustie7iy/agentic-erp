@@ -59,8 +59,31 @@ func readAsset(ctx context.Context, tx pgx.Tx, id uuid.UUID, forUpdate bool) (As
 		return Asset{}, fmt.Errorf("assets: asset %s: %w", id, err)
 	}
 	terms, err := readTerms(ctx, tx, []uuid.UUID{id})
+	if err != nil {
+		return Asset{}, err
+	}
 	a.Terms = terms[id]
+	values, err := readValues(ctx, tx, []uuid.UUID{id})
+	a.Values = values[id]
 	return a, err
+}
+
+// readValues reads the assets' values per ledger, the sums of their
+// movements, by asset and ledger.
+func readValues(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) (map[uuid.UUID]map[uuid.UUID]Values, error) {
+	rows, _ := tx.Query(ctx, `SELECT asset_id, ledger_id, sum(cost), sum(cost_gc), sum(accumulated), sum(accumulated_gc)
+		FROM assets.movement WHERE asset_id = ANY($1) GROUP BY asset_id, ledger_id`, ids)
+	out := map[uuid.UUID]map[uuid.UUID]Values{}
+	var asset, ledger uuid.UUID
+	var v Values
+	_, err := pgx.ForEachRow(rows, []any{&asset, &ledger, &v.Cost, &v.CostGC, &v.Accumulated, &v.AccumulatedGC}, func() error {
+		if out[asset] == nil {
+			out[asset] = map[uuid.UUID]Values{}
+		}
+		out[asset][ledger] = v
+		return nil
+	})
+	return out, errs.Wrapf(err, "assets: values of %d assets", len(ids))
 }
 
 // readTerms reads the assets' terms, by asset.

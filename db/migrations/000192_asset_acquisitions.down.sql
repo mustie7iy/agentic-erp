@@ -1,0 +1,10 @@
+DELETE FROM identity.sod_rule WHERE permission_a = 'assets.asset.post' OR permission_b = 'assets.asset.post';
+DELETE FROM identity.role_permission WHERE permission_code = 'assets.asset.post';
+DELETE FROM ref.permission WHERE code = 'assets.asset.post';
+DROP TABLE assets.document_entry;
+DROP TABLE assets.movement;
+DROP FUNCTION assets.check_movement();
+DROP TABLE assets.clearing_use;
+DROP FUNCTION assets.check_clearing_use();
+DROP TABLE assets.acquisition;
+DROP FUNCTION assets.check_acquisition();

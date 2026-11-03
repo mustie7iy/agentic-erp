@@ -255,9 +255,11 @@ func (UnimplementedHandler) CancelApprovalRequest(ctx context.Context, req *Comm
 
 // CancelAsset implements cancelAsset operation.
 //
-// Cancels a `planned` asset, one created in error (ADR-0057 §5): it keeps its number and is final. An
-// asset that is not planned is 409 `assets.asset_not_planned` (one that holds value is retired, not
-// cancelled). Audited, and published as AssetChanged (`cancelled`).
+// Cancels a `planned` asset without movements, one created in error (ADR-0057 §5): it keeps its
+// number and is final. An asset that is not planned, or a planned one with movements (an acquisition
+// onto it reversed), is 409 `assets.asset_not_planned` (one that holds value is retired, not
+// cancelled; one with movements keeps them as its history). Audited, and published as AssetChanged
+// (`cancelled`).
 //
 // POST /v1/assets/{id}:cancel
 func (UnimplementedHandler) CancelAsset(ctx context.Context, params CancelAssetParams) (r CancelAssetRes, _ error) {
@@ -431,6 +433,19 @@ func (UnimplementedHandler) ClosePurchaseOrder(ctx context.Context, params Close
 	return r, ht.ErrNotImplemented
 }
 
+// CompleteCloseTask implements completeCloseTask operation.
+//
+// Marks an open manual task of a period close done, with an optional note (ADR-0058 §6, T64b):
+// refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a task
+// already done (409 `closing.task_already_done`). `If-Match` is the close's ETag; the answer is the
+// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
+// (`task_completed`).
+//
+// POST /v1/period-closes/{id}/tasks/{code}:complete
+func (UnimplementedHandler) CompleteCloseTask(ctx context.Context, req OptCloseTaskComplete, params CompleteCloseTaskParams) (r CompleteCloseTaskRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateAsset implements createAsset operation.
 //
 // Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the
@@ -452,6 +467,40 @@ func (UnimplementedHandler) ClosePurchaseOrder(ctx context.Context, params Close
 //
 // POST /v1/assets
 func (UnimplementedHandler) CreateAsset(ctx context.Context, req *AssetCreate, params CreateAssetParams) (r CreateAssetRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateAssetAcquisition implements createAssetAcquisition operation.
+//
+// Capitalises a posted journal line on an asset clearing account onto an asset (ADR-0057 §6, T57c;
+// SAP's acquisition with automatic offsetting entry): a supplier invoice item, a goods receipt or a
+// manual entry posted on the clearing account of the asset's class in the asset's company. The line is
+// named by its leading-ledger entry and line number (`GET /v1/asset-clearing-items` lists them); one
+// that is not such a line is 422 `assets.not_clearing_line`, a line of a reversed entry or of a
+// reversal 422 `assets.source_reversed`, and a line whose entry has no copy in every ledger the
+// company keeps (a ledger-specific entry) 422 `assets.source_not_in_every_ledger`. `amount` is in the
+// line's currency, all that is left of the line by default; it has the line's sign (a credit line, a
+// supplier credit memo, is capitalised as a negative acquisition, which reduces cost) and is at most
+// what is left (422 `assets.amount_exceeds_line`); a negative acquisition that would leave the asset's
+// cost below zero in a ledger, or one onto an asset holding no cost, is 422 `assets.cost_negative`.
+// One line may be split across several assets, and an asset acquired by several acquisitions. Its
+// local and group amounts are the line's in proportion, rounded half away from zero, the acquisition
+// that uses the rest of the line taking the rest of its local and group amounts, so a line capitalised
+// in full leaves the clearing account at zero in all three currencies. The value date defaults to the
+// line's posting date and may lie in any period up to the end of the posting date's (422
+// `assets.value_date_in_future` after it); the posting date defaults to the company's date today, and
+// lies on or after the start of the asset's latest center assignment (409
+// `assets.posting_before_center_transfer`). It posts in the line's currency, to every ledger the
+// company keeps, Dr the class's acquisition cost account on the asset's profit center, Cr the clearing
+// account on the line's profit center (document type AA, source context `assets`; 422
+// `ledger.period_not_open` when the period is not open in a ledger), writes the asset's movements per
+// ledger, and makes a `planned` asset `active` with its capitalisation date the earliest value date of
+// its acquisitions. A cancelled or retired asset is 422 `assets.asset_cancelled` or
+// `assets.asset_retired`; an asset the caller cannot act in is 404. Audited, and published as
+// AssetMovementPosted.
+//
+// POST /v1/asset-acquisitions
+func (UnimplementedHandler) CreateAssetAcquisition(ctx context.Context, req *AssetAcquisitionCreate, params CreateAssetAcquisitionParams) (r CreateAssetAcquisitionRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -668,6 +717,26 @@ func (UnimplementedHandler) CreateOrgUnit(ctx context.Context, req *OrgUnitCreat
 //
 // POST /v1/partner-changes
 func (UnimplementedHandler) CreatePartnerChange(ctx context.Context, req *PartnerChangeCreate, params CreatePartnerChangeParams) (r CreatePartnerChangeRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreatePeriodClose implements createPeriodClose operation.
+//
+// Opens the close of a company's regular period (1-12; 422 `closing.special_period` for 13-16)
+// (ADR-0058 §6, T64b): its checklist is the active configuration's close template (`close.tasks`) as
+// given to the company, copied into the close with each task's due date (`due_day` business days after
+// the period's last day, the leading ledger's, as the close calendar plans it) and the configuration
+// version, so a later change of the template leaves the close as it was. It covers the ledgers
+// `ledger_ids` names, by default every ledger the company keeps; the leading ledger is always among
+// them (422 `request.validation_failed` otherwise), each must be kept by the company (422
+// `ledger.ledger_not_kept`) and have the period (422 `closing.period_unknown`, naming the ledger).
+// Refused when the template gives the company no task (409 `closing.no_template`) and when the company
+// has a close of the period already (409 `closing.close_exists`, with its `Location`). A legal entity
+// the caller cannot act in is 422 `request.reference_not_found`. People only. Audited, and published
+// as PeriodCloseChanged (`created`).
+//
+// POST /v1/period-closes
+func (UnimplementedHandler) CreatePeriodClose(ctx context.Context, req *PeriodCloseCreate, params CreatePeriodCloseParams) (r CreatePeriodCloseRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1063,6 +1132,16 @@ func (UnimplementedHandler) GetAsset(ctx context.Context, params GetAssetParams)
 	return r, ht.ErrNotImplemented
 }
 
+// GetAssetAcquisition implements getAssetAcquisition operation.
+//
+// One acquisition with its asset, its source line and the supplier invoice behind it, and its journal
+// entries per ledger (ADR-0057 §6). One of a legal entity the caller cannot act in is not found.
+//
+// GET /v1/asset-acquisitions/{id}
+func (UnimplementedHandler) GetAssetAcquisition(ctx context.Context, params GetAssetAcquisitionParams) (r GetAssetAcquisitionRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetBankAccount implements getBankAccount operation.
 //
 // Returns one bank account of the partner, masked.
@@ -1223,6 +1302,29 @@ func (UnimplementedHandler) GetChangeRequest(ctx context.Context, params GetChan
 //
 // GET /v1/clearings/{id}
 func (UnimplementedHandler) GetClearing(ctx context.Context, params GetClearingParams) (r GetClearingRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetCloseCalendar implements getCloseCalendar operation.
+//
+// The close calendar of a legal entity's fiscal year (ADR-0058 §3, T64a): one row per regular period
+// (1-12) of its leading ledger, in period order, so at most 12 and not paged: the period's id, number,
+// first and last day and posting status, and the planned first and last due dates of its close's
+// tasks, computed from the active configuration's close template (`close.tasks`, changed only through
+// the configuration's approval loop): each task the company's close is given (a task listing companies
+// is given to those only) is due `due_day` business days after the period's last day (0: that day
+// itself; a negative number: that many business days before it). A business day is one that is neither
+// one of the company's `weekend` days (its calendar's, `calendars[].weekend`; default Saturday and
+// Sunday) nor one of its holidays (`calendars[].holidays`), the rule the cash position counts working
+// days by; the search is bounded at 366 days. Without a template task for the company a row has no
+// planned dates. A period the company has opened a close of (`POST /v1/period-closes`, T64b) carries
+// it (`close`: its id, status and tasks total, done and overdue, judged on the company's date at the
+// read) and its planned dates are the close's own tasks' due dates, copied when it was opened. A legal
+// entity the caller cannot act in, or that does not exist, has no rows and no company, as the ledger's
+// list reads answer; a fiscal year the company has no periods in has no rows.
+//
+// GET /v1/close-calendar
+func (UnimplementedHandler) GetCloseCalendar(ctx context.Context, params GetCloseCalendarParams) (r GetCloseCalendarRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1557,6 +1659,20 @@ func (UnimplementedHandler) GetPaymentRun(ctx context.Context, params GetPayment
 	return r, ht.ErrNotImplemented
 }
 
+// GetPeriodClose implements getPeriodClose operation.
+//
+// One period close with its company, the ledgers it covers (each with its period's id and live posting
+// status), its tasks in the template's order (at most 200) and their counts; a task is `overdue` while
+// it is open and due before the company's date at the read in its time zone (`read_date`,
+// `time_zone`). Its ETag is the version every change to the close or its tasks moves, which the task
+// actions take as `If-Match`. A close of a legal entity the caller cannot act in is not found. Besides
+// `closing.close.read` the caller needs `ledger.entry.read` (`x-also-permissions`).
+//
+// GET /v1/period-closes/{id}
+func (UnimplementedHandler) GetPeriodClose(ctx context.Context, params GetPeriodCloseParams) (r GetPeriodCloseRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetPlanCategory implements getPlanCategory operation.
 //
 // Returns one plan category.
@@ -1885,6 +2001,18 @@ func (UnimplementedHandler) ListApprovalRequests(ctx context.Context, params Lis
 	return r, ht.ErrNotImplemented
 }
 
+// ListAssetAcquisitions implements listAssetAcquisitions operation.
+//
+// The asset acquisitions of the legal entities the caller may act in (ADR-0057 §6, T57c), each with
+// its asset, its source line and the supplier invoice behind it, and its journal entries per ledger.
+// Filters: company, asset, source entry, posting dates and status. Sortable by: `posting_date`
+// (default), `created_at`.
+//
+// GET /v1/asset-acquisitions
+func (UnimplementedHandler) ListAssetAcquisitions(ctx context.Context, params ListAssetAcquisitionsParams) (r ListAssetAcquisitionsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListAssetClasses implements listAssetClasses operation.
 //
 // The asset classes of the active configuration (ADR-0057 §3, T57a): each class's code and name, its
@@ -1899,6 +2027,24 @@ func (UnimplementedHandler) ListApprovalRequests(ctx context.Context, params Lis
 //
 // GET /v1/asset-classes
 func (UnimplementedHandler) ListAssetClasses(ctx context.Context, params ListAssetClassesParams) (r ListAssetClassesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListAssetClearingItems implements listAssetClearingItems operation.
+//
+// The worklist of acquisitions (ADR-0057 §6, T57c): the leading ledger's lines on the company's asset
+// clearing accounts in one fiscal year, each with its amounts in its currency, local and group
+// currency, what acquisitions used of it and what is left, its document and origin (for a supplier
+// invoice its number, the supplier's reference and the supplier's name), and the acquisitions made
+// from it. The lines of a reversed entry and of its reversal are left out while nothing was
+// capitalised from the reversed one; a reversed line with acquisitions is shown with
+// `source_reversed`. With `remaining=true`, only lines an acquisition can still take something from
+// (not reversed, something left). A legal entity the caller cannot act in has none. Ordered by posting
+// date, entry and line. The lines are ledger amounts, so besides `assets.asset.read` the caller needs
+// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/asset-clearing-items
+func (UnimplementedHandler) ListAssetClearingItems(ctx context.Context, params ListAssetClearingItemsParams) (r ListAssetClearingItemsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -2022,6 +2168,21 @@ func (UnimplementedHandler) ListChangeRequests(ctx context.Context, params ListC
 //
 // GET /v1/clearings
 func (UnimplementedHandler) ListClearings(ctx context.Context, params ListClearingsParams) (r ListClearingsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListCloseTasks implements listCloseTasks operation.
+//
+// Tasks across the period closes of the legal entities the caller may act in (ADR-0058 §6, T64b): a
+// person's worklist, each task with its close's id and ETag version (`close_version`, the `If-Match`
+// of its actions), company, fiscal year and period. Paged in due date, close and code order.
+// `assignee=me` lists the caller's tasks, a principal's id that principal's. Each item's `overdue` is
+// judged on its company's date at the read in its time zone (`read_date`); `due_before` compares the
+// due date with the day given. Besides `closing.close.read` the caller needs `ledger.entry.read`
+// (`x-also-permissions`).
+//
+// GET /v1/close-tasks
+func (UnimplementedHandler) ListCloseTasks(ctx context.Context, params ListCloseTasksParams) (r ListCloseTasksRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -2416,6 +2577,21 @@ func (UnimplementedHandler) ListPaymentRuns(ctx context.Context, params ListPaym
 //
 // GET /v1/payment-runs/{id}/payments
 func (UnimplementedHandler) ListPayments(ctx context.Context, params ListPaymentsParams) (r ListPaymentsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListPeriodCloses implements listPeriodCloses operation.
+//
+// The period closes of the legal entities the caller may act in (ADR-0058 §6, T64b), without their
+// tasks and ledgers (`GET /v1/period-closes/{id}` has them): each with its company, fiscal year and
+// period, status and its tasks' counts, overdue judged on the company's date at the read in its
+// configured time zone (`read_date`, `time_zone`; UTC when it has none). Sortable by: `period_end`
+// (default), `created_at`. Besides `closing.close.read` the caller needs `ledger.entry.read`, as for
+// every read of a close, whose check results name ledger entries (ADR-0058 §13; `x-also-permissions`;
+// 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/period-closes
+func (UnimplementedHandler) ListPeriodCloses(ctx context.Context, params ListPeriodClosesParams) (r ListPeriodClosesRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3501,6 +3677,19 @@ func (UnimplementedHandler) RenewContract(ctx context.Context, req *ContractRene
 	return r, ht.ErrNotImplemented
 }
 
+// ReopenCloseTask implements reopenCloseTask operation.
+//
+// Returns a done task of a period close to open, with a reason (409 `closing.task_not_done` for an
+// open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared, and the reason is
+// kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays
+// done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People
+// only. Audited, and published as PeriodCloseChanged (`task_reopened`).
+//
+// POST /v1/period-closes/{id}/tasks/{code}:reopen
+func (UnimplementedHandler) ReopenCloseTask(ctx context.Context, req *ReasonInput, params ReopenCloseTaskParams) (r ReopenCloseTaskRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ReplayWebhookDeliveries implements replayWebhookDeliveries operation.
 //
 // Queues again every kept delivery of the subscription whose event occurred at or after `since`,
@@ -3885,6 +4074,19 @@ func (UnimplementedHandler) UpdateAsset(ctx context.Context, req *AssetUpdate, p
 //
 // PATCH /v1/change-requests/{id}
 func (UnimplementedHandler) UpdateChangeRequest(ctx context.Context, req *ChangeRequestUpdate, params UpdateChangeRequestParams) (r UpdateChangeRequestRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateCloseTask implements updateCloseTask operation.
+//
+// Sets or clears (null) the person a task of a period close is assigned to (ADR-0058 §6, T64b): an
+// active person of the tenant (422 `closing.assignee_invalid` for an agent, a service, a blocked or
+// unknown principal). `If-Match` is the close's ETag, so a change made on a stale view of the
+// checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited,
+// and published as PeriodCloseChanged (`task_assigned`).
+//
+// PATCH /v1/period-closes/{id}/tasks/{code}
+func (UnimplementedHandler) UpdateCloseTask(ctx context.Context, req *CloseTaskUpdate, params UpdateCloseTaskParams) (r UpdateCloseTaskRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

@@ -301,6 +301,24 @@ func (c Client) Problem(status int, code, method, path, body, ifMatch string) ma
 	return m
 }
 
+// Blank performs a call whose body gives field as spaces alone and fails
+// the test unless it answers 422 request.validation_failed naming the
+// field: refused before the write, not as the column's check constraint
+// would refuse it (409 request.rule_violated, no field).
+func (c Client) Blank(field, method, path, body, ifMatch string) {
+	c.T.Helper()
+	m := c.Problem(http.StatusUnprocessableEntity, "request.validation_failed", method, path, body, ifMatch)
+	errs, _ := m["errors"].([]any)
+	var got any
+	if len(errs) > 0 {
+		e, _ := errs[0].(map[string]any)
+		got = e["field"]
+	}
+	if got != field {
+		c.T.Errorf("%s %s: field %v, want %s", method, path, got, field)
+	}
+}
+
 // Committed runs fn like InRequest but commits, flushing the audit entries
 // as the unit of work does: for fixtures that go through context functions
 // without an API operation (tenant bootstrap).

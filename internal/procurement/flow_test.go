@@ -131,6 +131,9 @@ func TestRequisitionRefusals(t *testing.T) {
 	e.Problem(422, "request.invalid_extension", "PATCH", path, `{"extensions": {"Bad": 1}}`, `"1"`)
 	e.Problem(422, "procurement.account_not_postable", "PATCH", path, `{"items": `+items(item(usExpense, "1", "EA", "1.00", "EUR", ""))+`}`, `"1"`)
 	e.Problem(412, "request.version_mismatch", "PATCH", path, `{}`, `"9"`)
+	blank := strings.Replace(item(e.office, "1", "EA", "1.00", "EUR", ""), `"Paper"`, `"   "`, 1)
+	e.Blank("items[1].description", "POST", "/v1/requisitions", fmt.Sprintf(`{"legal_entity_id": %q, "currency": "EUR", "items": %s}`, e.DE, items(ok[1:len(ok)-1], blank)), "")
+	e.Blank("items[0].description", "PATCH", path, `{"items": `+items(blank)+`}`, `"1"`)
 	e.Problem(404, "request.not_found", "GET", "/v1/requisitions/"+uuid.NewString(), "", "")
 	moved, _ := e.Must(200, "PATCH", path, fmt.Sprintf(`{"contract_id": null, "supplier_id": null, "currency": "USD", "items": %s}`,
 		items(item(e.office, "1", "EA", "2.00", "USD", ""))), `"1"`)

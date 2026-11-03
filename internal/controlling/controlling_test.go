@@ -206,6 +206,7 @@ func TestPlanCategories(t *testing.T) {
 	want(t, "new category's lock", got["locked"], any(false))
 	want(t, "etag", tag, `"1"`)
 	p.Problem(409, "controlling.plan_category_exists", "POST", "/v1/plan-categories", `{"code": "PLAN", "name": "Again"}`, "")
+	p.Blank("name", "POST", "/v1/plan-categories", `{"code": "BLANK", "name": "   "}`, "")
 	p.category(t, "FORECAST")
 	page, _ := p.Must(200, "GET", "/v1/plan-categories?code=PLAN", "", "")
 	want(t, "categories with code PLAN", len(page["items"].([]any)), 1)

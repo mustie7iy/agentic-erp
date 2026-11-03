@@ -31,6 +31,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/audit"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/cash"
+	"github.com/mustie7iy/agentic-erp/internal/closing"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/controlling"
 	"github.com/mustie7iy/agentic-erp/internal/countrypack"
@@ -81,6 +82,7 @@ type (
 	analyticsAPI   = endpoint.Endpoints
 	cashAPI        = cash.Endpoints
 	assetsAPI      = assets.Endpoints
+	closingAPI     = closing.Endpoints
 	controllingAPI = controlling.Endpoints
 	taxfilingAPI   = taxfiling.Endpoints
 )
@@ -104,6 +106,7 @@ type handler struct {
 	*analyticsAPI
 	*cashAPI
 	*assetsAPI
+	*closingAPI
 	*controllingAPI
 	*taxfilingAPI
 }
@@ -208,6 +211,7 @@ func New(cfg Config) (http.Handler, error) {
 		analyticsAPI:   analyticsEndpoints(cfg, loopback).Init(),
 		cashAPI:        Cash(cfg),
 		assetsAPI:      Assets(cfg),
+		closingAPI:     Closing(cfg),
 		controllingAPI: &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{}},
 		taxfilingAPI: &taxfiling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now,
 			Items: ledger.TaxItems{}, Packs: library, Approvals: opener(), Periods: ledger.ReturnPeriods{}},
