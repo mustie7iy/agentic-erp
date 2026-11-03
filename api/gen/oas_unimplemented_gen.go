@@ -420,6 +420,19 @@ func (UnimplementedHandler) ClosePurchaseOrder(ctx context.Context, params Close
 	return r, ht.ErrNotImplemented
 }
 
+// CompleteCloseTask implements completeCloseTask operation.
+//
+// Marks an open manual task of a period close done, with an optional note (ADR-0058 §6, T64b):
+// refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a task
+// already done (409 `closing.task_already_done`). `If-Match` is the close's ETag; the answer is the
+// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
+// (`task_completed`).
+//
+// POST /v1/period-closes/{id}/tasks/{code}:complete
+func (UnimplementedHandler) CompleteCloseTask(ctx context.Context, req OptCloseTaskComplete, params CompleteCloseTaskParams) (r CompleteCloseTaskRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateBusinessPartner implements createBusinessPartner operation.
 //
 // Creates the partner in status `pending` together with a partner change of kind `create` (see
@@ -633,6 +646,26 @@ func (UnimplementedHandler) CreateOrgUnit(ctx context.Context, req *OrgUnitCreat
 //
 // POST /v1/partner-changes
 func (UnimplementedHandler) CreatePartnerChange(ctx context.Context, req *PartnerChangeCreate, params CreatePartnerChangeParams) (r CreatePartnerChangeRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreatePeriodClose implements createPeriodClose operation.
+//
+// Opens the close of a company's regular period (1-12; 422 `closing.special_period` for 13-16)
+// (ADR-0058 §6, T64b): its checklist is the active configuration's close template (`close.tasks`) as
+// given to the company, copied into the close with each task's due date (`due_day` business days after
+// the period's last day, the leading ledger's, as the close calendar plans it) and the configuration
+// version, so a later change of the template leaves the close as it was. It covers the ledgers
+// `ledger_ids` names, by default every ledger the company keeps; the leading ledger is always among
+// them (422 `request.validation_failed` otherwise), each must be kept by the company (422
+// `ledger.ledger_not_kept`) and have the period (422 `closing.period_unknown`, naming the ledger).
+// Refused when the template gives the company no task (409 `closing.no_template`) and when the company
+// has a close of the period already (409 `closing.close_exists`, with its `Location`). A legal entity
+// the caller cannot act in is 422 `request.reference_not_found`. People only. Audited, and published
+// as PeriodCloseChanged (`created`).
+//
+// POST /v1/period-closes
+func (UnimplementedHandler) CreatePeriodClose(ctx context.Context, req *PeriodCloseCreate, params CreatePeriodCloseParams) (r CreatePeriodCloseRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1193,8 +1226,11 @@ func (UnimplementedHandler) GetClearing(ctx context.Context, params GetClearingP
 // one of the company's `weekend` days (its calendar's, `calendars[].weekend`; default Saturday and
 // Sunday) nor one of its holidays (`calendars[].holidays`), the rule the cash position counts working
 // days by; the search is bounded at 366 days. Without a template task for the company a row has no
-// planned dates. A legal entity the caller cannot act in, or that does not exist, has no rows and no
-// company, as the ledger's list reads answer; a fiscal year the company has no periods in has no rows.
+// planned dates. A period the company has opened a close of (`POST /v1/period-closes`, T64b) carries
+// it (`close`: its id, status and tasks total, done and overdue, judged on the company's date at the
+// read) and its planned dates are the close's own tasks' due dates, copied when it was opened. A legal
+// entity the caller cannot act in, or that does not exist, has no rows and no company, as the ledger's
+// list reads answer; a fiscal year the company has no periods in has no rows.
 //
 // GET /v1/close-calendar
 func (UnimplementedHandler) GetCloseCalendar(ctx context.Context, params GetCloseCalendarParams) (r GetCloseCalendarRes, _ error) {
@@ -1529,6 +1565,20 @@ func (UnimplementedHandler) GetPartnerChange(ctx context.Context, params GetPart
 //
 // GET /v1/payment-runs/{id}
 func (UnimplementedHandler) GetPaymentRun(ctx context.Context, params GetPaymentRunParams) (r GetPaymentRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetPeriodClose implements getPeriodClose operation.
+//
+// One period close with its company, the ledgers it covers (each with its period's id and live posting
+// status), its tasks in the template's order (at most 200) and their counts; a task is `overdue` while
+// it is open and due before the company's date at the read in its time zone (`read_date`,
+// `time_zone`). Its ETag is the version every change to the close or its tasks moves, which the task
+// actions take as `If-Match`. A close of a legal entity the caller cannot act in is not found. Besides
+// `closing.close.read` the caller needs `ledger.entry.read` (`x-also-permissions`).
+//
+// GET /v1/period-closes/{id}
+func (UnimplementedHandler) GetPeriodClose(ctx context.Context, params GetPeriodCloseParams) (r GetPeriodCloseRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1988,6 +2038,20 @@ func (UnimplementedHandler) ListClearings(ctx context.Context, params ListCleari
 	return r, ht.ErrNotImplemented
 }
 
+// ListCloseTasks implements listCloseTasks operation.
+//
+// Tasks across the period closes of the legal entities the caller may act in (ADR-0058 §6, T64b): a
+// person's worklist, each task with its close's id and ETag version (`close_version`, the `If-Match`
+// of its actions), company, fiscal year and period. Paged in due date, close and code order.
+// `assignee=me` lists the caller's tasks, a principal's id that principal's. `overdue` and
+// `due_before` judge each task on its company's date at the read in its time zone (`read_date`).
+// Besides `closing.close.read` the caller needs `ledger.entry.read` (`x-also-permissions`).
+//
+// GET /v1/close-tasks
+func (UnimplementedHandler) ListCloseTasks(ctx context.Context, params ListCloseTasksParams) (r ListCloseTasksRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListCompanyAccess implements listCompanyAccess operation.
 //
 // Effective-dated legal entity access grants, including ended ones. Sortable by: `valid_from`.
@@ -2379,6 +2443,21 @@ func (UnimplementedHandler) ListPaymentRuns(ctx context.Context, params ListPaym
 //
 // GET /v1/payment-runs/{id}/payments
 func (UnimplementedHandler) ListPayments(ctx context.Context, params ListPaymentsParams) (r ListPaymentsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListPeriodCloses implements listPeriodCloses operation.
+//
+// The period closes of the legal entities the caller may act in (ADR-0058 §6, T64b), without their
+// tasks and ledgers (`GET /v1/period-closes/{id}` has them): each with its company, fiscal year and
+// period, status and its tasks' counts, overdue judged on the company's date at the read in its
+// configured time zone (`read_date`, `time_zone`; UTC when it has none). Sortable by: `period_end`
+// (default), `created_at`. Besides `closing.close.read` the caller needs `ledger.entry.read`, as for
+// every read of a close, whose check results name ledger entries (ADR-0058 §13; `x-also-permissions`;
+// 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/period-closes
+func (UnimplementedHandler) ListPeriodCloses(ctx context.Context, params ListPeriodClosesParams) (r ListPeriodClosesRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3464,6 +3543,19 @@ func (UnimplementedHandler) RenewContract(ctx context.Context, req *ContractRene
 	return r, ht.ErrNotImplemented
 }
 
+// ReopenCloseTask implements reopenCloseTask operation.
+//
+// Returns a done task of a period close to open, with a reason (409 `closing.task_not_done` for an
+// open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared, and the reason is
+// kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays
+// done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People
+// only. Audited, and published as PeriodCloseChanged (`task_reopened`).
+//
+// POST /v1/period-closes/{id}/tasks/{code}:reopen
+func (UnimplementedHandler) ReopenCloseTask(ctx context.Context, req *ReasonInput, params ReopenCloseTaskParams) (r ReopenCloseTaskRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ReplayWebhookDeliveries implements replayWebhookDeliveries operation.
 //
 // Queues again every kept delivery of the subscription whose event occurred at or after `since`,
@@ -3829,6 +3921,19 @@ func (UnimplementedHandler) UpdateAiPolicy(ctx context.Context, req *AiPolicyUpd
 //
 // PATCH /v1/change-requests/{id}
 func (UnimplementedHandler) UpdateChangeRequest(ctx context.Context, req *ChangeRequestUpdate, params UpdateChangeRequestParams) (r UpdateChangeRequestRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateCloseTask implements updateCloseTask operation.
+//
+// Sets or clears (null) the person a task of a period close is assigned to (ADR-0058 §6, T64b): an
+// active person of the tenant (422 `closing.assignee_invalid` for an agent, a service, a blocked or
+// unknown principal). `If-Match` is the close's ETag, so a change made on a stale view of the
+// checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited,
+// and published as PeriodCloseChanged (`task_assigned`).
+//
+// PATCH /v1/period-closes/{id}/tasks/{code}
+func (UnimplementedHandler) UpdateCloseTask(ctx context.Context, req *CloseTaskUpdate, params UpdateCloseTaskParams) (r UpdateCloseTaskRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

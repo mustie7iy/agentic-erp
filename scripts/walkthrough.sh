@@ -2617,7 +2617,60 @@ step_close() {
       | \$w != 0 and \$w != 6 and ($holidays | index(\$d) | not))")" true
   expect "the cut-off reminder before each period's end, the review after it" \
     "$(field '[.periods[] | .first_due_on < .end_date and .last_due_on > .end_date] | all')" true
+  close_checklist
   passed
+}
+
+# close_checklist is T64b's part of step_close (ADR-0058 §6): Carla opens
+# the close of today's period, the template copied into it, and works its
+# manual checklist to the end, every task done for the sign-off to come.
+close_checklist() {
+  local period close tag carla
+  period=$((10#${TODAY:5:2}))
+  carla=$(awk -F'\t' '$2 == "Carla Controller" { print $1 }' "$WORK/names")
+  say "Carla opens the close of $CC's period $period of $YEAR, the period of the company's today ($TODAY): its checklist"
+  say "is the template's tasks for the company, copied with their due dates, so a later change of the template"
+  say "leaves this close as it is; it covers every ledger the company keeps."
+  api 201 '"close of \(.company_code) \(.fiscal_year)/\(.fiscal_period), ending \(.period_end): \(.status), template of configuration version \(.config_version)",
+    (.ledgers[] | "  covers \(.ledger_code) \(.ledger_name), its period \(.period_status)"),
+    (.tasks[] | "  \(.code), due \(.due_on): \(.name)\(if .blocked_by == [] then "" else " (after " + (.blocked_by | join(", ")) + ")" end)")' \
+    createPeriodClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  close=$(field .id)
+  tag=$ETAG
+  expect "the close's tasks" "$(field '[.tasks[].code] | join(" ")')" "CUTOFF_NOTICE AP_CUTOFF TB_REVIEW"
+  expect "the leading ledger first" "$(field '.ledgers[0].ledger_code')" 0L
+  say "A second close of the period is refused, and names the first:"
+  refused 409 closing.close_exists createPeriodClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  say "Carla takes the cut-off reminder herself. The supplier invoices wait for it: completing them first is refused."
+  api 200 '"  \(.code) assigned to \(.assignee_name); the close is now at version \(.close_version)"' \
+    updateCloseTask -p "id=$close" -p code=CUTOFF_NOTICE -if-match "$tag" -body "{\"assignee_id\": \"$carla\"}"
+  tag=$ETAG
+  refused 409 closing.task_blocked completeCloseTask -p "id=$close" -p code=AP_CUTOFF -if-match "$tag" -body '{}'
+  say "Her worklist, the tasks assigned to her across closes:"
+  api 200 '(.items[] | "  \(.company_code) \(.fiscal_year)/\(.fiscal_period) \(.code), due \(.due_on): \(.status)\(if .overdue then ", overdue" else "" end)")' \
+    listCloseTasks -p assignee=me
+  expect "her tasks" "$(field '[.items[].code] | join(" ")')" CUTOFF_NOTICE
+  local code
+  for code in CUTOFF_NOTICE AP_CUTOFF TB_REVIEW; do
+    api 200 '"  \(.code) \(.status) by \(.completed_by_name)\(if .note then ": " + .note else "" end)"' \
+      completeCloseTask -p "id=$close" -p code=$code -if-match "$tag" -body '{"note": "Done for the period"}'
+    tag=$ETAG
+  done
+  say "A late supplier invoice of the period turns up: Carla reopens the invoices task with the reason, which the"
+  say "audit trail keeps, and completes it again once the invoice is entered. The review, which depends on it, stays done."
+  api 200 '"  \(.code) \(.status) again"' reopenCloseTask -p "id=$close" -p code=AP_CUTOFF -if-match "$tag" \
+    -body '{"reason": "A late supplier invoice of the period arrived"}'
+  tag=$ETAG
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  expect "the review after the reopening" "$(field '.tasks[] | select(.code == "TB_REVIEW") | .status')" done
+  QUIET=1 api 200 '' completeCloseTask -p "id=$close" -p code=AP_CUTOFF -if-match "$tag" -body '{"note": "The late invoice entered"}'
+  api 200 '"\(.company_code) \(.fiscal_year)/\(.fiscal_period): \(.tasks_done) of \(.tasks_total) tasks done, \(.tasks_overdue) overdue",
+    (.tasks[] | "  \(.code) \(.status) by \(.completed_by_name)")' getPeriodClose -p "id=$close"
+  expect "every task done" "$(field '.tasks_done == .tasks_total')" true
+  say "The calendar's row of the period now shows its close:"
+  api 200 ".periods[] | select(.period == $period) | \"  period \\(.period): close \\(.close.status), \\(.close.tasks_done) of \\(.close.tasks_total) done\"" \
+    getCloseCalendar -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  expect "the calendar's close" "$(field ".periods[] | select(.period == $period) | .close.id")" "$close"
 }
 
 # name_partners replaces the business partners' ids in what it reads with

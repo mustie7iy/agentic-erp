@@ -1525,7 +1525,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The period close and its manual checklist: schema closing (period_close, close_ledger, close_task; RLS, tenant_id first, state triggers, schema tests); POST/GET/list /v1/period-closes (one per company and regular period, the template copied with its configuration version, ledgers defaulting to every kept one; closing.close_exists, closing.special_period, closing.period_unknown, closing.no_template); task PATCH (assignee with name), :complete, :reopen, dependencies (closing.task_blocked), overdue on the company's today; GET /v1/close-tasks; closing.close.manage (task actions with ledger.entry.read also); PeriodCloseChanged; audit; walkthrough: today's period's close opened (step_close, the story's last step, signed off at its end), a task assigned and completed, a blocked task and a second close refused",
         "r": "ADR-0058 · T64b",
         "src": "adr:ADR-0058",

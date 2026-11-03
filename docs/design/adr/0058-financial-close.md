@@ -911,3 +911,72 @@ product owner to overrule:
 - The heading of `step_close` is "Final step — Financial close", without a
   number, so steps that other lanes add before it keep their numbers and
   it never needs renumbering.
+
+**T64b (the period close and its manual checklist).** Built as §5 and §6:
+migration 000192 creates the schema `closing` with its outbox and the
+tables `period_close`, `close_ledger` and `close_task` (RLS, `tenant_id`
+leading every key, no foreign key leaving the schema), and the permission
+`closing.close.manage`. `POST /v1/period-closes` (`createPeriodClose`,
+people only) opens one close per company and regular period
+(`period_close_once`; 422 `closing.special_period` for 13-16), copies the active template's tasks for the company with their due
+dates and the configuration version, and covers the named ledgers or
+every one the company keeps (`ledger.ClosePeriods.Of`, the ADR's
+`ledger.PeriodsOf`, through `closing.Ledger.PeriodsOf`). `GET` and the list
+read it; `PATCH .../tasks/{code}`, `:complete` and `:reopen` work its
+manual tasks, each reading the close `FOR UPDATE`, checking `If-Match`
+against its version, moving it, and writing the audit record and
+`PeriodCloseChanged` (`created`, `task_assigned`, `task_completed`,
+`task_reopened` with the reason) through the new `closing` outbox and
+channel. `GET /v1/close-tasks` is the worklist; the calendar's rows gain
+their `close` (additive). `closing.People` reads principals through the
+new `identity.People`. Walkthrough: `close_checklist` in `step_close`,
+before the sign-off T64d adds. Decided by default, for the product owner
+to overrule:
+- The leading ledger is always covered: `ledger_ids` without it is 422
+  `request.validation_failed`, since the due dates count from its period's
+  last day (`period_end`) and sign-off locks it first. The covered ledgers
+  are shown leading first, then by code. A ledger named twice is refused
+  by the contract (`uniqueItems`, 400 `request.invalid_body`).
+- A legal entity the caller cannot act in, or one that does not exist, is
+  422 `request.reference_not_found` on `legal_entity_id`
+  (`tenancy.Accessible`'s rule); a close of one the caller cannot act in
+  is not found.
+- Two problem codes beside §13's: 409 `closing.task_already_done`
+  (completing a done task) and 409 `closing.task_not_done` (reopening an
+  open one).
+- Reopening clears who completed the task, when and its note; the reason
+  is kept in the audit record and the event, not in a column. Completing
+  takes an optional note (at most 2,000 characters).
+- An assignee is an active human principal of the tenant (422
+  `closing.assignee_invalid` for an agent, a service, a blocked or an
+  unknown principal); `null` unassigns. Whether the assignee may act in the
+  close's company is not checked: a person without access is assigned
+  but does not see the task.
+- A task action answers the task with the close's new ETag. Every task
+  carries its close's id and version (`close_version`, the `If-Match` of
+  its actions), company code and name, fiscal year and period, and
+  `blocked_by`, the codes of the tasks it depends on that are still open,
+  so a worklist consumer acts without reading the close first. An empty
+  merge patch changes nothing: no version move, no audit record, no event.
+- `overdue` and the counts are judged on the company's date at the read in
+  its time zone, shown as `read_date` and `time_zone`, as memo records are
+  (T72n2). `due_before` compares the due date with the day given.
+- `GET /v1/period-closes` lists `PeriodCloseItem`s, the close without its
+  ledgers and tasks but with their counts, sorted by `period_end`
+  (default) or `created_at`, filtered by company, fiscal year and status.
+  `GET /v1/close-tasks` pages in due date, close and code order (no
+  `order_by`), filtered by `assignee` (`me` or an id), status, company,
+  close and `due_before`.
+- `ledger.entry.read` is an `x-also-permissions` of the reads and the task
+  actions (§13, the T64b row), not of `createPeriodClose`; the calendar
+  keeps `closing.close.read` alone, its close showing no check result.
+- `close_task.check_kind` and its rule (`close_task_check_kind`) exist,
+  but no check task is written until T64c adds the first check
+  (`config.CloseChecks` is empty); the check result columns are T64c's,
+  the sign-off rows and the close's signed-off fields T64d's.
+- The database fixes what the template gave a task (code, place, name,
+  kind, check, due date, dependencies) and what the close covers, refuses
+  rewriting a completion while it stands, and starts closes and tasks
+  open; the close's `open` <-> `signed_off` moves are allowed for T64d.
+  Dependencies are checked by the application under the close's lock, not
+  by the database.

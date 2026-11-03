@@ -5,9 +5,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // maxDays bounds the search for a business day, as cash's does, so a
@@ -16,10 +21,16 @@ const maxDays = 366
 
 // GetCloseCalendar implements GET /v1/close-calendar (ADR-0058 §3): the
 // leading ledger's regular periods of the company's fiscal year, each with
-// the planned first and last due dates of the tasks the active close
-// template gives the company. A legal entity the caller may not act in, or
-// that does not exist, has no rows, as the ledger's list reads answer.
+// its close if the company has opened one, and the planned first and last
+// due dates of its tasks: the close's own, copied when it was opened, or
+// else those the active close template gives the company. A legal entity
+// the caller may not act in, or that does not exist, has no rows, as the
+// ledger's list reads answer.
 func (e *Endpoints) GetCloseCalendar(ctx context.Context, params gen.GetCloseCalendarParams) (gen.GetCloseCalendarRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
 	doc, _, err := e.Settings.Document(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("closing: close calendar: %w", err)
@@ -48,14 +59,42 @@ func (e *Endpoints) GetCloseCalendar(ctx context.Context, params gen.GetCloseCal
 	if err != nil {
 		return nil, fmt.Errorf("closing: close calendar of %s: %w", params.LegalEntityID, err)
 	}
+	closes, err := closesOf(ctx, tx, params.LegalEntityID, int16(params.FiscalYear))
+	if err != nil {
+		return nil, err
+	}
+	day, err := doc.CompanyDay(co.Code, clock.Now(e.Now))
+	if err != nil {
+		return nil, fmt.Errorf("closing: close calendar: date of company %s: %w", co.Code, err)
+	}
 	tasks := doc.CloseTasksOf(co.Code)
 	for _, p := range periods {
 		row := gen.CloseCalendarPeriod{FiscalPeriodID: p.ID, Period: int32(p.Number), StartDate: p.StartDate, EndDate: p.EndDate, Status: p.Status}
-		if first, last, ok := dueRange(doc, co.Code, p.EndDate, tasks); ok {
+		if c, ok := closes[p.Number]; ok {
+			row.Close.SetTo(gen.CloseCalendarClose{ID: c.ID, Status: c.Status, TasksTotal: c.Total, TasksDone: c.Done, TasksOverdue: c.overdue(day.Date)})
+			// A close has at least one task: one is opened only from a
+			// template that gives the company some.
+			row.FirstDueOn.SetTo(*c.FirstDue)
+			row.LastDueOn.SetTo(*c.LastDue)
+		} else if first, last, ok := dueRange(doc, co.Code, p.EndDate, tasks); ok {
 			row.FirstDueOn.SetTo(first)
 			row.LastDueOn.SetTo(last)
 		}
 		out.Periods = append(out.Periods, row)
+	}
+	return out, nil
+}
+
+// closesOf are a company's closes of a fiscal year, by period.
+func closesOf(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, year int16) (map[int16]periodClose, error) {
+	rows, _ := tx.Query(ctx, closeSelect+` WHERE c.legal_entity_id = $1 AND c.fiscal_year = $2`, legalEntity, year)
+	cs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (periodClose, error) { return scanClose(r) })
+	if err != nil {
+		return nil, fmt.Errorf("closing: close calendar: closes of %s in %d: %w", legalEntity, year, err)
+	}
+	out := make(map[int16]periodClose, len(cs))
+	for _, c := range cs {
+		out[c.FiscalPeriod] = c
 	}
 	return out, nil
 }

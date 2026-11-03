@@ -13710,7 +13710,7 @@ paths:
       tags:
         - closing
       summary: Get a company's close calendar
-      description: "The close calendar of a legal entity's fiscal year (ADR-0058 §3, T64a): one row per regular period (1-12) of its leading ledger, in period order, so at most 12 and not paged: the period's id, number, first and last day and posting status, and the planned first and last due dates of its close's tasks, computed from the active configuration's close template (`close.tasks`, changed only through the configuration's approval loop): each task the company's close is given (a task listing companies is given to those only) is due `due_day` business days after the period's last day (0: that day itself; a negative number: that many business days before it). A business day is one that is neither one of the company's `weekend` days (its calendar's, `calendars[].weekend`; default Saturday and Sunday) nor one of its holidays (`calendars[].holidays`), the rule the cash position counts working days by; the search is bounded at 366 days. Without a template task for the company a row has no planned dates. A legal entity the caller cannot act in, or that does not exist, has no rows and no company, as the ledger's list reads answer; a fiscal year the company has no periods in has no rows."
+      description: "The close calendar of a legal entity's fiscal year (ADR-0058 §3, T64a): one row per regular period (1-12) of its leading ledger, in period order, so at most 12 and not paged: the period's id, number, first and last day and posting status, and the planned first and last due dates of its close's tasks, computed from the active configuration's close template (`close.tasks`, changed only through the configuration's approval loop): each task the company's close is given (a task listing companies is given to those only) is due `due_day` business days after the period's last day (0: that day itself; a negative number: that many business days before it). A business day is one that is neither one of the company's `weekend` days (its calendar's, `calendars[].weekend`; default Saturday and Sunday) nor one of its holidays (`calendars[].holidays`), the rule the cash position counts working days by; the search is bounded at 366 days. Without a template task for the company a row has no planned dates. A period the company has opened a close of (`POST /v1/period-closes`, T64b) carries it (`close`: its id, status and tasks total, done and overdue, judged on the company's date at the read) and its planned dates are the close's own tasks' due dates, copied when it was opened. A legal entity the caller cannot act in, or that does not exist, has no rows and no company, as the ledger's list reads answer; a fiscal year the company has no periods in has no rows."
       x-permission: closing.close.read
       x-problem-codes:
         - config.not_bootstrapped
@@ -13738,6 +13738,397 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CloseCalendar"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/period-closes:
+    get:
+      operationId: listPeriodCloses
+      tags:
+        - closing
+      summary: List period closes
+      description: "The period closes of the legal entities the caller may act in (ADR-0058 §6, T64b), without their tasks and ledgers (`GET /v1/period-closes/{id}` has them): each with its company, fiscal year and period, status and its tasks' counts, overdue judged on the company's date at the read in its configured time zone (`read_date`, `time_zone`; UTC when it has none). Sortable by: `period_end` (default), `created_at`. Besides `closing.close.read` the caller needs `ledger.entry.read`, as for every read of a close, whose check results name ledger entries (ADR-0058 §13; `x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: closing.close.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: fiscal_year
+          in: query
+          required: false
+          description: Only closes of this fiscal year.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: status
+          in: query
+          required: false
+          description: Only closes in this status.
+          schema:
+            type: string
+            description: "Period close status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [open, signed_off]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of period closes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PeriodClosePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createPeriodClose
+      tags:
+        - closing
+      summary: Open a period close
+      description: "Opens the close of a company's regular period (1-12; 422 `closing.special_period` for 13-16) (ADR-0058 §6, T64b): its checklist is the active configuration's close template (`close.tasks`) as given to the company, copied into the close with each task's due date (`due_day` business days after the period's last day, the leading ledger's, as the close calendar plans it) and the configuration version, so a later change of the template leaves the close as it was. It covers the ledgers `ledger_ids` names, by default every ledger the company keeps; the leading ledger is always among them (422 `request.validation_failed` otherwise), each must be kept by the company (422 `ledger.ledger_not_kept`) and have the period (422 `closing.period_unknown`, naming the ledger). Refused when the template gives the company no task (409 `closing.no_template`) and when the company has a close of the period already (409 `closing.close_exists`, with its `Location`). A legal entity the caller cannot act in is 422 `request.reference_not_found`. People only. Audited, and published as PeriodCloseChanged (`created`)."
+      x-permission: closing.close.manage
+      x-agent: false
+      x-problem-codes:
+        - closing.close_exists
+        - closing.no_template
+        - closing.period_unknown
+        - closing.special_period
+        - config.not_bootstrapped
+        - ledger.ledger_not_kept
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The company and period to close.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PeriodCloseCreate"
+      responses:
+        "201":
+          description: "Created; the period close with its tasks."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PeriodClose"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/period-closes/{id}":
+    get:
+      operationId: getPeriodClose
+      tags:
+        - closing
+      summary: Get a period close
+      description: "One period close with its company, the ledgers it covers (each with its period's id and live posting status), its tasks in the template's order (at most 200) and their counts; a task is `overdue` while it is open and due before the company's date at the read in its time zone (`read_date`, `time_zone`). Its ETag is the version every change to the close or its tasks moves, which the task actions take as `If-Match`. A close of a legal entity the caller cannot act in is not found. Besides `closing.close.read` the caller needs `ledger.entry.read` (`x-also-permissions`)."
+      x-permission: closing.close.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - config.not_bootstrapped
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The period close.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PeriodClose"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/period-closes/{id}/tasks/{code}":
+    patch:
+      operationId: updateCloseTask
+      tags:
+        - closing
+      summary: Assign a close task
+      description: "Sets or clears (null) the person a task of a period close is assigned to (ADR-0058 §6, T64b): an active person of the tenant (422 `closing.assignee_invalid` for an agent, a service, a blocked or unknown principal). `If-Match` is the close's ETag, so a change made on a stale view of the checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_assigned`)."
+      x-permission: closing.close.manage
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - closing.assignee_invalid
+        - closing.close_exists
+        - config.not_bootstrapped
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CloseTaskCode"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the task.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/CloseTaskUpdate"
+      responses:
+        "200":
+          description: "Updated; the task, with the close's new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CloseTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/period-closes/{id}/tasks/{code}:complete":
+    post:
+      operationId: completeCloseTask
+      tags:
+        - closing
+      summary: Complete a close task
+      description: "Marks an open manual task of a period close done, with an optional note (ADR-0058 §6, T64b): refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a task already done (409 `closing.task_already_done`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_completed`)."
+      x-permission: closing.close.manage
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - closing.close_exists
+        - closing.task_already_done
+        - closing.task_blocked
+        - config.not_bootstrapped
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CloseTaskCode"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of completeCloseTask.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloseTaskComplete"
+      responses:
+        "200":
+          description: "The task after the change, with the close's new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CloseTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/period-closes/{id}/tasks/{code}:reopen":
+    post:
+      operationId: reopenCloseTask
+      tags:
+        - closing
+      summary: Reopen a close task
+      description: "Returns a done task of a period close to open, with a reason (409 `closing.task_not_done` for an open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared, and the reason is kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_reopened`)."
+      x-permission: closing.close.manage
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - closing.close_exists
+        - closing.task_not_done
+        - config.not_bootstrapped
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CloseTaskCode"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of reopenCloseTask.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "200":
+          description: "The task after the change, with the close's new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CloseTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/close-tasks:
+    get:
+      operationId: listCloseTasks
+      tags:
+        - closing
+      summary: List close tasks
+      description: "Tasks across the period closes of the legal entities the caller may act in (ADR-0058 §6, T64b): a person's worklist, each task with its close's id and ETag version (`close_version`, the `If-Match` of its actions), company, fiscal year and period. Paged in due date, close and code order. `assignee=me` lists the caller's tasks, a principal's id that principal's. `overdue` and `due_before` judge each task on its company's date at the read in its time zone (`read_date`). Besides `closing.close.read` the caller needs `ledger.entry.read` (`x-also-permissions`)."
+      x-permission: closing.close.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: assignee
+          in: query
+          required: false
+          description: "`me` for the caller's tasks, or a principal's id for that principal's."
+          schema:
+            type: string
+            pattern: "^(me|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"
+          example: me
+        - name: status
+          in: query
+          required: false
+          description: Only tasks in this status.
+          schema:
+            type: string
+            description: "Close task status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [open, done]
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: close_id
+          in: query
+          required: false
+          description: Only the tasks of this period close.
+          schema:
+            type: string
+            format: uuid
+        - name: due_before
+          in: query
+          required: false
+          description: Only tasks due before this day.
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of close tasks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CloseTaskPage"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -17894,6 +18285,15 @@ components:
         type: string
         format: uuid
       example: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d1e"
+    CloseTaskCode:
+      name: code
+      in: path
+      required: true
+      description: "A task's code in its period close."
+      schema:
+        type: string
+        pattern: "^[A-Z0-9_]{1,30}$"
+      example: AP_CUTOFF
     IfMatch:
       name: If-Match
       in: header
@@ -31931,13 +32331,655 @@ components:
         first_due_on:
           type: string
           format: date
-          description: "The earliest due date of the template's tasks for the company in this period, a business day unless a task is due on the period's last day itself (`due_day` 0); absent without a task."
+          description: "The earliest due date of the period's close's tasks when it has a close (T64b), else of the template's tasks for the company in this period, a business day unless a task is due on the period's last day itself (`due_day` 0); absent without a task."
           readOnly: true
         last_due_on:
           type: string
           format: date
-          description: "The latest due date of the template's tasks for the company in this period; absent without a task."
+          description: "The latest due date of the period's close's tasks when it has a close, else of the template's tasks for the company in this period; absent without a task."
           readOnly: true
+        close:
+          $ref: "#/components/schemas/CloseCalendarClose"
+    CloseCalendarClose:
+      type: object
+      description: "A period's close on the close calendar (T64b): its id, status and the counts of its tasks."
+      required:
+        - id
+        - status
+        - tasks_total
+        - tasks_done
+        - tasks_overdue
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: "The period close (`GET /v1/period-closes/{id}`)."
+          readOnly: true
+        status:
+          type: string
+          description: "Period close status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [open, signed_off]
+          readOnly: true
+        tasks_total:
+          type: integer
+          format: int32
+          description: Its tasks.
+          minimum: 0
+          readOnly: true
+        tasks_done:
+          type: integer
+          format: int32
+          description: Its tasks done.
+          minimum: 0
+          readOnly: true
+        tasks_overdue:
+          type: integer
+          format: int32
+          description: "Its tasks open and due before the company's date at the read."
+          minimum: 0
+          readOnly: true
+    PeriodCloseCreate:
+      type: object
+      description: "A company's regular period to close."
+      required:
+        - legal_entity_id
+        - fiscal_year
+        - fiscal_period
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The company's legal entity.
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          description: Fiscal year.
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          description: "Period: a regular one (1-12); special periods (13-16) are the year-end close's, which T64 leaves out."
+        ledger_ids:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+          description: "The ledgers the close covers, the leading one among them; default every ledger the company keeps."
+      additionalProperties: false
+      examples:
+        - legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+          fiscal_year: 2026
+          fiscal_period: 10
+    PeriodClose:
+      type: object
+      description: "A company's close of one regular period (ADR-0058 §6): the ledgers it covers and its checklist, copied from the close template when it was opened."
+      required:
+        - id
+        - legal_entity_id
+        - company_code
+        - company_name
+        - fiscal_year
+        - fiscal_period
+        - period_end
+        - config_version
+        - status
+        - read_date
+        - time_zone
+        - tasks_total
+        - tasks_done
+        - tasks_open
+        - tasks_overdue
+        - ledgers
+        - tasks
+        - version
+        - created_at
+        - created_by
+        - updated_at
+        - updated_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The company's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The company's name.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year.
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 12
+          description: Regular period.
+          readOnly: true
+        period_end:
+          type: string
+          format: date
+          description: "The period's last day, the leading ledger's, which the tasks' due dates count from."
+          readOnly: true
+        config_version:
+          type: integer
+          format: int32
+          description: "The configuration version whose close template the checklist was copied from."
+          readOnly: true
+        status:
+          type: string
+          description: "`open` until it is signed off. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [open, signed_off]
+          readOnly: true
+        read_date:
+          type: string
+          format: date
+          description: "The company's date at the read in its time zone, on which `overdue` is judged."
+          readOnly: true
+        time_zone:
+          type: string
+          description: "The IANA time zone `read_date` is the company's date in (UTC when its company sets none)."
+          readOnly: true
+        tasks_total:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Its tasks.
+          readOnly: true
+        tasks_done:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Its tasks done.
+          readOnly: true
+        tasks_open:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Its tasks open.
+          readOnly: true
+        tasks_overdue:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "Its tasks open and due before `read_date`."
+          readOnly: true
+        ledgers:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/CloseLedger"
+          description: "The ledgers the close covers, the leading one first, then by code."
+          readOnly: true
+        tasks:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/CloseTask"
+          description: "Its tasks, in the template's order."
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version, the ETag; moved by every change to the close or its tasks."
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: Principal that opened the close.
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: Last change time.
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          description: Principal that last changed it or its tasks.
+          readOnly: true
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000f01
+          legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+          company_code: "1000"
+          company_name: Maple Manufacturing Ltd.
+          fiscal_year: 2026
+          fiscal_period: 10
+          period_end: "2026-10-31"
+          config_version: 7
+          status: open
+          read_date: "2026-11-03"
+          time_zone: America/Toronto
+          tasks_total: 1
+          tasks_done: 0
+          tasks_open: 1
+          tasks_overdue: 1
+          ledgers:
+            - {ledger_id: 0192a000-0000-7000-8000-000000000a01, ledger_code: 0L, ledger_name: Leading ledger, is_leading: true, fiscal_period_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41, period_status: open}
+          tasks:
+            - close_id: 0192a000-0000-7000-8000-000000000f01
+              close_version: 1
+              legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+              company_code: "1000"
+              company_name: Maple Manufacturing Ltd.
+              fiscal_year: 2026
+              fiscal_period: 10
+              code: AP_CUTOFF
+              seq: 1
+              name: Supplier invoices of the period entered
+              kind: manual
+              due_on: "2026-11-02"
+              depends_on: []
+              blocked_by: []
+              status: open
+              overdue: true
+              read_date: "2026-11-03"
+          version: 1
+          created_at: "2026-11-03T14:00:00Z"
+          created_by: 0192a000-0000-7000-8000-000000000101
+          updated_at: "2026-11-03T14:00:00Z"
+          updated_by: 0192a000-0000-7000-8000-000000000101
+    PeriodCloseItem:
+      type: object
+      description: "A period close as a list shows it: without its ledgers and tasks, with its tasks' counts."
+      required:
+        - id
+        - legal_entity_id
+        - company_code
+        - company_name
+        - fiscal_year
+        - fiscal_period
+        - period_end
+        - config_version
+        - status
+        - read_date
+        - time_zone
+        - tasks_total
+        - tasks_done
+        - tasks_open
+        - tasks_overdue
+        - version
+        - created_at
+        - created_by
+        - updated_at
+        - updated_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The company's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The company's name.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year.
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 12
+          description: Regular period.
+          readOnly: true
+        period_end:
+          type: string
+          format: date
+          description: "The period's last day, the leading ledger's."
+          readOnly: true
+        config_version:
+          type: integer
+          format: int32
+          description: "The configuration version whose close template the checklist was copied from."
+          readOnly: true
+        status:
+          type: string
+          description: "Period close status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [open, signed_off]
+          readOnly: true
+        read_date:
+          type: string
+          format: date
+          description: "The company's date at the read in its time zone, on which overdue tasks are judged."
+          readOnly: true
+        time_zone:
+          type: string
+          description: "The IANA time zone `read_date` is the company's date in."
+          readOnly: true
+        tasks_total:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Its tasks.
+          readOnly: true
+        tasks_done:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Its tasks done.
+          readOnly: true
+        tasks_open:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Its tasks open.
+          readOnly: true
+        tasks_overdue:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "Its tasks open and due before `read_date`."
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version, the close's ETag."
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: Principal that opened the close.
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: Last change time.
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          description: Principal that last changed it or its tasks.
+          readOnly: true
+    PeriodClosePage:
+      type: object
+      description: One page of period closes.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PeriodCloseItem"
+          description: The period closes on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
+    CloseLedger:
+      type: object
+      description: "A ledger a period close covers, with its period's live posting status."
+      required:
+        - ledger_id
+        - ledger_code
+        - ledger_name
+        - is_leading
+        - fiscal_period_id
+        - period_status
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: The ledger.
+          readOnly: true
+        ledger_code:
+          type: string
+          description: "The ledger's code (`0L`, `2L`)."
+          readOnly: true
+        ledger_name:
+          type: string
+          description: The ledger's name.
+          readOnly: true
+        is_leading:
+          type: boolean
+          description: Whether it is the leading ledger.
+          readOnly: true
+        fiscal_period_id:
+          type: string
+          format: uuid
+          description: "The ledger's posting period of the close (`GET /v1/fiscal-periods/{id}`)."
+          readOnly: true
+        period_status:
+          type: string
+          description: "The period's posting status now. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [open, closed, locked]
+          readOnly: true
+    CloseTask:
+      type: object
+      description: "A task of a period close (ADR-0058 §6), with its close and company."
+      required:
+        - close_id
+        - close_version
+        - legal_entity_id
+        - company_code
+        - company_name
+        - fiscal_year
+        - fiscal_period
+        - code
+        - seq
+        - name
+        - kind
+        - due_on
+        - depends_on
+        - blocked_by
+        - status
+        - overdue
+        - read_date
+      properties:
+        close_id:
+          type: string
+          format: uuid
+          description: "The period close (`GET /v1/period-closes/{id}`)."
+          readOnly: true
+        close_version:
+          type: integer
+          format: int32
+          description: "The close's version, whose ETag (`\"<close_version>\"`) the task's actions take as `If-Match`."
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The close's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The company's name.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: The close's fiscal year.
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          description: The close's period.
+          readOnly: true
+        code:
+          type: string
+          description: "The template task's code, unique in the close."
+          pattern: "^[A-Z0-9_]{1,30}$"
+          readOnly: true
+        seq:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Its place in the template's order.
+          readOnly: true
+        name:
+          type: string
+          description: What is to be done.
+          readOnly: true
+        kind:
+          type: string
+          description: "`manual`: a person completes it; `check`: the system runs it (later slices). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [manual, check]
+          readOnly: true
+        check:
+          type: string
+          description: "The check a `check` task runs; absent for a manual task."
+          readOnly: true
+        due_on:
+          type: string
+          format: date
+          description: "Its due date: `due_day` business days of the company after the period's last day."
+          readOnly: true
+        depends_on:
+          type: array
+          maxItems: 200
+          items:
+            type: string
+          description: "The codes of the tasks of the close it waits for."
+          readOnly: true
+        blocked_by:
+          type: array
+          maxItems: 200
+          items:
+            type: string
+          description: "The codes of the tasks it depends on that are still open: while any is, it cannot be completed."
+          readOnly: true
+        assignee_id:
+          type: string
+          format: uuid
+          description: "The person it is assigned to; absent when nobody is."
+          readOnly: true
+        assignee_name:
+          type: string
+          description: "The assignee's name; absent when `assignee_id` is."
+          readOnly: true
+        status:
+          type: string
+          description: "Close task status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [open, done]
+          readOnly: true
+        overdue:
+          type: boolean
+          description: "Open and due before `read_date`."
+          readOnly: true
+        read_date:
+          type: string
+          format: date
+          description: "The company's date at the read in its time zone, on which `overdue` is judged."
+          readOnly: true
+        completed_by:
+          type: string
+          format: uuid
+          description: "Who completed it; absent while it is open."
+          readOnly: true
+        completed_by_name:
+          type: string
+          description: "Their name; absent while it is open."
+          readOnly: true
+        completed_at:
+          type: string
+          format: date-time
+          description: "When it was completed; absent while it is open."
+          readOnly: true
+        note:
+          type: string
+          description: "The note given when it was completed; absent without one."
+          readOnly: true
+      examples:
+        - close_id: 0192a000-0000-7000-8000-000000000f01
+          close_version: 3
+          legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+          company_code: "1000"
+          company_name: Maple Manufacturing Ltd.
+          fiscal_year: 2026
+          fiscal_period: 10
+          code: AP_CUTOFF
+          seq: 1
+          name: Supplier invoices of the period entered
+          kind: manual
+          due_on: "2026-11-02"
+          depends_on: []
+          blocked_by: []
+          assignee_id: 0192a000-0000-7000-8000-000000000101
+          assignee_name: Carla Controller
+          status: done
+          overdue: false
+          read_date: "2026-11-03"
+          completed_by: 0192a000-0000-7000-8000-000000000101
+          completed_by_name: Carla Controller
+          completed_at: "2026-11-03T15:00:00Z"
+          note: Last invoices entered on the 2nd.
+    CloseTaskPage:
+      type: object
+      description: One page of close tasks.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CloseTask"
+          description: The close tasks on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
+    CloseTaskUpdate:
+      type: object
+      description: "Merge patch of a close task."
+      properties:
+        assignee_id: {type: [string, "null"], format: uuid, description: "An active person of the tenant. Send null to unassign."}
+      additionalProperties: false
+      examples:
+        - {assignee_id: 0192a000-0000-7000-8000-000000000101}
+    CloseTaskComplete:
+      type: object
+      description: "A manual task's completion."
+      properties:
+        note: {type: string, minLength: 1, maxLength: 2000, description: "What was done; kept on the task and in the audit trail."}
+      additionalProperties: false
+      examples:
+        - {note: "Last invoices entered on the 2nd."}
     AssetClassPage:
       type: object
       description: One page of asset classes.

@@ -368,6 +368,26 @@ func encodeClearSupplierInvoiceDownPaymentsRequest(
 	return nil
 }
 
+func encodeCompleteCloseTaskRequest(
+	req OptCloseTaskComplete,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	if !req.Set {
+		// Keep request with empty body if value is not set.
+		return nil
+	}
+	e := new(jx.Encoder)
+	{
+		if req.Set {
+			req.Encode(e)
+		}
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateBusinessPartnerRequest(
 	req *BusinessPartnerCreate,
 	r *http.Request,
@@ -594,6 +614,20 @@ func encodeCreateOrgUnitRequest(
 
 func encodeCreatePartnerChangeRequest(
 	req *PartnerChangeCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreatePeriodCloseRequest(
+	req *PeriodCloseCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -1505,6 +1539,20 @@ func encodeRenewContractRequest(
 	return nil
 }
 
+func encodeReopenCloseTaskRequest(
+	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeReplayWebhookDeliveriesRequest(
 	req *WebhookReplay,
 	r *http.Request,
@@ -1701,6 +1749,20 @@ func encodeUpdateAiPolicyRequest(
 
 func encodeUpdateChangeRequestRequest(
 	req *ChangeRequestUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateCloseTaskRequest(
+	req *CloseTaskUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

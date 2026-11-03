@@ -17,3 +17,12 @@ func TestClosePeriodsOutsideRequest(t *testing.T) {
 		t.Error("outside a unit of work: got no error, want one")
 	}
 }
+
+// TestKeptPeriodsOutsideRequest: a period close's read of the periods by
+// ledger runs only in a request's unit of work; its rows and database
+// failures are tested through POST /v1/period-closes (internal/closing).
+func TestKeptPeriodsOutsideRequest(t *testing.T) {
+	if _, err := (ledger.ClosePeriods{}).Of(context.Background(), uuid.New(), 2026, 1); err == nil {
+		t.Error("outside a unit of work: got no error, want one")
+	}
+}

@@ -98,6 +98,7 @@ info:
     - name: cash
     - name: controlling
     - name: tax
+    - name: closing
     - name: platform
 
 defaultContentType: application/json
@@ -358,6 +359,14 @@ channels:
       TaxReturnFiled: {$ref: '#/components/messages/TaxReturnFiled'}
       TaxReturnWithdrawn: {$ref: '#/components/messages/TaxReturnWithdrawn'}
       TaxReturnRejected: {$ref: '#/components/messages/TaxReturnRejected'}
+  closing:
+    address: 'erp.{cell}.closing.{tenant}.{event}'
+    title: Financial close events
+    description: Period closes and their checklists (ADR-0058 §13).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      PeriodCloseChanged: {$ref: '#/components/messages/PeriodCloseChanged'}
   platform:
     address: 'erp.{cell}.platform.{tenant}.{event}'
     title: Platform operation events
@@ -566,6 +575,12 @@ operations:
       - $ref: '#/channels/tax/messages/TaxReturnFiled'
       - $ref: '#/channels/tax/messages/TaxReturnWithdrawn'
       - $ref: '#/channels/tax/messages/TaxReturnRejected'
+  publishClosingEvents:
+    action: send
+    title: Financial close publishes
+    channel: {$ref: '#/channels/closing'}
+    messages:
+      - $ref: '#/channels/closing/messages/PeriodCloseChanged'
   publishPlatformEvents:
     action: send
     title: Platform publishes
@@ -2943,6 +2958,28 @@ components:
         - name: example
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000705, source: /erp/eu-1/tax, type: com.example.erp.tax.tax_return_rejected.v1, subject: 0192a000-0000-7000-8000-000000000e31, time: '2026-10-06T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
           payload: {tax_return_id: 0192a000-0000-7000-8000-000000000e31, registration_id: 0192a000-0000-7000-8000-000000000e01, registration_code: GSTHST, legal_entity_id: 0192a000-0000-7000-8000-000000000201, kind: original, return_type: GST34, period_start: '2026-07-01', period_end: '2026-09-30', previous_status: prepared, status: rejected, released_items: 2, comment: Box output_tax misses the October billing summary}
+    PeriodCloseChanged:
+      name: PeriodCloseChanged
+      x-webhook: true
+      title: Period close changed
+      summary: A period close was opened, or one of its tasks assigned, completed or reopened.
+      description: |
+        Emitted by `period-closes` (POST, `created`) and its tasks' PATCH
+        (`task_assigned`), `:complete` (`task_completed`) and `:reopen`
+        (`task_reopened`, with the reason) (ADR-0058 §6, T64b). It says
+        what changed, not the close, which `GET /v1/period-closes/{id}`
+        returns at `version`. Subject is the period close id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.closing.period_close_changed.v1}
+      payload: {$ref: '#/components/schemas/PeriodCloseChangedV1'}
+      examples:
+        - name: task_completed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000801, source: /erp/eu-1/closing, type: com.example.erp.closing.period_close_changed.v1, subject: 0192a000-0000-7000-8000-000000000f01, time: '2026-11-03T15:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {period_close_id: 0192a000-0000-7000-8000-000000000f01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2026, fiscal_period: 10, change: task_completed, task_code: AP_CUTOFF, reason: null, status: open, version: 3}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -3475,6 +3512,19 @@ components:
         status: {type: string, description: 'Open enum: rejected.'}
         released_items: {type: integer, description: The tax items released to the next return.}
         comment: {type: [string, 'null'], description: "The rejection's comment."}
+    PeriodCloseChangedV1:
+      type: object
+      required: [period_close_id, legal_entity_id, fiscal_year, fiscal_period, change, task_code, reason, status, version]
+      properties:
+        period_close_id: {$ref: '#/components/schemas/Uuid', description: '`closing.period_close.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        fiscal_year: {type: integer}
+        fiscal_period: {type: integer, description: The regular period (1-12).}
+        change: {type: string, description: 'Open enum: created, task_assigned, task_completed, task_reopened.'}
+        task_code: {type: [string, 'null'], description: The task changed; null when the close was created.}
+        reason: {type: [string, 'null'], description: "Why a task was reopened; null for any other change."}
+        status: {type: string, description: "The close's status after the change. Open enum: open, signed_off."}
+        version: {type: integer, description: "The close's version after the change."}
     PlanCategoryChangedV1:
       type: object
       required: [plan_category_id, code, name, locked, change]

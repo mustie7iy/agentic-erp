@@ -346,6 +346,16 @@ type Invoker interface {
 	//
 	// POST /v1/purchase-orders/{id}:close
 	ClosePurchaseOrder(ctx context.Context, params ClosePurchaseOrderParams) (ClosePurchaseOrderRes, error)
+	// CompleteCloseTask invokes completeCloseTask operation.
+	//
+	// Marks an open manual task of a period close done, with an optional note (ADR-0058 §6, T64b):
+	// refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a task
+	// already done (409 `closing.task_already_done`). `If-Match` is the close's ETag; the answer is the
+	// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
+	// (`task_completed`).
+	//
+	// POST /v1/period-closes/{id}/tasks/{code}:complete
+	CompleteCloseTask(ctx context.Context, request OptCloseTaskComplete, params CompleteCloseTaskParams) (CompleteCloseTaskRes, error)
 	// CreateBusinessPartner invokes createBusinessPartner operation.
 	//
 	// Creates the partner in status `pending` together with a partner change of kind `create` (see
@@ -511,6 +521,23 @@ type Invoker interface {
 	//
 	// POST /v1/partner-changes
 	CreatePartnerChange(ctx context.Context, request *PartnerChangeCreate, params CreatePartnerChangeParams) (CreatePartnerChangeRes, error)
+	// CreatePeriodClose invokes createPeriodClose operation.
+	//
+	// Opens the close of a company's regular period (1-12; 422 `closing.special_period` for 13-16)
+	// (ADR-0058 §6, T64b): its checklist is the active configuration's close template (`close.tasks`) as
+	// given to the company, copied into the close with each task's due date (`due_day` business days after
+	// the period's last day, the leading ledger's, as the close calendar plans it) and the configuration
+	// version, so a later change of the template leaves the close as it was. It covers the ledgers
+	// `ledger_ids` names, by default every ledger the company keeps; the leading ledger is always among
+	// them (422 `request.validation_failed` otherwise), each must be kept by the company (422
+	// `ledger.ledger_not_kept`) and have the period (422 `closing.period_unknown`, naming the ledger).
+	// Refused when the template gives the company no task (409 `closing.no_template`) and when the company
+	// has a close of the period already (409 `closing.close_exists`, with its `Location`). A legal entity
+	// the caller cannot act in is 422 `request.reference_not_found`. People only. Audited, and published
+	// as PeriodCloseChanged (`created`).
+	//
+	// POST /v1/period-closes
+	CreatePeriodClose(ctx context.Context, request *PeriodCloseCreate, params CreatePeriodCloseParams) (CreatePeriodCloseRes, error)
 	// CreatePlanCategory invokes createPlanCategory operation.
 	//
 	// Creates an open plan category (ADR-0050 §8). A code is unique in the tenant (409
@@ -933,8 +960,11 @@ type Invoker interface {
 	// one of the company's `weekend` days (its calendar's, `calendars[].weekend`; default Saturday and
 	// Sunday) nor one of its holidays (`calendars[].holidays`), the rule the cash position counts working
 	// days by; the search is bounded at 366 days. Without a template task for the company a row has no
-	// planned dates. A legal entity the caller cannot act in, or that does not exist, has no rows and no
-	// company, as the ledger's list reads answer; a fiscal year the company has no periods in has no rows.
+	// planned dates. A period the company has opened a close of (`POST /v1/period-closes`, T64b) carries
+	// it (`close`: its id, status and tasks total, done and overdue, judged on the company's date at the
+	// read) and its planned dates are the close's own tasks' due dates, copied when it was opened. A legal
+	// entity the caller cannot act in, or that does not exist, has no rows and no company, as the ledger's
+	// list reads answer; a fiscal year the company has no periods in has no rows.
 	//
 	// GET /v1/close-calendar
 	GetCloseCalendar(ctx context.Context, params GetCloseCalendarParams) (GetCloseCalendarRes, error)
@@ -1188,6 +1218,17 @@ type Invoker interface {
 	//
 	// GET /v1/payment-runs/{id}
 	GetPaymentRun(ctx context.Context, params GetPaymentRunParams) (GetPaymentRunRes, error)
+	// GetPeriodClose invokes getPeriodClose operation.
+	//
+	// One period close with its company, the ledgers it covers (each with its period's id and live posting
+	// status), its tasks in the template's order (at most 200) and their counts; a task is `overdue` while
+	// it is open and due before the company's date at the read in its time zone (`read_date`,
+	// `time_zone`). Its ETag is the version every change to the close or its tasks moves, which the task
+	// actions take as `If-Match`. A close of a legal entity the caller cannot act in is not found. Besides
+	// `closing.close.read` the caller needs `ledger.entry.read` (`x-also-permissions`).
+	//
+	// GET /v1/period-closes/{id}
+	GetPeriodClose(ctx context.Context, params GetPeriodCloseParams) (GetPeriodCloseRes, error)
 	// GetPlanCategory invokes getPlanCategory operation.
 	//
 	// Returns one plan category.
@@ -1518,6 +1559,17 @@ type Invoker interface {
 	//
 	// GET /v1/clearings
 	ListClearings(ctx context.Context, params ListClearingsParams) (ListClearingsRes, error)
+	// ListCloseTasks invokes listCloseTasks operation.
+	//
+	// Tasks across the period closes of the legal entities the caller may act in (ADR-0058 §6, T64b): a
+	// person's worklist, each task with its close's id and ETag version (`close_version`, the `If-Match`
+	// of its actions), company, fiscal year and period. Paged in due date, close and code order.
+	// `assignee=me` lists the caller's tasks, a principal's id that principal's. `overdue` and
+	// `due_before` judge each task on its company's date at the read in its time zone (`read_date`).
+	// Besides `closing.close.read` the caller needs `ledger.entry.read` (`x-also-permissions`).
+	//
+	// GET /v1/close-tasks
+	ListCloseTasks(ctx context.Context, params ListCloseTasksParams) (ListCloseTasksRes, error)
 	// ListCompanyAccess invokes listCompanyAccess operation.
 	//
 	// Effective-dated legal entity access grants, including ended ones. Sortable by: `valid_from`.
@@ -1804,6 +1856,18 @@ type Invoker interface {
 	//
 	// GET /v1/payment-runs/{id}/payments
 	ListPayments(ctx context.Context, params ListPaymentsParams) (ListPaymentsRes, error)
+	// ListPeriodCloses invokes listPeriodCloses operation.
+	//
+	// The period closes of the legal entities the caller may act in (ADR-0058 §6, T64b), without their
+	// tasks and ledgers (`GET /v1/period-closes/{id}` has them): each with its company, fiscal year and
+	// period, status and its tasks' counts, overdue judged on the company's date at the read in its
+	// configured time zone (`read_date`, `time_zone`; UTC when it has none). Sortable by: `period_end`
+	// (default), `created_at`. Besides `closing.close.read` the caller needs `ledger.entry.read`, as for
+	// every read of a close, whose check results name ledger entries (ADR-0058 §13; `x-also-permissions`;
+	// 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/period-closes
+	ListPeriodCloses(ctx context.Context, params ListPeriodClosesParams) (ListPeriodClosesRes, error)
 	// ListPlanCategories invokes listPlanCategories operation.
 	//
 	// The tenant's plan categories (ADR-0050 §8), such as `PLAN` and `FORECAST`: open, or locked so their
@@ -2676,6 +2740,16 @@ type Invoker interface {
 	//
 	// POST /v1/contracts/{id}:renew
 	RenewContract(ctx context.Context, request *ContractRenew, params RenewContractParams) (RenewContractRes, error)
+	// ReopenCloseTask invokes reopenCloseTask operation.
+	//
+	// Returns a done task of a period close to open, with a reason (409 `closing.task_not_done` for an
+	// open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared, and the reason is
+	// kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays
+	// done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People
+	// only. Audited, and published as PeriodCloseChanged (`task_reopened`).
+	//
+	// POST /v1/period-closes/{id}/tasks/{code}:reopen
+	ReopenCloseTask(ctx context.Context, request *ReasonInput, params ReopenCloseTaskParams) (ReopenCloseTaskRes, error)
 	// ReplayWebhookDeliveries invokes replayWebhookDeliveries operation.
 	//
 	// Queues again every kept delivery of the subscription whose event occurred at or after `since`,
@@ -2963,6 +3037,16 @@ type Invoker interface {
 	//
 	// PATCH /v1/change-requests/{id}
 	UpdateChangeRequest(ctx context.Context, request *ChangeRequestUpdate, params UpdateChangeRequestParams) (UpdateChangeRequestRes, error)
+	// UpdateCloseTask invokes updateCloseTask operation.
+	//
+	// Sets or clears (null) the person a task of a period close is assigned to (ADR-0058 §6, T64b): an
+	// active person of the tenant (422 `closing.assignee_invalid` for an agent, a service, a blocked or
+	// unknown principal). `If-Match` is the close's ETag, so a change made on a stale view of the
+	// checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited,
+	// and published as PeriodCloseChanged (`task_assigned`).
+	//
+	// PATCH /v1/period-closes/{id}/tasks/{code}
+	UpdateCloseTask(ctx context.Context, request *CloseTaskUpdate, params UpdateCloseTaskParams) (UpdateCloseTaskRes, error)
 	// UpdateConnector invokes updateConnector operation.
 	//
 	// Changes a connector's name, settings or secret reference. JSON Merge Patch (RFC 7396): absent fields
@@ -8069,6 +8153,189 @@ func (c *Client) sendClosePurchaseOrder(ctx context.Context, params ClosePurchas
 	return result, nil
 }
 
+// CompleteCloseTask invokes completeCloseTask operation.
+//
+// Marks an open manual task of a period close done, with an optional note (ADR-0058 §6, T64b):
+// refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a task
+// already done (409 `closing.task_already_done`). `If-Match` is the close's ETag; the answer is the
+// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
+// (`task_completed`).
+//
+// POST /v1/period-closes/{id}/tasks/{code}:complete
+func (c *Client) CompleteCloseTask(ctx context.Context, request OptCloseTaskComplete, params CompleteCloseTaskParams) (CompleteCloseTaskRes, error) {
+	res, err := c.sendCompleteCloseTask(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCompleteCloseTask(ctx context.Context, request OptCloseTaskComplete, params CompleteCloseTaskParams) (res CompleteCloseTaskRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("completeCloseTask"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/period-closes/{id}/tasks/{code}:complete"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CompleteCloseTaskOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/period-closes/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/tasks/"
+	{
+		// Encode "code" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "code",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Code))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":complete"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCompleteCloseTaskRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CompleteCloseTaskOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCompleteCloseTaskResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateBusinessPartner invokes createBusinessPartner operation.
 //
 // Creates the partner in status `pending` together with a partner change of kind `create` (see
@@ -10354,6 +10621,147 @@ func (c *Client) sendCreatePartnerChange(ctx context.Context, request *PartnerCh
 
 	stage = "DecodeResponse"
 	result, err := decodeCreatePartnerChangeResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreatePeriodClose invokes createPeriodClose operation.
+//
+// Opens the close of a company's regular period (1-12; 422 `closing.special_period` for 13-16)
+// (ADR-0058 §6, T64b): its checklist is the active configuration's close template (`close.tasks`) as
+// given to the company, copied into the close with each task's due date (`due_day` business days after
+// the period's last day, the leading ledger's, as the close calendar plans it) and the configuration
+// version, so a later change of the template leaves the close as it was. It covers the ledgers
+// `ledger_ids` names, by default every ledger the company keeps; the leading ledger is always among
+// them (422 `request.validation_failed` otherwise), each must be kept by the company (422
+// `ledger.ledger_not_kept`) and have the period (422 `closing.period_unknown`, naming the ledger).
+// Refused when the template gives the company no task (409 `closing.no_template`) and when the company
+// has a close of the period already (409 `closing.close_exists`, with its `Location`). A legal entity
+// the caller cannot act in is 422 `request.reference_not_found`. People only. Audited, and published
+// as PeriodCloseChanged (`created`).
+//
+// POST /v1/period-closes
+func (c *Client) CreatePeriodClose(ctx context.Context, request *PeriodCloseCreate, params CreatePeriodCloseParams) (CreatePeriodCloseRes, error) {
+	res, err := c.sendCreatePeriodClose(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreatePeriodClose(ctx context.Context, request *PeriodCloseCreate, params CreatePeriodCloseParams) (res CreatePeriodCloseRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createPeriodClose"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/period-closes"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreatePeriodCloseOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/period-closes"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreatePeriodCloseRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreatePeriodCloseOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreatePeriodCloseResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -16927,8 +17335,11 @@ func (c *Client) sendGetClearing(ctx context.Context, params GetClearingParams) 
 // one of the company's `weekend` days (its calendar's, `calendars[].weekend`; default Saturday and
 // Sunday) nor one of its holidays (`calendars[].holidays`), the rule the cash position counts working
 // days by; the search is bounded at 366 days. Without a template task for the company a row has no
-// planned dates. A legal entity the caller cannot act in, or that does not exist, has no rows and no
-// company, as the ledger's list reads answer; a fiscal year the company has no periods in has no rows.
+// planned dates. A period the company has opened a close of (`POST /v1/period-closes`, T64b) carries
+// it (`close`: its id, status and tasks total, done and overdue, judged on the company's date at the
+// read) and its planned dates are the close's own tasks' due dates, copied when it was opened. A legal
+// entity the caller cannot act in, or that does not exist, has no rows and no company, as the ledger's
+// list reads answer; a fiscal year the company has no periods in has no rows.
 //
 // GET /v1/close-calendar
 func (c *Client) GetCloseCalendar(ctx context.Context, params GetCloseCalendarParams) (GetCloseCalendarRes, error) {
@@ -20785,6 +21196,142 @@ func (c *Client) sendGetPaymentRun(ctx context.Context, params GetPaymentRunPara
 
 	stage = "DecodeResponse"
 	result, err := decodeGetPaymentRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetPeriodClose invokes getPeriodClose operation.
+//
+// One period close with its company, the ledgers it covers (each with its period's id and live posting
+// status), its tasks in the template's order (at most 200) and their counts; a task is `overdue` while
+// it is open and due before the company's date at the read in its time zone (`read_date`,
+// `time_zone`). Its ETag is the version every change to the close or its tasks moves, which the task
+// actions take as `If-Match`. A close of a legal entity the caller cannot act in is not found. Besides
+// `closing.close.read` the caller needs `ledger.entry.read` (`x-also-permissions`).
+//
+// GET /v1/period-closes/{id}
+func (c *Client) GetPeriodClose(ctx context.Context, params GetPeriodCloseParams) (GetPeriodCloseRes, error) {
+	res, err := c.sendGetPeriodClose(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetPeriodClose(ctx context.Context, params GetPeriodCloseParams) (res GetPeriodCloseRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getPeriodClose"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/period-closes/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetPeriodCloseOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/period-closes/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetPeriodCloseOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetPeriodCloseResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -28066,6 +28613,247 @@ func (c *Client) sendListClearings(ctx context.Context, params ListClearingsPara
 
 	stage = "DecodeResponse"
 	result, err := decodeListClearingsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListCloseTasks invokes listCloseTasks operation.
+//
+// Tasks across the period closes of the legal entities the caller may act in (ADR-0058 §6, T64b): a
+// person's worklist, each task with its close's id and ETag version (`close_version`, the `If-Match`
+// of its actions), company, fiscal year and period. Paged in due date, close and code order.
+// `assignee=me` lists the caller's tasks, a principal's id that principal's. `overdue` and
+// `due_before` judge each task on its company's date at the read in its time zone (`read_date`).
+// Besides `closing.close.read` the caller needs `ledger.entry.read` (`x-also-permissions`).
+//
+// GET /v1/close-tasks
+func (c *Client) ListCloseTasks(ctx context.Context, params ListCloseTasksParams) (ListCloseTasksRes, error) {
+	res, err := c.sendListCloseTasks(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCloseTasks(ctx context.Context, params ListCloseTasksParams) (res ListCloseTasksRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCloseTasks"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/close-tasks"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCloseTasksOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/close-tasks"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "assignee" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "assignee",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Assignee.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "close_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "close_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CloseID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "due_before" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "due_before",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DueBefore.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCloseTasksOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCloseTasksResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -36646,6 +37434,231 @@ func (c *Client) sendListPayments(ctx context.Context, params ListPaymentsParams
 
 	stage = "DecodeResponse"
 	result, err := decodeListPaymentsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListPeriodCloses invokes listPeriodCloses operation.
+//
+// The period closes of the legal entities the caller may act in (ADR-0058 §6, T64b), without their
+// tasks and ledgers (`GET /v1/period-closes/{id}` has them): each with its company, fiscal year and
+// period, status and its tasks' counts, overdue judged on the company's date at the read in its
+// configured time zone (`read_date`, `time_zone`; UTC when it has none). Sortable by: `period_end`
+// (default), `created_at`. Besides `closing.close.read` the caller needs `ledger.entry.read`, as for
+// every read of a close, whose check results name ledger entries (ADR-0058 §13; `x-also-permissions`;
+// 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/period-closes
+func (c *Client) ListPeriodCloses(ctx context.Context, params ListPeriodClosesParams) (ListPeriodClosesRes, error) {
+	res, err := c.sendListPeriodCloses(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListPeriodCloses(ctx context.Context, params ListPeriodClosesParams) (res ListPeriodClosesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listPeriodCloses"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/period-closes"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListPeriodClosesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/period-closes"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalYear.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListPeriodClosesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListPeriodClosesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -49981,6 +50994,189 @@ func (c *Client) sendRenewContract(ctx context.Context, request *ContractRenew, 
 	return result, nil
 }
 
+// ReopenCloseTask invokes reopenCloseTask operation.
+//
+// Returns a done task of a period close to open, with a reason (409 `closing.task_not_done` for an
+// open one) (ADR-0058 §6, T64b): who completed it, when, and the note are cleared, and the reason is
+// kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays
+// done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People
+// only. Audited, and published as PeriodCloseChanged (`task_reopened`).
+//
+// POST /v1/period-closes/{id}/tasks/{code}:reopen
+func (c *Client) ReopenCloseTask(ctx context.Context, request *ReasonInput, params ReopenCloseTaskParams) (ReopenCloseTaskRes, error) {
+	res, err := c.sendReopenCloseTask(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendReopenCloseTask(ctx context.Context, request *ReasonInput, params ReopenCloseTaskParams) (res ReopenCloseTaskRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("reopenCloseTask"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/period-closes/{id}/tasks/{code}:reopen"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ReopenCloseTaskOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/period-closes/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/tasks/"
+	{
+		// Encode "code" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "code",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Code))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":reopen"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeReopenCloseTaskRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ReopenCloseTaskOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeReopenCloseTaskResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ReplayWebhookDeliveries invokes replayWebhookDeliveries operation.
 //
 // Queues again every kept delivery of the subscription whose event occurred at or after `since`,
@@ -54327,6 +55523,188 @@ func (c *Client) sendUpdateChangeRequest(ctx context.Context, request *ChangeReq
 
 	stage = "DecodeResponse"
 	result, err := decodeUpdateChangeRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateCloseTask invokes updateCloseTask operation.
+//
+// Sets or clears (null) the person a task of a period close is assigned to (ADR-0058 §6, T64b): an
+// active person of the tenant (422 `closing.assignee_invalid` for an agent, a service, a blocked or
+// unknown principal). `If-Match` is the close's ETag, so a change made on a stale view of the
+// checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited,
+// and published as PeriodCloseChanged (`task_assigned`).
+//
+// PATCH /v1/period-closes/{id}/tasks/{code}
+func (c *Client) UpdateCloseTask(ctx context.Context, request *CloseTaskUpdate, params UpdateCloseTaskParams) (UpdateCloseTaskRes, error) {
+	res, err := c.sendUpdateCloseTask(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateCloseTask(ctx context.Context, request *CloseTaskUpdate, params UpdateCloseTaskParams) (res UpdateCloseTaskRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateCloseTask"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/period-closes/{id}/tasks/{code}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateCloseTaskOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [4]string
+	pathParts[0] = "/v1/period-closes/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/tasks/"
+	{
+		// Encode "code" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "code",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Code))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateCloseTaskRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateCloseTaskOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateCloseTaskResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

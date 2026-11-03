@@ -121,6 +121,10 @@ type ClosePurchaseOrderRes interface {
 	closePurchaseOrderRes()
 }
 
+type CompleteCloseTaskRes interface {
+	completeCloseTaskRes()
+}
+
 type CreateBusinessPartnerRes interface {
 	createBusinessPartnerRes()
 }
@@ -187,6 +191,10 @@ type CreateOrgUnitRes interface {
 
 type CreatePartnerChangeRes interface {
 	createPartnerChangeRes()
+}
+
+type CreatePeriodCloseRes interface {
+	createPeriodCloseRes()
 }
 
 type CreatePlanCategoryRes interface {
@@ -481,6 +489,10 @@ type GetPaymentRunRes interface {
 	getPaymentRunRes()
 }
 
+type GetPeriodCloseRes interface {
+	getPeriodCloseRes()
+}
+
 type GetPlanCategoryRes interface {
 	getPlanCategoryRes()
 }
@@ -649,6 +661,10 @@ type ListClearingsRes interface {
 	listClearingsRes()
 }
 
+type ListCloseTasksRes interface {
+	listCloseTasksRes()
+}
+
 type ListCompanyAccessRes interface {
 	listCompanyAccessRes()
 }
@@ -791,6 +807,10 @@ type ListPaymentRunsRes interface {
 
 type ListPaymentsRes interface {
 	listPaymentsRes()
+}
+
+type ListPeriodClosesRes interface {
+	listPeriodClosesRes()
 }
 
 type ListPlanCategoriesRes interface {
@@ -1073,6 +1093,10 @@ type RenewContractRes interface {
 	renewContractRes()
 }
 
+type ReopenCloseTaskRes interface {
+	reopenCloseTaskRes()
+}
+
 type ReplayWebhookDeliveriesRes interface {
 	replayWebhookDeliveriesRes()
 }
@@ -1179,6 +1203,10 @@ type UpdateAiPolicyRes interface {
 
 type UpdateChangeRequestRes interface {
 	updateChangeRequestRes()
+}
+
+type UpdateCloseTaskRes interface {
+	updateCloseTaskRes()
 }
 
 type UpdateConnectorRes interface {

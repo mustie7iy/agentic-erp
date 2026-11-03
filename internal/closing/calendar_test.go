@@ -164,7 +164,7 @@ func TestCloseCalendarRefusals(t *testing.T) {
 // statements failing in turn.
 func TestDatabaseFailures(t *testing.T) {
 	e := fixture.NewWith(t, nil, withTemplate, "closing.close.read")
-	h := app.Closing()
+	h := app.Closing(app.Config{})
 	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "close calendar", func(ctx context.Context) error {
 		_, err := h.GetCloseCalendar(ctx, gen.GetCloseCalendarParams{LegalEntityID: e.US, FiscalYear: 2026})
 		return err

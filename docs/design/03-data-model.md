@@ -2902,3 +2902,38 @@ permission `closing.close.read`. The schema `closing` (period closes,
 their ledgers and tasks, sign-offs, accrual proposals and evidence,
 variance comments and citations) is created by the slices that write it,
 from T64b (ADR-0058 §5).
+
+The period close (T64b, migration 000192) is stored in the schema
+`closing`, with its outbox (`PeriodCloseChanged`):
+
+```
+closing.period_close  (tenant_id, id, legal_entity_id, fiscal_year, fiscal_period 1-12, period_end,
+                       config_version, status open|signed_off, version, created_*, updated_*)
+                       PK (tenant_id, id); UNIQUE (tenant_id, legal_entity_id, fiscal_year, fiscal_period)
+closing.close_ledger  (tenant_id, close_id, ledger_id, period_id)      PK (tenant_id, close_id, ledger_id)
+closing.close_task    (tenant_id, close_id, code, seq, name, kind manual|check, check_kind, due_on,
+                       depends_on text[], assignee_id, status open|done, completed_by, completed_at,
+                       note, version, created_*, updated_*)
+                       PK (tenant_id, close_id, code); UNIQUE (tenant_id, close_id, seq)
+```
+
+A close is one per company and regular period (`period_close_once`,
+`period_close_regular`), its `period_end` the leading ledger's last day
+of the period, from which its tasks' `due_on` were counted when it was
+opened, and `config_version` the configuration whose template was
+copied. It starts `open`; its company, period, end and version of the
+template never change (`closing.check_period_close`). `close_ledger`
+names the ledgers it covers with each one's posting period
+(`ledger.period_status`), written once. A task starts `open` and moves
+`open` <-> `done`; `completed_by` and `completed_at` are set exactly while
+it is done and its `note` only then (`close_task_completed`), a check task
+names its `check_kind` and a manual one none (`close_task_check_kind`), it
+never depends on itself (`close_task_depends_on`), and what the template
+gave it never changes, nor its completion while it stands
+(`closing.check_close_task`). Every change of a task moves the close's
+`version` too, under a lock on the close, which is the ETag its task
+actions take. The worklist reads tasks by `(tenant_id, due_on, close_id,
+code)` and by assignee. The legal entity, ledgers, periods and principals
+are other contexts', by id, without foreign keys. The close calendar's
+row of a period shows its close and its tasks' due dates once it has one.
+Schema tests: `db/closing_test.go`.
