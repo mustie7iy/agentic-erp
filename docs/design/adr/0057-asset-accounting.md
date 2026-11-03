@@ -1564,6 +1564,10 @@ published as AssetChanged (`created`, `changed`, `cancelled`) on the new
   would; their ids always). The list is ordered by asset number as text
   (default) or creation, ties by id, filtered by company, class, status,
   current cost center and number.
-- An asset's description is required, at most 200 characters. Asset
+- Audit records of an asset (`assets.asset.create`, `.change`, `.cancel`)
+  carry its master, centers and terms per ledger as they are after the
+  change (review round 1).
+- An asset's description is required, not spaces alone (422
+  `request.validation_failed`), at most 200 characters. Asset
   numbers are unique per company, as other documents' are; the
   configuration keeps a range from repeating another year's numbers.

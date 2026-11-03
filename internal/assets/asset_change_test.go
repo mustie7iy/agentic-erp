@@ -39,6 +39,11 @@ func TestUpdateAsset(t *testing.T) {
 		"useful_life_months": 96}]}`, e.l0, e.l2), tag)
 	want(t, "changed terms", terms(a),
 		"0L Leading ledger declining_balance 120 2.5 1000.00 EUR <nil>; 2L HGB straight_line 96 <nil> 0.00 EUR 2026-07-01")
+	var audited string
+	pgtest.Scan(t, `SELECT detail->'terms'->0->>'residual_value' || ' ' || (detail->'terms'->0->>'declining_factor') FROM audit.audit_event
+		WHERE tenant_id = $1 AND action = 'assets.asset.change' AND object_id = $2 ORDER BY seq DESC LIMIT 1`, []any{e.Tenant.ID, a["id"]}, &audited)
+	want(t, "the change's audit record, with the terms", audited, "100000 2.5")
+	e.Problem(422, "request.validation_failed", "PATCH", path, `{"description": "   "}`, tag)
 	same, sameTag := e.Must(200, "PATCH", path, fmt.Sprintf(`{"description": "CNC milling machine, hall 2", "terms": [{"ledger_id": %q, "declining_factor": "2.5"}]}`, e.l0), tag)
 	want(t, "a patch changing nothing keeps the version", sameTag, tag)
 	want(t, "and the asset", fmt.Sprint(same), fmt.Sprint(a))
@@ -46,13 +51,13 @@ func TestUpdateAsset(t *testing.T) {
 	pgtest.Exec(t, `INSERT INTO ledger.company_ledger (tenant_id, legal_entity_id, ledger_id, is_leading, created_by) VALUES ($1, $2, $3, false, $4)`,
 		e.Tenant.ID, e.DE, e.l3, e.Tenant.Human.ID)
 	e.Problem(422, "request.validation_failed", "PATCH", path, fmt.Sprintf(`{"terms": [{"ledger_id": %q, "useful_life_months": 60}]}`, e.l3), tag)
-	a, tag = e.Must(200, "PATCH", path, fmt.Sprintf(`{"depreciation_start": "2026-08-01", "terms": [{"ledger_id": %q, "method": "straight_line",
-		"useful_life_months": 60}]}`, e.l3), tag)
+	a, tag = e.Must(200, "PATCH", path, fmt.Sprintf(`{"depreciation_start": "2026-08-01", "terms": [{"ledger_id": %q, "method": "declining_balance",
+		"declining_factor": "3.0000", "useful_life_months": 60}]}`, e.l3), tag)
 	later, _ := e.create(t, e.body(e.DE, "MACHINES", fmt.Sprintf(`, "cost_center_id": %q`, e.c.Admin)))
 	want(t, "an asset created then has no terms in a ledger its class has none in", terms(later),
 		"0L Leading ledger straight_line 120 <nil> 0.00 EUR <nil>; 2L HGB declining_balance 120 2 0.00 EUR <nil>")
 	want(t, "terms in a ledger kept later", terms(a), "0L Leading ledger declining_balance 120 2.5 1000.00 EUR 2026-08-01; "+
-		"2L HGB straight_line 96 <nil> 0.00 EUR 2026-08-01; 3L Tax straight_line 60 <nil> 0.00 EUR 2026-08-01")
+		"2L HGB straight_line 96 <nil> 0.00 EUR 2026-08-01; 3L Tax declining_balance 60 3 0.00 EUR 2026-08-01")
 
 	evs := apitest.Published(t, e.Tenant, outbox.Event{Context: "assets", Name: "asset_changed"})
 	want(t, "events", len(evs), 5)
@@ -200,7 +205,7 @@ func TestListAssets(t *testing.T) {
 		e.c.Admin.String()+" <nil> <nil>")
 }
 
-// TestDatabaseFailures calls each asset handler with each of its database
+// TestAssetDatabaseFailures calls each asset handler with each of its database
 // statements failing in turn, and the run port's adapter likewise.
 func TestAssetDatabaseFailures(t *testing.T) {
 	e := newAssets(t)

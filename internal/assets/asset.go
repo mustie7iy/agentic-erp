@@ -116,6 +116,9 @@ func (e *Endpoints) createAsset(ctx context.Context, in NewAsset) (Asset, error)
 	if err != nil {
 		return Asset{}, err
 	}
+	if err := checkDescription(in.Description); err != nil {
+		return Asset{}, err
+	}
 	co, err := e.company(ctx, in.LegalEntityID)
 	if err != nil {
 		return Asset{}, err

@@ -125,11 +125,16 @@ func setStatus(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID,
 	return errs.Wrapf(err, "assets: asset %s to %s", id, status)
 }
 
-// record audits a change of an asset and publishes it as AssetChanged, as
-// the asset is after it.
+// record audits a change of an asset, with its terms per ledger, and
+// publishes it as AssetChanged, as the asset is after it.
 func record(ctx context.Context, a Asset, action, change string) error {
+	terms := make([]map[string]any, len(a.Terms))
+	for i, t := range a.Terms {
+		terms[i] = map[string]any{"ledger_id": t.LedgerID, "method": t.Method, "useful_life_months": t.UsefulLifeMonths,
+			"declining_factor": t.DecliningFactor, "residual_value": int64(t.Residual), "depreciation_start": outbox.Date(t.DepreciationStart)}
+	}
 	detail := map[string]any{"legal_entity_id": a.LegalEntityID, "asset_number": a.Number, "class_code": a.Class, "description": a.Description,
-		"status": a.Status, "cost_center_id": a.CostCenterID, "profit_center_id": a.ProfitCenterID}
+		"status": a.Status, "cost_center_id": a.CostCenterID, "profit_center_id": a.ProfitCenterID, "terms": terms}
 	return audit.Record(ctx, "assets.asset."+action, "assets.asset", a.ID, detail,
 		outbox.Event{Context: "assets", Name: "asset_changed", AggregateType: "assets.asset", AggregateID: a.ID,
 			Payload: map[string]any{"asset_id": a.ID, "legal_entity_id": a.LegalEntityID, "asset_number": a.Number, "class_code": a.Class,

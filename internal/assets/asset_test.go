@@ -168,6 +168,8 @@ func TestCreateAssetRefused(t *testing.T) {
 		"another company's profit center": {e.body(e.US, "MACHINES", fmt.Sprintf(`, "profit_center_id": %q`, e.c.Profit)), 422, "ledger.profit_center_invalid", "profit_center_id", true},
 		"a profit center of another company with a cost center": {e.body(e.DE, "MACHINES", fmt.Sprintf(`, "cost_center_id": %q, "profit_center_id": %q`, e.c.Sales, e.pc2)), 422,
 			"ledger.profit_center_invalid", "profit_center_id", true},
+		"a description of spaces": {fmt.Sprintf(`{"legal_entity_id": %q, "class_code": "MACHINES", "description": "   "}`, e.DE), 422,
+			"request.validation_failed", "description", true},
 		"an unknown company": {e.body(uuid.Must(uuid.NewV7()), "MACHINES", ""), 404, "request.not_found", "", false},
 	} {
 		t.Run(name, func(t *testing.T) {

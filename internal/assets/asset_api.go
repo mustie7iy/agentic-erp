@@ -75,7 +75,7 @@ func (v *view) company(ctx context.Context, tx pgx.Tx, companies Companies, le u
 		return nil
 	}
 	// An asset's legal entity was checked when the asset was created and
-	// is never removed, so a missing one shows without a code.
+	// legal entities are never removed, so it is always found.
 	co, _, err := companies.Company(ctx, le)
 	if err != nil {
 		return fmt.Errorf("assets: legal entity %s: %w", le, err)

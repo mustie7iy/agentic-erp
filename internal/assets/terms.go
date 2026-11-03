@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,6 +68,9 @@ func (e *Endpoints) changeAsset(ctx context.Context, id uuid.UUID, ifMatch func(
 	}
 	description := a.Description
 	if ch.Description != nil {
+		if err := checkDescription(*ch.Description); err != nil {
+			return Asset{}, err
+		}
 		description = *ch.Description
 	}
 	if description == a.Description && len(changed) == 0 {
@@ -225,7 +229,11 @@ func decliningFactor(field string, factor *string) (string, error) {
 	if err != nil || f <= one || f > most {
 		return "", validation(field+".declining_factor", "a plain decimal above 1 and at most 10, with up to four decimals")
 	}
-	return strings.TrimSuffix(strings.TrimRight(money.Minor(f).Plain(decimals), "0"), "."), nil
+	whole, frac := int64(f)/one, fmt.Sprintf("%04d", int64(f)%one) // a factor, not money: ten-thousandths shown as a plain decimal
+	if frac = strings.TrimRight(frac, "0"); frac == "" {
+		return strconv.FormatInt(whole, 10), nil
+	}
+	return strconv.FormatInt(whole, 10) + "." + frac, nil
 }
 
 // residualValue parses a residual value, zero or more in the company's
@@ -278,4 +286,13 @@ func equalPtr[T comparable](a, b *T) bool {
 // validation is a 422 request.validation_failed on one field.
 func validation(field, message string) *problem.Problem {
 	return invalid("request.validation_failed", "The request is not valid: "+field+": "+message+".", field, message)
+}
+
+// checkDescription refuses a description of spaces alone, which the
+// database refuses too (asset_description_check).
+func checkDescription(d string) error {
+	if strings.TrimSpace(d) == "" {
+		return validation("description", "a text, not only spaces")
+	}
+	return nil
 }

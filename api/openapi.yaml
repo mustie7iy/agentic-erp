@@ -13785,6 +13785,7 @@ paths:
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.segment_mismatch
+        - request.validation_failed
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
