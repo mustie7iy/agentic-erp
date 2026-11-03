@@ -225,15 +225,19 @@ type previewSums struct {
 func previewTotals(r previewRun, accounts map[string]classAccounts) previewSums {
 	var out previewSums
 	var expense, credit []previewLine
+	type key struct {
+		side                              *[]previewLine
+		account, costCenter, profitCenter uuid.UUID
+	}
+	at := map[key]int{}
 	add := func(side *[]previewLine, l previewLine) {
-		i := slices.IndexFunc(*side, func(x previewLine) bool {
-			return x.account.ID == l.account.ID && x.costCenter == l.costCenter && x.profitCenter == l.profitCenter
-		})
-		if i < 0 {
-			*side = append(*side, l)
+		k := key{side, l.account.ID, l.costCenter, l.profitCenter}
+		if i, ok := at[k]; ok {
+			(*side)[i].amount += l.amount
 			return
 		}
-		(*side)[i].amount += l.amount
+		at[k] = len(*side)
+		*side = append(*side, l)
 	}
 	for _, c := range r.assets {
 		out.planned, out.booked, out.difference = out.planned+c.plannedTotal, out.booked+c.booked, out.difference+c.difference

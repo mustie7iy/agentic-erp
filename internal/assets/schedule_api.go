@@ -137,7 +137,7 @@ func (e *Endpoints) ListAssetMovements(ctx context.Context, params gen.ListAsset
 		return nil, err
 	}
 	ledger, year := apitypes.Ptr[uuid.UUID](params.LedgerID), apitypes.Ptr[int32](params.FiscalYear)
-	scope := fmt.Sprintf("listAssetMovements|%s|%s|%v|%s", a.ID, ledger, year, params.Kind.Value)
+	scope := fmt.Sprintf("listAssetMovements|%s|%s|%t %d|%s", a.ID, ledger, params.FiscalYear.Set, params.FiscalYear.Value, params.Kind.Value)
 	ks, err := e.Pages.Keyset(movementSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err

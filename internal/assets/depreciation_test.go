@@ -272,6 +272,11 @@ func TestAssetMovements(t *testing.T) {
 			want(t, "the movements", brief(got), c.want)
 		})
 	}
+	filtered := fmt.Sprintf("/v1/assets/%s/movements?page_size=1&fiscal_year=2026&ledger_id=%s&kind=acquisition", press, e.l0)
+	page, _ = e.Must(200, "GET", filtered, "", "")
+	want(t, "the first page with every filter", brief(page), "2 acquisition 0L")
+	page, _ = e.Must(200, "GET", filtered+"&page_token="+page["next_page_token"].(string), "", "")
+	want(t, "the next page with every filter", brief(page), "4 acquisition 0L")
 	page, _ = e.Must(200, "GET", "/v1/assets/"+press+"/movements?page_size=2", "", "")
 	page, _ = e.Must(200, "GET", "/v1/assets/"+press+"/movements?page_size=2&page_token="+page["next_page_token"].(string), "", "")
 	want(t, "the second page", len(page["items"].([]any)), 2)
@@ -391,4 +396,54 @@ func TestDepreciationOutOfRange(t *testing.T) {
 	e.Problem(500, "platform.internal", "GET", fmt.Sprintf("/v1/assets/%s/schedule?fiscal_year=2026&ledger_id=%s", asset, e.l2), "", "")
 	e.Problem(500, "platform.internal", "POST", "/v1/depreciation-runs/preview",
 		fmt.Sprintf(`{"legal_entity_id": %q, "ledger_id": %q, "fiscal_year": 2026, "period": 6}`, e.DE, e.l2), "")
+}
+
+// noLedgers is a ledger whose companies keep no ledger yet (a legal entity
+// created before its configuration is applied).
+type noLedgers struct{ assets.Ledger }
+
+func (noLedgers) Ledgers(context.Context, *uuid.UUID) ([]assets.LedgerRef, error) { return nil, nil }
+
+// shortYears is a ledger whose fiscal years have only their first six
+// regular periods.
+type shortYears struct{ assets.Ledger }
+
+func (l shortYears) Periods(ctx context.Context, le uuid.UUID, year int16) ([]assets.Period, error) {
+	ps, err := l.Ledger.Periods(ctx, le, year)
+	return ps[:6], err
+}
+
+// TestDepreciationReadsWithoutLedgers: a company that keeps no ledger yet
+// has no schedule (422 assets.ledger_terms_missing) and no preview (422
+// ledger.ledger_not_kept), and a period its fiscal year lacks is 422
+// ledger.no_fiscal_period, never a panic.
+func TestDepreciationReadsWithoutLedgers(t *testing.T) {
+	e := newAcquisitions(t)
+	asset, _ := e.depreciable(t, "Mill")
+	h, short := app.Assets(app.Config{}), app.Assets(app.Config{})
+	h.Ledger, short.Ledger = noLedgers{h.Ledger}, shortYears{short.Ledger}
+	for name, c := range map[string]struct {
+		fn   func(ctx context.Context) error
+		want string
+	}{
+		"the schedule": {func(ctx context.Context) error {
+			_, err := h.GetAssetSchedule(ctx, gen.GetAssetScheduleParams{ID: uuid.MustParse(asset), FiscalYear: 2026})
+			return err
+		}, "assets.ledger_terms_missing"},
+		"the preview": {func(ctx context.Context) error {
+			_, err := h.PreviewDepreciationRun(ctx, &gen.DepreciationRunPreviewRequest{LegalEntityID: e.DE, FiscalYear: 2026, Period: 6},
+				gen.PreviewDepreciationRunParams{})
+			return err
+		}, "ledger.ledger_not_kept"},
+		"a period the year lacks": {func(ctx context.Context) error {
+			_, err := short.PreviewDepreciationRun(ctx, &gen.DepreciationRunPreviewRequest{LegalEntityID: e.DE, LedgerID: gen.NewOptUUID(e.l0),
+				FiscalYear: 2026, Period: 7}, gen.PreviewDepreciationRunParams{})
+			return err
+		}, "ledger.no_fiscal_period"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, c.fn)
+			pgtest.WantErr(t, err, c.want)
+		})
+	}
 }

@@ -175,11 +175,15 @@ func calendarPeriods(t *testing.T, ctx context.Context, c ledger.Calendar, le uu
 	if got := fmt.Sprint(ps[0].Number, " ", ps[0].Start.Format(time.DateOnly), " ", ps[11].Number, " ", ps[11].End.Format(time.DateOnly)); got != "1 2026-01-01 12 2026-12-31" {
 		t.Errorf("periods of 2026: got %s, want 1 2026-01-01 12 2026-12-31", got)
 	}
-	for name, id := range map[string]uuid.UUID{"a year not set up": le, "an unknown legal entity": uuid.New()} {
-		year := map[bool]int16{true: 2031, false: 2026}[id == le]
-		if _, err := c.Periods(ctx, id, year); problem.From(err).Code != "ledger.no_fiscal_period" {
-			t.Errorf("periods of %s: got %v, want ledger.no_fiscal_period", name, err)
-		}
+	for name, tc := range map[string]struct {
+		le   uuid.UUID
+		year int16
+	}{"a year not set up": {le, 2031}, "an unknown legal entity": {uuid.New(), 2026}} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := c.Periods(ctx, tc.le, tc.year); problem.From(err).Code != "ledger.no_fiscal_period" {
+				t.Errorf("got %v, want ledger.no_fiscal_period", err)
+			}
+		})
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // Movement kinds (ADR-0057 §5).
@@ -93,8 +94,8 @@ func readMovements(ctx context.Context, tx pgx.Tx, ledger uuid.UUID, ds map[uuid
 }
 
 // periodOf is the regular period of the company's fiscal year with the
-// number, refusing a special one (422 assets.special_period) and a year
-// that is not set up (422 ledger.no_fiscal_period).
+// number, refusing a special one (422 assets.special_period), and a year
+// that is not set up or lacks the period (422 ledger.no_fiscal_period).
 func (e *Endpoints) periodOf(ctx context.Context, le uuid.UUID, year int16, number int16) (Period, error) {
 	if number > 12 {
 		return Period{}, invalid("assets.special_period", fmt.Sprintf("Period %d is a special period, which takes no depreciation; "+
@@ -104,9 +105,11 @@ func (e *Endpoints) periodOf(ctx context.Context, le uuid.UUID, year int16, numb
 	if err != nil {
 		return Period{}, fmt.Errorf("assets: periods of %s in %d: %w", le, year, err)
 	}
-	// A set-up fiscal year has its twelve regular periods, in order (the
-	// ledger's calendars, internal/ledger/setup.go).
-	return periods[number-1], nil
+	i := slices.IndexFunc(periods, func(p Period) bool { return p.Number == number })
+	if i < 0 {
+		return Period{}, problem.Unprocessable("ledger.no_fiscal_period", fmt.Sprintf("Fiscal year %d has no regular period %d.", year, number))
+	}
+	return periods[i], nil
 }
 
 // ledgerOf is the ledger of a company by id, or its leading ledger
@@ -117,13 +120,22 @@ func (e *Endpoints) ledgerOf(ctx context.Context, le uuid.UUID, id *uuid.UUID) (
 	if err != nil {
 		return LedgerRef{}, false, fmt.Errorf("assets: ledgers of %s: %w", le, err)
 	}
-	// Every company keeps the leading ledger (ADR-0045), which comes first.
+	// A company keeps the leading ledger (ADR-0045), which comes first,
+	// once its configuration is applied; before, it keeps none.
 	if id == nil {
-		return kept[0], true, nil
+		return firstOf(kept)
 	}
 	i := slices.IndexFunc(kept, func(l LedgerRef) bool { return l.ID == *id })
 	if i < 0 {
 		return LedgerRef{}, false, nil
 	}
 	return kept[i], true, nil
+}
+
+// firstOf is the first of the ledgers, ok false when there is none.
+func firstOf(ledgers []LedgerRef) (LedgerRef, bool, error) {
+	if len(ledgers) == 0 {
+		return LedgerRef{}, false, nil
+	}
+	return ledgers[0], true, nil
 }

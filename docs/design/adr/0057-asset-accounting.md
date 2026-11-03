@@ -1804,6 +1804,10 @@ Decided by default, for the product owner to overrule:
   `assets.class_unknown` or `assets.class_not_in_company`, as it will fail
   the run. A depreciation out of the range of minor units (an asset of
   ~10^18) fails the read as an internal error rather than wrapping.
+  Every page reads all the selected assets and their movements, as the
+  totals need them: linear in the company's assets, as the run is; a
+  budget for the preview at the scale of 01 §1.3's run would come with
+  T57f's (review round 1).
 - **Movements** are listed in posting order (`order_by=seq`, ascending by
   default), filtered by ledger, posting fiscal year and kind, each with its
   ledger's code and name, its amounts in local and group currency, its

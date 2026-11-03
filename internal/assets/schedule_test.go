@@ -131,6 +131,17 @@ func TestScheduleWalk(t *testing.T) {
 	}
 }
 
+// walk walks the plan through the period of 2026, failing the test on an
+// error.
+func walk(t *testing.T, plan assets.Plan, moves []assets.Move, through int) []assets.Step {
+	t.Helper()
+	steps, err := assets.Walk(plan, moves, month(through))
+	if err != nil {
+		t.Fatalf("walk: got %v, want none", err)
+	}
+	return steps
+}
+
 // TestCatchUps: the difference planned − booked a run or catch-up posts
 // (ADR-0057 §7) in the leaf's two-retirement case: cost 1200 over twelve
 // periods, runs of January to March posted (300); half sold valued March,
@@ -139,7 +150,7 @@ func TestScheduleWalk(t *testing.T) {
 func TestCatchUps(t *testing.T) {
 	plan, moves := straight(12, 0, 1), []assets.Move{acquired(1, 1200)}
 	booked := money.Minor(300)
-	steps, _ := assets.Walk(plan, moves, month(2))
+	steps := walk(t, plan, moves, 2)
 	sale := assets.Planned(steps, month(2)) - booked
 	if sale != -100 {
 		t.Errorf("the sale's catch-up: got %d, want -100", sale)
@@ -148,7 +159,7 @@ func TestCatchUps(t *testing.T) {
 	cost, accumulated := money.Minor(1200), -booked
 	soldCost, soldAccumulated := cost/2, -accumulated/2
 	moves = append(moves, assets.Move{Month: month(3), Cost: -soldCost, Accumulated: soldAccumulated})
-	steps, _ = assets.Walk(plan, moves, month(2))
+	steps = walk(t, plan, moves, 2)
 	scrapping := assets.Planned(steps, month(2)) - booked
 	if scrapping != 0 {
 		t.Errorf("the scrapping's catch-up: got %d, want 0", scrapping)
@@ -158,7 +169,7 @@ func TestCatchUps(t *testing.T) {
 		t.Errorf("the scrapping's loss: got %d, want 500", loss)
 	}
 	moves = append(moves, assets.Move{Month: month(3), Cost: -restCost, Accumulated: restAccumulated})
-	steps, _ = assets.Walk(plan, moves, month(3))
+	steps = walk(t, plan, moves, 3)
 	if run := assets.Planned(steps, month(3)) - booked; run != 0 {
 		t.Errorf("a repeat run of March after both: got %d, want 0", run)
 	}
