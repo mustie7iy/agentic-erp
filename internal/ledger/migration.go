@@ -19,7 +19,7 @@ import (
 type ChartAccount struct {
 	ID                 uuid.UUID
 	Type               string // asset, liability, equity, revenue, expense
-	ReconciliationKind string // none, supplier, customer
+	ReconciliationKind string // none, supplier, customer, asset (ADR-0057 §3: a migration loads its balances)
 	DownPayment        bool   // the legal entity's down_payment account, which takes special G/L A only (ADR-0037)
 	GRIR               bool   // the legal entity's gr_ir account, whose lines name their order item (T33, T72f)
 }

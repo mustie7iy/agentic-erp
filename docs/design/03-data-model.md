@@ -1110,6 +1110,22 @@ beside its tax lines, and recorded as a `paid` `down_payment_request`
 naming that entry, its reference the source document, so it behaves as one
 a run paid (ADR-0037, As built).
 
+Asset reconciliation accounts (T57a, ADR-0057 §3, migration 000190).
+`gl_account.reconciliation_kind = 'asset'` marks an asset account whose
+balance is the assets' acquisition cost or accumulated depreciation
+(`chart_of_accounts[].asset_reconciliation`). A line on one posts only in
+an entry whose `source_context` is `assets`, or `integration` (a migration's
+balances): `ledger.check_line` refuses every other
+(`journal_line_asset_reconciliation`, 422
+`ledger.asset_reconciliation_account`), and the posting paths refuse it
+first, naming the line. Only an account the activation creates becomes
+one, and it never stops being one (`ledger.Setup`);
+it is not open-item managed: `company_account.is_open_item_managed` starts
+true for supplier and customer reconciliation accounts only. The asset
+classes and each company's asset accounts are configuration
+(`asset_classes`, `companies[].asset_accounts`), read by
+`GET /v1/asset-classes`.
+
 Foreign-currency revaluation (T48, ADR-0042, migration 000107). The
 document currency is the entry's `currency_tc`; lines carry no currency of
 their own. `company_account.revalue_foreign_currency` flags an asset or

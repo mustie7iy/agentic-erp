@@ -82,6 +82,7 @@ var allowed = map[string][]string{
 	"apitools":                {"llm"},
 	"app":                     {"countrypack"}, // apitest releases a test's own country packs
 	"approvals":               {"config"},
+	"assets":                  {"config"}, // a leaf (ADR-0057 §2): configuration and tenancy through ports the composition root wires
 	"audit":                   {"operations"},
 	"capture":                 {"llm"},
 	"cash":                    {"config"}, // a leaf (ADR-0051 §2): the ledger, payments, payables and procurement through ports the composition root wires
@@ -123,7 +124,7 @@ var allowed = map[string][]string{
 // composition root and commands wire them like any context, and a context
 // may ask one a question through a port it declares itself, as partner
 // asks cash about planning groups.
-var leaves = map[string]bool{"cash": true}
+var leaves = map[string]bool{"assets": true, "cash": true}
 
 // unit is the context a package under internal/ belongs to: its first path
 // segment, the platform package itself, a delivery agent (each agent under

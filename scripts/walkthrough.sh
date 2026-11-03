@@ -2338,6 +2338,87 @@ step_capture() {
   passed
 }
 
+# ASSET_SETTINGS gives company @CC@ the asset class MACHINES (ADR-0057 §3,
+# T57a): straight-line over ten years in the leading ledger and declining
+# balance at twice the rate in every other ledger it keeps; its accounts,
+# the acquisition cost and accumulated depreciation flagged as asset
+# reconciliation accounts; and this fiscal year's number ranges for assets
+# and their entries (AA, AF). @YEAR@ is replaced with this year.
+ASSET_SETTINGS='
+.asset_classes = [{"code": "MACHINES", "name": "Machinery and equipment",
+    "terms": [(.companies[] | select(.code == "@CC@") | .ledgers // ["0L"])[] |
+      if . == "0L" then {"ledger": ., "method": "straight_line", "useful_life_months": 120}
+      else {"ledger": ., "method": "declining_balance", "useful_life_months": 120, "declining_factor": "2"} end]}]
+| (.companies[] | select(.code == "@CC@")) |= (
+    .chart_of_accounts += [
+      {"number": "1600", "name": "Machinery", "type": "asset", "asset_reconciliation": true},
+      {"number": "1609", "name": "Machinery, accumulated depreciation", "type": "asset", "asset_reconciliation": true},
+      {"number": "1690", "name": "Asset clearing", "type": "asset"},
+      {"number": "1695", "name": "Asset sale clearing", "type": "asset"},
+      {"number": "4950", "name": "Gain on asset retirements", "type": "revenue"},
+      {"number": "6250", "name": "Depreciation of machinery", "type": "expense"},
+      {"number": "6950", "name": "Loss on asset retirements", "type": "expense"}]
+    | .asset_accounts = [{"class": "MACHINES", "acquisition_cost": "1600", "accumulated_depreciation": "1609", "depreciation": "6250",
+        "clearing": "1690", "gain": "4950", "loss": "6950", "sale_clearing": "1695"}])
+| .number_ranges += (["asset", "journal_aa", "journal_af"] | map({"company": "@CC@", "document_type": ., "fiscal_year": @YEAR@, "first": 1, "last": 999999}))'
+
+step_assets() {
+  heading "Step 19 — Asset accounting: an asset class and its accounts through a governed change; the cost account takes only assets' postings"
+  as ada
+  say "Ada proposes the pilot's first asset class (ADR-0057 §3): machinery, depreciated straight-line over ten"
+  say "years in the leading ledger and at twice the declining rate in 2L, with its accounts. The acquisition cost"
+  say "and accumulated depreciation accounts are asset reconciliation accounts, which only the assets context"
+  say "posts to, so their balances are the assets' values. The company numbers its assets and their entries"
+  say "(AA, AF) in this fiscal year's ranges."
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  local base settings cr request
+  base=$(field '.items[0].number')
+  settings=${ASSET_SETTINGS//@YEAR@/$YEAR}
+  settings=${settings//@CC@/$CC}
+  jq "{title: \"Asset class MACHINES and its accounts\", rationale: \"Asset accounting for the pilot (T57a)\", base_version: $base,
+    proposed: (.items[0].document | $settings)}" "$WORK/last.json" >"$WORK/assets.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @assets.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier) (structural): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 4
+  expect "the asset class among the changes" "$(field '[.items[] | select(.path == "asset_classes[MACHINES]")] | length')" 1
+  say "New accounts change the chart, a tier 4 change: the invoices of the last year are replayed under it."
+  api 201 '"regression suite \(.number): \(.case_count) cases"' createRegressionSuite -body '{"name": "Before asset accounting", "window_days": 366}'
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
+  expect "status after the evidence" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve sam "$request" "Asset class and accounts checked"
+  approve carla "$request" "The asset accounts are new and unposted"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as carla
+  say "Carla reads the class as the assets context gives it: its terms per ledger and Maple's accounts, named:"
+  api 200 '.items[] | "class \(.code) \(.name):", (.terms[] | "  \(.ledger_code) \(.ledger_name): \(.method), \(.useful_life_months) months\(if .declining_factor then ", factor \(.declining_factor)" else "" end)"),
+    (.companies[] | "  company \(.company_code) \(.company_name): cost \(.accounts.acquisition_cost.number) \(.accounts.acquisition_cost.name), accumulated depreciation \(.accounts.accumulated_depreciation.number), depreciation \(.accounts.depreciation.number), clearing \(.accounts.clearing.number)")' \
+    listAssetClasses -p "legal_entity_id=$LE"
+  expect "the classes of $CC" "$(field '[.items[] | .code] | join(" ")')" MACHINES
+  expect "the class's cost account in $CC" "$(field '.items[0].companies[] | select(.company_code == "'"$CC"'") | "\(.accounts.acquisition_cost.number) \(.accounts.acquisition_cost.name)"')" \
+    "1600 Machinery"
+  expect "the leading ledger's terms" "$(field '.items[0].terms[] | select(.ledger_code == "0L") | "\(.method) \(.useful_life_months)"')" "straight_line 120"
+  accounts
+  local cost clearing
+  cost=$(account 1600)
+  clearing=$(account 1690)
+  api 200 '"account \(.number) \(.name): reconciliation kind \(.reconciliation_kind)"' getAccount -p "id=$cost"
+  expect "the cost account's reconciliation kind" "$(field .reconciliation_kind)" asset
+  say "A manual entry moving a machine's cost from the clearing account onto the cost account is refused: only an"
+  say "acquisition of an asset (T57c) posts there, so the account's balance stays the assets' cost."
+  refused 422 ledger.asset_reconciliation_account postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Machine bought in error by hand\", \"lines\": [{\"account_id\": \"$cost\", \"amount\": {\"amount\": \"5000.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$clearing\", \"amount\": {\"amount\": \"-5000.00\", \"currency\": \"CAD\"}}]}"
+  expect "the refused line" "$(field '[.errors[].field] | join(" ")')" "lines[0].account_id"
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -2359,7 +2440,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets'
 
 main() {
   start

@@ -1121,9 +1121,9 @@
       "r": "ADR-0057 · T57 (split T57a-T57i)",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "Classes and asset accounts in configuration; asset reconciliation enforced: asset_classes (terms per ledger), companies[].asset_accounts (acquisition cost, accumulated depreciation, depreciation, clearing, gain, loss, sale clearing), chart_of_accounts[].asset_reconciliation (only on an account without postings, never removed), number ranges asset, journal_aa, journal_af, validated with tiers 3/4; ledger.Setup sets reconciliation_kind asset; ledger.check_line and every posting path refuse an asset reconciliation line outside source contexts assets and integration (422 ledger.asset_reconciliation_account, schema test); is_open_item_managed for supplier and customer accounts only, open_items and revalue_foreign_currency refused on asset reconciliation, clearing and sale clearing accounts; GET /v1/asset-classes; walkthrough step_assets: the class activated, a manual entry on the cost account refused",
-        "r": "ADR-0057 · T57a",
+        "r": "internal/config/assets.go (AssetClass, AssetTerms, AssetAccounts, Account.AssetReconciliation, AssetRanges; tiers in diff.go) · ledger.Setup (reconciliation_kind asset on new accounts only, checkAssetReconciliationNew, checkAssetRanges, applyAssetReconciliation: 409 ledger.asset_reconciliation_not_new; is_open_item_managed for supplier and customer accounts) · ledger refuseAssetReconciliation in prepareFor (manual, parked, templates, Postings.Post) · migration 000189 (ledger.check_line: journal_line_asset_reconciliation; assets.asset.read) · GET /v1/asset-classes (assets.Endpoints.ListAssetClasses; assets leaf with ports Settings and Companies wired in internal/app/assets.go; internal/layout) · TestAssetClassesValid, TestAssetClassesDiff, TestAssetReconciliationSetup, TestAssetRanges, TestAssetReconciliationPostings, TestAssetReconciliationAccounts, TestListAssetClasses · walkthrough step_assets (step 19) · ADR-0057 (as built, T57a) · 02 §2.2 · 03-data-model · T57a",
         "src": "adr:ADR-0057",
         "c": []
        },

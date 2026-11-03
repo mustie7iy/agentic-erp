@@ -155,6 +155,7 @@ const (
 	ListAgentSessionsOperation                OperationName = "ListAgentSessions"
 	ListAgentToolCallsOperation               OperationName = "ListAgentToolCalls"
 	ListApprovalRequestsOperation             OperationName = "ListApprovalRequests"
+	ListAssetClassesOperation                 OperationName = "ListAssetClasses"
 	ListAuditEventsOperation                  OperationName = "ListAuditEvents"
 	ListBalancesOperation                     OperationName = "ListBalances"
 	ListBankAccountsOperation                 OperationName = "ListBankAccounts"
