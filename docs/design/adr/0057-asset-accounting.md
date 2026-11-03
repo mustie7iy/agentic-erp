@@ -1462,6 +1462,9 @@ operation. Decided by default, for the product owner to overrule:
   account determination, tax codes, withholding taxes, foreign-currency
   valuation, house banks, statement posting rules): only assets post to it
   (review round 1).
+  A tax code's component accounts, which the check first added itself,
+  are listed by `AutomaticAccounts` since T56c2, so the default cost
+  center check sees them too (one list, ADR-0050 §4 As built).
 - §3's "an account becomes one only while it has no postings" is narrowed
   to "only an account the activation creates" (review round 1): turning an
   existing account, even an unposted one, could race a posting in flight

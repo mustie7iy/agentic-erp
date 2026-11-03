@@ -108,8 +108,11 @@ func determinationKeys(ad AccountDetermination) [][2]string {
 // AutomaticAccounts are the accounts the company's automatic postings use
 // (ADR-0050 §4): the account determination (payables, payment runs, FX
 // differences, GR/IR, price differences, cash discounts, down payments),
-// tax and withholding tax codes, the revaluation's accounts, the house
-// banks' accounts and the bank statement posting rules.
+// tax codes in the single-rate form and each component's account (T61a: a
+// multi-component code posts each tax to its component's account),
+// withholding tax codes, the revaluation's accounts, the house banks'
+// accounts and the bank statement posting rules. Every check of automatic
+// accounts reads this one list, so a new kind of setting is added here.
 func (c *Company) AutomaticAccounts() []AutomaticAccount {
 	var out []AutomaticAccount
 	add := func(path, number string) {
@@ -122,6 +125,9 @@ func (c *Company) AutomaticAccounts() []AutomaticAccount {
 	}
 	for _, t := range c.TaxCodes {
 		add("tax_codes["+t.Code+"].account", t.Account)
+		for _, c := range t.Components {
+			add("tax_codes["+t.Code+"].components["+c.Key+"].account", c.Account)
+		}
 	}
 	for _, w := range c.WithholdingTaxCodes {
 		add("withholding_tax_codes["+w.Code+"].account", w.Account)
