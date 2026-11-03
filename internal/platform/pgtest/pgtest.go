@@ -275,9 +275,9 @@ func NewTenant(tb testing.TB, permissions ...string) Tenant {
 	return ten
 }
 
-// Grant gives the roles of the actors the permission from yesterday (a
-// role holding it already keeps its grant), and Revoke takes it from them. The agent and the service share a role, so
-// either changes both.
+// Grant gives the roles of the actors the permission from yesterday; a
+// role holding it already keeps its grant. The agent and the service share
+// a role, so granting to one grants to both.
 func (ten Tenant) Grant(tb testing.TB, permission string, actors ...Actor) {
 	tb.Helper()
 	Exec(tb, `INSERT INTO identity.role_permission (tenant_id, id, role_id, permission_code, valid_from, created_by)
@@ -285,7 +285,8 @@ func (ten Tenant) Grant(tb testing.TB, permission string, actors ...Actor) {
 		WHERE tenant_id = $1 AND principal_id = ANY($3) ON CONFLICT DO NOTHING`, ten.ID, permission, actorIDs(actors), ten.Human.ID)
 }
 
-// Revoke takes the permission from the roles of the actors (Grant).
+// Revoke takes the permission from the roles of the actors; as with
+// Grant, the agent and the service lose it together.
 func (ten Tenant) Revoke(tb testing.TB, permission string, actors ...Actor) {
 	tb.Helper()
 	Exec(tb, `DELETE FROM identity.role_permission WHERE tenant_id = $1 AND permission_code = $2 AND role_id IN

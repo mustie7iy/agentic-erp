@@ -65,7 +65,7 @@ func (e *Endpoints) nameItems(ctx context.Context, items []gen.RevaluationItem) 
 // (04 §4.4). The item keeps its partner_id, which is the revaluation's
 // own; the run is answered, not refused, as it is the caller's to read.
 func (e *Endpoints) partnerNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]PartnerName, error) {
-	may, err := authz.Holds(ctx, permReadPartners)
+	may, err := authz.MayUse(ctx, partnerReadPermission)
 	if err != nil {
 		return nil, fmt.Errorf("ledger: may the caller read the revaluation's partners: %w", err)
 	}
@@ -79,9 +79,11 @@ func (e *Endpoints) partnerNames(ctx context.Context, ids []uuid.UUID) (map[uuid
 	return names, nil
 }
 
-// permReadPartners is the permission reading business partners requires
-// (the partner context's ReadPermission, which the ledger may not import).
-const permReadPartners = "partner.supplier.read"
+// partnerReadPermission is the permission reading business partners
+// requires (the partner context's ReadPermission, which the ledger may not
+// import). T73h3's permReadPartners names the same: whichever merges
+// second keeps one of the two.
+const partnerReadPermission = "partner.supplier.read"
 
 // distinct is ids sorted, each once.
 func distinct(ids []uuid.UUID) []uuid.UUID {

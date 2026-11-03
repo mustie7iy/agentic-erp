@@ -259,7 +259,7 @@ func TestRequireGrantedPermission(t *testing.T) {
 }
 
 // TestExpansions keeps an expansion for a principal holding the permission
-// it needs and drops it otherwise (04 §4.4), the other expansions kept
+// it needs, unbarred, and drops it otherwise (04 §4.4), the other expansions kept
 // either way and the permissions not read unless the expansion was asked.
 func TestExpansions(t *testing.T) {
 	ten := pgtest.NewTenant(t, "partner.supplier.read")
@@ -291,9 +291,25 @@ func TestExpansions(t *testing.T) {
 		if _, err := authz.Expansions(context.Background(), []string{"supplier"}, "supplier", "partner.supplier.read"); err == nil {
 			t.Error("expansions without a transaction: got no error, want one")
 		}
-		if _, err := authz.Holds(context.Background(), "partner.supplier.read"); err == nil {
-			t.Error("holds without a transaction: got no error, want one")
+		if _, err := authz.MayUse(context.Background(), "partner.supplier.read"); err == nil {
+			t.Error("may use without a transaction: got no error, want one")
 		}
+	})
+	t.Run("held but barred by a segregation-of-duties rule", func(t *testing.T) {
+		// As Authorize would refuse listBusinessPartners to this person,
+		// the expansion is dropped too.
+		barred := pgtest.NewTenant(t, "partner.supplier.read", "payables.invoice.post")
+		pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
+			VALUES ($1, gen_random_uuid(), 'partner.supplier.read', 'payables.invoice.post', 'd', current_date, $2)`, barred.ID, barred.Human.ID)
+		as(t, barred, barred.Human, func(ctx context.Context) {
+			got, err := authz.Expansions(ctx, []string{"supplier"}, "supplier", "partner.supplier.read")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 0 {
+				t.Errorf("expansions: got %v, want none", got)
+			}
+		})
 	})
 }
 
