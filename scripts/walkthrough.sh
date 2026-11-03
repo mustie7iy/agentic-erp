@@ -2694,6 +2694,44 @@ step_asset_reversal() {
   passed
 }
 
+step_asset_depreciation() {
+  heading "Step 23 — Depreciation schedule and preview: the lathe's first period in each ledger, before any run posts"
+  as carla
+  say "Carla checks what depreciation will post before the period's run (ADR-0057 §7, T57e). The lathe of step 21 was"
+  say "capitalised today at 5,000.00, so its depreciation starts in this period: straight-line over 120 months in the"
+  say "leading ledger, 5,000.00 / 120 = 41.67, and declining balance at twice the rate in 2L, 5,000.00 x 2 / 120 = 83.33."
+  say "Nothing is stored as a plan: the schedule is computed from the asset's terms and movements at every read."
+  local lathe period l code want
+  QUIET=1 api 200 '' listAssets -p "legal_entity_id=$LE" -p status=active
+  lathe=$(field '[.items[] | select(.description == "CNC lathe") | .id][0]')
+  api 200 '.items[] | "  \(.seq) \(.kind) \(.ledger_code) \(.posting_date): cost \(.cost.amount) \(.cost.currency) (group \(.cost_gc.amount) \(.cost_gc.currency)), entry \(.document_number)"' \
+    listAssetMovements -p "id=$lathe"
+  expect "the lathe's movements" "$(field '[.items[] | "\(.kind) \(.ledger_code) \(.cost.amount)"] | join(", ")')" "acquisition 0L 5000.00, acquisition 2L 5000.00"
+  api 200 '"asset \(.asset_number) \(.description) in \(.ledger_code), \(.method) over \(.useful_life_months) months from \(.depreciation_start):",
+    (.periods[] | select(.planned.amount != "0.00" or .net_book_value.amount != "0.00") | "  \(.fiscal_year)/\(.period): planned \(.planned.amount), booked \(.booked.amount), net book value \(.net_book_value.amount) \(.net_book_value.currency)"),
+    "  the year: planned \(.totals.planned.amount), booked \(.totals.booked.amount)"' \
+    getAssetSchedule -p "id=$lathe" -p "fiscal_year=$YEAR"
+  period=$(field ".periods[] | select(.start_date <= \"$TODAY\" and .end_date >= \"$TODAY\") | .period")
+  expect "the lathe's first period" "$(field ".periods[] | select(.period == $period) | .planned.amount")" 41.67
+  QUIET=1 api 200 '' getAsset -p "id=$lathe"
+  for l in $(field '.terms[] | "\(.ledger_code)=\(.ledger_id)"'); do
+    code=${l%%=*}
+    want=83.33
+    if [ "$code" = 0L ]; then want=41.67; fi
+    say "The run of period $period in $code would post, per asset, the planned depreciation through the period less what is"
+    say "booked, on the class's accounts and the asset's centers:"
+    api 200 '"  \(.company_code) \(.ledger_code) \(.fiscal_year)/\(.period) (\(.period_start)..\(.period_end)), \(.totals.assets) assets:",
+      (.items[] | "  asset \(.asset_number) \(.description): planned \(.planned.amount), booked \(.booked.amount), difference \(.difference.amount) \(.difference.currency) on \(.depreciation_account.number), \(.cost_center_code // "no cost center")"),
+      (.totals.lines[] | "  line \(.account_number) \(.account_name) \(.cost_center_code // "") \(.profit_center_code // ""): \(.amount.amount) \(.amount.currency)")' \
+      previewDepreciationRun -body "{\"legal_entity_id\": \"$LE\", \"ledger_id\": \"${l#*=}\", \"fiscal_year\": $YEAR, \"period\": $period}"
+    expect "the lathe's depreciation in $code" "$(field "[.items[] | select(.asset_id == \"$lathe\") | .difference.amount][0]")" "$want"
+    expect "the totals in $code balance" "$(field '[.totals.lines[].amount.amount | tonumber] | add * 100 | round')" 0
+  done
+  say "A special period takes no depreciation:"
+  refused 422 assets.special_period previewDepreciationRun -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"period\": 13}"
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -2715,7 +2753,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_asset_acquisitions step_asset_reversal'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_asset_acquisitions step_asset_reversal step_asset_depreciation'
 
 main() {
   start

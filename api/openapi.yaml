@@ -13967,6 +13967,112 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/assets/{id}/schedule":
+    get:
+      operationId: getAssetSchedule
+      tags:
+        - assets
+      summary: Get an asset's depreciation schedule
+      description: "The asset's planned and booked depreciation in one ledger for each regular period of a fiscal year (ADR-0057 §7, T57e), computed at the read from its terms and movements, so it never disagrees with them. The planned schedule walks the periods from the one depreciation starts in (`depreciation_start`, the terms' own or else the capitalisation date; one period counts in full from its start): each movement valued by a period is applied at the start of the period of its value date (acquisitions add their cost; a transfer in adds the cost, accumulated depreciation and residual value it brought; a retirement or transfer out takes off those it recorded; a reversal cancels what it reverses), and each period takes, of its net book value B less its residual value R, by `straight_line` (B − R) / (n − k + 1) over the n − k + 1 periods of useful life left, or by `declining_balance` the greater of B × factor / n and that straight-line amount, rounded half away from zero to minor units and held between zero and B − R; from the last period of the useful life on, all of B − R. `planned` is that depreciation, `booked` the depreciation posted in the period (runs' and catch-ups', with their reversals, by posting period), `net_book_value` the planned net book value at the period's end. `totals` sums the year's periods. `ledger_id` defaults to the leading ledger. A ledger the asset has no terms in is 422 `assets.ledger_terms_missing`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. Amounts are in the company's local currency. An asset of a legal entity the caller cannot act in is not found."
+      x-permission: assets.asset.read
+      x-problem-codes:
+        - assets.ledger_terms_missing
+        - ledger.no_fiscal_period
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: ledger_id
+          in: query
+          required: false
+          description: The ledger (one depreciation area); default the leading ledger.
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: The fiscal year whose periods are shown.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+      responses:
+        "200":
+          description: The asset's schedule for the year.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetSchedule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/assets/{id}/movements":
+    get:
+      operationId: listAssetMovements
+      tags:
+        - assets
+      summary: List an asset's movements
+      description: "The asset's movements, its subledger (ADR-0057 §5, T57e): one per ledger and effect of each acquisition, depreciation, retirement and transfer and of each reversal, with the signed change of acquisition cost and accumulated depreciation (negative, the credit it is) in the company's local currency and in group currency as that ledger booked them, the residual value a retirement or transfer took (negative) or a transfer in brought, a sale's proceeds, the share of cost taken, the document it belongs to, and that ledger's journal entry with its document number (none for a catch-up of zero). A reversal names the movement it reverses (`reverses_id`), a reversed movement the one reversing it (`reversed_by_id`). Filters: ledger, fiscal year of the posting date, kind. Sortable by: `seq` (default), the asset's posting order. An asset of a legal entity the caller cannot act in is not found."
+      x-permission: assets.asset.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: ledger_id
+          in: query
+          required: false
+          description: Only the movements in this ledger.
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: false
+          description: Only the movements posted in this fiscal year.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: kind
+          in: query
+          required: false
+          description: Only the movements of this kind.
+          schema:
+            type: string
+            description: "Movement kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [acquisition, depreciation, retirement, transfer_out, transfer_in]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the asset's movements.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetMovementPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/asset-acquisitions:
     get:
       operationId: listAssetAcquisitions
@@ -14320,6 +14426,68 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/depreciation-runs/preview:
+    post:
+      operationId: previewDepreciationRun
+      tags:
+        - assets
+      summary: Preview a depreciation run
+      description: "What a depreciation run of a company, ledger and regular period would post (ADR-0057 §7, T57e), without posting: per asset the planned depreciation through the period (the schedule of `GET /v1/assets/{id}/schedule` summed from the depreciation start), the depreciation booked in the ledger (runs' and catch-ups', with their reversals) and the difference, which the run posts: normally the period's depreciation, more when a movement was posted late with an earlier value date (a catch-up), less or negative when one was reversed, nothing when the period's run already posted it. The assets are those a run selects: the company's assets with terms in the ledger that are `active` with their depreciation start (the terms' own, else the capitalisation date) on or before the period's last day, or whose accumulated depreciation in the ledger is not zero (a `planned` asset whose acquisition was reversed after depreciation was posted), passing over an asset booked through a later period or whose latest center assignment is valid from after the period's last day; ordered and paged by asset number. Each asset is shown on its accounts (its class's depreciation and accumulated depreciation accounts in the company) and its centers (its latest assignment's). `totals`, the same on every page, sum every asset selected: the planned, booked and difference amounts and the lines the run would post, per depreciation account, cost center and profit center the expense (debit positive) and per accumulated depreciation account and profit center the credit; the ledger derives a line's cost center from the account's default assignment for an asset without one, and a cost center's profit center on the posting date, as every posting does (ADR-0050 §5). Amounts are in the company's local currency. `ledger_id` defaults to the leading ledger; one the company does not keep is 422 `ledger.ledger_not_kept`; a special period (13-16) takes no depreciation, 422 `assets.special_period`; a fiscal year or period that is not set up is 422 `ledger.no_fiscal_period`. Whether the period is open and runs' order are the run's checks. An asset of a class the active configuration no longer gives the company fails the preview (422 `assets.class_unknown`, `assets.class_not_in_company`), as it would fail the run. A legal entity the caller cannot act in is 404. Reads only; every agent autonomy level may call it."
+      x-permission: assets.asset.read
+      x-autonomy: read
+      x-problem-codes:
+        - assets.class_not_in_company
+        - assets.class_unknown
+        - assets.special_period
+        - config.not_bootstrapped
+        - ledger.ledger_not_kept
+        - ledger.no_fiscal_period
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      requestBody:
+        description: The run to preview.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DepreciationRunPreviewRequest"
+            examples:
+              march:
+                summary: Preview March's depreciation in the leading ledger
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  fiscal_year: 2026
+                  period: 3
+      responses:
+        "200":
+          description: One page of the assets the run would post, and the totals of all of them.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepreciationRunPreview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/cash-position:
@@ -32795,6 +32963,248 @@ components:
           maxLength: 2048
       examples:
         - items: []
+    AssetSchedule:
+      type: object
+      description: "An asset's planned and booked depreciation per regular period of a fiscal year in one ledger (ADR-0057 §7), in the company's local currency."
+      required: [asset_id, asset_number, description, legal_entity_id, company_code, ledger_id, ledger_code, ledger_name, fiscal_year, currency, method, useful_life_months, residual_value, periods, totals]
+      properties:
+        asset_id: {type: string, format: uuid, description: "The asset (`GET /v1/assets/{id}`).", readOnly: true}
+        asset_number: {type: string, description: "The asset's number in its company.", readOnly: true}
+        description: {type: string, description: What the asset is., readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The asset's company.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        ledger_id: {type: string, format: uuid, description: The ledger., readOnly: true}
+        ledger_code: {type: string, description: "The ledger's code.", readOnly: true}
+        ledger_name: {type: string, description: "The ledger's name.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: The fiscal year shown., readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's local currency, every amount's.", readOnly: true}
+        method:
+          type: string
+          x-extensible-enum: [straight_line, declining_balance]
+          description: "The terms' method. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        useful_life_months: {type: integer, format: int32, description: The useful life in periods (months)., readOnly: true}
+        declining_factor: {type: string, pattern: "^[0-9]+(\\.[0-9]{1,4})?$", description: "The declining balance factor; only with `declining_balance`.", readOnly: true}
+        residual_value: {$ref: "#/components/schemas/Money"}
+        depreciation_start: {type: string, format: date, description: "The day depreciation starts from, its period counting in full: the terms' own, else the capitalisation date; absent while the asset has neither.", readOnly: true}
+        periods:
+          type: array
+          description: "The year's regular periods, in order."
+          items: {$ref: "#/components/schemas/AssetSchedulePeriod"}
+        totals: {$ref: "#/components/schemas/AssetScheduleTotals"}
+      examples:
+        - asset_id: 0192a000-0000-7000-8000-000000000401
+          asset_number: "1"
+          description: CNC milling machine
+          legal_entity_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01
+          company_code: "1000"
+          ledger_id: 0192a000-0000-7000-8000-000000000301
+          ledger_code: 0L
+          ledger_name: Leading ledger
+          fiscal_year: 2026
+          currency: CAD
+          method: straight_line
+          useful_life_months: 120
+          residual_value: {amount: "500.00", currency: CAD}
+          depreciation_start: "2026-12-01"
+          periods:
+            - {fiscal_year: 2026, period: 12, start_date: "2026-12-01", end_date: "2026-12-31", planned: {amount: "54.17", currency: CAD}, booked: {amount: "0.00", currency: CAD}, net_book_value: {amount: "6945.83", currency: CAD}}
+          totals: {planned: {amount: "54.17", currency: CAD}, booked: {amount: "0.00", currency: CAD}}
+    AssetSchedulePeriod:
+      type: object
+      description: "One regular period of an asset's schedule."
+      required: [fiscal_year, period, start_date, end_date, planned, booked, net_book_value]
+      properties:
+        fiscal_year: {type: integer, format: int32, description: The fiscal year., readOnly: true}
+        period: {type: integer, format: int32, minimum: 1, maximum: 12, description: The regular period., readOnly: true}
+        start_date: {type: string, format: date, description: "The period's first day.", readOnly: true}
+        end_date: {type: string, format: date, description: "The period's last day.", readOnly: true}
+        planned: {$ref: "#/components/schemas/Money"}
+        booked: {$ref: "#/components/schemas/Money"}
+        net_book_value: {$ref: "#/components/schemas/Money"}
+    AssetScheduleTotals:
+      type: object
+      description: "The year's planned and booked depreciation."
+      required: [planned, booked]
+      properties:
+        planned: {$ref: "#/components/schemas/Money"}
+        booked: {$ref: "#/components/schemas/Money"}
+    AssetMovement:
+      type: object
+      description: "A movement of an asset in one ledger (ADR-0057 §5): the signed change one document or reversal made to its values there."
+      required: [id, seq, ledger_id, ledger_code, ledger_name, kind, value_date, posting_date, fiscal_year, fiscal_period, cost, accumulated, cost_gc, accumulated_gc, residual, proceeds, document_kind, document_id]
+      properties:
+        id: {type: string, format: uuid, description: The movement., readOnly: true}
+        seq: {type: integer, format: int32, description: "The asset's posting order: a movement with a higher `seq` was posted after.", readOnly: true}
+        ledger_id: {type: string, format: uuid, description: The ledger., readOnly: true}
+        ledger_code: {type: string, description: "The ledger's code.", readOnly: true}
+        ledger_name: {type: string, description: "The ledger's name.", readOnly: true}
+        kind:
+          type: string
+          x-extensible-enum: [acquisition, depreciation, retirement, transfer_out, transfer_in]
+          description: "What it is. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        value_date: {type: string, format: date, description: "The value date; the schedule applies the movement from its period.", readOnly: true}
+        posting_date: {type: string, format: date, description: The posting date., readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "The posting date's fiscal year.", readOnly: true}
+        fiscal_period: {type: integer, format: int32, description: "The posting date's period.", readOnly: true}
+        cost: {$ref: "#/components/schemas/Money"}
+        accumulated: {$ref: "#/components/schemas/Money"}
+        cost_gc: {$ref: "#/components/schemas/Money"}
+        accumulated_gc: {$ref: "#/components/schemas/Money"}
+        residual: {$ref: "#/components/schemas/Money"}
+        proceeds: {$ref: "#/components/schemas/Money"}
+        share: {type: string, description: "The fraction of cost a retirement or transfer out took, as a plain decimal.", readOnly: true}
+        document_kind:
+          type: string
+          x-extensible-enum: [acquisition, retirement, transfer, depreciation_run]
+          description: "The kind of document it belongs to. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        document_id: {type: string, format: uuid, description: "The document (an acquisition: `GET /v1/asset-acquisitions/{id}`).", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "That ledger's journal entry (`GET /v1/journal-entries/{id}`); absent for a catch-up of zero.", readOnly: true}
+        journal_entry_fiscal_year: {type: integer, format: int32, description: "The journal entry's fiscal year.", readOnly: true}
+        document_number: {type: string, description: "The journal entry's document number, for an acquisition's, retirement's or transfer's entry.", readOnly: true}
+        reverses_id: {type: string, format: uuid, description: "For a reversal: the movement it reverses.", readOnly: true}
+        reversed_by_id: {type: string, format: uuid, description: "For a reversed movement: the movement reversing it.", readOnly: true}
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000501
+          seq: 2
+          ledger_id: 0192a000-0000-7000-8000-000000000301
+          ledger_code: 0L
+          ledger_name: Leading ledger
+          kind: acquisition
+          value_date: "2026-11-03"
+          posting_date: "2026-11-03"
+          fiscal_year: 2026
+          fiscal_period: 11
+          cost: {amount: "7000.00", currency: CAD}
+          accumulated: {amount: "0.00", currency: CAD}
+          cost_gc: {amount: "5110.00", currency: USD}
+          accumulated_gc: {amount: "0.00", currency: USD}
+          residual: {amount: "0.00", currency: CAD}
+          proceeds: {amount: "0.00", currency: CAD}
+          document_kind: acquisition
+          document_id: 0192a000-0000-7000-8000-000000000601
+          journal_entry_id: 0192a000-0000-7000-8000-000000000701
+          journal_entry_fiscal_year: 2026
+          document_number: "AA-100001"
+    AssetMovementPage:
+      type: object
+      description: "One page of an asset's movements."
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetMovement"
+          description: The movements on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
+    DepreciationRunPreviewRequest:
+      type: object
+      description: "The depreciation run to preview: a company, a ledger and a regular period."
+      required: [legal_entity_id, fiscal_year, period]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company's legal entity."}
+        ledger_id: {type: string, format: uuid, description: The ledger (one depreciation area); default the leading ledger.}
+        fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2999, description: The fiscal year.}
+        period: {type: integer, format: int32, minimum: 1, maximum: 16, description: "The period; a regular one (1-12)."}
+    DepreciationRunPreview:
+      type: object
+      description: "What a depreciation run would post (ADR-0057 §7): one page of the assets it selects and the totals of all of them, in the company's local currency."
+      required: [legal_entity_id, company_code, ledger_id, ledger_code, ledger_name, fiscal_year, period, period_start, period_end, currency, items, totals]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company's legal entity.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        ledger_id: {type: string, format: uuid, description: The ledger., readOnly: true}
+        ledger_code: {type: string, description: "The ledger's code.", readOnly: true}
+        ledger_name: {type: string, description: "The ledger's name.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: The fiscal year., readOnly: true}
+        period: {type: integer, format: int32, description: The period., readOnly: true}
+        period_start: {type: string, format: date, description: "The period's first day.", readOnly: true}
+        period_end: {type: string, format: date, description: "The period's last day, the run's posting date.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's local currency, every amount's.", readOnly: true}
+        items:
+          type: array
+          description: The assets on this page, by asset number.
+          items: {$ref: "#/components/schemas/DepreciationPreviewItem"}
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        totals: {$ref: "#/components/schemas/DepreciationPreviewTotals"}
+      examples:
+        - legal_entity_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01
+          company_code: "1000"
+          ledger_id: 0192a000-0000-7000-8000-000000000301
+          ledger_code: 0L
+          ledger_name: Leading ledger
+          fiscal_year: 2026
+          period: 11
+          period_start: "2026-11-01"
+          period_end: "2026-11-30"
+          currency: CAD
+          items: []
+          totals: {assets: 0, planned: {amount: "0.00", currency: CAD}, booked: {amount: "0.00", currency: CAD}, difference: {amount: "0.00", currency: CAD}, lines: []}
+    DepreciationPreviewItem:
+      type: object
+      description: "An asset a depreciation run would post: its planned depreciation through the period, what is booked, and the difference the run posts, on its accounts and centers."
+      required: [asset_id, asset_number, description, class_code, class_name, method, depreciation_account, accumulated_account, planned, booked, difference]
+      properties:
+        asset_id: {type: string, format: uuid, description: "The asset (`GET /v1/assets/{id}/schedule`).", readOnly: true}
+        asset_number: {type: string, description: "The asset's number.", readOnly: true}
+        description: {type: string, description: What the asset is., readOnly: true}
+        class_code: {type: string, description: "The asset's class.", readOnly: true}
+        class_name: {type: string, description: "The class's name.", readOnly: true}
+        method:
+          type: string
+          x-extensible-enum: [straight_line, declining_balance]
+          description: "The terms' method in the ledger. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        cost_center_id: {type: string, format: uuid, description: "The asset's cost center (its latest assignment's).", readOnly: true}
+        cost_center_code: {type: string, description: "The cost center's code, to a caller who may read cost centers.", readOnly: true}
+        cost_center_name: {type: string, description: "The cost center's name, to a caller who may read cost centers.", readOnly: true}
+        profit_center_id: {type: string, format: uuid, description: "The asset's profit center (its latest assignment's).", readOnly: true}
+        profit_center_code: {type: string, description: "The profit center's code, to a caller who may read cost centers.", readOnly: true}
+        profit_center_name: {type: string, description: "The profit center's name, to a caller who may read cost centers.", readOnly: true}
+        depreciation_account: {$ref: "#/components/schemas/AssetOffsetAccount"}
+        accumulated_account: {$ref: "#/components/schemas/AssetOffsetAccount"}
+        planned: {$ref: "#/components/schemas/Money"}
+        booked: {$ref: "#/components/schemas/Money"}
+        difference: {$ref: "#/components/schemas/Money"}
+    DepreciationPreviewTotals:
+      type: object
+      description: "The totals of every asset a depreciation run would post, the same on every page: the count, the planned, booked and difference amounts, and the lines it would post."
+      required: [assets, planned, booked, difference, lines]
+      properties:
+        assets: {type: integer, format: int32, description: The number of assets selected., readOnly: true}
+        planned: {$ref: "#/components/schemas/Money"}
+        booked: {$ref: "#/components/schemas/Money"}
+        difference: {$ref: "#/components/schemas/Money"}
+        lines:
+          type: array
+          description: "The lines a run would post, the expense lines by depreciation account, cost center and profit center, then the credit lines by accumulated depreciation account and profit center, by account number; a line summing to zero is left out."
+          items: {$ref: "#/components/schemas/DepreciationPreviewLine"}
+    DepreciationPreviewLine:
+      type: object
+      description: "A line a depreciation run would post: an account with its centers and the amount, debit positive."
+      required: [account_id, account_number, account_name, amount]
+      properties:
+        account_id: {type: string, format: uuid, description: "The account (`GET /v1/accounts/{id}`).", readOnly: true}
+        account_number: {type: string, description: "The account's number.", readOnly: true}
+        account_name: {type: string, description: "The account's name.", readOnly: true}
+        cost_center_id: {type: string, format: uuid, description: "The cost center (expense lines only).", readOnly: true}
+        cost_center_code: {type: string, description: "The cost center's code, to a caller who may read cost centers.", readOnly: true}
+        cost_center_name: {type: string, description: "The cost center's name, to a caller who may read cost centers.", readOnly: true}
+        profit_center_id: {type: string, format: uuid, description: The profit center., readOnly: true}
+        profit_center_code: {type: string, description: "The profit center's code, to a caller who may read cost centers.", readOnly: true}
+        profit_center_name: {type: string, description: "The profit center's name, to a caller who may read cost centers.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money"}
     AssetAcquisitionCreate:
       type: object
       description: "An acquisition from a posted line on an asset clearing account (ADR-0057 §6)."

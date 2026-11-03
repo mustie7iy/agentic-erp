@@ -889,6 +889,28 @@ type Invoker interface {
 	//
 	// GET /v1/asset-acquisitions/{id}
 	GetAssetAcquisition(ctx context.Context, params GetAssetAcquisitionParams) (GetAssetAcquisitionRes, error)
+	// GetAssetSchedule invokes getAssetSchedule operation.
+	//
+	// The asset's planned and booked depreciation in one ledger for each regular period of a fiscal year
+	// (ADR-0057 §7, T57e), computed at the read from its terms and movements, so it never disagrees with
+	// them. The planned schedule walks the periods from the one depreciation starts in
+	// (`depreciation_start`, the terms' own or else the capitalisation date; one period counts in full
+	// from its start): each movement valued by a period is applied at the start of the period of its value
+	// date (acquisitions add their cost; a transfer in adds the cost, accumulated depreciation and
+	// residual value it brought; a retirement or transfer out takes off those it recorded; a reversal
+	// cancels what it reverses), and each period takes, of its net book value B less its residual value R,
+	// by `straight_line` (B − R) / (n − k + 1) over the n − k + 1 periods of useful life left, or by
+	// `declining_balance` the greater of B × factor / n and that straight-line amount, rounded half away
+	// from zero to minor units and held between zero and B − R; from the last period of the useful life
+	// on, all of B − R. `planned` is that depreciation, `booked` the depreciation posted in the period
+	// (runs' and catch-ups', with their reversals, by posting period), `net_book_value` the planned net
+	// book value at the period's end. `totals` sums the year's periods. `ledger_id` defaults to the
+	// leading ledger. A ledger the asset has no terms in is 422 `assets.ledger_terms_missing`; a fiscal
+	// year that is not set up is 422 `ledger.no_fiscal_period`. Amounts are in the company's local
+	// currency. An asset of a legal entity the caller cannot act in is not found.
+	//
+	// GET /v1/assets/{id}/schedule
+	GetAssetSchedule(ctx context.Context, params GetAssetScheduleParams) (GetAssetScheduleRes, error)
 	// GetBankAccount invokes getBankAccount operation.
 	//
 	// Returns one bank account of the partner, masked.
@@ -1529,6 +1551,21 @@ type Invoker interface {
 	//
 	// GET /v1/asset-clearing-items
 	ListAssetClearingItems(ctx context.Context, params ListAssetClearingItemsParams) (ListAssetClearingItemsRes, error)
+	// ListAssetMovements invokes listAssetMovements operation.
+	//
+	// The asset's movements, its subledger (ADR-0057 §5, T57e): one per ledger and effect of each
+	// acquisition, depreciation, retirement and transfer and of each reversal, with the signed change of
+	// acquisition cost and accumulated depreciation (negative, the credit it is) in the company's local
+	// currency and in group currency as that ledger booked them, the residual value a retirement or
+	// transfer took (negative) or a transfer in brought, a sale's proceeds, the share of cost taken, the
+	// document it belongs to, and that ledger's journal entry with its document number (none for a
+	// catch-up of zero). A reversal names the movement it reverses (`reverses_id`), a reversed movement
+	// the one reversing it (`reversed_by_id`). Filters: ledger, fiscal year of the posting date, kind.
+	// Sortable by: `seq` (default), the asset's posting order. An asset of a legal entity the caller
+	// cannot act in is not found.
+	//
+	// GET /v1/assets/{id}/movements
+	ListAssetMovements(ctx context.Context, params ListAssetMovementsParams) (ListAssetMovementsRes, error)
 	// ListAssets invokes listAssets operation.
 	//
 	// The assets of the legal entities the caller may act in (ADR-0057 §5, T57b), each with its class,
@@ -2482,6 +2519,36 @@ type Invoker interface {
 	//
 	// POST /v1/tax-registrations/{id}/returns
 	PrepareTaxReturn(ctx context.Context, request *TaxReturnPrepare, params PrepareTaxReturnParams) (PrepareTaxReturnRes, error)
+	// PreviewDepreciationRun invokes previewDepreciationRun operation.
+	//
+	// What a depreciation run of a company, ledger and regular period would post (ADR-0057 §7, T57e),
+	// without posting: per asset the planned depreciation through the period (the schedule of
+	// `GET /v1/assets/{id}/schedule` summed from the depreciation start), the depreciation booked in the
+	// ledger (runs' and catch-ups', with their reversals) and the difference, which the run posts:
+	// normally the period's depreciation, more when a movement was posted late with an earlier value date
+	// (a catch-up), less or negative when one was reversed, nothing when the period's run already posted
+	// it. The assets are those a run selects: the company's assets with terms in the ledger that are
+	// `active` with their depreciation start (the terms' own, else the capitalisation date) on or before
+	// the period's last day, or whose accumulated depreciation in the ledger is not zero (a `planned`
+	// asset whose acquisition was reversed after depreciation was posted), passing over an asset booked
+	// through a later period or whose latest center assignment is valid from after the period's last day;
+	// ordered and paged by asset number. Each asset is shown on its accounts (its class's depreciation and
+	// accumulated depreciation accounts in the company) and its centers (its latest assignment's).
+	// `totals`, the same on every page, sum every asset selected: the planned, booked and difference
+	// amounts and the lines the run would post, per depreciation account, cost center and profit center
+	// the expense (debit positive) and per accumulated depreciation account and profit center the credit;
+	// the ledger derives a line's cost center from the account's default assignment for an asset without
+	// one, and a cost center's profit center on the posting date, as every posting does (ADR-0050 §5).
+	// Amounts are in the company's local currency. `ledger_id` defaults to the leading ledger; one the
+	// company does not keep is 422 `ledger.ledger_not_kept`; a special period (13-16) takes no
+	// depreciation, 422 `assets.special_period`; a fiscal year or period that is not set up is 422
+	// `ledger.no_fiscal_period`. Whether the period is open and runs' order are the run's checks. An asset
+	// of a class the active configuration no longer gives the company fails the preview (422
+	// `assets.class_unknown`, `assets.class_not_in_company`), as it would fail the run. A legal entity the
+	// caller cannot act in is 404. Reads only; every agent autonomy level may call it.
+	//
+	// POST /v1/depreciation-runs/preview
+	PreviewDepreciationRun(ctx context.Context, request *DepreciationRunPreviewRequest, params PreviewDepreciationRunParams) (PreviewDepreciationRunRes, error)
 	// PreviewRevaluation invokes previewRevaluation operation.
 	//
 	// Values, without posting, what a revaluation run of a legal entity and ledger at a key date would
@@ -15983,6 +16050,189 @@ func (c *Client) sendGetAssetAcquisition(ctx context.Context, params GetAssetAcq
 	return result, nil
 }
 
+// GetAssetSchedule invokes getAssetSchedule operation.
+//
+// The asset's planned and booked depreciation in one ledger for each regular period of a fiscal year
+// (ADR-0057 §7, T57e), computed at the read from its terms and movements, so it never disagrees with
+// them. The planned schedule walks the periods from the one depreciation starts in
+// (`depreciation_start`, the terms' own or else the capitalisation date; one period counts in full
+// from its start): each movement valued by a period is applied at the start of the period of its value
+// date (acquisitions add their cost; a transfer in adds the cost, accumulated depreciation and
+// residual value it brought; a retirement or transfer out takes off those it recorded; a reversal
+// cancels what it reverses), and each period takes, of its net book value B less its residual value R,
+// by `straight_line` (B − R) / (n − k + 1) over the n − k + 1 periods of useful life left, or by
+// `declining_balance` the greater of B × factor / n and that straight-line amount, rounded half away
+// from zero to minor units and held between zero and B − R; from the last period of the useful life
+// on, all of B − R. `planned` is that depreciation, `booked` the depreciation posted in the period
+// (runs' and catch-ups', with their reversals, by posting period), `net_book_value` the planned net
+// book value at the period's end. `totals` sums the year's periods. `ledger_id` defaults to the
+// leading ledger. A ledger the asset has no terms in is 422 `assets.ledger_terms_missing`; a fiscal
+// year that is not set up is 422 `ledger.no_fiscal_period`. Amounts are in the company's local
+// currency. An asset of a legal entity the caller cannot act in is not found.
+//
+// GET /v1/assets/{id}/schedule
+func (c *Client) GetAssetSchedule(ctx context.Context, params GetAssetScheduleParams) (GetAssetScheduleRes, error) {
+	res, err := c.sendGetAssetSchedule(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetAssetSchedule(ctx context.Context, params GetAssetScheduleParams) (res GetAssetScheduleRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAssetSchedule"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/assets/{id}/schedule"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAssetScheduleOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/assets/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/schedule"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "ledger_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "ledger_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LedgerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.Int32ToString(params.FiscalYear))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAssetScheduleOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAssetScheduleResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetBankAccount invokes getBankAccount operation.
 //
 // Returns one bank account of the partner, masked.
@@ -26752,6 +27002,253 @@ func (c *Client) sendListAssetClearingItems(ctx context.Context, params ListAsse
 
 	stage = "DecodeResponse"
 	result, err := decodeListAssetClearingItemsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListAssetMovements invokes listAssetMovements operation.
+//
+// The asset's movements, its subledger (ADR-0057 §5, T57e): one per ledger and effect of each
+// acquisition, depreciation, retirement and transfer and of each reversal, with the signed change of
+// acquisition cost and accumulated depreciation (negative, the credit it is) in the company's local
+// currency and in group currency as that ledger booked them, the residual value a retirement or
+// transfer took (negative) or a transfer in brought, a sale's proceeds, the share of cost taken, the
+// document it belongs to, and that ledger's journal entry with its document number (none for a
+// catch-up of zero). A reversal names the movement it reverses (`reverses_id`), a reversed movement
+// the one reversing it (`reversed_by_id`). Filters: ledger, fiscal year of the posting date, kind.
+// Sortable by: `seq` (default), the asset's posting order. An asset of a legal entity the caller
+// cannot act in is not found.
+//
+// GET /v1/assets/{id}/movements
+func (c *Client) ListAssetMovements(ctx context.Context, params ListAssetMovementsParams) (ListAssetMovementsRes, error) {
+	res, err := c.sendListAssetMovements(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListAssetMovements(ctx context.Context, params ListAssetMovementsParams) (res ListAssetMovementsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listAssetMovements"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/assets/{id}/movements"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListAssetMovementsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/assets/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/movements"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "ledger_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "ledger_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LedgerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalYear.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "kind" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Kind.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListAssetMovementsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListAssetMovementsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -47906,6 +48403,198 @@ func (c *Client) sendPrepareTaxReturn(ctx context.Context, request *TaxReturnPre
 
 	stage = "DecodeResponse"
 	result, err := decodePrepareTaxReturnResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// PreviewDepreciationRun invokes previewDepreciationRun operation.
+//
+// What a depreciation run of a company, ledger and regular period would post (ADR-0057 §7, T57e),
+// without posting: per asset the planned depreciation through the period (the schedule of
+// `GET /v1/assets/{id}/schedule` summed from the depreciation start), the depreciation booked in the
+// ledger (runs' and catch-ups', with their reversals) and the difference, which the run posts:
+// normally the period's depreciation, more when a movement was posted late with an earlier value date
+// (a catch-up), less or negative when one was reversed, nothing when the period's run already posted
+// it. The assets are those a run selects: the company's assets with terms in the ledger that are
+// `active` with their depreciation start (the terms' own, else the capitalisation date) on or before
+// the period's last day, or whose accumulated depreciation in the ledger is not zero (a `planned`
+// asset whose acquisition was reversed after depreciation was posted), passing over an asset booked
+// through a later period or whose latest center assignment is valid from after the period's last day;
+// ordered and paged by asset number. Each asset is shown on its accounts (its class's depreciation and
+// accumulated depreciation accounts in the company) and its centers (its latest assignment's).
+// `totals`, the same on every page, sum every asset selected: the planned, booked and difference
+// amounts and the lines the run would post, per depreciation account, cost center and profit center
+// the expense (debit positive) and per accumulated depreciation account and profit center the credit;
+// the ledger derives a line's cost center from the account's default assignment for an asset without
+// one, and a cost center's profit center on the posting date, as every posting does (ADR-0050 §5).
+// Amounts are in the company's local currency. `ledger_id` defaults to the leading ledger; one the
+// company does not keep is 422 `ledger.ledger_not_kept`; a special period (13-16) takes no
+// depreciation, 422 `assets.special_period`; a fiscal year or period that is not set up is 422
+// `ledger.no_fiscal_period`. Whether the period is open and runs' order are the run's checks. An asset
+// of a class the active configuration no longer gives the company fails the preview (422
+// `assets.class_unknown`, `assets.class_not_in_company`), as it would fail the run. A legal entity the
+// caller cannot act in is 404. Reads only; every agent autonomy level may call it.
+//
+// POST /v1/depreciation-runs/preview
+func (c *Client) PreviewDepreciationRun(ctx context.Context, request *DepreciationRunPreviewRequest, params PreviewDepreciationRunParams) (PreviewDepreciationRunRes, error) {
+	res, err := c.sendPreviewDepreciationRun(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendPreviewDepreciationRun(ctx context.Context, request *DepreciationRunPreviewRequest, params PreviewDepreciationRunParams) (res PreviewDepreciationRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("previewDepreciationRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/depreciation-runs/preview"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PreviewDepreciationRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/depreciation-runs/preview"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodePreviewDepreciationRunRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, PreviewDepreciationRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodePreviewDepreciationRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

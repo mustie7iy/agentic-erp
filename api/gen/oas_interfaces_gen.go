@@ -341,6 +341,10 @@ type GetAssetRes interface {
 	getAssetRes()
 }
 
+type GetAssetScheduleRes interface {
+	getAssetScheduleRes()
+}
+
 type GetBankAccountRes interface {
 	getBankAccountRes()
 }
@@ -627,6 +631,10 @@ type ListAssetClassesRes interface {
 
 type ListAssetClearingItemsRes interface {
 	listAssetClearingItemsRes()
+}
+
+type ListAssetMovementsRes interface {
+	listAssetMovementsRes()
 }
 
 type ListAssetsRes interface {
@@ -1015,6 +1023,10 @@ type PostSupplierInvoiceRes interface {
 
 type PrepareTaxReturnRes interface {
 	prepareTaxReturnRes()
+}
+
+type PreviewDepreciationRunRes interface {
+	previewDepreciationRunRes()
 }
 
 type PreviewRevaluationRes interface {

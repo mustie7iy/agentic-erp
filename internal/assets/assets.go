@@ -41,6 +41,12 @@
 // stands (last posted, first reversed); a reversed line's reversal line
 // is capitalised as a reduction onto the assets holding the reversed line,
 // each at most what it holds, and published as AssetMovementReversed.
+//
+// T57e builds the depreciation schedule (ADR-0057 §7): Walk computes an
+// asset's planned depreciation per period from its terms and movements in
+// a ledger, in minor units, so the schedule read, a run's preview and the
+// run (T57f) never disagree with the movements; the movements are listed
+// as the asset's subledger.
 package assets
 
 import (
@@ -87,7 +93,9 @@ type LedgerRef struct {
 // Ledger reads and posts in the ledger context: the tenant's ledgers
 // (leading first, then by code), those a company keeps when legalEntity is
 // given; the fiscal year and the regular period a company's date falls in
-// (422 ledger.no_fiscal_period outside every one); a company's accounts by
+// (422 ledger.no_fiscal_period outside every one) and the regular periods
+// of a fiscal year in order (the same problem for a year not set up); a
+// company's accounts by
 // number; a journal line and the leading ledger's lines on accounts in a
 // year (ADR-0057 §6); an entry posted to every ledger the company keeps
 // through the ledger's posting API, and the reversal of such an entry
@@ -98,6 +106,7 @@ type Ledger interface {
 	Ledgers(ctx context.Context, legalEntity *uuid.UUID) ([]LedgerRef, error)
 	FiscalYear(ctx context.Context, legalEntity uuid.UUID, date time.Time) (int16, error)
 	Period(ctx context.Context, legalEntity uuid.UUID, date time.Time) (Period, error)
+	Periods(ctx context.Context, legalEntity uuid.UUID, year int16) ([]Period, error)
 	Accounts(ctx context.Context, legalEntity uuid.UUID, numbers []string) (map[string]uuid.UUID, error)
 	Line(ctx context.Context, entry uuid.UUID, lineNo int32) (Line, bool, error)
 	ClearingLines(ctx context.Context, q ClearingQuery) ([]Line, error)
