@@ -130,6 +130,9 @@ type Line struct {
 	// keptLC is a local amount the posting keeps rather than converts
 	// (PostingLine.LC).
 	keptLC *money.Minor
+	// keptGC is a group amount the posting keeps with keptLC
+	// (PostingLine.GC) rather than converts from it.
+	keptGC *money.Minor
 	// A line declaring a tax base: its component, whether it is the
 	// self-assessed output, and the tax not recovered beside an input
 	// line's (checkTaxBases, importItems).
@@ -537,6 +540,7 @@ type NewLine struct {
 	// The assignment entered (Line.CostCenterID...); the rest is derived.
 	CostCenterID, ProfitCenterID, SegmentID *uuid.UUID
 	lc                                      *money.Minor // a kept local amount (PostingLine.LC): the posting contexts only
+	gc                                      *money.Minor // a kept group amount (PostingLine.GC), with lc
 }
 
 // NewEntry is a manual journal entry to post.
@@ -1131,7 +1135,7 @@ func entryLines(in NewEntry, expTC int) ([]Line, error) {
 		amounts[i] = tc
 		lines[i] = Line{AccountID: l.AccountID, TC: tc, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text,
 			SpecialGL: l.SpecialGL, TaxBase: base, TaxJurisdiction: l.TaxJurisdiction, CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID,
-			SegmentID: l.SegmentID, keptLC: l.lc}
+			SegmentID: l.SegmentID, keptLC: l.lc, keptGC: l.gc}
 	}
 	sum, err := money.Sum(amounts...)
 	if err != nil {

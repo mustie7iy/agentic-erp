@@ -2809,6 +2809,10 @@ type Asset struct {
 	// Its depreciation terms, one per ledger it has terms in, the leading ledger first and then by ledger
 	// code.
 	Terms []AssetTerms `json:"terms"`
+	// Its values per ledger it has terms or movements in, in the order of `terms`: the sums of its
+	// movements (ADR-0057 §5), zero before its first acquisition. The asset's `version` moves when they
+	// change.
+	Values []AssetLedgerValues `json:"values"`
 }
 
 // GetID returns the value of ID.
@@ -2916,6 +2920,11 @@ func (s *Asset) GetTerms() []AssetTerms {
 	return s.Terms
 }
 
+// GetValues returns the value of Values.
+func (s *Asset) GetValues() []AssetLedgerValues {
+	return s.Values
+}
+
 // SetID sets the value of ID.
 func (s *Asset) SetID(val uuid.UUID) {
 	s.ID = val
@@ -3021,6 +3030,11 @@ func (s *Asset) SetTerms(val []AssetTerms) {
 	s.Terms = val
 }
 
+// SetValues sets the value of Values.
+func (s *Asset) SetValues(val []AssetLedgerValues) {
+	s.Values = val
+}
+
 // An account of a company's chart of accounts, by number and name (`GET /v1/accounts?number=` gives
 // its id).
 // Ref: #/components/schemas/AssetAccountRef
@@ -3049,6 +3063,541 @@ func (s *AssetAccountRef) SetNumber(val string) {
 // SetName sets the value of Name.
 func (s *AssetAccountRef) SetName(val string) {
 	s.Name = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/AssetAcquisition
+type AssetAcquisition struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The asset.
+	AssetID uuid.UUID `json:"asset_id"`
+	// The asset's number in its company.
+	AssetNumber string `json:"asset_number"`
+	// The asset's description.
+	AssetDescription string `json:"asset_description"`
+	// The date the cost counts from for depreciation.
+	ValueDate time.Time `json:"value_date"`
+	// The posting date of its entries.
+	PostingDate time.Time `json:"posting_date"`
+	// The posting date's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// In the line's currency; negative from a credit line, a reduction of cost.
+	Amount Money `json:"amount"`
+	// In local currency; negative from a credit line.
+	AmountLc Money `json:"amount_lc"`
+	// In group currency; negative from a credit line.
+	AmountGc Money                     `json:"amount_gc"`
+	Source   OptAssetAcquisitionSource `json:"source"`
+	// The acquisition's text.
+	Text OptString `json:"text"`
+	// `posted`, or `reversed`. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+	// Its journal entries, one per ledger, the leading ledger first and then by ledger code.
+	Entries []AssetDocumentEntry `json:"entries"`
+}
+
+// GetID returns the value of ID.
+func (s *AssetAcquisition) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *AssetAcquisition) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *AssetAcquisition) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *AssetAcquisition) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *AssetAcquisition) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *AssetAcquisition) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AssetAcquisition) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *AssetAcquisition) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetAssetID returns the value of AssetID.
+func (s *AssetAcquisition) GetAssetID() uuid.UUID {
+	return s.AssetID
+}
+
+// GetAssetNumber returns the value of AssetNumber.
+func (s *AssetAcquisition) GetAssetNumber() string {
+	return s.AssetNumber
+}
+
+// GetAssetDescription returns the value of AssetDescription.
+func (s *AssetAcquisition) GetAssetDescription() string {
+	return s.AssetDescription
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *AssetAcquisition) GetValueDate() time.Time {
+	return s.ValueDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetAcquisition) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetAcquisition) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetAmount returns the value of Amount.
+func (s *AssetAcquisition) GetAmount() Money {
+	return s.Amount
+}
+
+// GetAmountLc returns the value of AmountLc.
+func (s *AssetAcquisition) GetAmountLc() Money {
+	return s.AmountLc
+}
+
+// GetAmountGc returns the value of AmountGc.
+func (s *AssetAcquisition) GetAmountGc() Money {
+	return s.AmountGc
+}
+
+// GetSource returns the value of Source.
+func (s *AssetAcquisition) GetSource() OptAssetAcquisitionSource {
+	return s.Source
+}
+
+// GetText returns the value of Text.
+func (s *AssetAcquisition) GetText() OptString {
+	return s.Text
+}
+
+// GetStatus returns the value of Status.
+func (s *AssetAcquisition) GetStatus() string {
+	return s.Status
+}
+
+// GetEntries returns the value of Entries.
+func (s *AssetAcquisition) GetEntries() []AssetDocumentEntry {
+	return s.Entries
+}
+
+// SetID sets the value of ID.
+func (s *AssetAcquisition) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *AssetAcquisition) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *AssetAcquisition) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *AssetAcquisition) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *AssetAcquisition) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *AssetAcquisition) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AssetAcquisition) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *AssetAcquisition) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetAssetID sets the value of AssetID.
+func (s *AssetAcquisition) SetAssetID(val uuid.UUID) {
+	s.AssetID = val
+}
+
+// SetAssetNumber sets the value of AssetNumber.
+func (s *AssetAcquisition) SetAssetNumber(val string) {
+	s.AssetNumber = val
+}
+
+// SetAssetDescription sets the value of AssetDescription.
+func (s *AssetAcquisition) SetAssetDescription(val string) {
+	s.AssetDescription = val
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *AssetAcquisition) SetValueDate(val time.Time) {
+	s.ValueDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetAcquisition) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetAcquisition) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AssetAcquisition) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetAmountLc sets the value of AmountLc.
+func (s *AssetAcquisition) SetAmountLc(val Money) {
+	s.AmountLc = val
+}
+
+// SetAmountGc sets the value of AmountGc.
+func (s *AssetAcquisition) SetAmountGc(val Money) {
+	s.AmountGc = val
+}
+
+// SetSource sets the value of Source.
+func (s *AssetAcquisition) SetSource(val OptAssetAcquisitionSource) {
+	s.Source = val
+}
+
+// SetText sets the value of Text.
+func (s *AssetAcquisition) SetText(val OptString) {
+	s.Text = val
+}
+
+// SetStatus sets the value of Status.
+func (s *AssetAcquisition) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetEntries sets the value of Entries.
+func (s *AssetAcquisition) SetEntries(val []AssetDocumentEntry) {
+	s.Entries = val
+}
+
+// An acquisition from a posted line on an asset clearing account (ADR-0057 §6).
+// Ref: #/components/schemas/AssetAcquisitionCreate
+type AssetAcquisitionCreate struct {
+	// The asset the line's amount is capitalised onto.
+	AssetID uuid.UUID                 `json:"asset_id"`
+	Source  AssetAcquisitionSourceRef `json:"source"`
+	// In the line's currency, with the line's sign (negative from a credit line); default all that is left
+	// of the line.
+	Amount OptMoney `json:"amount"`
+	// The date the cost counts from for depreciation; default the line's posting date. At most the end of
+	// the posting date's period.
+	ValueDate OptDate `json:"value_date"`
+	// The acquisition's posting date; default the company's date today.
+	PostingDate OptDate `json:"posting_date"`
+	// A text for the acquisition and its entries.
+	Text OptString `json:"text"`
+}
+
+// GetAssetID returns the value of AssetID.
+func (s *AssetAcquisitionCreate) GetAssetID() uuid.UUID {
+	return s.AssetID
+}
+
+// GetSource returns the value of Source.
+func (s *AssetAcquisitionCreate) GetSource() AssetAcquisitionSourceRef {
+	return s.Source
+}
+
+// GetAmount returns the value of Amount.
+func (s *AssetAcquisitionCreate) GetAmount() OptMoney {
+	return s.Amount
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *AssetAcquisitionCreate) GetValueDate() OptDate {
+	return s.ValueDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetAcquisitionCreate) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetText returns the value of Text.
+func (s *AssetAcquisitionCreate) GetText() OptString {
+	return s.Text
+}
+
+// SetAssetID sets the value of AssetID.
+func (s *AssetAcquisitionCreate) SetAssetID(val uuid.UUID) {
+	s.AssetID = val
+}
+
+// SetSource sets the value of Source.
+func (s *AssetAcquisitionCreate) SetSource(val AssetAcquisitionSourceRef) {
+	s.Source = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AssetAcquisitionCreate) SetAmount(val OptMoney) {
+	s.Amount = val
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *AssetAcquisitionCreate) SetValueDate(val OptDate) {
+	s.ValueDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetAcquisitionCreate) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetText sets the value of Text.
+func (s *AssetAcquisitionCreate) SetText(val OptString) {
+	s.Text = val
+}
+
+// AssetAcquisitionHeaders wraps AssetAcquisition with response headers.
+type AssetAcquisitionHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           AssetAcquisition
+}
+
+// GetETag returns the value of ETag.
+func (s *AssetAcquisitionHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AssetAcquisitionHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *AssetAcquisitionHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *AssetAcquisitionHeaders) GetResponse() AssetAcquisition {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *AssetAcquisitionHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AssetAcquisitionHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *AssetAcquisitionHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AssetAcquisitionHeaders) SetResponse(val AssetAcquisition) {
+	s.Response = val
+}
+
+func (*AssetAcquisitionHeaders) createAssetAcquisitionRes() {}
+
+// One page of asset acquisitions.
+// Ref: #/components/schemas/AssetAcquisitionPage
+type AssetAcquisitionPage struct {
+	// The acquisitions on this page.
+	Items []AssetAcquisition `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *AssetAcquisitionPage) GetItems() []AssetAcquisition {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AssetAcquisitionPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *AssetAcquisitionPage) SetItems(val []AssetAcquisition) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AssetAcquisitionPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*AssetAcquisitionPage) listAssetAcquisitionsRes() {}
+
+// The line an acquisition capitalised: its leading-ledger entry and line, the entry's document number
+// and origin, and for a supplier invoice its number, reference and supplier.
+// Ref: #/components/schemas/AssetAcquisitionSource
+type AssetAcquisitionSource struct {
+	// The entry's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry.
+	EntryID uuid.UUID `json:"entry_id"`
+	// The line's number.
+	LineNo int32 `json:"line_no"`
+	// The entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The context that posted the entry: `payables` for a supplier invoice, `procurement` for a goods
+	// receipt, `ledger` for a manual entry. Open enumeration.
+	SourceContext string `json:"source_context"`
+	// Its document there (a supplier invoice's id); absent for a manual entry.
+	SourceDocumentID OptUUID                    `json:"source_document_id"`
+	SupplierInvoice  OptAssetSupplierInvoiceRef `json:"supplier_invoice"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetAcquisitionSource) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetEntryID returns the value of EntryID.
+func (s *AssetAcquisitionSource) GetEntryID() uuid.UUID {
+	return s.EntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *AssetAcquisitionSource) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *AssetAcquisitionSource) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetSourceContext returns the value of SourceContext.
+func (s *AssetAcquisitionSource) GetSourceContext() string {
+	return s.SourceContext
+}
+
+// GetSourceDocumentID returns the value of SourceDocumentID.
+func (s *AssetAcquisitionSource) GetSourceDocumentID() OptUUID {
+	return s.SourceDocumentID
+}
+
+// GetSupplierInvoice returns the value of SupplierInvoice.
+func (s *AssetAcquisitionSource) GetSupplierInvoice() OptAssetSupplierInvoiceRef {
+	return s.SupplierInvoice
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetAcquisitionSource) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetEntryID sets the value of EntryID.
+func (s *AssetAcquisitionSource) SetEntryID(val uuid.UUID) {
+	s.EntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *AssetAcquisitionSource) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *AssetAcquisitionSource) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetSourceContext sets the value of SourceContext.
+func (s *AssetAcquisitionSource) SetSourceContext(val string) {
+	s.SourceContext = val
+}
+
+// SetSourceDocumentID sets the value of SourceDocumentID.
+func (s *AssetAcquisitionSource) SetSourceDocumentID(val OptUUID) {
+	s.SourceDocumentID = val
+}
+
+// SetSupplierInvoice sets the value of SupplierInvoice.
+func (s *AssetAcquisitionSource) SetSupplierInvoice(val OptAssetSupplierInvoiceRef) {
+	s.SupplierInvoice = val
+}
+
+// A line of a journal entry of the leading ledger, on an asset clearing account.
+// Ref: #/components/schemas/AssetAcquisitionSourceRef
+type AssetAcquisitionSourceRef struct {
+	// The journal entry (the leading ledger's).
+	EntryID uuid.UUID `json:"entry_id"`
+	// The line's number in the entry.
+	LineNo int32 `json:"line_no"`
+}
+
+// GetEntryID returns the value of EntryID.
+func (s *AssetAcquisitionSourceRef) GetEntryID() uuid.UUID {
+	return s.EntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *AssetAcquisitionSourceRef) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// SetEntryID sets the value of EntryID.
+func (s *AssetAcquisitionSourceRef) SetEntryID(val uuid.UUID) {
+	s.EntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *AssetAcquisitionSourceRef) SetLineNo(val int32) {
+	s.LineNo = val
 }
 
 // An asset class (ADR-0057 §3, SAP's asset class): its default depreciation terms per ledger and, per
@@ -3348,6 +3897,373 @@ func (s *AssetClassTerms) SetDecliningFactor(val OptString) {
 	s.DecliningFactor = val
 }
 
+// An acquisition made from a clearing line.
+// Ref: #/components/schemas/AssetClearingAcquisition
+type AssetClearingAcquisition struct {
+	// The acquisition (`GET /v1/asset-acquisitions/{id}`).
+	ID uuid.UUID `json:"id"`
+	// The asset.
+	AssetID uuid.UUID `json:"asset_id"`
+	// The asset's number.
+	AssetNumber string `json:"asset_number"`
+	// In the line's currency, with the line's sign.
+	Amount Money `json:"amount"`
+	// `posted` or `reversed`. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+}
+
+// GetID returns the value of ID.
+func (s *AssetClearingAcquisition) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetAssetID returns the value of AssetID.
+func (s *AssetClearingAcquisition) GetAssetID() uuid.UUID {
+	return s.AssetID
+}
+
+// GetAssetNumber returns the value of AssetNumber.
+func (s *AssetClearingAcquisition) GetAssetNumber() string {
+	return s.AssetNumber
+}
+
+// GetAmount returns the value of Amount.
+func (s *AssetClearingAcquisition) GetAmount() Money {
+	return s.Amount
+}
+
+// GetStatus returns the value of Status.
+func (s *AssetClearingAcquisition) GetStatus() string {
+	return s.Status
+}
+
+// SetID sets the value of ID.
+func (s *AssetClearingAcquisition) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetAssetID sets the value of AssetID.
+func (s *AssetClearingAcquisition) SetAssetID(val uuid.UUID) {
+	s.AssetID = val
+}
+
+// SetAssetNumber sets the value of AssetNumber.
+func (s *AssetClearingAcquisition) SetAssetNumber(val string) {
+	s.AssetNumber = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AssetClearingAcquisition) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetStatus sets the value of Status.
+func (s *AssetClearingAcquisition) SetStatus(val string) {
+	s.Status = val
+}
+
+// A line on an asset clearing account (ADR-0057 §6): its amounts, what acquisitions used and what is
+// left, its document and origin, and the acquisitions made from it.
+// Ref: #/components/schemas/AssetClearingItem
+type AssetClearingItem struct {
+	// The entry's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry (the leading ledger's).
+	EntryID uuid.UUID `json:"entry_id"`
+	// The line's number.
+	LineNo int32 `json:"line_no"`
+	// The line's posting date.
+	PostingDate time.Time `json:"posting_date"`
+	// The entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The context that posted the entry: `payables`, `procurement`, `ledger`. Open enumeration.
+	SourceContext string `json:"source_context"`
+	// Its document there; absent for a manual entry.
+	SourceDocumentID OptUUID                    `json:"source_document_id"`
+	SupplierInvoice  OptAssetSupplierInvoiceRef `json:"supplier_invoice"`
+	// The clearing account.
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name.
+	AccountName string `json:"account_name"`
+	// The line's amount, debit positive: negative for a credit line.
+	Amount Money `json:"amount"`
+	// In local currency, debit positive.
+	AmountLc Money `json:"amount_lc"`
+	// In group currency, debit positive.
+	AmountGc Money `json:"amount_gc"`
+	// What acquisitions used of it in its currency, with its sign.
+	Used Money `json:"used"`
+	// What they used in local currency, with its sign.
+	UsedLc Money `json:"used_lc"`
+	// What they used in group currency, with its sign.
+	UsedGc Money `json:"used_gc"`
+	// What is left of it in its currency, with its sign.
+	Remaining Money `json:"remaining"`
+	// What is left in local currency, with its sign.
+	RemainingLc Money `json:"remaining_lc"`
+	// What is left in group currency, with its sign.
+	RemainingGc Money `json:"remaining_gc"`
+	// The line's entry was reversed after acquisitions were made from it; nothing more can be taken from
+	// it.
+	SourceReversed bool `json:"source_reversed"`
+	// The acquisitions made from the line, by posting order.
+	Acquisitions []AssetClearingAcquisition `json:"acquisitions"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetClearingItem) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetEntryID returns the value of EntryID.
+func (s *AssetClearingItem) GetEntryID() uuid.UUID {
+	return s.EntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *AssetClearingItem) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetClearingItem) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *AssetClearingItem) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetSourceContext returns the value of SourceContext.
+func (s *AssetClearingItem) GetSourceContext() string {
+	return s.SourceContext
+}
+
+// GetSourceDocumentID returns the value of SourceDocumentID.
+func (s *AssetClearingItem) GetSourceDocumentID() OptUUID {
+	return s.SourceDocumentID
+}
+
+// GetSupplierInvoice returns the value of SupplierInvoice.
+func (s *AssetClearingItem) GetSupplierInvoice() OptAssetSupplierInvoiceRef {
+	return s.SupplierInvoice
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *AssetClearingItem) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *AssetClearingItem) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *AssetClearingItem) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetAmount returns the value of Amount.
+func (s *AssetClearingItem) GetAmount() Money {
+	return s.Amount
+}
+
+// GetAmountLc returns the value of AmountLc.
+func (s *AssetClearingItem) GetAmountLc() Money {
+	return s.AmountLc
+}
+
+// GetAmountGc returns the value of AmountGc.
+func (s *AssetClearingItem) GetAmountGc() Money {
+	return s.AmountGc
+}
+
+// GetUsed returns the value of Used.
+func (s *AssetClearingItem) GetUsed() Money {
+	return s.Used
+}
+
+// GetUsedLc returns the value of UsedLc.
+func (s *AssetClearingItem) GetUsedLc() Money {
+	return s.UsedLc
+}
+
+// GetUsedGc returns the value of UsedGc.
+func (s *AssetClearingItem) GetUsedGc() Money {
+	return s.UsedGc
+}
+
+// GetRemaining returns the value of Remaining.
+func (s *AssetClearingItem) GetRemaining() Money {
+	return s.Remaining
+}
+
+// GetRemainingLc returns the value of RemainingLc.
+func (s *AssetClearingItem) GetRemainingLc() Money {
+	return s.RemainingLc
+}
+
+// GetRemainingGc returns the value of RemainingGc.
+func (s *AssetClearingItem) GetRemainingGc() Money {
+	return s.RemainingGc
+}
+
+// GetSourceReversed returns the value of SourceReversed.
+func (s *AssetClearingItem) GetSourceReversed() bool {
+	return s.SourceReversed
+}
+
+// GetAcquisitions returns the value of Acquisitions.
+func (s *AssetClearingItem) GetAcquisitions() []AssetClearingAcquisition {
+	return s.Acquisitions
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetClearingItem) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetEntryID sets the value of EntryID.
+func (s *AssetClearingItem) SetEntryID(val uuid.UUID) {
+	s.EntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *AssetClearingItem) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetClearingItem) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *AssetClearingItem) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetSourceContext sets the value of SourceContext.
+func (s *AssetClearingItem) SetSourceContext(val string) {
+	s.SourceContext = val
+}
+
+// SetSourceDocumentID sets the value of SourceDocumentID.
+func (s *AssetClearingItem) SetSourceDocumentID(val OptUUID) {
+	s.SourceDocumentID = val
+}
+
+// SetSupplierInvoice sets the value of SupplierInvoice.
+func (s *AssetClearingItem) SetSupplierInvoice(val OptAssetSupplierInvoiceRef) {
+	s.SupplierInvoice = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *AssetClearingItem) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *AssetClearingItem) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *AssetClearingItem) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AssetClearingItem) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetAmountLc sets the value of AmountLc.
+func (s *AssetClearingItem) SetAmountLc(val Money) {
+	s.AmountLc = val
+}
+
+// SetAmountGc sets the value of AmountGc.
+func (s *AssetClearingItem) SetAmountGc(val Money) {
+	s.AmountGc = val
+}
+
+// SetUsed sets the value of Used.
+func (s *AssetClearingItem) SetUsed(val Money) {
+	s.Used = val
+}
+
+// SetUsedLc sets the value of UsedLc.
+func (s *AssetClearingItem) SetUsedLc(val Money) {
+	s.UsedLc = val
+}
+
+// SetUsedGc sets the value of UsedGc.
+func (s *AssetClearingItem) SetUsedGc(val Money) {
+	s.UsedGc = val
+}
+
+// SetRemaining sets the value of Remaining.
+func (s *AssetClearingItem) SetRemaining(val Money) {
+	s.Remaining = val
+}
+
+// SetRemainingLc sets the value of RemainingLc.
+func (s *AssetClearingItem) SetRemainingLc(val Money) {
+	s.RemainingLc = val
+}
+
+// SetRemainingGc sets the value of RemainingGc.
+func (s *AssetClearingItem) SetRemainingGc(val Money) {
+	s.RemainingGc = val
+}
+
+// SetSourceReversed sets the value of SourceReversed.
+func (s *AssetClearingItem) SetSourceReversed(val bool) {
+	s.SourceReversed = val
+}
+
+// SetAcquisitions sets the value of Acquisitions.
+func (s *AssetClearingItem) SetAcquisitions(val []AssetClearingAcquisition) {
+	s.Acquisitions = val
+}
+
+// One page of lines on asset clearing accounts.
+// Ref: #/components/schemas/AssetClearingItemPage
+type AssetClearingItemPage struct {
+	// The lines on this page.
+	Items []AssetClearingItem `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *AssetClearingItemPage) GetItems() []AssetClearingItem {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AssetClearingItemPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *AssetClearingItemPage) SetItems(val []AssetClearingItem) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AssetClearingItemPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*AssetClearingItemPage) listAssetClearingItemsRes() {}
+
 // A new asset: its company, class, description and centers. Its terms come from the class.
 // Ref: #/components/schemas/AssetCreate
 type AssetCreate struct {
@@ -3413,6 +4329,83 @@ func (s *AssetCreate) SetProfitCenterID(val OptUUID) {
 	s.ProfitCenterID = val
 }
 
+// One ledger's journal entry of an assets document.
+// Ref: #/components/schemas/AssetDocumentEntry
+type AssetDocumentEntry struct {
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// The entry's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's document number.
+	DocumentNumber string `json:"document_number"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *AssetDocumentEntry) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *AssetDocumentEntry) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *AssetDocumentEntry) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetDocumentEntry) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *AssetDocumentEntry) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *AssetDocumentEntry) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *AssetDocumentEntry) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *AssetDocumentEntry) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *AssetDocumentEntry) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetDocumentEntry) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *AssetDocumentEntry) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *AssetDocumentEntry) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
 // AssetHeaders wraps Asset with response headers.
 type AssetHeaders struct {
 	ETag               OptString
@@ -3463,6 +4456,115 @@ func (s *AssetHeaders) SetResponse(val Asset) {
 
 func (*AssetHeaders) createAssetRes() {}
 
+// An asset's values in one ledger (ADR-0057 §5): its acquisition cost, accumulated depreciation
+// (negative, the credit it is) and net book value, in the company's local currency and in group
+// currency as the ledger booked them.
+// Ref: #/components/schemas/AssetLedgerValues
+type AssetLedgerValues struct {
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName     string `json:"ledger_name"`
+	Cost           Money  `json:"cost"`
+	CostGc         Money  `json:"cost_gc"`
+	Accumulated    Money  `json:"accumulated"`
+	AccumulatedGc  Money  `json:"accumulated_gc"`
+	NetBookValue   Money  `json:"net_book_value"`
+	NetBookValueGc Money  `json:"net_book_value_gc"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *AssetLedgerValues) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *AssetLedgerValues) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *AssetLedgerValues) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetCost returns the value of Cost.
+func (s *AssetLedgerValues) GetCost() Money {
+	return s.Cost
+}
+
+// GetCostGc returns the value of CostGc.
+func (s *AssetLedgerValues) GetCostGc() Money {
+	return s.CostGc
+}
+
+// GetAccumulated returns the value of Accumulated.
+func (s *AssetLedgerValues) GetAccumulated() Money {
+	return s.Accumulated
+}
+
+// GetAccumulatedGc returns the value of AccumulatedGc.
+func (s *AssetLedgerValues) GetAccumulatedGc() Money {
+	return s.AccumulatedGc
+}
+
+// GetNetBookValue returns the value of NetBookValue.
+func (s *AssetLedgerValues) GetNetBookValue() Money {
+	return s.NetBookValue
+}
+
+// GetNetBookValueGc returns the value of NetBookValueGc.
+func (s *AssetLedgerValues) GetNetBookValueGc() Money {
+	return s.NetBookValueGc
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *AssetLedgerValues) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *AssetLedgerValues) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *AssetLedgerValues) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetCost sets the value of Cost.
+func (s *AssetLedgerValues) SetCost(val Money) {
+	s.Cost = val
+}
+
+// SetCostGc sets the value of CostGc.
+func (s *AssetLedgerValues) SetCostGc(val Money) {
+	s.CostGc = val
+}
+
+// SetAccumulated sets the value of Accumulated.
+func (s *AssetLedgerValues) SetAccumulated(val Money) {
+	s.Accumulated = val
+}
+
+// SetAccumulatedGc sets the value of AccumulatedGc.
+func (s *AssetLedgerValues) SetAccumulatedGc(val Money) {
+	s.AccumulatedGc = val
+}
+
+// SetNetBookValue sets the value of NetBookValue.
+func (s *AssetLedgerValues) SetNetBookValue(val Money) {
+	s.NetBookValue = val
+}
+
+// SetNetBookValueGc sets the value of NetBookValueGc.
+func (s *AssetLedgerValues) SetNetBookValueGc(val Money) {
+	s.NetBookValueGc = val
+}
+
 // One page of assets.
 // Ref: #/components/schemas/AssetPage
 type AssetPage struct {
@@ -3493,6 +4595,59 @@ func (s *AssetPage) SetNextPageToken(val OptString) {
 }
 
 func (*AssetPage) listAssetsRes() {}
+
+// A supplier invoice as an asset's acquisition names it.
+// Ref: #/components/schemas/AssetSupplierInvoiceRef
+type AssetSupplierInvoiceRef struct {
+	// The invoice's document number.
+	DocumentNumber string `json:"document_number"`
+	// The supplier's reference.
+	SupplierReference string `json:"supplier_reference"`
+	// The supplier.
+	SupplierID uuid.UUID `json:"supplier_id"`
+	// The supplier's name.
+	SupplierName string `json:"supplier_name"`
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *AssetSupplierInvoiceRef) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetSupplierReference returns the value of SupplierReference.
+func (s *AssetSupplierInvoiceRef) GetSupplierReference() string {
+	return s.SupplierReference
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *AssetSupplierInvoiceRef) GetSupplierID() uuid.UUID {
+	return s.SupplierID
+}
+
+// GetSupplierName returns the value of SupplierName.
+func (s *AssetSupplierInvoiceRef) GetSupplierName() string {
+	return s.SupplierName
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *AssetSupplierInvoiceRef) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetSupplierReference sets the value of SupplierReference.
+func (s *AssetSupplierInvoiceRef) SetSupplierReference(val string) {
+	s.SupplierReference = val
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *AssetSupplierInvoiceRef) SetSupplierID(val uuid.UUID) {
+	s.SupplierID = val
+}
+
+// SetSupplierName sets the value of SupplierName.
+func (s *AssetSupplierInvoiceRef) SetSupplierName(val string) {
+	s.SupplierName = val
+}
 
 // An asset's depreciation terms in one ledger (ADR-0057 §7): one depreciation area.
 // Ref: #/components/schemas/AssetTerms
@@ -10509,6 +11664,7 @@ func (*ConflictHeaders) captureSupplierInvoiceRes()           {}
 func (*ConflictHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*ConflictHeaders) closeFiscalPeriodRes()                {}
 func (*ConflictHeaders) closePurchaseOrderRes()               {}
+func (*ConflictHeaders) createAssetAcquisitionRes()           {}
 func (*ConflictHeaders) createAssetRes()                      {}
 func (*ConflictHeaders) createBusinessPartnerRes()            {}
 func (*ConflictHeaders) createChangeRequestRes()              {}
@@ -13106,6 +14262,30 @@ func (s *CountryPackSource) SetURL(val string) {
 func (s *CountryPackSource) SetRetrieved(val string) {
 	s.Retrieved = val
 }
+
+type CreateAssetAcquisitionBadRequest Problem
+
+func (*CreateAssetAcquisitionBadRequest) createAssetAcquisitionRes() {}
+
+type CreateAssetAcquisitionForbidden Problem
+
+func (*CreateAssetAcquisitionForbidden) createAssetAcquisitionRes() {}
+
+type CreateAssetAcquisitionNotFound Problem
+
+func (*CreateAssetAcquisitionNotFound) createAssetAcquisitionRes() {}
+
+type CreateAssetAcquisitionPreconditionFailed Problem
+
+func (*CreateAssetAcquisitionPreconditionFailed) createAssetAcquisitionRes() {}
+
+type CreateAssetAcquisitionPreconditionRequired Problem
+
+func (*CreateAssetAcquisitionPreconditionRequired) createAssetAcquisitionRes() {}
+
+type CreateAssetAcquisitionUnprocessableEntity Problem
+
+func (*CreateAssetAcquisitionUnprocessableEntity) createAssetAcquisitionRes() {}
 
 type CreateAssetBadRequest Problem
 
@@ -16764,6 +17944,46 @@ func (*GetApprovalRequestForbidden) getApprovalRequestRes() {}
 type GetApprovalRequestNotFound Problem
 
 func (*GetApprovalRequestNotFound) getApprovalRequestRes() {}
+
+type GetAssetAcquisitionBadRequest Problem
+
+func (*GetAssetAcquisitionBadRequest) getAssetAcquisitionRes() {}
+
+type GetAssetAcquisitionForbidden Problem
+
+func (*GetAssetAcquisitionForbidden) getAssetAcquisitionRes() {}
+
+type GetAssetAcquisitionNotFound Problem
+
+func (*GetAssetAcquisitionNotFound) getAssetAcquisitionRes() {}
+
+// GetAssetAcquisitionOKHeaders wraps AssetAcquisition with response headers.
+type GetAssetAcquisitionOKHeaders struct {
+	ETag     OptString
+	Response AssetAcquisition
+}
+
+// GetETag returns the value of ETag.
+func (s *GetAssetAcquisitionOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetAssetAcquisitionOKHeaders) GetResponse() AssetAcquisition {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetAssetAcquisitionOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetAssetAcquisitionOKHeaders) SetResponse(val AssetAcquisition) {
+	s.Response = val
+}
+
+func (*GetAssetAcquisitionOKHeaders) getAssetAcquisitionRes() {}
 
 type GetAssetBadRequest Problem
 
@@ -23700,6 +24920,14 @@ type ListApprovalRequestsForbidden Problem
 
 func (*ListApprovalRequestsForbidden) listApprovalRequestsRes() {}
 
+type ListAssetAcquisitionsBadRequest Problem
+
+func (*ListAssetAcquisitionsBadRequest) listAssetAcquisitionsRes() {}
+
+type ListAssetAcquisitionsForbidden Problem
+
+func (*ListAssetAcquisitionsForbidden) listAssetAcquisitionsRes() {}
+
 type ListAssetClassesBadRequest Problem
 
 func (*ListAssetClassesBadRequest) listAssetClassesRes() {}
@@ -23707,6 +24935,14 @@ func (*ListAssetClassesBadRequest) listAssetClassesRes() {}
 type ListAssetClassesForbidden Problem
 
 func (*ListAssetClassesForbidden) listAssetClassesRes() {}
+
+type ListAssetClearingItemsBadRequest Problem
+
+func (*ListAssetClearingItemsBadRequest) listAssetClearingItemsRes() {}
+
+type ListAssetClearingItemsForbidden Problem
+
+func (*ListAssetClearingItemsForbidden) listAssetClearingItemsRes() {}
 
 type ListAssetsBadRequest Problem
 
@@ -28602,6 +29838,98 @@ func (o OptAnalyticsDerived) Get() (v AnalyticsDerived, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAnalyticsDerived) Or(d AnalyticsDerived) AnalyticsDerived {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssetAcquisitionSource returns new OptAssetAcquisitionSource with value set to v.
+func NewOptAssetAcquisitionSource(v AssetAcquisitionSource) OptAssetAcquisitionSource {
+	return OptAssetAcquisitionSource{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetAcquisitionSource is optional AssetAcquisitionSource.
+type OptAssetAcquisitionSource struct {
+	Value AssetAcquisitionSource
+	Set   bool
+}
+
+// IsSet returns true if OptAssetAcquisitionSource was set.
+func (o OptAssetAcquisitionSource) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetAcquisitionSource) Reset() {
+	var v AssetAcquisitionSource
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetAcquisitionSource) SetTo(v AssetAcquisitionSource) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetAcquisitionSource) Get() (v AssetAcquisitionSource, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetAcquisitionSource) Or(d AssetAcquisitionSource) AssetAcquisitionSource {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssetSupplierInvoiceRef returns new OptAssetSupplierInvoiceRef with value set to v.
+func NewOptAssetSupplierInvoiceRef(v AssetSupplierInvoiceRef) OptAssetSupplierInvoiceRef {
+	return OptAssetSupplierInvoiceRef{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetSupplierInvoiceRef is optional AssetSupplierInvoiceRef.
+type OptAssetSupplierInvoiceRef struct {
+	Value AssetSupplierInvoiceRef
+	Set   bool
+}
+
+// IsSet returns true if OptAssetSupplierInvoiceRef was set.
+func (o OptAssetSupplierInvoiceRef) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetSupplierInvoiceRef) Reset() {
+	var v AssetSupplierInvoiceRef
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetSupplierInvoiceRef) SetTo(v AssetSupplierInvoiceRef) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetSupplierInvoiceRef) Get() (v AssetSupplierInvoiceRef, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetSupplierInvoiceRef) Or(d AssetSupplierInvoiceRef) AssetSupplierInvoiceRef {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -42163,6 +43491,7 @@ func (*ServiceUnavailableHeaders) captureSupplierInvoiceRes()           {}
 func (*ServiceUnavailableHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*ServiceUnavailableHeaders) closeFiscalPeriodRes()                {}
 func (*ServiceUnavailableHeaders) closePurchaseOrderRes()               {}
+func (*ServiceUnavailableHeaders) createAssetAcquisitionRes()           {}
 func (*ServiceUnavailableHeaders) createAssetRes()                      {}
 func (*ServiceUnavailableHeaders) createBusinessPartnerRes()            {}
 func (*ServiceUnavailableHeaders) createChangeRequestRes()              {}
@@ -46437,6 +47766,7 @@ func (*TooManyRequestsHeaders) captureSupplierInvoiceRes()           {}
 func (*TooManyRequestsHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*TooManyRequestsHeaders) closeFiscalPeriodRes()                {}
 func (*TooManyRequestsHeaders) closePurchaseOrderRes()               {}
+func (*TooManyRequestsHeaders) createAssetAcquisitionRes()           {}
 func (*TooManyRequestsHeaders) createAssetRes()                      {}
 func (*TooManyRequestsHeaders) createBusinessPartnerRes()            {}
 func (*TooManyRequestsHeaders) createChangeRequestRes()              {}
@@ -46488,6 +47818,7 @@ func (*TooManyRequestsHeaders) getAiPolicyRes()                      {}
 func (*TooManyRequestsHeaders) getAiUsageRes()                       {}
 func (*TooManyRequestsHeaders) getAnalyticsModelRes()                {}
 func (*TooManyRequestsHeaders) getApprovalRequestRes()               {}
+func (*TooManyRequestsHeaders) getAssetAcquisitionRes()              {}
 func (*TooManyRequestsHeaders) getAssetRes()                         {}
 func (*TooManyRequestsHeaders) getBankAccountRes()                   {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()               {}
@@ -46558,7 +47889,9 @@ func (*TooManyRequestsHeaders) listAccountsRes()                     {}
 func (*TooManyRequestsHeaders) listAgentSessionsRes()                {}
 func (*TooManyRequestsHeaders) listAgentToolCallsRes()               {}
 func (*TooManyRequestsHeaders) listApprovalRequestsRes()             {}
+func (*TooManyRequestsHeaders) listAssetAcquisitionsRes()            {}
 func (*TooManyRequestsHeaders) listAssetClassesRes()                 {}
+func (*TooManyRequestsHeaders) listAssetClearingItemsRes()           {}
 func (*TooManyRequestsHeaders) listAssetsRes()                       {}
 func (*TooManyRequestsHeaders) listAuditEventsRes()                  {}
 func (*TooManyRequestsHeaders) listBalancesRes()                     {}
@@ -46808,6 +48141,7 @@ func (*UnauthorizedHeaders) captureSupplierInvoiceRes()           {}
 func (*UnauthorizedHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*UnauthorizedHeaders) closeFiscalPeriodRes()                {}
 func (*UnauthorizedHeaders) closePurchaseOrderRes()               {}
+func (*UnauthorizedHeaders) createAssetAcquisitionRes()           {}
 func (*UnauthorizedHeaders) createAssetRes()                      {}
 func (*UnauthorizedHeaders) createBusinessPartnerRes()            {}
 func (*UnauthorizedHeaders) createChangeRequestRes()              {}
@@ -46859,6 +48193,7 @@ func (*UnauthorizedHeaders) getAiPolicyRes()                      {}
 func (*UnauthorizedHeaders) getAiUsageRes()                       {}
 func (*UnauthorizedHeaders) getAnalyticsModelRes()                {}
 func (*UnauthorizedHeaders) getApprovalRequestRes()               {}
+func (*UnauthorizedHeaders) getAssetAcquisitionRes()              {}
 func (*UnauthorizedHeaders) getAssetRes()                         {}
 func (*UnauthorizedHeaders) getBankAccountRes()                   {}
 func (*UnauthorizedHeaders) getBankFileContentRes()               {}
@@ -46929,7 +48264,9 @@ func (*UnauthorizedHeaders) listAccountsRes()                     {}
 func (*UnauthorizedHeaders) listAgentSessionsRes()                {}
 func (*UnauthorizedHeaders) listAgentToolCallsRes()               {}
 func (*UnauthorizedHeaders) listApprovalRequestsRes()             {}
+func (*UnauthorizedHeaders) listAssetAcquisitionsRes()            {}
 func (*UnauthorizedHeaders) listAssetClassesRes()                 {}
+func (*UnauthorizedHeaders) listAssetClearingItemsRes()           {}
 func (*UnauthorizedHeaders) listAssetsRes()                       {}
 func (*UnauthorizedHeaders) listAuditEventsRes()                  {}
 func (*UnauthorizedHeaders) listBalancesRes()                     {}

@@ -41,6 +41,33 @@ func TestKeepLocalOutOfRange(t *testing.T) {
 	}
 }
 
+// TestKeepGroup: a line keeping its group amount beside its local one
+// (PostingLine.GC, ADR-0057 §4) posts it as given, whether every line
+// keeps its local amount or some do; a group amount without a local one
+// is refused before anything is read.
+func TestKeepGroup(t *testing.T) {
+	lc, gc, other := money.Minor(100), money.Minor(77), money.Minor(-100)
+	rate := exchange{exact: big.NewRat(1, 2), shown: "0.5"}
+	all := []Line{{keptLC: &lc, keptGC: &gc}, {keptLC: &other}}
+	if err := keepAll(all, rate, 2, 2); err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(all[0].LC, all[0].GC, all[1].LC, all[1].GC); got != fmt.Sprint(lc, gc, other, money.Minor(-50)) {
+		t.Errorf("every line kept: got %s, want the first's group amount as given, the second's converted", got)
+	}
+	some := []Line{{keptLC: &lc, keptGC: &gc}, {LC: -100, GC: -77}}
+	if _, err := keepSome(some, rate, 2, 2); err != nil {
+		t.Fatal(err)
+	}
+	if some[0].GC != gc {
+		t.Errorf("some lines kept: got %v, want %v", some[0].GC, gc)
+	}
+	_, err := Postings{}.Post(context.Background(), Posting{Lines: []PostingLine{{Amount: 1, GC: &gc}}})
+	if err == nil || !strings.Contains(err.Error(), "line 1 keeps a group amount without its local amount") {
+		t.Errorf("a group amount alone: got %v, want it refused", err)
+	}
+}
+
 // TestGRIRKeptLocalOutOfRange: a GR/IR posting's kept local amount whose
 // group amount is out of range is refused before anything is read.
 func TestGRIRKeptLocalOutOfRange(t *testing.T) {

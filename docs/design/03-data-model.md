@@ -2873,7 +2873,8 @@ by `ledger.tax_item_reported_in`, built concurrently by migration 000180).
 
 ## 3.21 Asset accounting (`assets`)
 
-The asset master (ADR-0057 §5, §7, §8, T57b), owned by the assets context
+The asset master (ADR-0057 §5, §7, §8, T57b) and its acquisitions (§6,
+T57c), owned by the assets context
 (`internal/assets`, a leaf). Migration 000191 creates the schema, its
 outbox (`assets.outbox`, AssetChanged) and the permission
 `assets.asset.change` (`assets.asset.read` came with T57a). The classes and
@@ -2885,6 +2886,10 @@ the ledger's, by id, with no foreign key across the schema.
 erDiagram
   asset ||--o{ asset_terms : "one per ledger"
   asset ||--|{ asset_assignment : "by seq"
+  asset ||--o{ acquisition : "by seq"
+  asset ||--o{ movement : "per ledger and effect"
+  acquisition }o--|| clearing_use : "takes from a line"
+  acquisition ||--|{ document_entry : "one per ledger"
   asset { uuid id PK
     uuid legal_entity_id "tenancy context"
     text asset_number "unique in the company"
@@ -2907,6 +2912,29 @@ erDiagram
     uuid cost_center_id "ledger context"
     uuid profit_center_id "ledger context"
     uuid transfer_id "a center transfer's (T57h)" }
+  acquisition { uuid id PK
+    uuid asset_id
+    int seq
+    bigint amount "line's currency"
+    bigint amount_lc
+    bigint amount_gc
+    uuid source_entry_id "ledger context"
+    text status "posted | reversed" }
+  clearing_use { uuid entry_id PK "ledger context"
+    int line_no PK
+    bigint line_amount
+    bigint used }
+  movement { uuid id PK
+    uuid asset_id
+    uuid ledger_id "ledger context"
+    text kind
+    bigint cost
+    bigint accumulated
+    uuid reverses_id }
+  document_entry { uuid document_id PK
+    uuid ledger_id PK
+    text part PK "main | catch_up"
+    uuid journal_entry_id "ledger context" }
 ```
 
 | Table | Purpose |
@@ -2914,3 +2942,7 @@ erDiagram
 | `assets.asset` | An asset (SAP ANLA): its company, number from the company's `asset` range in the fiscal year it is created (`asset_number_once`), class, description, status and capitalisation date. It starts `planned` and moves planned -> active -> retired, back by reversals (retired -> active, active -> planned), or planned -> cancelled, which is final (`asset_transition`, a trigger); capitalised exactly while active or retired (`asset_capitalised`). Its company, number, class and creation never change (`asset_fixed`) and `last_seq` never goes back (`asset_seq_forward`): every posting, reversal and assignment touching the asset takes the next `seq` under the asset's lock, so posting order is `seq` order, never id order (ADR-0057 §5). Its version moves with every change of its master, terms or assignments |
 | `assets.asset_terms` | Its depreciation terms per ledger the company keeps (one depreciation area each, ADR-0057 §7), copied from the class when it is created and changeable until depreciation is posted in that ledger (`booked_through_*` set; `asset_terms_in_use`, a trigger): a method, a useful life of 1-1200 months, a declining factor above 1 and at most 10 with declining balance alone (`asset_terms_declining_factor`), a residual value of zero or more in minor units of local currency, and an optional depreciation start (null: the capitalisation date) |
 | `assets.asset_assignment` | Its cost center (optional) and profit center from `valid_from` on, insert-only (`platform.forbid_mutation`): the first row at creation, valid from `-infinity`, each later one from a center transfer or its reversal (T57h). A row takes the asset's current `last_seq`, raised first (`asset_assignment_seq`), and only the first is valid from `-infinity` (`asset_assignment_valid_from`), so the row with the highest `seq` is the latest and names the asset's centers. The profit center is the cost center's on the row's date, derived by the ledger (`ledger.AssetReads.Assignment`) |
+| `assets.acquisition` | An acquisition (T57c, migration 000192; ADR-0057 §6): an asset's cost from a posted line on its class's clearing account (`source_*`, with the entry's document number, source context and document as posted) or, from T57d, against an offset account, never both (`acquisition_source`); in the line's currency with its local and group amounts (`amount_lc`, `amount_gc`), its value and posting dates and the asset's `seq` (`acquisition_seq_once`). It starts `posted` and is reversed at most once, keeping what it posted (`acquisition_transition`, `acquisition_fixed`) |
+| `assets.clearing_use` | What acquisitions used of a capitalised line, keyed by the line: its amounts in its currency, local and group currency, and what is used of each, which stays between zero and the line's amount (the mirror for a credit line, `clearing_use_within_line`); the line's amounts never change (`clearing_use_line_fixed`). Read FOR UPDATE by every acquisition from the line |
+| `assets.movement` | The subledger (ADR-0057 §5): one append-only row per asset, ledger and effect (`acquisition`, `depreciation`, `retirement`, `transfer_out`, `transfer_in`) with the signed change of cost and accumulated depreciation in local and group currency, residual value, proceeds and share, its document and journal entry. A reversal row has its original's kind, asset and ledger and exactly the negated amounts (`movement_reversal`), each original is reversed at most once (`movement_reversed_once`), and depreciation changes accumulated depreciation alone (`movement_depreciation`) |
+| `assets.document_entry` | The journal entry of each assets document per ledger and part (`main`, or a center transfer's `catch_up`), with its document number; insert-only until T57d records reversals |
