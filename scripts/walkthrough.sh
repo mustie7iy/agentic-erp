@@ -318,7 +318,8 @@ start() {
   say "  - the GST34's lines (T61j-T61l): step 2 configures one"
   say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
-  say "  - the liquidity forecast (T53e-T53k): step 13 shows the daily cash position with a memo record"
+  say "  - the liquidity forecast's other sources, liquidity items, conversion and drill-down (T53e2-T53k): step 13 shows the"
+  say "    daily cash position with a memo record and the forecast of the supplier open items and payment runs"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - accounts receivable, fixed assets (T57), period-end close (T64), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
@@ -989,6 +990,7 @@ PILOT_SETTINGS='
        "gl_account": "1020", "main_gl_account": "1030", "incoming_gl_account": "1040", "currency": "USD"}])
     | .tax_registrations = [{"code": "GSTHST", "authority": "CRA", "number": "123456789 RT 0001", "return_type": "GST34",
         "frequency": "quarterly", "first_period_start": "@TAXFIRST@"}]
+    | .cash = {"payment_days": ["tue", "thu"]}
     | .release_dual_limit = "4000.00"
     | .service_posting_limit = "1000.00"
     | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
@@ -2048,7 +2050,42 @@ step_cash() {
     getCashPosition -p "legal_entity_id=$LE" -p days=7
   counted=$(field '[.banks[] | select(.house_bank_code == "RBC") | .days[].flows[]? | select(.source == "memo" and .amount.amount == "1000.00")] | length')
   [ "$(field .read_date)" != "$toronto" ] || expect "the record listed active and counted in the position on Toronto's date" "$listed $counted" "1 1"
+  forecast
   passed
+}
+
+# forecast has Tom read the liquidity forecast (T53e): the supplier open
+# items still owed after step 7's run, each on the day a payment run
+# would pay it. Maple runs payments on Tuesdays and Thursdays (step 2), so
+# SAP's USD invoice migrated in step 3, overdue once its NT30 from 15 June
+# has passed, is expected on the first of them from today.
+forecast() {
+  say "The liquidity forecast (T53e): what Maple will pay its suppliers, per currency in its buckets (14 days, 11"
+  say "weeks, 9 months), each open item on the day a payment run would pay it and at what it would pay then. Maple"
+  say "runs payments on Tuesdays and Thursdays: an overdue item is expected on the next of them, an item in a discount"
+  say "tier on the tier's last payment day, else on the last payment day before it is due; step 7's run paid the rest."
+  local before after
+  before=$(company_day)
+  api 200 '"read on \(.read_date) in \(.time_zone), \(.buckets | length) buckets from \(.buckets[0].start) to \(.buckets[-1].end)",
+    (.currencies[] | .currency as $c | "  \($c): total \(.total.amount), beyond the last bucket \(.beyond.amount.amount) (\(.beyond.count))",
+      (.buckets[] | select(.flows | length > 0) | "    from \(.start): \([.flows[] | "\(.source) \(.certainty) \(.amount.amount) x\(.count)"] | join(", "))"))' \
+    getLiquidityForecast -p "legal_entity_id=$LE"
+  after=$(company_day)
+  expect "the zone the forecast is read in" "$(field .time_zone)" America/Toronto
+  [ "$(field .read_date)" = "$before" ] || expect "the forecast's read date, Toronto's" "$(field .read_date)" "$after"
+  expect "the first bucket, the read date" "$(field '.buckets[0].start')" "$(field .read_date)"
+  # A day's bucket starts on the day expected: the first Tuesday or Thursday
+  # from today, or, when that is one of Maple's holidays, the next working
+  # day (at most four days later: Christmas on a Thursday, Boxing Day on
+  # the Friday); a week's or a month's bucket may start on another day.
+  expect "SAP's USD invoice (step 3), on the next payment day" \
+    "$(field 'def epoch: strptime("%Y-%m-%d") | mktime;
+      . as $f | ([$f.buckets[] | select(.grain == "day") | .start | select(epoch | strftime("%a") | IN("Tue", "Thu"))][0] | epoch) as $pay
+      | [.currencies[] | select(.currency == "USD") | .buckets | to_entries[] | select(any(.value.flows[]; .source == "payable"))
+      | "\(.value.total.amount) \(if $f.buckets[.key].grain == "day" then (.value.start | epoch) - $pay | (. >= 0 and . <= 4 * 86400) else true end)"]
+      | join(", ")')" "-1000.00 true"
+  expect "each currency's total, its buckets' totals added up" \
+    "$(field '[.currencies[] | (.total.amount | sub("\\."; "") | tonumber) == ([.buckets[].total.amount | sub("\\."; "") | tonumber] | add)] | all')" true
 }
 
 step_reports() {

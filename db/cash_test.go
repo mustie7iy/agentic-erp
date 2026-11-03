@@ -116,15 +116,20 @@ func TestCashParentIsTheTenants(t *testing.T) {
 	failsWith(t, err, "liquidity_item_tenant_id_parent_code_fkey")
 }
 
-// TestCashPositionPermission: the cash position's read permission is
-// seeded and is no approval permission (T53c, 000149).
+// TestCashPositionPermission: the cash position's and the liquidity
+// forecast's read permissions are seeded and are no approval permissions
+// (T53c, 000149; T53e, 000189).
 func TestCashPositionPermission(t *testing.T) {
-	var approval bool
-	if err := testDB.QueryRow(context.Background(), `SELECT is_approval FROM ref.permission WHERE code = 'cash.position.read'`).Scan(&approval); err != nil {
-		t.Fatalf("cash.position.read: %v", err)
-	}
-	if approval {
-		t.Error("cash.position.read: got an approval permission, want a read permission")
+	for _, code := range []string{"cash.position.read", "cash.forecast.read"} {
+		t.Run(code, func(t *testing.T) {
+			var approval bool
+			if err := testDB.QueryRow(context.Background(), `SELECT is_approval FROM ref.permission WHERE code = $1`, code).Scan(&approval); err != nil {
+				t.Fatalf("%s: %v", code, err)
+			}
+			if approval {
+				t.Errorf("%s: got an approval permission, want a read permission", code)
+			}
+		})
 	}
 }
 

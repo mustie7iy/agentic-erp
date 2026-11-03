@@ -74,6 +74,10 @@ type Payments interface {
 	// HouseBankCodes are the codes of the house banks among the ids, active
 	// or not, keyed by id: what a memo record shows beside its bank's id.
 	HouseBankCodes(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
+	// Payables are the legal entity's supplier open items that no live
+	// payment run holds (the run's payment counts instead, Pending), as a
+	// run on or after the date would pay them (ADR-0051 §5, T53e).
+	Payables(ctx context.Context, legalEntity uuid.UUID, on time.Time) ([]Payable, error)
 }
 
 // Ledger is what the cash position reads of the ledger context.
@@ -377,10 +381,10 @@ type flow struct {
 	amount            money.Minor
 }
 
-// valueDate is a payment's day at the bank: its run date plus the bank's
-// value days.
-func (r reader) valueDate(b Bank, p Payment) (time.Time, bool) {
-	return r.atBank(clock.Day(p.RunDate).AddDate(0, 0, r.settings.ValueDaysFor(b.Code, p.Method)))
+// valueDate is a payment's day at the bank: its run date plus the value
+// days of the house bank of the code.
+func (r reader) valueDate(bankCode string, p Payment) (time.Time, bool) {
+	return r.atBank(clock.Day(p.RunDate).AddDate(0, 0, r.settings.ValueDaysFor(bankCode, p.Method)))
 }
 
 // atBank is the day a flow dated d is at the bank: the working day on or
@@ -425,7 +429,7 @@ func (e *Endpoints) flows(ctx context.Context, r reader, legalEntity uuid.UUID, 
 	}
 	for _, p := range pending {
 		if b, ok := byID[p.HouseBankID]; ok && p.Currency == b.Currency {
-			d, late := r.valueDate(b, p)
+			d, late := r.valueDate(b.Code, p)
 			out[b.ID] = append(out[b.ID], flow{date: d, source: SourcePaymentRun, certainty: CertaintyConfirmed, late: late, amount: -p.Amount})
 		}
 	}
@@ -453,7 +457,7 @@ func paymentLines(lines []OpenLine) (map[uuid.UUID][]OpenLine, []uuid.UUID) {
 // inTransit are a payment's open lines on its bank's clearing account in
 // the bank's currency, on its day at the bank.
 func (r reader) inTransit(b Bank, p Payment, lines []OpenLine) []flow {
-	d, late := r.valueDate(b, p)
+	d, late := r.valueDate(b.Code, p)
 	var out []flow
 	for _, l := range lines {
 		if l.AccountID == b.ClearingAccountID && l.Currency == b.Currency {

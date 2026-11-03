@@ -33,6 +33,7 @@ type PayableItem struct {
 	AccountID    uuid.UUID
 	PartnerID    uuid.UUID
 	DocumentDate time.Time
+	Currency     string // its entry's transaction currency
 	Amount       money.Minor
 	// Terms are the payment terms the item was posted with (T36b), or nil
 	// for an item posted without (before T36, manual or migrated).
@@ -52,11 +53,26 @@ type PayableItem struct {
 // that outlived its run (released by a version that did not know of it)
 // keeps one item out of later runs instead of failing every proposal.
 func (OpenItems) Payable(ctx context.Context, legalEntity uuid.UUID, currency string, documentDateTo time.Time) ([]PayableItem, error) {
+	return payable(ctx, fmt.Sprintf("payable items of %s in %s", legalEntity, currency), `e.currency_tc = $2 AND e.document_date <= $3`,
+		legalEntity, currency, documentDateTo)
+}
+
+// Owed returns the legal entity's open supplier items in every currency,
+// whatever their document date, as Payable reads them: what the liquidity
+// forecast expects to pay (ADR-0051 §5, T53e).
+func (OpenItems) Owed(ctx context.Context, legalEntity uuid.UUID) ([]PayableItem, error) {
+	return payable(ctx, "open supplier items of "+legalEntity.String(), `true`, legalEntity)
+}
+
+// payable reads the open supplier items of legal entity $1 that the
+// filter, a constant condition on the entry e over the further arguments
+// ($2 on), selects; what names them in an error.
+func payable(ctx context.Context, what, filter string, args ...any) ([]PayableItem, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT l.fiscal_year, l.journal_entry_id, l.line_no, l.account_id, l.partner_id, e.document_date, l.amount_tc,
+	rows, _ := tx.Query(ctx, `SELECT l.fiscal_year, l.journal_entry_id, l.line_no, l.account_id, l.partner_id, e.document_date, e.currency_tc, l.amount_tc,
 			`+termsColumns+`, `+withholdingColumn+`
 		FROM ledger.journal_line l
 		LEFT JOIN ledger.open_item_terms t ON t.tenant_id = l.tenant_id AND t.fiscal_year = l.fiscal_year AND t.journal_entry_id = l.journal_entry_id
@@ -64,24 +80,24 @@ func (OpenItems) Payable(ctx context.Context, legalEntity uuid.UUID, currency st
 		JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading
 		JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id AND a.reconciliation_kind = 'supplier'
 		JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
-		WHERE l.legal_entity_id = $1 AND e.currency_tc = $2 AND e.document_date <= $3
+		WHERE l.legal_entity_id = $1 AND `+filter+`
 			AND NOT EXISTS (SELECT FROM ledger.clearing_item c WHERE c.tenant_id = l.tenant_id AND c.fiscal_year = l.fiscal_year
 				AND c.journal_entry_id = l.journal_entry_id AND c.line_no = l.line_no)
 			AND l.special_gl IS NULL -- special G/L items (down payments) never net in a run (ADR-0037)
 			AND NOT `+reversedLine+`
 			AND NOT EXISTS (SELECT FROM ledger.item_reservation ir WHERE ir.tenant_id = l.tenant_id AND ir.fiscal_year = l.fiscal_year
 				AND ir.journal_entry_id = l.journal_entry_id AND ir.line_no = l.line_no AND ir.released_at IS NULL)
-		ORDER BY l.partner_id, l.fiscal_year, l.journal_entry_id, l.line_no`, legalEntity, currency, documentDateTo)
+		ORDER BY l.partner_id, l.fiscal_year, l.journal_entry_id, l.line_no`, args...)
 	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (PayableItem, error) {
 		var p PayableItem
 		var t storedTerms
-		err := errs.Wrapf(r.Scan(append([]any{&p.FiscalYear, &p.EntryID, &p.LineNo, &p.AccountID, &p.PartnerID, &p.DocumentDate, &p.Amount},
+		err := errs.Wrapf(r.Scan(append([]any{&p.FiscalYear, &p.EntryID, &p.LineNo, &p.AccountID, &p.PartnerID, &p.DocumentDate, &p.Currency, &p.Amount},
 			append(t.fields(), &p.Withholding)...)...), "scan payable item")
 		p.Terms = t.terms()
 		return p, err
 	})
 	if err != nil {
-		return items, fmt.Errorf("ledger: payable items of %s in %s: %w", legalEntity, currency, err)
+		return items, fmt.Errorf("ledger: %s: %w", what, err)
 	}
 	return items, nil
 }

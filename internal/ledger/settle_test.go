@@ -2,6 +2,7 @@ package ledger_test
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"testing"
 
@@ -136,6 +137,10 @@ func (s *settleScenario) outsideAUnitOfWork(t *testing.T) {
 			_, err := ledger.OpenItems{}.Payable(ctx, e.de, "EUR", date("2026-12-31"))
 			return err
 		},
+		"owed": func(ctx context.Context) error {
+			_, err := ledger.OpenItems{}.Owed(ctx, e.de)
+			return err
+		},
 		"references": func(ctx context.Context) error {
 			_, err := ledger.OpenItems{}.References(ctx, []uuid.UUID{eur.EntryID})
 			return err
@@ -217,6 +222,17 @@ func (s *settleScenario) openItems(t *testing.T) {
 			if items[0].PartnerID != e.supplier {
 				t.Errorf("payable partner: got %s, want %s", items[0].PartnerID, e.supplier)
 			}
+		}
+		owed, err := ledger.OpenItems{}.Owed(ctx, e.de)
+		if err != nil {
+			t.Errorf("owed: %v", err)
+		}
+		currencies := map[ledger.ItemRef]string{}
+		for _, it := range owed {
+			currencies[it.ItemRef] = it.Currency
+		}
+		if got := fmt.Sprint(currencies[eur], " ", currencies[gbp]); got != "EUR GBP" {
+			t.Errorf("owed in every currency: got %s, want EUR GBP", got)
 		}
 		if items, _ := (ledger.OpenItems{}).Payable(ctx, e.de, "EUR", date("2026-02-28")); len(items) != 0 {
 			t.Errorf("documents after the date: %+v", items)

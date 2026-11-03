@@ -35,6 +35,14 @@ func routerFor(ctx context.Context, tx pgx.Tx, r Run) (router, error) {
 	if r.HouseBankID != nil {
 		return router{}, nil
 	}
+	return rankedRouter(ctx, tx, r.LegalEntityID, r.Currency)
+}
+
+// rankedRouter routes by the legal entity's active methods and their
+// rankings in the currency: a run proposed without a house bank, and the
+// liquidity forecast's choice of the bank that will pay an item
+// (CashPosition.Payables).
+func rankedRouter(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, currency string) (router, error) {
 	rows, _ := tx.Query(ctx, `SELECT method, bank FROM (
 			SELECT r.method, (SELECT h.id FROM unnest(r.house_banks) WITH ORDINALITY AS b(code, n)
 				JOIN payments.house_bank h ON h.tenant_id = r.tenant_id AND h.legal_entity_id = r.legal_entity_id AND h.code = b.code AND h.status = 'active' AND h.currency = r.currency
@@ -42,12 +50,12 @@ func routerFor(ctx context.Context, tx pgx.Tx, r Run) (router, error) {
 			FROM payments.bank_ranking r
 			JOIN payments.payment_method m ON m.tenant_id = r.tenant_id AND m.legal_entity_id = r.legal_entity_id AND m.code = r.method AND m.is_active
 			WHERE r.legal_entity_id = $1 AND r.currency = $2 AND r.is_active) ranked
-		WHERE bank IS NOT NULL`, r.LegalEntityID, r.Currency)
+		WHERE bank IS NOT NULL`, legalEntity, currency)
 	rt := router{byMethod: true, banks: map[string]uuid.UUID{}}
 	var method string
 	var bank uuid.UUID
 	if _, err := pgx.ForEachRow(rows, []any{&method, &bank}, func() error { rt.banks[method] = bank; return nil }); err != nil {
-		return router{}, fmt.Errorf("payments: read the bank rankings of legal entity %s in %s: %w", r.LegalEntityID, r.Currency, err)
+		return router{}, fmt.Errorf("payments: read the bank rankings of legal entity %s in %s: %w", legalEntity, currency, err)
 	}
 	return rt, nil
 }

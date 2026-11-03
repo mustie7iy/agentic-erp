@@ -1031,6 +1031,105 @@ As built (one company-date helper; review:batch27, Pilot readiness
 - per currency always; a converted total in a display currency (§10) on
   request; across companies the caller has, in group currency.
 
+As built (T53e, the first slice: supplier open items and runs; split
+into T53e and T53e2-T53e4 in the tracker, src `split:T53e`):
+- **Request.** `GET /v1/liquidity-forecast?legal_entity_id=…&min_certainty=…`
+  (`cash.forecast.read`, migration 000189; `x-slo-class: report`,
+  `x-snapshot: true`, so it reads one database state as the cash position
+  does). A treasurer, or an agent holding the permission, reads the flows
+  per currency, never converted, in the company's `cash.buckets` from the
+  read date (the company's date in its time zone, T72n1). A legal entity
+  the caller cannot act in is 404. `min_certainty` is an open enumeration
+  (`actual`, `confirmed`, `expected`, `planned`, default `planned`);
+  another value is 422 `request.validation_failed`.
+- **Buckets.** Consecutive from the read date, each grain's periods after
+  the previous grain's: a day, seven days, or a month running to the same
+  day of the next month (its last day when shorter, the memo records'
+  `addMonths`). Each currency gives its flows per bucket by source,
+  certainty and lateness with the bucket's total (the cash position's
+  `CashFlowTotal`, its source list gaining `payable`), the total over the
+  horizon, and what is expected after the last bucket (`beyond`, amount
+  and count, in no bucket and not in the total), so nothing owed drops out
+  unseen.
+- **Sources built.** `payable` (`expected`): the ledger's open supplier
+  items in every currency (`ledger.OpenItems.Owed`, read as the proposer's
+  `Payable` reads them: leading ledger, not special G/L, not reversed, not
+  held by an item reservation), less those a live run's active payment
+  items hold. `payment_run` (`confirmed`): the unposted payments of runs
+  `proposed` or `releasing` (`payments.CashPosition.Pending`), on the run
+  date plus the paying bank's value days, `late` before the read date, as
+  in the cash position (one `valueDate`). An item is never counted twice:
+  the run's payment counts instead of the items it holds. The payments in
+  transit and memo records join with the opening position (T53e4).
+- **One rule with the proposer.** The proposer's discount-tier and
+  due-date logic moved to the ledger (`ItemTerms.TierOn`, `LosesDiscount`,
+  `DiscountOn`, `PayableItem.DueDate`), the discount and withholding at
+  payment to one payments helper (`deductionsOn`), and the reserved items,
+  the bank ranking and the supplier blocks to shared functions
+  (`reservedItems`, `rankedRouter`, `blockedReason`); the proposer calls
+  them unchanged in behaviour, its tests green, the tier tests moved to
+  the ledger with the rule. `payments.CashPosition.Payables` gives each
+  item its due date, its supplier's block, and the bank and method a run
+  proposed without a house bank would route it through;
+  `CashPayable.Dates` and `Pays` say when and what. The composition root
+  adapts it to `cash.Payments.Payables`, so `cash` still imports only
+  `config` and the layout allow-list is unchanged.
+- **Expected date** (§5, decided by default where §5 leaves it open).
+  The days tried are an invoice's discount tiers' last days, earliest
+  first, while the company takes discounts, then its net due date; each
+  is moved back to the company's last payment day on or before it, and
+  the first not before the read date is taken, so a tier whose payment
+  day has passed gives way to the next tier or the net due date; when
+  none is left (overdue, or due before the next payment day) the item is
+  expected on the next payment day on or after the read date, the read
+  date itself when it is one. No payment days: any day. A credit memo
+  (a debit on the supplier account) tries its due date only, its document
+  date, so it is due at the next payment day, as the proposer takes it
+  (T34d). Then the value days of the house
+  bank the supplier's first payment method ranks for the item's currency
+  (`cash.value_days` by bank and method; none ranked: 0), and the next
+  working day of the company's calendar; the payment day itself is not
+  moved off a holiday, only the day at the bank, as §5 step 4 reads.
+- **Netting as the run nets** (review round 1). A run pays a supplier one
+  payment per currency, of every item it takes netted, and pays nothing
+  to a supplier whose items owe nothing net (`DebitBalance`). So the
+  forecast nets per supplier and currency: on each of its payment days, the
+  items due then and those carried from earlier days are summed, each at
+  what a run that day pays for it; a day that nets to nothing or less pays
+  nothing and its items are carried to the supplier's next day; what is
+  still a debit balance after its last day is no cash flow and is left
+  out. A credit memo alone is therefore never forecast as money coming in,
+  and one beside an invoice in a discount tier nets on the tier's day, as
+  the run that takes the invoice nets it. A flow is one supplier payment
+  (`count` counts payments).
+- **Amount.** What a run on that payment day pays the supplier: what each
+  item owes less the cash discount of the tier open that day and the
+  withholding tax deducted at payment (`ledger.PaymentWithholding` after
+  the discount), netted as above, negative in the forecast. The
+  proposer's refusal of a withholding that takes all of an item
+  (`payments.withholding_too_large`) is a run's, not the forecast's.
+- **Blocked suppliers.** A supplier not set up in the company, inactive,
+  blocked for posting or for payment (the proposer's `SupplierBlocked` and
+  `PaymentBlocked`, `blockedReason`) is left out of the totals in this
+  slice; showing its items apart (`payable_blocked`, `include_blocked`) is
+  T53e2.
+- **Not yet** (T53e2-T53e4): parked and held invoices, down payment
+  requests and blocked items shown apart; liquidity items, the
+  self-assessment netting and the derivation simulation; converted totals,
+  the opening position and cumulative closing, memo records and payments
+  in transit, one grain over a range, drill-down, and the budget at
+  100,000 open items (no index added: the due date is computed, as §6
+  allows until the budget asks for one).
+- **Evidence.** `cash.TestLiquidityForecast*` (Maple Inc: a tier taken,
+  a tier passed over, an overdue item and a credit memo netted on the next
+  payment day, a debit balance paying nothing and a credit carried to the
+  supplier's discount day, a USD item a value day later, an item held by a proposed
+  run counted as the run's payment, a blocked supplier left out, an item
+  beyond the horizon, the certainty cut, a company taking no discounts and
+  its own buckets, a late run, refusals and every database failure);
+  `payments.TestCashPayable`; `ledger.TestDiscountRounding`, `TestDueDate`;
+  the walkthrough's step 13 reads Maple's forecast through the API.
+
 ### 10. Currency conversion
 Amounts are kept and shown in their own currency first: a bank's balance
 is never converted in its own row. Totals in a display currency (the
