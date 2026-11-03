@@ -322,7 +322,8 @@ start() {
   say "    position with a memo record and the forecast of the supplier open items, payment runs, parked invoices, down"
   say "    payment requests and blocked suppliers; step 21 its rows by liquidity item"
   say "  - cost center postings, reports and planning (T56d-T56j)"
-  say "  - accounts receivable, fixed assets (T57), period-end close (T64), consolidation (T68)"
+  say "  - asset acquisition, depreciation and the rest of asset accounting (T57c-T57i): steps 19 and 20 show the classes and the master"
+  say "  - accounts receivable, period-end close (T64), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
   export DATABASE_URL ERP_ENV=development ERP_DEV_ISSUER=true ERP_MIGRATE_ON_START=true
