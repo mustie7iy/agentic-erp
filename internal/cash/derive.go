@@ -1,8 +1,10 @@
 package cash
 
 import (
+	"cmp"
 	"fmt"
 	"math/big"
+	"slices"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
@@ -50,23 +52,59 @@ type Share struct {
 // is the planning group's item, else the posting rule's, else the
 // direction's default (SAP's query sequence and Flow Builder split).
 func Derive(d config.Derivation, amount money.Minor, b Basis) ([]Share, error) {
-	rest := fallback(d, b)
+	return newRules(d).derive(amount, b)
+}
+
+// rules is a derivation with the item its account rules give each account
+// number it has been asked about, so a forecast's many lines on a few
+// accounts are compared with the rules once per account.
+type rules struct {
+	d        config.Derivation
+	accounts map[string]string // "" when no account rule covers it
+}
+
+func newRules(d config.Derivation) *rules { return &rules{d: d, accounts: map[string]string{}} }
+
+// itemOf is the item of the first account rule covering the account, ""
+// when none does.
+func (r *rules) itemOf(account string) string {
+	if item, ok := r.accounts[account]; ok {
+		return item
+	}
+	item := ""
+	for _, a := range r.d.Accounts {
+		if a.Covers(account) {
+			item = a.Item
+			break
+		}
+	}
+	r.accounts[account] = item
+	return item
+}
+
+// derive is Derive under the rules. A flow whose lines all take one item
+// is that item's whole, as the split would give it, without computing it.
+func (r *rules) derive(amount money.Minor, b Basis) ([]Share, error) {
+	rest := fallback(r.d, b)
 	var items []string
+	of, amounts := make([]string, len(b.Lines)), make([]money.Minor, len(b.Lines))
+	for i, l := range b.Lines {
+		of[i], amounts[i] = cmp.Or(r.itemOf(l.Account), rest), l.Amount
+		if !slices.Contains(items, of[i]) {
+			items = append(items, of[i])
+		}
+	}
+	if t, err := money.Sum(amounts...); len(items) == 1 && err == nil && t != 0 {
+		return []Share{{Item: items[0], Amount: amount}}, nil
+	}
 	weight := map[string]*big.Rat{}
 	total := new(big.Rat)
-	for _, l := range b.Lines {
-		item := rest
-		for _, r := range d.Accounts {
-			if r.Covers(l.Account) {
-				item = r.Item
-				break
-			}
-		}
-		if weight[item] == nil {
-			items, weight[item] = append(items, item), new(big.Rat)
+	for i, l := range b.Lines {
+		if weight[of[i]] == nil {
+			weight[of[i]] = new(big.Rat)
 		}
 		w := new(big.Rat).SetInt64(int64(l.Amount))
-		weight[item].Add(weight[item], w)
+		weight[of[i]].Add(weight[of[i]], w)
 		total.Add(total, w)
 	}
 	if total.Sign() == 0 {

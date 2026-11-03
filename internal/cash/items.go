@@ -32,6 +32,9 @@ type part struct {
 	amount        money.Minor
 	lines         []DocumentLine
 	planningGroup string
+	// item is the liquidity item a memo record names: the part's whole
+	// amount is its, derived from nothing (T53e4).
+	item string
 }
 
 // offsetting are the lines a document's liquidity items are derived from
@@ -98,18 +101,14 @@ func follow(out []Line, amounts []money.Minor, at []int, l DocumentLine) ([]Line
 // each part derived on its own (Derive, its direction the flow's) and the
 // shares of one item summed, in the order the parts first name the items,
 // so the shares add up to the parts, the flow's amount.
-func classify(d config.Derivation, s *sums, amount money.Minor, parts []part) ([]Share, error) {
+func classify(d *rules, s *sums, amount money.Minor, parts []part) ([]Share, error) {
 	direction := config.DirectionOutflow
 	if amount > 0 {
 		direction = config.DirectionInflow
 	}
 	var out []Share
 	for _, p := range parts {
-		lines, err := offsetting(p.lines)
-		if err != nil {
-			return nil, err
-		}
-		shares, err := Derive(d, p.amount, Basis{Direction: direction, Lines: lines, PlanningGroup: p.planningGroup})
+		shares, err := partShares(d, p, direction)
 		if err != nil {
 			return nil, err
 		}
@@ -123,6 +122,19 @@ func classify(d config.Derivation, s *sums, amount money.Minor, parts []part) ([
 		}
 	}
 	return out, nil
+}
+
+// partShares are a part's shares by liquidity item: the whole of it the
+// item it names, else derived from its lines (Derive).
+func partShares(d *rules, p part, direction string) ([]Share, error) {
+	if p.item != "" {
+		return []Share{{Item: p.item, Amount: p.amount}}, nil
+	}
+	lines, err := offsetting(p.lines)
+	if err != nil {
+		return nil, err
+	}
+	return d.derive(p.amount, Basis{Direction: direction, Lines: lines, PlanningGroup: p.planningGroup})
 }
 
 // ItemRow is a row of a currency's forecast by liquidity item (ADR-0051

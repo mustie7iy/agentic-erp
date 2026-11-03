@@ -167,17 +167,20 @@ func (c CashPosition) documents(ctx context.Context, tx pgx.Tx, legalEntity uuid
 	for _, r := range requests {
 		if !slices.Contains(held, r.ID) {
 			out = append(out, CashPayable{Kind: CashDownPayment, Due: r.DueDate,
-				PayableItem: ledger.PayableItem{PartnerID: r.SupplierID, DocumentDate: r.DueDate, Currency: r.Currency, Amount: -r.Amount}})
+				PayableItem: ledger.PayableItem{PartnerID: r.SupplierID, DocumentDate: r.DueDate, Currency: r.Currency, Amount: -r.Amount, Document: r.ID,
+					Number: r.DocumentNumber}})
 		}
 	}
 	return out, nil
 }
 
-// withBankCodes gives each payable the code of its bank, nil for none.
+// withBankCodes gives each payable the code of its bank, nil for none;
+// each bank is asked for once, however many items it routes (T53e4: a
+// forecast of 100,000 items routes them through a handful of banks).
 func withBankCodes(ctx context.Context, out []CashPayable, banks []*uuid.UUID) ([]CashPayable, error) {
 	var ids []uuid.UUID
 	for _, b := range banks {
-		if b != nil {
+		if b != nil && !slices.Contains(ids, *b) {
 			ids = append(ids, *b)
 		}
 	}

@@ -144,13 +144,15 @@ func (s Simulation) company(ctx context.Context, tx pgx.Tx, base, proposed *conf
 		return out, err
 	}
 	r := reader{doc: base, company: code, settings: companyCash(base, code), read: read, sums: &sums{}}
-	flows, err := s.Endpoints.forecastFlows(ctx, r, le)
+	bs := buckets(read, r.settings.BucketsOrDefault())
+	flows, _, err := s.Endpoints.forecastFlows(ctx, tx, r, le, bs[len(bs)-1].End)
 	if err != nil {
 		return out, err
 	}
 	var moved []movedFlow
+	was, is := newRules(base.Cash.Derivation), newRules(proposed.Cash.Derivation)
 	for _, f := range flows {
-		shares, err := classifyUnder(r.sums, f, base.Cash.Derivation, proposed.Cash.Derivation)
+		shares, err := classifyUnder(r.sums, f, was, is)
 		if err != nil {
 			return out, err
 		}
@@ -168,7 +170,7 @@ func (s Simulation) company(ctx context.Context, tx pgx.Tx, base, proposed *conf
 }
 
 // classifyUnder is the flow's shares under each of the derivations.
-func classifyUnder(s *sums, f datedFlow, ds ...config.Derivation) ([][]Share, error) {
+func classifyUnder(s *sums, f datedFlow, ds ...*rules) ([][]Share, error) {
 	out := make([][]Share, len(ds))
 	for i, d := range ds {
 		var err error

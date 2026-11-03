@@ -95,3 +95,80 @@ func (e positionEnv) budgetData(t *testing.T) {
 	e.exec(t, `ANALYZE ledger.journal_entry, ledger.journal_line, ledger.clearing_item, payments.payment, payments.payment_run, payments.bank_statement,
 		payments.bank_statement_line`)
 }
+
+// TestLiquidityForecastBudget holds the liquidity forecast and its
+// drill-down to their read budget at 100,000 open supplier items (p95 3 s,
+// ADR-0051 §6 as built T53e4, 01 §Performance): Maple Inc owes two
+// suppliers set up in the company and its blocked vendor, each item with
+// its terms (net 15-119 days from its document date, every third with a 2%
+// tier) and its expense line, read in the company's buckets and converted
+// into CAD, and one month's flows drilled down by liquidity item. No index
+// is added for the due date, which is computed: the read takes every open
+// item, so an index on it would not narrow it (§6). The first read of each
+// warms the caches and is not counted.
+func TestLiquidityForecastBudget(t *testing.T) {
+	if testing.Short() || raceDetector {
+		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
+	}
+	e := setupForecast(t, withItems)
+	e.forecastBudgetData(t)
+	budget := nfr.Budget(3 * time.Second)
+	measure := func(what, query string, check func(map[string]any)) {
+		t.Helper()
+		e.Must(200, "GET", query, "", "")
+		var times []time.Duration
+		for range 20 {
+			start := time.Now()
+			f, _ := e.Must(200, "GET", query, "", "")
+			times = append(times, time.Since(start))
+			check(f)
+		}
+		slices.Sort(times)
+		p95 := times[len(times)*95/100]
+		t.Logf("%s over 100,000 open items: median %v, p95 %v", what, times[len(times)/2], p95)
+		if p95 > budget {
+			t.Fatalf("%s p95 %v exceeds the %v budget (3 s scaled by ERP_BUDGET_SCALE)", what, p95, budget)
+		}
+	}
+	measure("liquidity forecast", "/v1/liquidity-forecast?legal_entity_id="+e.le.String()+"&display_currency=CAD", func(f map[string]any) {
+		if got := amount(f["currencies"].([]any)[0].(map[string]any)["blocked"].(map[string]any)["amount"]); got == "0.00 CAD" {
+			t.Fatalf("blocked: got %s, want the vendor's items", got)
+		}
+	})
+	measure("drill-down of a month", "/v1/liquidity-forecast-flows?legal_entity_id="+e.le.String()+"&currency=CAD&from=2026-07-17&to=2026-08-16"+
+		"&liquidity_item=OP_SUPPLIERS&page_size=500", func(p map[string]any) {
+		if p["count"].(float64) == 0 {
+			t.Fatal("drill-down: got no flows, want the month's")
+		}
+	})
+}
+
+// forecastBudgetData writes the budget's 100,000 open items straight into
+// the leading ledger, without the checks a posting runs: 45,000 for each
+// supplier set up in Maple Inc and 10,000 for its blocked vendor.
+func (e forecastEnv) forecastBudgetData(t *testing.T) {
+	t.Helper()
+	other := e.NewSupplier(t, "BP90000041")
+	e.exec(t, `UPDATE partner.supplier_company SET payment_methods = '{T}', version = version + 1 WHERE legal_entity_id = $1 AND partner_id = $2`, e.le, other)
+	e.exec(t, `SET session_replication_role = replica`)
+	e.exec(t, `CREATE TEMP TABLE budget_item AS
+		SELECT n, gen_random_uuid() AS id, date '2026-01-01' + (n % 107) AS day,
+			CASE WHEN n % 10 = 0 THEN $1::uuid WHEN n % 2 = 0 THEN $2::uuid ELSE $3::uuid END AS partner
+		FROM generate_series(1, 100000) n`, e.Vendor, e.Supplier, other)
+	e.exec(t, `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period, document_type, document_number,
+			document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, source_document_id, posted_by)
+		SELECT $1, 2026, id, $2, $3, extract(month FROM day), 'KR', 'B' || n, day, day, 'CAD', 'CAD', 'EUR', 1, 1, 'payables', gen_random_uuid(), $4
+		FROM budget_item`, e.Tenant.ID, e.le, e.leading, e.Tenant.Human.ID)
+	e.exec(t, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period, posting_date,
+			account_id, partner_id, amount_tc, amount_lc, amount_gc)
+		SELECT $1, 2026, id, k, $2, $3, extract(month FROM day), day, CASE WHEN k = 1 THEN $4::uuid ELSE $5::uuid END, CASE WHEN k = 1 THEN partner END,
+			CASE WHEN k = 1 THEN -(1000 + n % 997) ELSE 1000 + n % 997 END, CASE WHEN k = 1 THEN -(1000 + n % 997) ELSE 1000 + n % 997 END,
+			CASE WHEN k = 1 THEN -(1000 + n % 997) ELSE 1000 + n % 997 END
+		FROM budget_item, generate_series(1, 2) k`, e.Tenant.ID, e.le, e.leading, e.payables, e.expense)
+	e.exec(t, `INSERT INTO ledger.open_item_terms (tenant_id, fiscal_year, journal_entry_id, line_no, payment_term_code, baseline_date, net_days,
+			discount_days, discount_pct)
+		SELECT $1, 2026, id, 1, 'T', day, 15 + n % 105, CASE WHEN n % 3 = 0 THEN 10 END, CASE WHEN n % 3 = 0 THEN 2 END FROM budget_item`, e.Tenant.ID)
+	e.exec(t, `DROP TABLE budget_item`)
+	e.exec(t, `RESET session_replication_role`)
+	e.exec(t, `ANALYZE ledger.journal_entry, ledger.journal_line, ledger.open_item_terms`)
+}

@@ -318,9 +318,10 @@ start() {
   say "  - the GST34's lines (T61j-T61l): step 2 configures one"
   say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
-  say "  - the liquidity forecast's conversion, drill-down and other sources (T53e4-T53k): step 13 shows the daily cash"
+  say "  - the liquidity forecast's purchase orders, snapshots and variance (T53f-T53k): step 13 shows the daily cash"
   say "    position with a memo record and the forecast of the supplier open items, payment runs, parked invoices, down"
-  say "    payment requests and blocked suppliers; step 21 its rows by liquidity item"
+  say "    payment requests and blocked suppliers; step 21 its rows by liquidity item; step 22 its opening, memo records"
+  say "    and payments in transit, conversion and drill-down"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - asset acquisition, depreciation and the rest of asset accounting (T57c-T57i): steps 19 and 20 show the classes and the master"
   say "  - accounts receivable, period-end close (T64), consolidation (T68)"
@@ -2563,13 +2564,14 @@ step_cash_items() {
   invoice_etag=$ETAG
   as tom
   say "Tom reads the forecast by liquidity item (T53e3): each flow is split over the items its documents' lines"
-  say "derive; with only the default rule of step 2 every supplier payment is Supplier payments, under Operating:"
+  say "derive; with only the default rule of step 2 every supplier payment is Supplier payments, under Operating, and"
+  say "step 13's memo records are the Customer receipts they name (T53e4):"
   api 200 '.currencies[] | .currency as $c | (.items[] | "  \($c) \("  " * .level)\(.liquidity_item // "unclassified") \(.name // ""): total \(.total.amount), beyond \(.beyond.amount)")' \
     getLiquidityForecast -p "legal_entity_id=$LE"
   expect "the top rows add up to each bucket's total" \
     "$(field '[.currencies[] | . as $c | range(0; $c.buckets | length) as $i
       | ([$c.items[] | select(.level == 0) | .buckets[$i].amount | sub("\\."; "") | tonumber] | add // 0) == ($c.buckets[$i].total.amount | sub("\\."; "") | tonumber)] | all')" true
-  expect "the CAD items" "$(field '[.currencies[] | select(.currency == "CAD") | .items[] | .liquidity_item] | join(" ")')" "OPERATING OP_SUPPLIERS"
+  expect "the CAD items" "$(field '[.currencies[] | select(.currency == "CAD") | .items[] | .liquidity_item] | join(" ")')" "OPERATING OP_SUPPLIERS REC_CUSTOMERS"
   as ada
   say "Ada proposes an item for professional services under Operating, and a rule taking account 6100 to it. A"
   say "derivation rule is tier 2 and needs a simulation: the open flows whose items the rule moves."
@@ -2606,7 +2608,7 @@ step_cash_items() {
   api 200 '.currencies[] | select(.currency == "CAD") | (.items[] | ("  " * .level) as $in | "  CAD \($in)\(.liquidity_item) \(.name): total \(.total.amount)",
     (.flows[] | "  CAD \($in)    \(.source) \(.certainty): \(.total.amount)"))' getLiquidityForecast -p "legal_entity_id=$LE"
   expect "the CAD items" "$(field '[.currencies[] | select(.currency == "CAD") | .items[] | "\(.level) \(.liquidity_item)"] | join(", ")')" \
-    "0 OPERATING, 1 OP_SERVICES, 1 OP_SUPPLIERS"
+    "0 OPERATING, 1 OP_SERVICES, 1 OP_SUPPLIERS, 1 REC_CUSTOMERS"
   expect "the services' row, the parked invoice at what a run would pay" \
     "$(field '.currencies[] | select(.currency == "CAD") | .items[] | select(.liquidity_item == "OP_SERVICES") | [.flows[] | "\(.source) \(.certainty) \(.total.amount | startswith("-"))"] | join(", ")')" \
     "invoice_unposted planned true"
@@ -2615,6 +2617,67 @@ step_cash_items() {
   as alex
   say "Alex cancels the invoice again:"
   api 200 '"\(.document_number): \(.status)"' cancelSupplierInvoice -p "id=$invoice" -if-match "$invoice_etag" -body '{"reason": "Entered for the liquidity item walkthrough"}'
+  passed
+}
+
+# step_cash_forecast is the liquidity forecast's opening and closing, its
+# memo records and payments in transit, one grain over a range, its
+# conversion and its drill-down (T53e4, ADR-0051 §7, §9, §10).
+step_cash_forecast() {
+  heading "Step 22 — The liquidity forecast opened, converted and drilled down to its documents"
+  as tom
+  local next to memo memo_etag cells
+  next=$(date_add "$TODAY" 40)
+  say "Tom expects a US customer's USD 2,000.00 on $next and records it without a house bank: a memo record the"
+  say "forecast counts and the cash position does not (T53e4)."
+  api 201 '"memo record \(.reference): \(.amount.amount) \(.amount.currency) on \(.value_date), \(.house_bank_code // "no house bank"), \(.liquidity_item)"' \
+    createMemoRecord -body "{\"legal_entity_id\": \"$LE\", \"amount\": {\"amount\": \"2000.00\", \"currency\": \"USD\"}, \"value_date\": \"$next\", \"liquidity_item\": \"REC_CUSTOMERS\", \"description\": \"Acme Corp, order 77\", \"reference\": \"WT-2001\"}"
+  memo=$(field .id)
+  memo_etag=$ETAG
+  say "The forecast opens at the cash position's first day (each currency's house banks' statement balances), closes each"
+  say "bucket at the opening plus the totals so far, counts the memo records (with a bank or none) and the payments in"
+  say "transit, and, asked for a display currency, converts each currency at Maple's planning rate (else the average):"
+  api 200 '.currencies[] | "  \(.currency): opens at \(.opening.amount.amount) (\(.opening.banks) banks\(if .opening.stale then ", stale" else "" end)), closes at \(.buckets[-1].closing.amount) after \(.total.amount)",
+      "    memo records \([.buckets[].flows[] | select(.source == "memo") | .amount.amount] | join(", ")); in transit \([.buckets[].flows[] | select(.source == "in_transit") | .amount.amount] | join(", "))"' \
+    getLiquidityForecast -p "legal_entity_id=$LE" -p display_currency=CAD
+  excerpt '.converted | "  in \(.currency): opens at \(.opening.amount), closes at \(.buckets[-1].closing.amount); rates \([.rates[] | "\(.currency) \(.rate_type) \(.rate)\(if .stale then " stale" else "" end)"] | join(", ")); without a rate: \(.incomplete_currencies | join(", "))"'
+  expect "each bucket closes at the opening plus the totals so far" \
+    "$(field 'def c: sub("\\."; "") | tonumber; [.currencies[] | (.opening.amount.amount | c) as $o | [foreach .buckets[] as $b ($o; . + ($b.total.amount | c); .)] == [.buckets[].closing.amount | c]] | all')" true
+  expect "WT-1042 (step 13, at RBC) and WT-2001 (no bank), memo flows" \
+    "$(field '[.currencies[] | .currency as $c | .buckets[].flows[] | select(.source == "memo") | "\($c) \(.amount.amount)"] | map(select(. == "CAD 25000.00" or . == "USD 2000.00")) | unique | join(", ")')" \
+    "CAD 25000.00, USD 2000.00"
+  expect "the converted closing, the converted opening plus the converted totals" \
+    "$(field 'def c: sub("\\."; "") | tonumber; .converted | ((.opening.amount | c) + ([.buckets[].total.amount | c] | add)) == (.buckets[-1].closing.amount | c)')" true
+  expect "USD converted or listed without a rate, never as zero" \
+    "$(field '.converted | ([.rates[].currency] + .incomplete_currencies) | index("USD") != null')" true
+  cells=$(field '[.currencies[] | select(.currency == "CAD") | .items[] | select(.liquidity_item == "REC_CUSTOMERS") | .buckets[0:14][].amount | sub("\\."; "") | tonumber] | add // 0')
+  to=$(date_add "$TODAY" 55)
+  say "One grain over a range instead of Maple's buckets: weeks up to $to."
+  api 200 '"\(.buckets | length) \(.buckets[0].grain)s from \(.buckets[0].start) to \(.buckets[-1].end)"' getLiquidityForecast -p "legal_entity_id=$LE" -p grain=week -p "to=$to"
+  expect "the weeks up to the one holding $to" "$(field '.buckets | length')" 8
+  say "Tom drills the first two weeks of Customer receipts down to their flows and the documents behind them, each"
+  say "to read in its own context (getMemoRecord here), and the drill-down totals the row's cells:"
+  api 200 '"  \(.count) flows, total \(.total.amount) \(.total.currency)", (.items[] | "  \(.date) \(.source) \(.certainty) \(.share.amount): \([.documents[] | "\(.kind) \(.number // "-") \(.amount.amount)"] | join(", ")) (\(.document_count))")' \
+    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "to=$(date_add "$TODAY" 13)" -p liquidity_item=REC_CUSTOMERS
+  expect "the drill-down's total, the row's cells of the two weeks" "$(field '.total.amount | sub("\\."; "") | tonumber')" "$cells"
+  expect "WT-1042 named by its reference" "$(field '[.items[].documents[] | select(.kind == "memo_record") | .number] | index("WT-1042") != null')" true
+  as ada
+  say "Ada gives Rita in reporting the forecast alone (cash.forecast.read): she sees the flows, never the documents or"
+  say "suppliers, which need their own context's read permission; they are left out, not refused."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "cash_reporting", "name": "Cash reporting"}'
+  grant "$(field .id)" cash.forecast.read
+  QUIET=1 api 200 '' listRoles -p page_size=100
+  cp "$WORK/last.json" "$WORK/roles.json"
+  person rita "Rita Reporting" cash_reporting
+  as rita
+  api 200 '"  \(.count) flows, total \(.total.amount) \(.total.currency)", (.items[] | "  \(.date) \(.source) \(.share.amount): \(.documents | length) of \(.document_count) documents shown, supplier \(.supplier.name // "not shown")")' \
+    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "to=$(date_add "$TODAY" 13)" -p liquidity_item=REC_CUSTOMERS
+  expect "Rita's total, Tom's" "$(field '.total.amount | sub("\\."; "") | tonumber')" "$cells"
+  expect "documents shown to Rita" "$(field '[.items[].documents[]] | length')" 0
+  expect "documents counted for Rita" "$(field '[.items[].document_count] | add > 0')" true
+  as tom
+  say "Tom cancels WT-2001 again:"
+  api 200 '"memo record \(.reference): \(.status)"' cancelMemoRecord -p "id=$memo" -if-match "$memo_etag"
   passed
 }
 
@@ -2639,7 +2702,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_cash_forecast'
 
 main() {
   start

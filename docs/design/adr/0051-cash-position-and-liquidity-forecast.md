@@ -433,7 +433,8 @@ at the read (as the trial balance is). The ports are bounded per company
 and horizon; the open items read gains a functional index on the net due
 date (`baseline_date + net_days`) if the performance budget needs it
 (T53e measures against 05: a company with 100,000 open items answers
-within 2 s p95, a budget to confirm).
+within 2 s p95, a budget to confirm; T53e4 measured it, declared p95 3 s
+and left 2 s to the flow table, see As built T53e4 in §9).
 
 **Snapshots** are stored: once a day per company, after the statements of
 the day are usually in (`cash.snapshot_time`, local time, default 07:00),
@@ -1114,12 +1115,11 @@ into T53e and T53e2-T53e4 in the tracker, src `split:T53e`):
   `PaymentBlocked`, `blockedReason`) is left out of the totals in this
   slice; showing its items apart (`payable_blocked`, `include_blocked`) is
   T53e2 (below).
-- **Not yet** (T53e4; liquidity items, the self-assessment netting and
-  the derivation simulation are T53e3's, below): converted totals,
-  the opening position and cumulative closing, memo records and payments
-  in transit, one grain over a range, drill-down, and the budget at
-  100,000 open items (no index added: the due date is computed, as §6
-  allows until the budget asks for one).
+- **Not yet** when T53e was built: liquidity items, the
+  self-assessment netting and the derivation simulation (T53e3, below);
+  converted totals, the opening position and cumulative closing, memo
+  records and payments in transit, one grain over a range, drill-down and
+  the budget at 100,000 open items (T53e4, below).
 - **Evidence.** `cash.TestLiquidityForecast*` (Maple Inc: a tier taken,
   a tier passed over, an overdue item and a credit memo netted on the next
   payment day, a debit balance paying nothing and a credit carried to the
@@ -1299,6 +1299,151 @@ where §4 and §9 leave it open):
   invoice for services parked on 6100, a change request adding an item and
   a rule for 6100 simulated (the parked invoice's flow moves) and
   approved, and the forecast's rows by item read before and after.
+
+As built (T53e4, the forecast converted and drilled down; decided by
+default where §7, §9 and §10 leave it open):
+- **Request and response.** `GET /v1/liquidity-forecast` takes `grain`
+  with `to`, and `display_currency` (all optional, additive); each
+  currency gains `opening` (`LiquidityForecastOpening`: amount, banks,
+  `stale`, `gap`) and each bucket `closing`; `converted`
+  (`LiquidityForecastConverted`) is given when a display currency is
+  asked for. The drill-down is a list of its own,
+  `GET /v1/liquidity-forecast-flows` (`listLiquidityForecastFlows`,
+  `LiquidityForecastFlowPage`), not a sub-resource: the forecast is not a
+  stored resource with an id. No migration: `cash.forecast.read` covers
+  both. `CashFlowTotal.source` already named `in_transit` and `memo`; the
+  item rows' source enumeration gains them.
+- **Opening** (§9: "the cash position total of the first day"). Each
+  currency opens at the cash position's opening of the read date: the sum
+  of its active house banks' latest statement closing balances before the
+  read date (`Payments.Banks`, the position's own read, `reader.opening`
+  shared with it), `stale` and `gap` when one bank's are, zero without a
+  bank. A currency with an active house bank is listed even without a
+  flow. A statement closing on the read date itself opens the next day, as
+  in the position. The cut by `min_certainty` keeps the opening (it is
+  `actual`).
+- **Closing.** Each bucket closes at the opening plus the `total`s of the
+  bucket and those before it, so it counts what the totals count (blocked
+  suppliers' flows only with `include_blocked`, the certainty cut).
+- **Payments in transit** (`in_transit`, `confirmed`): the position's
+  (`Endpoints.inTransit`, now shared): the released payments' open lines
+  on their active bank's clearing account that no statement line up to
+  the bank's opening statement matches, on the run date plus value days,
+  `late` before the read date, each line a flow. They are classified as a
+  run's payment is, by the open items the payment settled
+  (`Payments.Paying`, which reads any payment of the legal entity), and
+  name the payment's run.
+- **Memo records** (`memo`, at the record's certainty). Every `active`
+  record of the legal entity, with a house bank or none, not expired at
+  the read, on its value date moved to the next working day (`late`
+  before the read date), as the position takes the ones on a bank
+  (`memoOccurrences`, now shared). A series is expanded up to the last
+  bucket's end (a drill-down's: its `to`, else the company's last bucket),
+  each occurrence once, an override in place of its occurrence; a one-off
+  record after the last bucket is in `beyond`, a series' occurrences after
+  it are not (a series without end has no finite beyond). Each takes the
+  liquidity item it names, whole, derived from nothing. A proposed,
+  realised, cancelled or rejected record counts nowhere.
+- **One grain over a range.** `grain` and `to` together: periods of the
+  grain from the read date up to the one holding `to`, at most the
+  company buckets' limit of the grain (92 days, 104 weeks, 36 months,
+  `config.MaxPeriods`); one without the other, a grain not known, a `to`
+  before the read date or more periods are 422
+  `request.validation_failed` on the field.
+- **Conversion** (§10). On request only (§9: "a converted total in a
+  display currency on request"), so a read without it reads no rate. One
+  rate per currency for every bucket, the cash position's rule and code
+  (`Endpoints.converter`, shared): the latest rate of `cash.rate_type`
+  valid on the read date, `average` where that type is `planning` and no
+  planning rate is recorded, through the ledger's rate service
+  (`ledger.Rates.OfType`, which revaluation's rate lookup shares,
+  ADR-0042), `stale` beyond `cash.rate_max_age_days`. **Rounding:** each
+  currency's opening, each bucket's total and `beyond` are converted on
+  their own and rounded once to the display currency's minor unit, half
+  away from zero (`ledger.Conversion.Convert`), then summed over the
+  currencies; the converted total is the sum of the converted bucket
+  totals and each converted closing the converted opening plus the
+  converted totals so far, so the converted figures add up as each
+  currency's do (two buckets of USD -0.02 at 1.25 are -0.03 CAD each,
+  -0.06 together, where USD -0.04 at once would be -0.05;
+  `TestLiquidityForecastConverted`). **A missing rate** leaves the
+  currency out of every converted figure and lists it in
+  `incomplete_currencies`, as §10 settles ("rather than refused"): never
+  counted as zero. An unknown display currency is 422
+  `cash.unknown_currency`; an amount out of range 422
+  `cash.amount_too_large`. Across companies in group currency (§9, §10,
+  §15) is not this slice (tracker, src `adr:ADR-0051`).
+- **Drill-down** (§9). The flows of one currency from `from` (default the
+  read date) to `to` (default no end, so `beyond` is reachable), computed
+  exactly as the forecast computes them from the same database state, by
+  day; with `liquidity_item`, the flows with a share of that item or its
+  descendants, each with that `share` (so a bucket's drill-down `total`
+  is the item row's cell); with `unclassified=true` the shares of the row
+  without an item (not with `liquidity_item`, 422); else every flow, its
+  share its amount. `total` adds the counted shares over every page,
+  `count` the flows. A flow is what the forecast counts as one: a
+  supplier payment netted as a run nets it, a run's payment, a payment in
+  transit's line, a down payment request, a memo record's occurrence.
+  Each names its supplier (`PartnerName`: id, number, name) and the
+  documents it pays (`LiquidityForecastDocument`: kind, id, number, what
+  the flow pays of it) to read through their own context: a posted item's
+  journal entry (its document number, now read with the open item,
+  `ledger.PayableItem.Document`, `Number`), a parked or held invoice, a
+  down payment request, the payment run (run and in-transit flows), a
+  memo record (its reference). Paged by cursor (04 §4.5), 50 by default,
+  at most 500; the token holds the last flow's key, its day and a digest
+  of its source, certainty and documents, so it orders the pages by day
+  and names no document.
+- **What the drill-down reveals** (security posture, decided as the most
+  restrictive reasonable option and put to the product owner). §15 gives
+  `cash.forecast.read` to people and agents, and §9 drills "through the
+  owning contexts' APIs", but neither says what a reader of the forecast
+  alone may see of a flow. As built, `cash.forecast.read` shows the flows
+  (day, source, certainty, amount, share) and `document_count`; a flow's
+  supplier is shown only to a caller who may use `partner.supplier.read`,
+  and each document only to one who may use its owning context's read
+  permission (`ledger.entry.read`, `payables.invoice.read`,
+  `payments.run.read`, `cash.memo.read`), as `authz.MayUse` decides it
+  (held, not barred by a segregation-of-duties rule), the permissions read
+  once a page: otherwise they are left out, never refused (04 §4.4, as
+  T45e's bank details and the expansions). The question for the product
+  owner: whether a single supplier payment's amount and day, unnamed,
+  should need more than `cash.forecast.read`.
+- **Budget** (§6). `TestLiquidityForecastBudget`: 100,000 open supplier
+  items (two suppliers set up in the company and a blocked vendor, each
+  item with terms and an expense line), the forecast in the company's
+  buckets converted into CAD, and a month's drill-down by item, 20 reads
+  each after a warm-up. §6's 2 s was "a budget to confirm"; measured on
+  the development laptop (load 19-26 from parallel lanes) the forecast
+  answers in 2.0-2.3 s median, of which the payments port is 1.5-2.0 s:
+  the ledger's open-item read (`OpenItems.Owed`, about 1.0 s: an index
+  probe per item into the terms, the entry, the clearings and the
+  reservations) and the offsetting lines (`OpenItems.Offsetting`, about
+  0.5 s); the flows themselves are classified in about 10 ms. A due-date
+  index would not help: the forecast reads every open item (`beyond`
+  included). The budget is declared at **p95 3 s** (scaled by
+  `ERP_BUDGET_SCALE`, 01 §Performance), and §6's 2 s is reached by P3 (b),
+  the stored flow table, which the product owner deferred: listed for the
+  product owner. On the way the forecast stopped asking the database for
+  a house bank's code once per item (`withBankCodes`), and the derivation
+  compares an account with the rules once per read (`rules`), taking a
+  document whose lines all fall to one item whole without the
+  proportional split (the same shares, `TestDerive`).
+- **Evidence.** `cash.TestLiquidityForecastOpeningAndSources`,
+  `TestLiquidityForecastGrain`, `TestLiquidityForecastConverted`,
+  `TestLiquidityForecastDrillDown` (pages, item and descendants, beyond,
+  two lines of one payment, refusals), `TestLiquidityForecastDrillDownGated`
+  (not held, and barred by a segregation-of-duties rule),
+  `TestLiquidityForecastBlockedDrillDown`, `TestLiquidityForecastDrillFailures`
+  (every database failure), `TestLiquidityForecastBudget`; the existing
+  forecast, position, memo and simulation tests unchanged in what they
+  assert (a bank's currency listed without flows). The walkthrough's step
+  22: a USD memo record without a bank, the forecast opened and closed
+  per bucket and converted into CAD, a range of weeks, the drill-down of
+  two weeks of customer receipts to their memo records, and a person
+  holding `cash.forecast.read` alone shown the same flows without their
+  documents or suppliers; step 21 now lists step 13's memo records under
+  Customer receipts.
 
 ### 10. Currency conversion
 Amounts are kept and shown in their own currency first: a bank's balance

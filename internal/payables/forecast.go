@@ -70,7 +70,8 @@ type unposted struct {
 
 // item is the open item the invoice would post.
 func (u unposted) item(ctx context.Context, v Invoice) (ledger.PayableItem, error) {
-	it := ledger.PayableItem{PartnerID: v.SupplierID, DocumentDate: v.InvoiceDate, Currency: v.Currency, Amount: -signed(v, v.Gross), Lines: itemLines(v)}
+	it := ledger.PayableItem{PartnerID: v.SupplierID, DocumentDate: v.InvoiceDate, Currency: v.Currency, Amount: -signed(v, v.Gross), Lines: itemLines(v),
+		Document: v.ID, Number: v.DocumentNumber}
 	sup, err := u.supplier(ctx, v)
 	if err != nil {
 		return it, err

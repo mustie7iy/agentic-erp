@@ -186,7 +186,7 @@ func TestLiquidityForecastItems(t *testing.T) {
 		"CAD day 2026-04-30..2026-04-30: payable/expected/late=false -1152.00 CAD x1 = -1152.00 CAD",
 		"CAD week 2026-05-01..2026-05-07: payable/expected/late=false -900.00 CAD x1, payable_blocked/expected/late=false -700.00 CAD x1 = -900.00 CAD",
 		"CAD week 2026-05-08..2026-05-14: invoice_unposted/planned/late=false -200.00 CAD x1 = -200.00 CAD",
-		"CAD total -3402.00 CAD, beyond 0.00 CAD x0, blocked -700.00 CAD x1",
+		"CAD total -3402.00 CAD, beyond 0.00 CAD x0, blocked -700.00 CAD x1", noUSD,
 	})
 	rows := []string{
 		"INVESTING Investing (<nil>): [2026-04-17 -800.00, 2026-04-30 -357.00] total -1157.00 CAD beyond 0.00 CAD",

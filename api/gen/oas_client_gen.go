@@ -1141,8 +1141,32 @@ type Invoker interface {
 	// them, so the top rows add up to each bucket's `total`, and the item's own flows by source and
 	// certainty; a row without `liquidity_item` holds what no rule assigns and no default covers.
 	// `min_certainty` cuts the less certain flows (actual, confirmed, expected, planned; default planned,
-	// every flow). Memo records, converted totals, the opening position and drill-down are a later step
-	// (T53e4). A legal entity the caller cannot act in is 404.
+	// every flow). T53e4 adds two sources, the opening position, one grain over a range, conversion and
+	// drill-down. `in_transit` (`confirmed`): the payments released from the company's active house banks
+	// whose line on the bank's clearing account is still open and that no statement line up to the bank's
+	// opening statement matches, as in the cash position (`getCashPosition`), on their run date plus the
+	// bank's value days moved to the next working day, `late` before the read date. `memo`: the `active`
+	// memo records of the legal entity, with or without a house bank, at their own certainty and liquidity
+	// item, each on its value date moved to the next working day (`late` before the read date) and not
+	// after it expires; a series' occurrences up to the last bucket's end, each once (an override
+	// replacing its occurrence), a one-off record also after the last bucket (`beyond`). Each currency
+	// gives its `opening`, the cash position's opening of the read date: the sum of its active house
+	// banks' latest statement closing balances before the read date (zero without a bank; a currency with
+	// a bank and no flow is listed too), and each bucket its `closing`, the opening plus the bucket's
+	// `total` and those of every bucket before it. `grain` with `to` asks for one grain over a range
+	// instead of the company's buckets: periods of the grain from the read date up to the one holding
+	// `to`, at most 92 days, 104 weeks or 36 months (the configuration's limits); one without the other, a
+	// `to` before the read date or more periods are 422. `display_currency` adds `converted` (ADR-0051
+	// §10): each currency's opening, buckets' totals and `beyond` converted into it at one rate for every
+	// bucket, the latest of the company's `cash.rate_type` valid on the read date (default `planning`;
+	// with no planning rate, `average`), each amount rounded once to the display currency's minor unit,
+	// half away from zero, then summed over the currencies; the converted `closing` is the converted
+	// opening plus the converted totals so far, so it adds up as the currencies' own do. A rate valid from
+	// more than `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`; a
+	// currency without a rate is left out of the converted figures and listed in `incomplete_currencies`
+	// (its own figures stand), never counted as zero. A display currency the reference data does not know
+	// is 422 `cash.unknown_currency`. The flows and documents behind a bucket and liquidity item are
+	// `listLiquidityForecastFlows`. A legal entity the caller cannot act in is 404.
 	//
 	// GET /v1/liquidity-forecast
 	GetLiquidityForecast(ctx context.Context, params GetLiquidityForecastParams) (GetLiquidityForecastRes, error)
@@ -1746,6 +1770,25 @@ type Invoker interface {
 	//
 	// GET /v1/legal-entities
 	ListLegalEntities(ctx context.Context, params ListLegalEntitiesParams) (ListLegalEntitiesRes, error)
+	// ListLiquidityForecastFlows invokes listLiquidityForecastFlows operation.
+	//
+	// The drill-down of the liquidity forecast (ADR-0051 §9, T53e4): the flows of one currency whose day
+	// is from `from` (default the read date) to `to` (default no end, so the flows after the last bucket
+	// are reached too), computed as `getLiquidityForecast` computes them from one database state, by day;
+	// with `liquidity_item`, only the flows with a share of that item or its descendants, each with that
+	// `share` (as the item's row adds them up); with `unclassified=true`, only the shares no rule assigns
+	// and no default covers; else every flow, its `share` its whole amount. A memo series' occurrences are
+	// listed up to `to`, else up to the last of the company's buckets. `total` adds up the shares of every
+	// page's flows that the forecast counts (a `payable_blocked` one only with `include_blocked`), so a
+	// bucket's drill-down totals its cell of the item's row; `count` counts the flows of every page. Each
+	// flow names its supplier (number and name) only to a caller who may use `partner.supplier.read`, and
+	// each document only to one who may use its context's read permission (`ledger.entry.read`,
+	// `payables.invoice.read`, `payments.run.read`, `cash.memo.read`); for others it is left out, never
+	// refused, and `document_count` still counts it. A liquidity item the configuration does not have
+	// lists nothing. A legal entity the caller cannot act in is 404.
+	//
+	// GET /v1/liquidity-forecast-flows
+	ListLiquidityForecastFlows(ctx context.Context, params ListLiquidityForecastFlowsParams) (ListLiquidityForecastFlowsRes, error)
 	// ListMatchResults invokes listMatchResults operation.
 	//
 	// History of three-way match evaluations, newest first.
@@ -19736,8 +19779,32 @@ func (c *Client) sendGetLegalEntityToday(ctx context.Context, params GetLegalEnt
 // them, so the top rows add up to each bucket's `total`, and the item's own flows by source and
 // certainty; a row without `liquidity_item` holds what no rule assigns and no default covers.
 // `min_certainty` cuts the less certain flows (actual, confirmed, expected, planned; default planned,
-// every flow). Memo records, converted totals, the opening position and drill-down are a later step
-// (T53e4). A legal entity the caller cannot act in is 404.
+// every flow). T53e4 adds two sources, the opening position, one grain over a range, conversion and
+// drill-down. `in_transit` (`confirmed`): the payments released from the company's active house banks
+// whose line on the bank's clearing account is still open and that no statement line up to the bank's
+// opening statement matches, as in the cash position (`getCashPosition`), on their run date plus the
+// bank's value days moved to the next working day, `late` before the read date. `memo`: the `active`
+// memo records of the legal entity, with or without a house bank, at their own certainty and liquidity
+// item, each on its value date moved to the next working day (`late` before the read date) and not
+// after it expires; a series' occurrences up to the last bucket's end, each once (an override
+// replacing its occurrence), a one-off record also after the last bucket (`beyond`). Each currency
+// gives its `opening`, the cash position's opening of the read date: the sum of its active house
+// banks' latest statement closing balances before the read date (zero without a bank; a currency with
+// a bank and no flow is listed too), and each bucket its `closing`, the opening plus the bucket's
+// `total` and those of every bucket before it. `grain` with `to` asks for one grain over a range
+// instead of the company's buckets: periods of the grain from the read date up to the one holding
+// `to`, at most 92 days, 104 weeks or 36 months (the configuration's limits); one without the other, a
+// `to` before the read date or more periods are 422. `display_currency` adds `converted` (ADR-0051
+// §10): each currency's opening, buckets' totals and `beyond` converted into it at one rate for every
+// bucket, the latest of the company's `cash.rate_type` valid on the read date (default `planning`;
+// with no planning rate, `average`), each amount rounded once to the display currency's minor unit,
+// half away from zero, then summed over the currencies; the converted `closing` is the converted
+// opening plus the converted totals so far, so it adds up as the currencies' own do. A rate valid from
+// more than `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`; a
+// currency without a rate is left out of the converted figures and listed in `incomplete_currencies`
+// (its own figures stand), never counted as zero. A display currency the reference data does not know
+// is 422 `cash.unknown_currency`. The flows and documents behind a bucket and liquidity item are
+// `listLiquidityForecastFlows`. A legal entity the caller cannot act in is 404.
 //
 // GET /v1/liquidity-forecast
 func (c *Client) GetLiquidityForecast(ctx context.Context, params GetLiquidityForecastParams) (GetLiquidityForecastRes, error) {
@@ -19798,6 +19865,57 @@ func (c *Client) sendGetLiquidityForecast(ctx context.Context, params GetLiquidi
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "grain" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "grain",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Grain.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.To.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "display_currency" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "display_currency",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DisplayCurrency.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
 		}); err != nil {
 			return res, errors.Wrap(err, "encode query")
 		}
@@ -34416,6 +34534,300 @@ func (c *Client) sendListLegalEntities(ctx context.Context, params ListLegalEnti
 
 	stage = "DecodeResponse"
 	result, err := decodeListLegalEntitiesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListLiquidityForecastFlows invokes listLiquidityForecastFlows operation.
+//
+// The drill-down of the liquidity forecast (ADR-0051 §9, T53e4): the flows of one currency whose day
+// is from `from` (default the read date) to `to` (default no end, so the flows after the last bucket
+// are reached too), computed as `getLiquidityForecast` computes them from one database state, by day;
+// with `liquidity_item`, only the flows with a share of that item or its descendants, each with that
+// `share` (as the item's row adds them up); with `unclassified=true`, only the shares no rule assigns
+// and no default covers; else every flow, its `share` its whole amount. A memo series' occurrences are
+// listed up to `to`, else up to the last of the company's buckets. `total` adds up the shares of every
+// page's flows that the forecast counts (a `payable_blocked` one only with `include_blocked`), so a
+// bucket's drill-down totals its cell of the item's row; `count` counts the flows of every page. Each
+// flow names its supplier (number and name) only to a caller who may use `partner.supplier.read`, and
+// each document only to one who may use its context's read permission (`ledger.entry.read`,
+// `payables.invoice.read`, `payments.run.read`, `cash.memo.read`); for others it is left out, never
+// refused, and `document_count` still counts it. A liquidity item the configuration does not have
+// lists nothing. A legal entity the caller cannot act in is 404.
+//
+// GET /v1/liquidity-forecast-flows
+func (c *Client) ListLiquidityForecastFlows(ctx context.Context, params ListLiquidityForecastFlowsParams) (ListLiquidityForecastFlowsRes, error) {
+	res, err := c.sendListLiquidityForecastFlows(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListLiquidityForecastFlows(ctx context.Context, params ListLiquidityForecastFlowsParams) (res ListLiquidityForecastFlowsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listLiquidityForecastFlows"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/liquidity-forecast-flows"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListLiquidityForecastFlowsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/liquidity-forecast-flows"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "currency" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "currency",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.Currency))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.From.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.To.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "liquidity_item" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "liquidity_item",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LiquidityItem.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "unclassified" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "unclassified",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Unclassified.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "min_certainty" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "min_certainty",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MinCertainty.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include_blocked" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include_blocked",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.IncludeBlocked.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListLiquidityForecastFlowsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListLiquidityForecastFlowsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

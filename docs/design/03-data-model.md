@@ -2747,6 +2747,24 @@ out); an unposted invoice's are its items
 `partner.supplier_company.planning_group`. The derivation rules are read
 from the active document (`cash.derivation`). No migration.
 
+T53e4 adds the opening, the payments in transit and the memo records,
+still storing nothing: each currency opens at its active house banks'
+latest `payments.bank_statement.closing_balance` before the read date,
+as the cash position opens; the payments in transit are the position's
+(open lines of `payments.payment`'s postings on the bank's clearing
+account, `ledger.journal_line`, not matched by a statement line up to the
+opening statement); the memo records are every `active`
+`cash.memo_record` of the legal entity, with a house bank or none. The
+drill-down (`GET /v1/liquidity-forecast-flows`) names the documents a flow
+pays by their ids and numbers in their own schemas: a posted item's
+`ledger.journal_entry` (`document_number`, read with the open item), a
+parked or held `payables.supplier_invoice`, a
+`payables.down_payment_request`, the `payments.payment_run`
+(`document_number`, read with the payment) and the `cash.memo_record`
+(`reference`); suppliers by `partner.business_partner` number and name.
+Conversion reads `ledger.exchange_rate` through the rate service. No
+migration.
+
 ## 3.19 Controlling (`controlling`)
 
 Plan values and plan against actual (ADR-0050 §2, §8, decision P5; T56g).

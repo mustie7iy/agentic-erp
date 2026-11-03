@@ -73,7 +73,7 @@ func TestClassify(t *testing.T) {
 		{"an inflow", 50, []part{{amount: 50}}, "[{RECEIPTS 50}]"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := classify(d, &sums{}, c.amount, c.parts)
+			got, err := classify(newRules(d), &sums{}, c.amount, c.parts)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -90,7 +90,7 @@ func TestClassify(t *testing.T) {
 		{"an amount out of range", []part{{amount: math.MinInt64, lines: []DocumentLine{{Account: "530000", Amount: 1}, {Account: "1", Amount: 1}}}}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			if _, err := classify(d, &sums{}, -1, c.parts); !errors.Is(err, money.ErrOverflow) {
+			if _, err := classify(newRules(d), &sums{}, -1, c.parts); !errors.Is(err, money.ErrOverflow) {
 				t.Errorf("got %v, want money.ErrOverflow", err)
 			}
 		})
