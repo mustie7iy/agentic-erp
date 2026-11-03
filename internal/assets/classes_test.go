@@ -47,8 +47,12 @@ func withClasses(doc *config.Config) {
 			co.AssetAccounts = append(co.AssetAccounts, accounts)
 		}
 		for _, y := range fixture.Years() {
+			first, last := int64(1), int64(999999)
+			if y != 2026 { // asset numbers may not repeat another year's (config.NumberedPerYear)
+				first, last = 1000000, 1999999
+			}
 			for _, kind := range config.AssetRanges {
-				doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: co.Code, DocumentType: kind, FiscalYear: y, First: 1, Last: 999999})
+				doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: co.Code, DocumentType: kind, FiscalYear: y, First: first, Last: last})
 			}
 		}
 	}

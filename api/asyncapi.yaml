@@ -98,6 +98,7 @@ info:
     - name: cash
     - name: controlling
     - name: tax
+    - name: assets
     - name: platform
 
 defaultContentType: application/json
@@ -346,6 +347,14 @@ channels:
     messages:
       PlanCategoryChanged: {$ref: '#/components/messages/PlanCategoryChanged'}
       PlanBatchApplied: {$ref: '#/components/messages/PlanBatchApplied'}
+  assets:
+    address: 'erp.{cell}.assets.{tenant}.{event}'
+    title: Asset accounting events
+    description: Assets created, changed, cancelled, retired and reactivated (ADR-0057 §10).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      AssetChanged: {$ref: '#/components/messages/AssetChanged'}
   tax:
     address: 'erp.{cell}.tax.{tenant}.{event}'
     title: Tax filing events
@@ -556,6 +565,12 @@ operations:
     messages:
       - $ref: '#/channels/controlling/messages/PlanCategoryChanged'
       - $ref: '#/channels/controlling/messages/PlanBatchApplied'
+  publishAssetsEvents:
+    action: send
+    title: Asset accounting publishes
+    channel: {$ref: '#/channels/assets'}
+    messages:
+      - $ref: '#/channels/assets/messages/AssetChanged'
   publishTaxEvents:
     action: send
     title: Tax filing publishes
@@ -2817,6 +2832,29 @@ components:
         - name: created
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000501, source: /erp/eu-1/cash, type: com.example.erp.cash.memo_record_changed.v1, subject: 0192a000-0000-7000-8000-000000000d01, time: '2026-10-21T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {memo_record_id: 0192a000-0000-7000-8000-000000000d01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, change: created, status: active, version: 1}
+    AssetChanged:
+      name: AssetChanged
+      title: Asset changed
+      summary: An asset was created, changed or cancelled.
+      description: |
+        Emitted by `assets` (POST, `created`), `assets/{id}` (PATCH,
+        `changed`: its description, depreciation start or terms) and its
+        `:cancel` (`cancelled`), ADR-0057 §10; the acquisitions, retirements
+        and transfers that make an asset `active` or `retired` add
+        `capitalised`, `retired` and `reactivated` with their slices. It
+        says what changed, not the asset, which `GET /v1/assets/{id}`
+        returns at `version`. Subject is the asset id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.assets.asset_changed.v1}
+      payload: {$ref: '#/components/schemas/AssetChangedV1'}
+      examples:
+        - name: created
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000701, source: /erp/eu-1/assets, type: com.example.erp.assets.asset_changed.v1, subject: 0192a000-0000-7000-8000-000000000f01, time: '2026-11-02T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {asset_id: 0192a000-0000-7000-8000-000000000f01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, asset_number: '1', class_code: MACHINES, change: created, status: planned, version: 1}
     PlanCategoryChanged:
       name: PlanCategoryChanged
       title: Plan category changed
@@ -3475,6 +3513,17 @@ components:
         status: {type: string, description: 'Open enum: rejected.'}
         released_items: {type: integer, description: The tax items released to the next return.}
         comment: {type: [string, 'null'], description: "The rejection's comment."}
+    AssetChangedV1:
+      type: object
+      required: [asset_id, legal_entity_id, asset_number, class_code, change, status, version]
+      properties:
+        asset_id: {$ref: '#/components/schemas/Uuid', description: '`assets.asset.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        asset_number: {type: string}
+        class_code: {type: string}
+        change: {type: string, description: 'Open enum: created, changed, cancelled.'}
+        status: {type: string, description: 'The status after the change. Open enum: planned, active, retired, cancelled.'}
+        version: {type: integer, description: "The asset's version after the change."}
     PlanCategoryChangedV1:
       type: object
       required: [plan_category_id, code, name, locked, change]

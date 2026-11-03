@@ -1128,9 +1128,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Asset master: schema assets (asset, asset_terms, asset_assignment keyed by a per-asset seq, the highest seq naming the asset's centers, with a schema test; the profit center derived from the cost center on the creation date (ledger.profit_center_mismatch for another); RLS, tenant_id first, state trigger, schema tests); asset.last_seq for posting order; the assets leaf and its ports, assets.Runs included (internal/layout leaves); /v1/assets create, list, get, PATCH (description, terms, depreciation start), :cancel; numbers from the asset range; terms per kept ledger from the class; assets.cost_center_required; permissions assets.asset.read/change; AssetChanged; audit; walkthrough: an asset created with a cost center and read with its class name and terms per ledger, a second cancelled",
-        "r": "ADR-0057 · T57b",
+        "r": "migration 000191 (schema assets: asset, asset_terms, asset_assignment; asset_transition, asset_fixed, asset_seq_forward, asset_terms_in_use, asset_assignment_seq, asset_assignment_valid_from; assets outbox; assets.asset.change) · internal/assets (asset.go, assetstore.go, terms.go, asset_api.go; ports Companies, Ledger, Centers, Numbers, Runs) · ledger.AssetReads (Ledgers, Assignment, CenterNames) · internal/app/assets.go (adapters, assetRuns over operations) · POST/GET /v1/assets, GET/PATCH /v1/assets/{id}, :cancel; AssetChanged on the assets channel · TestCreateAsset, TestCreateAssetRefused, TestUpdateAsset, TestUpdateAssetRefused, TestCancelAsset, TestListAssets, TestAssetDatabaseFailures, TestDepreciationRunOperations, TestAssetRules, TestAssetAssignmentsInSeqOrder, TestAssetTermsInUse · walkthrough step_asset_master (step 20) · ADR-0057 (as built, T57b) · 03-data-model §3.21 · T57b",
         "src": "adr:ADR-0057",
         "c": []
        },

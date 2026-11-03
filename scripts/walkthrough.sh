@@ -2494,6 +2494,55 @@ step_assets() {
   passed
 }
 
+step_asset_master() {
+  heading "Step 20 — The asset master: a machine on its cost center with its terms per ledger; an asset created in error cancelled"
+  as carla
+  say "Carla creates the company's first machine as an asset of class MACHINES on the finance office's cost center"
+  say "(ADR-0057 §5, §8). It is numbered from the company's asset range, takes its class's depreciation terms in every"
+  say "ledger the company keeps, and its profit center from the cost center today. It is planned: an acquisition gives"
+  say "it its value (T57c)."
+  local cc asset second ledgers
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  QUIET=1 api 200 '' listAssetClasses -p "legal_entity_id=$LE"
+  ledgers=$(field '.items[] | select(.code == "MACHINES") | .terms | length')
+  api 201 '"asset \(.company_code)/\(.asset_number) \(.description): \(.status)"' createAsset \
+    -body "{\"legal_entity_id\": \"$LE\", \"class_code\": \"MACHINES\", \"description\": \"CNC milling machine\", \"cost_center_id\": \"$cc\"}"
+  asset=$(field .id)
+  api 200 '"asset \(.asset_number) \(.description), class \(.class_code) \(.class_name), \(.status)",
+    "  cost center \(.cost_center_code) \(.cost_center_name), profit center \(.profit_center_code) \(.profit_center_name)",
+    (.terms[] | "  \(.ledger_code) \(.ledger_name): \(.method), \(.useful_life_months) months\(if .declining_factor then ", factor \(.declining_factor)" else "" end), residual value \(.residual_value.amount) \(.residual_value.currency)")' \
+    getAsset -p "id=$asset"
+  expect "the asset's class" "$(field '"\(.class_code) \(.class_name)"')" "MACHINES Machinery and equipment"
+  expect "the asset's status" "$(field .status)" planned
+  expect "the asset's cost center" "$(field .cost_center_code)" CC-1100
+  expect "the profit center, the cost center's" "$(field .profit_center_code)" PC-MTL
+  expect "terms in every ledger the class has for the company" "$(field '.terms | length')" "$ledgers"
+  expect "the leading ledger's terms" "$(field '.terms[] | select(.ledger_code == "0L") | "\(.method) \(.useful_life_months)"')" "straight_line 120"
+  say "The machine goes into use next month, so its depreciation starts then in every ledger; a residual value of"
+  say "500.00 is kept in the leading ledger."
+  local next leading y=${TODAY:0:4} m=$((10#${TODAY:5:2} + 1))
+  if [ "$m" -gt 12 ]; then m=1 y=$((y + 1)); fi
+  next=$(printf '%s-%02d-01' "$y" "$m")
+  leading=$(field '.terms[] | select(.ledger_code == "0L") | .ledger_id')
+  api 200 '(.terms[] | "  \(.ledger_code): from \(.depreciation_start), residual value \(.residual_value.amount) \(.residual_value.currency)")' updateAsset \
+    -p "id=$asset" -if-match "$ETAG" \
+    -body "{\"depreciation_start\": \"$next\", \"terms\": [{\"ledger_id\": \"$leading\", \"residual_value\": {\"amount\": \"500.00\", \"currency\": \"CAD\"}}]}"
+  expect "the depreciation start" "$(field '[.terms[].depreciation_start] | unique | join(" ")')" "$next"
+  expect "the leading ledger's residual value" "$(field '.terms[] | select(.ledger_code == "0L") | .residual_value.amount')" "500.00"
+  say "A second machine was entered twice by mistake; Carla cancels the copy. It keeps its number, and a cancelled"
+  say "asset is final."
+  api 201 '"asset \(.company_code)/\(.asset_number) \(.description): \(.status)"' createAsset \
+    -body "{\"legal_entity_id\": \"$LE\", \"class_code\": \"MACHINES\", \"description\": \"CNC milling machine (entered twice)\", \"cost_center_id\": \"$cc\"}"
+  second=$(field .id)
+  api 200 '"asset \(.asset_number): \(.status)"' cancelAsset -p "id=$second" -if-match "$ETAG"
+  expect "the copy's status" "$(field .status)" cancelled
+  refused 409 assets.asset_not_planned cancelAsset -p "id=$second" -if-match "$ETAG"
+  api 200 '.items[] | "  \(.company_code)/\(.asset_number) \(.class_code) \(.description): \(.status)"' listAssets -p "legal_entity_id=$LE"
+  expect "the company's assets" "$(field '[.items[].status] | join(" ")')" "planned cancelled"
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -2515,7 +2564,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master'
 
 main() {
   start
