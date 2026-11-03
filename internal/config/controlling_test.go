@@ -98,6 +98,9 @@ func TestControllingRules(t *testing.T) {
 			c.Companies[0].AccountDetermination.FXLoss = "680000"
 		}, p + ".default_assignments[680000]"},
 		{"a tax account that is an expense", func(c *Config) { c.Companies[0].TaxCodes[0].Account = "530000" }, p + ".default_assignments[530000]"},
+		{"a tax component's account that is an expense", func(c *Config) {
+			c.Companies[0].TaxCodes = append(c.Companies[0].TaxCodes, componentCode("CA", "530000"))
+		}, p + ".default_assignments[530000]"},
 		{"cash discount on an expense", func(c *Config) {
 			c.Companies[0].Account("400000").Type = Expense
 			c.Companies[0].Account("400000").CostElement = ""
@@ -136,6 +139,14 @@ func TestAutomaticAccountFindingNamesEveryUse(t *testing.T) {
 	}
 }
 
+// componentCode is an input tax code of two components: one posting to
+// account, one non-deductible, which posts to no tax account.
+func componentCode(code, account string) TaxCode {
+	return TaxCode{Code: code, Description: "GST and PST", Components: []TaxComponent{
+		{Key: "gst", AccountKey: KeyInput, Account: account, Rates: []TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}},
+		{Key: "pst_bc", AccountKey: KeyNonDeductible, Rates: []TaxRate{{RatePercent: "7", ValidFrom: "2026-01-01"}}}}}
+}
+
 func TestCostElementOrDefault(t *testing.T) {
 	for _, tc := range []struct {
 		account Account
@@ -162,6 +173,7 @@ func TestAutomaticAccounts(t *testing.T) {
 	co := c.Companies[0]
 	co.WithholdingTaxCodes = []WithholdingTaxCode{{Code: "W1", Account: "211099"}}
 	co.HouseBank.GLAccount = "100000"
+	co.TaxCodes = append(co.TaxCodes, componentCode("CA", "530000"))
 	got := map[string]string{}
 	for _, a := range co.AutomaticAccounts() {
 		got[a.Path] = a.Account
@@ -170,13 +182,15 @@ func TestAutomaticAccounts(t *testing.T) {
 		"tax_codes[V1].account": "140000", "withholding_tax_codes[W1].account": "211099", "fx_valuation.accounts[211000].adjustment": "211099",
 		"fx_valuation.accounts[100000].unrealised_gain": "400000", "fx_valuation.accounts[100000].unrealised_loss": "610000",
 		"house_bank.gl_account": "100000", "house_bank.main_gl_account": "102000", "house_bank.incoming_gl_account": "103000",
-		"bank_statements.posting_rules[NCHG].account": "690000"} {
+		"bank_statements.posting_rules[NCHG].account": "690000", "tax_codes[CA].components[gst].account": "530000"} {
 		if got[path] != want {
 			t.Errorf("%s: got %q, want %s", path, got[path], want)
 		}
 	}
-	if _, ok := got["account_determination.fx_gain"]; ok {
-		t.Errorf("an empty setting is listed: %v", got)
+	for _, empty := range []string{"account_determination.fx_gain", "tax_codes[CA].account", "tax_codes[CA].components[pst_bc].account"} {
+		if _, ok := got[empty]; ok {
+			t.Errorf("an empty setting, %s, is listed: %v", empty, got)
+		}
 	}
 	further := c.Companies[1].AutomaticAccounts()
 	if !slices.Contains(further, AutomaticAccount{Path: "house_banks[DB].gl_account", Account: "101000"}) {

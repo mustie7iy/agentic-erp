@@ -2196,6 +2196,13 @@
        },
        {
         "s": "D",
+        "t": "Automatic accounts include a multi-component tax code's component accounts (found in T57a's review): config.Company.AutomaticAccounts listed a tax code's account only in the single-rate form, so with cost center accounting on a component posting to a primary_cost account passed activation without a default cost center, and its automatic posting would be refused; it now lists each component's account (a non-deductible component has none), and T57a's refusal of an asset reconciliation account reads the same list instead of adding the components itself",
+        "r": "internal/config controlling.go AutomaticAccounts · assets.go notAutomatic · TestAutomaticAccounts · TestControllingRules (a tax component's account that is an expense) · TestAssetClassesValid (a reconciliation account for a tax component) · ADR-0050 §4 As built (T56c2) · ADR-0057 As built · T56c2",
+        "src": "review:T57a",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "Assignment on the journal (part 1): cost_center_id, profit_center_id, segment_id on journal_line, FKs NOT VALID per partition then validated per partition and taken over by the parent (cost center of the line's company, profit center assigned to it), partial indexes per partition; derivation and validation once per posting group in postAll (every posting path, Postings, parked entries checked at parking, T52 copies alike, reversals copy), reading cost_element, company_controlling per posting fiscal year, active default_assignment and revenue_allowed; 422 cost_center_required/cost_center_invalid/profit_center_invalid/profit_center_mismatch/segment_mismatch with reasons, FK constraint mappings; centers FOR KEY SHARE and periods FOR SHARE with a race test against a lock; a default may precede its validity (first period), whether the posting is automatic or manual, a center entered on such a date refused (PO 2026-10-25); keepsDefault* by Endpoints.Now/CenterChanges.Now; AssignmentSimulation leaves out lines with a cost center other than the default; released only together with T56d2",
         "r": "migrations 000155-000158 · internal/ledger assignment.go, journal.go, parked.go, ports.go, controlling.go, assignsim.go · api/openapi.yaml (x-problem-codes) · ADR-0050 §5 · T56d (released with T56d2)",
         "src": "baseline",

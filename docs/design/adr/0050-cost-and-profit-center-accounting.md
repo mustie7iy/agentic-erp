@@ -438,6 +438,15 @@ As built in T56c (migration 000140):
   order item's cost center first: the default is the fallback when an item
   has none. The default profit center is required with profit center
   accounting and allowed only with it.
+  **As built in T56c2 (review of T57a):** a tax code's accounts are its
+  account in the single-rate form and each component's account in the
+  multi-component form (T61a; a non-deductible component has none):
+  `AutomaticAccounts` had listed only the first, so a component posting to
+  a `primary_cost` account passed activation without a default and its
+  posting would have been refused. The finding names the component
+  (`tax_codes[X].components[K].account`). Every check of automatic
+  accounts, this one and ADR-0057's refusal of an asset reconciliation
+  account, reads this one list.
 - **Ledger** (`ledger.Setup`). `gl_account.cost_element` (accounts set up
   before took their type's default); `cost_center_category`, deactivated
   rather than deleted, the category of every cost center period by foreign
