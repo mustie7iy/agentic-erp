@@ -660,7 +660,15 @@ func (d Decider) decide(ctx context.Context, id uuid.UUID, ifMatch func(int32) e
 	return tx, p, r, nil
 }
 
+// insertDecision records a person's decision on the request's current
+// step. A rejection or cancellation gives its reason in the comment
+// (decision_check), so one of white space alone is refused on comment.
 func (d Decider) insertDecision(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Request, decision, comment string) error {
+	if decision != "approve" {
+		if err := problem.RequireText("comment", comment); err != nil {
+			return err
+		}
+	}
 	var c *string
 	if comment != "" {
 		c = &comment

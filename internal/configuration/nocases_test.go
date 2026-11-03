@@ -22,6 +22,7 @@ import (
 func TestRegressionEvidenceWithoutCases(t *testing.T) {
 	s := sim{fixture.New(t, append(perms, "platform.operation.read", "config.regression.manage")...)}
 	s.Problem(422, "config.no_cases", "POST", "/v1/regression-suites", `{"name": "Fresh"}`, "")
+	s.Blank("name", "POST", "/v1/regression-suites", `{"name": "   ", "allow_empty": true}`, "")
 	suite, _ := s.Must(201, "POST", "/v1/regression-suites", `{"name": "Fresh", "allow_empty": true}`, "")
 	t.Run("the suite", func(t *testing.T) {
 		if suite["case_count"] != float64(0) {

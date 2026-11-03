@@ -75,6 +75,9 @@ func (e *Endpoints) CreatePlanCategory(ctx context.Context, req *gen.PlanCategor
 	if err != nil {
 		return nil, err
 	}
+	if err := problem.RequireText("name", req.Name); err != nil {
+		return nil, err
+	}
 	c, err := scanCategory(tx.QueryRow(ctx, `INSERT INTO controlling.plan_category (tenant_id, id, code, name, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $5) RETURNING `+categoryColumns, p.TenantID, uuid.Must(uuid.NewV7()), req.Code, req.Name, p.ID))
 	if err != nil {

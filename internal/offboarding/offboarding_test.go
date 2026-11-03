@@ -524,26 +524,10 @@ func (sc *failuresScenario) exportCommitAndBeginFailing(t *testing.T) {
 
 // eachExportStatementFailing is the step "each export statement failing" of TestOffboardingFailures.
 func (sc *failuresScenario) eachExportStatementFailing(t *testing.T) {
-	for n := 1; n < 400; n++ { // above the statements an export runs, which grow with the schemas (T57b added assets)
-		count := 0
-		sc.w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-			tx, err := sc.pool.Begin(ctx, s)
-			if err != nil {
-				return nil, err
-			}
-			return &pgtest.FailingTx{Tx: tx, FailAt: n, Count: &count}, nil
-		}
+	eachStatementFailing(t, sc.pool, &sc.w.Begin, func() error {
 		_, err := sc.w.Export(sc.ctx, sc.tenant)
-		if err == nil {
-			if n == 1 {
-				t.Fatal("exported without a statement to fail")
-			}
-			break
-		}
-		if !errors.Is(err, pgtest.ErrInjected) {
-			t.Fatalf("statement %d: %v", n, err)
-		}
-	}
+		return err
+	})
 	sc.w.Begin = nil
 	ex, err := sc.w.Export(sc.ctx, sc.tenant)
 	if problem.From(err).Code != "tenancy.invalid_transition" { // the loop's last iteration exported it
@@ -639,26 +623,10 @@ func (sc *failuresScenario) eraseCommitsAndTakeover(t *testing.T) {
 
 // eachEraseStatementFailing is the step "each erase statement failing" of TestOffboardingFailures.
 func (sc *failuresScenario) eachEraseStatementFailing(t *testing.T) {
-	for n := 1; n < 400; n++ { // above the statements an export runs, which grow with the schemas (T57b added assets)
-		count := 0
-		sc.plain.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-			tx, err := sc.pool.Begin(ctx, s)
-			if err != nil {
-				return nil, err
-			}
-			return &pgtest.FailingTx{Tx: tx, FailAt: n, Count: &count}, nil
-		}
+	eachStatementFailing(t, sc.pool, &sc.plain.Begin, func() error {
 		_, err := sc.plain.Erase(sc.ctx, sc.tenant, offboarding.Actor, map[string]any{"operator": "ops|alice"})
-		if err == nil {
-			if n == 1 {
-				t.Fatal("erased without a statement to fail")
-			}
-			break
-		}
-		if !errors.Is(err, pgtest.ErrInjected) {
-			t.Fatalf("statement %d: %v", n, err)
-		}
-	}
+		return err
+	})
 	if n := count(t, `SELECT count(*) FROM tenancy.tenant WHERE id = $1 AND erased_at IS NOT NULL`, sc.tenant); n != 1 {
 		t.Fatal("not erased after the loop")
 	}
@@ -732,6 +700,39 @@ func (m manifestless) Put(ctx context.Context, key string, content []byte, opts 
 		return errors.New("store full")
 	}
 	return m.Store.Put(ctx, key, content, opts)
+}
+
+// eachStatementFailing runs run with its n-th database statement failing,
+// counted across its transactions, for n = 1, 2, … until a run issues
+// fewer than n statements and succeeds: the bound is the run's own
+// statement count, which grows with the schemas an export or erasure
+// reads, so no statement goes untested and no fixed bound needs raising.
+// Each failing run must report the injected error; a run that succeeds
+// though one of its statements failed, or that issues none, fails the
+// test.
+func eachStatementFailing(t *testing.T, pool *database.Pool, begin *database.BeginFunc, run func() error) {
+	t.Helper()
+	for n := 1; ; n++ {
+		count := 0
+		*begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, s)
+			if err != nil {
+				return nil, err
+			}
+			return &pgtest.FailingTx{Tx: tx, FailAt: n, Count: &count}, nil
+		}
+		err := run()
+		switch {
+		case err == nil && count == 0:
+			t.Fatal("succeeded without a statement to fail")
+		case err == nil && count >= n:
+			t.Fatalf("statement %d of %d failed, yet the run succeeded", n, count)
+		case err == nil:
+			return // every statement, 1 to count, has failed in turn
+		case !errors.Is(err, pgtest.ErrInjected):
+			t.Fatalf("statement %d: got %v, want %v", n, err, pgtest.ErrInjected)
+		}
+	}
 }
 
 // brokenCommitAt breaks the commit of the k-th transaction a worker starts.

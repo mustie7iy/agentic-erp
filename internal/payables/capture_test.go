@@ -184,6 +184,7 @@ func TestCapture(t *testing.T) {
 		"unknown order":  {func(x *capture.Extraction) { x.PurchaseOrder = "PO-9" }, unreadable},
 		"date":           {func(x *capture.Extraction) { x.InvoiceDate = "10.03.2026" }, unreadable},
 		"number":         {func(x *capture.Extraction) { x.InvoiceNumber = "" }, unreadable},
+		"blank number":   {func(x *capture.Extraction) { x.InvoiceNumber = "   " }, unreadable},
 		"currency":       {func(x *capture.Extraction) { x.Currency = "USD" }, unreadable},
 		"gross":          {func(x *capture.Extraction) { x.GrossAmount = "lots" }, unreadable},
 		"tax":            {func(x *capture.Extraction) { x.TaxAmount = "1.234" }, unreadable},

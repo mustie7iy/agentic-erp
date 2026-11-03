@@ -159,6 +159,9 @@ func (e *Endpoints) requisitionItems(ctx context.Context, le uuid.UUID, currency
 		if err := checkItemNo(it.No, i, field); err != nil {
 			return nil, err
 		}
+		if err := problem.RequireText(field+".description", it.Description); err != nil {
+			return nil, err
+		}
 		if err := quantity(it.Quantity, field+".quantity"); err != nil {
 			return nil, err
 		}

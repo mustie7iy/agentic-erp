@@ -5944,6 +5944,13 @@
         "src": "review:batch27",
         "pilot": "po:2026-10-31 · review:batch27",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "A required text of white space alone is 422 request.validation_failed naming its field, not the 409 request.rule_violated of the column's btrim check (finding of the T57b review, swept over every check on blank text): a change request's title, a regression suite's name, a legal entity's name, a supplier invoice's supplier_reference (a captured document's blank number is payables.unreadable_document), a business partner's name and an update change's payload.name (which failed only on approval), a requisition item's description, a rejection's or cancellation's comment and a plan category's name are checked before the write",
+        "r": "internal/platform/problem RequireText · internal/configuration · internal/tenancy · internal/payables · internal/partner · internal/procurement · internal/approvals · internal/controlling · apitest Client.Blank · api/openapi.yaml x-problem-codes · 04 §4.6 · ADR-0013 As built",
+        "src": "review:T57b",
+        "c": []
        }
       ]
      }
@@ -9090,6 +9097,13 @@
       "src": "design:07 §7.7",
       "pilot": "po:2026-10-31 · design:07 §7.7",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "The walkthrough reads UTC's day when step 4 asks for the supplier's order desk address, not when the run began (finding of the T57a review): a run crossing 00:00 UTC (19:00 or 20:00 in Toronto) sent the day before as the address's start and was refused partner.backdated_address, since a business partner's dates are judged on the database's day (database.Today, UTC); UTC's day is used nowhere else, and the company's days are Toronto's, which 00:00 UTC does not change",
+      "r": "scripts/walkthrough.sh order_document · scripts/walkthrough/dates.sh utc_day",
+      "src": "review:T57a",
+      "c": []
      }
     ]
    }
@@ -9472,6 +9486,13 @@
       "t": "internal/controlplane's bootstrap tests check the errors list's length before reading errs[0], so a response without errors fails the assertion instead of panicking the test",
       "r": "internal/controlplane controlplane_test.go:275, :280 (errs[0] without a length check) and :290 (the time-zone assertion added in batch 27 copies it) · CLAUDE.md tests: one clear assertion message per check",
       "src": "review:batch27",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "TestOffboardingFailures fails each statement of an export and of an erasure in turn up to the run's own statement count, not a fixed bound (finding of the T57b review: an export ran 195 statements against a bound of 199, and the assets schema pushed it past, so T57b raised the bound to 399); a run that succeeds though one of its statements failed, or issues none, fails the test",
+      "r": "internal/offboarding/offboarding_test.go eachStatementFailing",
+      "src": "review:T57b",
       "c": []
      }
     ]

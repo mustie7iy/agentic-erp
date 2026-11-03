@@ -56,6 +56,9 @@ func TestUpdateChange(t *testing.T) {
 	}
 	e.Problem(409, "partner.change_pending", "POST", "/v1/partner-changes", e.update(pid, `{"name": "Again"}`), "")
 	e.mustApply(t, id(c))
+	e.Blank("payload.name", "POST", "/v1/partner-changes", e.update(pid, `{"name": "   "}`), "")
+	e.Blank("name", "POST", "/v1/business-partners", `{"kind": "organization", "name": "   ", "country_code": "DE", "roles": ["customer"],
+		"reason": "New customer"}`, "")
 	got, _ := e.Must(200, "GET", "/v1/business-partners/"+pid, "", "")
 	for field, want := range map[string]any{"name": "Muster AG", "legal_name": "Muster Aktiengesellschaft", "language": nil} {
 		if got[field] != want {

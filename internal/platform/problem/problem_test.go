@@ -109,6 +109,41 @@ func TestReferenceNotFound(t *testing.T) {
 	}
 }
 
+// TestRequireText: a text of white space alone is 422 on its field, as
+// the column's check would refuse it; any other text passes.
+func TestRequireText(t *testing.T) {
+	for name, c := range map[string]struct {
+		value   string
+		refused bool
+	}{
+		"spaces":            {"   ", true},
+		"empty":             {"", true},
+		"a tab and newline": {"\t\n", true},
+		"a text":            {"Rent", false},
+		"a padded text":     {"  Rent ", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := RequireText("description", c.value)
+			if !c.refused {
+				if err != nil {
+					t.Errorf("got %v, want nil", err)
+				}
+				return
+			}
+			var p *Problem
+			if !errors.As(err, &p) {
+				t.Fatalf("got %v, want a problem", err)
+			}
+			if p.Status != 422 || p.Code != "request.validation_failed" {
+				t.Errorf("got %d %s, want 422 request.validation_failed", p.Status, p.Code)
+			}
+			if len(p.Errors) != 1 || p.Errors[0].Field != "description" {
+				t.Errorf("field errors: got %+v, want one on description", p.Errors)
+			}
+		})
+	}
+}
+
 func TestErrorAndCause(t *testing.T) {
 	cause := errors.New("disk on fire")
 	p := Internal(cause)
