@@ -239,7 +239,10 @@ func writeReversal(ctx context.Context, tx pgx.Tx, p reqctx.Principal, q Acquisi
 			return err
 		}
 	}
-	return derive(ctx, tx, p, q.AssetID, seq)
+	if err := derive(ctx, tx, p, q.AssetID, seq); err != nil {
+		return err
+	}
+	return keepTotals(ctx, tx, q.AssetID)
 }
 
 // recordReversal audits the reversal and publishes it as

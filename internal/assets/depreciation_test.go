@@ -40,8 +40,9 @@ func (e assetEnv) depreciable(t *testing.T, description string) (string, string)
 }
 
 // depreciate writes a depreciation movement of the asset in the ledger,
-// posted on the last day of 2026's period with the asset's next seq, as a
-// depreciation run (T57f) writes it.
+// posted on the last day of 2026's period with the asset's next seq, and
+// adds it to the asset's and its class's year totals, as a depreciation
+// run (T57f, T57i) writes them.
 func (e assetEnv) depreciate(t *testing.T, asset string, ledger uuid.UUID, period int, cents int64) {
 	t.Helper()
 	pgtest.Exec(t, `UPDATE assets.asset SET last_seq = last_seq + 1, version = version + 1 WHERE id = $1`, asset)
@@ -51,6 +52,13 @@ func (e assetEnv) depreciate(t *testing.T, asset string, ledger uuid.UUID, perio
 			'depreciation_run', gen_random_uuid(), $5
 		FROM assets.asset, (SELECT (make_date(2026, $3, 1) + interval '1 month' - interval '1 day')::date AS d) x WHERE id = $1`,
 		asset, ledger, period, cents, e.Tenant.Human.ID)
+	pgtest.Exec(t, `INSERT INTO assets.year_total AS y (tenant_id, ledger_id, asset_id, fiscal_year, legal_entity_id, class_code, depreciation)
+		SELECT tenant_id, $2, id, 2026, legal_entity_id, class_code, -$3::bigint FROM assets.asset WHERE id = $1
+		ON CONFLICT (tenant_id, ledger_id, asset_id, fiscal_year) DO UPDATE SET depreciation = y.depreciation + EXCLUDED.depreciation`, asset, ledger, cents)
+	pgtest.Exec(t, `INSERT INTO assets.class_year_total AS c (tenant_id, legal_entity_id, ledger_id, fiscal_year, class_code, depreciation)
+		SELECT tenant_id, legal_entity_id, $2, 2026, class_code, -$3::bigint FROM assets.asset WHERE id = $1
+		ON CONFLICT (tenant_id, legal_entity_id, ledger_id, fiscal_year, class_code) DO UPDATE SET depreciation = c.depreciation + EXCLUDED.depreciation`,
+		asset, ledger, cents)
 }
 
 // schedule is a schedule's periods from the first, one line each:

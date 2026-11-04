@@ -587,6 +587,17 @@ freshness and PostgreSQL fallback. The position a treasurer acts on is
 never read from the store: a payment released ten minutes ago must be in
 it.
 
+As built (T53j1, the actuals in the analytical store; split from T53j,
+src `split:T53j`): dataset `cash_actuals` and metric `actual`, read
+through `cash.ActualShares` (the semantic layer's database path, as the
+caller, in a consistent read) and `cash.ExtractActualShares` (the store's
+extract, in its run), which the analytics context declares as ports and
+the composition root wires, so `cash` stays a leaf (§2). The
+classification is §11's, done once here. Decisions in ADR-0044 (As built
+T53j1). The snapshots' dataset, the forecast, variance and accuracy
+metrics and the representation of the forecast's lag wait for the
+product owner (T53j's remaining leaf).
+
 Rejected for now: a stored flow table maintained from events (SAP's
 `FQM_FLOW`, decision P3 b). It would make reads cheap at any size, at the
 cost of a second copy of every open item and order kept in step by event
@@ -1636,7 +1647,7 @@ default where §7, §9 and §10 leave it open):
   counted as zero. An unknown display currency is 422
   `cash.unknown_currency`; an amount out of range 422
   `cash.amount_too_large`. Across companies in group currency (§9, §10,
-  §15) is not this slice (tracker, src `adr:ADR-0051`).
+  §15) is T53e5 (below).
 - **Drill-down** (§9). The flows of one currency from `from` (default the
   read date) to `to` (default no end, so `beyond` is reachable), computed
   exactly as the forecast computes them from the same database state, by
@@ -1720,6 +1731,97 @@ default where §7, §9 and §10 leave it open):
   holding `cash.forecast.read` alone shown the same flows without their
   documents or suppliers; step 21 now lists step 13's memo records under
   Customer receipts.
+
+As built (T53e5, the forecast across companies in group currency; decided
+by default where §9, §10 and §15 leave it open):
+- **Request and response.** `GET /v1/group-liquidity-forecast`
+  (`getGroupLiquidityForecast`, `GroupLiquidityForecast`;
+  `cash.forecast.read`, agents too, `x-slo-class: report`,
+  `x-snapshot: true`) takes `min_certainty`, `include_blocked`, and `grain`
+  with `to`, as the company's forecast does; no legal entity and no display
+  currency. An operation of its own rather than `getLiquidityForecast` without
+  `legal_entity_id`: the answer has another shape (its companies, no rows
+  by item), and the company's operation keeps its required parameter. No
+  migration: `cash.forecast.read` covers it.
+- **Which companies** (§9 "the companies the caller has", §15 "the
+  caller's access to each company"). Every legal entity of the tenant the
+  caller may act in (`authz.Companies`: its company access, or every one
+  with `all_companies`), from the tenancy directory
+  (`tenancy.Directory.Entities`, through the cash context's
+  `LegalEntities.Entities`, adapted in `internal/app`), whatever its
+  status, as `getLiquidityForecast` answers for each of them; a legal
+  entity outside the caller's access is never read, so it reaches no
+  figure, list, count or error. Permissions are tenant-wide (ADR-0010):
+  holding `cash.forecast.read` is the operation's check, company access
+  the per-company one. Listed in `companies` by company code (sorted, not
+  read order) with its name, read date and zone, the rates it was
+  converted at and its currencies without a rate. A caller in no company
+  reads an empty forecast from today's date in UTC, not a refusal.
+- **Group currency** (§10). The tenant's (`tenancy.tenant.group_currency`,
+  `LegalEntities.GroupCurrency`), the third currency of every journal
+  line (ADR-0005); there is no display currency parameter (§10's "group
+  currency across companies").
+- **One conversion path.** Each company's forecast is read exactly as
+  `getLiquidityForecast` reads it (`readForecastOf`: its sources, read date
+  in its zone, certainty cut, `include_blocked`, memo series expanded to
+  the group's last day), summed into the group's buckets (`byCurrency`)
+  and converted into the group currency exactly as its own forecast
+  converts it with `display_currency` set to it (`convertForecast`: the
+  latest rate of the company's `cash.rate_type` valid on its read date,
+  planning else average, one rate per currency for every bucket, each
+  currency's opening, buckets' totals and `beyond` rounded once, half away
+  from zero, `stale` beyond its `cash.rate_max_age_days`); the group's
+  converted opening, totals and `beyond` are those summed over the
+  companies, its total and closings recomputed from them
+  (`sums.close`, shared with `convertForecast`). So the group's converted
+  figures are the sum of what each company's forecast converted into the
+  group currency gives over the same buckets
+  (`TestGroupLiquidityForecast`), and a currency is converted at each
+  company's own rate type: two companies setting different
+  `cash.rate_type`s convert their USD at different rates, each listed
+  with its company. No group-level rate setting exists to settle one rate
+  per currency; one would be configuration, not this slice.
+- **A missing rate** (§10, T53e4's rule). A company's currency without a
+  rate into the group currency is left out of that company's converted
+  figures and listed in its `incomplete_currencies`, and the group's
+  `incomplete_currencies` lists every such currency once, sorted: never
+  counted as zero, never refused.
+- **Buckets and dates.** Companies may set their own `cash.buckets` and
+  read dates differ by time zone, so the group's buckets are the default
+  buckets (`config.DefaultBuckets`), or one grain over a range, from the
+  earliest of the companies' read dates (`read_date`): every company's
+  flows are on or after its own read date, so none falls before the
+  first bucket, and a Toronto evening is in the first bucket when UTC is
+  already on the next day (`TestGroupLiquidityForecastReadDates`). Each
+  company still opens and judges lateness on its own read date, as its
+  own forecast does.
+- **Per currency** (§9 "per currency always"). `currencies` sums the
+  companies' figures of each currency, never converted, by code: the
+  openings (banks counted, `stale` and `gap` when one company's are), each
+  bucket's flows by source, certainty and lateness, its `total` and
+  `closing` (recomputed, `sums.closings`, shared with `byCurrency`), the
+  `total`, `beyond` and `blocked`. Rows by liquidity item and the
+  drill-down stay per company (`getLiquidityForecast`,
+  `listLiquidityForecastFlows`): §9 does not ask for them across
+  companies, and no per-company subtotals are given beyond what each
+  company's own forecast already answers.
+- **Refusals.** A `min_certainty` not known is 422 before any company is
+  read, a caller in none included; sums out of the range of an amount, a
+  company's or the companies' together, are 422 `cash.amount_too_large`.
+- **Evidence.** `cash.TestGroupLiquidityForecast` (Maple Inc, Acme Corp US
+  and Acme GmbH in EUR, the group currency: the companies by code, each
+  currency summed, the converted figures equal to the companies' own
+  converted into EUR, USD without a rate listed and then with one),
+  `TestGroupLiquidityForecastAccess` (a reader of two companies sees
+  neither the third's company, currency nor amounts; tampering with the
+  access filter fails it; a reader of none, and its refusals),
+  `TestGroupLiquidityForecastReadDates`, `TestGroupLiquidityForecastTooLarge`,
+  `TestGroupLiquidityForecastFailures` (the directory, the group
+  currency, a zone, a payment and every database failure),
+  `tenancy.TestDirectory`; the walkthrough's step 36: Acme Corp US created
+  in USD with a memo record, the group forecast in CAD equal to the two
+  companies' own converted forecasts summed, and a person with company
+  access to Maple alone shown Maple's figures alone.
 
 ### 10. Currency conversion
 Amounts are kept and shown in their own currency first: a bank's balance
@@ -2139,6 +2241,121 @@ Export only, as 07 says: no deals, no positions or payments come back.
   import, others) is a mapping on top of this schema, built when the pilot
   names one (facts).
 
+As built (T53h; decided by default where §14 and §15 leave it open):
+- **What a file holds.** One snapshot of one company (§6), so the same
+  snapshot always gives the same file. A row is what the snapshot kept of
+  one currency, day or bucket, house bank, source, certainty and liquidity
+  item, summed (`cash.exportRows`): within its 31 days one row per value
+  date (`granularity` `day`), beyond one per bucket (`bucket`), so §14's
+  "forecast per item, bucket, source, certainty and currency" and "per bank
+  and day" are one table; lateness is not a column. A snapshot keeps no
+  opening balance (T53f), so the file carries the flows of the position,
+  not its balances: a treasury system takes balances from the bank
+  statements it receives, and the position as of now stays the API's
+  (`getCashPosition`), which a file named by its content could not be. A
+  row names **no document, supplier or payment**, only a bank by its code
+  and the last four characters of its account (§15, through
+  `payments.CashPosition.HouseBankAccounts`), so what leaves for a treasury
+  system needs none of the read permissions the snapshot's lines show
+  those by (`partner.supplier.read` and the documents' contexts', T53e4):
+  the export raises no question of posture. The file carries no totals:
+  the snapshot's are `getCashSnapshot`'s, which the webhook points at.
+- **The schema** is `api/schemas/cash-export.v1.json`, as §14 names it: a
+  JSON Schema of one row, its columns in order in `x-columns`; JSON lines
+  (LF, nulls as `null`) or RFC 4180 CSV (CRLF, a header of the columns,
+  nulls empty); amounts signed decimals in the currency's minor-unit
+  digits, `taken_at` in UTC; rows ordered by currency, period, bank code,
+  source, certainty and item. Within v1 a change is a column added at the
+  end; anything else is a v2 published beside it. The golden files are
+  `internal/cash/testdata/cash-export.v1.jsonl` and `.csv`
+  (`TestExportGolden`, `TestExportSchema`, which holds the code, the schema
+  and the files to the same columns).
+- **The channel.** An integration connector of kind `treasury_export`
+  (migration 000209 widens `connector_kind_check` NOT VALID, 000210
+  validates it): the SFTP server's `host`, `port`, `user`, pinned
+  `host_key` and `directory`, checked as a `bank_sftp` channel's
+  (`integration.sftpServer`, shared), without statement directories, the
+  key by `secret_ref`; `format`, `jsonl` or `csv`, one per connector; and
+  `companies`, the company codes it is sent, named one by one and at least
+  one, so a company's figures go only to a channel set up for it.
+  `integration.TreasuryChannels` publishes them to the cash context as
+  `BankChannels` does to payments, wired by the application
+  (`app.cashTreasury`); its endpoint fails closed as a bank channel's
+  (`integration.resolve`, shared).
+- **When it is sent.** Taking a snapshot, daily or on demand, queues in
+  its transaction one `cash.export` per active channel naming its company
+  (`cash.export.request`, `with_snapshot` true); a person may ask for one
+  again (`POST /v1/cash-snapshots/{id}/exports`, `createCashExport`, 201,
+  Idempotency-Key, `x-agent: false`), to a channel set up later or for a
+  treasury system that lost the file; a connector that is not an active
+  `treasury_export` connector naming the snapshot's company is 422
+  `cash.export_channel_invalid`. The **exporter** (`cash.Exporter`, a
+  worker of every replica, as the bank file transmitter is, T44e) claims a
+  due export in a short transaction (FOR UPDATE SKIP LOCKED), builds the
+  file and resolves the channel, uploads with no transaction open, and
+  records the outcome in a second transaction guarded by the row version
+  its claim wrote (a claim taken over, or an outcome recorded already,
+  moved it, so a stale claimant records nothing; the attempt number cannot
+  tell a remade last attempt from the one it remakes, T53h review round 2,
+  `TestExporterFailures`); a failed attempt waits 1, 5 and 15 minutes, 1 and 4 hours, a
+  refusal (a problem below 500, such as a disabled channel) or the sixth
+  failure is final (`failed`, the problem code kept). Its principal is the
+  system actor `cash-exporter`. Each claim reads the channel again: one
+  that no longer names the snapshot's company, or no longer takes the
+  export's format, refuses it (`cash.export_channel_invalid`), so an export
+  waiting for its next attempt never goes where it is no longer set up for
+  (review round 1, `TestCashExportChannelChanged`).
+- **Resend recognised.** The file is named
+  `cash-<company code>-<snapshot date>-<sha256 of its content>.<format>`
+  (§14's company, date and hash; `cash-` names its kind in a shared
+  directory). Uploaded under a hidden name and renamed, it appears whole;
+  SFTP's rename refuses an existing target, which `sftpclient.Upload` now
+  reports as `sftpclient.ErrExists` (leaving the file there and removing
+  its own copy; payments, which names files by id, still counts it a
+  failure). A name that holds the hash is the same file, so the exporter
+  takes `ErrExists` as delivered: a claim whose outcome was lost (the
+  replica stopped, the commit unacknowledged) is claimed again after five
+  upload bounds and delivered once (`TestCashExportRetries`); a last
+  attempt whose claim lapsed is made again as the last rather than taken
+  for a failure, as sending it again either delivers it or finds it there
+  (review round 1), once: the remake's claim sets `last_error` to
+  `cash.export_outcome_unknown`, and a remake whose claim lapses too fails
+  the export with that code, so a replica that stops on every upload of
+  the file does not have it claimed again at every lease without end
+  (T53h review round 2, `TestCashExportLastAttemptLapsing`). Only a
+  pending export at the sixth attempt can be a remade one, as the sixth
+  attempt's own failure is final, so the code needs no column of its own.
+  Each upload's hidden copy has a name of its own, so two uploads of one
+  file at once never write into each other's copy. A delivered
+  export is `resend` when its channel was delivered the same hash before:
+  the same snapshot sent again, the same name, which the treasury system
+  recognises (`TestCashExport`); deliveries of one file to one channel are
+  decided in turn under an advisory lock of the transaction, so of two
+  finished at once exactly one is the first (`TestCashExportSameFileAtOnce`); the audit of the delivery says whether
+  the file was still there (`found_there`).
+- **Access, audit and events.** `cash.export.read` (§15) reads the
+  exports (`GET /v1/cash-exports`, by snapshot, legal entity and status,
+  paged newest first; `GET /v1/cash-exports/{id}`), of the companies the
+  caller may act in; asking for one is a write and takes a permission of
+  its own, `cash.export.send` (000209), a person's. Requests, retries,
+  failures and deliveries are audited (`cash.export.request`, `.retry`,
+  `.fail`, `.deliver`); a delivery publishes `CashExportDelivered` (§15),
+  not offered to webhooks, as §14 offers `CashSnapshotTaken`; a failure is
+  the export's status, as §15 names no event for it. An export goes with
+  its snapshot when retention deletes it (ON DELETE CASCADE); its audit
+  stays.
+- **The webhook.** `CashSnapshotTaken` is marked `x-webhook` (ADR-0041):
+  its payload names the snapshot and company and carries no bank or
+  personal data; `TestCashSnapshotTakenWebhook` fans one out to a
+  subscription of `cash.*` and the dispatcher delivers it signed.
+- **Walkthrough.** Step 35 connects a treasury system (a stand-in SFTP
+  server, `sftptest/sftpstub`, the transport's test double on a port of
+  its own), takes a snapshot, shows its CSV delivered and its hash in its
+  name, and sends it again as a resend. It does not deliver a webhook: the
+  walkthrough runs without the event bus and the webhook client never
+  dials this machine (egress, ADR-0041); whether a development server may
+  is a question of posture for the product owner.
+
 ### 15. Access, audit and events
 - Company-level access as everywhere (ADR-0010); permissions
   `cash.position.read`, `cash.forecast.read` (agents too),
@@ -2151,6 +2368,9 @@ Export only, as 07 says: no deals, no positions or payments come back.
   `CashExportDelivered`.
 - Cross-company views (group cash position) need the caller's access to
   each company; they sum in group currency (§10).
+  As built (T53e5): the group liquidity forecast,
+  `GET /v1/group-liquidity-forecast` (§9 as built), reads every legal
+  entity the caller may act in and no other.
 
 ### 16. SAP migration (T53k, if the pilot uses SAP Cash Management)
 From memory, to check against the pilot's release: liquidity items and

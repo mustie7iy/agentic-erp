@@ -232,10 +232,11 @@ func TestSourcePermissions(t *testing.T) {
 		datasets []string
 		want     string
 	}{
-		"every table": {nil, "tenancy.org.read partner.supplier.read ledger.account.read ledger.entry.read procurement.order.read payables.invoice.read"},
-		"journal":     {[]string{"gl_lines"}, "tenancy.org.read partner.supplier.read ledger.account.read ledger.entry.read"},
-		"orders":      {[]string{"po_lines"}, "tenancy.org.read partner.supplier.read ledger.account.read procurement.order.read"},
-		"invoices":    {[]string{"ap_invoices"}, "tenancy.org.read partner.supplier.read payables.invoice.read"},
+		"every table":  {nil, "tenancy.org.read partner.supplier.read ledger.account.read ledger.entry.read procurement.order.read payables.invoice.read cash.forecast.read"},
+		"cash actuals": {[]string{"cash_actuals"}, "tenancy.org.read cash.forecast.read"},
+		"journal":      {[]string{"gl_lines"}, "tenancy.org.read partner.supplier.read ledger.account.read ledger.entry.read"},
+		"orders":       {[]string{"po_lines"}, "tenancy.org.read partner.supplier.read ledger.account.read procurement.order.read"},
+		"invoices":     {[]string{"ap_invoices"}, "tenancy.org.read partner.supplier.read payables.invoice.read"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := strings.Join(Source{Datasets: c.datasets}.Permissions(), " "); got != c.want {

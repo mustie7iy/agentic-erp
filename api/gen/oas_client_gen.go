@@ -579,6 +579,24 @@ type Invoker interface {
 	//
 	// POST /v1/business-partners
 	CreateBusinessPartner(ctx context.Context, request *BusinessPartnerCreate, params CreateBusinessPartnerParams) (CreateBusinessPartnerRes, error)
+	// CreateCashExport invokes createCashExport operation.
+	//
+	// Asks for the snapshot to be exported again through a treasury channel (ADR-0051 §14, T53h): an
+	// integration connector of kind `treasury_export` whose `companies` name the snapshot's company. Every
+	// active such channel is sent a snapshot when it is taken; this is for a channel set up later, or a
+	// treasury system that lost the file. The export is queued (`pending`) and sent by the exporter in the
+	// background, as `getCashExport` then shows: the file, in the cash export schema v1
+	// (`api/schemas/cash-export.v1.json`) in the channel's `format`, is named
+	// `cash-<company code>-<snapshot date>-<sha256 of its content>.<format>`. A snapshot never changes, so
+	// the same snapshot sent to the same channel is the same file under the same name: delivered, it is
+	// marked `resend`, and a treasury system recognises it by its name. A file of that name still in the
+	// directory is left as it is. A connector that is not an active `treasury_export` connector naming the
+	// snapshot's company is 422 `cash.export_channel_invalid`; a snapshot of a legal entity the caller
+	// cannot act in is 404. Audited (`cash.export.request`); the delivery is audited and published as
+	// CashExportDelivered.
+	//
+	// POST /v1/cash-snapshots/{id}/exports
+	CreateCashExport(ctx context.Context, request *CashExportCreate, params CreateCashExportParams) (CreateCashExportRes, error)
 	// CreateChangeRequest invokes createChangeRequest operation.
 	//
 	// Creates a change request in status `draft`.
@@ -1082,6 +1100,33 @@ type Invoker interface {
 	//
 	// GET /v1/asset-acquisitions/{id}
 	GetAssetAcquisition(ctx context.Context, params GetAssetAcquisitionParams) (GetAssetAcquisitionRes, error)
+	// GetAssetHistorySheet invokes getAssetHistorySheet operation.
+	//
+	// The asset history sheet of a company, ledger and fiscal year (ADR-0057 §9, T57i): the
+	// reconciliation of the assets' carrying amounts from the year's opening to its closing, by class
+	// (`group_by=class`, the default) or by asset (`group_by=asset`). Each row has the opening cost
+	// (acquisition cost at the start of the year), the year's acquisitions, retirements (cost retired,
+	// negative) and transfers (cost of asset transfers in less out; a center transfer changes no cost),
+	// the closing cost; the opening accumulated depreciation, the year's depreciation (runs' and the
+	// catch-ups of retirements and transfers, with their reversals), the accumulated depreciation
+	// retirements took (positive) and transfers moved, the closing accumulated depreciation; and the
+	// opening and closing net book values (cost plus accumulated depreciation). Accumulated depreciation
+	// is negative, the credit it is, as an asset's `values` show it, so a closing value is its opening
+	// value plus the year's columns, and the closing cost and accumulated depreciation of a company's
+	// classes equal the ledger's balances of their acquisition cost and accumulated depreciation accounts
+	// where no migration loaded balances on them (ADR-0057 §3). A movement counts in the fiscal year it
+	// was posted in, whatever its value date: depreciation posted late (a catch-up) is the year's it was
+	// posted in. Amounts are in the company's local currency (`currency`), exact at the moment of the
+	// read: the totals are kept with every movement. A class or asset with neither a movement posted in
+	// the year nor an opening value has no row; its sums are zero. By class every class comes in one
+	// response, by class code; by asset the assets are ordered and paged by asset number, each with its
+	// class. `class` keeps one class's rows. `totals` sums every row the filters select, on every page.
+	// `ledger_id` defaults to the leading ledger; one the company does not keep is 422
+	// `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page
+	// token is issued only by asset. A legal entity the caller cannot act in is 404. Reads only.
+	//
+	// GET /v1/asset-history-sheet
+	GetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (GetAssetHistorySheetRes, error)
 	// GetAssetRetirement invokes getAssetRetirement operation.
 	//
 	// One retirement with its asset, what it took per ledger and its journal entries (ADR-0057 §8). One
@@ -1211,6 +1256,23 @@ type Invoker interface {
 	//
 	// GET /v1/cash-actuals
 	GetCashActuals(ctx context.Context, params GetCashActualsParams) (GetCashActualsRes, error)
+	// GetCashExport invokes getCashExport operation.
+	//
+	// One export of a snapshot of the liquidity forecast to a treasury channel (ADR-0051 §14, T53h):
+	// `pending` until the exporter sends it, then `delivered` (with its file's name and hash, and whether
+	// it was a resend) or `failed` (with the problem code of the last attempt). A failed attempt is tried
+	// again after 1, 5 and 15 minutes, 1 and 4 hours; a refusal (the channel disabled or not resolving,
+	// `integration.connector_disabled`, `integration.secret_required`, `integration.secret_unavailable`,
+	// `integration.invalid_settings`, `integration.not_a_treasury_channel`, or
+	// `cash.export_channel_invalid` when the channel no longer names the snapshot's company or the
+	// export's format) or the sixth attempt's failure is final; a last attempt whose outcome was lost is
+	// made again once, since the file under its name is the same, with `last_error_code`
+	// `cash.export_outcome_unknown`; when the outcome of that attempt is lost too, the export fails with
+	// that code, and the treasury system may have the file. An export of a legal entity the caller cannot
+	// act in is not found.
+	//
+	// GET /v1/cash-exports/{id}
+	GetCashExport(ctx context.Context, params GetCashExportParams) (GetCashExportRes, error)
 	// GetCashPosition invokes getCashPosition operation.
 	//
 	// The daily cash position of a legal entity (ADR-0051 §8, T53c), computed at the read from one
@@ -1387,6 +1449,37 @@ type Invoker interface {
 	//
 	// GET /v1/gr-ir-clearings/{id}
 	GetGrIrClearing(ctx context.Context, params GetGrIrClearingParams) (GetGrIrClearingRes, error)
+	// GetGroupLiquidityForecast invokes getGroupLiquidityForecast operation.
+	//
+	// The liquidity forecast across the companies the caller may act in, summed in the tenant's group
+	// currency (ADR-0051 §9, §10, §15; T53e5), computed at the read from one database state (a
+	// repeatable-read snapshot). Each legal entity the caller may act in (its company access, or every one
+	// with `all_companies`) contributes, whatever its status, and no other: one outside the caller's
+	// access is neither read nor named nor counted anywhere in the answer. Each company's flows, opening
+	// and certainty cut are exactly its own forecast's (`getLiquidityForecast`: the same sources, dates,
+	// amounts, netting and `include_blocked`), read on its own read date in its own time zone (listed in
+	// `companies`); they are placed in the group's buckets, which start on `read_date`, the earliest of
+	// the companies' read dates (today in UTC when the caller may act in none), so no company's flow falls
+	// before the first bucket: the default buckets (14 days, 11 weeks and 9 months), since each company
+	// may configure its own `cash.buckets`, or `grain` with `to` (one grain over a range, as in
+	// `getLiquidityForecast`; one without the other, a `to` before the read date or more periods are 422).
+	// `currencies` sums the companies' figures per currency, never converted: the opening, each bucket's
+	// flows by source, certainty and lateness, its `total` and `closing`, the `total`, `beyond` and
+	// `blocked`. `converted` is the group currency's total: each company's currencies converted as its own
+	// forecast converts them with `display_currency` set to the group currency (at the latest rate of the
+	// company's `cash.rate_type` valid on its read date, default `planning`, else `average`; one rate per
+	// currency for every bucket; each currency's opening, buckets' totals and `beyond` rounded once to the
+	// group currency's minor unit, half away from zero), then summed over the companies; each converted
+	// `closing` is the converted opening plus the converted totals so far. So the group's converted
+	// figures are the sum of what each company's forecast converted into the group currency gives over the
+	// same buckets. Each company lists the rates it was converted at and the currencies it has no rate
+	// for; a currency without a rate is left out of that company's converted figures and listed in the
+	// company's and the group's `incomplete_currencies`, never counted as zero. The forecast's rows by
+	// liquidity item and its drill-down stay per company (`getLiquidityForecast`,
+	// `listLiquidityForecastFlows`).
+	//
+	// GET /v1/group-liquidity-forecast
+	GetGroupLiquidityForecast(ctx context.Context, params GetGroupLiquidityForecastParams) (GetGroupLiquidityForecastRes, error)
 	// GetHierarchy invokes getHierarchy operation.
 	//
 	// Returns the hierarchy with its whole tree: its nodes in tree order (each after its parent, siblings
@@ -2033,6 +2126,16 @@ type Invoker interface {
 	//
 	// GET /v1/cash-actual-lines
 	ListCashActualLines(ctx context.Context, params ListCashActualLinesParams) (ListCashActualLinesRes, error)
+	// ListCashExports invokes listCashExports operation.
+	//
+	// The exports of snapshots of the liquidity forecast to treasury channels (ADR-0051 §14, T53h) of the
+	// legal entities the caller may act in, newest first: those queued when a snapshot was taken, one per
+	// active `treasury_export` channel naming its company, and those people asked for
+	// (`createCashExport`). Filtered by snapshot, treasury channel, legal entity and status. Sortable by:
+	// `created_at` (default descending).
+	//
+	// GET /v1/cash-exports
+	ListCashExports(ctx context.Context, params ListCashExportsParams) (ListCashExportsRes, error)
 	// ListCashSnapshotFlows invokes listCashSnapshotFlows operation.
 	//
 	// The flows a snapshot kept (ADR-0051 §6, T53f), of one currency, by value date and line: within 31
@@ -3602,10 +3705,14 @@ type Invoker interface {
 	// earlier than `as_of`, else from the database; `source` and `as_of` say which (ADR-0044). The
 	// database answers through the API's own reads as the caller, so a metric over data the caller may not
 	// read is 403 as that read is, and the store answers only a caller who holds the permissions of those
-	// reads. A tenant without a configuration is 409 `config.not_bootstrapped`. A query the semantic layer
-	// refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two currencies summed)
-	// is 422 `analytics.invalid_query`; too many queries answering at once on the server is 503
-	// `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may run it.
+	// reads; the cash actuals (metric `actual`, ADR-0051 §11) are read as `getCashActuals` classifies
+	// them, with `cash.forecast.read`, and name no supplier, so a query of them alone needs no
+	// `partner.supplier.read`; actuals adding up to more than an amount can hold are 422
+	// `cash.amount_too_large`. A tenant without a configuration is 409 `config.not_bootstrapped`. A query
+	// the semantic layer refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two
+	// currencies summed) is 422 `analytics.invalid_query`; too many queries answering at once on the
+	// server is 503 `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may
+	// run it.
 	//
 	// POST /v1/analytics-queries
 	RunAnalyticsQuery(ctx context.Context, request *AnalyticsQuery, params RunAnalyticsQueryParams) (RunAnalyticsQueryRes, error)
@@ -10480,6 +10587,167 @@ func (c *Client) sendCreateBusinessPartner(ctx context.Context, request *Busines
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateBusinessPartnerResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateCashExport invokes createCashExport operation.
+//
+// Asks for the snapshot to be exported again through a treasury channel (ADR-0051 §14, T53h): an
+// integration connector of kind `treasury_export` whose `companies` name the snapshot's company. Every
+// active such channel is sent a snapshot when it is taken; this is for a channel set up later, or a
+// treasury system that lost the file. The export is queued (`pending`) and sent by the exporter in the
+// background, as `getCashExport` then shows: the file, in the cash export schema v1
+// (`api/schemas/cash-export.v1.json`) in the channel's `format`, is named
+// `cash-<company code>-<snapshot date>-<sha256 of its content>.<format>`. A snapshot never changes, so
+// the same snapshot sent to the same channel is the same file under the same name: delivered, it is
+// marked `resend`, and a treasury system recognises it by its name. A file of that name still in the
+// directory is left as it is. A connector that is not an active `treasury_export` connector naming the
+// snapshot's company is 422 `cash.export_channel_invalid`; a snapshot of a legal entity the caller
+// cannot act in is 404. Audited (`cash.export.request`); the delivery is audited and published as
+// CashExportDelivered.
+//
+// POST /v1/cash-snapshots/{id}/exports
+func (c *Client) CreateCashExport(ctx context.Context, request *CashExportCreate, params CreateCashExportParams) (CreateCashExportRes, error) {
+	res, err := c.sendCreateCashExport(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateCashExport(ctx context.Context, request *CashExportCreate, params CreateCashExportParams) (res CreateCashExportRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createCashExport"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/cash-snapshots/{id}/exports"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateCashExportOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/cash-snapshots/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/exports"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateCashExportRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateCashExportOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateCashExportResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -18079,6 +18347,257 @@ func (c *Client) sendGetAssetAcquisition(ctx context.Context, params GetAssetAcq
 	return result, nil
 }
 
+// GetAssetHistorySheet invokes getAssetHistorySheet operation.
+//
+// The asset history sheet of a company, ledger and fiscal year (ADR-0057 §9, T57i): the
+// reconciliation of the assets' carrying amounts from the year's opening to its closing, by class
+// (`group_by=class`, the default) or by asset (`group_by=asset`). Each row has the opening cost
+// (acquisition cost at the start of the year), the year's acquisitions, retirements (cost retired,
+// negative) and transfers (cost of asset transfers in less out; a center transfer changes no cost),
+// the closing cost; the opening accumulated depreciation, the year's depreciation (runs' and the
+// catch-ups of retirements and transfers, with their reversals), the accumulated depreciation
+// retirements took (positive) and transfers moved, the closing accumulated depreciation; and the
+// opening and closing net book values (cost plus accumulated depreciation). Accumulated depreciation
+// is negative, the credit it is, as an asset's `values` show it, so a closing value is its opening
+// value plus the year's columns, and the closing cost and accumulated depreciation of a company's
+// classes equal the ledger's balances of their acquisition cost and accumulated depreciation accounts
+// where no migration loaded balances on them (ADR-0057 §3). A movement counts in the fiscal year it
+// was posted in, whatever its value date: depreciation posted late (a catch-up) is the year's it was
+// posted in. Amounts are in the company's local currency (`currency`), exact at the moment of the
+// read: the totals are kept with every movement. A class or asset with neither a movement posted in
+// the year nor an opening value has no row; its sums are zero. By class every class comes in one
+// response, by class code; by asset the assets are ordered and paged by asset number, each with its
+// class. `class` keeps one class's rows. `totals` sums every row the filters select, on every page.
+// `ledger_id` defaults to the leading ledger; one the company does not keep is 422
+// `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page
+// token is issued only by asset. A legal entity the caller cannot act in is 404. Reads only.
+//
+// GET /v1/asset-history-sheet
+func (c *Client) GetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (GetAssetHistorySheetRes, error) {
+	res, err := c.sendGetAssetHistorySheet(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (res GetAssetHistorySheetRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAssetHistorySheet"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/asset-history-sheet"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAssetHistorySheetOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/asset-history-sheet"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "ledger_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "ledger_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LedgerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.Int32ToString(params.FiscalYear))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "group_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "group_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.GroupBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "class" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "class",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Class.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAssetHistorySheetOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAssetHistorySheetResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetAssetRetirement invokes getAssetRetirement operation.
 //
 // One retirement with its asset, what it took per ledger and its journal entries (ADR-0057 §8). One
@@ -19911,6 +20430,148 @@ func (c *Client) sendGetCashActuals(ctx context.Context, params GetCashActualsPa
 
 	stage = "DecodeResponse"
 	result, err := decodeGetCashActualsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetCashExport invokes getCashExport operation.
+//
+// One export of a snapshot of the liquidity forecast to a treasury channel (ADR-0051 §14, T53h):
+// `pending` until the exporter sends it, then `delivered` (with its file's name and hash, and whether
+// it was a resend) or `failed` (with the problem code of the last attempt). A failed attempt is tried
+// again after 1, 5 and 15 minutes, 1 and 4 hours; a refusal (the channel disabled or not resolving,
+// `integration.connector_disabled`, `integration.secret_required`, `integration.secret_unavailable`,
+// `integration.invalid_settings`, `integration.not_a_treasury_channel`, or
+// `cash.export_channel_invalid` when the channel no longer names the snapshot's company or the
+// export's format) or the sixth attempt's failure is final; a last attempt whose outcome was lost is
+// made again once, since the file under its name is the same, with `last_error_code`
+// `cash.export_outcome_unknown`; when the outcome of that attempt is lost too, the export fails with
+// that code, and the treasury system may have the file. An export of a legal entity the caller cannot
+// act in is not found.
+//
+// GET /v1/cash-exports/{id}
+func (c *Client) GetCashExport(ctx context.Context, params GetCashExportParams) (GetCashExportRes, error) {
+	res, err := c.sendGetCashExport(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCashExport(ctx context.Context, params GetCashExportParams) (res GetCashExportRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCashExport"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/cash-exports/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCashExportOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/cash-exports/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCashExportOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCashExportResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -22634,6 +23295,216 @@ func (c *Client) sendGetGrIrClearing(ctx context.Context, params GetGrIrClearing
 
 	stage = "DecodeResponse"
 	result, err := decodeGetGrIrClearingResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetGroupLiquidityForecast invokes getGroupLiquidityForecast operation.
+//
+// The liquidity forecast across the companies the caller may act in, summed in the tenant's group
+// currency (ADR-0051 §9, §10, §15; T53e5), computed at the read from one database state (a
+// repeatable-read snapshot). Each legal entity the caller may act in (its company access, or every one
+// with `all_companies`) contributes, whatever its status, and no other: one outside the caller's
+// access is neither read nor named nor counted anywhere in the answer. Each company's flows, opening
+// and certainty cut are exactly its own forecast's (`getLiquidityForecast`: the same sources, dates,
+// amounts, netting and `include_blocked`), read on its own read date in its own time zone (listed in
+// `companies`); they are placed in the group's buckets, which start on `read_date`, the earliest of
+// the companies' read dates (today in UTC when the caller may act in none), so no company's flow falls
+// before the first bucket: the default buckets (14 days, 11 weeks and 9 months), since each company
+// may configure its own `cash.buckets`, or `grain` with `to` (one grain over a range, as in
+// `getLiquidityForecast`; one without the other, a `to` before the read date or more periods are 422).
+// `currencies` sums the companies' figures per currency, never converted: the opening, each bucket's
+// flows by source, certainty and lateness, its `total` and `closing`, the `total`, `beyond` and
+// `blocked`. `converted` is the group currency's total: each company's currencies converted as its own
+// forecast converts them with `display_currency` set to the group currency (at the latest rate of the
+// company's `cash.rate_type` valid on its read date, default `planning`, else `average`; one rate per
+// currency for every bucket; each currency's opening, buckets' totals and `beyond` rounded once to the
+// group currency's minor unit, half away from zero), then summed over the companies; each converted
+// `closing` is the converted opening plus the converted totals so far. So the group's converted
+// figures are the sum of what each company's forecast converted into the group currency gives over the
+// same buckets. Each company lists the rates it was converted at and the currencies it has no rate
+// for; a currency without a rate is left out of that company's converted figures and listed in the
+// company's and the group's `incomplete_currencies`, never counted as zero. The forecast's rows by
+// liquidity item and its drill-down stay per company (`getLiquidityForecast`,
+// `listLiquidityForecastFlows`).
+//
+// GET /v1/group-liquidity-forecast
+func (c *Client) GetGroupLiquidityForecast(ctx context.Context, params GetGroupLiquidityForecastParams) (GetGroupLiquidityForecastRes, error) {
+	res, err := c.sendGetGroupLiquidityForecast(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetGroupLiquidityForecast(ctx context.Context, params GetGroupLiquidityForecastParams) (res GetGroupLiquidityForecastRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getGroupLiquidityForecast"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/group-liquidity-forecast"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetGroupLiquidityForecastOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/group-liquidity-forecast"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "grain" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "grain",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Grain.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.To.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "min_certainty" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "min_certainty",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MinCertainty.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include_blocked" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include_blocked",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.IncludeBlocked.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetGroupLiquidityForecastOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetGroupLiquidityForecastResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -33782,6 +34653,246 @@ func (c *Client) sendListCashActualLines(ctx context.Context, params ListCashAct
 
 	stage = "DecodeResponse"
 	result, err := decodeListCashActualLinesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListCashExports invokes listCashExports operation.
+//
+// The exports of snapshots of the liquidity forecast to treasury channels (ADR-0051 §14, T53h) of the
+// legal entities the caller may act in, newest first: those queued when a snapshot was taken, one per
+// active `treasury_export` channel naming its company, and those people asked for
+// (`createCashExport`). Filtered by snapshot, treasury channel, legal entity and status. Sortable by:
+// `created_at` (default descending).
+//
+// GET /v1/cash-exports
+func (c *Client) ListCashExports(ctx context.Context, params ListCashExportsParams) (ListCashExportsRes, error) {
+	res, err := c.sendListCashExports(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCashExports(ctx context.Context, params ListCashExportsParams) (res ListCashExportsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCashExports"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/cash-exports"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCashExportsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/cash-exports"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "cash_snapshot_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "cash_snapshot_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CashSnapshotID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "connector_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "connector_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ConnectorID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCashExportsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCashExportsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -61542,10 +62653,14 @@ func (c *Client) sendRotateWebhookSubscriptionSecret(ctx context.Context, params
 // earlier than `as_of`, else from the database; `source` and `as_of` say which (ADR-0044). The
 // database answers through the API's own reads as the caller, so a metric over data the caller may not
 // read is 403 as that read is, and the store answers only a caller who holds the permissions of those
-// reads. A tenant without a configuration is 409 `config.not_bootstrapped`. A query the semantic layer
-// refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two currencies summed)
-// is 422 `analytics.invalid_query`; too many queries answering at once on the server is 503
-// `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may run it.
+// reads; the cash actuals (metric `actual`, ADR-0051 §11) are read as `getCashActuals` classifies
+// them, with `cash.forecast.read`, and name no supplier, so a query of them alone needs no
+// `partner.supplier.read`; actuals adding up to more than an amount can hold are 422
+// `cash.amount_too_large`. A tenant without a configuration is 409 `config.not_bootstrapped`. A query
+// the semantic layer refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two
+// currencies summed) is 422 `analytics.invalid_query`; too many queries answering at once on the
+// server is 503 `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may
+// run it.
 //
 // POST /v1/analytics-queries
 func (c *Client) RunAnalyticsQuery(ctx context.Context, request *AnalyticsQuery, params RunAnalyticsQueryParams) (RunAnalyticsQueryRes, error) {

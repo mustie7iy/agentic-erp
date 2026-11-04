@@ -314,13 +314,11 @@ func (e *Endpoints) readForecast(ctx context.Context, legalEntity uuid.UUID, min
 // or not at all (the snapshot workflow acts in every company, T53f).
 func (e *Endpoints) readForecastOf(ctx context.Context, tx pgx.Tx, co Company, legalEntity uuid.UUID, minCertainty string,
 	last func(reader) (time.Time, error)) (forecastRead, error) {
-	var err error
-	fr := forecastRead{tx: tx, minCertainty: cmp.Or(minCertainty, CertaintyPlanned)}
-	keep := slices.Index(certainties, fr.minCertainty)
-	if keep < 0 {
-		return forecastRead{}, problem.Unprocessable("request.validation_failed", "The least certain flows counted must be a certainty level.",
-			problem.FieldError{Field: "min_certainty", Code: "invalid", Message: "actual, confirmed, expected or planned"})
+	cut, keep, err := certaintyCut(minCertainty)
+	if err != nil {
+		return forecastRead{}, err
 	}
+	fr := forecastRead{tx: tx, minCertainty: cut}
 	doc, version, err := e.Settings.Document(ctx)
 	if err != nil {
 		return forecastRead{}, fmt.Errorf("cash: configuration: %w", err)
@@ -348,6 +346,18 @@ func (e *Endpoints) readForecastOf(ctx context.Context, tx pgx.Tx, co Company, l
 		f.shares = sumShares(fr.r.sums, f.partShares)
 	}
 	return fr, nil
+}
+
+// certaintyCut is the least certain level a forecast counts ("": planned,
+// every flow) and its place in certainties; another value is refused.
+func certaintyCut(minCertainty string) (string, int, error) {
+	cut := cmp.Or(minCertainty, CertaintyPlanned)
+	keep := slices.Index(certainties, cut)
+	if keep < 0 {
+		return "", 0, problem.Unprocessable("request.validation_failed", "The least certain flows counted must be a certainty level.",
+			problem.FieldError{Field: "min_certainty", Code: "invalid", Message: "actual, confirmed, expected or planned"})
+	}
+	return cut, keep, nil
 }
 
 // forecastBuckets are the forecast's columns: the company's buckets, or,
@@ -747,13 +757,19 @@ func (r reader) byCurrency(ctx context.Context, tx pgx.Tx, bs []Bucket, flows []
 	}
 	for i := range out {
 		out[i].Items = rows[i].ordered()
-		closing := out[i].Opening.Amount
-		for b := range out[i].Buckets {
-			closing = r.sums.add(closing, out[i].Buckets[b].Total)
-			out[i].Buckets[b].Closing = closing
-		}
+		r.sums.closings(&out[i])
 	}
 	return out, nil
+}
+
+// closings closes each of the currency's buckets at its opening plus the
+// totals of the bucket and those before it.
+func (s *sums) closings(c *ForecastCurrency) {
+	closing := c.Opening.Amount
+	for b := range c.Buckets {
+		closing = s.add(closing, c.Buckets[b].Total)
+		c.Buckets[b].Closing = closing
+	}
 }
 
 // into adds a flow to its currency: to the bucket its day falls in, else

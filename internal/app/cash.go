@@ -10,10 +10,12 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/cash"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/sftpclient"
 	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -30,7 +32,35 @@ func Cash(cfg Config) *cash.Endpoints {
 		Payments: cashPayments{position: payments.CashPosition{Accounts: ledger.Accounts{}, Owed: ledger.OpenItems{}, Payees: partner.Payees{},
 			Unposted: invoices, Requests: downPayments{}, Orders: invoices}},
 		Ledger: cashLedger{}, Sessions: agents.Sessions{}, Partners: cashPartners{},
-		Pages: cfg.Pages, Now: cfg.Now, Consistent: consistent(cfg)}
+		Treasury: cashTreasury{integration.TreasuryChannels{Secrets: resolver(cfg.Secrets)}},
+		Pages:    cfg.Pages, Now: cfg.Now, Consistent: consistent(cfg)}
+}
+
+// cashTreasury gives the cash context the integration context's treasury
+// channels, the treasury_export connectors its snapshots are exported to
+// (ADR-0051 §14, T53h).
+type cashTreasury struct{ channels integration.TreasuryChannels }
+
+func (t cashTreasury) ForCompany(ctx context.Context, code string) ([]cash.TreasuryChannel, error) {
+	chans, err := t.channels.ForCompany(ctx, code)
+	out := make([]cash.TreasuryChannel, len(chans))
+	for i, ch := range chans {
+		out[i] = treasuryChannel(ch)
+	}
+	return out, err
+}
+
+func (t cashTreasury) Channel(ctx context.Context, id uuid.UUID) (cash.TreasuryChannel, bool, error) {
+	ch, found, err := t.channels.Channel(ctx, id)
+	return treasuryChannel(ch), found, err
+}
+
+func (t cashTreasury) Endpoint(ctx context.Context, id uuid.UUID) (sftpclient.Endpoint, error) {
+	return t.channels.Endpoint(ctx, id)
+}
+
+func treasuryChannel(ch integration.TreasuryChannel) cash.TreasuryChannel {
+	return cash.TreasuryChannel{ID: ch.ID, Name: ch.Name, Active: ch.Active, Format: ch.Format, Companies: ch.Companies}
 }
 
 // consistent is the snapshots' consistent read on its own pool, none
@@ -55,13 +85,31 @@ func (cashPartners) Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]c
 	return out, err
 }
 
-// cashCompanies gives the cash context a legal entity's code and currency,
-// and the legal entity of a company code.
+// cashCompanies gives the cash context a legal entity's code, name and
+// currency, the legal entity of a company code, every legal entity and the
+// tenant's group currency.
 type cashCompanies struct{}
 
 func (cashCompanies) Company(ctx context.Context, id uuid.UUID) (cash.Company, bool, error) {
 	le, ok, err := tenancy.Directory{}.Entity(ctx, id)
-	return cash.Company{Code: le.Code, Currency: le.LocalCurrency}, ok, err
+	return cashCompany(le), ok, err
+}
+
+func (cashCompanies) Entities(ctx context.Context) ([]cash.Entity, error) {
+	les, err := tenancy.Directory{}.Entities(ctx)
+	out := make([]cash.Entity, len(les))
+	for i, le := range les {
+		out[i] = cash.Entity{ID: le.ID, Company: cashCompany(le)}
+	}
+	return out, err
+}
+
+func (cashCompanies) GroupCurrency(ctx context.Context) (string, error) {
+	return tenancy.Directory{}.GroupCurrency(ctx)
+}
+
+func cashCompany(le tenancy.Entity) cash.Company {
+	return cash.Company{Code: le.Code, Name: le.Name, Currency: le.LocalCurrency}
 }
 
 func (cashCompanies) ByCode(ctx context.Context, code string) (uuid.UUID, bool, error) {
@@ -114,6 +162,15 @@ func (c cashPayments) StatementLine(ctx context.Context, statement uuid.UUID, li
 
 func (c cashPayments) HouseBankCodes(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
 	return c.position.HouseBankCodes(ctx, ids)
+}
+
+func (c cashPayments) HouseBankAccounts(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]cash.BankAccount, error) {
+	accounts, err := c.position.HouseBankAccounts(ctx, ids)
+	out := make(map[uuid.UUID]cash.BankAccount, len(accounts))
+	for id, a := range accounts {
+		out[id] = cash.BankAccount{Code: a.Code, Last4: a.Last4}
+	}
+	return out, err
 }
 
 // Payables gives the forecast the supplier open items, the unposted

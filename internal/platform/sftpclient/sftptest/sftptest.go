@@ -6,6 +6,7 @@ package sftptest
 
 import (
 	"bufio"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
@@ -14,6 +15,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/pkg/sftp"
@@ -36,6 +38,9 @@ type Server struct {
 	FailRemove  bool
 	FailList    bool // listing a directory
 	FailRead    bool // reading a file's content
+	// Stored, when set, is told the path of each file renamed into place:
+	// the walkthrough's stand-in keeps a copy (sftpstub).
+	Stored func(path string)
 
 	listener  net.Listener
 	clientKey ssh.PublicKey
@@ -80,16 +85,35 @@ func PrivateKey(tb testing.TB) ([]byte, ssh.Signer) {
 // NewServer starts the server for a client key; it stops with the test.
 func NewServer(tb testing.TB, client ssh.PublicKey, configure func(*Server)) *Server {
 	tb.Helper()
-	l, err := (&net.ListenConfig{}).Listen(tb.Context(), "tcp", "127.0.0.1:0")
+	s, err := Start(tb.Context(), "127.0.0.1:0", client, Signer(tb), configure)
 	if err != nil {
 		tb.Fatal(err)
 	}
-	tb.Cleanup(func() { _ = l.Close() }) // closing stops serve
-	s := &Server{Addr: l.Addr().String(), listener: l, HostSigners: []ssh.Signer{Signer(tb)}, clientKey: client, files: sftp.InMemHandler(),
+	tb.Cleanup(func() { _ = s.Close() }) // closing stops serve
+	return s
+}
+
+// Start starts the server on addr for a client key, with host as its
+// pinned key, until Close: the walkthrough's stand-in runs it outside a
+// test (sftpstub).
+func Start(ctx context.Context, addr string, client ssh.PublicKey, host ssh.Signer, configure func(*Server)) (*Server, error) {
+	l, err := (&net.ListenConfig{}).Listen(ctx, "tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("sftptest: listen on %s: %w", addr, err)
+	}
+	s := &Server{Addr: l.Addr().String(), listener: l, HostSigners: []ssh.Signer{host}, clientKey: client, files: sftp.InMemHandler(),
 		Accepted: make(chan struct{}, 1)}
 	configure(s)
 	go s.serve()
-	return s
+	return s, nil
+}
+
+// Close stops the server listening.
+func (s *Server) Close() error {
+	if err := s.listener.Close(); err != nil {
+		return fmt.Errorf("sftptest: close: %w", err)
+	}
+	return nil
 }
 
 // HostKey is the server's pinned key in authorized_keys form.
@@ -220,6 +244,9 @@ func (f failing) Filecmd(r *sftp.Request) error {
 	if err := f.cmd.Filecmd(r); err != nil {
 		return fmt.Errorf("sftptest: %s %s: %w", r.Method, r.Filepath, err)
 	}
+	if r.Method == "Rename" && f.s.Stored != nil {
+		f.s.Stored(r.Target)
+	}
 	return nil
 }
 
@@ -230,15 +257,40 @@ func (badWriter) WriteAt([]byte, int64) (int, error) { return 0, errors.New("quo
 // Read is a file of the server's file system, up to 64 KiB.
 func (s *Server) Read(tb testing.TB, path string) (string, bool) {
 	tb.Helper()
+	b, err := s.ReadFile(path, 64<<10)
+	return string(b), err == nil
+}
+
+// ReadFile is a file of the server's file system, up to limit bytes.
+func (s *Server) ReadFile(path string, limit int) ([]byte, error) {
 	r := sftp.NewRequest("Get", path)
 	r.Flags = 1 // SSH_FXF_READ
 	ra, err := s.files.FileGet.Fileread(r)
 	if err != nil {
-		return "", false
+		return nil, fmt.Errorf("sftptest: read %s: %w", path, err)
 	}
-	buf := make([]byte, 64<<10)
+	buf := make([]byte, limit)
 	n, _ := ra.ReadAt(buf, 0) // io.EOF after a short file
-	return string(buf[:n]), true
+	return buf[:n], nil
+}
+
+// Hidden are the names of the hidden files in dir, such as an upload's
+// copy left behind.
+func (s *Server) Hidden(tb testing.TB, dir string) []string {
+	tb.Helper()
+	l, err := s.files.FileList.Filelist(sftp.NewRequest("List", dir))
+	if err != nil {
+		tb.Fatal(err)
+	}
+	infos := make([]os.FileInfo, 1000)
+	n, _ := l.ListAt(infos, 0) // io.EOF once the listing ends
+	var out []string
+	for _, fi := range infos[:n] {
+		if strings.HasPrefix(fi.Name(), ".") {
+			out = append(out, fi.Name())
+		}
+	}
+	return out
 }
 
 // Put writes a file to the server's file system, as the bank leaves one;
@@ -259,7 +311,15 @@ func (s *Server) Put(tb testing.TB, path, content string) {
 // Mkdir makes a directory on the server's file system.
 func (s *Server) Mkdir(tb testing.TB, path string) {
 	tb.Helper()
-	if err := s.files.FileCmd.Filecmd(sftp.NewRequest("Mkdir", path)); err != nil {
+	if err := s.MakeDir(path); err != nil {
 		tb.Fatal(err)
 	}
+}
+
+// MakeDir makes a directory on the server's file system.
+func (s *Server) MakeDir(path string) error {
+	if err := s.files.FileCmd.Filecmd(sftp.NewRequest("Mkdir", path)); err != nil {
+		return fmt.Errorf("sftptest: mkdir %s: %w", path, err)
+	}
+	return nil
 }

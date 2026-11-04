@@ -45,6 +45,16 @@ func TestOptDate(t *testing.T) {
 	}
 }
 
+func TestOptDateTime(t *testing.T) {
+	if got := apitypes.OptDateTime(nil); got.Set {
+		t.Errorf("nil: got %v, want unset", got)
+	}
+	at := time.Date(2026, 4, 17, 13, 5, 9, 0, time.UTC)
+	if got := apitypes.OptDateTime(&at); got != gen.NewOptDateTime(at) {
+		t.Errorf("value: got %v, want %v", got, at)
+	}
+}
+
 func TestOptInt32(t *testing.T) {
 	if got := apitypes.OptInt32(nil); got.Set {
 		t.Errorf("nil: got %v, want unset", got)

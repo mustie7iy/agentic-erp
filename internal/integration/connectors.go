@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -43,7 +44,11 @@ const (
 // BankSFTP is the kind of a house bank's SFTP channel (ADR-0038).
 const BankSFTP = "bank_sftp"
 
-var kinds = []string{SAPOData, SAPFile, BankSFTP, BankEBICS, "edi_as2", "email", "tax_engine", "ticketing"}
+// TreasuryExport is the kind of a treasury system's SFTP directory, which
+// the cash context exports its companies' snapshots to (ADR-0051 §14).
+const TreasuryExport = "treasury_export"
+
+var kinds = []string{SAPOData, SAPFile, BankSFTP, BankEBICS, "edi_as2", "email", "tax_engine", "ticketing", TreasuryExport}
 
 // Connector is a row of integration.connector.
 type Connector struct {
@@ -108,6 +113,9 @@ func checkSettings(kind string, settings map[string]any) error {
 		return checkSFTPSettings(settings)
 	case BankEBICS:
 		return checkEBICSSettings(settings)
+	case TreasuryExport:
+		_, err := treasurySettings(settings)
+		return err
 	}
 	return nil
 }
@@ -122,12 +130,32 @@ func checkSFTPSettings(settings map[string]any) error {
 	return err
 }
 
+// sftpKeys are the settings of every SFTP channel: the server, the account,
+// its pinned key and the directory files are delivered to.
+var sftpKeys = []string{"host", "port", "user", "host_key", "directory"}
+
 // sftpEndpoint is the endpoint valid bank_sftp settings name, without the
 // client's key.
 func sftpEndpoint(settings map[string]any) (sftpclient.Endpoint, error) {
+	ep, err := sftpServer(settings, BankSFTP, append([]string{"statements_directory", "statements_archive"}, sftpKeys...), "the bank collects files from")
+	if err != nil {
+		return sftpclient.Endpoint{}, err
+	}
+	inbound, archive, err := statementDirs(settings)
+	if err != nil {
+		return sftpclient.Endpoint{}, err
+	}
+	ep.Inbound, ep.Archive = inbound, archive
+	return ep, nil
+}
+
+// sftpServer is the server, account, key and directory of the settings of
+// an SFTP channel of the kind, which may name only the keys given; collects
+// says who takes the files from the directory.
+func sftpServer(settings map[string]any, kind string, keys []string, collects string) (sftpclient.Endpoint, error) {
 	for k := range settings {
-		if !slices.Contains([]string{"host", "port", "user", "host_key", "directory", "statements_directory", "statements_archive"}, k) {
-			return sftpclient.Endpoint{}, invalid("integration.invalid_settings", "settings."+k, "Not a bank_sftp setting; credentials go in secret_ref.")
+		if !slices.Contains(keys, k) {
+			return sftpclient.Endpoint{}, invalid("integration.invalid_settings", "settings."+k, "Not a "+kind+" setting; credentials go in secret_ref.")
 		}
 	}
 	host, _ := settings["host"].(string) // not a string: "", refused below
@@ -148,13 +176,58 @@ func sftpEndpoint(settings map[string]any) (sftpclient.Endpoint, error) {
 	}
 	dir, _ := settings["directory"].(string) // not a string: "", which is not absolute
 	if !path.IsAbs(dir) {
-		return sftpclient.Endpoint{}, invalid("integration.invalid_settings", "settings.directory", "The absolute directory the bank collects files from.")
+		return sftpclient.Endpoint{}, invalid("integration.invalid_settings", "settings.directory", "The absolute directory "+collects+".")
 	}
-	inbound, archive, err := statementDirs(settings)
+	return sftpclient.Endpoint{Addr: net.JoinHostPort(host, strconv.Itoa(port)), User: user, HostKey: key, Dir: dir}, nil
+}
+
+// treasuryFields are the format and companies treasury_export settings
+// name, ok when both are valid: jsonl or csv ("" otherwise), and company
+// codes, at least one, each once.
+func treasuryFields(settings map[string]any) (format string, companies []string, ok bool) {
+	if format, _ = settings["format"].(string); format != "jsonl" && format != "csv" { // not a string: "", refused
+		return "", nil, false
+	}
+	list, _ := settings["companies"].([]any) // not a list: none, refused below
+	for _, c := range list {
+		code, _ := c.(string) // not a string: "", refused below
+		if !companyCode.MatchString(code) || slices.Contains(companies, code) {
+			return format, nil, false
+		}
+		companies = append(companies, code)
+	}
+	return format, companies, len(companies) > 0
+}
+
+// Treasury is what valid treasury_export settings name besides the SFTP
+// server: the file format and the companies exported (ADR-0051 §14).
+type Treasury struct {
+	Endpoint  sftpclient.Endpoint // without the client's key
+	Format    string              // jsonl or csv
+	Companies []string            // company codes, at least one
+}
+
+// companyCode is a legal entity's company code (tenancy.legal_entity).
+var companyCode = regexp.MustCompile(`^[A-Z0-9]{1,10}$`)
+
+// treasurySettings validates a treasury_export channel: an SFTP server as
+// a bank_sftp channel names one, without statement directories; the format
+// of its files, jsonl or csv (the cash export schema v1); and the codes of
+// the companies whose snapshots it takes, named one by one, so a company
+// is exported only to a channel set up for it.
+func treasurySettings(settings map[string]any) (Treasury, error) {
+	ep, err := sftpServer(settings, TreasuryExport, append([]string{"format", "companies"}, sftpKeys...), "the treasury system collects files from")
 	if err != nil {
-		return sftpclient.Endpoint{}, err
+		return Treasury{}, err
 	}
-	return sftpclient.Endpoint{Addr: net.JoinHostPort(host, strconv.Itoa(port)), User: user, HostKey: key, Dir: dir, Inbound: inbound, Archive: archive}, nil
+	format, codes, ok := treasuryFields(settings)
+	switch {
+	case format == "":
+		return Treasury{}, invalid("integration.invalid_settings", "settings.format", "The format of the files, jsonl or csv (the cash export schema v1).")
+	case !ok:
+		return Treasury{}, invalid("integration.invalid_settings", "settings.companies", "The company codes whose snapshots are exported, at least one, each once.")
+	}
+	return Treasury{Endpoint: ep, Format: format, Companies: codes}, nil
 }
 
 // statementDirs are the directories the bank leaves statements in and

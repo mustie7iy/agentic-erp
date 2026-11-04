@@ -8,6 +8,8 @@ package sftpclient
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -56,12 +58,19 @@ func ParseSigner(pem []byte) (ssh.Signer, error) {
 	return s, nil
 }
 
+// ErrExists is what Upload returns when a file of that name is in the
+// directory already: it is left as it is, and the upload's own copy
+// removed.
+var ErrExists = errors.New("sftpclient: the file is there already")
+
 // Upload writes content to name, a plain file name, in the endpoint's
 // directory. Cancelling ctx closes the connection, so a server that stops
 // answering does not hold the caller. SFTP's rename refuses an existing
 // target, so a file uploaded once is not overwritten by a retry under its
-// name: telling a retry after a lost acknowledgement from a new file is the
-// caller's, by content hash (ADR-0038, T44c).
+// name: Upload then returns ErrExists. Telling a retry after a lost
+// acknowledgement from a new file is the caller's, by content hash
+// (ADR-0038, T44c); a caller that names its files by their content knows
+// the file there is its own (the treasury export, ADR-0051 §14).
 func (e Endpoint) Upload(ctx context.Context, name string, content []byte) error {
 	if err := fileName(name); err != nil {
 		return err
@@ -184,9 +193,14 @@ func hostKeyAlgorithms(k ssh.PublicKey) []string {
 	return []string{k.Type()}
 }
 
-// put writes the file under a hidden name, then renames it into place.
+// put writes the file under a hidden name of its own, then renames it
+// into place. The hidden name is the upload's alone, so two uploads of one
+// name at once never write into each other's copy: the first renamed is
+// the file, whole, and the second finds it there.
 func (e Endpoint) put(s *sftp.Client, name string, content []byte) error {
-	tmp, final := path.Join(e.Dir, ".partial-"+name), path.Join(e.Dir, name)
+	var nonce [8]byte
+	_, _ = rand.Read(nonce[:]) // crypto/rand.Read never fails (Go 1.24)
+	tmp, final := path.Join(e.Dir, ".partial-"+hex.EncodeToString(nonce[:])+"-"+name), path.Join(e.Dir, name)
 	f, err := s.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
 	if err != nil {
 		return fmt.Errorf("sftpclient: create %s: %w", tmp, err)
@@ -196,6 +210,10 @@ func (e Endpoint) put(s *sftp.Client, name string, content []byte) error {
 		return fmt.Errorf("sftpclient: write %s: %w", tmp, err)
 	}
 	if err := s.Rename(tmp, final); err != nil {
+		if _, there := s.Stat(final); there == nil {
+			_ = s.Remove(tmp) // a copy left behind is hidden, so never collected
+			return fmt.Errorf("sftpclient: %s: %w", final, ErrExists)
+		}
 		return fmt.Errorf("sftpclient: rename %s to %s: %w", tmp, final, err)
 	}
 	return nil

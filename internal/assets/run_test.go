@@ -11,6 +11,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/assets"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -22,7 +23,13 @@ import (
 // group amounts differ from company 2000's EUR.
 func newRuns(t *testing.T, more ...string) assetEnv {
 	t.Helper()
-	e := newAssets(t, append(append(postPermissions, "assets.depreciation.run"), more...)...)
+	return newRunsWith(t, withLedgers, more...)
+}
+
+// newRunsWith is newRuns with the document doc gives.
+func newRunsWith(t *testing.T, doc func(*config.Config), more ...string) assetEnv {
+	t.Helper()
+	e := newAssetsWith(t, doc, append(append(postPermissions, "assets.depreciation.run"), more...)...)
 	pgtest.Exec(t, `UPDATE tenancy.tenant SET group_currency = 'USD', version = version + 1 WHERE id = $1`, e.Tenant.ID)
 	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
 		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-01-01', 0.92, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)

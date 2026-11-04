@@ -329,6 +329,9 @@ func writeBatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, w batchWork,
 			moved, w.run.LedgerID, w.period.End, w.run.FiscalYear, w.run.Period, w.run.ID, year, id, p.ID, accumulated, accumulatedGC, movements); err != nil {
 			return fmt.Errorf("assets: movements of batch %d of depreciation run %s: %w", w.no, w.run.ID, err)
 		}
+		if err := keepTotals(ctx, tx, moved...); err != nil {
+			return err
+		}
 	}
 	_, err := tx.Exec(ctx, `UPDATE assets.depreciation_batch SET status = 'posted', amount = $3, assets_posted = $4, assets_skipped = $5,
 			journal_entry_year = $6, journal_entry_id = $7, document_number = $8, version = version + 1

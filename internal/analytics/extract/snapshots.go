@@ -120,7 +120,7 @@ const (
 
 // snapshots reads every snapshot dataset.
 func (r *run) snapshots(ctx context.Context, tx pgx.Tx) error {
-	for _, read := range []func(context.Context, pgx.Tx) error{r.poLines, r.apInvoices, r.openItems, r.accounts, r.partners} {
+	for _, read := range []func(context.Context, pgx.Tx) error{r.poLines, r.apInvoices, r.openItems, r.accounts, r.partners, r.cashActuals} {
 		if err := read(ctx, tx); err != nil {
 			return err
 		}
@@ -181,12 +181,29 @@ func (r *run) partners(ctx context.Context, tx pgx.Tx) error {
 // per month of a fact dataset (row's month) and one for a dimension (""),
 // keeping the previous manifest's file where the content is unchanged.
 func snapshot[T any](ctx context.Context, tx pgx.Tx, r *run, name, sql string, targets []any, row func() (T, string, error)) error {
+	months, done := snapshotOf[T](ctx, r, name)
+	rows, _ := tx.Query(ctx, sql)
+	_, err := pgx.ForEachRow(rows, targets, func() error {
+		v, month, err := row()
+		if err != nil {
+			return err
+		}
+		return months.add(month, v)
+	})
+	return done(err)
+}
+
+// snapshotOf is what a snapshot dataset's rows are added to, ordered by
+// month, and what ends it: done, given the error of reading the rows (nil
+// when they were read), flushes the last month and sets the dataset in the
+// run's manifest.
+func snapshotOf[T any](ctx context.Context, r *run, name string) (*batcher[T], func(error) error) {
 	kept := map[string]File{}
 	for _, f := range r.prevM.Datasets[name].Files {
 		kept[f.Key] = f
 	}
 	var ds Dataset
-	months := batcher[T]{flush: func(month string, rows []T) error {
+	months := &batcher[T]{flush: func(month string, rows []T) error {
 		b := encode(rows)
 		sum := sha256.Sum256(b)
 		key := r.key(name, month, "part-"+hex.EncodeToString(sum[:]))
@@ -200,22 +217,16 @@ func snapshot[T any](ctx context.Context, tx pgx.Tx, r *run, name, sql string, t
 		ds.Files, ds.Rows = append(ds.Files, f), ds.Rows+f.Rows
 		return nil
 	}}
-	rows, _ := tx.Query(ctx, sql)
-	_, err := pgx.ForEachRow(rows, targets, func() error {
-		v, month, err := row()
-		if err != nil {
-			return err
+	return months, func(err error) error {
+		if err == nil {
+			err = months.close()
 		}
-		return months.add(month, v)
-	})
-	if err == nil {
-		err = months.close()
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		r.m.add(name, ds, r)
+		return nil
 	}
-	if err != nil {
-		return fmt.Errorf("%s: %w", name, err)
-	}
-	r.m.add(name, ds, r)
-	return nil
 }
 
 // batcher collects rows ordered by month and hands each month's rows to

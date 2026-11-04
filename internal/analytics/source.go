@@ -24,6 +24,9 @@ type Source struct {
 	// does not need, so a permission another fact type needs does not
 	// refuse it. Nil builds every one.
 	Datasets []string
+	// Cash reads the cash actuals' shares as the caller (cash_actuals);
+	// nil, as for a source that reads the API alone, builds none.
+	Cash CashActuals
 }
 
 // Permissions are those the reads of Facts need, in the order it reads,
@@ -32,7 +35,10 @@ type Source struct {
 // them too (store.Source.Requires), so that it names no account or vendor
 // the database path could not read (ADR-0044).
 func (s Source) Permissions() []string {
-	out := []string{"tenancy.org.read", "partner.supplier.read"}
+	out := []string{"tenancy.org.read"}
+	if s.namesVendors() {
+		out = append(out, "partner.supplier.read")
+	}
 	if s.builds("gl_lines") || s.builds("po_lines") {
 		out = append(out, "ledger.account.read")
 	}
@@ -53,11 +59,20 @@ type FactDataset struct{ Dataset, Permission string }
 // governed model names no other (FromConfig).
 var FactDatasets = []FactDataset{
 	{"gl_lines", "ledger.entry.read"}, {"po_lines", "procurement.order.read"}, {"ap_invoices", "payables.invoice.read"},
+	{cashActuals, "cash.forecast.read"},
 }
 
 // builds reports whether the source builds a fact table.
 func (s Source) builds(dataset string) bool {
 	return s.Datasets == nil || slices.Contains(s.Datasets, dataset)
+}
+
+// namesVendors reports whether a fact table it builds names vendors, which
+// it reads from /v1/business-partners: the cash actuals name none, so a
+// query of them alone needs no partner.supplier.read (product owner
+// 2026-11-02: supplier names only with that permission).
+func (s Source) namesVendors() bool {
+	return s.builds("gl_lines") || s.builds("po_lines") || s.builds("ap_invoices")
 }
 
 type amount struct {
@@ -168,9 +183,11 @@ func (s Source) Facts(ctx context.Context, m *Model, asOf time.Time) (*Facts, er
 	if err != nil {
 		return nil, err
 	}
-	partners, err := apitools.List[partner](ctx, s.API, "/v1/business-partners", nil)
-	if err != nil {
-		return nil, err
+	var partners []partner
+	if s.namesVendors() {
+		if partners, err = apitools.List[partner](ctx, s.API, "/v1/business-partners", nil); err != nil {
+			return nil, err
+		}
 	}
 	b := &factBuilder{
 		f:          &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{}, Exponents: map[string]int{}, Source: SourceDatabase, AsOf: asOf},
@@ -212,14 +229,15 @@ type factBuilder struct {
 	parallel map[string][]string
 }
 
-// calendar adds the posting date and its fiscal year, month and quarter to
-// dims, and advances DataThrough.
-func (b *factBuilder) calendar(dims map[string]string, date string) error {
+// calendar adds the date as the dimension named dateDim (a journal line's
+// posting_date) and its fiscal year, month and quarter to dims, and
+// advances DataThrough.
+func (b *factBuilder) calendar(dims map[string]string, dateDim, date string) error {
 	fy, fm, err := fiscal(date, b.startMonth)
 	if err != nil {
 		return err
 	}
-	dims["posting_date"] = date
+	dims[dateDim] = date
 	dims["fiscal_year"] = strconv.Itoa(fy)
 	dims["fiscal_month"] = strconv.Itoa(fm)
 	dims["fiscal_quarter"] = strconv.Itoa((fm-1)/3 + 1)
@@ -248,10 +266,12 @@ func (s Source) addEntity(ctx context.Context, b *factBuilder, le legalEntity) e
 			return err
 		}
 	}
-	if !s.builds("ap_invoices") {
-		return nil
+	if s.builds("ap_invoices") {
+		if err := s.addInvoices(ctx, b, le, byLE); err != nil {
+			return err
+		}
 	}
-	return s.addInvoices(ctx, b, le, byLE)
+	return s.addCash(ctx, b, le)
 }
 
 // addJournal adds one fact per journal line of each ledger the legal
@@ -297,7 +317,7 @@ func (b *factBuilder) addEntry(le legalEntity, je journalEntry, chart map[string
 			"cleared": strconv.FormatBool(recon && !isOpen[je.ID+"/"+strconv.Itoa(l.LineNo)])}
 		amt, err := b.minor(l.AmountLC)
 		if err == nil {
-			err = b.calendar(dims, je.PostingDate)
+			err = b.calendar(dims, "posting_date", je.PostingDate)
 		}
 		if err != nil {
 			return fmt.Errorf("journal entry %s: %w", je.ID, err)
@@ -341,7 +361,7 @@ func (b *factBuilder) addOrder(le legalEntity, o order, chart map[string]account
 			}
 		}
 		if err == nil {
-			err = b.calendar(dims, o.OrderDate)
+			err = b.calendar(dims, "posting_date", o.OrderDate)
 		}
 		if err != nil {
 			return fmt.Errorf("purchase order %s: %w", o.ID, err)
@@ -362,7 +382,7 @@ func (s Source) addInvoices(ctx context.Context, b *factBuilder, le legalEntity,
 		dims := map[string]string{"company": le.Code, "vendor": v.Number, "vendor_name": v.Name, "invoice_status": inv.Status}
 		gross, err := b.minor(inv.Gross)
 		if err == nil {
-			err = b.calendar(dims, inv.InvoiceDate)
+			err = b.calendar(dims, "posting_date", inv.InvoiceDate)
 		}
 		if err != nil {
 			return fmt.Errorf("invoice %s: %w", inv.ID, err)

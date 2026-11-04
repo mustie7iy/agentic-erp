@@ -16341,6 +16341,7 @@ paths:
       description: "What a depreciation run of a company, ledger and regular period would post (ADR-0057 §7, T57e), without posting: per asset the planned depreciation through the period (the schedule of `GET /v1/assets/{id}/schedule` summed from the depreciation start), the depreciation booked in the ledger (runs' and catch-ups', with their reversals) and the difference, which the run posts: normally the period's depreciation, more when a movement was posted late with an earlier value date (a catch-up), less or negative when one was reversed, nothing when the period's run already posted it. The assets are those a run selects: the company's assets with terms in the ledger that are `active` with their depreciation start (the terms' own, else the capitalisation date) on or before the period's last day, or whose accumulated depreciation in the ledger is not zero (a `planned` asset whose acquisition was reversed after depreciation was posted), passing over an asset booked through a later period or whose latest center assignment is valid from after the period's last day; ordered and paged by asset number. Each asset is shown on its accounts (its class's depreciation and accumulated depreciation accounts in the company) and its centers (its latest assignment's). `totals`, the same on every page, sum every asset selected: the planned, booked and difference amounts and the lines the run would post, per depreciation account, cost center and profit center the expense (debit positive) and per accumulated depreciation account and profit center the credit; the ledger derives a line's cost center from the account's default assignment for an asset without one, and a cost center's profit center on the posting date, as every posting does (ADR-0050 §5). Amounts are in the company's local currency. `ledger_id` defaults to the leading ledger; one the company does not keep is 422 `ledger.ledger_not_kept`; a special period (13-16) takes no depreciation, 422 `assets.special_period`; a fiscal year or period that is not set up is 422 `ledger.no_fiscal_period`. Whether the period is open and runs' order are the run's checks. An asset of a class the active configuration no longer gives the company fails the preview (422 `assets.class_unknown`, `assets.class_not_in_company`), as it would fail the run. A legal entity the caller cannot act in is 404. Reads only; every agent autonomy level may call it."
       x-permission: assets.asset.read
       x-autonomy: read
+      x-slo-class: report
       x-problem-codes:
         - assets.class_not_in_company
         - assets.class_unknown
@@ -16392,6 +16393,81 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/asset-history-sheet:
+    get:
+      operationId: getAssetHistorySheet
+      x-slo-class: report
+      tags:
+        - assets
+      summary: Get the asset history sheet
+      description: "The asset history sheet of a company, ledger and fiscal year (ADR-0057 §9, T57i): the reconciliation of the assets' carrying amounts from the year's opening to its closing, by class (`group_by=class`, the default) or by asset (`group_by=asset`). Each row has the opening cost (acquisition cost at the start of the year), the year's acquisitions, retirements (cost retired, negative) and transfers (cost of asset transfers in less out; a center transfer changes no cost), the closing cost; the opening accumulated depreciation, the year's depreciation (runs' and the catch-ups of retirements and transfers, with their reversals), the accumulated depreciation retirements took (positive) and transfers moved, the closing accumulated depreciation; and the opening and closing net book values (cost plus accumulated depreciation). Accumulated depreciation is negative, the credit it is, as an asset's `values` show it, so a closing value is its opening value plus the year's columns, and the closing cost and accumulated depreciation of a company's classes equal the ledger's balances of their acquisition cost and accumulated depreciation accounts where no migration loaded balances on them (ADR-0057 §3). A movement counts in the fiscal year it was posted in, whatever its value date: depreciation posted late (a catch-up) is the year's it was posted in. Amounts are in the company's local currency (`currency`), exact at the moment of the read: the totals are kept with every movement. A class or asset with neither a movement posted in the year nor an opening value has no row; its sums are zero. By class every class comes in one response, by class code; by asset the assets are ordered and paged by asset number, each with its class. `class` keeps one class's rows. `totals` sums every row the filters select, on every page. `ledger_id` defaults to the leading ledger; one the company does not keep is 422 `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page token is issued only by asset. A legal entity the caller cannot act in is 404. Reads only."
+      x-permission: assets.asset.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - ledger.ledger_not_kept
+        - ledger.no_fiscal_period
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: The company's legal entity.
+          schema:
+            type: string
+            format: uuid
+        - name: ledger_id
+          in: query
+          required: false
+          description: The ledger (one depreciation area); default the leading ledger.
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: The fiscal year the sheet reconciles.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: group_by
+          in: query
+          required: false
+          description: "`class` (default): one row per asset class; `asset`: one row per asset, paged by asset number. Any other value is 400 `request.invalid_parameter`."
+          schema:
+            type: string
+            description: "What a row is. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [class, asset]
+        - name: class
+          in: query
+          required: false
+          description: Only the rows of this asset class (by code); the totals are then the class's.
+          schema:
+            type: string
+            pattern: "^[A-Z0-9_]{1,20}$"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: The sheet's rows (one page of them by asset) and the totals of all of them.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetHistorySheet"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/cash-position:
@@ -16673,6 +16749,203 @@ paths:
           $ref: "#/components/responses/NotFound"
         "422":
           $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/group-liquidity-forecast:
+    get:
+      operationId: getGroupLiquidityForecast
+      tags:
+        - cash
+      summary: Get the liquidity forecast across companies, in group currency
+      description: "The liquidity forecast across the companies the caller may act in, summed in the tenant's group currency (ADR-0051 §9, §10, §15; T53e5), computed at the read from one database state (a repeatable-read snapshot). Each legal entity the caller may act in (its company access, or every one with `all_companies`) contributes, whatever its status, and no other: one outside the caller's access is neither read nor named nor counted anywhere in the answer. Each company's flows, opening and certainty cut are exactly its own forecast's (`getLiquidityForecast`: the same sources, dates, amounts, netting and `include_blocked`), read on its own read date in its own time zone (listed in `companies`); they are placed in the group's buckets, which start on `read_date`, the earliest of the companies' read dates (today in UTC when the caller may act in none), so no company's flow falls before the first bucket: the default buckets (14 days, 11 weeks and 9 months), since each company may configure its own `cash.buckets`, or `grain` with `to` (one grain over a range, as in `getLiquidityForecast`; one without the other, a `to` before the read date or more periods are 422). `currencies` sums the companies' figures per currency, never converted: the opening, each bucket's flows by source, certainty and lateness, its `total` and `closing`, the `total`, `beyond` and `blocked`. `converted` is the group currency's total: each company's currencies converted as its own forecast converts them with `display_currency` set to the group currency (at the latest rate of the company's `cash.rate_type` valid on its read date, default `planning`, else `average`; one rate per currency for every bucket; each currency's opening, buckets' totals and `beyond` rounded once to the group currency's minor unit, half away from zero), then summed over the companies; each converted `closing` is the converted opening plus the converted totals so far. So the group's converted figures are the sum of what each company's forecast converted into the group currency gives over the same buckets. Each company lists the rates it was converted at and the currencies it has no rate for; a currency without a rate is left out of that company's converted figures and listed in the company's and the group's `incomplete_currencies`, never counted as zero. The forecast's rows by liquidity item and its drill-down stay per company (`getLiquidityForecast`, `listLiquidityForecastFlows`)."
+      x-permission: cash.forecast.read
+      x-slo-class: report
+      x-snapshot: true
+      x-problem-codes:
+        - cash.amount_too_large
+        - cash.unknown_currency
+        - config.not_bootstrapped
+        - payables.unknown_payment_term
+        - payables.withholding_exceeds_invoice
+        - payables.withholding_tax_code_unknown
+        - request.validation_failed
+      parameters:
+        - name: grain
+          in: query
+          required: false
+          description: "One grain over a range (with `to`): `day`, `week` (seven days) or `month` (to the same day of the next month, its last day when shorter), instead of the default buckets."
+          schema:
+            type: string
+            description: "A bucket's length. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [day, week, month]
+        - name: to
+          in: query
+          required: false
+          description: "With `grain`: the last bucket is the one holding this day, on or after the group's read date; at most 92 days, 104 weeks or 36 months from it."
+          schema:
+            type: string
+            format: date
+        - name: min_certainty
+          in: query
+          required: false
+          description: "The least certain flows counted: `actual`, `confirmed`, `expected` or `planned` (default, every flow); another value is 422."
+          schema:
+            type: string
+            description: "A certainty level. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [actual, confirmed, expected, planned]
+        - name: include_blocked
+          in: query
+          required: false
+          description: "Count the `payable_blocked` flows (what suppliers no run pays are owed) in the totals and `beyond` too; by default (false) they are listed and summed in `blocked` only."
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: The liquidity forecast across the caller's companies.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupLiquidityForecast"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/cash-snapshots/{id}/exports":
+    post:
+      operationId: createCashExport
+      tags:
+        - cash
+      summary: Export a snapshot of the liquidity forecast to a treasury system
+      description: "Asks for the snapshot to be exported again through a treasury channel (ADR-0051 §14, T53h): an integration connector of kind `treasury_export` whose `companies` name the snapshot's company. Every active such channel is sent a snapshot when it is taken; this is for a channel set up later, or a treasury system that lost the file. The export is queued (`pending`) and sent by the exporter in the background, as `getCashExport` then shows: the file, in the cash export schema v1 (`api/schemas/cash-export.v1.json`) in the channel's `format`, is named `cash-<company code>-<snapshot date>-<sha256 of its content>.<format>`. A snapshot never changes, so the same snapshot sent to the same channel is the same file under the same name: delivered, it is marked `resend`, and a treasury system recognises it by its name. A file of that name still in the directory is left as it is. A connector that is not an active `treasury_export` connector naming the snapshot's company is 422 `cash.export_channel_invalid`; a snapshot of a legal entity the caller cannot act in is 404. Audited (`cash.export.request`); the delivery is audited and published as CashExportDelivered."
+      x-permission: cash.export.send
+      x-agent: false
+      x-problem-codes:
+        - cash.export_channel_invalid
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The channel to export to.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CashExportCreate"
+      responses:
+        "201":
+          description: "Queued; the export, `pending` until the exporter sends it."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashExport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/cash-exports:
+    get:
+      operationId: listCashExports
+      tags:
+        - cash
+      summary: List the exports of snapshots to treasury systems
+      description: "The exports of snapshots of the liquidity forecast to treasury channels (ADR-0051 §14, T53h) of the legal entities the caller may act in, newest first: those queued when a snapshot was taken, one per active `treasury_export` channel naming its company, and those people asked for (`createCashExport`). Filtered by snapshot, treasury channel, legal entity and status. Sortable by: `created_at` (default descending)."
+      x-permission: cash.export.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: cash_snapshot_id
+          in: query
+          required: false
+          description: Only the exports of this snapshot.
+          schema:
+            type: string
+            format: uuid
+        - name: connector_id
+          in: query
+          required: false
+          description: Only the exports to this treasury channel.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: status
+          in: query
+          required: false
+          description: "Only exports of this status: `pending`, `delivered` or `failed`."
+          schema:
+            type: string
+            description: "An export's status. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [pending, delivered, failed]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of exports.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashExportPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/cash-exports/{id}":
+    get:
+      operationId: getCashExport
+      tags:
+        - cash
+      summary: Get an export of a snapshot to a treasury system
+      description: "One export of a snapshot of the liquidity forecast to a treasury channel (ADR-0051 §14, T53h): `pending` until the exporter sends it, then `delivered` (with its file's name and hash, and whether it was a resend) or `failed` (with the problem code of the last attempt). A failed attempt is tried again after 1, 5 and 15 minutes, 1 and 4 hours; a refusal (the channel disabled or not resolving, `integration.connector_disabled`, `integration.secret_required`, `integration.secret_unavailable`, `integration.invalid_settings`, `integration.not_a_treasury_channel`, or `cash.export_channel_invalid` when the channel no longer names the snapshot's company or the export's format) or the sixth attempt's failure is final; a last attempt whose outcome was lost is made again once, since the file under its name is the same, with `last_error_code` `cash.export_outcome_unknown`; when the outcome of that attempt is lost too, the export fails with that code, and the treasury system may have the file. An export of a legal entity the caller cannot act in is not found."
+      x-permission: cash.export.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The export.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashExport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/liquidity-forecast:
@@ -18955,12 +19228,13 @@ paths:
       tags:
         - analytics
       summary: Run a semantic analytics query
-      description: "Answers governed metrics (the semantic model in the active configuration version's `analytics` section, `semantic.yaml` until a change request adds one; metric definitions change only through change requests), broken down by its dimensions and filtered on them, for the companies the principal may read. A query names metrics and dimensions, never SQL. It is answered from the analytical store when the tenant's store was found current within the freshness target and no earlier than `as_of`, else from the database; `source` and `as_of` say which (ADR-0044). The database answers through the API's own reads as the caller, so a metric over data the caller may not read is 403 as that read is, and the store answers only a caller who holds the permissions of those reads. A tenant without a configuration is 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may run it."
+      description: "Answers governed metrics (the semantic model in the active configuration version's `analytics` section, `semantic.yaml` until a change request adds one; metric definitions change only through change requests), broken down by its dimensions and filtered on them, for the companies the principal may read. A query names metrics and dimensions, never SQL. It is answered from the analytical store when the tenant's store was found current within the freshness target and no earlier than `as_of`, else from the database; `source` and `as_of` say which (ADR-0044). The database answers through the API's own reads as the caller, so a metric over data the caller may not read is 403 as that read is, and the store answers only a caller who holds the permissions of those reads; the cash actuals (metric `actual`, ADR-0051 §11) are read as `getCashActuals` classifies them, with `cash.forecast.read`, and name no supplier, so a query of them alone needs no `partner.supplier.read`; actuals adding up to more than an amount can hold are 422 `cash.amount_too_large`. A tenant without a configuration is 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may run it."
       x-permission: analytics.query.run
       x-autonomy: read
       x-problem-codes:
         - analytics.busy
         - analytics.invalid_query
+        - cash.amount_too_large
         - config.not_bootstrapped
         - config.unknown_version
       parameters:
@@ -19066,6 +19340,7 @@ paths:
               - email
               - tax_engine
               - ticketing
+              - treasury_export
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -37326,6 +37601,81 @@ components:
           maxLength: 2048
       examples:
         - items: []
+    CashExportCreate:
+      type: object
+      description: "An export of a snapshot to a treasury channel to queue (ADR-0051 §14)."
+      required: [connector_id]
+      properties:
+        connector_id: {type: string, format: uuid, description: "The treasury channel: an active `treasury_export` connector whose `companies` name the snapshot's company."}
+      examples:
+        - connector_id: 0192a000-0000-7000-8000-000000000c11
+    CashExport:
+      type: object
+      description: "An export of a snapshot of the liquidity forecast to a treasury channel (ADR-0051 §14, T53h), in the cash export schema v1."
+      required: [id, cash_snapshot_id, legal_entity_id, company_code, snapshot_date, connector_id, connector_name, format, status, attempts, requested_by, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid, description: Export id., readOnly: true}
+        cash_snapshot_id: {type: string, format: uuid, description: "The snapshot exported (`getCashSnapshot`).", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The snapshot's legal entity.", readOnly: true}
+        company_code: {type: string, description: "The legal entity's company code.", readOnly: true}
+        snapshot_date: {type: string, format: date, description: "The snapshot's date.", readOnly: true}
+        connector_id: {type: string, format: uuid, description: "The treasury channel (`getConnector`).", readOnly: true}
+        connector_name: {type: string, description: "The treasury channel's name.", readOnly: true}
+        format:
+          type: string
+          description: "The file's format, the channel's: `jsonl` (JSON lines) or `csv`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [jsonl, csv]
+          readOnly: true
+        status:
+          type: string
+          description: "`pending` (queued, or waiting for its next attempt), `delivered` or `failed`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [pending, delivered, failed]
+          readOnly: true
+        attempts: {type: integer, format: int32, minimum: 0, maximum: 6, description: "The attempts made to send it.", readOnly: true}
+        next_attempt_at: {type: string, format: date-time, description: "Pending: when it is next sent.", readOnly: true}
+        file_name: {type: string, description: "The file's name, `cash-<company code>-<snapshot date>-<sha256>.<format>`; absent until it is first sent.", readOnly: true}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "The SHA-256 of the file's content, in hexadecimal; absent until it is first sent.", readOnly: true}
+        resend: {type: boolean, description: "Delivered: whether the channel had been delivered this file before, under the same name.", readOnly: true}
+        last_error_code: {type: string, description: "The problem code of the last failed attempt; absent when none failed. A last attempt made again because its outcome was lost carries `cash.export_outcome_unknown` instead, delivered or not (the earlier attempt's code stays in its `cash.export.retry` audit record).", readOnly: true}
+        delivered_at: {type: string, format: date-time, description: "When it was delivered.", readOnly: true}
+        requested_by: {type: string, format: uuid, description: "Who took the snapshot, for an export queued then, or asked for the export.", readOnly: true}
+        created_at: {type: string, format: date-time, readOnly: true}
+        updated_at: {type: string, format: date-time, readOnly: true}
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000e51
+          cash_snapshot_id: 0192a000-0000-7000-8000-000000000e01
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "3000"
+          snapshot_date: "2026-04-17"
+          connector_id: 0192a000-0000-7000-8000-000000000c11
+          connector_name: Treasury SFTP
+          format: csv
+          status: delivered
+          attempts: 1
+          file_name: cash-3000-2026-04-17-4f2c1e0b9a7d6c5b4a3928170615f4e3d2c1b0a99887766554433221100ffeed.csv
+          sha256: 4f2c1e0b9a7d6c5b4a3928170615f4e3d2c1b0a99887766554433221100ffeed
+          resend: false
+          delivered_at: "2026-04-17T13:05:09Z"
+          requested_by: 0192a000-0000-7000-8000-000000000101
+          created_at: "2026-04-17T13:05:00Z"
+          updated_at: "2026-04-17T13:05:09Z"
+    CashExportPage:
+      type: object
+      description: One page of exports of snapshots to treasury systems.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CashExport"}
+          description: The exports on this page, newest first.
+          readOnly: true
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+          readOnly: true
+      examples:
+        - items: []
     CashSnapshotCreate:
       type: object
       description: "A snapshot of the liquidity forecast to take on demand (ADR-0051 §6)."
@@ -38731,6 +39081,119 @@ components:
           maxLength: 2048
       examples:
         - items: []
+    AssetHistorySheet:
+      type: object
+      description: "The asset history sheet of a company, ledger and fiscal year (ADR-0057 §9): per class or asset the reconciliation of cost, accumulated depreciation and net book value from the year's opening to its closing, in the company's local currency, with the totals of every row the filters select."
+      required: [legal_entity_id, company_code, company_name, ledger_id, ledger_code, ledger_name, fiscal_year, start_date, end_date, currency, group_by, items, totals]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The company., readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        company_name: {type: string, description: "The company's name.", readOnly: true}
+        ledger_id: {type: string, format: uuid, description: The ledger., readOnly: true}
+        ledger_code: {type: string, description: "The ledger's code.", readOnly: true}
+        ledger_name: {type: string, description: "The ledger's name.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: The fiscal year., readOnly: true}
+        start_date: {type: string, format: date, description: "The fiscal year's first day: the opening values are those before it.", readOnly: true}
+        end_date: {type: string, format: date, description: "The fiscal year's last day: the closing values are those after it, as posted so far.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's local currency, every amount's.", readOnly: true}
+        group_by:
+          type: string
+          x-extensible-enum: [class, asset]
+          description: "What a row is: an asset class or an asset. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        items:
+          type: array
+          description: "The rows: every class by class code, or this page's assets by asset number."
+          items: {$ref: "#/components/schemas/AssetHistorySheetRow"}
+        totals: {$ref: "#/components/schemas/AssetHistorySheetValues"}
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page of assets; absent on the last page and by class."
+          maxLength: 2048
+      examples:
+        - legal_entity_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01
+          company_code: "1000"
+          company_name: Maple Manufacturing Ltd.
+          ledger_id: 0192a000-0000-7000-8000-000000000301
+          ledger_code: 0L
+          ledger_name: Leading ledger
+          fiscal_year: 2026
+          start_date: "2026-01-01"
+          end_date: "2026-12-31"
+          currency: CAD
+          group_by: class
+          items:
+            - class_code: MACHINES
+              class_name: Machinery and equipment
+              opening_cost: {amount: "0.00", currency: CAD}
+              acquisitions: {amount: "12000.00", currency: CAD}
+              retirements: {amount: "0.00", currency: CAD}
+              transfers: {amount: "0.00", currency: CAD}
+              closing_cost: {amount: "12000.00", currency: CAD}
+              opening_accumulated: {amount: "0.00", currency: CAD}
+              depreciation: {amount: "-100.00", currency: CAD}
+              retirements_accumulated: {amount: "0.00", currency: CAD}
+              transfers_accumulated: {amount: "0.00", currency: CAD}
+              closing_accumulated: {amount: "-100.00", currency: CAD}
+              opening_net_book_value: {amount: "0.00", currency: CAD}
+              closing_net_book_value: {amount: "11900.00", currency: CAD}
+          totals:
+            opening_cost: {amount: "0.00", currency: CAD}
+            acquisitions: {amount: "12000.00", currency: CAD}
+            retirements: {amount: "0.00", currency: CAD}
+            transfers: {amount: "0.00", currency: CAD}
+            closing_cost: {amount: "12000.00", currency: CAD}
+            opening_accumulated: {amount: "0.00", currency: CAD}
+            depreciation: {amount: "-100.00", currency: CAD}
+            retirements_accumulated: {amount: "0.00", currency: CAD}
+            transfers_accumulated: {amount: "0.00", currency: CAD}
+            closing_accumulated: {amount: "-100.00", currency: CAD}
+            opening_net_book_value: {amount: "0.00", currency: CAD}
+            closing_net_book_value: {amount: "11900.00", currency: CAD}
+    AssetHistorySheetRow:
+      type: object
+      description: "One row of the asset history sheet: an asset class, or an asset with its class, and its values."
+      required: [class_code, opening_cost, acquisitions, retirements, transfers, closing_cost, opening_accumulated, depreciation, retirements_accumulated, transfers_accumulated, closing_accumulated, opening_net_book_value, closing_net_book_value]
+      properties:
+        class_code: {type: string, description: "The asset class (`GET /v1/asset-classes`).", readOnly: true}
+        class_name: {type: string, description: "The class's name; absent when the active configuration no longer has the class.", readOnly: true}
+        asset_id: {type: string, format: uuid, description: "The asset (`GET /v1/assets/{id}`); by asset only.", readOnly: true}
+        asset_number: {type: string, description: "The asset's number in its company; by asset only.", readOnly: true}
+        description: {type: string, description: "What the asset is; by asset only.", readOnly: true}
+        status:
+          type: string
+          x-extensible-enum: [planned, active, retired, cancelled]
+          description: "The asset's status now, not at the year's end; by asset only. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        opening_cost: {$ref: "#/components/schemas/Money"}
+        acquisitions: {$ref: "#/components/schemas/Money"}
+        retirements: {$ref: "#/components/schemas/Money"}
+        transfers: {$ref: "#/components/schemas/Money"}
+        closing_cost: {$ref: "#/components/schemas/Money"}
+        opening_accumulated: {$ref: "#/components/schemas/Money"}
+        depreciation: {$ref: "#/components/schemas/Money"}
+        retirements_accumulated: {$ref: "#/components/schemas/Money"}
+        transfers_accumulated: {$ref: "#/components/schemas/Money"}
+        closing_accumulated: {$ref: "#/components/schemas/Money"}
+        opening_net_book_value: {$ref: "#/components/schemas/Money"}
+        closing_net_book_value: {$ref: "#/components/schemas/Money"}
+    AssetHistorySheetValues:
+      type: object
+      description: "The history sheet's columns summed over every row the filters select: opening cost, acquisitions (positive), retirements (cost retired, negative), transfers (asset transfers in less out), closing cost; opening accumulated depreciation (negative), the year's depreciation, the accumulated depreciation retirements took (positive) and transfers moved, closing accumulated depreciation; opening and closing net book value."
+      required: [opening_cost, acquisitions, retirements, transfers, closing_cost, opening_accumulated, depreciation, retirements_accumulated, transfers_accumulated, closing_accumulated, opening_net_book_value, closing_net_book_value]
+      properties:
+        opening_cost: {$ref: "#/components/schemas/Money"}
+        acquisitions: {$ref: "#/components/schemas/Money"}
+        retirements: {$ref: "#/components/schemas/Money"}
+        transfers: {$ref: "#/components/schemas/Money"}
+        closing_cost: {$ref: "#/components/schemas/Money"}
+        opening_accumulated: {$ref: "#/components/schemas/Money"}
+        depreciation: {$ref: "#/components/schemas/Money"}
+        retirements_accumulated: {$ref: "#/components/schemas/Money"}
+        transfers_accumulated: {$ref: "#/components/schemas/Money"}
+        closing_accumulated: {$ref: "#/components/schemas/Money"}
+        opening_net_book_value: {$ref: "#/components/schemas/Money"}
+        closing_net_book_value: {$ref: "#/components/schemas/Money"}
     CashPosition:
       type: object
       description: "A legal entity's daily cash position (ADR-0051 §8, T53c): per house bank and per currency first, then the converted total. Amounts are signed: money in the bank is positive, a payment out negative."
@@ -38917,6 +39380,150 @@ components:
         opening: {$ref: "#/components/schemas/Money"}
         closing: {$ref: "#/components/schemas/Money"}
         available: {$ref: "#/components/schemas/Money"}
+    GroupLiquidityForecast:
+      type: object
+      description: "The liquidity forecast across the companies the caller may act in (ADR-0051 §9, §10, §15; T53e5): per currency, and summed in the tenant's group currency. Amounts are signed: a payment out is negative."
+      required: [group_currency, read_date, min_certainty, include_blocked, companies, buckets, currencies, converted]
+      properties:
+        group_currency: {type: string, description: "The tenant's group currency (ISO 4217), which `converted` is in.", readOnly: true}
+        read_date: {type: string, format: date, description: "The earliest of the companies' read dates (today in UTC when there is no company): the first bucket starts on it.", readOnly: true}
+        min_certainty:
+          type: string
+          description: "The least certain flows counted. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [actual, confirmed, expected, planned]
+          readOnly: true
+        include_blocked: {type: boolean, description: "Whether the `payable_blocked` flows are counted in the totals and `beyond`; they are listed in the buckets' flows and summed in each currency's `blocked` either way.", readOnly: true}
+        companies:
+          type: array
+          items: {$ref: "#/components/schemas/GroupLiquidityForecastCompany"}
+          description: "The companies summed: every legal entity the caller may act in, by company code; empty when it may act in none."
+          readOnly: true
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastBucket"}
+          description: "The columns, in order: consecutive periods from the read date."
+          readOnly: true
+        currencies:
+          type: array
+          items: {$ref: "#/components/schemas/GroupLiquidityForecastCurrency"}
+          description: "The companies' figures summed per currency, never converted, by currency code: each currency with a flow or an active house bank in one of the companies."
+          readOnly: true
+        converted: {$ref: "#/components/schemas/GroupLiquidityForecastConverted"}
+      examples:
+        - group_currency: CAD
+          read_date: "2026-04-17"
+          min_certainty: planned
+          include_blocked: false
+          companies:
+            - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+              company_code: "3000"
+              name: Maple Industries Canada
+              read_date: "2026-04-17"
+              time_zone: America/Toronto
+              rates: []
+              incomplete_currencies: []
+            - legal_entity_id: 0192a000-0000-7000-8000-000000000202
+              company_code: "1000"
+              name: Maple Industries US
+              read_date: "2026-04-18"
+              time_zone: UTC
+              rates: [{currency: USD, rate_type: average, rate: "1.350000000000", valid_from: "2026-01-01", stale: true}]
+              incomplete_currencies: []
+          buckets:
+            - {grain: day, start: "2026-04-17", end: "2026-04-17"}
+            - {grain: day, start: "2026-04-18", end: "2026-04-18"}
+          currencies:
+            - currency: CAD
+              opening: {amount: {amount: "10000.00", currency: CAD}, banks: 1, stale: false, gap: false}
+              buckets:
+                - start: "2026-04-17"
+                  flows: [{source: payment_run, certainty: confirmed, late: false, amount: {amount: "-500.00", currency: CAD}, count: 1}]
+                  total: {amount: "-500.00", currency: CAD}
+                  closing: {amount: "9500.00", currency: CAD}
+                - start: "2026-04-18"
+                  flows: []
+                  total: {amount: "0.00", currency: CAD}
+                  closing: {amount: "9500.00", currency: CAD}
+              total: {amount: "-500.00", currency: CAD}
+              beyond: {amount: {amount: "0.00", currency: CAD}, count: 0}
+              blocked: {amount: {amount: "0.00", currency: CAD}, count: 0}
+            - currency: USD
+              opening: {amount: {amount: "0.00", currency: USD}, banks: 0, stale: false, gap: false}
+              buckets:
+                - start: "2026-04-17"
+                  flows: []
+                  total: {amount: "0.00", currency: USD}
+                  closing: {amount: "0.00", currency: USD}
+                - start: "2026-04-18"
+                  flows: [{source: memo, certainty: expected, late: false, amount: {amount: "1000.00", currency: USD}, count: 1}]
+                  total: {amount: "1000.00", currency: USD}
+                  closing: {amount: "1000.00", currency: USD}
+              total: {amount: "1000.00", currency: USD}
+              beyond: {amount: {amount: "0.00", currency: USD}, count: 0}
+              blocked: {amount: {amount: "0.00", currency: USD}, count: 0}
+          converted:
+            currency: CAD
+            incomplete_currencies: []
+            opening: {amount: "10000.00", currency: CAD}
+            buckets:
+              - {start: "2026-04-17", total: {amount: "-500.00", currency: CAD}, closing: {amount: "9500.00", currency: CAD}}
+              - {start: "2026-04-18", total: {amount: "1350.00", currency: CAD}, closing: {amount: "10850.00", currency: CAD}}
+            total: {amount: "850.00", currency: CAD}
+            beyond: {amount: "0.00", currency: CAD}
+    GroupLiquidityForecastCompany:
+      type: object
+      description: "A company the group forecast sums (T53e5): its legal entity, the read date its own figures are read on, and how they were converted into the group currency."
+      required: [legal_entity_id, company_code, name, read_date, time_zone, rates, incomplete_currencies]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        company_code: {type: string, description: "The legal entity's company code.", readOnly: true}
+        name: {type: string, description: "The legal entity's name.", readOnly: true}
+        read_date: {type: string, format: date, description: "The company's date when the forecast was read, in `time_zone`: what is late is judged by it, and its flows are not before it.", readOnly: true}
+        time_zone: {type: string, description: "The IANA time zone of the read date: the company's configured `time_zone`, or `UTC` when it has none or is not in the configuration.", readOnly: true}
+        rates:
+          type: array
+          items: {$ref: "#/components/schemas/CashPositionRate"}
+          description: "The rates the company's currencies were converted into the group currency at, by currency (the company's `cash.rate_type`); none for the group currency itself."
+          readOnly: true
+        incomplete_currencies:
+          type: array
+          items: {type: string}
+          description: "The company's currencies without a rate into the group currency, left out of every converted figure; empty when the company's are complete."
+          readOnly: true
+    GroupLiquidityForecastCurrency:
+      type: object
+      description: "One currency's figures summed over the companies, never converted (T53e5): the openings, the flows per bucket in the buckets' order, the total over the horizon, what is expected after it, and what suppliers no run pays are owed."
+      required: [currency, opening, buckets, total, beyond, blocked]
+      properties:
+        currency: {type: string, description: The currency (ISO 4217)., readOnly: true}
+        opening: {$ref: "#/components/schemas/LiquidityForecastOpening"}
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastBucketFlows"}
+          description: "One per bucket of the forecast, in the same order; each `closing` is the opening plus the totals so far."
+          readOnly: true
+        total: {$ref: "#/components/schemas/Money"}
+        beyond: {$ref: "#/components/schemas/LiquidityForecastBeyond"}
+        blocked: {$ref: "#/components/schemas/LiquidityForecastBlocked"}
+    GroupLiquidityForecastConverted:
+      type: object
+      description: "The group forecast in the group currency (ADR-0051 §10, T53e5): each company's converted figures, as its own forecast converts them into the group currency, summed; the rates are each company's (`companies`)."
+      required: [currency, incomplete_currencies, opening, buckets, total, beyond]
+      properties:
+        currency: {type: string, description: "The group currency (ISO 4217).", readOnly: true}
+        incomplete_currencies:
+          type: array
+          items: {type: string}
+          description: "The currencies some company has no rate for into the group currency, sorted, each left out of that company's converted figures (the company's `incomplete_currencies` say whose); empty when the figures are complete."
+          readOnly: true
+        opening: {$ref: "#/components/schemas/Money"}
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastConvertedBucket"}
+          description: "One per bucket of the forecast, in the same order."
+          readOnly: true
+        total: {$ref: "#/components/schemas/Money"}
+        beyond: {$ref: "#/components/schemas/Money"}
     LiquidityForecast:
       type: object
       description: "A legal entity's liquidity forecast (ADR-0051 §9, T53e): the flows expected per currency and bucket from the read date. Amounts are signed: a payment out is negative."
@@ -41160,6 +41767,7 @@ components:
                 - email
                 - tax_engine
                 - ticketing
+                - treasury_export
               readOnly: true
             name:
               type: string
@@ -41169,7 +41777,7 @@ components:
             settings:
               type: object
               additionalProperties: true
-              description: "Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`."
+              description: "Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key."
             secret_ref:
               type: string
               description: Vault path of the credentials.
@@ -41211,6 +41819,7 @@ components:
             - email
             - tax_engine
             - ticketing
+            - treasury_export
         name:
           type: string
           description: Name, unique per tenant.
@@ -41219,7 +41828,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`."
+          description: "Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key."
         secret_ref:
           type: string
           description: Vault path of the credentials.
@@ -41241,7 +41850,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`."
+          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key."
         secret_ref:
           type:
             - string

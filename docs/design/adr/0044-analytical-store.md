@@ -619,6 +619,87 @@ the version it was computed under. An unknown version is 422
 figures as they were also needs the data as of then, which the store's
 superseded manifests keep only for 7 days (T55f), so that is not promised.
 
+**Cash actuals (T53j1, ADR-0051 §6 and §11; decided by default).** Dataset
+`cash_actuals` v1 (`analytics/datasets/v1/cash_actuals.yaml`), a fact of
+load `snapshot` dated `value_date`: one row per bank statement line and
+liquidity item, posted or not, of every value date, with `statement_id`
+(its id), `line_no`, `company`, `house_bank` (the house bank's code; a bank
+is never shown by its account, ADR-0051 §15), `match` (what classified the
+line: `payment`, `posting_rule`, `incoming`, `excluded`, `unmatched`),
+`liquidity_item` and `liquidity_item_name` (null for a share of no item),
+and the signed share as `amount_minor`, `currency`, `exponent`; one file
+per month of value dates, named by content like the other snapshots. The
+semantic layer's metric `actual` (sum) has the dimensions company,
+currency, the fiscal periods, `value_date`, `house_bank`, `match`,
+`liquidity_item` and `liquidity_item_name`. Decisions, each settled by an
+ADR or existing behaviour:
+- *Classified once, by the cash context.* The actuals are not rows of a
+  table: `cash` classifies the lines in Go from the active configuration's
+  derivation rules and each line's decided match (ADR-0051 §4, §11).
+  Copying that into SQL would be a second mechanism, so both paths ask
+  `cash` through ports the analytics context declares
+  (`extract.CashActuals`, `analytics.CashActuals`), adapted in
+  `internal/app` (`app.AnalyticsCash`) and wired by erp-server: no context
+  imports the other and `cash` stays a leaf (ADR-0051 §2; the layout rule
+  "a context may ask one a question through a port it declares itself").
+  The run asks in its own REPEATABLE READ transaction as the system actor
+  `extract.ExtractActor` (`cash.ExtractActualShares`, no company check: the
+  run reads the whole tenant under its RLS), for the legal entities that
+  have statements, and orders the rows by value date, company, statement,
+  line and item.
+- *The database path reads the port, not the API.* `GET
+  /v1/cash-actual-lines` pages one currency's lines over at most 36 months
+  of value dates, which cannot cover a history of unknown length, so
+  `analytics.Source` reads `cash.ActualShares` in-process as the caller,
+  in a consistent read of its own (`uow.Consistent`, as the API's
+  `x-snapshot`), for each legal entity `/v1/legal-entities` gives the
+  caller; `cash` refuses one the caller cannot act in, as its API does.
+  The endpoint requires `cash.forecast.read` for the dataset
+  (`FactDatasets`), as ADR-0051 §15 and T53f2 read the actuals with it; a
+  source without the port (the CLI's evaluation, reading the API alone)
+  builds no cash actuals. TestParity holds both paths to the same answer
+  for every query of `actual`.
+- *No `partner.supplier.read` for the cash actuals alone.* The database
+  path reads `/v1/business-partners` only for a fact table that names
+  vendors (journal, orders, invoices), so `Source.Permissions`, and with it
+  the store's `Requires`, ask `partner.supplier.read` only then: the cash
+  actuals carry no supplier, and the product owner's posture of 2026-11-02
+  (supplier names only with that permission) is kept; a query that names
+  vendors still needs it, whichever path answers (TestParity
+  `permissions`).
+- *Currency is a dimension of `actual`.* A company's house banks may keep
+  other currencies than its own (ADR-0051 §3), so breaking down by company
+  does not separate them: the reader resolves a fact's currency column as
+  a name a plan may group or filter by, offered only for a metric that
+  lists it.
+- *Certainty is not a column.* ADR-0051 §11 gives the actuals their match
+  in place of a flow's source and certainty: every actual is certain, so
+  the dimension would say nothing here; it belongs to the snapshots'
+  dataset (T53j's remaining leaf).
+- *The house bank by code only.* The account's last four characters are
+  not in the dataset: the API shows them to `cash.position.read` and
+  `payments.statement.read`, not to `cash.forecast.read`, the actuals'
+  permission, so showing them here would widen what that permission sees;
+  that is the product owner's to decide (security posture). The contract
+  test's masked-field guard names `house_bank` as a code, not an account.
+- *Marked due.* The relay's batches of `payments` (statements imported,
+  lines matched, excluded or posted) and `config` (derivation rules, house
+  banks) mark a tenant due; `cash`'s own events (memo records, snapshots,
+  comments) change no dataset yet.
+- *Held whole, at pilot scale.* The run holds the tenant's shares of
+  every value date in memory before writing them, and the database path
+  classifies a legal entity's whole history on each query, as
+  `getCashActuals` classifies a range: a pilot's statements are a few
+  thousand lines a year. A tenant whose history outgrows that is the
+  trigger for reading the shares by month (the extract) or by the query's
+  value dates (the database path).
+- *Simulated by currency.* A metric change's simulation breaks `actual`
+  down by company, currency and fiscal year, so one company's currencies
+  are values of their own.
+- *Errors.* Actuals whose classification goes out of the range of an
+  amount stop the run and refuse the query, `runAnalyticsQuery` answering
+  422 `cash.amount_too_large`, as `getCashActuals` does.
+
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other
 datasets and the scheduler (migration 000115); T55d `erp-analytics`, the guard and the

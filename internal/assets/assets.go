@@ -74,6 +74,12 @@
 // another class. Both are reversed while they are the latest posting of
 // every asset they touch, a center transfer's reversal restoring the
 // previous centers from the day they were in force.
+//
+// T57i builds the asset history sheet (ADR-0057 §5, §9): every posting adds
+// its movements to year totals per asset and per class (keepTotals, in key
+// order, so postings never deadlock on them), which the sheet reads by
+// class or by asset, with the opening and closing values and the year's
+// columns of a company, ledger and fiscal year.
 package assets
 
 import (

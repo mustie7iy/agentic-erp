@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -114,7 +115,7 @@ func (r reader) Query(_ context.Context, req wire.Request) (*wire.Result, error)
 }
 
 var allPermissions = []string{"analytics.query.run", "ledger.entry.read", "tenancy.org.read", "partner.supplier.read", "ledger.account.read",
-	"payables.invoice.read", "procurement.order.read"}
+	"payables.invoice.read", "procurement.order.read", "cash.forecast.read"}
 
 // fresh gives the request's tenant a snapshot checked now.
 func fresh(t *testing.T, ctx context.Context) {
@@ -193,6 +194,24 @@ func TestSimulation(t *testing.T) {
 		if err := errOf(sim(mixed).Simulate(ctx, nil, added, 0)); problem.From(err).Code != "analytics.invalid_query" {
 			t.Errorf("amounts of two currencies: got %v, want 422 analytics.invalid_query (fails the operation, never retried)", err)
 		}
+		// A company's cash actuals in two currencies (a USD house bank of a
+		// CAD company) are values of their own, never added together.
+		actual := section(t, func(a *config.Analytics) {
+			metric(a, "actual").Filter = map[string][]string{"match": {"payment"}}
+		})
+		twoBanks := reader{rows: []wire.Row{{By: []string{"3000", "CAD", "2026"}, Currency: "CAD", Exponent: 2, Amount: 100},
+			{By: []string{"3000", "USD", "2026"}, Currency: "USD", Exponent: 2, Amount: 7}}}
+		got, err = sim(twoBanks).Simulate(ctx, nil, actual, 0)
+		if err != nil {
+			t.Fatalf("actuals in two currencies: %v", err)
+		}
+		var values []string
+		for _, v := range got.Detail["metrics"].([]MetricChange)[0].Values {
+			values = append(values, v.Company+" "+v.Currency+" "+v.FiscalYear+" "+v.Before+" "+v.After)
+		}
+		if want := []string{"3000 CAD 2026 1.00 1.00", "3000 USD 2026 0.07 0.07"}; !slices.Equal(values, want) {
+			t.Errorf("actuals in two currencies: got %q, want %q", values, want)
+		}
 	})
 }
 
@@ -209,7 +228,7 @@ func errOf(_ any, err error) error { return err }
 func TestDisclosure(t *testing.T) {
 	detail := `{"invoices": 3, "metrics_since": 2025, "metrics": [{"metric": "revenue", "changed": 3, "values": [
 		{"company": "1000", "fiscal_year": "2026", "before": "1", "after": "2"},
-		{"company": "2000", "fiscal_year": "2025", "before": "1", "after": "1"},
+		{"company": "2000", "currency": "USD", "fiscal_year": "2025", "before": "1", "after": "1"},
 		{"company": "2000", "fiscal_year": "2026", "before": "1", "after": "2"},
 		{"company": "", "fiscal_year": "2026", "before": "3", "after": "4"}]}]}`
 	evidence := configuration.Evidence{Kind: "simulation", Detail: json.RawMessage(detail),
@@ -225,7 +244,7 @@ func TestDisclosure(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := `{"invoices":3,"metrics":[{"metric":"revenue","changed":1,"values":[` +
-			`{"company":"2000","fiscal_year":"2025","before":"1","after":"1"},{"company":"2000","fiscal_year":"2026","before":"1","after":"2"}]}],"metrics_since":2025}`
+			`{"company":"2000","currency":"USD","fiscal_year":"2025","before":"1","after":"1"},{"company":"2000","fiscal_year":"2026","before":"1","after":"2"}]}],"metrics_since":2025}`
 		if string(got.Detail) != want {
 			t.Errorf("reader of 2000: got %s, want %s", got.Detail, want)
 		}

@@ -17,6 +17,8 @@ import (
 	"github.com/parquet-go/parquet-go"
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics/extract"
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -50,10 +52,19 @@ type env struct {
 
 func setup(t *testing.T) env {
 	t.Helper()
+	return setupWith(t, nil)
+}
+
+// setupWith is setup with the tenant's configuration document changed by
+// extend before it is bootstrapped. The extractor reads the cash actuals
+// through the cash context, as erp-server wires it.
+func setupWith(t *testing.T, extend func(*config.Config)) env {
+	t.Helper()
 	pool := pgtest.Pool(t)
 	srv := blobstoretest.New(t)
-	return env{Env: fixture.New(t, "ledger.entry.post"), server: srv,
-		x: extract.Extractor{Replica: pool.Begin, Primary: pool.Begin, Role: "erp_app", WorkerRole: "erp_worker", Store: srv.Store()}}
+	return env{Env: fixture.NewWith(t, nil, extend, "ledger.entry.post"), server: srv,
+		x: extract.Extractor{Replica: pool.Begin, Primary: pool.Begin, Role: "erp_app", WorkerRole: "erp_worker", Store: srv.Store(),
+			Cash: app.NewAnalyticsCash(app.Config{Pool: pool, Consistent: pool, AppRole: "erp_app"})}}
 }
 
 // post posts an entry of company 2000 on date: the expense debited, the

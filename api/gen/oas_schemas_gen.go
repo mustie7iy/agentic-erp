@@ -4823,6 +4823,534 @@ func (s *AssetHeaders) SetResponse(val Asset) {
 
 func (*AssetHeaders) createAssetRes() {}
 
+// The asset history sheet of a company, ledger and fiscal year (ADR-0057 §9): per class or asset the
+// reconciliation of cost, accumulated depreciation and net book value from the year's opening to its
+// closing, in the company's local currency, with the totals of every row the filters select.
+// Ref: #/components/schemas/AssetHistorySheet
+type AssetHistorySheet struct {
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The fiscal year's first day: the opening values are those before it.
+	StartDate time.Time `json:"start_date"`
+	// The fiscal year's last day: the closing values are those after it, as posted so far.
+	EndDate time.Time `json:"end_date"`
+	// The company's local currency, every amount's.
+	Currency string `json:"currency"`
+	// What a row is: an asset class or an asset. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	GroupBy string `json:"group_by"`
+	// The rows: every class by class code, or this page's assets by asset number.
+	Items  []AssetHistorySheetRow  `json:"items"`
+	Totals AssetHistorySheetValues `json:"totals"`
+	// Opaque cursor for the next page of assets; absent on the last page and by class.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AssetHistorySheet) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *AssetHistorySheet) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *AssetHistorySheet) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *AssetHistorySheet) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *AssetHistorySheet) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *AssetHistorySheet) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetHistorySheet) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetStartDate returns the value of StartDate.
+func (s *AssetHistorySheet) GetStartDate() time.Time {
+	return s.StartDate
+}
+
+// GetEndDate returns the value of EndDate.
+func (s *AssetHistorySheet) GetEndDate() time.Time {
+	return s.EndDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *AssetHistorySheet) GetCurrency() string {
+	return s.Currency
+}
+
+// GetGroupBy returns the value of GroupBy.
+func (s *AssetHistorySheet) GetGroupBy() string {
+	return s.GroupBy
+}
+
+// GetItems returns the value of Items.
+func (s *AssetHistorySheet) GetItems() []AssetHistorySheetRow {
+	return s.Items
+}
+
+// GetTotals returns the value of Totals.
+func (s *AssetHistorySheet) GetTotals() AssetHistorySheetValues {
+	return s.Totals
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AssetHistorySheet) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AssetHistorySheet) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *AssetHistorySheet) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *AssetHistorySheet) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *AssetHistorySheet) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *AssetHistorySheet) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *AssetHistorySheet) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetHistorySheet) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetStartDate sets the value of StartDate.
+func (s *AssetHistorySheet) SetStartDate(val time.Time) {
+	s.StartDate = val
+}
+
+// SetEndDate sets the value of EndDate.
+func (s *AssetHistorySheet) SetEndDate(val time.Time) {
+	s.EndDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *AssetHistorySheet) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetGroupBy sets the value of GroupBy.
+func (s *AssetHistorySheet) SetGroupBy(val string) {
+	s.GroupBy = val
+}
+
+// SetItems sets the value of Items.
+func (s *AssetHistorySheet) SetItems(val []AssetHistorySheetRow) {
+	s.Items = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *AssetHistorySheet) SetTotals(val AssetHistorySheetValues) {
+	s.Totals = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AssetHistorySheet) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*AssetHistorySheet) getAssetHistorySheetRes() {}
+
+// One row of the asset history sheet: an asset class, or an asset with its class, and its values.
+// Ref: #/components/schemas/AssetHistorySheetRow
+type AssetHistorySheetRow struct {
+	// The asset class (`GET /v1/asset-classes`).
+	ClassCode string `json:"class_code"`
+	// The class's name; absent when the active configuration no longer has the class.
+	ClassName OptString `json:"class_name"`
+	// The asset (`GET /v1/assets/{id}`); by asset only.
+	AssetID OptUUID `json:"asset_id"`
+	// The asset's number in its company; by asset only.
+	AssetNumber OptString `json:"asset_number"`
+	// What the asset is; by asset only.
+	Description OptString `json:"description"`
+	// The asset's status now, not at the year's end; by asset only. Open enumeration: clients must accept
+	// and preserve values not listed here; values may be added within /v1.
+	Status                 OptString `json:"status"`
+	OpeningCost            Money     `json:"opening_cost"`
+	Acquisitions           Money     `json:"acquisitions"`
+	Retirements            Money     `json:"retirements"`
+	Transfers              Money     `json:"transfers"`
+	ClosingCost            Money     `json:"closing_cost"`
+	OpeningAccumulated     Money     `json:"opening_accumulated"`
+	Depreciation           Money     `json:"depreciation"`
+	RetirementsAccumulated Money     `json:"retirements_accumulated"`
+	TransfersAccumulated   Money     `json:"transfers_accumulated"`
+	ClosingAccumulated     Money     `json:"closing_accumulated"`
+	OpeningNetBookValue    Money     `json:"opening_net_book_value"`
+	ClosingNetBookValue    Money     `json:"closing_net_book_value"`
+}
+
+// GetClassCode returns the value of ClassCode.
+func (s *AssetHistorySheetRow) GetClassCode() string {
+	return s.ClassCode
+}
+
+// GetClassName returns the value of ClassName.
+func (s *AssetHistorySheetRow) GetClassName() OptString {
+	return s.ClassName
+}
+
+// GetAssetID returns the value of AssetID.
+func (s *AssetHistorySheetRow) GetAssetID() OptUUID {
+	return s.AssetID
+}
+
+// GetAssetNumber returns the value of AssetNumber.
+func (s *AssetHistorySheetRow) GetAssetNumber() OptString {
+	return s.AssetNumber
+}
+
+// GetDescription returns the value of Description.
+func (s *AssetHistorySheetRow) GetDescription() OptString {
+	return s.Description
+}
+
+// GetStatus returns the value of Status.
+func (s *AssetHistorySheetRow) GetStatus() OptString {
+	return s.Status
+}
+
+// GetOpeningCost returns the value of OpeningCost.
+func (s *AssetHistorySheetRow) GetOpeningCost() Money {
+	return s.OpeningCost
+}
+
+// GetAcquisitions returns the value of Acquisitions.
+func (s *AssetHistorySheetRow) GetAcquisitions() Money {
+	return s.Acquisitions
+}
+
+// GetRetirements returns the value of Retirements.
+func (s *AssetHistorySheetRow) GetRetirements() Money {
+	return s.Retirements
+}
+
+// GetTransfers returns the value of Transfers.
+func (s *AssetHistorySheetRow) GetTransfers() Money {
+	return s.Transfers
+}
+
+// GetClosingCost returns the value of ClosingCost.
+func (s *AssetHistorySheetRow) GetClosingCost() Money {
+	return s.ClosingCost
+}
+
+// GetOpeningAccumulated returns the value of OpeningAccumulated.
+func (s *AssetHistorySheetRow) GetOpeningAccumulated() Money {
+	return s.OpeningAccumulated
+}
+
+// GetDepreciation returns the value of Depreciation.
+func (s *AssetHistorySheetRow) GetDepreciation() Money {
+	return s.Depreciation
+}
+
+// GetRetirementsAccumulated returns the value of RetirementsAccumulated.
+func (s *AssetHistorySheetRow) GetRetirementsAccumulated() Money {
+	return s.RetirementsAccumulated
+}
+
+// GetTransfersAccumulated returns the value of TransfersAccumulated.
+func (s *AssetHistorySheetRow) GetTransfersAccumulated() Money {
+	return s.TransfersAccumulated
+}
+
+// GetClosingAccumulated returns the value of ClosingAccumulated.
+func (s *AssetHistorySheetRow) GetClosingAccumulated() Money {
+	return s.ClosingAccumulated
+}
+
+// GetOpeningNetBookValue returns the value of OpeningNetBookValue.
+func (s *AssetHistorySheetRow) GetOpeningNetBookValue() Money {
+	return s.OpeningNetBookValue
+}
+
+// GetClosingNetBookValue returns the value of ClosingNetBookValue.
+func (s *AssetHistorySheetRow) GetClosingNetBookValue() Money {
+	return s.ClosingNetBookValue
+}
+
+// SetClassCode sets the value of ClassCode.
+func (s *AssetHistorySheetRow) SetClassCode(val string) {
+	s.ClassCode = val
+}
+
+// SetClassName sets the value of ClassName.
+func (s *AssetHistorySheetRow) SetClassName(val OptString) {
+	s.ClassName = val
+}
+
+// SetAssetID sets the value of AssetID.
+func (s *AssetHistorySheetRow) SetAssetID(val OptUUID) {
+	s.AssetID = val
+}
+
+// SetAssetNumber sets the value of AssetNumber.
+func (s *AssetHistorySheetRow) SetAssetNumber(val OptString) {
+	s.AssetNumber = val
+}
+
+// SetDescription sets the value of Description.
+func (s *AssetHistorySheetRow) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetStatus sets the value of Status.
+func (s *AssetHistorySheetRow) SetStatus(val OptString) {
+	s.Status = val
+}
+
+// SetOpeningCost sets the value of OpeningCost.
+func (s *AssetHistorySheetRow) SetOpeningCost(val Money) {
+	s.OpeningCost = val
+}
+
+// SetAcquisitions sets the value of Acquisitions.
+func (s *AssetHistorySheetRow) SetAcquisitions(val Money) {
+	s.Acquisitions = val
+}
+
+// SetRetirements sets the value of Retirements.
+func (s *AssetHistorySheetRow) SetRetirements(val Money) {
+	s.Retirements = val
+}
+
+// SetTransfers sets the value of Transfers.
+func (s *AssetHistorySheetRow) SetTransfers(val Money) {
+	s.Transfers = val
+}
+
+// SetClosingCost sets the value of ClosingCost.
+func (s *AssetHistorySheetRow) SetClosingCost(val Money) {
+	s.ClosingCost = val
+}
+
+// SetOpeningAccumulated sets the value of OpeningAccumulated.
+func (s *AssetHistorySheetRow) SetOpeningAccumulated(val Money) {
+	s.OpeningAccumulated = val
+}
+
+// SetDepreciation sets the value of Depreciation.
+func (s *AssetHistorySheetRow) SetDepreciation(val Money) {
+	s.Depreciation = val
+}
+
+// SetRetirementsAccumulated sets the value of RetirementsAccumulated.
+func (s *AssetHistorySheetRow) SetRetirementsAccumulated(val Money) {
+	s.RetirementsAccumulated = val
+}
+
+// SetTransfersAccumulated sets the value of TransfersAccumulated.
+func (s *AssetHistorySheetRow) SetTransfersAccumulated(val Money) {
+	s.TransfersAccumulated = val
+}
+
+// SetClosingAccumulated sets the value of ClosingAccumulated.
+func (s *AssetHistorySheetRow) SetClosingAccumulated(val Money) {
+	s.ClosingAccumulated = val
+}
+
+// SetOpeningNetBookValue sets the value of OpeningNetBookValue.
+func (s *AssetHistorySheetRow) SetOpeningNetBookValue(val Money) {
+	s.OpeningNetBookValue = val
+}
+
+// SetClosingNetBookValue sets the value of ClosingNetBookValue.
+func (s *AssetHistorySheetRow) SetClosingNetBookValue(val Money) {
+	s.ClosingNetBookValue = val
+}
+
+// The history sheet's columns summed over every row the filters select: opening cost, acquisitions
+// (positive), retirements (cost retired, negative), transfers (asset transfers in less out), closing
+// cost; opening accumulated depreciation (negative), the year's depreciation, the accumulated
+// depreciation retirements took (positive) and transfers moved, closing accumulated depreciation;
+// opening and closing net book value.
+// Ref: #/components/schemas/AssetHistorySheetValues
+type AssetHistorySheetValues struct {
+	OpeningCost            Money `json:"opening_cost"`
+	Acquisitions           Money `json:"acquisitions"`
+	Retirements            Money `json:"retirements"`
+	Transfers              Money `json:"transfers"`
+	ClosingCost            Money `json:"closing_cost"`
+	OpeningAccumulated     Money `json:"opening_accumulated"`
+	Depreciation           Money `json:"depreciation"`
+	RetirementsAccumulated Money `json:"retirements_accumulated"`
+	TransfersAccumulated   Money `json:"transfers_accumulated"`
+	ClosingAccumulated     Money `json:"closing_accumulated"`
+	OpeningNetBookValue    Money `json:"opening_net_book_value"`
+	ClosingNetBookValue    Money `json:"closing_net_book_value"`
+}
+
+// GetOpeningCost returns the value of OpeningCost.
+func (s *AssetHistorySheetValues) GetOpeningCost() Money {
+	return s.OpeningCost
+}
+
+// GetAcquisitions returns the value of Acquisitions.
+func (s *AssetHistorySheetValues) GetAcquisitions() Money {
+	return s.Acquisitions
+}
+
+// GetRetirements returns the value of Retirements.
+func (s *AssetHistorySheetValues) GetRetirements() Money {
+	return s.Retirements
+}
+
+// GetTransfers returns the value of Transfers.
+func (s *AssetHistorySheetValues) GetTransfers() Money {
+	return s.Transfers
+}
+
+// GetClosingCost returns the value of ClosingCost.
+func (s *AssetHistorySheetValues) GetClosingCost() Money {
+	return s.ClosingCost
+}
+
+// GetOpeningAccumulated returns the value of OpeningAccumulated.
+func (s *AssetHistorySheetValues) GetOpeningAccumulated() Money {
+	return s.OpeningAccumulated
+}
+
+// GetDepreciation returns the value of Depreciation.
+func (s *AssetHistorySheetValues) GetDepreciation() Money {
+	return s.Depreciation
+}
+
+// GetRetirementsAccumulated returns the value of RetirementsAccumulated.
+func (s *AssetHistorySheetValues) GetRetirementsAccumulated() Money {
+	return s.RetirementsAccumulated
+}
+
+// GetTransfersAccumulated returns the value of TransfersAccumulated.
+func (s *AssetHistorySheetValues) GetTransfersAccumulated() Money {
+	return s.TransfersAccumulated
+}
+
+// GetClosingAccumulated returns the value of ClosingAccumulated.
+func (s *AssetHistorySheetValues) GetClosingAccumulated() Money {
+	return s.ClosingAccumulated
+}
+
+// GetOpeningNetBookValue returns the value of OpeningNetBookValue.
+func (s *AssetHistorySheetValues) GetOpeningNetBookValue() Money {
+	return s.OpeningNetBookValue
+}
+
+// GetClosingNetBookValue returns the value of ClosingNetBookValue.
+func (s *AssetHistorySheetValues) GetClosingNetBookValue() Money {
+	return s.ClosingNetBookValue
+}
+
+// SetOpeningCost sets the value of OpeningCost.
+func (s *AssetHistorySheetValues) SetOpeningCost(val Money) {
+	s.OpeningCost = val
+}
+
+// SetAcquisitions sets the value of Acquisitions.
+func (s *AssetHistorySheetValues) SetAcquisitions(val Money) {
+	s.Acquisitions = val
+}
+
+// SetRetirements sets the value of Retirements.
+func (s *AssetHistorySheetValues) SetRetirements(val Money) {
+	s.Retirements = val
+}
+
+// SetTransfers sets the value of Transfers.
+func (s *AssetHistorySheetValues) SetTransfers(val Money) {
+	s.Transfers = val
+}
+
+// SetClosingCost sets the value of ClosingCost.
+func (s *AssetHistorySheetValues) SetClosingCost(val Money) {
+	s.ClosingCost = val
+}
+
+// SetOpeningAccumulated sets the value of OpeningAccumulated.
+func (s *AssetHistorySheetValues) SetOpeningAccumulated(val Money) {
+	s.OpeningAccumulated = val
+}
+
+// SetDepreciation sets the value of Depreciation.
+func (s *AssetHistorySheetValues) SetDepreciation(val Money) {
+	s.Depreciation = val
+}
+
+// SetRetirementsAccumulated sets the value of RetirementsAccumulated.
+func (s *AssetHistorySheetValues) SetRetirementsAccumulated(val Money) {
+	s.RetirementsAccumulated = val
+}
+
+// SetTransfersAccumulated sets the value of TransfersAccumulated.
+func (s *AssetHistorySheetValues) SetTransfersAccumulated(val Money) {
+	s.TransfersAccumulated = val
+}
+
+// SetClosingAccumulated sets the value of ClosingAccumulated.
+func (s *AssetHistorySheetValues) SetClosingAccumulated(val Money) {
+	s.ClosingAccumulated = val
+}
+
+// SetOpeningNetBookValue sets the value of OpeningNetBookValue.
+func (s *AssetHistorySheetValues) SetOpeningNetBookValue(val Money) {
+	s.OpeningNetBookValue = val
+}
+
+// SetClosingNetBookValue sets the value of ClosingNetBookValue.
+func (s *AssetHistorySheetValues) SetClosingNetBookValue(val Money) {
+	s.ClosingNetBookValue = val
+}
+
 // An asset's values in one ledger (ADR-0057 §5): its acquisition cost, accumulated depreciation
 // (negative, the credit it is) and net book value, in the company's local currency and in group
 // currency as the ledger booked them.
@@ -12695,6 +13223,333 @@ func (s *CashDiscountTier) SetPercent(val string) {
 	s.Percent = val
 }
 
+// An export of a snapshot of the liquidity forecast to a treasury channel (ADR-0051 §14, T53h), in
+// the cash export schema v1.
+// Ref: #/components/schemas/CashExport
+type CashExport struct {
+	// Export id.
+	ID uuid.UUID `json:"id"`
+	// The snapshot exported (`getCashSnapshot`).
+	CashSnapshotID uuid.UUID `json:"cash_snapshot_id"`
+	// The snapshot's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// The snapshot's date.
+	SnapshotDate time.Time `json:"snapshot_date"`
+	// The treasury channel (`getConnector`).
+	ConnectorID uuid.UUID `json:"connector_id"`
+	// The treasury channel's name.
+	ConnectorName string `json:"connector_name"`
+	// The file's format, the channel's: `jsonl` (JSON lines) or `csv`. Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	Format string `json:"format"`
+	// `pending` (queued, or waiting for its next attempt), `delivered` or `failed`. Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The attempts made to send it.
+	Attempts int32 `json:"attempts"`
+	// Pending: when it is next sent.
+	NextAttemptAt OptDateTime `json:"next_attempt_at"`
+	// The file's name, `cash-<company code>-<snapshot date>-<sha256>.<format>`; absent until it is first
+	// sent.
+	FileName OptString `json:"file_name"`
+	// The SHA-256 of the file's content, in hexadecimal; absent until it is first sent.
+	SHA256 OptString `json:"sha256"`
+	// Delivered: whether the channel had been delivered this file before, under the same name.
+	Resend OptBool `json:"resend"`
+	// The problem code of the last failed attempt; absent when none failed. A last attempt made again
+	// because its outcome was lost carries `cash.export_outcome_unknown` instead, delivered or not (the
+	// earlier attempt's code stays in its `cash.export.retry` audit record).
+	LastErrorCode OptString `json:"last_error_code"`
+	// When it was delivered.
+	DeliveredAt OptDateTime `json:"delivered_at"`
+	// Who took the snapshot, for an export queued then, or asked for the export.
+	RequestedBy uuid.UUID `json:"requested_by"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *CashExport) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCashSnapshotID returns the value of CashSnapshotID.
+func (s *CashExport) GetCashSnapshotID() uuid.UUID {
+	return s.CashSnapshotID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CashExport) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CashExport) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetSnapshotDate returns the value of SnapshotDate.
+func (s *CashExport) GetSnapshotDate() time.Time {
+	return s.SnapshotDate
+}
+
+// GetConnectorID returns the value of ConnectorID.
+func (s *CashExport) GetConnectorID() uuid.UUID {
+	return s.ConnectorID
+}
+
+// GetConnectorName returns the value of ConnectorName.
+func (s *CashExport) GetConnectorName() string {
+	return s.ConnectorName
+}
+
+// GetFormat returns the value of Format.
+func (s *CashExport) GetFormat() string {
+	return s.Format
+}
+
+// GetStatus returns the value of Status.
+func (s *CashExport) GetStatus() string {
+	return s.Status
+}
+
+// GetAttempts returns the value of Attempts.
+func (s *CashExport) GetAttempts() int32 {
+	return s.Attempts
+}
+
+// GetNextAttemptAt returns the value of NextAttemptAt.
+func (s *CashExport) GetNextAttemptAt() OptDateTime {
+	return s.NextAttemptAt
+}
+
+// GetFileName returns the value of FileName.
+func (s *CashExport) GetFileName() OptString {
+	return s.FileName
+}
+
+// GetSHA256 returns the value of SHA256.
+func (s *CashExport) GetSHA256() OptString {
+	return s.SHA256
+}
+
+// GetResend returns the value of Resend.
+func (s *CashExport) GetResend() OptBool {
+	return s.Resend
+}
+
+// GetLastErrorCode returns the value of LastErrorCode.
+func (s *CashExport) GetLastErrorCode() OptString {
+	return s.LastErrorCode
+}
+
+// GetDeliveredAt returns the value of DeliveredAt.
+func (s *CashExport) GetDeliveredAt() OptDateTime {
+	return s.DeliveredAt
+}
+
+// GetRequestedBy returns the value of RequestedBy.
+func (s *CashExport) GetRequestedBy() uuid.UUID {
+	return s.RequestedBy
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CashExport) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *CashExport) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *CashExport) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCashSnapshotID sets the value of CashSnapshotID.
+func (s *CashExport) SetCashSnapshotID(val uuid.UUID) {
+	s.CashSnapshotID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CashExport) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CashExport) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetSnapshotDate sets the value of SnapshotDate.
+func (s *CashExport) SetSnapshotDate(val time.Time) {
+	s.SnapshotDate = val
+}
+
+// SetConnectorID sets the value of ConnectorID.
+func (s *CashExport) SetConnectorID(val uuid.UUID) {
+	s.ConnectorID = val
+}
+
+// SetConnectorName sets the value of ConnectorName.
+func (s *CashExport) SetConnectorName(val string) {
+	s.ConnectorName = val
+}
+
+// SetFormat sets the value of Format.
+func (s *CashExport) SetFormat(val string) {
+	s.Format = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CashExport) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetAttempts sets the value of Attempts.
+func (s *CashExport) SetAttempts(val int32) {
+	s.Attempts = val
+}
+
+// SetNextAttemptAt sets the value of NextAttemptAt.
+func (s *CashExport) SetNextAttemptAt(val OptDateTime) {
+	s.NextAttemptAt = val
+}
+
+// SetFileName sets the value of FileName.
+func (s *CashExport) SetFileName(val OptString) {
+	s.FileName = val
+}
+
+// SetSHA256 sets the value of SHA256.
+func (s *CashExport) SetSHA256(val OptString) {
+	s.SHA256 = val
+}
+
+// SetResend sets the value of Resend.
+func (s *CashExport) SetResend(val OptBool) {
+	s.Resend = val
+}
+
+// SetLastErrorCode sets the value of LastErrorCode.
+func (s *CashExport) SetLastErrorCode(val OptString) {
+	s.LastErrorCode = val
+}
+
+// SetDeliveredAt sets the value of DeliveredAt.
+func (s *CashExport) SetDeliveredAt(val OptDateTime) {
+	s.DeliveredAt = val
+}
+
+// SetRequestedBy sets the value of RequestedBy.
+func (s *CashExport) SetRequestedBy(val uuid.UUID) {
+	s.RequestedBy = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CashExport) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *CashExport) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+func (*CashExport) getCashExportRes() {}
+
+// An export of a snapshot to a treasury channel to queue (ADR-0051 §14).
+// Ref: #/components/schemas/CashExportCreate
+type CashExportCreate struct {
+	// The treasury channel: an active `treasury_export` connector whose `companies` name the snapshot's
+	// company.
+	ConnectorID uuid.UUID `json:"connector_id"`
+}
+
+// GetConnectorID returns the value of ConnectorID.
+func (s *CashExportCreate) GetConnectorID() uuid.UUID {
+	return s.ConnectorID
+}
+
+// SetConnectorID sets the value of ConnectorID.
+func (s *CashExportCreate) SetConnectorID(val uuid.UUID) {
+	s.ConnectorID = val
+}
+
+// CashExportHeaders wraps CashExport with response headers.
+type CashExportHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           CashExport
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CashExportHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CashExportHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CashExportHeaders) GetResponse() CashExport {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CashExportHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CashExportHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CashExportHeaders) SetResponse(val CashExport) {
+	s.Response = val
+}
+
+func (*CashExportHeaders) createCashExportRes() {}
+
+// One page of exports of snapshots to treasury systems.
+// Ref: #/components/schemas/CashExportPage
+type CashExportPage struct {
+	// The exports on this page, newest first.
+	Items []CashExport `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CashExportPage) GetItems() []CashExport {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CashExportPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CashExportPage) SetItems(val []CashExport) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CashExportPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CashExportPage) listCashExportsRes() {}
+
 // The flows of a day, or of a forecast's bucket, of one source and certainty.
 // Ref: #/components/schemas/CashFlowTotal
 type CashFlowTotal struct {
@@ -17415,6 +18270,7 @@ func (*ConflictHeaders) createAssetRes()                      {}
 func (*ConflictHeaders) createAssetRetirementRes()            {}
 func (*ConflictHeaders) createAssetTransferRes()              {}
 func (*ConflictHeaders) createBusinessPartnerRes()            {}
+func (*ConflictHeaders) createCashExportRes()                 {}
 func (*ConflictHeaders) createChangeRequestRes()              {}
 func (*ConflictHeaders) createClearingRes()                   {}
 func (*ConflictHeaders) createCompanyAccessRes()              {}
@@ -17610,7 +18466,11 @@ type Connector struct {
 	// are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https),
 	// `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys.
 	// EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics`
-	// connector there answers 422 `integration.ebics_not_certified`.
+	// connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector
+	// (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a
+	// `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or
+	// `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the
+	// liquidity forecast it is sent (at least one); its `secret_ref` names the private key.
 	Settings ConnectorSettings `json:"settings"`
 	// Vault path of the credentials.
 	SecretRef OptString `json:"secret_ref"`
@@ -17745,7 +18605,11 @@ type ConnectorCreate struct {
 	// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
 	// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
 	// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
-	// `integration.ebics_not_certified`.
+	// `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP
+	// server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
+	// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
+	// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
+	// its `secret_ref` names the private key.
 	Settings ConnectorCreateSettings `json:"settings"`
 	// Vault path of the credentials.
 	SecretRef OptString `json:"secret_ref"`
@@ -17799,7 +18663,11 @@ func (s *ConnectorCreate) SetSecretRef(val OptString) {
 // `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
 // `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
 // until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
-// `integration.ebics_not_certified`.
+// `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP
+// server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
+// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
+// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
+// its `secret_ref` names the private key.
 type ConnectorCreateSettings map[string]jx.Raw
 
 func (s *ConnectorCreateSettings) init() ConnectorCreateSettings {
@@ -17913,7 +18781,11 @@ func (*ConnectorPage) listConnectorsRes() {}
 // are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https),
 // `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys.
 // EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics`
-// connector there answers 422 `integration.ebics_not_certified`.
+// connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector
+// (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a
+// `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or
+// `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the
+// liquidity forecast it is sent (at least one); its `secret_ref` names the private key.
 type ConnectorSettings map[string]jx.Raw
 
 func (s *ConnectorSettings) init() ConnectorSettings {
@@ -17938,7 +18810,11 @@ type ConnectorUpdate struct {
 	// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
 	// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
 	// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
-	// `integration.ebics_not_certified`.
+	// `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP
+	// server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
+	// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
+	// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
+	// its `secret_ref` names the private key.
 	Settings OptConnectorUpdateSettings `json:"settings"`
 	// Vault path of the credentials. Send null to clear.
 	SecretRef OptNilString `json:"secret_ref"`
@@ -17982,7 +18858,11 @@ func (s *ConnectorUpdate) SetSecretRef(val OptNilString) {
 // `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
 // `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
 // until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
-// `integration.ebics_not_certified`.
+// `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP
+// server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
+// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
+// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
+// its `secret_ref` names the private key.
 type ConnectorUpdateSettings map[string]jx.Raw
 
 func (s *ConnectorUpdateSettings) init() ConnectorUpdateSettings {
@@ -20144,6 +21024,26 @@ func (*CreateBusinessPartnerPreconditionRequired) createBusinessPartnerRes() {}
 type CreateBusinessPartnerUnprocessableEntity Problem
 
 func (*CreateBusinessPartnerUnprocessableEntity) createBusinessPartnerRes() {}
+
+type CreateCashExportBadRequest Problem
+
+func (*CreateCashExportBadRequest) createCashExportRes() {}
+
+type CreateCashExportForbidden Problem
+
+func (*CreateCashExportForbidden) createCashExportRes() {}
+
+type CreateCashExportNotFound Problem
+
+func (*CreateCashExportNotFound) createCashExportRes() {}
+
+type CreateCashExportPreconditionRequired Problem
+
+func (*CreateCashExportPreconditionRequired) createCashExportRes() {}
+
+type CreateCashExportUnprocessableEntity Problem
+
+func (*CreateCashExportUnprocessableEntity) createCashExportRes() {}
 
 type CreateChangeRequestBadRequest Problem
 
@@ -25472,6 +26372,22 @@ type GetAssetForbidden Problem
 
 func (*GetAssetForbidden) getAssetRes() {}
 
+type GetAssetHistorySheetBadRequest Problem
+
+func (*GetAssetHistorySheetBadRequest) getAssetHistorySheetRes() {}
+
+type GetAssetHistorySheetForbidden Problem
+
+func (*GetAssetHistorySheetForbidden) getAssetHistorySheetRes() {}
+
+type GetAssetHistorySheetNotFound Problem
+
+func (*GetAssetHistorySheetNotFound) getAssetHistorySheetRes() {}
+
+type GetAssetHistorySheetUnprocessableEntity Problem
+
+func (*GetAssetHistorySheetUnprocessableEntity) getAssetHistorySheetRes() {}
+
 type GetAssetNotFound Problem
 
 func (*GetAssetNotFound) getAssetRes() {}
@@ -25777,6 +26693,18 @@ func (*GetCashActualsNotFound) getCashActualsRes() {}
 type GetCashActualsUnprocessableEntity Problem
 
 func (*GetCashActualsUnprocessableEntity) getCashActualsRes() {}
+
+type GetCashExportBadRequest Problem
+
+func (*GetCashExportBadRequest) getCashExportRes() {}
+
+type GetCashExportForbidden Problem
+
+func (*GetCashExportForbidden) getCashExportRes() {}
+
+type GetCashExportNotFound Problem
+
+func (*GetCashExportNotFound) getCashExportRes() {}
 
 type GetCashPositionBadRequest Problem
 
@@ -26293,6 +27221,18 @@ func (*GetGrIrClearingForbidden) getGrIrClearingRes() {}
 type GetGrIrClearingNotFound Problem
 
 func (*GetGrIrClearingNotFound) getGrIrClearingRes() {}
+
+type GetGroupLiquidityForecastBadRequest Problem
+
+func (*GetGroupLiquidityForecastBadRequest) getGroupLiquidityForecastRes() {}
+
+type GetGroupLiquidityForecastForbidden Problem
+
+func (*GetGroupLiquidityForecastForbidden) getGroupLiquidityForecastRes() {}
+
+type GetGroupLiquidityForecastUnprocessableEntity Problem
+
+func (*GetGroupLiquidityForecastUnprocessableEntity) getGroupLiquidityForecastRes() {}
 
 type GetHierarchyBadRequest Problem
 
@@ -28921,6 +29861,363 @@ func (*GrantRolePermissionPreconditionRequired) grantRolePermissionRes() {}
 type GrantRolePermissionUnprocessableEntity Problem
 
 func (*GrantRolePermissionUnprocessableEntity) grantRolePermissionRes() {}
+
+// The liquidity forecast across the companies the caller may act in (ADR-0051 §9, §10, §15; T53e5):
+// per currency, and summed in the tenant's group currency. Amounts are signed: a payment out is
+// negative.
+// Ref: #/components/schemas/GroupLiquidityForecast
+type GroupLiquidityForecast struct {
+	// The tenant's group currency (ISO 4217), which `converted` is in.
+	GroupCurrency string `json:"group_currency"`
+	// The earliest of the companies' read dates (today in UTC when there is no company): the first bucket
+	// starts on it.
+	ReadDate time.Time `json:"read_date"`
+	// The least certain flows counted. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	MinCertainty string `json:"min_certainty"`
+	// Whether the `payable_blocked` flows are counted in the totals and `beyond`; they are listed in the
+	// buckets' flows and summed in each currency's `blocked` either way.
+	IncludeBlocked bool `json:"include_blocked"`
+	// The companies summed: every legal entity the caller may act in, by company code; empty when it may
+	// act in none.
+	Companies []GroupLiquidityForecastCompany `json:"companies"`
+	// The columns, in order: consecutive periods from the read date.
+	Buckets []LiquidityForecastBucket `json:"buckets"`
+	// The companies' figures summed per currency, never converted, by currency code: each currency with a
+	// flow or an active house bank in one of the companies.
+	Currencies []GroupLiquidityForecastCurrency `json:"currencies"`
+	Converted  GroupLiquidityForecastConverted  `json:"converted"`
+}
+
+// GetGroupCurrency returns the value of GroupCurrency.
+func (s *GroupLiquidityForecast) GetGroupCurrency() string {
+	return s.GroupCurrency
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *GroupLiquidityForecast) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetMinCertainty returns the value of MinCertainty.
+func (s *GroupLiquidityForecast) GetMinCertainty() string {
+	return s.MinCertainty
+}
+
+// GetIncludeBlocked returns the value of IncludeBlocked.
+func (s *GroupLiquidityForecast) GetIncludeBlocked() bool {
+	return s.IncludeBlocked
+}
+
+// GetCompanies returns the value of Companies.
+func (s *GroupLiquidityForecast) GetCompanies() []GroupLiquidityForecastCompany {
+	return s.Companies
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *GroupLiquidityForecast) GetBuckets() []LiquidityForecastBucket {
+	return s.Buckets
+}
+
+// GetCurrencies returns the value of Currencies.
+func (s *GroupLiquidityForecast) GetCurrencies() []GroupLiquidityForecastCurrency {
+	return s.Currencies
+}
+
+// GetConverted returns the value of Converted.
+func (s *GroupLiquidityForecast) GetConverted() GroupLiquidityForecastConverted {
+	return s.Converted
+}
+
+// SetGroupCurrency sets the value of GroupCurrency.
+func (s *GroupLiquidityForecast) SetGroupCurrency(val string) {
+	s.GroupCurrency = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *GroupLiquidityForecast) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetMinCertainty sets the value of MinCertainty.
+func (s *GroupLiquidityForecast) SetMinCertainty(val string) {
+	s.MinCertainty = val
+}
+
+// SetIncludeBlocked sets the value of IncludeBlocked.
+func (s *GroupLiquidityForecast) SetIncludeBlocked(val bool) {
+	s.IncludeBlocked = val
+}
+
+// SetCompanies sets the value of Companies.
+func (s *GroupLiquidityForecast) SetCompanies(val []GroupLiquidityForecastCompany) {
+	s.Companies = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *GroupLiquidityForecast) SetBuckets(val []LiquidityForecastBucket) {
+	s.Buckets = val
+}
+
+// SetCurrencies sets the value of Currencies.
+func (s *GroupLiquidityForecast) SetCurrencies(val []GroupLiquidityForecastCurrency) {
+	s.Currencies = val
+}
+
+// SetConverted sets the value of Converted.
+func (s *GroupLiquidityForecast) SetConverted(val GroupLiquidityForecastConverted) {
+	s.Converted = val
+}
+
+func (*GroupLiquidityForecast) getGroupLiquidityForecastRes() {}
+
+// A company the group forecast sums (T53e5): its legal entity, the read date its own figures are read
+// on, and how they were converted into the group currency.
+// Ref: #/components/schemas/GroupLiquidityForecastCompany
+type GroupLiquidityForecastCompany struct {
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// The legal entity's name.
+	Name string `json:"name"`
+	// The company's date when the forecast was read, in `time_zone`: what is late is judged by it, and its
+	// flows are not before it.
+	ReadDate time.Time `json:"read_date"`
+	// The IANA time zone of the read date: the company's configured `time_zone`, or `UTC` when it has none
+	// or is not in the configuration.
+	TimeZone string `json:"time_zone"`
+	// The rates the company's currencies were converted into the group currency at, by currency (the
+	// company's `cash.rate_type`); none for the group currency itself.
+	Rates []CashPositionRate `json:"rates"`
+	// The company's currencies without a rate into the group currency, left out of every converted figure;
+	// empty when the company's are complete.
+	IncompleteCurrencies []string `json:"incomplete_currencies"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *GroupLiquidityForecastCompany) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *GroupLiquidityForecastCompany) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetName returns the value of Name.
+func (s *GroupLiquidityForecastCompany) GetName() string {
+	return s.Name
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *GroupLiquidityForecastCompany) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *GroupLiquidityForecastCompany) GetTimeZone() string {
+	return s.TimeZone
+}
+
+// GetRates returns the value of Rates.
+func (s *GroupLiquidityForecastCompany) GetRates() []CashPositionRate {
+	return s.Rates
+}
+
+// GetIncompleteCurrencies returns the value of IncompleteCurrencies.
+func (s *GroupLiquidityForecastCompany) GetIncompleteCurrencies() []string {
+	return s.IncompleteCurrencies
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *GroupLiquidityForecastCompany) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *GroupLiquidityForecastCompany) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetName sets the value of Name.
+func (s *GroupLiquidityForecastCompany) SetName(val string) {
+	s.Name = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *GroupLiquidityForecastCompany) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *GroupLiquidityForecastCompany) SetTimeZone(val string) {
+	s.TimeZone = val
+}
+
+// SetRates sets the value of Rates.
+func (s *GroupLiquidityForecastCompany) SetRates(val []CashPositionRate) {
+	s.Rates = val
+}
+
+// SetIncompleteCurrencies sets the value of IncompleteCurrencies.
+func (s *GroupLiquidityForecastCompany) SetIncompleteCurrencies(val []string) {
+	s.IncompleteCurrencies = val
+}
+
+// The group forecast in the group currency (ADR-0051 §10, T53e5): each company's converted figures,
+// as its own forecast converts them into the group currency, summed; the rates are each company's
+// (`companies`).
+// Ref: #/components/schemas/GroupLiquidityForecastConverted
+type GroupLiquidityForecastConverted struct {
+	// The group currency (ISO 4217).
+	Currency string `json:"currency"`
+	// The currencies some company has no rate for into the group currency, sorted, each left out of that
+	// company's converted figures (the company's `incomplete_currencies` say whose); empty when the
+	// figures are complete.
+	IncompleteCurrencies []string `json:"incomplete_currencies"`
+	Opening              Money    `json:"opening"`
+	// One per bucket of the forecast, in the same order.
+	Buckets []LiquidityForecastConvertedBucket `json:"buckets"`
+	Total   Money                              `json:"total"`
+	Beyond  Money                              `json:"beyond"`
+}
+
+// GetCurrency returns the value of Currency.
+func (s *GroupLiquidityForecastConverted) GetCurrency() string {
+	return s.Currency
+}
+
+// GetIncompleteCurrencies returns the value of IncompleteCurrencies.
+func (s *GroupLiquidityForecastConverted) GetIncompleteCurrencies() []string {
+	return s.IncompleteCurrencies
+}
+
+// GetOpening returns the value of Opening.
+func (s *GroupLiquidityForecastConverted) GetOpening() Money {
+	return s.Opening
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *GroupLiquidityForecastConverted) GetBuckets() []LiquidityForecastConvertedBucket {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *GroupLiquidityForecastConverted) GetTotal() Money {
+	return s.Total
+}
+
+// GetBeyond returns the value of Beyond.
+func (s *GroupLiquidityForecastConverted) GetBeyond() Money {
+	return s.Beyond
+}
+
+// SetCurrency sets the value of Currency.
+func (s *GroupLiquidityForecastConverted) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetIncompleteCurrencies sets the value of IncompleteCurrencies.
+func (s *GroupLiquidityForecastConverted) SetIncompleteCurrencies(val []string) {
+	s.IncompleteCurrencies = val
+}
+
+// SetOpening sets the value of Opening.
+func (s *GroupLiquidityForecastConverted) SetOpening(val Money) {
+	s.Opening = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *GroupLiquidityForecastConverted) SetBuckets(val []LiquidityForecastConvertedBucket) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *GroupLiquidityForecastConverted) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetBeyond sets the value of Beyond.
+func (s *GroupLiquidityForecastConverted) SetBeyond(val Money) {
+	s.Beyond = val
+}
+
+// One currency's figures summed over the companies, never converted (T53e5): the openings, the flows
+// per bucket in the buckets' order, the total over the horizon, what is expected after it, and what
+// suppliers no run pays are owed.
+// Ref: #/components/schemas/GroupLiquidityForecastCurrency
+type GroupLiquidityForecastCurrency struct {
+	// The currency (ISO 4217).
+	Currency string                   `json:"currency"`
+	Opening  LiquidityForecastOpening `json:"opening"`
+	// One per bucket of the forecast, in the same order; each `closing` is the opening plus the totals so
+	// far.
+	Buckets []LiquidityForecastBucketFlows `json:"buckets"`
+	Total   Money                          `json:"total"`
+	Beyond  LiquidityForecastBeyond        `json:"beyond"`
+	Blocked LiquidityForecastBlocked       `json:"blocked"`
+}
+
+// GetCurrency returns the value of Currency.
+func (s *GroupLiquidityForecastCurrency) GetCurrency() string {
+	return s.Currency
+}
+
+// GetOpening returns the value of Opening.
+func (s *GroupLiquidityForecastCurrency) GetOpening() LiquidityForecastOpening {
+	return s.Opening
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *GroupLiquidityForecastCurrency) GetBuckets() []LiquidityForecastBucketFlows {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *GroupLiquidityForecastCurrency) GetTotal() Money {
+	return s.Total
+}
+
+// GetBeyond returns the value of Beyond.
+func (s *GroupLiquidityForecastCurrency) GetBeyond() LiquidityForecastBeyond {
+	return s.Beyond
+}
+
+// GetBlocked returns the value of Blocked.
+func (s *GroupLiquidityForecastCurrency) GetBlocked() LiquidityForecastBlocked {
+	return s.Blocked
+}
+
+// SetCurrency sets the value of Currency.
+func (s *GroupLiquidityForecastCurrency) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetOpening sets the value of Opening.
+func (s *GroupLiquidityForecastCurrency) SetOpening(val LiquidityForecastOpening) {
+	s.Opening = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *GroupLiquidityForecastCurrency) SetBuckets(val []LiquidityForecastBucketFlows) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *GroupLiquidityForecastCurrency) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetBeyond sets the value of Beyond.
+func (s *GroupLiquidityForecastCurrency) SetBeyond(val LiquidityForecastBeyond) {
+	s.Beyond = val
+}
+
+// SetBlocked sets the value of Blocked.
+func (s *GroupLiquidityForecastCurrency) SetBlocked(val LiquidityForecastBlocked) {
+	s.Blocked = val
+}
 
 // Merged schema.
 // Ref: #/components/schemas/Hierarchy
@@ -34012,6 +35309,14 @@ func (*ListCashActualLinesNotFound) listCashActualLinesRes() {}
 type ListCashActualLinesUnprocessableEntity Problem
 
 func (*ListCashActualLinesUnprocessableEntity) listCashActualLinesRes() {}
+
+type ListCashExportsBadRequest Problem
+
+func (*ListCashExportsBadRequest) listCashExportsRes() {}
+
+type ListCashExportsForbidden Problem
+
+func (*ListCashExportsForbidden) listCashExportsRes() {}
 
 type ListCashSnapshotFlowsBadRequest Problem
 
@@ -59786,6 +61091,7 @@ func (*TooManyRequestsHeaders) createAssetRes()                      {}
 func (*TooManyRequestsHeaders) createAssetRetirementRes()            {}
 func (*TooManyRequestsHeaders) createAssetTransferRes()              {}
 func (*TooManyRequestsHeaders) createBusinessPartnerRes()            {}
+func (*TooManyRequestsHeaders) createCashExportRes()                 {}
 func (*TooManyRequestsHeaders) createChangeRequestRes()              {}
 func (*TooManyRequestsHeaders) createClearingRes()                   {}
 func (*TooManyRequestsHeaders) createCompanyAccessRes()              {}
@@ -59839,6 +61145,7 @@ func (*TooManyRequestsHeaders) getAiUsageRes()                       {}
 func (*TooManyRequestsHeaders) getAnalyticsModelRes()                {}
 func (*TooManyRequestsHeaders) getApprovalRequestRes()               {}
 func (*TooManyRequestsHeaders) getAssetAcquisitionRes()              {}
+func (*TooManyRequestsHeaders) getAssetHistorySheetRes()             {}
 func (*TooManyRequestsHeaders) getAssetRes()                         {}
 func (*TooManyRequestsHeaders) getAssetRetirementRes()               {}
 func (*TooManyRequestsHeaders) getAssetScheduleRes()                 {}
@@ -59852,6 +61159,7 @@ func (*TooManyRequestsHeaders) getBankStatementRes()                 {}
 func (*TooManyRequestsHeaders) getBankStatementRulesRes()            {}
 func (*TooManyRequestsHeaders) getBusinessPartnerRes()               {}
 func (*TooManyRequestsHeaders) getCashActualsRes()                   {}
+func (*TooManyRequestsHeaders) getCashExportRes()                    {}
 func (*TooManyRequestsHeaders) getCashPositionRes()                  {}
 func (*TooManyRequestsHeaders) getCashSnapshotRes()                  {}
 func (*TooManyRequestsHeaders) getCenterChangeRes()                  {}
@@ -59872,6 +61180,7 @@ func (*TooManyRequestsHeaders) getFiscalPeriodRes()                  {}
 func (*TooManyRequestsHeaders) getForecastVarianceCommentRes()       {}
 func (*TooManyRequestsHeaders) getGoodsReceiptRes()                  {}
 func (*TooManyRequestsHeaders) getGrIrClearingRes()                  {}
+func (*TooManyRequestsHeaders) getGroupLiquidityForecastRes()        {}
 func (*TooManyRequestsHeaders) getHierarchyNodeRes()                 {}
 func (*TooManyRequestsHeaders) getHierarchyRes()                     {}
 func (*TooManyRequestsHeaders) getJournalEntryRes()                  {}
@@ -59936,6 +61245,7 @@ func (*TooManyRequestsHeaders) listBankStatementPaymentsRes()        {}
 func (*TooManyRequestsHeaders) listBankStatementsRes()               {}
 func (*TooManyRequestsHeaders) listBusinessPartnersRes()             {}
 func (*TooManyRequestsHeaders) listCashActualLinesRes()              {}
+func (*TooManyRequestsHeaders) listCashExportsRes()                  {}
 func (*TooManyRequestsHeaders) listCashSnapshotFlowsRes()            {}
 func (*TooManyRequestsHeaders) listCashSnapshotsRes()                {}
 func (*TooManyRequestsHeaders) listCenterChangesRes()                {}
@@ -60204,6 +61514,7 @@ func (*UnauthorizedHeaders) createAssetRes()                      {}
 func (*UnauthorizedHeaders) createAssetRetirementRes()            {}
 func (*UnauthorizedHeaders) createAssetTransferRes()              {}
 func (*UnauthorizedHeaders) createBusinessPartnerRes()            {}
+func (*UnauthorizedHeaders) createCashExportRes()                 {}
 func (*UnauthorizedHeaders) createChangeRequestRes()              {}
 func (*UnauthorizedHeaders) createClearingRes()                   {}
 func (*UnauthorizedHeaders) createCompanyAccessRes()              {}
@@ -60257,6 +61568,7 @@ func (*UnauthorizedHeaders) getAiUsageRes()                       {}
 func (*UnauthorizedHeaders) getAnalyticsModelRes()                {}
 func (*UnauthorizedHeaders) getApprovalRequestRes()               {}
 func (*UnauthorizedHeaders) getAssetAcquisitionRes()              {}
+func (*UnauthorizedHeaders) getAssetHistorySheetRes()             {}
 func (*UnauthorizedHeaders) getAssetRes()                         {}
 func (*UnauthorizedHeaders) getAssetRetirementRes()               {}
 func (*UnauthorizedHeaders) getAssetScheduleRes()                 {}
@@ -60270,6 +61582,7 @@ func (*UnauthorizedHeaders) getBankStatementRes()                 {}
 func (*UnauthorizedHeaders) getBankStatementRulesRes()            {}
 func (*UnauthorizedHeaders) getBusinessPartnerRes()               {}
 func (*UnauthorizedHeaders) getCashActualsRes()                   {}
+func (*UnauthorizedHeaders) getCashExportRes()                    {}
 func (*UnauthorizedHeaders) getCashPositionRes()                  {}
 func (*UnauthorizedHeaders) getCashSnapshotRes()                  {}
 func (*UnauthorizedHeaders) getCenterChangeRes()                  {}
@@ -60290,6 +61603,7 @@ func (*UnauthorizedHeaders) getFiscalPeriodRes()                  {}
 func (*UnauthorizedHeaders) getForecastVarianceCommentRes()       {}
 func (*UnauthorizedHeaders) getGoodsReceiptRes()                  {}
 func (*UnauthorizedHeaders) getGrIrClearingRes()                  {}
+func (*UnauthorizedHeaders) getGroupLiquidityForecastRes()        {}
 func (*UnauthorizedHeaders) getHierarchyNodeRes()                 {}
 func (*UnauthorizedHeaders) getHierarchyRes()                     {}
 func (*UnauthorizedHeaders) getJournalEntryRes()                  {}
@@ -60354,6 +61668,7 @@ func (*UnauthorizedHeaders) listBankStatementPaymentsRes()        {}
 func (*UnauthorizedHeaders) listBankStatementsRes()               {}
 func (*UnauthorizedHeaders) listBusinessPartnersRes()             {}
 func (*UnauthorizedHeaders) listCashActualLinesRes()              {}
+func (*UnauthorizedHeaders) listCashExportsRes()                  {}
 func (*UnauthorizedHeaders) listCashSnapshotFlowsRes()            {}
 func (*UnauthorizedHeaders) listCashSnapshotsRes()                {}
 func (*UnauthorizedHeaders) listCenterChangesRes()                {}

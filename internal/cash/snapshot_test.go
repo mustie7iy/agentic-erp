@@ -403,6 +403,14 @@ func (failingEntities) ByCode(context.Context, string) (uuid.UUID, bool, error) 
 	return uuid.Nil, false, errors.New("directory down")
 }
 
+func (failingEntities) Entities(context.Context) ([]cash.Entity, error) {
+	return nil, errors.New("directory down")
+}
+
+func (failingEntities) GroupCurrency(context.Context) (string, error) {
+	return "", errors.New("directory down")
+}
+
 // failingBanks is the payments port, unable to name house banks.
 type failingBanks struct{ cash.Payments }
 

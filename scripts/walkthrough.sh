@@ -18,6 +18,7 @@
 #   WALKTHROUGH_PAUSE=1   wait for Enter after each step
 #   WALKTHROUGH_API_ADDR, WALKTHROUGH_ADMIN_ADDR   listeners (127.0.0.1:18080, 127.0.0.1:19090)
 #   WALKTHROUGH_MODEL_ADDR   the model stand-in's listener (127.0.0.1:18081)
+#   WALKTHROUGH_SFTP_ADDR    the treasury system's SFTP stand-in's listener (127.0.0.1:18022)
 #   WALKTHROUGH_DIR       work directory (default: a temporary one, removed after)
 #   WALKTHROUGH_BIN       directory with erp and erp-server already built (default: build them)
 #   WALKTHROUGH_KEEP=1    keep the server running at the end, to look around with erp call
@@ -36,6 +37,7 @@ DATABASE_URL="${DATABASE_URL:-postgres://postgres:dev@localhost:55432/postgres?s
 API_ADDR="${WALKTHROUGH_API_ADDR:-127.0.0.1:18080}"
 ADMIN_ADDR="${WALKTHROUGH_ADMIN_ADDR:-127.0.0.1:19090}"
 MODEL_ADDR="${WALKTHROUGH_MODEL_ADDR:-127.0.0.1:18081}"
+SFTP_ADDR="${WALKTHROUGH_SFTP_ADDR:-127.0.0.1:18022}"
 PAUSE="${WALKTHROUGH_PAUSE:-0}"
 # shellcheck source=walkthrough/dates.sh
 . "$ROOT/scripts/walkthrough/dates.sh"
@@ -55,7 +57,7 @@ else
   B='' DIM='' RED='' GREEN='' YELLOW='' R=''
 fi
 
-for tool in jq curl; do
+for tool in jq curl ssh-keygen shasum; do
   command -v "$tool" >/dev/null || { echo "walkthrough: $tool is needed (brew install $tool, apt-get install $tool)" >&2; exit 2; }
 done
 
@@ -69,11 +71,16 @@ WORK=$(cd "$WORK" && pwd) # absolute: the commands run in it (start)
 echo '{"items": []}' >"$WORK/accounts.json"
 SERVER_PID=''
 MODEL_PID=''
+SFTP_PID=''
 
 cleanup() {
   if [ -n "$MODEL_PID" ]; then
     kill "$MODEL_PID" 2>/dev/null || true # it may have exited already: then there is nothing to stop
     wait "$MODEL_PID" 2>/dev/null || true # its exit status after a kill says nothing about the walkthrough
+  fi
+  if [ -n "$SFTP_PID" ]; then
+    kill "$SFTP_PID" 2>/dev/null || true # as the model stand-in
+    wait "$SFTP_PID" 2>/dev/null || true # as the model stand-in
   fi
   if [ -n "$SERVER_PID" ]; then
     kill "$SERVER_PID" 2>/dev/null || true # it may have exited already: then there is nothing to stop
@@ -314,15 +321,15 @@ start() {
   say "  - the GST34's lines (T61j-T61l): step 2 configures one"
   say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
-  say "  - the liquidity forecast's treasury connector, agent, analytics and SAP migration (T53h-T53k): step 13 shows the"
+  say "  - the liquidity forecast's agent, forecast analytics and SAP migration (T53i-T53k): step 13 shows the"
   say "    daily cash position with a memo record and the forecast of the supplier open items, payment runs, parked"
   say "    invoices, down payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening,"
   say "    memo records and payments in transit, conversion and drill-down; step 26 its snapshots; step 27 the cash actuals;"
-  say "    step 28 the forecast's variance, step 30 a person's comment on it; step 33 its purchase orders"
+  say "    step 28 the forecast's variance, step 30 a person's comment on it; step 33 its purchase orders; step 35 its"
+  say "    treasury connector over SFTP; step 36 the forecast across companies in group currency; step 37 the actuals in"
+  say "    analytics (the forecast's datasets and metrics wait for T53j)"
+  say "  - a webhook delivered: the walkthrough runs without the event bus and never sends one to this machine"
   say "  - cost center postings, reports and planning (T56d-T56j)"
-  say "  - the rest of asset accounting (T57i): steps 19 and 20 show the classes and the master, steps 22 and 24"
-  say "    acquisitions and their corrections, step 25 the depreciation schedule and preview, step 29 a depreciation run,"
-  say "    step 31 retirements, step 32 transfers"
   say "  - accounts receivable, the period close's accruals and its close agent (T64e-T64g, T64j), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
@@ -3642,6 +3649,246 @@ step_cash_orders() {
   passed
 }
 
+# step_asset_history_sheet reads the year's asset history sheet by class and by
+# asset and checks its closing values against the trial balance (T57i,
+# ADR-0057 §9).
+step_asset_history_sheet() {
+  heading "Step 34 — The asset history sheet: the year's acquisitions, depreciation, retirements and transfers by class; its closing values the trial balance's asset accounts"
+  as carla
+  say "Carla reads this year's asset history sheet in the leading ledger (ADR-0057 §9, T57i): per class the cost at"
+  say "the year's opening, the acquisitions, retirements and asset transfers of steps 22 to 32 and the closing cost, the"
+  say "same for accumulated depreciation (negative, the credit it is), and the net book values. The postings keep its"
+  say "year totals, so it reads a few rows per class rather than every movement."
+  local row cols c ledger
+  row='"  \(.class_code) \(.class_name // ""): cost \(.opening_cost.amount) + acquired \(.acquisitions.amount) + retired \(.retirements.amount) + transferred \(.transfers.amount) = \(.closing_cost.amount); accumulated depreciation \(.opening_accumulated.amount) + \(.depreciation.amount) + retired \(.retirements_accumulated.amount) + transferred \(.transfers_accumulated.amount) = \(.closing_accumulated.amount); net book value \(.closing_net_book_value.amount) \(.closing_net_book_value.currency)"'
+  api 200 '"sheet of \(.company_code) in \(.ledger_code) \(.ledger_name), \(.start_date) to \(.end_date), by \(.group_by):", (.items[] | '"$row"'),
+    (.totals | "  total: cost \(.closing_cost.amount), accumulated depreciation \(.closing_accumulated.amount), net book value \(.closing_net_book_value.amount)")' \
+    getAssetHistorySheet -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  ledger=$(field .ledger_id)
+  expect "the classes" "$(field '[.items[].class_code] | join(" ")')" "MACHINES TOOLS"
+  expect "the press's retirement in the machines' cost" "$(field '.items[] | select(.class_code == "MACHINES") | .retirements.amount | startswith("-")')" true
+  expect "the tool set's cost, transferred from the milling machine" \
+    "$(field '[.items[] | .transfers.amount] | join(" ")')" "$(field '"-\(.items[1].transfers.amount) \(.items[1].transfers.amount)"')"
+  expect "the year's depreciation" "$(field '.totals.depreciation.amount | startswith("-")')" true
+  cp "$WORK/last.json" "$WORK/sheet.json"
+  say "Only assets post to the acquisition cost and accumulated depreciation accounts (step 19), so the sheet's closing"
+  say "values are those accounts' balances in the trial balance: debits less credits of every period so far (the"
+  say "accounts are this year's; a catch-up may fall in the period before, so last year's are added)."
+  accounts
+  QUIET=1 api 200 '' listAssetClasses -p "legal_entity_id=$LE"
+  cp "$WORK/last.json" "$WORK/classes.json"
+  for c in acquisition_cost:closing_cost accumulated_depreciation:closing_accumulated; do
+    local kind=${c%%:*} column=${c#*:} number balance=0 b y
+    for number in $(jq -r "[.items[].companies[] | select(.company_code == \"$CC\") | .accounts.$kind.number] | unique | .[]" "$WORK/classes.json"); do
+      b=0
+      for y in $((YEAR - 1)) "$YEAR"; do
+        QUIET=1 api 200 '' listBalances -p "legal_entity_id=$LE" -p "ledger_id=$ledger" -p "fiscal_year=$y" -p "account_id=$(account "$number")" -p page_size=500
+        expect "one page of balances" "$(field '.next_page_token // "none"')" none
+        b=$((b + $(field '[.items[] | (.debit_lc.amount | sub("\\."; "") | tonumber) - (.credit_lc.amount | sub("\\."; "") | tonumber)] | add // 0')))
+      done
+      say "  account $number: $(amount "$b") in the trial balance"
+      balance=$((balance + b))
+    done
+    expect "the sheet's $column, the accounts' balance" "$(jq -r ".totals.$column.amount" "$WORK/sheet.json")" "$(amount "$balance")"
+  done
+  say "By asset, the same year: one row per asset by number with its class; the rows add up to the totals."
+  api 200 '.items[] | "  \(.asset_number) \(.description) (\(.class_code), \(.status)): cost \(.closing_cost.amount), accumulated \(.closing_accumulated.amount), net \(.closing_net_book_value.amount)"' \
+    getAssetHistorySheet -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p group_by=asset -p page_size=500
+  expect "one page of assets" "$(field '.next_page_token // "none"')" none
+  for cols in closing_cost closing_accumulated; do
+    expect "the assets' $cols, the total" "$(field "[.items[].$cols.amount | sub(\"\\\\.\"; \"\") | tonumber] | add")" \
+      "$(field ".totals.$cols.amount | sub(\"\\\\.\"; \"\") | tonumber")"
+  done
+  passed
+}
+
+# sftp_stub starts the stand-in for the treasury system's SFTP server
+# (step 35): the test double of the SFTP transport on SFTP_ADDR, its files
+# in memory, signing in the walkthrough's own key; a copy of every file it
+# receives is left in $WORK/sftp/received for the walkthrough to read.
+sftp_stub() {
+  local stub="$BIN/sftpstub" i
+  if [ ! -x "$stub" ]; then
+    stub="$WORK/bin/sftpstub"
+    (cd "$ROOT" && go build -o "$stub" ./internal/platform/sftpclient/sftptest/sftpstub) || fail "the SFTP stand-in did not build"
+  fi
+  mkdir -p "$WORK/sftp/received"
+  rm -f "$WORK/sftp/client" "$WORK/sftp/client.pub" "$WORK/sftp/host.pub"
+  ssh-keygen -q -t ed25519 -N '' -C erp -f "$WORK/sftp/client" || fail "no client key for the SFTP stand-in"
+  "$stub" -addr "$SFTP_ADDR" -client-key "$WORK/sftp/client.pub" -host-key "$WORK/sftp/host.pub" -mkdir /treasury \
+    -out "$WORK/sftp/received" >"$WORK/sftp.log" 2>&1 &
+  SFTP_PID=$!
+  for i in $(seq 1 100); do
+    if [ -s "$WORK/sftp/host.pub" ]; then return 0; fi
+    kill -0 "$SFTP_PID" 2>/dev/null || fail "the SFTP stand-in exited at start ($(cat "$WORK/sftp.log")): is $SFTP_ADDR free? set WALKTHROUGH_SFTP_ADDR"
+    sleep 0.1
+  done
+  fail "the SFTP stand-in is not listening after ten seconds ($i checks)"
+}
+
+# wait_export waits for the export in the last answer to be delivered and
+# stops unless it was; the delivered export is left in last.json.
+wait_export() {
+  local id status i
+  id=$(field .id)
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' getCashExport -p "id=$id"
+    status=$(field .status)
+    case "$status" in
+    delivered) return 0 ;;
+    failed) fail "export $id failed: $(field .last_error_code)" ;;
+    esac
+    sleep 0.25
+  done
+  fail "export $id still $status after a minute (attempt $i)"
+}
+
+# step_cash_export is the treasury connector (T53h, ADR-0051 §14): a
+# snapshot exported in the cash export schema v1 to a treasury system's
+# SFTP directory, and the same snapshot sent again recognised as a resend.
+step_cash_export() {
+  heading "Step 35 — The treasury connector: a snapshot exported to the treasury system over SFTP, then sent again"
+  local host port snap export first sum
+  sftp_stub
+  host=${SFTP_ADDR%:*} port=${SFTP_ADDR##*:}
+  as sam
+  say "Sam connects Maple's treasury system: an integration connector of kind treasury_export on the SFTP transport the"
+  say "banks use (ADR-0038), the server's key pinned, signing in with a private key named by secret_ref, never a password."
+  say "It takes Maple's snapshots (company 3000) in the cash export schema v1 as CSV (api/schemas/cash-export.v1.json)."
+  api 201 '"connector \(.name): \(.kind), \(.status), \(.settings.format) of \(.settings.companies | join(", ")) to \(.settings.directory)"' \
+    createConnector -body "{\"kind\": \"treasury_export\", \"name\": \"Maple treasury\", \"secret_ref\": \"file:$WORK/sftp/client\", \"settings\": {\"host\": \"$host\", \"port\": $port, \"user\": \"erp\", \"host_key\": \"$(tr -d '\n' <"$WORK/sftp/host.pub")\", \"directory\": \"/treasury\", \"format\": \"csv\", \"companies\": [\"$CC\"]}}"
+  local connector
+  connector=$(field .id)
+  as tom
+  say "Tom takes the month-end snapshot. Taking it queues its export to every active treasury connector of Maple; the"
+  say "server's exporter sends it in the background, as the bank file transmitter sends bank files:"
+  QUIET=1 api 201 '' takeCashSnapshot -body "{\"legal_entity_id\": \"$LE\", \"name\": \"Month-end treasury report\"}"
+  snap=$(field .id)
+  api 200 '.items[] | "  export to \(.connector_name): \(.status), \(.format)"' listCashExports -p "cash_snapshot_id=$snap"
+  expect "exports queued with the snapshot" "$(field '[.items[] | select(.connector_id == "'"$connector"'")] | length')" 1
+  export=$(field '.items[0].id')
+  printf '{"id": "%s"}\n' "$export" >"$WORK/last.json"
+  wait_export
+  excerpt '"  \(.status) after \(.attempts) attempt(s): \(.file_name)", "  sha256 \(.sha256), resend \(.resend)"'
+  first=$(field .file_name)
+  sum=$(field .sha256)
+  [ -s "$WORK/sftp/received/$first" ] || fail "the treasury system did not receive $first"
+  expect "the file's hash, its name's" "$(shasum -a 256 "$WORK/sftp/received/$first" | cut -d' ' -f1)" "$sum"
+  expect "named by company, snapshot date and hash" "$first" "cash-$CC-$(field .snapshot_date)-$sum.csv"
+  say "The treasury system's file, its first lines (per day and bank within 31 days, per bucket beyond; no documents):"
+  head -n 4 "$WORK/sftp/received/$first" | tr -d '\r' | sed 's/^/     /'
+  expect "the CSV's header" "$(head -n 1 "$WORK/sftp/received/$first" | tr -d '\r' | cut -d, -f1-3)" "schema_version,company_code,snapshot_id"
+  say "The treasury system lost the file; Tom sends the same snapshot again. A snapshot never changes, so it is the same"
+  say "file under the same name: delivered, and marked a resend, which the treasury system recognises by its name."
+  api 201 '"export \(.status) to \(.connector_name)"' createCashExport -p "id=$snap" -body "{\"connector_id\": \"$connector\"}"
+  wait_export
+  excerpt '"  \(.status): \(.file_name), resend \(.resend)"'
+  expect "the same file name" "$(field .file_name)" "$first"
+  expect "the same hash" "$(field .sha256)" "$sum"
+  expect "recognised as a resend" "$(field .resend)" true
+  say "Whoever subscribes to CashSnapshotTaken (a webhook, ADR-0041) is told of each snapshot and may pull it instead;"
+  say "this run has no event bus, so no webhook is sent here (TestCashSnapshotTakenWebhook shows one delivered)."
+  passed
+}
+
+step_cash_group() {
+  heading "Step 36 — The group liquidity forecast: the companies a treasurer may act in, summed in group currency"
+  as ada
+  local us cal cory receipt weeks own usd maple_own maple_usd sum=0
+  weeks=(-p grain=week -p "to=$(date_add "$TODAY" 55)")
+  usd='[.currencies[] | select(.currency == "USD") | .total.amount, .beyond.amount.amount] | map(sub("\\."; "") | tonumber) | add // 0'
+  own='.converted | [.opening.amount, .total.amount, .beyond.amount] | map(sub("\\."; "") | tonumber) | add'
+  say "The group takes on its US sister, Acme Corp US (SAP company 1000, in USD): Ada creates its legal entity and"
+  say "activates it."
+  QUIET=1 api 200 '' getLegalEntity -p "id=$LE"
+  cal=$(field .fiscal_calendar_id)
+  api 201 '"legal entity \(.code) \(.name): \(.country_code), \(.local_currency), \(.status)"' createLegalEntity \
+    -body "{\"code\": \"1000\", \"name\": \"Acme Corp US\", \"country_code\": \"US\", \"local_currency\": \"USD\", \"fiscal_calendar_id\": \"$cal\"}"
+  us=$(field .id)
+  api 200 '"legal entity \(.code): \(.status)"' activateLegalEntity -p "id=$us" -if-match "$ETAG"
+  as tom
+  receipt=$(date_add "$TODAY" 20)
+  say "Tom expects a US customer's USD 3,000.00 at Acme Corp US on $receipt (a memo record without a house bank):"
+  api 201 '"memo record \(.reference): \(.amount.amount) \(.amount.currency) on \(.value_date), \(.liquidity_item)"' \
+    createMemoRecord -body "{\"legal_entity_id\": \"$us\", \"amount\": {\"amount\": \"3000.00\", \"currency\": \"USD\"}, \"value_date\": \"$receipt\", \"liquidity_item\": \"REC_CUSTOMERS\", \"description\": \"Acme Corp US, order 12\", \"reference\": \"WT-3001\"}"
+  say "He reads the forecast across the companies he may act in (ADR-0051 §9, §10, §15): each company's own forecast"
+  say "per currency, summed, and in the group currency, each company converted as its own forecast converts it:"
+  api 200 '"  in \(.group_currency) from \(.read_date): \(.buckets | length) \(.buckets[0].grain)s",
+      (.companies[] | "  company \(.company_code) \(.name): read \(.read_date) in \(.time_zone); rates \([.rates[] | "\(.currency) \(.rate_type) \(.rate)"] | join(", ")); without a rate: \(.incomplete_currencies | join(", "))"),
+      (.currencies[] | "  \(.currency): opens at \(.opening.amount.amount), \(.total.amount) over the horizon, \(.beyond.amount.amount) after it"),
+      "  converted: opens at \(.converted.opening.amount), closes at \(.converted.buckets[-1].closing.amount) \(.converted.currency)"' \
+    getGroupLiquidityForecast "${weeks[@]}"
+  cp "$WORK/last.json" "$WORK/group.json"
+  expect "the companies, by code" "$(field '[.companies[].company_code] | join(" ")')" "1000 $CC"
+  expect "the group currency" "$(field .group_currency)" CAD
+  expect "the converted closing, the converted opening plus the converted totals" \
+    "$(field 'def c: sub("\\."; "") | tonumber; .converted | ((.opening.amount | c) + ([.buckets[].total.amount | c] | add)) == (.buckets[-1].closing.amount | c)')" true
+  say "The group's figures are the companies' own over the same weeks, summed: per currency, and converted into CAD:"
+  api 200 '"  \(.legal_entity_id): converted opening \(.converted.opening.amount), total \(.converted.total.amount), beyond \(.converted.beyond.amount) \(.converted.currency)"' \
+    getLiquidityForecast -p "legal_entity_id=$us" -p display_currency=CAD "${weeks[@]}"
+  sum=$((sum + $(field "$own")))
+  expect "Acme Corp US's USD, its receipt" "$(field "$usd")" 300000
+  api 200 '"  \(.legal_entity_id): converted opening \(.converted.opening.amount), total \(.converted.total.amount), beyond \(.converted.beyond.amount) \(.converted.currency)"' \
+    getLiquidityForecast -p "legal_entity_id=$LE" -p display_currency=CAD "${weeks[@]}"
+  maple_own=$(field "$own")
+  sum=$((sum + maple_own))
+  maple_usd=$(field "$usd")
+  expect "the group's USD, Maple's and Acme Corp US's" "$(jq "$usd" "$WORK/group.json")" "$((maple_usd + 300000))"
+  expect "the group's converted opening, total and beyond, the companies' summed" "$(jq "$own" "$WORK/group.json")" "$sum"
+  as ada
+  say "Cory in reporting holds the forecast's read (cash_reporting) in Maple alone: Acme Corp US is not his, so it"
+  say "reaches nothing he reads, neither a company, a currency nor a total."
+  QUIET=1 api 201 '' createPrincipal -body '{"kind": "human", "external_subject": "cory", "display_name": "Cory Reporting", "all_companies": false}'
+  cory=$(field .id)
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$cory\", \"role_id\": \"$(role cash_reporting)\"}"
+  QUIET=1 api 201 '' createCompanyAccess -body "{\"principal_id\": \"$cory\", \"legal_entity_id\": \"$LE\"}"
+  token cory "Cory Reporting"
+  printf '%s\tCory Reporting\n' "$cory" >>"$WORK/names"
+  as cory
+  api 200 '"  companies \([.companies[].company_code] | join(", ")); currencies \([.currencies[].currency] | join(", ")); converted total \(.converted.total.amount) \(.converted.currency)"' \
+    getGroupLiquidityForecast "${weeks[@]}"
+  expect "Cory's companies" "$(field '[.companies[].company_code] | join(" ")')" "$CC"
+  expect "Cory's USD, Maple's alone" "$(field "$usd")" "$maple_usd"
+  expect "Cory's converted opening, total and beyond, Maple's alone" "$(field "$own")" "$maple_own"
+  passed
+}
+
+# step_cash_analytics is the cash actuals as a governed metric of the
+# semantic layer (T53j1, ADR-0044 As built T53j1): the same statement lines
+# as step 27, classified by the cash context, broken down by currency,
+# liquidity item and what classified them; a reader of the forecast alone
+# runs it without the suppliers' read and is refused supplier data.
+step_cash_analytics() {
+  heading "Step 37 — Cash actuals in analytics: the week's statement lines through the governed metric actual"
+  as tom
+  local from moved q sum
+  from=$(date_add "$TODAY" -6)
+  moved=$(amount $(($(cents "$CLOSING") - $(cents 500000.00))))
+  q="{\"measures\": [\"actual\"], \"by\": [\"currency\", \"liquidity_item\", \"match\"], \"companies\": [\"$CC\"], \"where\": [{\"dim\": \"value_date\", \"op\": \"between\", \"values\": [\"$from\", \"$TODAY\"]}], \"order_by\": \"liquidity_item\"}"
+  # The CAD cells of the measure (the last column), in cents, added up.
+  sum='[.rows[] | select(.[0].value == "CAD") | .[-1].value | sub("\\."; "") | tonumber] | add'
+  say "Tom asks the semantic layer for what actually moved on Maple's accounts from $from to $TODAY: the metric"
+  say "actual, the statement lines' shares by liquidity item as step 27 classified them, by currency (Maple's house"
+  say "banks keep CAD and USD), item and what classified each line:"
+  api 200 '"answered from \(.source) as of \(.as_of), \(.columns | map(.name) | join(", "))", (.rows[] | "  " + (map(.value // "-") | join("  ")))' \
+    runAnalyticsQuery -body "$q"
+  expect "the CAD actuals, step 27's total" "$(amount "$(field "$sum")")" "$moved"
+  expect "every line classified by its payment" "$(field '[.rows[] | select(.[0].value == "CAD") | .[2].value] | unique | join(" ")')" payment
+  expect "the measure's definition" "$(field '.definitions[0].name')" actual
+  as ada
+  say "Ada lets Rita, who holds the forecast's read alone, run governed queries over the companies she reads"
+  say "(analytics.query.run, tenancy.org.read); she still holds no partner.supplier.read:"
+  grant "$(role cash_reporting)" analytics.query.run tenancy.org.read
+  as rita
+  say "Rita reads the same actuals: they name no supplier, so the suppliers' read is not needed (ADR-0044 As built T53j1)."
+  api 200 '(.rows[] | "  " + (map(.value // "-") | join("  ")))' runAnalyticsQuery -body "$q"
+  expect "Rita's CAD actuals, Tom's" "$(amount "$(field "$sum")")" "$moved"
+  say "Supplier invoices by vendor are another context's data, read with its own permission: she is refused them."
+  refused 403 identity.permission_missing runAnalyticsQuery -body "{\"measures\": [\"invoice_value\"], \"by\": [\"company\", \"vendor_name\"], \"companies\": [\"$CC\"]}"
+  as tom
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -3663,7 +3910,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_close'
 
 main() {
   start

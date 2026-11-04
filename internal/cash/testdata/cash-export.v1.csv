@@ -1,0 +1,5 @@
+schema_version,company_code,snapshot_id,snapshot_date,snapshot_kind,taken_at,currency,granularity,period_start,period_end,house_bank_code,account_last4,source,certainty,liquidity_item,amount,flow_count
+1,3000,0192a000-0000-7000-8000-000000000e01,2026-04-17,on_demand,2026-04-17T13:05:00.123456Z,CAD,day,2026-04-17,2026-04-17,MAIN,3000,payment_run,confirmed,OP_SUPPLIERS,-800.00,1
+1,3000,0192a000-0000-7000-8000-000000000e01,2026-04-17,on_demand,2026-04-17T13:05:00.123456Z,CAD,day,2026-04-24,2026-04-24,,,memo,expected,,100.00,1
+1,3000,0192a000-0000-7000-8000-000000000e01,2026-04-17,on_demand,2026-04-17T13:05:00.123456Z,CAD,bucket,2026-05-18,2026-05-21,MAIN,3000,payable,expected,OP_SUPPLIERS,-200.00,2
+1,3000,0192a000-0000-7000-8000-000000000e01,2026-04-17,on_demand,2026-04-17T13:05:00.123456Z,USD,day,2026-04-17,2026-04-17,USD1,0011,in_transit,actual,OP_SUPPLIERS,-300.00,1

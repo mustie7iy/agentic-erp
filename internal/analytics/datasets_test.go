@@ -28,6 +28,11 @@ var (
 	// free text that may hold them. The store never holds them, so it cannot
 	// show what the API would mask.
 	maskedFields = []string{"iban", "card", "tax_id", "bank", "email", "phone", "text", "note"}
+	// notMasked are columns whose names hold one of maskedFields but no
+	// masked value, each with why.
+	notMasked = map[string]string{
+		"house_bank": "the company's own house bank by its code, never its account (ADR-0051 §15)",
+	}
 	calendarDims = []string{"fiscal_year", "fiscal_quarter", "fiscal_month"}
 )
 
@@ -95,7 +100,7 @@ func checkColumns(t *testing.T, d *dataset) {
 			t.Errorf("column %s: role got %q, want one of %v", c.Name, c.Role, dsRoles)
 		}
 		for _, m := range maskedFields {
-			if strings.Contains(c.Name, m) {
+			if strings.Contains(c.Name, m) && notMasked[c.Name] == "" {
 				t.Errorf("column %s: got a masked field (%s), want it never extracted", c.Name, m)
 			}
 		}
@@ -140,13 +145,13 @@ func checkFact(t *testing.T, d *dataset) {
 	}
 }
 
-// provides lists the names a fact dataset answers: its own dimensions and
+// provides lists the names a fact dataset answers: its own dimensions, currency and
 // date, the attributes of the dimensions it joins, its derived names and the
 // fiscal periods of its date.
 func provides(d *dataset, sets map[string]*dataset) map[string]bool {
 	out := map[string]bool{}
 	for _, c := range d.Columns {
-		if c.Role == "dimension" || c.Role == "date" {
+		if c.Role == "dimension" || c.Role == "date" || c.Role == "currency" {
 			out[c.Name] = true
 		}
 	}

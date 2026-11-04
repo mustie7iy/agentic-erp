@@ -74,7 +74,10 @@ func writeRetirement(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid
 			return err
 		}
 	}
-	return derive(ctx, tx, p, r.asset.ID, seq)
+	if err := derive(ctx, tx, p, r.asset.ID, seq); err != nil {
+		return err
+	}
+	return keepTotals(ctx, tx, r.asset.ID)
 }
 
 // writeRetiredLedger writes a retirement's movements and entry in one

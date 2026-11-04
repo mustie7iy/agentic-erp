@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
@@ -118,4 +119,13 @@ func render[T Line | Share](xs []T) string {
 		}
 	}
 	return fmt.Sprint(out)
+}
+
+// TestSharesOutOfRange: shares whose classification's sums went out of the
+// range of an amount are refused, never given saturated.
+func TestSharesOutOfRange(t *testing.T) {
+	ar := actualsRead{r: reader{doc: &config.Config{}, sums: &sums{overflow: true}}}
+	if _, err := ar.shares(t.Context()); err == nil || !strings.Contains(err.Error(), "add up to more than an amount can hold") {
+		t.Errorf("shares: got %v, want cash.amount_too_large", err)
+	}
 }

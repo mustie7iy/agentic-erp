@@ -109,25 +109,60 @@ func (e *Endpoints) GetLiquidityForecast(ctx context.Context, params gen.GetLiqu
 		return nil, err
 	}
 	out := gen.LiquidityForecast{LegalEntityID: f.LegalEntity, ReadDate: f.ReadDate, TimeZone: f.TimeZone, MinCertainty: f.MinCertainty, IncludeBlocked: f.IncludeBlocked,
-		Buckets: make([]gen.LiquidityForecastBucket, len(f.Buckets)), Currencies: make([]gen.LiquidityForecastCurrency, len(f.Currencies))}
-	for i, b := range f.Buckets {
-		out.Buckets[i] = gen.LiquidityForecastBucket{Grain: b.Grain, Start: b.Start, End: b.End}
-	}
+		Buckets: bucketsToAPI(f.Buckets), Currencies: make([]gen.LiquidityForecastCurrency, len(f.Currencies))}
 	for i, c := range f.Currencies {
-		amount := amounts(c.Currency, c.Exponent)
-		cur := gen.LiquidityForecastCurrency{Currency: c.Currency, Buckets: make([]gen.LiquidityForecastBucketFlows, len(c.Buckets)), Total: amount(c.Total),
-			Opening: gen.LiquidityForecastOpening{Amount: amount(c.Opening.Amount), Banks: int32(c.Opening.Banks), Stale: c.Opening.Stale, Gap: c.Opening.Gap},
-			Beyond:  gen.LiquidityForecastBeyond{Amount: amount(c.Beyond.Amount), Count: int32(c.Beyond.Count)},
-			Blocked: gen.LiquidityForecastBlocked{Amount: amount(c.Blocked.Amount), Count: int32(c.Blocked.Count)}}
-		for j, b := range c.Buckets {
-			cur.Buckets[j] = gen.LiquidityForecastBucketFlows{Start: f.Buckets[j].Start, Flows: flowsToAPI(b.Flows, amount), Total: amount(b.Total),
-				Closing: amount(b.Closing)}
-		}
-		cur.Items = itemsToAPI(c.Items, amount)
-		out.Currencies[i] = cur
+		out.Currencies[i] = forecastCurrencyToAPI(c, f.Buckets)
 	}
 	if c := f.Converted; c != nil {
 		out.Converted.SetTo(forecastConvertedToAPI(*c, f.Buckets))
+	}
+	return &out, nil
+}
+
+// bucketsToAPI shows a forecast's columns.
+func bucketsToAPI(bs []Bucket) []gen.LiquidityForecastBucket {
+	out := make([]gen.LiquidityForecastBucket, len(bs))
+	for i, b := range bs {
+		out[i] = gen.LiquidityForecastBucket{Grain: b.Grain, Start: b.Start, End: b.End}
+	}
+	return out
+}
+
+// forecastCurrencyToAPI shows a forecast's currency in the buckets.
+func forecastCurrencyToAPI(c ForecastCurrency, bs []Bucket) gen.LiquidityForecastCurrency {
+	amount := amounts(c.Currency, c.Exponent)
+	out := gen.LiquidityForecastCurrency{Currency: c.Currency, Buckets: make([]gen.LiquidityForecastBucketFlows, len(c.Buckets)), Total: amount(c.Total),
+		Opening: gen.LiquidityForecastOpening{Amount: amount(c.Opening.Amount), Banks: int32(c.Opening.Banks), Stale: c.Opening.Stale, Gap: c.Opening.Gap},
+		Beyond:  gen.LiquidityForecastBeyond{Amount: amount(c.Beyond.Amount), Count: int32(c.Beyond.Count)},
+		Blocked: gen.LiquidityForecastBlocked{Amount: amount(c.Blocked.Amount), Count: int32(c.Blocked.Count)}, Items: itemsToAPI(c.Items, amount)}
+	for j, b := range c.Buckets {
+		out.Buckets[j] = gen.LiquidityForecastBucketFlows{Start: bs[j].Start, Flows: flowsToAPI(b.Flows, amount), Total: amount(b.Total),
+			Closing: amount(b.Closing)}
+	}
+	return out
+}
+
+// GetGroupLiquidityForecast implements GET /v1/group-liquidity-forecast.
+func (e *Endpoints) GetGroupLiquidityForecast(ctx context.Context, params gen.GetGroupLiquidityForecastParams) (gen.GetGroupLiquidityForecastRes, error) {
+	f, err := e.GroupForecast(ctx, GroupForecastQuery{MinCertainty: params.MinCertainty.Value, IncludeBlocked: params.IncludeBlocked.Value,
+		Grain: params.Grain.Value, To: apitypes.Ptr[time.Time](params.To)})
+	if err != nil {
+		return nil, err
+	}
+	c := forecastConvertedToAPI(f.Converted, f.Buckets)
+	out := gen.GroupLiquidityForecast{GroupCurrency: f.Converted.Currency, ReadDate: f.ReadDate, MinCertainty: f.MinCertainty, IncludeBlocked: f.IncludeBlocked,
+		Companies: make([]gen.GroupLiquidityForecastCompany, len(f.Companies)), Buckets: bucketsToAPI(f.Buckets),
+		Currencies: make([]gen.GroupLiquidityForecastCurrency, len(f.Currencies)),
+		Converted: gen.GroupLiquidityForecastConverted{Currency: c.Currency, IncompleteCurrencies: c.IncompleteCurrencies, Opening: c.Opening, Buckets: c.Buckets,
+			Total: c.Total, Beyond: c.Beyond}}
+	for i, co := range f.Companies {
+		out.Companies[i] = gen.GroupLiquidityForecastCompany{LegalEntityID: co.LegalEntity, CompanyCode: co.Code, Name: co.Name, ReadDate: co.ReadDate,
+			TimeZone: co.TimeZone, Rates: ratesToAPI(co.Rates), IncompleteCurrencies: co.Incomplete}
+	}
+	for i, fc := range f.Currencies {
+		cur := forecastCurrencyToAPI(fc, f.Buckets)
+		out.Currencies[i] = gen.GroupLiquidityForecastCurrency{Currency: cur.Currency, Opening: cur.Opening, Buckets: cur.Buckets, Total: cur.Total,
+			Beyond: cur.Beyond, Blocked: cur.Blocked}
 	}
 	return &out, nil
 }

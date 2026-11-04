@@ -35,6 +35,7 @@ type Endpoints struct {
 	Ledger        Ledger
 	Sessions      Sessions          // agents' sessions, for their proposals
 	Partners      Partners          // suppliers' names, for the forecast's drill-down (T53e4)
+	Treasury      TreasuryChannels  // the treasury systems snapshots are exported to (T53h)
 	Pages         *pagination.Codec // list page tokens
 	Now           func() time.Time  // the read date's clock; nil: time.Now
 	// Consistent begins the read a snapshot reads the forecast in, apart
@@ -54,12 +55,24 @@ type LegalEntities interface {
 	Company(ctx context.Context, id uuid.UUID) (Company, bool, error)
 	// ByCode is the id of the legal entity with the company code.
 	ByCode(ctx context.Context, code string) (uuid.UUID, bool, error)
+	// Entities are the tenant's legal entities by company code, company
+	// access not applied: what the group forecast starts from (T53e5).
+	Entities(ctx context.Context) ([]Entity, error)
+	// GroupCurrency is the tenant's group currency.
+	GroupCurrency(ctx context.Context) (string, error)
 }
 
 // Company is a legal entity as the cash position reads it.
 type Company struct {
 	Code     string // its company code in the configuration
+	Name     string
 	Currency string // its local currency
+}
+
+// Entity is a legal entity with its company.
+type Entity struct {
+	ID uuid.UUID
+	Company
 }
 
 // Settings reads the active configuration (configuration context): the
@@ -86,6 +99,10 @@ type Payments interface {
 	// HouseBankCodes are the codes of the house banks among the ids, active
 	// or not, keyed by id: what a memo record shows beside its bank's id.
 	HouseBankCodes(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
+	// HouseBankAccounts are the codes and account endings of the house
+	// banks among the ids, active or not, keyed by id: what the treasury
+	// export names a bank by (ADR-0051 §14).
+	HouseBankAccounts(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]BankAccount, error)
 	// Payables are the legal entity's supplier open items that no live
 	// payment run holds (the run's payment counts instead, Pending), as a
 	// run on or after the date would pay them (ADR-0051 §5, T53e).

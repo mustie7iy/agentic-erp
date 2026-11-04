@@ -26,8 +26,9 @@ func TestReadDateUnknownZone(t *testing.T) {
 // zoneEntities knows legal entity known as company 3000, or fails with
 // err.
 type zoneEntities struct {
-	known uuid.UUID
-	err   error
+	LegalEntities // the rest, never called
+	known         uuid.UUID
+	err           error
 }
 
 func (z zoneEntities) Company(_ context.Context, id uuid.UUID) (Company, bool, error) {

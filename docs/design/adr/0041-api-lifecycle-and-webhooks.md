@@ -243,6 +243,14 @@ event version breaks someone else's system.
 - **Consumer review (T50h)** of the contract waits until the product owner
   names the pilot partner.
 
+### As built: CashSnapshotTaken offered (T53h)
+`CashSnapshotTaken` (ADR-0051 §14) is marked `x-webhook`, the first event
+of the cash context offered, so `cash` joins `WebhookContexts` and the
+fan-out reads its stream: a treasury system that pulls is told of each
+snapshot of the liquidity forecast and reads it through the API. Its
+payload names the snapshot and its company and carries no bank or
+personal data. `CashExportDelivered` is not offered.
+
 ## Alternatives
 - **Versions in a header or media type:** keeps URLs stable but hides the
   version from logs, caches and gateways; paths are what 04 §4.2 already
