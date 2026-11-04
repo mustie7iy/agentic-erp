@@ -9711,6 +9711,13 @@
       "r": "internal/web/e2e e2e_test.go htmxSettled · entry_test.go choose · TestEntryFormJobsInTheBrowser",
       "src": "review:batch52",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "The design documents' tables and the data model checked by go test ./docs (batch 53's integration dropped five rows of 03 §3.21's table in a merge resolution and left prose and a blank line in it, seen only by the reviewer): every table in docs/design and its ADRs has a header, a delimiter row and rows of the header's width, with no text line inside it, no rows cut off from their header and no table split in two by blank lines alone; every table db/migrations leaves standing (CREATE TABLE net of DROP and RENAME) is named in 03-data-model.md, qualified anywhere or bare in its schema's section; the tables found unnamed (config.active_version, config.regression_suite, config.regression_case, and the analytics schema's four, now §3.23) and three malformed ADR tables (0050, 0057, 0058) fixed",
+      "r": "docs/tables_test.go TestDesignTablesWellFormed · TestDataModelNamesEveryTable · TestTableProblemsBatch53 · docs/design/03-data-model.md §3.5, §3.23",
+      "src": "review:batch53",
+      "c": []
      }
     ]
    },
