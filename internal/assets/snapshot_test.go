@@ -115,11 +115,11 @@ type snapshotRead struct {
 
 // clearingLine posts company 2000's 1,200.00 EUR line on the clearing
 // account and creates a planned asset that may be capitalised from it.
-func (e assetEnv) clearingLine(t *testing.T) (uuid.UUID, any) {
+func (e assetEnv) clearingLine(t *testing.T) (uuid.UUID, string) {
 	t.Helper()
 	entry := e.post(t, "2000", "2026-06-10", "EUR", nil, line{"169000", "1200.00"}, line{"100000", "-1200.00"})
 	a, _ := e.create(t, fmt.Sprintf(`{"legal_entity_id": %q, "class_code": "MACHINES", "description": "Mill", "cost_center_id": %q}`, e.DE, e.c.Admin))
-	return entry, a["id"]
+	return entry, a["id"].(string)
 }
 
 // TestReadsInOneSnapshot: every read of an asset, its schedule, its
@@ -158,7 +158,7 @@ func TestReadsInOneSnapshot(t *testing.T) {
 		return func(t *testing.T, e assetEnv) snapshotRead {
 			t.Helper()
 			entry, a := e.clearingLine(t)
-			return snapshotRead{strings.NewReplacer("{asset}", fmt.Sprint(a), "{company}", e.DE.String()).Replace(path), marker, func() { e.acquire(t, a, entry, 1, "") }}
+			return snapshotRead{strings.NewReplacer("{asset}", a, "{company}", e.DE.String()).Replace(path), marker, func() { e.acquire(t, a, entry, 1, "") }}
 		}
 	}
 	document := func(path string, post func(t *testing.T, e assetEnv, mill string) (map[string]any, func(map[string]any))) func(t *testing.T, e assetEnv) snapshotRead {
