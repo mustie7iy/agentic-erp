@@ -102,9 +102,12 @@ type Dependencies struct {
 }
 
 // Actors reads who deferred work acts as: the person who queued it
-// (identity context).
+// (identity context). Actor reads them whatever their status, so a
+// simulation's failure is still recorded as them; MayAct refuses one no
+// longer active (PO 2026-11-03).
 type Actors interface {
 	Actor(ctx context.Context, tx pgx.Tx, id uuid.UUID) (reqctx.Principal, error)
+	MayAct(ctx context.Context, tx pgx.Tx, id uuid.UUID) error
 }
 
 // check validates a document for activation on top of base (nil for the

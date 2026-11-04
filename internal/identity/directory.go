@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -71,6 +72,11 @@ func (Directory) RolesHeld(ctx context.Context, principal uuid.UUID) ([]uuid.UUI
 // read in the worker's own transaction before the unit of work starts (a
 // port of the contexts whose workers act as the requester: payments,
 // configuration and workflows).
+//
+// Actor reads the principal whatever its status: a job's steps that only
+// record how it ended (a run failed, its slot freed) still act as its
+// requester. The steps that do the work call MayAct first, so a requester
+// no longer active is refused as a request of theirs is (PO 2026-11-03).
 type Actors struct{}
 
 // Actor returns the principal with the id as the unit of work acts as it.
@@ -85,9 +91,28 @@ func (Actors) Actor(ctx context.Context, tx pgx.Tx, id uuid.UUID) (reqctx.Princi
 // Active tells whether the principal with the id is active: a template's
 // owner, for whom the ledger's recurrer parks entries (ADR-0056).
 func (Actors) Active(ctx context.Context, tx pgx.Tx, id uuid.UUID) (bool, error) {
-	var active bool
-	if err := tx.QueryRow(ctx, `SELECT status = 'active' FROM identity.principal WHERE id = $1`, id).Scan(&active); err != nil {
-		return false, fmt.Errorf("identity: read the status of principal %s: %w", id, err)
+	status, err := statusOf(ctx, tx, id)
+	return status == "active", err
+}
+
+// MayAct refuses deferred work acting as a principal no longer active
+// (blocked or deprovisioned since it queued the work) with the problem a
+// request of that principal is refused with, 403
+// identity.principal_blocked (uow's resolve): a business problem, which
+// fails the job instead of being retried (PO 2026-11-03).
+func (Actors) MayAct(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
+	status, err := statusOf(ctx, tx, id)
+	if err != nil || status == "active" {
+		return err
 	}
-	return active, nil
+	return problem.Forbidden("identity.principal_blocked", "The principal the work acts as, its requester, is "+status+"; the work is stopped.")
+}
+
+// statusOf reads the principal's status.
+func statusOf(ctx context.Context, tx pgx.Tx, id uuid.UUID) (string, error) {
+	var status string
+	if err := tx.QueryRow(ctx, `SELECT status FROM identity.principal WHERE id = $1`, id).Scan(&status); err != nil {
+		return "", fmt.Errorf("identity: read the status of principal %s: %w", id, err)
+	}
+	return status, nil
 }

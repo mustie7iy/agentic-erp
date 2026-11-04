@@ -3,10 +3,12 @@ package workflows_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"go.temporal.io/sdk/temporal"
 
@@ -327,3 +329,123 @@ func TestStaleReleaseActivities(t *testing.T) {
 		t.Errorf("bank files of the resumed run: got %d, want 1", got.Files)
 	}
 }
+
+// setStatus sets a principal's status, as a deactivation (blocked) and a
+// reactivation (active) do.
+func setStatus(t *testing.T, principal uuid.UUID, status string) {
+	t.Helper()
+	pgtest.Exec(t, `UPDATE identity.principal SET status = $2, version = version + 1 WHERE id = $1`, principal, status)
+}
+
+// problemCode is the code of the problem the operation failed with.
+func problemCode(t *testing.T, operation uuid.UUID) string {
+	t.Helper()
+	var code string
+	pgtest.Scan(t, `SELECT coalesce(error->>'code', '') FROM platform.operation WHERE id = $1`, []any{operation}, &code)
+	return code
+}
+
+// TestProposalRequesterBlocked: a proposal whose proposer is blocked
+// after asking for it (PO 2026-11-03) is not built: the run and its
+// operation fail with identity.principal_blocked, no payment proposed;
+// run again, nothing changes.
+func TestProposalRequesterBlocked(t *testing.T) {
+	e := setup(t)
+	a := activities(t)
+	e.invoice(t, "INV-1", "100.00")
+	op, run := e.propose(t, "2026-04-15")
+	setStatus(t, e.Tenant.Human.ID, "blocked")
+	in := input(e, op, run)
+	if err := execute(t, a, in, false); err != nil {
+		t.Fatalf("the workflow: got %v, want it ended without an error", err)
+	}
+	state := func() string {
+		var s string
+		pgtest.Scan(t, `SELECT r.status || ' ' || (SELECT count(*) FROM payments.payment p WHERE p.payment_run_id = r.id) || ' ' ||
+				(SELECT count(*) FROM audit.audit_event a WHERE a.tenant_id = r.tenant_id AND a.action = 'payments.payment_run.fail' AND a.object_id = r.id)
+			FROM payments.payment_run r WHERE r.id = $1`, []any{in.RunID}, &s)
+		return s + " " + problemCode(t, in.OperationID)
+	}
+	if got := state(); got != "failed 0 1 identity.principal_blocked" {
+		t.Fatalf("the run, its payments, audit records and problem: got %q, want failed, none, one, identity.principal_blocked", got)
+	}
+	if err := a.Propose(context.Background(), in); err != nil {
+		t.Fatalf("run again: got %v, want nil", err)
+	}
+	if got := state(); got != "failed 0 1 identity.principal_blocked" {
+		t.Errorf("run again: got %q, want nothing changed", got)
+	}
+}
+
+// TestReleaseRequesterBlocked: a release whose releaser is blocked after
+// its first payment posted (PO 2026-11-03) posts nothing further: the
+// finish is refused with identity.principal_blocked, which fails the
+// operation, not retried, and leaves the run releasing with its posted
+// payment and no bank file. A person active resumes it with :release.
+// With nothing posted yet the refused posting returns the run to proposed.
+func TestReleaseRequesterBlocked(t *testing.T) {
+	e := setup(t)
+	a := activities(t)
+	ctx := context.Background()
+	e.invoice(t, "INV-1", "100.00")
+	op, run := e.propose(t, "2026-04-15")
+	if err := execute(t, a, input(e, op, run), false); err != nil {
+		t.Fatal(err)
+	}
+	in := e.releaseAsked(t, run)
+	setStatus(t, e.Approver.ID, "blocked")
+	if err := executeRelease(t, a, in); err != nil {
+		t.Fatalf("the workflow with nothing posted: got %v, want it ended without an error", err)
+	}
+	got := stateOf(t, in)
+	wantRelease(t, "with nothing posted", []check{
+		{"the run", status(got.Run), "proposed"}, {"its operation", status(got.Operation), "failed"},
+		{"the problem", problemCode(t, in.OperationID), "identity.principal_blocked"},
+	})
+	setStatus(t, e.Approver.ID, "active")
+	in = e.releaseAsked(t, run)
+	todo, err := a.PaymentsToPost(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.PostPayment(ctx, in, todo[0]); err != nil {
+		t.Fatal(err)
+	}
+	setStatus(t, e.Approver.ID, "blocked")
+	posted := stateOf(t, in)
+	if err := executeRelease(t, a, in); err != nil {
+		t.Fatalf("the workflow with a payment posted: got %v, want it ended without an error", err)
+	}
+	got = stateOf(t, in)
+	wantRelease(t, "with a payment posted", []check{
+		{"the run", status(got.Run), "releasing"}, {"its operation", status(got.Operation), "failed"},
+		{"the problem", problemCode(t, in.OperationID), "identity.principal_blocked"},
+		{"the bank files", fmt.Sprint(got.Files), "0"}, {"the entries", fmt.Sprint(got.Entries), fmt.Sprint(posted.Entries)},
+	})
+	twice(t, "fail the release as a blocked releaser", in, func() error {
+		return a.FailRelease(ctx, in, *problem.Forbidden("identity.principal_blocked", "The releaser is blocked."))
+	})
+	setStatus(t, e.Approver.ID, "active")
+	resumed := e.releaseAsked(t, run)
+	if err := executeRelease(t, a, resumed); err != nil {
+		t.Fatal(err)
+	}
+	got = stateOf(t, resumed)
+	wantRelease(t, "resumed by a releaser active", []check{{"the run", status(got.Run), "released"}, {"the bank files", fmt.Sprint(got.Files), "1"}})
+}
+
+// check is one thing a test compares: what, what it got, what it wants.
+type check struct{ what, got, want string }
+
+// wantRelease reports each check that does not hold, under when.
+func wantRelease(t *testing.T, when string, checks []check) {
+	t.Helper()
+	for _, c := range checks {
+		if c.got != c.want {
+			t.Errorf("%s, %s: got %q, want %q", when, c.what, c.got, c.want)
+		}
+	}
+}
+
+// status is a "status/version" pair's status.
+func status(statusVersion string) string { return strings.Split(statusVersion, "/")[0] }

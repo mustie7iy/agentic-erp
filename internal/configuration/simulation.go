@@ -191,9 +191,9 @@ func (w *SimulationWorker) simulate(ctx context.Context, tenant uuid.UUID, where
 }
 
 // process simulates the job's change request and completes its operation.
-// A problem (the request is no longer awaiting evidence, the proposal
-// cannot be replayed) fails the operation; other errors leave the job for
-// another attempt.
+// A problem (its requester no longer active, PO 2026-11-03; the request is
+// no longer awaiting evidence, the proposal cannot be replayed) fails the
+// operation; other errors leave the job for another attempt.
 func (w *SimulationWorker) process(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, j job) error {
 	fail := func(p *problem.Problem) error {
 		_, err := operations.Fail(ctx, j.OperationID, p)
@@ -202,6 +202,9 @@ func (w *SimulationWorker) process(ctx context.Context, tx pgx.Tx, actor reqctx.
 	id, err := uuid.Parse(j.ChangeRequest)
 	if err != nil {
 		return fail(problem.Unprocessable("config.invalid_request", "The operation does not name a change request."))
+	}
+	if err := w.Dependencies.Actors.MayAct(ctx, tx, actor.ID); err != nil {
+		return failOrRetry(fmt.Errorf("configuration: simulation %s, acting as %s: %w", j.OperationID, actor.ID, err), refused(ctx, id, j.OperationID, fail))
 	}
 	c, err := getCR(ctx, tx, id, true)
 	if err != nil {
@@ -335,6 +338,17 @@ func recordEvidence(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, id u
 		return fmt.Errorf("configuration: record %s evidence of change request %s: %w", kind, id, err)
 	}
 	return nil
+}
+
+// refused is fail for a requester no longer active (PO 2026-11-03),
+// recorded on the change request as config.change_request.simulate_refused
+// in the same transaction, so its history shows the stopped work.
+func refused(ctx context.Context, id, operation uuid.UUID, fail func(*problem.Problem) error) func(*problem.Problem) error {
+	return func(p *problem.Problem) error {
+		// Either error rolls the job's transaction back.
+		return errors.Join(record(ctx, "config.change_request.simulate_refused", id, map[string]any{"operation_id": operation, "code": p.Code, "detail": p.Detail}),
+			fail(p))
+	}
 }
 
 // failOrRetry fails the operation with a problem the request caused, and

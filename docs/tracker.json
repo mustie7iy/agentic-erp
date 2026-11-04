@@ -1177,9 +1177,16 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Long-running jobs refuse a deactivated requester (pre-existing security finding on T57f; PO decision 2026-11-03: deactivated requesters are refused): every step that does deferred work as its requester (a migration run, a payment proposal and release, a simulation, a depreciation run's plan, batches and finish; workflow and in-process runners alike) first calls identity.Actors.MayAct, which refuses a requester blocked or deprovisioned since the start with 403 identity.principal_blocked, not retried; the job fails through its existing problem path, audited and recorded as the requester, its earlier postings kept and its slot freed (a migration run back to queued, a release left releasing for :release)",
+        "r": "internal/identity/directory.go Actors.MayAct · internal/workflows (working, Depreciations.acting) · integration prepareAs · payments mayAct · configuration simulation · ADR-0012 As built · ADR-0057 As built · 04 §4.8",
+        "src": "review:T57f · po:2026-11-03",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Long-running jobs and a deactivated requester (pre-existing security finding on T57f): identity.Actors.Actor does not check that the principal is still active, so migration runs and depreciation runs keep acting, and posting, as a requester deactivated after the start; should they refuse such a requester and fail the run, as ADR-0056's recurrer checks Active?",
-        "r": "internal/identity/directory.go Actors.Actor · internal/workflows requester (migrate.go) · ADR-0012 · ADR-0056 · ADR-0057 §7",
+        "t": "A failed simulation leaves no audit record (pre-existing finding on review:T57f's requester refusal): every problem that fails a simulation's operation (config.invalid_request, a change request no longer awaiting evidence, a proposal or base that cannot be replayed, simulator and regression problems) goes through operations.Fail alone, so the change request's audit history does not show the stopped simulation (ADR-0011); only the refusal of a requester no longer active records config.change_request.simulate_refused. Should every simulation failure be audited the same way?",
+        "r": "internal/configuration/simulation.go (process, fail) · ADR-0011 · ADR-0012 As built",
         "src": "review:T57f",
         "c": []
        },

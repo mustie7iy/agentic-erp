@@ -67,3 +67,45 @@ namespaces per environment and tenant isolation by task queue or namespace.
   then payment proposals (chunked, resumable) and release as an operation,
   simulations and migration runs, then approvals and period close as
   workflows with human waits and timers.
+
+## As built
+
+**Deferred work and a requester no longer active (review:T57f, PO
+2026-11-03).** The work an operation defers acts as the person who asked
+for it, read again in each step's transaction (`identity.Actors.Actor`):
+a migration run's activity (T28), a payment proposal and a release
+(T27, the proposer and the releaser), a simulation (its requester) and a
+depreciation run's steps (ADR-0057 §7), with the workflow engine or the
+in-process runners. The product owner decided on 2026-11-03 that a
+requester blocked or deprovisioned since the start is refused. Each step
+that does the work first calls `identity.Actors.MayAct`, the one place the
+rule and its problem live: a requester no longer active is refused with
+403 `identity.principal_blocked`, the code a request of theirs gets (the
+unit of work's `resolve`), so no new code. The refusal is a business
+problem, not retried, and fails the work through the path each job
+already had for a problem, which records it as the requester whatever
+their status (`Actor` stays a plain read for those steps):
+- a migration run's operation fails and the run goes back to `queued` (or
+  `loaded` for a reconciliation) with `integration.migration_run.fail`
+  audited, nothing loaded (`integration.Endpoints.prepareAs`);
+- a proposal fails its run and operation (`payments.payment_run.fail`),
+  nothing proposed;
+- a release refuses the next payment or the finish: the release
+  operation fails (`payments.payment_run.fail`), the payments posted
+  before stay posted, the run stays `releasing` without a bank file (or
+  goes back to `proposed` with nothing posted), and a person active
+  resumes it with `:release`;
+- a simulation fails its operation, audited on the change request
+  (`config.change_request.simulate_refused`), no evidence recorded, the
+  change request left awaiting evidence;
+- a depreciation run fails (ADR-0057 As built).
+Decided by default: the check lives in one method each step calls rather
+than in `Actor` itself, because the steps that record a failure must still
+act as the requester. A step of a release, a proposal, a simulation or a
+migration already done (a payment posted, a run released) stays a no-op on
+a retry before the check, so a lost completion still succeeds; a
+depreciation run's step checks first, so such a retry with the requester
+blocked in between is refused, which leaves what was posted posted (a
+posted run stays posted, `FailDepreciationRun` leaving it alone). The
+ledger's recurrer keeps its own owner check (ADR-0056), which also needs
+the owner's permission and company access.

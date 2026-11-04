@@ -1936,6 +1936,19 @@ Decided by default, for the product owner to overrule:
   for a posted run alone. The batch size is 500 (decided by default 12),
   a field of the endpoints (`BatchSize`) that tests set lower.
 
+**A requester no longer active (review:T57f, PO 2026-11-03).** A
+depreciation run's steps that do its work (the plan, each batch, the
+finish) refuse a requester blocked or deprovisioned since the start with
+403 `identity.principal_blocked` (`identity.Actors.MayAct`, through the
+workflow's `working` requester): a business problem, not retried, which
+fails the run through `FailDepreciationRun` with that code on the run and
+its Operation, audited (`assets.depreciation_run.fail`). The batches posted
+before stay posted, the next posts nothing, and the company and ledger are
+free for a new run of the period by someone active. The failure is
+recorded as the requester whatever their status, so the run never stays
+running. The rule is shared with the other deferred work (ADR-0012 As
+built).
+
 **Fix forward (batch 50, from ci-local).** An asset's terms and an
 acquisition's entries are read from their tables in no order, and an update
 of a row (a PATCH of the terms, a reversal of the entries) can change the
