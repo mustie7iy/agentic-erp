@@ -369,6 +369,10 @@ type GetAssetAcquisitionRes interface {
 	getAssetAcquisitionRes()
 }
 
+type GetAssetHistorySheetRes interface {
+	getAssetHistorySheetRes()
+}
+
 type GetAssetRes interface {
 	getAssetRes()
 }

@@ -97,7 +97,13 @@ func writeTransfer(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.U
 		return err
 	}
 	if toSeq != nil {
-		return derive(ctx, tx, p, t.to.ID, *toSeq)
+		if err := derive(ctx, tx, p, t.to.ID, *toSeq); err != nil {
+			return err
+		}
+		return keepTotals(ctx, tx, t.asset.ID, t.to.ID)
+	}
+	if err := keepTotals(ctx, tx, t.asset.ID); err != nil {
+		return err
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO assets.asset_assignment (tenant_id, asset_id, seq, valid_from, cost_center_id, profit_center_id, transfer_id,
 			created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, p.TenantID, t.asset.ID, seq, t.value, t.costCenter, t.profit, id, p.ID)

@@ -16341,6 +16341,7 @@ paths:
       description: "What a depreciation run of a company, ledger and regular period would post (ADR-0057 §7, T57e), without posting: per asset the planned depreciation through the period (the schedule of `GET /v1/assets/{id}/schedule` summed from the depreciation start), the depreciation booked in the ledger (runs' and catch-ups', with their reversals) and the difference, which the run posts: normally the period's depreciation, more when a movement was posted late with an earlier value date (a catch-up), less or negative when one was reversed, nothing when the period's run already posted it. The assets are those a run selects: the company's assets with terms in the ledger that are `active` with their depreciation start (the terms' own, else the capitalisation date) on or before the period's last day, or whose accumulated depreciation in the ledger is not zero (a `planned` asset whose acquisition was reversed after depreciation was posted), passing over an asset booked through a later period or whose latest center assignment is valid from after the period's last day; ordered and paged by asset number. Each asset is shown on its accounts (its class's depreciation and accumulated depreciation accounts in the company) and its centers (its latest assignment's). `totals`, the same on every page, sum every asset selected: the planned, booked and difference amounts and the lines the run would post, per depreciation account, cost center and profit center the expense (debit positive) and per accumulated depreciation account and profit center the credit; the ledger derives a line's cost center from the account's default assignment for an asset without one, and a cost center's profit center on the posting date, as every posting does (ADR-0050 §5). Amounts are in the company's local currency. `ledger_id` defaults to the leading ledger; one the company does not keep is 422 `ledger.ledger_not_kept`; a special period (13-16) takes no depreciation, 422 `assets.special_period`; a fiscal year or period that is not set up is 422 `ledger.no_fiscal_period`. Whether the period is open and runs' order are the run's checks. An asset of a class the active configuration no longer gives the company fails the preview (422 `assets.class_unknown`, `assets.class_not_in_company`), as it would fail the run. A legal entity the caller cannot act in is 404. Reads only; every agent autonomy level may call it."
       x-permission: assets.asset.read
       x-autonomy: read
+      x-slo-class: report
       x-problem-codes:
         - assets.class_not_in_company
         - assets.class_unknown
@@ -16392,6 +16393,81 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/asset-history-sheet:
+    get:
+      operationId: getAssetHistorySheet
+      x-slo-class: report
+      tags:
+        - assets
+      summary: Get the asset history sheet
+      description: "The asset history sheet of a company, ledger and fiscal year (ADR-0057 §9, T57i): the reconciliation of the assets' carrying amounts from the year's opening to its closing, by class (`group_by=class`, the default) or by asset (`group_by=asset`). Each row has the opening cost (acquisition cost at the start of the year), the year's acquisitions, retirements (cost retired, negative) and transfers (cost of asset transfers in less out; a center transfer changes no cost), the closing cost; the opening accumulated depreciation, the year's depreciation (runs' and the catch-ups of retirements and transfers, with their reversals), the accumulated depreciation retirements took (positive) and transfers moved, the closing accumulated depreciation; and the opening and closing net book values (cost plus accumulated depreciation). Accumulated depreciation is negative, the credit it is, as an asset's `values` show it, so a closing value is its opening value plus the year's columns, and the closing cost and accumulated depreciation of a company's classes equal the ledger's balances of their acquisition cost and accumulated depreciation accounts where no migration loaded balances on them (ADR-0057 §3). A movement counts in the fiscal year it was posted in, whatever its value date: depreciation posted late (a catch-up) is the year's it was posted in. Amounts are in the company's local currency (`currency`), exact at the moment of the read: the totals are kept with every movement. A class or asset with neither a movement posted in the year nor an opening value has no row; its sums are zero. By class every class comes in one response, by class code; by asset the assets are ordered and paged by asset number, each with its class. `class` keeps one class's rows. `totals` sums every row the filters select, on every page. `ledger_id` defaults to the leading ledger; one the company does not keep is 422 `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page token is issued only by asset. A legal entity the caller cannot act in is 404. Reads only."
+      x-permission: assets.asset.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - ledger.ledger_not_kept
+        - ledger.no_fiscal_period
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: The company's legal entity.
+          schema:
+            type: string
+            format: uuid
+        - name: ledger_id
+          in: query
+          required: false
+          description: The ledger (one depreciation area); default the leading ledger.
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: The fiscal year the sheet reconciles.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: group_by
+          in: query
+          required: false
+          description: "`class` (default): one row per asset class; `asset`: one row per asset, paged by asset number. Any other value is 400 `request.invalid_parameter`."
+          schema:
+            type: string
+            description: "What a row is. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [class, asset]
+        - name: class
+          in: query
+          required: false
+          description: Only the rows of this asset class (by code); the totals are then the class's.
+          schema:
+            type: string
+            pattern: "^[A-Z0-9_]{1,20}$"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: The sheet's rows (one page of them by asset) and the totals of all of them.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetHistorySheet"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/cash-position:
@@ -38731,6 +38807,119 @@ components:
           maxLength: 2048
       examples:
         - items: []
+    AssetHistorySheet:
+      type: object
+      description: "The asset history sheet of a company, ledger and fiscal year (ADR-0057 §9): per class or asset the reconciliation of cost, accumulated depreciation and net book value from the year's opening to its closing, in the company's local currency, with the totals of every row the filters select."
+      required: [legal_entity_id, company_code, company_name, ledger_id, ledger_code, ledger_name, fiscal_year, start_date, end_date, currency, group_by, items, totals]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The company., readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        company_name: {type: string, description: "The company's name.", readOnly: true}
+        ledger_id: {type: string, format: uuid, description: The ledger., readOnly: true}
+        ledger_code: {type: string, description: "The ledger's code.", readOnly: true}
+        ledger_name: {type: string, description: "The ledger's name.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: The fiscal year., readOnly: true}
+        start_date: {type: string, format: date, description: "The fiscal year's first day: the opening values are those before it.", readOnly: true}
+        end_date: {type: string, format: date, description: "The fiscal year's last day: the closing values are those after it, as posted so far.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's local currency, every amount's.", readOnly: true}
+        group_by:
+          type: string
+          x-extensible-enum: [class, asset]
+          description: "What a row is: an asset class or an asset. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        items:
+          type: array
+          description: "The rows: every class by class code, or this page's assets by asset number."
+          items: {$ref: "#/components/schemas/AssetHistorySheetRow"}
+        totals: {$ref: "#/components/schemas/AssetHistorySheetValues"}
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page of assets; absent on the last page and by class."
+          maxLength: 2048
+      examples:
+        - legal_entity_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01
+          company_code: "1000"
+          company_name: Maple Manufacturing Ltd.
+          ledger_id: 0192a000-0000-7000-8000-000000000301
+          ledger_code: 0L
+          ledger_name: Leading ledger
+          fiscal_year: 2026
+          start_date: "2026-01-01"
+          end_date: "2026-12-31"
+          currency: CAD
+          group_by: class
+          items:
+            - class_code: MACHINES
+              class_name: Machinery and equipment
+              opening_cost: {amount: "0.00", currency: CAD}
+              acquisitions: {amount: "12000.00", currency: CAD}
+              retirements: {amount: "0.00", currency: CAD}
+              transfers: {amount: "0.00", currency: CAD}
+              closing_cost: {amount: "12000.00", currency: CAD}
+              opening_accumulated: {amount: "0.00", currency: CAD}
+              depreciation: {amount: "-100.00", currency: CAD}
+              retirements_accumulated: {amount: "0.00", currency: CAD}
+              transfers_accumulated: {amount: "0.00", currency: CAD}
+              closing_accumulated: {amount: "-100.00", currency: CAD}
+              opening_net_book_value: {amount: "0.00", currency: CAD}
+              closing_net_book_value: {amount: "11900.00", currency: CAD}
+          totals:
+            opening_cost: {amount: "0.00", currency: CAD}
+            acquisitions: {amount: "12000.00", currency: CAD}
+            retirements: {amount: "0.00", currency: CAD}
+            transfers: {amount: "0.00", currency: CAD}
+            closing_cost: {amount: "12000.00", currency: CAD}
+            opening_accumulated: {amount: "0.00", currency: CAD}
+            depreciation: {amount: "-100.00", currency: CAD}
+            retirements_accumulated: {amount: "0.00", currency: CAD}
+            transfers_accumulated: {amount: "0.00", currency: CAD}
+            closing_accumulated: {amount: "-100.00", currency: CAD}
+            opening_net_book_value: {amount: "0.00", currency: CAD}
+            closing_net_book_value: {amount: "11900.00", currency: CAD}
+    AssetHistorySheetRow:
+      type: object
+      description: "One row of the asset history sheet: an asset class, or an asset with its class, and its values."
+      required: [class_code, opening_cost, acquisitions, retirements, transfers, closing_cost, opening_accumulated, depreciation, retirements_accumulated, transfers_accumulated, closing_accumulated, opening_net_book_value, closing_net_book_value]
+      properties:
+        class_code: {type: string, description: "The asset class (`GET /v1/asset-classes`).", readOnly: true}
+        class_name: {type: string, description: "The class's name; absent when the active configuration no longer has the class.", readOnly: true}
+        asset_id: {type: string, format: uuid, description: "The asset (`GET /v1/assets/{id}`); by asset only.", readOnly: true}
+        asset_number: {type: string, description: "The asset's number in its company; by asset only.", readOnly: true}
+        description: {type: string, description: "What the asset is; by asset only.", readOnly: true}
+        status:
+          type: string
+          x-extensible-enum: [planned, active, retired, cancelled]
+          description: "The asset's status now, not at the year's end; by asset only. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        opening_cost: {$ref: "#/components/schemas/Money"}
+        acquisitions: {$ref: "#/components/schemas/Money"}
+        retirements: {$ref: "#/components/schemas/Money"}
+        transfers: {$ref: "#/components/schemas/Money"}
+        closing_cost: {$ref: "#/components/schemas/Money"}
+        opening_accumulated: {$ref: "#/components/schemas/Money"}
+        depreciation: {$ref: "#/components/schemas/Money"}
+        retirements_accumulated: {$ref: "#/components/schemas/Money"}
+        transfers_accumulated: {$ref: "#/components/schemas/Money"}
+        closing_accumulated: {$ref: "#/components/schemas/Money"}
+        opening_net_book_value: {$ref: "#/components/schemas/Money"}
+        closing_net_book_value: {$ref: "#/components/schemas/Money"}
+    AssetHistorySheetValues:
+      type: object
+      description: "The history sheet's columns summed over every row the filters select: opening cost, acquisitions (positive), retirements (cost retired, negative), transfers (asset transfers in less out), closing cost; opening accumulated depreciation (negative), the year's depreciation, the accumulated depreciation retirements took (positive) and transfers moved, closing accumulated depreciation; opening and closing net book value."
+      required: [opening_cost, acquisitions, retirements, transfers, closing_cost, opening_accumulated, depreciation, retirements_accumulated, transfers_accumulated, closing_accumulated, opening_net_book_value, closing_net_book_value]
+      properties:
+        opening_cost: {$ref: "#/components/schemas/Money"}
+        acquisitions: {$ref: "#/components/schemas/Money"}
+        retirements: {$ref: "#/components/schemas/Money"}
+        transfers: {$ref: "#/components/schemas/Money"}
+        closing_cost: {$ref: "#/components/schemas/Money"}
+        opening_accumulated: {$ref: "#/components/schemas/Money"}
+        depreciation: {$ref: "#/components/schemas/Money"}
+        retirements_accumulated: {$ref: "#/components/schemas/Money"}
+        transfers_accumulated: {$ref: "#/components/schemas/Money"}
+        closing_accumulated: {$ref: "#/components/schemas/Money"}
+        opening_net_book_value: {$ref: "#/components/schemas/Money"}
+        closing_net_book_value: {$ref: "#/components/schemas/Money"}
     CashPosition:
       type: object
       description: "A legal entity's daily cash position (ADR-0051 §8, T53c): per house bank and per currency first, then the converted total. Amounts are signed: money in the bank is positive, a payment out negative."

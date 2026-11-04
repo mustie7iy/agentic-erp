@@ -82,6 +82,34 @@ func Scale(amount Minor, factor string, divisor int64) (Minor, error) {
 	return fromBig(roundHalfAway(v.Quo(v, new(big.Rat).SetInt64(divisor))))
 }
 
+// Divide is amount / divisor rounded half away from zero: Scale(amount,
+// "1", divisor) in integers, without its exact rationals, for a hot loop
+// (a depreciation walk divides once per period of every asset, T57f2).
+// The divisor is positive; a result out of range (the most negative
+// amount divided by one) is ErrOverflow, as Scale gives it.
+func Divide(amount Minor, divisor int64) (Minor, error) {
+	if divisor <= 0 {
+		return 0, fmt.Errorf("money: divide by %d: the divisor must be positive", divisor)
+	}
+	if amount == minMinor && divisor == 1 {
+		return 0, ErrOverflow
+	}
+	// The remainder is below the divisor in size, so divisor - r cannot
+	// overflow, and r >= divisor - r is 2r >= divisor: a tie or more.
+	q, r := int64(amount)/divisor, int64(amount)%divisor
+	if r < 0 {
+		r = -r
+	}
+	if r >= divisor-r {
+		if amount < 0 {
+			q--
+		} else {
+			q++
+		}
+	}
+	return Minor(q), nil
+}
+
 // Round returns a rational number of major units in minor units with exp
 // digits, rounding half away from zero: a quotient of amounts, or a ratio
 // kept to a fixed number of digits, without a float in between. A result

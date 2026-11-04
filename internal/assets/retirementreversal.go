@@ -147,7 +147,10 @@ func writeRetirementReversal(ctx context.Context, tx pgx.Tx, p reqctx.Principal,
 			AND m.document_id = $1 AND m.kind = 'depreciation' AND m.reverses_id IS NULL`, q.ID, p.ID); err != nil {
 		return fmt.Errorf("assets: booked_through before retirement %s: %w", q.ID, err)
 	}
-	return derive(ctx, tx, p, q.AssetID, seq)
+	if err := derive(ctx, tx, p, q.AssetID, seq); err != nil {
+		return err
+	}
+	return keepTotals(ctx, tx, q.AssetID)
 }
 
 // reverseRetiredLedger negates the retirement's movements in the ledger

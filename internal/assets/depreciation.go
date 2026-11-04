@@ -23,7 +23,8 @@ type postingPeriod struct{ year, period int16 }
 // depreciable is an asset's terms and movements in one ledger as the
 // schedule reads them (ADR-0057 §7): the moves it applies, the
 // depreciation booked (the sum of its depreciation movements, a debit of
-// expense, so positive) and that by posting period.
+// expense, so positive) and, for the schedule alone, that by posting
+// period.
 type depreciable struct {
 	asset       uuid.UUID
 	terms       Terms
@@ -66,28 +67,51 @@ func (d depreciable) planned(through Month) ([]Step, money.Minor, error) {
 }
 
 // readMovements reads the movements of the assets in the ledger into
-// them: depreciation movements into what is booked, every other as a
-// move at its value date's period.
-func readMovements(ctx context.Context, tx pgx.Tx, ledger uuid.UUID, ds map[uuid.UUID]*depreciable) error {
+// them: every one but depreciation as a move at its value date's period,
+// and the depreciation booked. With byPeriod (the schedule) it reads the
+// depreciation movements themselves, into what is booked and what is
+// booked by posting period. Otherwise (a run's batch, the preview, a
+// catch-up) only the booked total is wanted, and it is read from the
+// assets' year totals, which every posting keeps with its movements in
+// its own transaction (keepTotals, ADR-0057 §5, T57i): an asset depreciated
+// for ten years has some 120 depreciation movements and at most ten
+// totals rows per ledger, and its other movements are read through the
+// partial index movement_moves_by_asset (T57f2: the preview of 100,000
+// assets read 5.8 million rows).
+func readMovements(ctx context.Context, tx pgx.Tx, ledger uuid.UUID, ds map[uuid.UUID]*depreciable, byPeriod bool) error {
 	ids := make([]uuid.UUID, 0, len(ds))
 	for id := range ds {
 		ids = append(ids, id)
 	}
-	rows, _ := tx.Query(ctx, `SELECT asset_id, kind, value_date, fiscal_year, fiscal_period, cost, accumulated, residual
-		FROM assets.movement WHERE asset_id = ANY($1) AND ledger_id = $2 ORDER BY asset_id, seq`, ids, ledger)
+	sql := `SELECT asset_id, kind, value_date, fiscal_year, fiscal_period, cost, accumulated, residual
+		FROM assets.movement WHERE asset_id = ANY($1) AND ledger_id = $2 ORDER BY asset_id, seq`
+	if !byPeriod {
+		// A totals row carries the asset's depreciation (accumulated, a
+		// credit) as a depreciation row with no date or period. Unordered:
+		// the walk applies a period's moves in any order, their effects
+		// adding (Walk), and sorting 100,000 assets' rows spilled to disk.
+		sql = `SELECT asset_id, kind, value_date, fiscal_year, fiscal_period, cost, accumulated, residual
+			FROM (SELECT asset_id, kind, value_date, fiscal_year, fiscal_period, cost, accumulated, residual
+				FROM assets.movement WHERE asset_id = ANY($1) AND ledger_id = $2 AND kind <> 'depreciation'
+			UNION ALL SELECT asset_id, 'depreciation', NULL, NULL, NULL, 0, sum(depreciation)::bigint, 0
+				FROM assets.year_total WHERE asset_id = ANY($1) AND ledger_id = $2 GROUP BY asset_id) m`
+	}
+	rows, _ := tx.Query(ctx, sql, ids, ledger)
 	var asset uuid.UUID
 	var kind string
-	var value time.Time
-	var at postingPeriod
+	var value *time.Time
+	var year, period *int16
 	var cost, accumulated, residual money.Minor
-	_, err := pgx.ForEachRow(rows, []any{&asset, &kind, &value, &at.year, &at.period, &cost, &accumulated, &residual}, func() error {
+	_, err := pgx.ForEachRow(rows, []any{&asset, &kind, &value, &year, &period, &cost, &accumulated, &residual}, func() error {
 		d := ds[asset]
 		if kind == kindDepreciation {
 			d.booked -= accumulated
-			d.bookedIn[at] -= accumulated
+			if byPeriod {
+				d.bookedIn[postingPeriod{*year, *period}] -= accumulated
+			}
 			return nil
 		}
-		d.moves = append(d.moves, Move{Month: MonthOf(value), Cost: cost, Accumulated: accumulated, Residual: residual})
+		d.moves = append(d.moves, Move{Month: MonthOf(*value), Cost: cost, Accumulated: accumulated, Residual: residual})
 		return nil
 	})
 	return errs.Wrapf(err, "assets: movements of %d assets in ledger %s", len(ids), ledger)

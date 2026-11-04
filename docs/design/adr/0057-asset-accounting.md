@@ -1418,7 +1418,7 @@ tracker item only when one does (07 §7.5).
   specialist.
 
 ## As built
-(Filled in by the slices T57a-T57i.)
+(Filled in by the slices T57a-T57i and T57f2.)
 
 **T57a (classes and asset accounts; asset reconciliation enforced).**
 Built as §3: `asset_classes` (code, name, terms per ledger),
@@ -2185,3 +2185,167 @@ product owner to overrule:
   part`, a ledger's catch-up before its main entry, which the API keeps
   (it goes through the entries ledger by ledger); the records pick a
   ledger's parts by name (`partsIn`).
+
+**T57i (the asset history sheet).** Built as §5's year totals and §9:
+migration 000207 creates `assets.year_total` and
+`assets.class_year_total` (RLS, `tenant_id` leading their keys; the
+application may add to their sums only, with no update of a key column
+and no delete) and totals the movements written before it; schema tests
+`TestAssetYearTotalsBackfilled`, `TestAssetYearTotalRules`. Every posting
+that writes movements (an acquisition and its reversal, a run's batch, a
+retirement and its reversal, a transfer of either kind and its reversal)
+adds them to the totals in its own transaction (`keepTotals`), so the
+totals equal the movements' sums (`TestAssetHistorySheet` compares them
+for every kind; `TestYearTotalsInKeyOrder` runs a batch and an asset
+transfer touching the same two classes in opposite orders at once). `GET
+/v1/asset-history-sheet` (`getAssetHistorySheet`, `assets.asset.read`,
+`x-slo-class: report`, reads only) reads them by class or by asset. The
+closing values of a company's classes equal the ledger's balances of their
+acquisition cost and accumulated depreciation accounts, read through the
+ledger's own API (`GET /v1/balances`), in both ledgers and both years of
+`TestAssetHistorySheet` and in walkthrough step 34. The 01 §1.3 budget
+(p95 1 s) is `TestAssetHistorySheetBudget`: 100,000 assets with ten years
+of totals each (a million rows), read by class, by asset (first and a later
+page) and by asset of one class. Decided by default, for the product owner
+to overrule:
+- **Totals kept by the posting, not by a trigger.** A trigger on the
+  movements would add each one as it is written, in the order a posting
+  writes them (a batch by asset id, a transfer sender first), so a batch
+  and a transfer touching two classes in opposite orders could deadlock,
+  which §5 rules out. `keepTotals` runs once per transaction after the
+  posting's movements and the assets' `last_seq` are written, reads the
+  movements of each asset's latest posting (its `seq` is the asset's
+  `last_seq`, §5) and upserts the class rows in one statement and then the
+  asset rows in another, each in key order. After it a transaction takes
+  only locks every posting takes after its own `keepTotals` (its own
+  assets' rows, a run's batch and Operation, the audit chain's head at
+  commit), so no wait for those can close a cycle with a class row.
+  §5's "class rows by class code, then asset rows by asset id" is read as
+  the whole keys' order, since a posting's movements may span ledgers (a retirement) and
+  fiscal years (a center transfer's catch-up dated the period before).
+- **Keys.** `class_year_total` is keyed as §5 has it; `year_total` is keyed
+  (tenant, ledger, asset, fiscal year) rather than (tenant, ledger, fiscal
+  year, asset), so the sheet by asset reads an asset's years up to the
+  year in one index range of the key.
+- **The backfill** runs in the migration under a SHARE lock on the
+  movements (their writers wait; the lock not had within 5 s fails the
+  migration, which the next start retries) with row-level security off,
+  failing under a role that does not bypass it, as 000042. A replica of
+  the release before that posted after it would write movements the totals
+  miss; no release that posts assets has been deployed (PO 2026-11-02:
+  deployment last), so none can.
+- **A movement counts in the fiscal year it was posted in** (the movement's
+  `fiscal_year`), whatever its value date: depreciation caught up late is
+  the year's it was posted in (§7's period lock interplay).
+- **Signs and columns.** Amounts are in local currency (§9). Accumulated
+  depreciation is negative, the credit it is, as an asset's `values` show
+  it, so retirements are a negative cost and a positive accumulated
+  depreciation, every closing value is its opening value plus the year's
+  columns, the net book value is cost plus accumulated depreciation, and
+  the closing values equal the accounts' debit-less-credit balances. A
+  retirement's and a transfer's catch-up is depreciation of the year;
+  `transfers` is asset transfers in less out (§9).
+- **Rows.** A class or asset with neither a movement posted in the year
+  nor an opening value has no row (an asset retired in an earlier year,
+  one planned without a posting); its sums are zero, so the totals are
+  unchanged. By class every class comes in one answer (classes are
+  configuration, few), by class code; by asset the assets are paged by
+  asset number (as text, as the assets list orders them; page size 50 by
+  default) and a page token is issued only there. `class` keeps one
+  class's rows, and the totals are then that class's. The totals, the same
+  on every page, are read from the class rows. A row by asset names the
+  asset (id, number, description, its status now) and its class; a class
+  is named from the active configuration, its name absent when the
+  configuration no longer has it. The head names the company (code and
+  name), the ledger (code and name) and the fiscal year with its first and
+  last day, from the ledger's periods (422 `ledger.no_fiscal_period` for a
+  year not set up); a `group_by` other than `class` and `asset` is 400
+  `request.invalid_parameter` (an open enumeration, as the contract's
+  rules ask); a ledger the company does not keep is 422
+  `ledger.ledger_not_kept`, a company the caller may not act in 404.
+- **The ledger comparison** sums `GET /v1/balances` over the fiscal years
+  so far, since the ledger carries no balance into a new year; the
+  walkthrough adds last year's, where a catch-up dated the period before
+  may fall.
+- **Walkthrough.** Step 34 reads the year's sheet of steps 22 to 32 by
+  class and by asset and checks its closing values against the trial
+  balance's acquisition cost and accumulated depreciation accounts.
+- **Tracker.** The leaf "Asset history sheet" (T57i) is done with T57i.
+
+**T57f2 (the run's and the preview's budgets).** 01 §1.3's budget of a
+run over 100,000 assets of one company and ledger (async, p95 120 s, p99
+240 s) and the preview's at that scale are `TestDepreciationRunBudget`
+(`internal/workflows`, beside the in-process runner it drives; run by
+`scripts/budgets.sh`, so by `make perf` and ci-local's budgets gate).
+Company 2000 holds 100,001 machines of 12,000.00 EUR over ten years,
+capitalised a month apart from January 2017 to May 2026 and booked by one
+run a month through May, so each has its acquisition and up to 113
+depreciation movements (5.8 million rows) and its year totals, written
+straight into the tables as `TestAssetHistorySheetBudget` writes its
+rows. The preview of June's run is read ten times, its first page and the
+next (every page reads all the selected assets, so any later page costs
+what the second does); the run is measured once, from its start (`POST
+/v1/depreciation-runs`) to posted, carried out by `workflows.Depreciator`
+in 201 batches of 500, as `TestProposalBudget` measures the proposal's
+single run against its p95. Measured on the development machine (Apple
+silicon, PostgreSQL 17 in Docker with 128 MB of shared buffers) beside
+the other lanes' suites, so with the load averages named:
+- **Before** (the T57f code, seeded as above): a preview page read the
+  5.8 million movements, 7.9 s in the database and about 20 s a page
+  with the rows scanned (seen while it ran, not timed to the end: the
+  machine's gate slots were needed). After the first fix alone (below):
+  preview median 6.4 s, p95 7.1 s; run 117 s (load 35 to 41).
+- **After, ERP_BUDGET_SCALE=1** (load 9 to 18): preview first page median
+  1.56 s, worst of ten 1.77 s; next page median 1.53 s, worst 2.03 s; run 20.6 s
+  (budget 120 s). Seeding took 64 s, the whole test 120 s.
+- **After, ERP_BUDGET_SCALE=2** (load 17 to 18): preview first page
+  median 1.62 s, worst of ten 3.11 s; next page median 1.56 s, worst 1.90 s; run
+  20.7 s (budget 240 s).
+The run meets its budget six times over. The preview does not meet the
+report class's p95 of 1 s at this scale: it reads the 100,001 selected
+assets (0.43 s), their 100,001 other movements and 580,000 totals rows
+(0.6 s) and walks them on every page, as T57e built it. The test checks
+the class's p99 on every read (3 s at scale 1, 6 s at ci-local's scale
+2), which catches a return of the movement read but not every smaller
+loss, and the p95 is a question for the product owner (below).
+Causes found with `EXPLAIN (ANALYZE, BUFFERS)` and a CPU profile, and
+fixed with behaviour unchanged (every existing test passes as before):
+- **Every page read every movement.** `readMovements` read all of the
+  selected assets' movements, depreciation included, to sum what is
+  booked: 5.8 million rows a page (7.9 s in the database, some 20 s with
+  the rows scanned and bucketed by period). A run's batches, the preview
+  and a catch-up now read the movements other than depreciation through
+  the partial index `movement_moves_by_asset` (migration 000208, built
+  concurrently) and the booked total from the year totals (T57i), which
+  every posting keeps with its movements in its own transaction and which
+  equal their sums (`TestAssetHistorySheet`); 100,000 rows and some
+  580,000 totals rows, 0.6 s. The schedule, which shows what is booked
+  per period, still reads every movement of its one asset.
+- **Exact rationals per period.** The walk computed each period's
+  straight-line amount with `money.Scale` (big rationals and a parsed
+  factor of "1"), 52 of the preview's 56 s of CPU; it is now
+  `money.Divide`, an integer division rounded half away from zero, equal
+  to `Scale(a, "1", n)` on both signs and at the ends of the range
+  (`TestDivide`, `FuzzDivide` in the fuzz gate). Declining balance keeps
+  `Scale` for its factor.
+- **The selection's lookups.** The latest assignment was looked up per
+  asset (a lateral `LIMIT 1`), whose estimate over 100,000 assets made the
+  planner compile the query (JIT, 250 ms); the company's assets' latest
+  assignments are read in one pass (`DISTINCT ON`), 860 ms to 430 ms. A batch's re-check of its 500 assets
+  scanned every asset's terms (86 ms a batch, 17 s a run); the terms are
+  now read by their key too (9 ms).
+Decided by default, for the product owner to overrule:
+- **The preview is a report** (`x-slo-class: report`, ADR-0043's class:
+  p95 1 s, p99 3 s): it sums a whole company's run on every page, as the
+  trial balance sums a period, so the write class a POST otherwise takes
+  (p95 200 ms) does not fit it. 01 §1.3 gains no row while its p95 is
+  not met.
+- **Booked from the totals** (above) relies on T57i's rule that every
+  posting adds its movements to the year totals in its own transaction;
+  each caller reads before its own posting writes.
+- **Question for the product owner (open):** at 100,000 assets the
+  preview takes about 1.5 s a page against the report class's 1 s.
+  Meeting 1 s needs a design change rather than a query fix: keep the
+  booked amount per asset and ledger on its terms row (written by every
+  depreciation movement's posting), or give the totals once rather than
+  on every page. Until then the budget test holds the p99.

@@ -145,6 +145,7 @@ var operationRolesOidc = map[string][]string{
 	GetApprovalRequestOperation:               []string{},
 	GetAssetOperation:                         []string{},
 	GetAssetAcquisitionOperation:              []string{},
+	GetAssetHistorySheetOperation:             []string{},
 	GetAssetRetirementOperation:               []string{},
 	GetAssetScheduleOperation:                 []string{},
 	GetAssetTransferOperation:                 []string{},

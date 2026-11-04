@@ -2,6 +2,7 @@ package money
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"math/big"
 	"slices"
@@ -304,5 +305,24 @@ func TestConvertAtARational(t *testing.T) {
 				t.Errorf("ConvertAllAt: got %v, want an error other than overflow", err)
 			}
 		})
+	}
+}
+
+// TestDivide: Divide rounds as Scale(a, "1", n) does, half away from zero,
+// on both signs and at the ends of the range, and refuses what Scale
+// refuses.
+func TestDivide(t *testing.T) {
+	amounts := []Minor{0, 1, -1, 2, -2, 5, -5, 7, -7, 999, -999, 1000000, -1000000, 1199999, -1199999, math.MaxInt64, math.MinInt64,
+		math.MaxInt64 - 1, math.MinInt64 + 1}
+	for _, a := range amounts {
+		for _, n := range []int64{-1, 0, 1, 2, 3, 4, 7, 120, 599, 1200, math.MaxInt64} {
+			t.Run(fmt.Sprintf("%d/%d", a, n), func(t *testing.T) {
+				want, wantErr := Scale(a, "1", n)
+				got, err := Divide(a, n)
+				if (err != nil) != (wantErr != nil) || got != want {
+					t.Errorf("got %d %v, want %d %v", got, err, want, wantErr)
+				}
+			})
+		}
 	}
 }

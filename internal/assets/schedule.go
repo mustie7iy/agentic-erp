@@ -110,9 +110,9 @@ func (p Plan) period(k int32, book, residual money.Minor) (money.Minor, error) {
 	if k >= p.Life {
 		return max(0, left), nil
 	}
-	// Scale fails only on a factor that is no plain decimal or a result out
-	// of range; "1" is one, and the result is at most left in size.
-	straight, _ := money.Scale(left, "1", int64(p.Life-k+1))
+	// Divide fails only on a divisor below one or the most negative
+	// amount divided by one; the periods left here are two or more.
+	straight, _ := money.Divide(left, int64(p.Life-k+1))
 	d := straight
 	switch p.Method {
 	case config.StraightLine:
