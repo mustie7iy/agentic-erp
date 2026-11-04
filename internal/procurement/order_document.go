@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -22,6 +23,7 @@ import (
 type orderDocument struct {
 	order         PurchaseOrder
 	buyer         tenancy.Entity
+	buyerAddress  *config.PostalAddress // nil: the active configuration holds none for the buyer's company
 	purchasingOrg *tenancy.Unit
 	supplier      partner.Supplier
 	address       *partner.Address // nil: the supplier holds no order_from or legal address
@@ -58,6 +60,13 @@ func (e *Endpoints) documentOf(ctx context.Context, tx pgx.Tx, o PurchaseOrder) 
 	var err error
 	if d.buyer, ok, err = e.LegalEntities.Entity(ctx, o.LegalEntityID); err != nil || !ok {
 		return d, missing(err, ok, "legal entity "+o.LegalEntityID.String(), o.ID)
+	}
+	doc, _, err := e.Settings.Document(ctx)
+	if err != nil {
+		return d, fmt.Errorf("procurement: document of purchase order %s: configuration: %w", o.ID, err)
+	}
+	if co := doc.Company(d.buyer.Code); co != nil {
+		d.buyerAddress = co.PostalAddress
 	}
 	if o.PurchasingOrgID != nil {
 		u, ok, err := e.LegalEntities.OrgUnit(ctx, *o.PurchasingOrgID)
@@ -142,33 +151,94 @@ func (d orderDocument) header(b *strings.Builder) {
 		revision += fmt.Sprintf(" (replaces revision %d)", o.Revision-1)
 	}
 	line(b, "%s, order date %s, currency %s", revision, o.OrderDate.Format(time.DateOnly), o.Currency)
-	b.WriteString("\nBuyer\n")
-	line(b, "  %s (company %s)", d.buyer.Name, d.buyer.Code)
-	line(b, "  Country %s", d.buyer.CountryCode)
-	if u := d.purchasingOrg; u != nil {
-		line(b, "  Purchasing organisation %s %s", u.Code, u.Name)
-	}
-	b.WriteString("\nSupplier\n")
-	line(b, "  %s (supplier %s)", d.supplier.Name, d.supplier.Number)
-	if a := d.address; a != nil {
-		line(b, "  %s", a.Line1)
-		if a.Line2 != nil {
-			line(b, "  %s", *a.Line2)
-		}
-		place := []string{a.City}
-		for _, p := range []*string{a.Region, a.PostalCode} {
-			if p != nil {
-				place = append(place, *p)
-			}
-		}
-		line(b, "  %s", strings.Join(place, ", "))
-		line(b, "  Country %s", a.CountryCode)
-	} else {
-		line(b, "  Country %s (no order or legal address held)", d.supplier.CountryCode)
-	}
+	d.buyerBlock(b)
+	d.supplierBlock(b)
+	d.deliverTo(b)
 	b.WriteString("\n")
 	line(b, "Payment terms: %s %s", d.term.Code, d.term.Description)
 	d.neededByLine(b)
+}
+
+// buyerBlock writes the buyer company with its postal address from the
+// configuration, or its country and that no address is configured: the
+// document never prints an address nobody gave (ADR-0054 As built).
+func (d orderDocument) buyerBlock(b *strings.Builder) {
+	b.WriteString("\nBuyer\n")
+	line(b, "  %s (company %s)", d.buyer.Name, d.buyer.Code)
+	if a := d.buyerAddress; a != nil {
+		configured(*a).write(b)
+	} else {
+		line(b, "  Country %s (no postal address configured)", d.buyer.CountryCode)
+	}
+	if u := d.purchasingOrg; u != nil {
+		line(b, "  Purchasing organisation %s %s", u.Code, u.Name)
+	}
+}
+
+// supplierBlock writes the supplier with its order_from address valid
+// today, else its legal one (ADR-0054 §3).
+func (d orderDocument) supplierBlock(b *strings.Builder) {
+	b.WriteString("\nSupplier\n")
+	line(b, "  %s (supplier %s)", d.supplier.Name, d.supplier.Number)
+	if a := d.address; a != nil {
+		held(*a).write(b)
+	} else {
+		line(b, "  Country %s (no order or legal address held)", d.supplier.CountryCode)
+	}
+}
+
+// deliverTo writes where the goods go: the buyer company's postal address,
+// since no order item names a delivery address of its own (none is held
+// per item; product owner 2026-11-04). Without a configured address the
+// supplier is told to ask, not given one.
+func (d orderDocument) deliverTo(b *strings.Builder) {
+	b.WriteString("\nDeliver to\n")
+	a := d.buyerAddress
+	if a == nil {
+		b.WriteString("  No delivery address held: ask the buyer where to deliver.\n")
+		return
+	}
+	line(b, "  %s", d.buyer.Name)
+	configured(*a).write(b)
+}
+
+// postal is an address as the document prints it; an empty optional text
+// is not printed.
+type postal struct {
+	line1, line2, city, region, postalCode, country string
+}
+
+// held is a business partner's address to print.
+func held(a partner.Address) postal {
+	text := func(s *string) string {
+		if s == nil {
+			return ""
+		}
+		return *s
+	}
+	return postal{line1: a.Line1, line2: text(a.Line2), city: a.City, region: text(a.Region), postalCode: text(a.PostalCode), country: a.CountryCode}
+}
+
+// configured is a company's configured postal address to print.
+func configured(a config.PostalAddress) postal {
+	return postal{line1: a.Line1, line2: a.Line2, city: a.City, region: a.Region, postalCode: a.PostalCode, country: a.CountryCode}
+}
+
+// write prints the address's lines: the street lines, the city with its
+// region and postal code, and the country.
+func (a postal) write(b *strings.Builder) {
+	line(b, "  %s", a.line1)
+	if a.line2 != "" {
+		line(b, "  %s", a.line2)
+	}
+	place := []string{a.city}
+	for _, p := range []string{a.region, a.postalCode} {
+		if p != "" {
+			place = append(place, p)
+		}
+	}
+	line(b, "  %s", strings.Join(place, ", "))
+	line(b, "  Country %s", a.country)
 }
 
 // neededByLine writes the requisition's needed-by date when an item has no

@@ -223,8 +223,8 @@ func (l *loader) extendSupplier(ctx context.Context, v sap.LFA1, id uuid.UUID, i
 	return nil
 }
 
-// newSupplier is the partner a vendor master becomes, with its tax number
-// and its first bank account.
+// newSupplier is the partner a vendor master becomes, with its tax number,
+// its first bank account and its address.
 func newSupplier(v sap.LFA1, in []partner.SupplierCompanyInput, banks map[string]sap.LFBK, reason string, today time.Time) partner.NewPartner {
 	np := partner.NewPartner{Kind: "organization", Name: v.NAME1, CountryCode: v.LAND1, Roles: []string{"supplier"},
 		SupplierCompanies: in, Reason: reason}
@@ -233,6 +233,9 @@ func newSupplier(v sap.LFA1, in []partner.SupplierCompanyInput, banks map[string
 	}
 	if b, ok := banks[v.LIFNR]; ok {
 		np.BankAccounts = []partner.BankInput{supplierBank(v, b, today)}
+	}
+	if a, ok, _ := vendorAddress(v, today); ok { // an address it cannot keep was warned of (qualityCheck.vendors)
+		np.Addresses = []partner.AddressInput{a}
 	}
 	return np
 }

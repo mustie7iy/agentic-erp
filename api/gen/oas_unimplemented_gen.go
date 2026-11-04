@@ -2195,8 +2195,12 @@ func (UnimplementedHandler) GetPurchaseOrderChange(ctx context.Context, params G
 // GetPurchaseOrderDocument implements getPurchaseOrderDocument operation.
 //
 // The order as a plain-text document (UTF-8) to send to the supplier, rendered from the stored order
-// at the time of the call (ADR-0054): the buyer company, the supplier's name, number and address (its
-// `order_from` address valid today, else its `legal` one; none when neither is held), the document
+// at the time of the call (ADR-0054): the buyer company with its postal address from the active
+// configuration (`companies[].postal_address`; when none is configured, its country and a line saying
+// so), the supplier's name, number and address (its `order_from` address valid today, else its `legal`
+// one, a migrated supplier's from SAP's vendor master; none when neither is held), the address to
+// deliver to (the buyer's postal address, as no item names a delivery address of its own; when none is
+// configured, a line asking the supplier to ask the buyer, never an address of its own), the document
 // number, revision, order date and currency, the purchasing organisation, the payment term with its
 // description, and each item with its quantity, unit, price per price unit, tax code, amount and its
 // own delivery date when it has one, with the order's total; the date the requisition needed the goods

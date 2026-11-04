@@ -1011,7 +1011,9 @@ PILOT_SETTINGS='
     {"code": "OP_SUPPLIERS", "name": "Supplier payments", "direction": "outflow", "parent": "OPERATING"}],
     "derivation": {"defaults": {"outflow": "OP_SUPPLIERS", "inflow": "REC_CUSTOMERS"}}}
 | (.companies[] | select(.code == "@CC@")) |= (
-    .chart_of_accounts |= map(select(.number != "1400"))
+    .postal_address = {"line1": "150 Bay Street", "line2": "Receiving, dock 2", "city": "Toronto", "region": "ON", "postal_code": "M5J 2R8",
+      "country_code": "CA"}
+    | .chart_of_accounts |= map(select(.number != "1400"))
     | .chart_of_accounts += [
       {"number": "1010", "name": "Bank clearing - RBC CAD", "type": "asset", "open_items": true},
       {"number": "1015", "name": "Bank incoming - RBC CAD", "type": "asset", "open_items": true},
@@ -1063,6 +1065,7 @@ step_pack() {
   say "at month end, bank statement rules (match by end-to-end id, approval above CAD 10,000), payment runs"
   say "above CAD 4,000 released only after a second person approves, a 2/10 net 30 cash discount term,"
   say "cost center categories, liquidity items, an output tax code for GST and two for the return's adjustments,"
+  say "the company's postal address in Toronto, where suppliers deliver (printed on its purchase orders),"
   say "the GST/HST registration and, for the"
   say "billing system's entries, a service posting limit of CAD 1,000 (step 11). The company keeps SAP's"
   say "down payment account (T074), so the pack's own, 1400, is left out: a company has one (ADR-0037)."
@@ -1200,36 +1203,52 @@ step_procure() {
   passed
 }
 
-# order_document has Tyrell's order desk address added, as SAP's extract
-# holds no street, and shows the released order's document for Tyrell
-# (T72g, ADR-0054).
+# order_document shows the released order's document for Tyrell (T72g,
+# ADR-0054): Maple's postal address of step 2 as the buyer's and the
+# address to deliver to, and Tyrell's street, which the migration took
+# from SAP's vendor master (LFA1 STRAS, ORT01, PSTLZ, REGIO; pending the
+# SAP specialist). Then Ben adds the address Tyrell takes orders at, which
+# the document prints instead of its legal one.
 order_document() {
-  local number change utc_today
+  local number change utc_today want
   number=$(field .document_number)
+  say "Ben fetches the order's document to send to Tyrell (by hand: email and EDI are post-pilot). It names Maple"
+  say "with its configured postal address, delivers there, as no item names an address of its own, and prints"
+  say "Tyrell's street, which the migration took from SAP's vendor master (product owner 2026-11-04):"
+  api 200 '' getPurchaseOrderDocument -p "id=$PO"
+  sed 's/^/     /' "$WORK/last.json"
+  for want in "PURCHASE ORDER $number" "Payment terms: 2/10N30" "10 EA at 470.00 CAD per 1 EA" "Delivery date $DELIVERY" "Total 4700.00 CAD"; do
+    grep -qF "$want" "$WORK/last.json" || fail "the order's document does not show '$want'"
+  done
+  # The blocks are matched whole, each line in its place.
+  local doc maple=$'  150 Bay Street\n  Receiving, dock 2\n  Toronto, ON, M5J 2R8\n  Country CA'
+  doc=$(cat "$WORK/last.json")
+  [[ $doc == *$'Buyer\n  Maple Industries Canada (company '"$CC"$')\n'"$maple"* ]] ||
+    fail "the order's document does not show Maple's postal address as the buyer's"
+  [[ $doc == *$'Deliver to\n  Maple Industries Canada\n'"$maple"* ]] || fail "the order's document does not deliver to Maple's postal address"
+  [[ $doc == *$')\n  2019 Tyrell Plaza\n  Los Angeles, CA, 90012\n  Country US\n\nDeliver to'* ]] ||
+    fail "the order's document does not show Tyrell's street from SAP"
+  # The item's own date is printed, not the requisition's: no item is left
+  # to be delivered by it (ADR-0054 As built).
+  if grep -qF "Needed by" "$WORK/last.json"; then fail "the order's document prints the requisition's date beside the item's own"; fi
   # The address starts on the database's day, UTC's: a business partner
   # belongs to no company and so has no zone, and its address may start no
   # earlier than that day (partner.backdated_address, database.Today). It
   # is read as the change is asked for, not when the run began, so a run
   # that crosses 00:00 UTC (19:00 or 20:00 in Toronto) asks for that day.
   utc_today=$(utc_day)
-  say "SAP's extract has no street for Tyrell. Ben asks for the address Tyrell takes orders at; Carla, who"
-  say "approves supplier master data, approves it."
+  say "Tyrell takes orders at its Toronto order desk. Ben asks for that address; Carla, who approves supplier"
+  say "master data, approves it, and the document prints it instead of the legal address from SAP."
   api 201 '"partner change \(.id): \(.status)"' createPartnerChange -body "{\"partner_id\": \"$SUPPLIER\", \"kind\": \"update\", \"reason\": \"Order desk address confirmed by Tyrell\", \"payload\": {\"addresses\": [{\"purpose\": \"order_from\", \"line1\": \"220 King Street West\", \"line2\": \"Order desk, floor 3\", \"city\": \"Toronto\", \"region\": \"ON\", \"postal_code\": \"M5H 1K4\", \"country_code\": \"CA\", \"valid_from\": \"$utc_today\"}]}}"
   change=$(field .id)
   approve carla "$(field .workflow_request_id)" "Address confirmed"
   as ben
   QUIET=1 api 200 '' getPartnerChange -p "id=$change"
   expect "partner change status" "$(field .status)" applied
-  say "Ben fetches the order's document to send to Tyrell (by hand: email and EDI are post-pilot)."
-  api 200 '' getPurchaseOrderDocument -p "id=$PO"
-  sed 's/^/     /' "$WORK/last.json"
-  local want
-  for want in "PURCHASE ORDER $number" "220 King Street West" "Payment terms: 2/10N30" "10 EA at 470.00 CAD per 1 EA" "Delivery date $DELIVERY" "Total 4700.00 CAD"; do
-    grep -qF "$want" "$WORK/last.json" || fail "the order's document does not show '$want'"
-  done
-  # The item's own date is printed, not the requisition's: no item is left
-  # to be delivered by it (ADR-0054 As built).
-  if grep -qF "Needed by" "$WORK/last.json"; then fail "the order's document prints the requisition's date beside the item's own"; fi
+  QUIET=1 api 200 '' getPurchaseOrderDocument -p "id=$PO"
+  sed -n '/^Supplier$/,/^$/p' "$WORK/last.json" | sed 's/^/     /'
+  grep -qF "220 King Street West" "$WORK/last.json" || fail "the order's document does not show Tyrell's order desk address"
+  if grep -qF "2019 Tyrell Plaza" "$WORK/last.json"; then fail "the order's document prints Tyrell's legal address beside its order desk's"; fi
 }
 
 # order_change has Ben ask for Tyrell's dearer price on the released

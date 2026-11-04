@@ -8,6 +8,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -26,7 +27,14 @@ type env struct {
 
 func setup(t *testing.T) env {
 	t.Helper()
-	f := fixture.New(t, perms...)
+	return setupWith(t, nil)
+}
+
+// setupWith is setup with the configuration document changed by extend
+// before it is bootstrapped (fixture.NewWith).
+func setupWith(t *testing.T, extend func(*config.Config)) env {
+	t.Helper()
+	f := fixture.NewWith(t, nil, extend, perms...)
 	return env{Env: f, expense: f.Account(t, "2000", "510000").String(), office: f.Account(t, "2000", "520000").String()}
 }
 

@@ -486,6 +486,16 @@ suppliers a migration run creates, whose date is their bank account's
 `valid_from`, one UTC rule for the whole supplier (product owner
 2026-10-31, ADR-0051 as built).
 
+A company's postal address is its `companies[].postal_address`, in a
+business partner address's shape without purpose or validity (`line1`,
+`city` and `country_code` required, `line2`, `postal_code` and `region`
+optional, the contract's `Address` lengths; the configuration versions
+are its history). It is optional, and a change is tier 2: it posts
+nothing and routes deliveries. The purchase order document prints it as
+the buyer's address and as the address to deliver to, no order item
+naming one of its own; without it the document says that none is
+configured (product owner 2026-11-04, ADR-0054 As built).
+
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
 in the currency of the requisition's company), the order release
@@ -2692,7 +2702,7 @@ line or reservation. An agent's budget is identity's
 | ACDOCA | `ledger.journal_entry` + `ledger.journal_line` (TC/LC/GC amounts); migrated lines post HSL in company code currency, so an open item (vendor item, down payment, GR/IR position line) whose RWCUR is not the company's currency, or is absent, stops the load until foreign-currency open items are migrated (WSL is carried, not yet read) |
 | BSEG clearing (AUGBL) | `ledger.clearing` + `ledger.clearing_item` |
 | ACDOCA lines on the GR/IR account (T030 WRX) with EBELN/EBELP | the order valued `gr_ir`; per open order item, SAP's balance and open quantity (posted RSEG invoiced less MSEG 101 received) taken over onto `ledger.gr_ir_position` (`migrated`) by an integration entry of `GRIRItem.TakesOver` items (T72f) |
-| LFA1/LFB1/LFBK, BUT000 | `partner.business_partner`, `supplier_company`, `bank_account`, `tax_identifier`; a Canadian LFBK (BANKS CA) as scheme `ca`, its institution and transit from BANKL as 0 + institution + transit (T72d) |
+| LFA1/LFB1/LFBK, BUT000 | `partner.business_partner`, `supplier_company`, `bank_account`, `tax_identifier`; a Canadian LFBK (BANKS CA) as scheme `ca`, its institution and transit from BANKL as 0 + institution + transit (T72d); the vendor's street, city, postal code and region (LFA1 STRAS, ORT01, PSTLZ, REGIO, optional, field names pending the SAP specialist) as its `legal` `partner.address` when street and city are both given (ADR-0054 As built) |
 | FLQLITEM/FLQLITEMT liquidity items, T035 planning groups, LFB1-FDGRV | `cash.liquidity_item`, `cash.planning_group`, `supplier_company.planning_group` (T53b) |
 | EBAN | `procurement.requisition` |
 | EKKO/EKPO | `procurement.purchase_order` + items |

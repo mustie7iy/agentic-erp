@@ -78,6 +78,10 @@ var tierRules = []struct {
 	{rx(`^companies\[\*\]\.(cost_center_accounting|profit_center_accounting)$`), TierStructural},
 	{rx(`^companies\[\*\]\.chart_of_accounts`), TierStructural},
 	{rx(`^companies\[\*\]\.(name|country)$`), TierCosmetic},
+	// The postal address posts nothing; it is where suppliers deliver
+	// while no order item names another address (ADR-0054 As built), so
+	// a change routes goods: operational, as routes are, never cosmetic.
+	{rx(`^companies\[\*\]\.postal_address(\.|$)`), TierOperational},
 	{rx(`^companies\[\*\]\.tax_codes\[\*\]\.description$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.withholding_tax_codes\[\*\]\.description$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.payment_methods\[\*\]\.description$`), TierCosmetic},
