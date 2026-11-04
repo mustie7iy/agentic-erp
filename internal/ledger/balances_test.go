@@ -186,9 +186,7 @@ func canceled() context.Context {
 // company: 5,000 accounts with three years of projected balances in two
 // currencies and 2,000 lines the projector has not reached yet.
 func TestTrialBalanceBudget(t *testing.T) {
-	if testing.Short() || raceDetector {
-		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
-	}
+	nfr.Measure(t)
 	e := setup(t)
 	fixture.Project(t)
 	var chart uuid.UUID

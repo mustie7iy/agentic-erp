@@ -26,16 +26,9 @@ func budget(t *testing.T, name string, limit time.Duration, f func()) {
 	}
 }
 
-func skipShort(t *testing.T) {
-	t.Helper()
-	if testing.Short() || raceDetector {
-		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
-	}
-}
-
 // Ten semantic queries over 60,000 journal lines plus orders and invoices.
 func TestPerfAnalyticsQuery(t *testing.T) {
-	skipShort(t)
+	Measure(t)
 	facts := LargeFacts(1_000, 20_000)
 	m, _ := analytics.DefaultModel()
 	budget(t, "10 semantic queries", 3*time.Second, func() {
@@ -51,7 +44,7 @@ func TestPerfAnalyticsQuery(t *testing.T) {
 
 // Validating and diffing a configuration with 2,000 number ranges.
 func TestPerfConfiguration(t *testing.T) {
-	skipShort(t)
+	Measure(t)
 	b, err := os.ReadFile("../config/testdata/valid.yaml")
 	if err != nil {
 		t.Fatal(err)

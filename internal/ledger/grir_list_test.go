@@ -260,9 +260,7 @@ func TestGRIRBalanceAmounts(t *testing.T) {
 // can scan the year's lines when its statistics are a fresh database's).
 // Seeding has a deadline of its own, so it fails rather than hangs.
 func TestGRIRBalancesBudget(t *testing.T) {
-	if testing.Short() || raceDetector {
-		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
-	}
+	nfr.Measure(t)
 	g := grirSetup(t)
 	ctx, cancel := context.WithTimeout(context.Background(), seedingDeadline)
 	defer cancel()

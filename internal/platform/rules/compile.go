@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"cel.dev/cel-go/cel"
@@ -78,6 +79,7 @@ type Set struct {
 type compiled struct {
 	name, message string
 	prg           cel.Program
+	timeout       time.Duration // Timeout, but in a test that proves something other than the time limit
 }
 
 // Compile checks an entity's rules against ADR-0046 and compiles them
@@ -86,7 +88,16 @@ type compiled struct {
 // relative to the entity's rules. The set is usable only when there are no
 // issues.
 func Compile(entity string, schema *extensions.Compiled, rs map[string]Rule) (*Set, []extensions.Issue) {
-	c := &compiler{}
+	return compile(entity, schema, rs, Timeout)
+}
+
+// compile is Compile with each evaluation's time limit given. Every caller
+// outside this package's tests gets Timeout through Compile; a test of
+// something other than the limit gives one that a loaded machine cannot
+// reach, since the limit is wall-clock time (ADR-0046) and a test process
+// descheduled for 10 ms would otherwise fail on the machine, not the rule.
+func compile(entity string, schema *extensions.Compiled, rs map[string]Rule, timeout time.Duration) (*Set, []extensions.Issue) {
+	c := &compiler{timeout: timeout}
 	fields, ok := standard[entity]
 	if !ok {
 		c.issue("", "rules are not supported on %q; supported: %v", entity, slices.Sorted(maps.Keys(standard)))
@@ -141,7 +152,10 @@ var celTypes = map[typ]*cel.Type{
 	tStrings: cel.ListType(cel.StringType), tMoney: cel.ObjectType(moneyType),
 }
 
-type compiler struct{ issues []extensions.Issue }
+type compiler struct {
+	issues  []extensions.Issue
+	timeout time.Duration // of each evaluation
+}
 
 func (c *compiler) issue(path, format string, a ...any) {
 	c.issues = append(c.issues, extensions.Issue{Path: path, Message: fmt.Sprintf(format, a...)})
@@ -168,7 +182,7 @@ func (c *compiler) rule(e *cel.Env, s *Set, name string, r Rule) (compiled, bool
 	// The AST was checked by this environment and the options are fixed,
 	// so planning the program cannot fail.
 	prg, _ := e.Program(ast, cel.CostLimit(CostLimit), cel.InterruptCheckFrequency(1))
-	out := compiled{name: name, message: r.Message, prg: prg}
+	out := compiled{name: name, message: r.Message, prg: prg, timeout: c.timeout}
 	c.cases(s, out, r.Cases)
 	return out, true
 }

@@ -2,6 +2,7 @@ package ledger_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -210,16 +211,41 @@ func bitmapScans(ctx context.Context) error {
 }
 
 // behindCopies stores the first entry of a posting group again, behind
-// its copies in the heap (the triggers off: pgtest.Unguarded), and checks
-// a scan of the group now reads a copy first.
+// its copies in the heap (the triggers off, as pgtest.Unguarded does),
+// until a scan of the group reads a copy first. Once is not always
+// enough: an insert goes to a page the free space map offers, and once
+// autovacuum has recorded free space in the package database's busy
+// partition (the other tests' rows, under load), that page can come
+// before the copies' (seen at load 25). Each move is in the one
+// transaction, so no old version's space is reused, and the backend keeps
+// filling the page it chose; a full page leaves the map (its true free
+// space recorded), so the moves reach a page after the copies, or a new
+// one, after at most as many as the free space before them holds.
 func behindCopies(t *testing.T, first uuid.UUID) {
 	t.Helper()
-	pgtest.Unguarded(t, `WITH d AS (DELETE FROM ledger.journal_entry WHERE fiscal_year = 2026 AND id = $1 RETURNING *)
-		INSERT INTO ledger.journal_entry SELECT * FROM d`, first)
-	var head uuid.UUID
-	pgtest.Scan(t, `SELECT id FROM ledger.journal_entry WHERE fiscal_year = 2026 AND (id = $1 OR posting_group_id = $1) ORDER BY ctid LIMIT 1`,
-		[]any{first}, &head)
-	if head == first {
-		t.Fatalf("first entry of the group in the heap: got %v, want a copy before it", head)
+	ctx := context.Background()
+	const most = 10_000 // moves: far more than a test database's free space before a page holds
+	moves := 0
+	if err := pgx.BeginFunc(ctx, pgtest.Admin(t), func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = replica`); err != nil {
+			return err
+		}
+		for head := first; head == first; moves++ {
+			if moves == most {
+				return fmt.Errorf("first entry of the group still first in the heap after %d moves", most)
+			}
+			if _, err := tx.Exec(ctx, `WITH d AS (DELETE FROM ledger.journal_entry WHERE fiscal_year = 2026 AND id = $1 RETURNING *)
+				INSERT INTO ledger.journal_entry SELECT * FROM d`, first); err != nil {
+				return err
+			}
+			if err := tx.QueryRow(ctx, `SELECT id FROM ledger.journal_entry WHERE fiscal_year = 2026 AND (id = $1 OR posting_group_id = $1)
+				ORDER BY ctid LIMIT 1`, first).Scan(&head); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("store the first entry behind its copies: %v", err)
 	}
+	t.Logf("first entry behind its copies after %d moves", moves)
 }

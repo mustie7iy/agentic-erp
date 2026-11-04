@@ -9662,6 +9662,13 @@
       "r": "internal/offboarding/offboarding_test.go eachStatementFailing",
       "src": "review:T57b",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "Three tests that failed only on a loaded machine (load average 25 and more) hold whatever the load: TestDeterministic's six hundred rule evaluations run under a time limit the machine cannot reach, compiled through rules' unexported compile, while TestTimeLimit holds every rule Compile builds to ADR-0046's 10 ms and shows a limit stops a rule by one already past (it failed with the evaluation's context deadline exceeded whenever the process was descheduled for 10 ms); the performance budget tests measure only in scripts/budgets.sh, which sets ERP_MEASURE_BUDGETS (nfr.Measure), one package at a time at the gate's scale, and skip in any other go test (TestReportBudgets measured p95 47 ms against 30 ms in a plain run beside other packages); TestMigratedClearingAndSignOffLockInOneOrder moves the clearing entry behind its copies in one transaction until a scan reads a copy first (an insert can go to an earlier page the free space map offers once autovacuum has recorded free space in the package database's busy partition), and still deadlocks on the old lock order",
+      "r": "internal/platform/rules compile.go compile · TestDeterministic · TestTimeLimit · internal/nfr measure.go Measure · scripts/budgets.sh · internal/ledger periodlockorder_test.go behindCopies · docs/testing.md · 06 §6.5",
+      "src": "review:batch52",
+      "c": []
      }
     ]
    },

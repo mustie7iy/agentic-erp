@@ -294,9 +294,7 @@ func TestRevaluationPreviewTooLarge(t *testing.T) {
 // account. The entries are written straight into the journal, balanced,
 // without the row checks a posting runs (as the payment run's budget does).
 func TestRevaluationPreviewBudget(t *testing.T) {
-	if testing.Short() || raceDetector {
-		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
-	}
+	nfr.Measure(t)
 	e := setup(t)
 	revaluationSetup(t, e, true)
 	settleRate(t, e, "USD", "2026-01-01", "0.8")

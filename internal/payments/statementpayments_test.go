@@ -10,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/nfr"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -129,9 +130,7 @@ func TestSearchPaymentsDatabaseFailures(t *testing.T) {
 // bank and half their run's: the first page, and a search that finds
 // nothing, which reads every posted payment of the bank.
 func TestSearchPaymentsBudget(t *testing.T) {
-	if testing.Short() || raceDetector {
-		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
-	}
+	nfr.Measure(t)
 	sc := matchStatementSetup(t)
 	e, pay := sc.e, uuidOf(sc.pays[0].payment)
 	// The payments are written straight in, each of a run of its own, as a

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mustie7iy/agentic-erp/internal/nfr"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -20,9 +21,7 @@ import (
 // tracker item T73j3's. The pilot's own volumes are not known yet
 // (ADR-0052, facts).
 func TestOpenItemsAgingBudget(t *testing.T) {
-	if testing.Short() || raceDetector {
-		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
-	}
+	nfr.Measure(t)
 	e := setup(t)
 	ctx, cancel := context.WithTimeout(context.Background(), seedingDeadline)
 	defer cancel()

@@ -86,9 +86,7 @@ func TestJournalEntriesByAccount(t *testing.T) {
 // company a year on average: 500 million for the largest tenant's 500
 // companies).
 func TestJournalEntriesByAccountBudget(t *testing.T) {
-	if testing.Short() || raceDetector {
-		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
-	}
+	nfr.Measure(t)
 	e := setup(t)
 	bank, revenue, rare := e.account(t, "2000", "100000"), e.account(t, "2000", "400000"), e.account(t, "2000", "520000")
 	je, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-06-15", "EUR", line{bank, "1.00", ""}, line{revenue, "-1.00", ""}), "")

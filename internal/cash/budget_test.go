@@ -17,9 +17,7 @@ import (
 // account; 1,000 payments of proposed runs from the CAD bank; a statement
 // a day with 20 posted lines; the 31 days of the longest position.
 func TestCashPositionBudget(t *testing.T) {
-	if testing.Short() || raceDetector {
-		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
-	}
+	nfr.Measure(t)
 	e := setupPosition(t)
 	e.budgetData(t)
 	var times []time.Duration
@@ -111,9 +109,7 @@ func (e positionEnv) budgetData(t *testing.T) {
 // it would not narrow it (§6). The first read of each warms the caches
 // and is not counted.
 func TestLiquidityForecastBudget(t *testing.T) {
-	if testing.Short() || raceDetector {
-		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
-	}
+	nfr.Measure(t)
 	e := setupForecast(t, withItems)
 	e.forecastBudgetData(t)
 	e.forecastOrderData(t)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -76,7 +77,15 @@ func TestDeterministic(t *testing.T) {
 	r := vat()
 	r.Expression = `["DE", "A", "FR"].filter(k, k != row.country_code)[0] == "DE" || ` + vatRule
 	r.Cases[1].Row = partner("DE")
-	s := mustCompile(t, map[string]Rule{"vat": r})
+	// Six hundred evaluations, each under ADR-0046's 10 ms of wall-clock
+	// time, fail on a loaded machine whenever the process is descheduled
+	// for 10 ms (seen at load 25 and more), whatever the rule does. What
+	// is proved here is the result, so the limit is one the machine cannot
+	// reach; TestTimeLimit proves the limit and that Compile sets it.
+	s, issues := compile("business_partner", partnerSchema(), map[string]Rule{"vat": r}, time.Hour)
+	if len(issues) > 0 {
+		t.Fatalf("got issues %v, want none", issues)
+	}
 	for _, country := range []string{"DE", "A", "FR"} {
 		first, err := s.Check(context.Background(), partner(country), map[string]any{"vip": true})
 		if err != nil {
@@ -88,6 +97,26 @@ func TestDeterministic(t *testing.T) {
 				t.Fatalf("%s: got %v, %v, want %v every time", country, got, err, first)
 			}
 		}
+	}
+}
+
+// TestTimeLimit holds every rule Compile builds to ADR-0046's Timeout and
+// shows a limit stops a rule, by one already past when it starts, so
+// neither depends on how fast the machine is.
+func TestTimeLimit(t *testing.T) {
+	for _, r := range mustCompile(t, map[string]Rule{"vat": vat()}).rules {
+		if r.timeout != Timeout {
+			t.Errorf("%s: got a time limit of %v, want %v", r.name, r.timeout, Timeout)
+		}
+	}
+	r := vat()
+	r.Expression = `["DE", "A", "FR"].filter(k, k != row.country_code)[0] == "DE" || ` + vatRule
+	_, issues := compile("business_partner", partnerSchema(), map[string]Rule{"vat": r}, time.Nanosecond)
+	// Case 0 passes all the same: its VAT id makes the right side true,
+	// and CEL's || is true when either side is, an error on the other.
+	want := []extensions.Issue{{Path: "vat.cases[1]", Message: "evaluation: operation interrupted: context deadline exceeded"}}
+	if !slices.Equal(issues, want) {
+		t.Errorf("got issues %v, want %v", issues, want)
 	}
 }
 
