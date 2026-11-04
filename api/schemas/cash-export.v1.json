@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.com/erp/cash-export.v1.json",
+  "title": "Cash export, schema v1",
+  "description": "A row of the export of a snapshot of a company's liquidity forecast to a treasury system (ADR-0051 §14, T53h). A file is one snapshot of one company: in JSON lines (`jsonl`), one object per line, each line ending in LF, in UTF-8; in CSV (`csv`, RFC 4180), a header line of the column names in the order of `x-columns`, then one line per row, each ending in CRLF, a null written as an empty field. A row is what the snapshot kept of one currency, day or bucket, house bank, source, certainty and liquidity item, summed: within 31 days of the snapshot's date one row per day (`granularity` `day`, `period_start` = `period_end`, the flows' value date at the bank), beyond it one per bucket of the company's buckets (`granularity` `bucket`). Rows are ordered by currency, period_start, period_end, house_bank_code (null first), source, certainty and liquidity_item (null first). A row names no document, supplier or payment. The file is named cash-<company_code>-<snapshot_date>-<SHA-256 of the content, hexadecimal>.<jsonl|csv>: a snapshot never changes, so the same snapshot exported again is the same file under the same name. Changes within v1 are additive (a column added at the end); anything else is v2, published beside v1.",
+  "type": "object",
+  "x-columns": ["schema_version", "company_code", "snapshot_id", "snapshot_date", "snapshot_kind", "taken_at", "currency", "granularity", "period_start", "period_end", "house_bank_code", "account_last4", "source", "certainty", "liquidity_item", "amount", "flow_count"],
+  "required": ["schema_version", "company_code", "snapshot_id", "snapshot_date", "snapshot_kind", "taken_at", "currency", "granularity", "period_start", "period_end", "house_bank_code", "account_last4", "source", "certainty", "liquidity_item", "amount", "flow_count"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1, "description": "The schema's version: 1."},
+    "company_code": {"type": "string", "pattern": "^[A-Z0-9]{1,10}$", "description": "The company code of the snapshot's legal entity."},
+    "snapshot_id": {"type": "string", "format": "uuid", "description": "The snapshot (GET /v1/cash-snapshots/{id})."},
+    "snapshot_date": {"type": "string", "format": "date", "description": "The company's date when the snapshot was taken."},
+    "snapshot_kind": {"type": "string", "description": "daily (taken once a day per company) or on_demand (taken by a person). Open enumeration: values may be added within v1."},
+    "taken_at": {"type": "string", "format": "date-time", "description": "When the forecast was read, in UTC (RFC 3339)."},
+    "currency": {"type": "string", "pattern": "^[A-Z]{3}$", "description": "The flows' transaction currency (ISO 4217); amount is in it."},
+    "granularity": {"type": "string", "enum": ["day", "bucket"], "description": "day: one value date within 31 days of the snapshot's date; bucket: a bucket of the company's buckets beyond."},
+    "period_start": {"type": "string", "format": "date", "description": "The row's first day."},
+    "period_end": {"type": "string", "format": "date", "description": "The row's last day: period_start for a day."},
+    "house_bank_code": {"type": ["string", "null"], "description": "The house bank the flows are expected at, by its code; null when no bank is known."},
+    "account_last4": {"type": ["string", "null"], "description": "The last four characters of the house bank's account; null with house_bank_code."},
+    "source": {"type": "string", "pattern": "^[a-z][a-z_]{0,39}$", "description": "Where the flows come from (ADR-0051 §4), one of payable, payable_blocked (owed to a supplier no run pays), invoice_unposted, down_payment, purchase_order, payment_run, in_transit and memo. Open enumeration: values may be added within v1."},
+    "certainty": {"type": "string", "enum": ["actual", "confirmed", "expected", "planned"], "description": "How certain the flows are (ADR-0051 §4)."},
+    "liquidity_item": {"type": ["string", "null"], "description": "The liquidity item's code the flows were classified in when the snapshot was taken; null when no rule assigned one."},
+    "amount": {"type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?$", "description": "The flows' sum, a decimal in the currency's minor-unit digits, signed: a receipt positive, a payment negative."},
+    "flow_count": {"type": "integer", "minimum": 1, "description": "The forecast's flows summed in the row."}
+  }
+}

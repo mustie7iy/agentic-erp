@@ -28,7 +28,11 @@ func TestCashPositionOutsideRequest(t *testing.T) {
 		"house banks":      func() error { _, err := c.HouseBanks(ctx, uuid.Nil); return err },
 		"statement line":   func() error { _, _, err := c.StatementLine(ctx, uuid.Nil, 1); return err },
 		"house bank codes": func() error { _, err := c.HouseBankCodes(ctx, []uuid.UUID{uuid.Nil}); return err },
-		"payables":         func() error { _, err := c.Payables(ctx, uuid.Nil, time.Now()); return err },
+		"house bank accounts": func() error {
+			_, err := c.HouseBankAccounts(ctx, []uuid.UUID{uuid.Nil})
+			return err
+		},
+		"payables": func() error { _, err := c.Payables(ctx, uuid.Nil, time.Now()); return err },
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := call(); !errors.Is(err, reqctx.ErrOutsideRequest) {

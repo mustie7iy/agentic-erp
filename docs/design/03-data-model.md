@@ -2580,7 +2580,7 @@ activate, and orders under them are refused.
 | Table | Purpose |
 |---|---|
 | `external_ref` | Maps any entity to its key in an external system (SAP object and key); unique per system/object/key; names the migration run that loaded it (`migration_run_id`, NULL for references recorded before 000168) |
-| `connector` | Configured connections (SAP OData, bank SFTP, EDI VAN, email); secrets by reference to the vault |
+| `connector` | Configured connections (SAP OData, bank SFTP, EDI VAN, email, a treasury system's SFTP directory, `treasury_export` since 000209); secrets by reference to the vault |
 | `message` | Inbound and outbound messages with status, attempts, payload reference |
 | `output_message` | Business output (purchase orders to suppliers) per channel, written when it is transmitted (post-pilot); not written yet. The printed form, `GET /v1/purchase-orders/{id}/document`, is rendered on read and not stored (ADR-0054) |
 | `migration_run` | Migration scope, mode, status, reconciliation report |
@@ -2692,7 +2692,7 @@ procurement through ports they publish and owns only what it adds; no
 context imports it (`internal/layout`). Migration 000141 (T53b) creates the
 schema with the configuration it keeps; memo records follow in T53d
 (000152), snapshots of the forecast in T53f (000198), variance comments in
-T53f4 (000201).
+T53f4 (000201), exports of snapshots to treasury systems in T53h (000209).
 
 ```mermaid
 erDiagram
@@ -2763,6 +2763,20 @@ erDiagram
     text status "proposed | accepted | rejected"
     uuid decided_by
     uuid created_by "the author" }
+  snapshot ||--o{ export : "sent as"
+  export { uuid id PK
+    uuid snapshot_id FK
+    uuid legal_entity_id "tenancy context, the snapshot's"
+    uuid connector_id "integration context: a treasury_export connector"
+    text format "jsonl | csv"
+    text status "pending | delivered | failed"
+    smallint attempts "0-6"
+    timestamptz next_attempt_at "pending only"
+    text file_name "cash-<company>-<date>-<sha256>.<format>"
+    bytea sha256
+    bool resend "delivered: the connector had this content before"
+    text last_error "a problem code"
+    uuid requested_by }
 ```
 
 | Table | Purpose |
@@ -2773,7 +2787,8 @@ erDiagram
 | `cash.snapshot` | A snapshot of a company's liquidity forecast (ADR-0051 §6, T53f, 000198): `daily` (the TakeCashSnapshot workflow's, one per company and date, `snapshot_daily`) or `on_demand` (a person's, named, `snapshot_name`), its date and zone, the last day of its buckets and the configuration version that classified it. Insert-only (no version, no update or delete granted); deleted with its lines 25 months after its date by the workflow through `cash.delete_expired_snapshots`, which computes the 25 months and refuses a day after UTC's tomorrow, unless a variance comment refers to it (000201) |
 | `cash.snapshot_flow` | A snapshot's lines in transaction currency: within 31 days of its date, what one forecast flow (`flow_no`) pays of one document under one liquidity item, with its day at the bank, house bank, source, certainty, lateness, supplier and payment (`flow_count` 1, `snapshot_flow_count`); beyond, a bucket's sum (`bucket_end`) per currency, source, certainty, item and house bank, naming no document, supplier or payment and never late (`snapshot_flow_bucket`). A document is named whole (`snapshot_flow_document`); an item is the tenant's (null: unclassified). Insert-only |
 | `cash.variance_comment` | A comment on one row of a company's forecast variance (ADR-0051 §11, T53f4, 000201): its period (`variance_comment_period`), lag (0, 7 or 30), liquidity item (the tenant's, active or not; null: what no rule assigns) and the snapshot that variance compares with, of the same company (`variance_comment_snapshot`, which keeps the snapshot past its retention); a text of 1 to 2,000 characters, not blank; `proposed` (an agent's, T53i), `accepted` or `rejected`, decided exactly when not proposed (`variance_comment_decided`; a person's is accepted as written, decided by its author). Insert-only, never deleted |
-| `cash.outbox`, `cash.inbox` | The context's events (`MemoRecordChanged`, `CashSnapshotTaken`, `VarianceCommentDecided`), relayed as every context's (000152, `outbox.Contexts`) |
+| `cash.export` | An export of a snapshot to a treasury system (ADR-0051 §14, T53h, 000209) through a `treasury_export` connector, in the cash export schema v1 (`api/schemas/cash-export.v1.json`) and the connector's format: queued with the snapshot for every active such connector naming its company, or by a person; `pending` until the exporter (`cash.Exporter`) delivers it, waiting `next_attempt_at` between attempts (at most six, `export_pending`), then `delivered` (`delivered_at` and `resend` set, `export_delivered`) or `failed` with the last attempt's problem code. Its file is named by company, snapshot date and content hash (`export_file`, which ties the name to the hash's form and the format), so the same snapshot exported again is the same file, `resend` when its connector was delivered that hash before. Of the snapshot's company (`export_snapshot`), deleted with it by retention (ON DELETE CASCADE); never deleted otherwise. `erp_worker` reads `tenant_id`, `status` and `next_attempt_at` to find the tenants with exports due |
+| `cash.outbox`, `cash.inbox` | The context's events (`MemoRecordChanged`, `CashSnapshotTaken`, offered to webhooks since T53h, `VarianceCommentDecided`, `CashExportDelivered`), relayed as every context's (000152, `outbox.Contexts`) |
 
 What is not stored, and read from the active document when a position or
 forecast is computed: the derivation rules (`cash.derivation`: account

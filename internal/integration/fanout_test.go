@@ -191,3 +191,42 @@ func TestWebhookContexts(t *testing.T) {
 		t.Errorf("contexts %v include platform, which offers no webhook events", got)
 	}
 }
+
+// TestCashSnapshotTakenWebhook: CashSnapshotTaken is offered to webhooks
+// (ADR-0051 §14, T53h): a subscription to cash.* gets a delivery of it,
+// which the dispatcher sends, signed, with the snapshot it names, for a
+// treasury system that pulls.
+func TestCashSnapshotTakenWebhook(t *testing.T) {
+	const taken = "com.example.erp.cash.cash_snapshot_taken.v1"
+	if !slices.Contains(integration.WebhookContexts(), "cash") {
+		t.Fatalf("webhook contexts %v, want cash among them", integration.WebhookContexts())
+	}
+	x := newDispatch(t)
+	x.hook(x.c, `"cash.*"`)
+	m := busEvent(x.c.Tenant.ID, taken, "cash_snapshot_taken")
+	m.Subject = strings.Replace(m.Subject, ".ledger.", ".cash.", 1)
+	m.Header["ce-source"] = "/erp/test/cash"
+	m.Data = []byte(`{"cash_snapshot_id": "` + m.Header["ce-subject"] + `", "company_code": "3000", "kind": "daily", "snapshot_date": "2026-04-17", "line_count": 16}`)
+	var log pgtest.SyncBuffer
+	if err := fanoutFor(t, &log).Handle(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	x.round(1)
+	got := x.rec.requests()
+	if len(got) != 1 {
+		t.Fatalf("requests: got %d, want the one delivery", len(got))
+	}
+	var doc struct {
+		Type string         `json:"type"`
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(got[0].body, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Type != taken || doc.Data["cash_snapshot_id"] != m.Header["ce-subject"] {
+		t.Errorf("body: got %s %v, want %s naming snapshot %s", doc.Type, doc.Data, taken, m.Header["ce-subject"])
+	}
+	if got[0].header.Get("webhook-signature") == "" {
+		t.Error("signature: got none, want the delivery signed")
+	}
+}

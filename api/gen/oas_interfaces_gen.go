@@ -157,6 +157,10 @@ type CreateBusinessPartnerRes interface {
 	createBusinessPartnerRes()
 }
 
+type CreateCashExportRes interface {
+	createCashExportRes()
+}
+
 type CreateChangeRequestRes interface {
 	createChangeRequestRes()
 }
@@ -423,6 +427,10 @@ type GetBusinessPartnerRes interface {
 
 type GetCashActualsRes interface {
 	getCashActualsRes()
+}
+
+type GetCashExportRes interface {
+	getCashExportRes()
 }
 
 type GetCashPositionRes interface {
@@ -759,6 +767,10 @@ type ListBusinessPartnersRes interface {
 
 type ListCashActualLinesRes interface {
 	listCashActualLinesRes()
+}
+
+type ListCashExportsRes interface {
+	listCashExportsRes()
 }
 
 type ListCashSnapshotFlowsRes interface {

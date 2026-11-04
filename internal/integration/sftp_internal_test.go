@@ -68,3 +68,49 @@ func TestSFTPSettings(t *testing.T) {
 		})
 	}
 }
+
+// TestTreasurySettings: a treasury_export channel names an SFTP server as
+// a bank channel does, without statement directories, the format of its
+// files and the companies it exports, each once (ADR-0051 §14, T53h).
+func TestTreasurySettings(t *testing.T) {
+	for name, c := range map[string]struct {
+		changes map[string]any
+		field   string
+	}{
+		"valid":                   {nil, ""},
+		"csv":                     {map[string]any{"format": "csv"}, ""},
+		"two companies":           {map[string]any{"companies": []any{"3000", "4000"}}, ""},
+		"no format":               {map[string]any{"format": nil}, "settings.format"},
+		"another format":          {map[string]any{"format": "xlsx"}, "settings.format"},
+		"no companies":            {map[string]any{"companies": nil}, "settings.companies"},
+		"an empty list":           {map[string]any{"companies": []any{}}, "settings.companies"},
+		"companies not a list":    {map[string]any{"companies": "3000"}, "settings.companies"},
+		"a company not a code":    {map[string]any{"companies": []any{"3000", "maple"}}, "settings.companies"},
+		"a company not a string":  {map[string]any{"companies": []any{3000.0}}, "settings.companies"},
+		"a company twice":         {map[string]any{"companies": []any{"3000", "3000"}}, "settings.companies"},
+		"a statement directory":   {map[string]any{"statements_directory": "/out"}, "settings.statements_directory"},
+		"relative directory":      {map[string]any{"directory": "in"}, "settings.directory"},
+		"the server's key absent": {map[string]any{"host_key": nil}, "settings.host_key"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			changes := map[string]any{"format": "jsonl", "companies": []any{"3000"}}
+			for k, v := range c.changes {
+				changes[k] = v
+			}
+			err := checkSettings(TreasuryExport, sftpSettings(changes))
+			if c.field == "" {
+				if err != nil {
+					t.Fatalf("got %v, want the settings accepted", err)
+				}
+				return
+			}
+			p := problem.From(err)
+			if p.Code != "integration.invalid_settings" {
+				t.Fatalf("code: got %d %s, want 422 integration.invalid_settings", p.Status, p.Code)
+			}
+			if len(p.Errors) != 1 || p.Errors[0].Field != c.field {
+				t.Errorf("field: got %v, want %s", p.Errors, c.field)
+			}
+		})
+	}
+}

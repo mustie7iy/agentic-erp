@@ -41,7 +41,8 @@ var testSupport = map[string]bool{
 	"platform/pgtest": true, "platform/fixture": true, "app/apitest": true,
 	"platform/authn/authntest": true, "platform/natsbus/natstest": true, "platform/tlsconf/tlstest": true,
 	"platform/blobstore/blobstoretest": true, "platform/fieldcrypt/kmstest": true, "platform/sftpclient/sftptest": true,
-	"platform/secrets/vaulttest": true, "platform/workflow/workflowtest": true,
+	"platform/sftpclient/sftptest/sftpstub": true, // the walkthrough's stand-in SFTP server, built from the test double
+	"platform/secrets/vaulttest":            true, "platform/workflow/workflowtest": true,
 	"llm/llmtest": true, "nfr": true,
 }
 

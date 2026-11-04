@@ -139,7 +139,7 @@ func (e *Endpoints) TakeSnapshot(ctx context.Context, legalEntity uuid.UUID, nam
 	if err != nil {
 		return Snapshot{}, err
 	}
-	id, _, err := store(ctx, tx, p, legalEntity, SnapshotOnDemand, &name, t)
+	id, _, err := e.store(ctx, tx, p, legalEntity, SnapshotOnDemand, &name, t)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -181,17 +181,17 @@ func (e *Endpoints) ReadDailySnapshot(ctx context.Context, legalEntity uuid.UUID
 	if !t.date.Equal(date) {
 		return nil, SnapshotSkipped, nil
 	}
-	return func(ctx context.Context) (string, error) { return storeDaily(ctx, legalEntity, t) }, "", nil
+	return func(ctx context.Context) (string, error) { return e.storeDaily(ctx, legalEntity, t) }, "", nil
 }
 
 // storeDaily writes a daily snapshot read before: taken, or, when another
 // run wrote the company's snapshot of the date meanwhile, nothing.
-func storeDaily(ctx context.Context, legalEntity uuid.UUID, t taken) (string, error) {
+func (e *Endpoints) storeDaily(ctx context.Context, legalEntity uuid.UUID, t taken) (string, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return "", err
 	}
-	_, written, err := store(ctx, tx, p, legalEntity, SnapshotDaily, nil, t)
+	_, written, err := e.store(ctx, tx, p, legalEntity, SnapshotDaily, nil, t)
 	switch {
 	case err != nil:
 		return "", err
@@ -366,10 +366,11 @@ func maxDay(a, b time.Time) time.Time {
 	return b
 }
 
-// store writes the snapshot and its lines, audits it and publishes
-// CashSnapshotTaken; a daily snapshot of a company and date that exists
+// store writes the snapshot and its lines, audits it, publishes
+// CashSnapshotTaken and queues its exports to the treasury channels naming
+// its company (T53h); a daily snapshot of a company and date that exists
 // is not written again (written false, and the id is zero).
-func store(ctx context.Context, tx pgx.Tx, p reqctx.Principal, legalEntity uuid.UUID, kind string, name *string, t taken) (uuid.UUID, bool, error) {
+func (e *Endpoints) store(ctx context.Context, tx pgx.Tx, p reqctx.Principal, legalEntity uuid.UUID, kind string, name *string, t taken) (uuid.UUID, bool, error) {
 	id := uuid.Must(uuid.NewV7())
 	tag, err := tx.Exec(ctx, `INSERT INTO cash.snapshot (tenant_id, id, legal_entity_id, kind, name, snapshot_date, time_zone, horizon_end, config_version, taken_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -389,10 +390,13 @@ func store(ctx context.Context, tx pgx.Tx, p reqctx.Principal, legalEntity uuid.
 	if name != nil {
 		detail["name"] = *name
 	}
-	return id, true, audit.Record(ctx, "cash.snapshot.take", "cash.snapshot", id, detail,
+	if err := audit.Record(ctx, "cash.snapshot.take", "cash.snapshot", id, detail,
 		outbox.Event{Context: "cash", Name: "cash_snapshot_taken", AggregateType: "cash.snapshot", AggregateID: id,
 			Payload: map[string]any{"cash_snapshot_id": id, "legal_entity_id": legalEntity, "company_code": t.company, "kind": kind,
-				"snapshot_date": t.date.Format(time.DateOnly), "line_count": len(t.lines)}})
+				"snapshot_date": t.date.Format(time.DateOnly), "line_count": len(t.lines)}}); err != nil {
+		return uuid.Nil, false, err
+	}
+	return id, true, e.queueExports(ctx, tx, p, id, legalEntity, t.company)
 }
 
 // insertLines writes a snapshot's lines in one statement, numbered from 1.

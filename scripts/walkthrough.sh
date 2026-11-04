@@ -18,6 +18,7 @@
 #   WALKTHROUGH_PAUSE=1   wait for Enter after each step
 #   WALKTHROUGH_API_ADDR, WALKTHROUGH_ADMIN_ADDR   listeners (127.0.0.1:18080, 127.0.0.1:19090)
 #   WALKTHROUGH_MODEL_ADDR   the model stand-in's listener (127.0.0.1:18081)
+#   WALKTHROUGH_SFTP_ADDR    the treasury system's SFTP stand-in's listener (127.0.0.1:18022)
 #   WALKTHROUGH_DIR       work directory (default: a temporary one, removed after)
 #   WALKTHROUGH_BIN       directory with erp and erp-server already built (default: build them)
 #   WALKTHROUGH_KEEP=1    keep the server running at the end, to look around with erp call
@@ -36,6 +37,7 @@ DATABASE_URL="${DATABASE_URL:-postgres://postgres:dev@localhost:55432/postgres?s
 API_ADDR="${WALKTHROUGH_API_ADDR:-127.0.0.1:18080}"
 ADMIN_ADDR="${WALKTHROUGH_ADMIN_ADDR:-127.0.0.1:19090}"
 MODEL_ADDR="${WALKTHROUGH_MODEL_ADDR:-127.0.0.1:18081}"
+SFTP_ADDR="${WALKTHROUGH_SFTP_ADDR:-127.0.0.1:18022}"
 PAUSE="${WALKTHROUGH_PAUSE:-0}"
 # shellcheck source=walkthrough/dates.sh
 . "$ROOT/scripts/walkthrough/dates.sh"
@@ -55,7 +57,7 @@ else
   B='' DIM='' RED='' GREEN='' YELLOW='' R=''
 fi
 
-for tool in jq curl; do
+for tool in jq curl ssh-keygen shasum; do
   command -v "$tool" >/dev/null || { echo "walkthrough: $tool is needed (brew install $tool, apt-get install $tool)" >&2; exit 2; }
 done
 
@@ -69,11 +71,16 @@ WORK=$(cd "$WORK" && pwd) # absolute: the commands run in it (start)
 echo '{"items": []}' >"$WORK/accounts.json"
 SERVER_PID=''
 MODEL_PID=''
+SFTP_PID=''
 
 cleanup() {
   if [ -n "$MODEL_PID" ]; then
     kill "$MODEL_PID" 2>/dev/null || true # it may have exited already: then there is nothing to stop
     wait "$MODEL_PID" 2>/dev/null || true # its exit status after a kill says nothing about the walkthrough
+  fi
+  if [ -n "$SFTP_PID" ]; then
+    kill "$SFTP_PID" 2>/dev/null || true # as the model stand-in
+    wait "$SFTP_PID" 2>/dev/null || true # as the model stand-in
   fi
   if [ -n "$SERVER_PID" ]; then
     kill "$SERVER_PID" 2>/dev/null || true # it may have exited already: then there is nothing to stop
@@ -314,11 +321,13 @@ start() {
   say "  - the GST34's lines (T61j-T61l): step 2 configures one"
   say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
-  say "  - the liquidity forecast's treasury connector, agent, analytics and SAP migration (T53h-T53k): step 13 shows the"
+  say "  - the liquidity forecast's agent, analytics and SAP migration (T53i-T53k): step 13 shows the"
   say "    daily cash position with a memo record and the forecast of the supplier open items, payment runs, parked"
   say "    invoices, down payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening,"
   say "    memo records and payments in transit, conversion and drill-down; step 26 its snapshots; step 27 the cash actuals;"
-  say "    step 28 the forecast's variance, step 30 a person's comment on it; step 33 its purchase orders"
+  say "    step 28 the forecast's variance, step 30 a person's comment on it; step 33 its purchase orders; step 35 its"
+  say "    treasury connector over SFTP"
+  say "  - a webhook delivered: the walkthrough runs without the event bus and never sends one to this machine"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - accounts receivable, the period close's accruals and its close agent (T64e-T64g, T64j), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
@@ -3692,6 +3701,95 @@ step_asset_history_sheet() {
   passed
 }
 
+# sftp_stub starts the stand-in for the treasury system's SFTP server
+# (step 35): the test double of the SFTP transport on SFTP_ADDR, its files
+# in memory, signing in the walkthrough's own key; a copy of every file it
+# receives is left in $WORK/sftp/received for the walkthrough to read.
+sftp_stub() {
+  local stub="$BIN/sftpstub" i
+  if [ ! -x "$stub" ]; then
+    stub="$WORK/bin/sftpstub"
+    (cd "$ROOT" && go build -o "$stub" ./internal/platform/sftpclient/sftptest/sftpstub) || fail "the SFTP stand-in did not build"
+  fi
+  mkdir -p "$WORK/sftp/received"
+  rm -f "$WORK/sftp/client" "$WORK/sftp/client.pub" "$WORK/sftp/host.pub"
+  ssh-keygen -q -t ed25519 -N '' -C erp -f "$WORK/sftp/client" || fail "no client key for the SFTP stand-in"
+  "$stub" -addr "$SFTP_ADDR" -client-key "$WORK/sftp/client.pub" -host-key "$WORK/sftp/host.pub" -mkdir /treasury \
+    -out "$WORK/sftp/received" >"$WORK/sftp.log" 2>&1 &
+  SFTP_PID=$!
+  for i in $(seq 1 100); do
+    if [ -s "$WORK/sftp/host.pub" ]; then return 0; fi
+    kill -0 "$SFTP_PID" 2>/dev/null || fail "the SFTP stand-in exited at start ($(cat "$WORK/sftp.log")): is $SFTP_ADDR free? set WALKTHROUGH_SFTP_ADDR"
+    sleep 0.1
+  done
+  fail "the SFTP stand-in is not listening after ten seconds ($i checks)"
+}
+
+# wait_export waits for the export in the last answer to be delivered and
+# stops unless it was; the delivered export is left in last.json.
+wait_export() {
+  local id status i
+  id=$(field .id)
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' getCashExport -p "id=$id"
+    status=$(field .status)
+    case "$status" in
+    delivered) return 0 ;;
+    failed) fail "export $id failed: $(field .last_error_code)" ;;
+    esac
+    sleep 0.25
+  done
+  fail "export $id still $status after a minute (attempt $i)"
+}
+
+# step_cash_export is the treasury connector (T53h, ADR-0051 §14): a
+# snapshot exported in the cash export schema v1 to a treasury system's
+# SFTP directory, and the same snapshot sent again recognised as a resend.
+step_cash_export() {
+  heading "Step 35 — The treasury connector: a snapshot exported to the treasury system over SFTP, then sent again"
+  local host port snap export first sum
+  sftp_stub
+  host=${SFTP_ADDR%:*} port=${SFTP_ADDR##*:}
+  as sam
+  say "Sam connects Maple's treasury system: an integration connector of kind treasury_export on the SFTP transport the"
+  say "banks use (ADR-0038), the server's key pinned, signing in with a private key named by secret_ref, never a password."
+  say "It takes Maple's snapshots (company 3000) in the cash export schema v1 as CSV (api/schemas/cash-export.v1.json)."
+  api 201 '"connector \(.name): \(.kind), \(.status), \(.settings.format) of \(.settings.companies | join(", ")) to \(.settings.directory)"' \
+    createConnector -body "{\"kind\": \"treasury_export\", \"name\": \"Maple treasury\", \"secret_ref\": \"file:$WORK/sftp/client\", \"settings\": {\"host\": \"$host\", \"port\": $port, \"user\": \"erp\", \"host_key\": \"$(tr -d '\n' <"$WORK/sftp/host.pub")\", \"directory\": \"/treasury\", \"format\": \"csv\", \"companies\": [\"$CC\"]}}"
+  local connector
+  connector=$(field .id)
+  as tom
+  say "Tom takes the month-end snapshot. Taking it queues its export to every active treasury connector of Maple; the"
+  say "server's exporter sends it in the background, as the bank file transmitter sends bank files:"
+  QUIET=1 api 201 '' takeCashSnapshot -body "{\"legal_entity_id\": \"$LE\", \"name\": \"Month-end treasury report\"}"
+  snap=$(field .id)
+  api 200 '.items[] | "  export to \(.connector_name): \(.status), \(.format)"' listCashExports -p "cash_snapshot_id=$snap"
+  expect "exports queued with the snapshot" "$(field '[.items[] | select(.connector_id == "'"$connector"'")] | length')" 1
+  export=$(field '.items[0].id')
+  printf '{"id": "%s"}\n' "$export" >"$WORK/last.json"
+  wait_export
+  excerpt '"  \(.status) after \(.attempts) attempt(s): \(.file_name)", "  sha256 \(.sha256), resend \(.resend)"'
+  first=$(field .file_name)
+  sum=$(field .sha256)
+  [ -s "$WORK/sftp/received/$first" ] || fail "the treasury system did not receive $first"
+  expect "the file's hash, its name's" "$(shasum -a 256 "$WORK/sftp/received/$first" | cut -d' ' -f1)" "$sum"
+  expect "named by company, snapshot date and hash" "$first" "cash-$CC-$(field .snapshot_date)-$sum.csv"
+  say "The treasury system's file, its first lines (per day and bank within 31 days, per bucket beyond; no documents):"
+  head -n 4 "$WORK/sftp/received/$first" | tr -d '\r' | sed 's/^/     /'
+  expect "the CSV's header" "$(head -n 1 "$WORK/sftp/received/$first" | tr -d '\r' | cut -d, -f1-3)" "schema_version,company_code,snapshot_id"
+  say "The treasury system lost the file; Tom sends the same snapshot again. A snapshot never changes, so it is the same"
+  say "file under the same name: delivered, and marked a resend, which the treasury system recognises by its name."
+  api 201 '"export \(.status) to \(.connector_name)"' createCashExport -p "id=$snap" -body "{\"connector_id\": \"$connector\"}"
+  wait_export
+  excerpt '"  \(.status): \(.file_name), resend \(.resend)"'
+  expect "the same file name" "$(field .file_name)" "$first"
+  expect "the same hash" "$(field .sha256)" "$sum"
+  expect "recognised as a resend" "$(field .resend)" true
+  say "Whoever subscribes to CashSnapshotTaken (a webhook, ADR-0041) is told of each snapshot and may pull it instead;"
+  say "this run has no event bus, so no webhook is sent here (TestCashSnapshotTakenWebhook shows one delivered)."
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -3713,7 +3811,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_close'
 
 main() {
   start

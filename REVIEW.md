@@ -56,6 +56,17 @@ them, beside whatever class a finding of its own names.
   constant that cannot have the original's form (`"!!"` for base64, a shorter value) is
   different by construction; replacing a whole digest or secret of 128 bits or more with a
   constant is accepted, since a collision is not a realistic event.
+- **Records or events in database read order** (batch 52 review). A list, audit record, event payload
+  or extract built from a query with no explicit `ORDER BY` (or from ranging over a map), or
+  any result that depends on heap order, is **Blocking**: PostgreSQL returns rows in whatever
+  order the plan and the table's pages give, so the same data comes out in another order after
+  an update moves a row, a vacuum or another plan, and a consumer, a hash or a test comparing
+  it sees a change that is not one. `readTerms` in T57b was the instance: after a PATCH moved
+  one ledger's `asset_terms` row, the change's audit record listed the ledgers in another
+  order, and only the race gate saw it (fixed in `c300e530`, `inLedgerOrder`); T57g and T57h's
+  transfers (`transferredInLedgerOrder`) had the same shape. The fix is an explicit key, an
+  `ORDER BY` ending in a unique column, or sorting the result through the owning port's order
+  (the ledger port's: leading ledger first, then code), the order the API already shows.
 
 ### API-consumer classes
 

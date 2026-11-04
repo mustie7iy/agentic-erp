@@ -556,6 +556,14 @@ External subscribers receive events marked `x-webhook: true` through
 webhooks signed per Standard Webhooks (HMAC-SHA256, a `whsec_` secret per
 subscription, 24 h overlap on rotation), at most 20 subscriptions per tenant,
 retried with backoff for 3 days, ordered per resource (ADR-0041, T50b–g).
+`CashSnapshotTaken` is one (T53h): a treasury system that pulls is told of
+each snapshot and reads it through the API (ADR-0051 §14).
+
+Files an external system takes outside the API are published contracts
+too, versioned beside it: the cash export schema
+(`api/schemas/cash-export.v1.json`, T53h), JSON lines and CSV of the same
+columns, changed only additively within v1; its golden files are
+`internal/cash/testdata/cash-export.v1.*`.
 
 ## 4.13 Agents
 
@@ -647,12 +655,12 @@ with the month's total against the tenant's cap.
 | procurement | `requisitions`, `purchase-orders` (with `{id}/document`, the order's plain-text document for the supplier, ADR-0054; an item's optional `delivery_date`, which the liquidity forecast expects its invoice on, T53g), `contracts`, `goods-receipts` | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse` |
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:submit`, `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
-| cash | `cash-position`, `liquidity-forecast` (computed on read, ADR-0051; its sources include the released purchase orders' open values, `purchase_order`, T53g), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key), `cash-snapshots`, `liquidity-forecast-variance` (computed on read) and its `comments` (a person's, T53f4) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
+| cash | `cash-position`, `liquidity-forecast` (computed on read, ADR-0051; its sources include the released purchase orders' open values, `purchase_order`, T53g), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key), `cash-snapshots` and their `exports` to treasury systems (`cash-exports`, the cash export schema v1 over a `treasury_export` connector's SFTP directory, T53h), `liquidity-forecast-variance` (computed on read) and its `comments` (a person's, T53f4) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
 | controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual`, `profit-center-plan-actual` (computed on read, ADR-0050 §8) | `:lock`, `:unlock` |
 | tax | `tax-registrations` (from the configuration), `tax-registrations/{id}/periods`, `tax-registrations/{id}/draft-return` and its `items` (computed on read, ADR-0049 §10-§11), `tax-registrations/{id}/returns`, `tax-returns/{id}` | `:file`, `:withdraw` (T61i) |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |
 | audit | `audit-events` | `:verify` |
-| integration | `migration-runs`, `connectors` | `:start`, `:reconcile`, `:enable`, `:disable` |
+| integration | `migration-runs`, `connectors` (kinds include `bank_sftp` and, since T53h, `treasury_export`) | `:start`, `:reconcile`, `:enable`, `:disable` |
 | platform | `operations` | `:cancel` |
 
 `:match` on a supplier invoice answers the match result with the invoice

@@ -13223,6 +13223,333 @@ func (s *CashDiscountTier) SetPercent(val string) {
 	s.Percent = val
 }
 
+// An export of a snapshot of the liquidity forecast to a treasury channel (ADR-0051 §14, T53h), in
+// the cash export schema v1.
+// Ref: #/components/schemas/CashExport
+type CashExport struct {
+	// Export id.
+	ID uuid.UUID `json:"id"`
+	// The snapshot exported (`getCashSnapshot`).
+	CashSnapshotID uuid.UUID `json:"cash_snapshot_id"`
+	// The snapshot's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// The snapshot's date.
+	SnapshotDate time.Time `json:"snapshot_date"`
+	// The treasury channel (`getConnector`).
+	ConnectorID uuid.UUID `json:"connector_id"`
+	// The treasury channel's name.
+	ConnectorName string `json:"connector_name"`
+	// The file's format, the channel's: `jsonl` (JSON lines) or `csv`. Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	Format string `json:"format"`
+	// `pending` (queued, or waiting for its next attempt), `delivered` or `failed`. Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The attempts made to send it.
+	Attempts int32 `json:"attempts"`
+	// Pending: when it is next sent.
+	NextAttemptAt OptDateTime `json:"next_attempt_at"`
+	// The file's name, `cash-<company code>-<snapshot date>-<sha256>.<format>`; absent until it is first
+	// sent.
+	FileName OptString `json:"file_name"`
+	// The SHA-256 of the file's content, in hexadecimal; absent until it is first sent.
+	SHA256 OptString `json:"sha256"`
+	// Delivered: whether the channel had been delivered this file before, under the same name.
+	Resend OptBool `json:"resend"`
+	// The problem code of the last failed attempt; absent when none failed. A last attempt made again
+	// because its outcome was lost carries `cash.export_outcome_unknown` instead, delivered or not (the
+	// earlier attempt's code stays in its `cash.export.retry` audit record).
+	LastErrorCode OptString `json:"last_error_code"`
+	// When it was delivered.
+	DeliveredAt OptDateTime `json:"delivered_at"`
+	// Who took the snapshot, for an export queued then, or asked for the export.
+	RequestedBy uuid.UUID `json:"requested_by"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *CashExport) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCashSnapshotID returns the value of CashSnapshotID.
+func (s *CashExport) GetCashSnapshotID() uuid.UUID {
+	return s.CashSnapshotID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CashExport) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CashExport) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetSnapshotDate returns the value of SnapshotDate.
+func (s *CashExport) GetSnapshotDate() time.Time {
+	return s.SnapshotDate
+}
+
+// GetConnectorID returns the value of ConnectorID.
+func (s *CashExport) GetConnectorID() uuid.UUID {
+	return s.ConnectorID
+}
+
+// GetConnectorName returns the value of ConnectorName.
+func (s *CashExport) GetConnectorName() string {
+	return s.ConnectorName
+}
+
+// GetFormat returns the value of Format.
+func (s *CashExport) GetFormat() string {
+	return s.Format
+}
+
+// GetStatus returns the value of Status.
+func (s *CashExport) GetStatus() string {
+	return s.Status
+}
+
+// GetAttempts returns the value of Attempts.
+func (s *CashExport) GetAttempts() int32 {
+	return s.Attempts
+}
+
+// GetNextAttemptAt returns the value of NextAttemptAt.
+func (s *CashExport) GetNextAttemptAt() OptDateTime {
+	return s.NextAttemptAt
+}
+
+// GetFileName returns the value of FileName.
+func (s *CashExport) GetFileName() OptString {
+	return s.FileName
+}
+
+// GetSHA256 returns the value of SHA256.
+func (s *CashExport) GetSHA256() OptString {
+	return s.SHA256
+}
+
+// GetResend returns the value of Resend.
+func (s *CashExport) GetResend() OptBool {
+	return s.Resend
+}
+
+// GetLastErrorCode returns the value of LastErrorCode.
+func (s *CashExport) GetLastErrorCode() OptString {
+	return s.LastErrorCode
+}
+
+// GetDeliveredAt returns the value of DeliveredAt.
+func (s *CashExport) GetDeliveredAt() OptDateTime {
+	return s.DeliveredAt
+}
+
+// GetRequestedBy returns the value of RequestedBy.
+func (s *CashExport) GetRequestedBy() uuid.UUID {
+	return s.RequestedBy
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CashExport) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *CashExport) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *CashExport) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCashSnapshotID sets the value of CashSnapshotID.
+func (s *CashExport) SetCashSnapshotID(val uuid.UUID) {
+	s.CashSnapshotID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CashExport) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CashExport) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetSnapshotDate sets the value of SnapshotDate.
+func (s *CashExport) SetSnapshotDate(val time.Time) {
+	s.SnapshotDate = val
+}
+
+// SetConnectorID sets the value of ConnectorID.
+func (s *CashExport) SetConnectorID(val uuid.UUID) {
+	s.ConnectorID = val
+}
+
+// SetConnectorName sets the value of ConnectorName.
+func (s *CashExport) SetConnectorName(val string) {
+	s.ConnectorName = val
+}
+
+// SetFormat sets the value of Format.
+func (s *CashExport) SetFormat(val string) {
+	s.Format = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CashExport) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetAttempts sets the value of Attempts.
+func (s *CashExport) SetAttempts(val int32) {
+	s.Attempts = val
+}
+
+// SetNextAttemptAt sets the value of NextAttemptAt.
+func (s *CashExport) SetNextAttemptAt(val OptDateTime) {
+	s.NextAttemptAt = val
+}
+
+// SetFileName sets the value of FileName.
+func (s *CashExport) SetFileName(val OptString) {
+	s.FileName = val
+}
+
+// SetSHA256 sets the value of SHA256.
+func (s *CashExport) SetSHA256(val OptString) {
+	s.SHA256 = val
+}
+
+// SetResend sets the value of Resend.
+func (s *CashExport) SetResend(val OptBool) {
+	s.Resend = val
+}
+
+// SetLastErrorCode sets the value of LastErrorCode.
+func (s *CashExport) SetLastErrorCode(val OptString) {
+	s.LastErrorCode = val
+}
+
+// SetDeliveredAt sets the value of DeliveredAt.
+func (s *CashExport) SetDeliveredAt(val OptDateTime) {
+	s.DeliveredAt = val
+}
+
+// SetRequestedBy sets the value of RequestedBy.
+func (s *CashExport) SetRequestedBy(val uuid.UUID) {
+	s.RequestedBy = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CashExport) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *CashExport) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+func (*CashExport) getCashExportRes() {}
+
+// An export of a snapshot to a treasury channel to queue (ADR-0051 §14).
+// Ref: #/components/schemas/CashExportCreate
+type CashExportCreate struct {
+	// The treasury channel: an active `treasury_export` connector whose `companies` name the snapshot's
+	// company.
+	ConnectorID uuid.UUID `json:"connector_id"`
+}
+
+// GetConnectorID returns the value of ConnectorID.
+func (s *CashExportCreate) GetConnectorID() uuid.UUID {
+	return s.ConnectorID
+}
+
+// SetConnectorID sets the value of ConnectorID.
+func (s *CashExportCreate) SetConnectorID(val uuid.UUID) {
+	s.ConnectorID = val
+}
+
+// CashExportHeaders wraps CashExport with response headers.
+type CashExportHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           CashExport
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CashExportHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CashExportHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CashExportHeaders) GetResponse() CashExport {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CashExportHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CashExportHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CashExportHeaders) SetResponse(val CashExport) {
+	s.Response = val
+}
+
+func (*CashExportHeaders) createCashExportRes() {}
+
+// One page of exports of snapshots to treasury systems.
+// Ref: #/components/schemas/CashExportPage
+type CashExportPage struct {
+	// The exports on this page, newest first.
+	Items []CashExport `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CashExportPage) GetItems() []CashExport {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CashExportPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CashExportPage) SetItems(val []CashExport) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CashExportPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CashExportPage) listCashExportsRes() {}
+
 // The flows of a day, or of a forecast's bucket, of one source and certainty.
 // Ref: #/components/schemas/CashFlowTotal
 type CashFlowTotal struct {
@@ -17943,6 +18270,7 @@ func (*ConflictHeaders) createAssetRes()                      {}
 func (*ConflictHeaders) createAssetRetirementRes()            {}
 func (*ConflictHeaders) createAssetTransferRes()              {}
 func (*ConflictHeaders) createBusinessPartnerRes()            {}
+func (*ConflictHeaders) createCashExportRes()                 {}
 func (*ConflictHeaders) createChangeRequestRes()              {}
 func (*ConflictHeaders) createClearingRes()                   {}
 func (*ConflictHeaders) createCompanyAccessRes()              {}
@@ -18138,7 +18466,11 @@ type Connector struct {
 	// are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https),
 	// `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys.
 	// EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics`
-	// connector there answers 422 `integration.ebics_not_certified`.
+	// connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector
+	// (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a
+	// `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or
+	// `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the
+	// liquidity forecast it is sent (at least one); its `secret_ref` names the private key.
 	Settings ConnectorSettings `json:"settings"`
 	// Vault path of the credentials.
 	SecretRef OptString `json:"secret_ref"`
@@ -18273,7 +18605,11 @@ type ConnectorCreate struct {
 	// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
 	// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
 	// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
-	// `integration.ebics_not_certified`.
+	// `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP
+	// server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
+	// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
+	// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
+	// its `secret_ref` names the private key.
 	Settings ConnectorCreateSettings `json:"settings"`
 	// Vault path of the credentials.
 	SecretRef OptString `json:"secret_ref"`
@@ -18327,7 +18663,11 @@ func (s *ConnectorCreate) SetSecretRef(val OptString) {
 // `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
 // `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
 // until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
-// `integration.ebics_not_certified`.
+// `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP
+// server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
+// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
+// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
+// its `secret_ref` names the private key.
 type ConnectorCreateSettings map[string]jx.Raw
 
 func (s *ConnectorCreateSettings) init() ConnectorCreateSettings {
@@ -18441,7 +18781,11 @@ func (*ConnectorPage) listConnectorsRes() {}
 // are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https),
 // `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys.
 // EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics`
-// connector there answers 422 `integration.ebics_not_certified`.
+// connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector
+// (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a
+// `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or
+// `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the
+// liquidity forecast it is sent (at least one); its `secret_ref` names the private key.
 type ConnectorSettings map[string]jx.Raw
 
 func (s *ConnectorSettings) init() ConnectorSettings {
@@ -18466,7 +18810,11 @@ type ConnectorUpdate struct {
 	// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
 	// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
 	// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
-	// `integration.ebics_not_certified`.
+	// `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP
+	// server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
+	// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
+	// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
+	// its `secret_ref` names the private key.
 	Settings OptConnectorUpdateSettings `json:"settings"`
 	// Vault path of the credentials. Send null to clear.
 	SecretRef OptNilString `json:"secret_ref"`
@@ -18510,7 +18858,11 @@ func (s *ConnectorUpdate) SetSecretRef(val OptNilString) {
 // `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
 // `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
 // until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
-// `integration.ebics_not_certified`.
+// `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP
+// server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
+// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
+// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
+// its `secret_ref` names the private key.
 type ConnectorUpdateSettings map[string]jx.Raw
 
 func (s *ConnectorUpdateSettings) init() ConnectorUpdateSettings {
@@ -20672,6 +21024,26 @@ func (*CreateBusinessPartnerPreconditionRequired) createBusinessPartnerRes() {}
 type CreateBusinessPartnerUnprocessableEntity Problem
 
 func (*CreateBusinessPartnerUnprocessableEntity) createBusinessPartnerRes() {}
+
+type CreateCashExportBadRequest Problem
+
+func (*CreateCashExportBadRequest) createCashExportRes() {}
+
+type CreateCashExportForbidden Problem
+
+func (*CreateCashExportForbidden) createCashExportRes() {}
+
+type CreateCashExportNotFound Problem
+
+func (*CreateCashExportNotFound) createCashExportRes() {}
+
+type CreateCashExportPreconditionRequired Problem
+
+func (*CreateCashExportPreconditionRequired) createCashExportRes() {}
+
+type CreateCashExportUnprocessableEntity Problem
+
+func (*CreateCashExportUnprocessableEntity) createCashExportRes() {}
 
 type CreateChangeRequestBadRequest Problem
 
@@ -26321,6 +26693,18 @@ func (*GetCashActualsNotFound) getCashActualsRes() {}
 type GetCashActualsUnprocessableEntity Problem
 
 func (*GetCashActualsUnprocessableEntity) getCashActualsRes() {}
+
+type GetCashExportBadRequest Problem
+
+func (*GetCashExportBadRequest) getCashExportRes() {}
+
+type GetCashExportForbidden Problem
+
+func (*GetCashExportForbidden) getCashExportRes() {}
+
+type GetCashExportNotFound Problem
+
+func (*GetCashExportNotFound) getCashExportRes() {}
 
 type GetCashPositionBadRequest Problem
 
@@ -34556,6 +34940,14 @@ func (*ListCashActualLinesNotFound) listCashActualLinesRes() {}
 type ListCashActualLinesUnprocessableEntity Problem
 
 func (*ListCashActualLinesUnprocessableEntity) listCashActualLinesRes() {}
+
+type ListCashExportsBadRequest Problem
+
+func (*ListCashExportsBadRequest) listCashExportsRes() {}
+
+type ListCashExportsForbidden Problem
+
+func (*ListCashExportsForbidden) listCashExportsRes() {}
 
 type ListCashSnapshotFlowsBadRequest Problem
 
@@ -60330,6 +60722,7 @@ func (*TooManyRequestsHeaders) createAssetRes()                      {}
 func (*TooManyRequestsHeaders) createAssetRetirementRes()            {}
 func (*TooManyRequestsHeaders) createAssetTransferRes()              {}
 func (*TooManyRequestsHeaders) createBusinessPartnerRes()            {}
+func (*TooManyRequestsHeaders) createCashExportRes()                 {}
 func (*TooManyRequestsHeaders) createChangeRequestRes()              {}
 func (*TooManyRequestsHeaders) createClearingRes()                   {}
 func (*TooManyRequestsHeaders) createCompanyAccessRes()              {}
@@ -60397,6 +60790,7 @@ func (*TooManyRequestsHeaders) getBankStatementRes()                 {}
 func (*TooManyRequestsHeaders) getBankStatementRulesRes()            {}
 func (*TooManyRequestsHeaders) getBusinessPartnerRes()               {}
 func (*TooManyRequestsHeaders) getCashActualsRes()                   {}
+func (*TooManyRequestsHeaders) getCashExportRes()                    {}
 func (*TooManyRequestsHeaders) getCashPositionRes()                  {}
 func (*TooManyRequestsHeaders) getCashSnapshotRes()                  {}
 func (*TooManyRequestsHeaders) getCenterChangeRes()                  {}
@@ -60481,6 +60875,7 @@ func (*TooManyRequestsHeaders) listBankStatementPaymentsRes()        {}
 func (*TooManyRequestsHeaders) listBankStatementsRes()               {}
 func (*TooManyRequestsHeaders) listBusinessPartnersRes()             {}
 func (*TooManyRequestsHeaders) listCashActualLinesRes()              {}
+func (*TooManyRequestsHeaders) listCashExportsRes()                  {}
 func (*TooManyRequestsHeaders) listCashSnapshotFlowsRes()            {}
 func (*TooManyRequestsHeaders) listCashSnapshotsRes()                {}
 func (*TooManyRequestsHeaders) listCenterChangesRes()                {}
@@ -60749,6 +61144,7 @@ func (*UnauthorizedHeaders) createAssetRes()                      {}
 func (*UnauthorizedHeaders) createAssetRetirementRes()            {}
 func (*UnauthorizedHeaders) createAssetTransferRes()              {}
 func (*UnauthorizedHeaders) createBusinessPartnerRes()            {}
+func (*UnauthorizedHeaders) createCashExportRes()                 {}
 func (*UnauthorizedHeaders) createChangeRequestRes()              {}
 func (*UnauthorizedHeaders) createClearingRes()                   {}
 func (*UnauthorizedHeaders) createCompanyAccessRes()              {}
@@ -60816,6 +61212,7 @@ func (*UnauthorizedHeaders) getBankStatementRes()                 {}
 func (*UnauthorizedHeaders) getBankStatementRulesRes()            {}
 func (*UnauthorizedHeaders) getBusinessPartnerRes()               {}
 func (*UnauthorizedHeaders) getCashActualsRes()                   {}
+func (*UnauthorizedHeaders) getCashExportRes()                    {}
 func (*UnauthorizedHeaders) getCashPositionRes()                  {}
 func (*UnauthorizedHeaders) getCashSnapshotRes()                  {}
 func (*UnauthorizedHeaders) getCenterChangeRes()                  {}
@@ -60900,6 +61297,7 @@ func (*UnauthorizedHeaders) listBankStatementPaymentsRes()        {}
 func (*UnauthorizedHeaders) listBankStatementsRes()               {}
 func (*UnauthorizedHeaders) listBusinessPartnersRes()             {}
 func (*UnauthorizedHeaders) listCashActualLinesRes()              {}
+func (*UnauthorizedHeaders) listCashExportsRes()                  {}
 func (*UnauthorizedHeaders) listCashSnapshotFlowsRes()            {}
 func (*UnauthorizedHeaders) listCashSnapshotsRes()                {}
 func (*UnauthorizedHeaders) listCenterChangesRes()                {}
