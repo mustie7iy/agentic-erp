@@ -132,7 +132,7 @@ func TestValuationPrices(t *testing.T) {
 // 000061 are valued at their price; a draft's are not yet.
 func TestValuationPricesBackfilled(t *testing.T) {
 	conn := emptyDatabase(t)
-	migrateBefore(t, conn, 61)
+	migrateBefore(t, conn, "000061_po_valuation_price")
 	f := fixtureIDs()
 	var draft, released uuid.UUID
 	inTenant(t, conn, f.tenant, func(tx pgx.Tx) error {
