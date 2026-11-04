@@ -243,7 +243,7 @@ func New(cfg Config) (http.Handler, error) {
 // configuration (ADR-0044, T55g).
 func analyticsEndpoints(cfg Config, loopback http.RoundTripper) *endpoint.Endpoints {
 	return &endpoint.Endpoints{Configs: configuration.Settings{}, Companies: companyCodes{}, Reader: cfg.Analytics, Loopback: loopback,
-		Log: cfg.Log, Now: cfg.Now}
+		Cash: NewAnalyticsCash(cfg), Log: cfg.Log, Now: cfg.Now}
 }
 
 // governedModel is the semantic layer's seed model, built in; tests

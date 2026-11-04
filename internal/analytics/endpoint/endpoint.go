@@ -45,6 +45,9 @@ type Endpoints struct {
 	// Loopback reads the API in-process as the caller
 	// (httpapi.Loopback): the database path.
 	Loopback http.RoundTripper
+	// Cash reads the cash actuals as the caller, the database path of
+	// cash_actuals (the cash context, wired by the composition root).
+	Cash analytics.CashActuals
 	// Fallbacks bounds the database answers running at once: each holds
 	// its request's transaction while it reads the API in transactions of
 	// its own. Beyond it a query is 503 analytics.busy. Default 2.
@@ -149,7 +152,7 @@ func (e *Endpoints) Init() *Endpoints {
 // database is the database path: the semantic layer's facts read through
 // the API in-process, as the caller.
 func (e *Endpoints) database(datasets []string) analytics.Source {
-	return analytics.Source{API: &apitools.Client{BaseURL: "http://loopback", HTTP: &http.Client{Transport: e.Loopback}}, Datasets: datasets}
+	return analytics.Source{API: &apitools.Client{BaseURL: "http://loopback", HTTP: &http.Client{Transport: e.Loopback}}, Datasets: datasets, Cash: e.Cash}
 }
 
 // principal is the caller's company scope: the codes of the companies it

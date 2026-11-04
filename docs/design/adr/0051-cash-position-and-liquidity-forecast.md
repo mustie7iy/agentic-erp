@@ -587,6 +587,17 @@ freshness and PostgreSQL fallback. The position a treasurer acts on is
 never read from the store: a payment released ten minutes ago must be in
 it.
 
+As built (T53j1, the actuals in the analytical store; split from T53j,
+src `split:T53j`): dataset `cash_actuals` and metric `actual`, read
+through `cash.ActualShares` (the semantic layer's database path, as the
+caller, in a consistent read) and `cash.ExtractActualShares` (the store's
+extract, in its run), which the analytics context declares as ports and
+the composition root wires, so `cash` stays a leaf (§2). The
+classification is §11's, done once here. Decisions in ADR-0044 (As built
+T53j1). The snapshots' dataset, the forecast, variance and accuracy
+metrics and the representation of the forecast's lag wait for the
+product owner (T53j's remaining leaf).
+
 Rejected for now: a stored flow table maintained from events (SAP's
 `FQM_FLOW`, decision P3 b). It would make reads cheap at any size, at the
 cost of a second copy of every open item and order kept in step by event

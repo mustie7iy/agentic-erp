@@ -30,6 +30,12 @@ dimensions:
   - {name: vendor, label: Vendor}
   - {name: vendor_name, label: Vendor name}
   - {name: invoice_status, label: Invoice status, description: "parked, on_hold, posted, rejected"}
+  - {name: currency, label: Currency, description: "The currency of the amounts: a company's house banks may keep other currencies than its own"}
+  - {name: value_date, label: Value date, description: "The day a bank statement line's money moved on the account"}
+  - {name: house_bank, label: House bank, description: "The company's house bank by its code, never its account"}
+  - {name: match, label: Classified by, description: "What classified a bank statement line: payment, posting_rule, incoming, excluded, or unmatched (no decided match yet, its direction's default item)"}
+  - {name: liquidity_item, label: Liquidity item, description: "The liquidity item's code; empty for a share of no item"}
+  - {name: liquidity_item_name, label: Liquidity item name}
 
 metrics:
   - name: revenue
@@ -125,3 +131,13 @@ metrics:
     sign: -1
     filter: {vendor_recon: ["true"], cleared: ["false"]}
     dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, vendor, vendor_name]
+
+  - name: actual
+    label: Actual cash flow
+    description: Bank statement lines by value date, posted or not, each line's share of a liquidity item as the cash actuals classify it by what its decided match clears; money in is positive, money out negative. A line with no decided match yet takes its direction's default item, classified by unmatched.
+    synonyms: [actuals, cash actuals, actual cash flows, cash movements]
+    type: money
+    source: cash_actuals
+    aggregate: sum
+    sign: 1
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, house_bank, match, liquidity_item, liquidity_item_name]

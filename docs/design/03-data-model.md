@@ -2922,6 +2922,13 @@ names an order as `document_kind` `purchase_order` (000205 widens
 variance knows a payment of an invoice entered on an order
 (`payables.supplier_invoice.purchase_order_id`) as that order.
 
+T53j1 copies the actuals into the analytical store (ADR-0044 As built
+T53j1), storing nothing in PostgreSQL: dataset `cash_actuals`, one row
+per statement line and liquidity item, as T53f2 reads and classifies
+them, for the legal entities that have a `payments.bank_statement`. No
+migration; querying them is `analytics.query.run` and
+`cash.forecast.read`.
+
 T53f4 stores people's comments on the variance (000201,
 `cash.variance_comment` above), each naming the `cash.snapshot` its
 variance compares with, found as T53f3 finds it; 000201 replaces

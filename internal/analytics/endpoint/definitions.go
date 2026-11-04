@@ -111,7 +111,10 @@ func (noDatabase) Facts(context.Context, *analytics.Model, time.Time) (*analytic
 // Value is one metric's value for a company and fiscal year before and
 // after a change; "" where the metric is not defined or has no data.
 type Value struct {
-	Company    string `json:"company"`
+	Company string `json:"company"`
+	// Currency is the values' currency for a metric broken down by it: a
+	// company's cash actuals are in each of its house banks' currencies.
+	Currency   string `json:"currency,omitempty"`
 	FiscalYear string `json:"fiscal_year"`
 	Before     string `json:"before"`
 	After      string `json:"after"`
@@ -193,11 +196,14 @@ func (s Simulation) values(ctx context.Context, m *analytics.Model, p analytics.
 }
 
 // recent is the query of a metric's recent values: by company and fiscal
-// year from year-1, as far as the metric allows those breakdowns.
+// year from year-1, as far as the metric allows those breakdowns, and by
+// currency where it allows that: one company's amounts may be in several
+// (the cash actuals of its foreign-currency house banks), which are never
+// added together.
 func recent(m *analytics.Model, name string, year int) analytics.Query {
 	q := analytics.Query{Measures: []string{name}}
 	allowed := m.AllowedDimensions(name)
-	for _, d := range []string{"company", "fiscal_year"} {
+	for _, d := range []string{"company", "currency", "fiscal_year"} {
 		if slices.Contains(allowed, d) {
 			q.By = append(q.By, d)
 		}
@@ -208,11 +214,12 @@ func recent(m *analytics.Model, name string, year int) analytics.Query {
 	return q
 }
 
-// cell is a value's company and fiscal year; "" for a breakdown the
-// metric does not allow.
-type cell struct{ Company, FiscalYear string }
+// cell is a value's company, currency and fiscal year; "" for a breakdown
+// the metric does not allow.
+type cell struct{ Company, Currency, FiscalYear string }
 
-// cells are a result's measure by company and fiscal year.
+// cells are a result's measure by company, fiscal year and, where the
+// metric is broken down by it, currency.
 func cells(res *analytics.Result) map[cell]string {
 	out := map[cell]string{}
 	for _, row := range res.Rows {
@@ -222,6 +229,8 @@ func cells(res *analytics.Result) map[cell]string {
 			switch {
 			case c.Name == "company":
 				at.Company = fmt.Sprint(row[i])
+			case c.Name == "currency":
+				at.Currency = fmt.Sprint(row[i])
 			case c.Name == "fiscal_year":
 				at.FiscalYear = fmt.Sprint(row[i])
 			case c.Kind == "measure" && row[i] != nil:
@@ -247,9 +256,9 @@ func compare(affected []string, was, is map[string]map[cell]string, year int) co
 			keys[k] = true
 		}
 		for _, k := range slices.SortedFunc(maps.Keys(keys), func(a, b cell) int {
-			return cmp.Or(cmp.Compare(a.Company, b.Company), cmp.Compare(a.FiscalYear, b.FiscalYear))
+			return cmp.Or(cmp.Compare(a.Company, b.Company), cmp.Compare(a.Currency, b.Currency), cmp.Compare(a.FiscalYear, b.FiscalYear))
 		}) {
-			v := Value{Company: k.Company, FiscalYear: k.FiscalYear, Before: was[name][k], After: is[name][k]}
+			v := Value{Company: k.Company, Currency: k.Currency, FiscalYear: k.FiscalYear, Before: was[name][k], After: is[name][k]}
 			if v.Before != v.After {
 				mc.Changed++
 			}

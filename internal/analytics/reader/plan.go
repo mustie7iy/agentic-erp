@@ -204,12 +204,14 @@ func rangeArgs(ranges string, values []string) ([]any, bool) {
 	return out, true
 }
 
-// resolve finds a name among the fact's dimensions and date, its fiscal
-// periods and derived names, then among the attributes of the dimensions
-// it joins; a key, an amount or a column the contract does not list is not
-// one a plan may name.
+// resolve finds a name among the fact's dimensions, currency and date, its
+// fiscal periods and derived names, then among the attributes of the
+// dimensions it joins; a key, an amount or a column the contract does not
+// list is not one a plan may name. The currency is one where a company's
+// amounts are in several (the cash actuals of its foreign-currency house
+// banks); the semantic layer offers it only for a metric that lists it.
 func (pl *planner) resolve(name string) (resolved, error) {
-	if c := pl.fact.Column(name); c != nil && (c.Role == "dimension" || c.Role == "date") {
+	if c := pl.fact.Column(name); c != nil && (c.Role == "dimension" || c.Role == "date" || c.Role == "currency") {
 		r := resolved{expr: ident(pl.fact.Dataset, name)}
 		if c.Role == "date" {
 			r.ranges = "date"
