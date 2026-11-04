@@ -3711,12 +3711,19 @@ type Invoker interface {
 	// `forecast_lag_30`, ADR-0051 §6), each value date's flows as the company's snapshot taken that many
 	// days before it kept them (its daily snapshot, else the last taken on demand that day; at document
 	// level, blocked suppliers' flows left out), so a week or a month adds days of different snapshots,
-	// unlike `getLiquidityForecastVariance`, which compares one snapshot over its period; actuals adding
-	// up to more than an amount can hold are 422 `cash.amount_too_large`. A tenant without a configuration
-	// is 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or
-	// dimension, a filter it cannot apply, amounts of two currencies summed) is 422
-	// `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy`
-	// with `Retry-After`. Changes nothing: agents of any autonomy level may run it.
+	// unlike `getLiquidityForecastVariance`, which compares one snapshot over its period, each flow's
+	// source the dimension `flow_source`; and so are the forecast's variance and accuracy
+	// (`variance_lag_N`, `absolute_variance_lag_N`, `absolute_forecast_lag_N`, `accuracy_lag_N` for N of
+	// 0, 7 and 30, ADR-0051 §11), in cells of a company's value date, currency and liquidity item
+	// compared as that report compares them (days passed, of a snapshot taken the lag before): the
+	// accuracy is 1 less the weighted absolute percentage error, the cells' absolute variances over their
+	// absolute forecasts, rounded as that report's `variance_percent` first, so one cell's is 100% less
+	// its `variance_percent`, and null where nothing was forecast; actuals adding up to more than an
+	// amount can hold are 422 `cash.amount_too_large`. A tenant without a configuration is 409
+	// `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a
+	// filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many
+	// queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing:
+	// agents of any autonomy level may run it.
 	//
 	// POST /v1/analytics-queries
 	RunAnalyticsQuery(ctx context.Context, request *AnalyticsQuery, params RunAnalyticsQueryParams) (RunAnalyticsQueryRes, error)
@@ -62663,12 +62670,19 @@ func (c *Client) sendRotateWebhookSubscriptionSecret(ctx context.Context, params
 // `forecast_lag_30`, ADR-0051 §6), each value date's flows as the company's snapshot taken that many
 // days before it kept them (its daily snapshot, else the last taken on demand that day; at document
 // level, blocked suppliers' flows left out), so a week or a month adds days of different snapshots,
-// unlike `getLiquidityForecastVariance`, which compares one snapshot over its period; actuals adding
-// up to more than an amount can hold are 422 `cash.amount_too_large`. A tenant without a configuration
-// is 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or
-// dimension, a filter it cannot apply, amounts of two currencies summed) is 422
-// `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy`
-// with `Retry-After`. Changes nothing: agents of any autonomy level may run it.
+// unlike `getLiquidityForecastVariance`, which compares one snapshot over its period, each flow's
+// source the dimension `flow_source`; and so are the forecast's variance and accuracy
+// (`variance_lag_N`, `absolute_variance_lag_N`, `absolute_forecast_lag_N`, `accuracy_lag_N` for N of
+// 0, 7 and 30, ADR-0051 §11), in cells of a company's value date, currency and liquidity item
+// compared as that report compares them (days passed, of a snapshot taken the lag before): the
+// accuracy is 1 less the weighted absolute percentage error, the cells' absolute variances over their
+// absolute forecasts, rounded as that report's `variance_percent` first, so one cell's is 100% less
+// its `variance_percent`, and null where nothing was forecast; actuals adding up to more than an
+// amount can hold are 422 `cash.amount_too_large`. A tenant without a configuration is 409
+// `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a
+// filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many
+// queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing:
+// agents of any autonomy level may run it.
 //
 // POST /v1/analytics-queries
 func (c *Client) RunAnalyticsQuery(ctx context.Context, request *AnalyticsQuery, params RunAnalyticsQueryParams) (RunAnalyticsQueryRes, error) {

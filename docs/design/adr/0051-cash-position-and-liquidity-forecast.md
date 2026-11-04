@@ -617,6 +617,23 @@ compared alone gives the same figure. Accuracy (T53j3) is 100 less WAPE,
 rounded as `money.AbsPercentOf` (for one cell, 100 less the variance
 report's `variance_percent`), as the product owner decided the same day.
 
+As built (T53j3, the forecast's variance and accuracy in the analytical
+store; src `adr:ADR-0051 · po:2026-11-04`): dataset `cash_accuracy`,
+three rows (the variance and its and the forecast's sizes) per cell of a
+company's value date compared at a lag of 0, 7 or 30, currency and
+liquidity item, compared once by the cash context
+(`cash.AccuracyCells`, `cash.ExtractAccuracyCells`, the third method of
+the same ports) from the actuals' shares and the snapshots' lines at
+document level, on the days the variance report would compare (passed,
+the snapshot of the lag before taken and its horizon reaching the day);
+metrics `variance_lag_N`, `absolute_variance_lag_N`,
+`absolute_forecast_lag_N` and `accuracy_lag_N` for N of 0, 7 and 30, the
+accuracy 1 less the rounded WAPE (the new derived op `complement`), none
+where nothing was forecast. A single cell's accuracy is 100 less its
+`variance_percent`. Decisions in ADR-0044 (As built T53j3). The forecast's
+flow source is the dimension `flow_source`, not `source`, which the
+analytics answer names its own lineage by (review of T53j2).
+
 Rejected for now: a stored flow table maintained from events (SAP's
 `FQM_FLOW`, decision P3 b). It would make reads cheap at any size, at the
 cost of a second copy of every open item and order kept in step by event

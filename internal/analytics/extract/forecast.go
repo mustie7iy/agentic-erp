@@ -55,7 +55,7 @@ type cashSnapshot struct {
 	ValueDate         int32       `parquet:"value_date,date"`
 	LagDays           int32       `parquet:"lag_days"`
 	HouseBank         *string     `parquet:"house_bank,optional"`
-	Source            string      `parquet:"source"`
+	FlowSource        string      `parquet:"flow_source"`
 	Certainty         string      `parquet:"certainty"`
 	Blocked           bool        `parquet:"blocked"`
 	LiquidityItem     *string     `parquet:"liquidity_item,optional"`
@@ -98,7 +98,7 @@ func (r *run) cashForecast(ctx context.Context, tx pgx.Tx) error {
 // null bank, one of no item a null item and name.
 func forecastRow(tenant uuid.UUID, company string, sh ForecastShare) cashSnapshot {
 	f := cashSnapshot{TenantID: tenant, SnapshotID: sh.SnapshotID, LineNo: sh.LineNo, Company: company, ValueDate: days(sh.ValueDate), LagDays: sh.LagDays,
-		Source: sh.Source, Certainty: sh.Certainty, Blocked: sh.Blocked, AmountMinor: sh.Amount, Currency: sh.Currency,
+		FlowSource: sh.Source, Certainty: sh.Certainty, Blocked: sh.Blocked, AmountMinor: sh.Amount, Currency: sh.Currency,
 		Exponent: int32(sh.Exponent)} //nolint:gosec // a currency's exponent is 0 to 4 (ref.currency)
 	if sh.HouseBankCode != "" {
 		bank := sh.HouseBankCode

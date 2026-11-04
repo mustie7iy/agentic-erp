@@ -1944,7 +1944,10 @@ func (s *AnalyticsDefinitionFilter) init() AnalyticsDefinitionFilter {
 // A derived metric's operation on two others.
 // Ref: #/components/schemas/AnalyticsDerived
 type AnalyticsDerived struct {
-	// `subtract` or `divide`.
+	// `subtract`, `divide`, or `complement`: one less the left divided by the right, the quotient first
+	// rounded to a ratio's four digits half away from zero (100% less the percentage shown), none where
+	// the right is zero. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
 	Op string `json:"op"`
 	// The left metric.
 	Left string `json:"left"`

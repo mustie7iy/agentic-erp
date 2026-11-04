@@ -47,6 +47,7 @@ func TestModelValidationMessages(t *testing.T) {
 		"duplicate metric":         src("  - {name: a, type: money, source: t, aggregate: sum}\n"),
 		"derives from unknown":     src("  - {name: b, type: money, derived: {op: subtract, left: a, right: zz}}\n"),
 		"unknown op":               src("  - {name: b, type: money, derived: {op: multiply, left: a, right: a}}\n"),
+		"want ratio":               src("  - {name: b, type: money, derived: {op: complement, left: a, right: a}}\n"),
 		"unknown aggregate":        src("  - {name: b, type: money, source: t, aggregate: avg}\n"),
 		"want 1 or -1":             src("  - {name: b, type: money, source: t, aggregate: sum, sign: 2}\n"),
 		"undeclared dimension":     src("  - {name: b, type: money, source: t, aggregate: sum, dimensions: [zz]}\n"),

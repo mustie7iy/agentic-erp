@@ -183,7 +183,8 @@ func TestQueryValueErrors(t *testing.T) {
 	m, err := ParseModel([]byte("dimensions: [{name: company}]\nmetrics:\n" +
 		"  - {name: a, type: money, source: t, aggregate: sum, dimensions: [company]}\n" +
 		"  - {name: d, type: count, source: t, aggregate: count_distinct, dimensions: [company]}\n" +
-		"  - {name: per, type: ratio, derived: {op: divide, left: a, right: d}}\n"))
+		"  - {name: per, type: ratio, derived: {op: divide, left: a, right: d}}\n" +
+		"  - {name: rest, type: ratio, derived: {op: complement, left: a, right: d}}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,6 +195,11 @@ func TestQueryValueErrors(t *testing.T) {
 	_, err = Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"per"}})
 	if !errors.Is(err, money.ErrOverflow) {
 		t.Errorf("a ratio out of range: got %v, want money.ErrOverflow", err)
+	}
+	// A quotient too large to round is left exact, and one less it too.
+	_, err = Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"rest"}})
+	if !errors.Is(err, money.ErrOverflow) {
+		t.Errorf("a complement out of range: got %v, want money.ErrOverflow", err)
 	}
 }
 

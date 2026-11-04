@@ -11,7 +11,8 @@ import (
 )
 
 // AnalyticsCash gives the analytics context the cash actuals (ADR-0051 §6,
-// T53j1) and the snapshots' forecast (T53j2) through the ports it declares
+// T53j1), the snapshots' forecast (T53j2) and the accuracy's cells
+// comparing the two (T53j3) through the ports it declares
 // (analytics.Cash, extract.Cash), so neither context imports the other and cash
 // stays a leaf (ADR-0051 §2): the semantic layer's database path reads
 // them as the caller, the store's extract in its run, which erp-server
@@ -61,6 +62,28 @@ func (c AnalyticsCash) ExtractForecastShares(ctx context.Context, legalEntity uu
 	out := make([]extract.ForecastShare, len(shares))
 	for i, s := range shares {
 		out[i] = extract.ForecastShare(s)
+	}
+	return out, err
+}
+
+// AccuracyCells implements analytics.Cash: the semantic layer's database
+// path, as the caller.
+func (c AnalyticsCash) AccuracyCells(ctx context.Context, legalEntity uuid.UUID) ([]analytics.AccuracyCell, error) {
+	cells, err := c.e.AccuracyCells(ctx, legalEntity)
+	out := make([]analytics.AccuracyCell, len(cells))
+	for i, s := range cells {
+		out[i] = analytics.AccuracyCell(s)
+	}
+	return out, err
+}
+
+// ExtractAccuracyCells implements extract.Cash: the store's extract, in its
+// run.
+func (c AnalyticsCash) ExtractAccuracyCells(ctx context.Context, legalEntity uuid.UUID) ([]extract.AccuracyCell, error) {
+	cells, err := c.e.ExtractAccuracyCells(ctx, legalEntity)
+	out := make([]extract.AccuracyCell, len(cells))
+	for i, s := range cells {
+		out[i] = extract.AccuracyCell(s)
 	}
 	return out, err
 }

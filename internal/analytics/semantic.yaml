@@ -17,6 +17,8 @@ defaults:
   spend: purchase_order_value
   profit: operating_profit
   forecast: forecast_lag_7
+  variance: variance_lag_7
+  accuracy: accuracy_lag_7
 
 dimensions:
   - {name: company, label: Company code}
@@ -37,10 +39,11 @@ dimensions:
   - {name: match, label: Classified by, description: "What classified a bank statement line: payment, posting_rule, incoming, excluded, or unmatched (no decided match yet, its direction's default item)"}
   - {name: liquidity_item, label: Liquidity item, description: "The liquidity item's code; empty for a share of no item"}
   - {name: liquidity_item_name, label: Liquidity item name}
-  - {name: source, label: Forecast source, description: "Where a forecast flow came from: in_transit, payment_run, memo, payable, payable_blocked (a supplier blocked for payment), invoice_unposted, down_payment or purchase_order (ADR-0051 §4)"}
+  - {name: flow_source, label: Forecast source, description: "Where a forecast flow came from: in_transit, payment_run, memo, payable, payable_blocked (a supplier blocked for payment), invoice_unposted, down_payment or purchase_order (ADR-0051 §4)"}
   - {name: certainty, label: Certainty, description: "How certain a forecast flow was: actual, confirmed, expected or planned"}
   - {name: lag_days, label: Lag in days, description: "The days from a snapshot's date to the value date it forecast"}
-  - {name: blocked, label: Blocked supplier, description: "Whether a forecast flow was owed to a supplier blocked for payment (source payable_blocked), which the forecast's totals leave out"}
+  - {name: blocked, label: Blocked supplier, description: "Whether a forecast flow was owed to a supplier blocked for payment (flow source payable_blocked), which the forecast's totals leave out"}
+  - {name: figure, label: Accuracy figure, description: "Which figure of a cell of the forecast's accuracy a row holds: variance (actual less forecast), absolute_variance or absolute_forecast"}
 
 metrics:
   - name: revenue
@@ -156,7 +159,7 @@ metrics:
     aggregate: sum
     sign: 1
     filter: {lag_days: ["0"], blocked: ["false"]}
-    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, house_bank, source, certainty, liquidity_item, liquidity_item_name]
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, house_bank, flow_source, certainty, liquidity_item, liquidity_item_name]
 
   - name: forecast_lag_7
     label: Forecast a week ahead
@@ -167,7 +170,7 @@ metrics:
     aggregate: sum
     sign: 1
     filter: {lag_days: ["7"], blocked: ["false"]}
-    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, house_bank, source, certainty, liquidity_item, liquidity_item_name]
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, house_bank, flow_source, certainty, liquidity_item, liquidity_item_name]
 
   - name: forecast_lag_30
     label: Forecast a month ahead
@@ -178,4 +181,124 @@ metrics:
     aggregate: sum
     sign: 1
     filter: {lag_days: ["30"], blocked: ["false"]}
-    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, house_bank, source, certainty, liquidity_item, liquidity_item_name]
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, house_bank, flow_source, certainty, liquidity_item, liquidity_item_name]
+
+  - name: variance_lag_0
+    label: Forecast variance on the day
+    description: What actually moved less what the forecast expected, on each value date that has passed and has the company's snapshot taken on the value date itself (its daily snapshot, else the last taken on demand that day), by currency and liquidity item as the variance report compares them; the forecast is forecast_lag_0's, blocked suppliers' flows left out, and the actual actual's. A value date without that snapshot, or not yet passed, is not compared. Positive is more money in, or less out, than forecast.
+    synonyms: [same-day variance, variance lag 0]
+    type: money
+    source: cash_accuracy
+    aggregate: sum
+    sign: 1
+    filter: {lag_days: ["0"], figure: [variance]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, liquidity_item, liquidity_item_name]
+
+  - name: absolute_variance_lag_0
+    label: Absolute forecast variance on the day
+    description: The sizes of variance_lag_0's cells added up, each cell a company's value date, currency and liquidity item, so a cell's money in more than forecast does not offset another's out; the numerator of the weighted absolute percentage error (WAPE) of accuracy_lag_0.
+    synonyms: [same-day absolute error, absolute variance lag 0]
+    type: money
+    source: cash_accuracy
+    aggregate: sum
+    sign: 1
+    filter: {lag_days: ["0"], figure: [absolute_variance]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, liquidity_item, liquidity_item_name]
+
+  - name: absolute_forecast_lag_0
+    label: Absolute forecast on the day
+    description: The sizes of forecast_lag_0's cells added up over the value dates variance_lag_0 compares, each cell a company's value date, currency and liquidity item; the denominator of the weighted absolute percentage error (WAPE) of accuracy_lag_0.
+    synonyms: [absolute forecast lag 0]
+    type: money
+    source: cash_accuracy
+    aggregate: sum
+    sign: 1
+    filter: {lag_days: ["0"], figure: [absolute_forecast]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, liquidity_item, liquidity_item_name]
+
+  - name: accuracy_lag_0
+    label: Forecast accuracy on the day
+    description: 100% less the weighted absolute percentage error (WAPE) of the forecast on the day, absolute_variance_lag_0 in percent of absolute_forecast_lag_0 rounded to two decimals half away from zero as the variance report's variance_percent; for one cell, 100% less that cell's variance_percent. None where nothing was forecast, as the variance report shows no percent; below zero where the variance is larger than the forecast.
+    synonyms: [same-day forecast accuracy, accuracy lag 0]
+    type: ratio
+    derived: {op: complement, left: absolute_variance_lag_0, right: absolute_forecast_lag_0}
+
+  - name: variance_lag_7
+    label: Forecast variance a week ahead
+    description: What actually moved less what the forecast expected, on each value date that has passed and has the company's snapshot taken seven days before the value date (its daily snapshot, else the last taken on demand that day), by currency and liquidity item as the variance report compares them; the forecast is forecast_lag_7's, blocked suppliers' flows left out, and the actual actual's. A value date without that snapshot, or not yet passed, is not compared. Positive is more money in, or less out, than forecast.
+    synonyms: [week-ahead variance, variance lag 7]
+    type: money
+    source: cash_accuracy
+    aggregate: sum
+    sign: 1
+    filter: {lag_days: ["7"], figure: [variance]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, liquidity_item, liquidity_item_name]
+
+  - name: absolute_variance_lag_7
+    label: Absolute forecast variance a week ahead
+    description: The sizes of variance_lag_7's cells added up, each cell a company's value date, currency and liquidity item, so a cell's money in more than forecast does not offset another's out; the numerator of the weighted absolute percentage error (WAPE) of accuracy_lag_7.
+    synonyms: [week-ahead absolute error, absolute variance lag 7]
+    type: money
+    source: cash_accuracy
+    aggregate: sum
+    sign: 1
+    filter: {lag_days: ["7"], figure: [absolute_variance]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, liquidity_item, liquidity_item_name]
+
+  - name: absolute_forecast_lag_7
+    label: Absolute forecast a week ahead
+    description: The sizes of forecast_lag_7's cells added up over the value dates variance_lag_7 compares, each cell a company's value date, currency and liquidity item; the denominator of the weighted absolute percentage error (WAPE) of accuracy_lag_7.
+    synonyms: [absolute forecast lag 7]
+    type: money
+    source: cash_accuracy
+    aggregate: sum
+    sign: 1
+    filter: {lag_days: ["7"], figure: [absolute_forecast]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, liquidity_item, liquidity_item_name]
+
+  - name: accuracy_lag_7
+    label: Forecast accuracy a week ahead
+    description: 100% less the weighted absolute percentage error (WAPE) of the forecast a week ahead, absolute_variance_lag_7 in percent of absolute_forecast_lag_7 rounded to two decimals half away from zero as the variance report's variance_percent; for one cell, 100% less that cell's variance_percent. None where nothing was forecast, as the variance report shows no percent; below zero where the variance is larger than the forecast.
+    synonyms: [week-ahead forecast accuracy, accuracy lag 7]
+    type: ratio
+    derived: {op: complement, left: absolute_variance_lag_7, right: absolute_forecast_lag_7}
+
+  - name: variance_lag_30
+    label: Forecast variance a month ahead
+    description: What actually moved less what the forecast expected, on each value date that has passed and has the company's snapshot taken 30 days before the value date (its daily snapshot, else the last taken on demand that day), by currency and liquidity item as the variance report compares them; the forecast is forecast_lag_30's, blocked suppliers' flows left out, and the actual actual's. A value date without that snapshot, or not yet passed, is not compared. Positive is more money in, or less out, than forecast.
+    synonyms: [month-ahead variance, variance lag 30]
+    type: money
+    source: cash_accuracy
+    aggregate: sum
+    sign: 1
+    filter: {lag_days: ["30"], figure: [variance]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, liquidity_item, liquidity_item_name]
+
+  - name: absolute_variance_lag_30
+    label: Absolute forecast variance a month ahead
+    description: The sizes of variance_lag_30's cells added up, each cell a company's value date, currency and liquidity item, so a cell's money in more than forecast does not offset another's out; the numerator of the weighted absolute percentage error (WAPE) of accuracy_lag_30.
+    synonyms: [month-ahead absolute error, absolute variance lag 30]
+    type: money
+    source: cash_accuracy
+    aggregate: sum
+    sign: 1
+    filter: {lag_days: ["30"], figure: [absolute_variance]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, liquidity_item, liquidity_item_name]
+
+  - name: absolute_forecast_lag_30
+    label: Absolute forecast a month ahead
+    description: The sizes of forecast_lag_30's cells added up over the value dates variance_lag_30 compares, each cell a company's value date, currency and liquidity item; the denominator of the weighted absolute percentage error (WAPE) of accuracy_lag_30.
+    synonyms: [absolute forecast lag 30]
+    type: money
+    source: cash_accuracy
+    aggregate: sum
+    sign: 1
+    filter: {lag_days: ["30"], figure: [absolute_forecast]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, liquidity_item, liquidity_item_name]
+
+  - name: accuracy_lag_30
+    label: Forecast accuracy a month ahead
+    description: 100% less the weighted absolute percentage error (WAPE) of the forecast a month ahead, absolute_variance_lag_30 in percent of absolute_forecast_lag_30 rounded to two decimals half away from zero as the variance report's variance_percent; for one cell, 100% less that cell's variance_percent. None where nothing was forecast, as the variance report shows no percent; below zero where the variance is larger than the forecast.
+    synonyms: [month-ahead forecast accuracy, accuracy lag 30]
+    type: ratio
+    derived: {op: complement, left: absolute_variance_lag_30, right: absolute_forecast_lag_30}

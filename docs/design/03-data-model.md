@@ -2937,6 +2937,14 @@ compare against, with `lag_days` (`value_date` less the snapshot's
 `snapshot_date`). No migration; querying it is `analytics.query.run` and
 `cash.forecast.read`.
 
+T53j3 compares the two in the analytical store (ADR-0044 As built T53j3),
+storing nothing in PostgreSQL: dataset `cash_accuracy`, three rows
+(`figure` `variance`, `absolute_variance`, `absolute_forecast`) per cell of
+a legal entity's value date compared at a lag of 0, 7 or 30 days (on or
+before the company's date, with the snapshot of the date the lag before
+taken, whose `horizon_end` reaches it), currency and liquidity item. No
+migration; querying it is `analytics.query.run` and `cash.forecast.read`.
+
 T53f4 stores people's comments on the variance (000201,
 `cash.variance_comment` above), each naming the `cash.snapshot` its
 variance compares with, found as T53f3 finds it; 000201 replaces

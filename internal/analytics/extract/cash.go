@@ -43,13 +43,14 @@ type CashShare struct {
 	Amount        money.Minor
 }
 
-// Cash reads a legal entity's cash actuals and forecast in the context's
-// transaction, without a company access check: the run reads every
-// company of its tenant (the cash context's ExtractActualShares and
-// ExtractForecastShares).
+// Cash reads a legal entity's cash actuals, forecast and the accuracy's
+// cells in the context's transaction, without a company access check: the
+// run reads every company of its tenant (the cash context's
+// ExtractActualShares, ExtractForecastShares and ExtractAccuracyCells).
 type Cash interface {
 	ExtractActualShares(ctx context.Context, legalEntity uuid.UUID) ([]CashShare, error)
 	ExtractForecastShares(ctx context.Context, legalEntity uuid.UUID) ([]ForecastShare, error)
+	ExtractAccuracyCells(ctx context.Context, legalEntity uuid.UUID) ([]AccuracyCell, error)
 }
 
 // ExtractActor is the principal the run asks the cash context as, in every
