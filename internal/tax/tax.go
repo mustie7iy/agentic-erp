@@ -73,11 +73,13 @@ const (
 )
 
 // Kinds of code whose rate is always 0: the base is recorded for the
-// return, no tax is charged.
+// return, no tax is charged; an adjustment's tax is what its entry posts
+// on the component's account (ADR-0049 §11).
 const (
 	KindZero       = "zero"
 	KindExempt     = "exempt"
 	KindOutOfScope = "out_of_scope"
+	KindAdjustment = "adjustment"
 )
 
 // Errors the calculator reports, wrapped with the line or code; amounts
@@ -142,7 +144,7 @@ type Conversion struct {
 // ledger keeps them (ledger.tax_code_definition, tax_component, tax_rate).
 type Code struct {
 	Code       string
-	Kind       string // standard, zero, exempt, out_of_scope, reverse_charge or import
+	Kind       string // standard, zero, exempt, out_of_scope, reverse_charge, import or adjustment
 	Components []Component
 }
 

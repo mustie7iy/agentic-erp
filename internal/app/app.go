@@ -166,8 +166,8 @@ type Config struct {
 	// nil: those embedded in the image (packs.FS). Tests release their own.
 	Packs fs.FS
 	// UnreleasedPacks is a directory of further packs taken as they are
-	// (ERP_PACKS_DIR, refused in production): the walkthrough's
-	// illustrative return (ADR-0049 §11). Empty: none.
+	// (ERP_PACKS_DIR, refused in production): a demonstration's or a
+	// test's pack not yet released (ADR-0048). Empty: none.
 	UnreleasedPacks string
 }
 

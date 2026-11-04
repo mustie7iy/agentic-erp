@@ -2073,10 +2073,26 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "GST/HST return for Canada: the GST34 lines in the Canada pack, plus the FPZ-500 (GST/HST and QST) for a Quebec registrant (P4); golden tests, tax specialist sign-off",
-        "r": "T61j",
+        "s": "D",
+        "t": "GST/HST return for Canada: the GST34 lines in the Canada pack (2026.6, returns.yaml: 101-115 incl. 205 and 405, in one list whose order the stored return keeps), the tax codes of kind adjustment for 104, 107, 110 and 111, golden tests from a worked quarter of invoices, entries, adjustments and a reversal; not signed off (the sign-off and the FPZ-500 are leaves of their own, split from T61j)",
+        "r": "packs/ca/2026.6 · packs/released.sha256 · packs/ca/TAX-PENDING-T61j.md · TestCanadaPack2026_6 · TestCanadaPackGST34 · config.TaxAdjustment · db/migrations/000207-000208 · payables.proposeCode · TestGST34Golden · ADR-0049 §11 As built (T61j) · ADR-0048 · walkthrough step 11 · T61j",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0049",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "GST/HST return signed off by the tax specialist before the pilot: a new Canada pack version with sign_off (a released version never changes), after the specialist confirms 2026.6's GST34 lines, the sums of 112, 113A, 113B, 113C, 114 and 115 written from memory, and how the tenant's codes map to the lines (packs/ca/TAX-PENDING-T61j.md)",
+        "r": "after T61j · ADR-0049 §11 As built (T61j) · ADR-0048",
+        "src": "split:T61j · adr:ADR-0049",
+        "pilot": "po:2026-10-31 · adr:ADR-0048",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "FPZ-500 (GST/HST and QST) for a Quebec registrant (P4 (b)): the return's lines in the Canada pack once the tax specialist states them from Revenu Québec's form (ADR-0049 records none) and the pilot says whether its company is registered in Quebec; golden tests, sign-off",
+        "r": "after T61j · ADR-0049 P4, Unsure list, §11 As built (T61j)",
+        "src": "split:T61j · adr:ADR-0049",
         "pilot": "po:2026-10-31 · adr:ADR-0049",
         "c": []
        },

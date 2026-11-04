@@ -304,6 +304,7 @@ start() {
     (cd "$ROOT" && go build -o "$BIN/erp" ./cmd/erp && go build -o "$BIN/erp-server" ./cmd/erp-server) || fail "the build failed"
   fi
   ERP="$BIN/erp"
+  latest_pack
   say "Version: $(cd "$ROOT" && git describe --tags --always --dirty 2>/dev/null || echo unknown) (git describe)"
   # Files the commands name are the work directory's, as they are shown.
   cd "$WORK"
@@ -311,9 +312,9 @@ start() {
   say ""
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
-  say "  - the GST34's lines (T61j-T61l): step 2 configures one"
-  say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
-  say "    whose boxes are illustrative, not the GST34's"
+  say "  - the tax specialist's sign-off of the GST34's lines (T61j: Canada $CA_PACK is not signed off), the FPZ-500 for a"
+  say "    Quebec registrant, the UAE's VAT 201 and the tax agent (T61k-T61l): step 11 prepares, approves and files the"
+  say "    GST/HST returns in order with the pack's lines"
   say "  - the liquidity forecast's treasury connector, agent, analytics and SAP migration (T53h-T53k): step 13 shows the"
   say "    daily cash position with a memo record and the forecast of the supplier open items, payment runs, parked"
   say "    invoices, down payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening,"
@@ -334,8 +335,7 @@ start() {
   export ERP_API_URL="http://$API_ADDR" ERP_ADMIN_URL="http://$ADMIN_ADDR" ERP_CONTROL_URL="http://$ADMIN_ADDR"
   export ERP_EXTRACT_DIR="$WORK/data" ERP_OBJECT_DIR="$WORK/data/objects"
   model_stub
-  illustrative_pack
-  export ERP_PACKS_DIR="$WORK/packs"
+  unset ERP_PACKS_DIR # the released packs alone
   ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64)
   ERP_FIELD_KEY=$(head -c 32 /dev/urandom | base64)
   export ERP_PAGE_TOKEN_KEY ERP_FIELD_KEY
@@ -385,25 +385,13 @@ model_price() {
     grep -q "already recorded" "$WORK/prices.out" || fail "the model's price was not recorded ($(cat "$WORK/prices.out"))"
 }
 
-# illustrative_pack copies the latest released Canada pack to the next
-# version with the illustrative return of scripts/walkthrough/returns.yaml
-# (T61h), for erp-server to serve unreleased (ERP_PACKS_DIR, development
-# only): the released packs define no return until T61j. CA_PACK is its
-# version. The copy drops the released pack's sign_off (T62h): the tax
-# specialist signed off the released pack, not the illustrative return.
-illustrative_pack() {
-  local latest
-  latest=$(cd "$ROOT/packs/ca" && ls -d 20*.* | sort -t. -k1,1n -k2,2n | tail -1)
-  CA_PACK="${latest%%.*}.$((${latest#*.} + 1))"
-  mkdir -p "$WORK/packs/ca"
-  cp -R "$ROOT/packs/ca/$latest" "$WORK/packs/ca/$CA_PACK"
-  sed -e "s/^version: \"$latest\"$/version: \"$CA_PACK\"/" \
-    -e "s/^name: Canada$/name: \"Canada $latest with the walkthrough's illustrative return (not released)\"/" \
-    -e "/^sign_off:/d" \
-    "$ROOT/packs/ca/$latest/pack.yaml" >"$WORK/packs/ca/$CA_PACK/pack.yaml"
-  grep -q "^version: \"$CA_PACK\"$" "$WORK/packs/ca/$CA_PACK/pack.yaml" || fail "the illustrative pack's version was not set"
-  ! grep -q "sign_off\|tax_specialist" "$WORK/packs/ca/$CA_PACK/pack.yaml" || fail "the illustrative pack kept the released pack's sign-off"
-  cp "$ROOT/scripts/walkthrough/returns.yaml" "$WORK/packs/ca/$CA_PACK/returns.yaml"
+# latest_pack sets CA_PACK to the latest released Canada pack's version,
+# the one step 2 applies: since T61j (2026.6) it defines the GST/HST
+# return's lines, so the walkthrough serves no unreleased copy of its own
+# any more (ADR-0049 §11 As built, T61h, T61j).
+latest_pack() {
+  CA_PACK=$(cd "$ROOT/packs/ca" && ls -d 20*.* | sort -t. -k1,1n -k2,2n | tail -1)
+  [ -f "$ROOT/packs/ca/$CA_PACK/returns.yaml" ] || fail "the latest Canada pack, $CA_PACK, defines no tax return"
 }
 
 # ---------------------------------------------------------------- the people
@@ -962,7 +950,11 @@ migrated_down_payment() {
 # Canada pack's tax codes are for purchases (T62g), one output tax code for
 # the walkthrough's sales entry: GST at 5% (Excise Tax Act, Part IX, s. 165(1);
 # CRA, "Charge and collect the tax - Which rate to charge",
-# https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html).
+# https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html),
+# and two codes of tax alone for the return's adjustments (kind adjustment,
+# rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
+# GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
+# instalment paid (line 110) on 2300.
 # The code's rate starts a year back; the registration's first period,
 # its cutover, is @TAXFIRST@ (tax_first), so two filing periods have
 # ended, whatever today is (step 11).
@@ -987,7 +979,11 @@ PILOT_SETTINGS='
       {"number": "1040", "name": "Bank incoming - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true}]
     | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough; the Canada pack codes purchases)",
         "direction": "output", "kind": "standard", "category": "S", "components": [{"key": "gst", "jurisdiction": "CA",
-        "account_key": "output", "account": "2300", "rates": [{"rate_percent": "5", "valid_from": "@PREV@-01-01"}]}]}])
+        "account_key": "output", "account": "2300", "rates": [{"rate_percent": "5", "valid_from": "@PREV@-01-01"}]}]},
+      {"code": "GA", "description": "GST/HST adjustment decreasing the net tax (line 107)", "direction": "input", "kind": "adjustment",
+        "components": [{"key": "gst", "jurisdiction": "CA", "account_key": "input", "account": "1300", "rates": [{"rate_percent": "0", "valid_from": "@PREV@-01-01"}]}]},
+      {"code": "GI", "description": "GST/HST instalment paid (line 110)", "direction": "input", "kind": "adjustment",
+        "components": [{"key": "instalment", "jurisdiction": "CA", "account_key": "input", "account": "2300", "rates": [{"rate_percent": "0", "valid_from": "@PREV@-01-01"}]}]}])
     | .house_banks = ((.house_banks // []) + [
       {"name": "RBC", "bic": "ROYCCAT2", "institution_number": "003", "transit_number": "00002", "account_number": "1000001",
        "gl_account": "1010", "main_gl_account": "1000", "incoming_gl_account": "1015"},
@@ -1009,9 +1005,9 @@ step_pack() {
   local version
   version=$(field '[.items[] | select(.country == "CA") | .version] | sort_by(split(".") | map(tonumber)) | last')
   expect "the latest Canada pack" "$version" "$CA_PACK"
-  say "CA $version is this walkthrough's own, not released: the latest released Canada pack with an illustrative"
-  say "tax return definition (returns.yaml) for step 11, as no released pack defines a return until T61j. The copy"
-  say "drops the released pack's sign-off, as the tax specialist did not review its return."
+  say "CA $version defines the GST/HST return's lines (returns.yaml, T61j) for step 11. The tax specialist has not"
+  say "signed them off yet, so production refuses to apply it (409 config.pack_not_signed_off) and 2026.5 is the"
+  say "signed-off version; outside production it is applied with a note, as here."
   say "Ada applies the latest Canada pack, $version, to company $CC. The merge keeps what the company"
   say "already has (SAP's chart and number ranges) and adds the rest; it becomes a draft change request."
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
@@ -1025,7 +1021,8 @@ step_pack() {
   say "Ada adds the pilot's own settings to the proposal: RBC house banks in CAD and USD, USD accounts revalued"
   say "at month end, bank statement rules (match by end-to-end id, approval above CAD 10,000), payment runs"
   say "above CAD 4,000 released only after a second person approves, a 2/10 net 30 cash discount term,"
-  say "cost center categories, liquidity items, an output tax code for GST, the GST/HST registration and, for the"
+  say "cost center categories, liquidity items, an output tax code for GST and two for the return's adjustments,"
+  say "the GST/HST registration and, for the"
   say "billing system's entries, a service posting limit of CAD 1,000 (step 11). The company keeps SAP's"
   say "down payment account (T074), so the pack's own, 1400, is left out: a company has one (ADR-0037)."
   local settings=${PILOT_SETTINGS//@YEAR@/$YEAR}
@@ -1737,10 +1734,10 @@ step_tax() {
   expect "Canada 2026.4's tax codes" "$(field '.items[] | select(.country == "CA" and .version == "2026.4") | .contents.tax_codes')" 10
   expect "Canada 2026.5's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "2026.5") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "true Musto Ibrahim 2026-11-02"
+  expect "Canada $CA_PACK's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "'"$CA_PACK"'") | .signed_off')" false
   say "Canada pack 2026.4 brought the purchase codes for GST/HST, QST and PST (T62g), each with all its dated rates,"
   say "backed by the pack's sources; 2026.5 is the same pack signed off by the tax specialist (T62h), so production"
-  say "applies it. Step 2 applied the codes with $CA_PACK, the walkthrough's unsigned copy of the latest released pack"
-  say "with the illustrative return. Nova Scotia's HST:"
+  say "applies it. $CA_PACK adds the GST/HST return's lines (T61j), not yet signed off; step 2 applied it. Nova Scotia's HST:"
   api 200 '.items[0].document.companies[] | select(.code == "'"$CC"'") | .tax_codes[] | select(.code == "HNS") |
     "tax code \(.code) \(.description): \([.components[] | .key as $k | .account as $a | .rates[] | "\($k) \(.rate_percent)% from \(.valid_from)\(if .valid_to then " to \(.valid_to)" else "" end) to \($a)"] | join("; "))"' \
     listConfigVersions -p is_active=true
@@ -1828,8 +1825,9 @@ step_tax() {
 
 # tax_return CASH SALES GST REGISTRATION START END BEFORE RUNNING is step
 # 11's draft return (T61h) of the latest ended period, START to END: two
-# late sales, one dated END and one BEFORE, the first period's end; the
-# draft computed twice; the output tax box drilled down to its items;
+# late sales, one dated END and one BEFORE, the first period's end; an
+# adjustment and an instalment (gst_adjustments); the GST34's lines
+# computed twice; line 103 drilled down to its items;
 # SAP's down payment left out; the period under way, RUNNING, refused;
 # the return of START refused until the first period's is filed, which
 # reports the late sale of BEFORE.
@@ -1839,22 +1837,25 @@ tax_return() {
   say "1039 of $end, the last day of the latest ended period, and 1031 of $before, in the period before it."
   api 201 "$entry" postJournalEntry -body "$(sale "Billing: invoice 1039, sent late" "$(line "$cash" 1050.00), $(line "$sales" -1000.00 GO5), $(line "$gst" -50.00 GO5)" "$end")"
   api 201 "$entry" postJournalEntry -body "$(sale "Billing: invoice 1031, sent late" "$(line "$cash" 210.00), $(line "$sales" -200.00 GO5), $(line "$gst" -10.00 GO5)" "$before")"
-  say "Carla computes the draft return of $start to $end (T61h): the boxes sum the tax items no return has reported,"
-  say "dated by the period's end; those of earlier periods are shown apart (P7). The pack defines the boxes; these are"
-  say "illustrative, not the GST34's lines (T61j). Nothing is stored or claimed: computed again, the draft is the same."
+  gst_adjustments "$end"
+  say "Carla computes the draft return of $start to $end (T61h): the GST34's lines, as Canada $CA_PACK defines them"
+  say "(T61j), sum the tax items no return has reported, dated by the period's end; those of earlier periods are"
+  say "shown apart (P7). Nothing is stored or claimed: computed again, the draft is the same."
   api 200 '"draft \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end), \(.currency), pack \(.pack.country) \(.pack.version): \(.item_count) items, \(.prior_period.item_count) of earlier periods", (.boxes[] | "  \(.code) \(.amount.amount)\(if .prior_period_amount.amount != "0.00" then ", of which earlier periods \(.prior_period_amount.amount)" else "" end): \(.label)")' \
     getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
-  expect "the output tax, and its earlier period's part" "$(field '.boxes[] | select(.code == "output_tax") | "\(.amount.amount) \(.prior_period_amount.amount)"')" "60.00 10.00"
+  expect "line 103, GST/HST collected, and its earlier period's part" "$(field '.boxes[] | select(.code == "103") | "\(.amount.amount) \(.prior_period_amount.amount)"')" "60.00 10.00"
+  expect "the lines in the pack's order" "$(field '[.boxes[].code] | join(" ")')" "101 103 104 105 106 107 108 109 110 111 112 113a 205 405 113b 113c 114 115"
+  expect "lines 107 and 110, the adjustment and the instalment" "$(field '[.boxes[] | select(.code == "107" or .code == "110") | .amount.amount] | join(" ")')" "5.00 100.00"
   local draft
   draft=$(jq -cS . "$WORK/last.json")
   QUIET=1 api 200 '' getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
   expect "the draft computed again" "$(jq -cS . "$WORK/last.json")" "$draft"
-  say "The output tax box drills down to the items it sums and the entries that wrote them:"
+  say "Line 103 drills down to the items it sums and the entries that wrote them:"
   api 200 '.items[] | "  \(.tax_date) \(.tax_code)/\(.component): tax \(.tax.amount), adds \(.box_amount.amount)\(if .prior_period then " (an earlier period'"'"'s)" else "" end), entry \(.document_number) of \(.posting_date): \(.header_text // "")"' \
-    listTaxReturnDraftItems -p "id=$registration" -p "period_start=$start" -p box=output_tax
-  expect "the output tax box's items" "$(field '[.items[].box_amount.amount] | join(" ")')" "10.00 50.00"
+    listTaxReturnDraftItems -p "id=$registration" -p "period_start=$start" -p box=103
+  expect "line 103's items" "$(field '[.items[].box_amount.amount] | join(" ")')" "10.00 50.00"
   expect "the items' invoices" "$(field '[.items[].header_text] | join(" / ")')" "Billing: invoice 1031, sent late / Billing: invoice 1039, sent late"
-  QUIET=1 api 200 '' listTaxReturnDraftItems -p "id=$registration" -p "period_start=$start" -p box=input_tax -p page_size=500
+  QUIET=1 api 200 '' listTaxReturnDraftItems -p "id=$registration" -p "period_start=$start" -p box=106 -p page_size=500
   expect "the input tax of SAP's down payment (step 3) in the draft" "$(jq -r --arg e "$DP_ENTRY" '[.items[] | select(.journal_entry_id == $e)] | length' "$WORK/last.json")" 0
   say "SAP's open down payment of step 3 carries input tax dated SAP's posting date, which SAP's own return reported:"
   say "the draft leaves the items of migrated entries out (ADR-0037); its clearing's reversal, posted here, is reported."
@@ -1864,6 +1865,23 @@ tax_return() {
   say "$start to $end waits until the first period's is filed, and invoice 1031 is that period's to report."
   refused 409 tax.earlier_period_unfiled prepareTaxReturn -p "id=$registration" -body "{\"period_start\": \"$start\"}"
   file_earlier "$registration" "$before"
+}
+
+# gst_adjustments END has Carla enter, dated END, what is
+# no document's tax (ADR-0049 §11, T61j): an adjustment decreasing the
+# net tax (code GA, line 107) and an instalment Maple paid (code GI, line
+# 110), each a manual entry of a code of tax alone.
+gst_adjustments() {
+  local end=$1 itc payable expense cash
+  itc=$(account 1300)
+  payable=$(account 2300)
+  expense=$(account 6000)
+  cash=$(account 100000)
+  say "The return also takes what is no document's tax: Carla enters, dated $end, an adjustment decreasing the net"
+  say "tax (line 107) and the instalment Maple paid towards it (line 110), each a manual entry of a code of tax"
+  say "alone, kind adjustment, whose tax is what the entry posts (ADR-0049 §11):"
+  api 201 "$entry" postJournalEntry -body "$(sale "GST/HST adjustment decreasing the net tax" "$(line "$itc" 5.00 GA), $(line "$expense" -5.00)" "$end")"
+  api 201 "$entry" postJournalEntry -body "$(sale "GST/HST instalment paid" "$(line "$payable" 100.00 GI), $(line "$cash" -100.00)" "$end")"
 }
 
 # close_tax_periods START END BODY REGISTRATION closes the leading
@@ -1899,7 +1917,7 @@ file_earlier() {
   close_tax_periods "$start" "$end" "$body" "$registration"
   api 201 '"return \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end): \(.status), \(.item_count) items", (.boxes[] | "  \(.code) \(.amount.amount)")' \
     prepareTaxReturn -p "id=$registration" -body "$body"
-  expect "the first period's output tax, invoice 1031's" "$(field '.boxes[] | select(.code == "output_tax") | .amount.amount')" "10.00"
+  expect "the first period's line 103, invoice 1031's" "$(field '.boxes[] | select(.code == "103") | .amount.amount')" "10.00"
   ret=$(field .id)
   approve fiona "$(field .approval_request_id)" "Boxes agree with the tax accounts"
   as carla
@@ -1923,7 +1941,7 @@ file_return() {
   close_tax_periods "$start" "$end" "$body" "$registration"
   api 201 '"return \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end): \(.status), \(.item_count) items, hash \(.items_hash[0:12])...", (.boxes[] | "  \(.code) \(.amount.amount)")' \
     prepareTaxReturn -p "id=$registration" -body "$body"
-  expect "the return's output tax, invoice 1039's" "$(field '.boxes[] | select(.code == "output_tax") | .amount.amount')" "50.00"
+  expect "the return's line 103, invoice 1039's" "$(field '.boxes[] | select(.code == "103") | .amount.amount')" "50.00"
   ret=$(field .id)
   request=$(field .approval_request_id)
   say "A second return of the period cannot be prepared while this one stands:"
@@ -1943,7 +1961,7 @@ file_return() {
   expect "the tax period's fiscal periods" "$(jq -r --arg s "$start" --arg e "$end" '[.items[] | select((.is_special | not) and .start_date <= $e
     and .end_date >= $s) | .status] | unique | join(" ")' "$WORK/last.json")" locked
   say "The items it reported are in no later draft: the period's draft is empty now, and the next return starts afresh."
-  api 200 '"draft of \(.period_start) to \(.period_end): \(.item_count) items, output tax \((.boxes[] | select(.code == "output_tax")).amount.amount)"' \
+  api 200 '"draft of \(.period_start) to \(.period_end): \(.item_count) items, line 103 \((.boxes[] | select(.code == "103")).amount.amount)"' \
     getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
   expect "the period's draft after filing" "$(field .item_count)" 0
   say "A tax date is chosen only in a period no return reports yet (P6): invoice 1038, of $end too, arrives after the"

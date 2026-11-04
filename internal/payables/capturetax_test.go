@@ -70,6 +70,32 @@ func TestCapturedTax(t *testing.T) {
 	}
 }
 
+// TestCapturedAdjustmentCodeNotProposed: an adjustment code charges 0%
+// like an exempt one, but it is a manual entry's tax alone (ADR-0049 §11,
+// T61j), so a line printing 0% is held naming the codes a document's line
+// may carry at that rate (the exempt V0 and the reverse charge codes,
+// which the supplier does not charge), not the adjustment code A0.
+func TestCapturedAdjustmentCodeNotProposed(t *testing.T) {
+	e := setup(t)
+	fixture.TaxCodes(t, e.Tenant, inputCodes(t, e), config.TaxCode{Code: "A0", Description: "Adjustment", Kind: config.TaxAdjustment,
+		Components: []config.TaxComponent{{Key: "tax", AccountKey: config.KeyInput, Account: "140000", Rates: []config.TaxRate{rate("0", "2026-01-01", "")}}}})
+	e.order(t, e.Supplier, "PO-1")
+	x := extraction()
+	x.Lines[1].TaxRate = "0"
+	var res gen.CaptureSupplierInvoiceRes
+	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
+		res, err = endpoints(extractor{e: x}).CaptureSupplierInvoice(ctx, &gen.SupplierInvoiceCaptureMultipart{LegalEntityID: e.DE,
+			Document: gen.NewOptString("%PDF-1 adjustment")}, gen.CaptureSupplierInvoiceParams{})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	inv, _ := e.Must(200, "GET", res.(*gen.OperationHeaders).Response.Resource.Value, "", "")
+	if got, want := inv["hold_reason"], "Line 2 prints a tax rate of 0%, which codes RC, RH, V0 charge; choose its tax code."; got != want {
+		t.Errorf("hold reason: got %v, want %s", got, want)
+	}
+}
+
 // TestCapturedCodeNotCalculable: a code the capture proposes that the
 // calculator cannot calculate on the tax date (half a reverse charge pair
 // then, the only input code charging the printed 0%) refuses the capture
