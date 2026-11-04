@@ -2873,8 +2873,10 @@ components:
         change of acquisition cost in local and group currency with the
         journal entry, a retirement also the change of accumulated
         depreciation (its catch-up included) and its gain or loss, so a
-        consumer need not read the document. A retirement lists the ledgers
-        it posted an entry in. Subject is the document id.
+        consumer need not read the document for its values (a retirement's
+        kind and proceeds are on `GET /v1/asset-retirements/{id}`). A
+        retirement lists the ledgers it posted an entry in. Subject is the
+        document id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:

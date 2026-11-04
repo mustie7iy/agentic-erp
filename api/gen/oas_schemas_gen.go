@@ -5285,7 +5285,7 @@ type AssetRetirement struct {
 	FiscalYear int32 `json:"fiscal_year"`
 	// The posting date's regular period.
 	Period int32 `json:"period"`
-	// Whether it was given no share or 100 %: all of the asset's balances.
+	// Whether it took all of the asset's balances in every ledger: no share, 100 %, or the whole cost.
 	Full bool `json:"full"`
 	// The share given as a percentage of cost, as a plain decimal.
 	SharePercent OptString `json:"share_percent"`

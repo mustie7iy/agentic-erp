@@ -33948,7 +33948,7 @@ components:
             posting_date: {type: string, format: date, description: The posting date of its entries., readOnly: true}
             fiscal_year: {type: integer, format: int32, description: "The posting date's fiscal year.", readOnly: true}
             period: {type: integer, format: int32, description: "The posting date's regular period.", readOnly: true}
-            full: {type: boolean, description: "Whether it was given no share or 100 %: all of the asset's balances.", readOnly: true}
+            full: {type: boolean, description: "Whether it took all of the asset's balances in every ledger: no share, 100 %, or the whole cost.", readOnly: true}
             share_percent: {type: string, description: "The share given as a percentage of cost, as a plain decimal.", readOnly: true}
             share_cost: {$ref: "#/components/schemas/Money", description: "The share given as a cost, in local currency."}
             proceeds: {$ref: "#/components/schemas/Money", description: "The sale's proceeds in local currency; zero for a scrapping."}
