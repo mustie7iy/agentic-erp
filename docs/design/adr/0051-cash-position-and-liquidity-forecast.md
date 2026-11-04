@@ -2351,10 +2351,12 @@ As built (T53h; decided by default where §14 and §15 leave it open):
 - **Walkthrough.** Step 35 connects a treasury system (a stand-in SFTP
   server, `sftptest/sftpstub`, the transport's test double on a port of
   its own), takes a snapshot, shows its CSV delivered and its hash in its
-  name, and sends it again as a resend. It does not deliver a webhook: the
-  walkthrough runs without the event bus and the webhook client never
-  dials this machine (egress, ADR-0041); whether a development server may
-  is a question of posture for the product owner.
+  name, and sends it again as a resend. Since T50i (product owner
+  2026-11-04, ADR-0041 As built) the walkthrough runs with an embedded
+  event bus and a webhook subscriber on its machine, the one loopback
+  address a development server may deliver to: step 35 also subscribes
+  the treasury system to `cash.*` and shows `CashSnapshotTaken`
+  delivered, its signature verified by the endpoint.
 
 ### 15. Access, audit and events
 - Company-level access as everywhere (ADR-0010); permissions

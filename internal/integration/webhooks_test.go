@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -214,6 +216,38 @@ func TestWebhookSubscriptionRefusals(t *testing.T) {
 	if disabled["disabled_reason"] != "failing" || disabled["failing_since"] == nil {
 		t.Errorf("disabled: got %v, want its reason and when it began failing", disabled)
 	}
+}
+
+// TestWebhookWalkthroughReceiver: with the walkthrough's receiver
+// configured (ERP_WALKTHROUGH_RECEIVER, development only) a subscription
+// may name exactly its address and port, on create and on update; any
+// other loopback URL is still refused, and without the receiver (every
+// other server) its URL is refused too (ADR-0041 As built).
+func TestWebhookWalkthroughReceiver(t *testing.T) {
+	receiver := netip.MustParseAddrPort("127.0.0.1:18443")
+	const at = "https://127.0.0.1:18443/hook"
+	ten := pgtest.NewTenant(t, "integration.webhook.read", "integration.webhook.manage")
+	walk := apitest.Client{T: t, API: apitest.NewWith(t, func(cfg *app.Config) { cfg.WebhookReceiver = receiver }), Tenant: ten, As: ten.Human}
+	created, tag := walk.Must(201, "POST", hooks, `{"url":"`+at+`","event_types":["cash.*"]}`, "")
+	if created["url"] != at {
+		t.Errorf("url: got %v, want %s", created["url"], at)
+	}
+	for name, url := range map[string]string{
+		"another port": "https://127.0.0.1:18444/hook", "the default port": "https://127.0.0.1/hook", "another loopback address": "https://127.0.0.2:18443/hook",
+		"a loopback name": "https://localhost:18443/hook", "http": "http://127.0.0.1:18443/hook", "a private address": "https://10.0.0.1:18443/hook",
+	} {
+		t.Run(name, func(t *testing.T) {
+			walk.In(t).Problem(422, "integration.invalid_webhook_url", "POST", hooks, `{"url":"`+url+`","event_types":["cash.*"]}`, "")
+		})
+	}
+	path := hooks + "/" + created["id"].(string)
+	_, tag = walk.Must(200, "PATCH", path, `{"url":"https://93.184.216.34/erp"}`, tag)
+	if back, _ := walk.Must(200, "PATCH", path, `{"url":"`+at+`/again"}`, tag); back["url"] != at+"/again" {
+		t.Errorf("updated url: got %v, want %s/again", back["url"], at)
+	}
+
+	elsewhere := webhookClient(t)
+	elsewhere.Problem(422, "integration.invalid_webhook_url", "POST", hooks, `{"url":"`+at+`","event_types":["cash.*"]}`, "")
 }
 
 // TestWebhookSecretsResealed: rotating the tenant's field key re-seals both

@@ -28,7 +28,8 @@ const (
 // unicast addresses only, directly, without following redirects (a
 // redirect would lead the request to an address never checked as a URL),
 // trusting the system roots (never ERP_TLS_CA, which names the cell's own
-// services) and presenting no certificate.
+// services) and presenting no certificate. A client made with an option
+// trusts the option's roots in their place, for every address.
 type Client struct {
 	http *http.Client
 }
@@ -38,6 +39,7 @@ type Option func(*options)
 
 type options struct {
 	loopback bool
+	receiver *netip.AddrPort // WalkthroughReceiver's address; nil: none
 	roots    *x509.CertPool
 }
 
@@ -47,6 +49,22 @@ type options struct {
 // No configuration sets it, and New refuses it outside a test binary.
 func LoopbackForTests(roots *x509.CertPool) Option {
 	return func(o *options) { o.loopback, o.roots = true, roots }
+}
+
+// WalkthroughReceiver lets the client reach one loopback address and
+// port besides public addresses, trusting roots (the receiver's own
+// certificate) instead of the system's: the webhook receiver the pilot
+// walkthrough starts on its machine (scripts/walkthrough.sh), the one
+// local delivery the product owner allowed (2026-11-04, ADR-0041 As
+// built). Only ERP_WALKTHROUGH_RECEIVER sets it, which config.Load refuses
+// outside development. New refuses an address that is not loopback, or
+// no port: the option opens one port of the machine itself, never the
+// network around it. A host name is refused as the receiver's URL when it
+// is written (CheckURL); one that later resolves to the receiver's address
+// is dialled, and refused by TLS, the receiver's certificate naming its IP
+// address alone.
+func WalkthroughReceiver(addr netip.AddrPort, roots *x509.CertPool) Option {
+	return func(o *options) { o.receiver, o.roots = &addr, roots }
 }
 
 // inTest tells whether the process is a test binary; tests replace it to
@@ -59,12 +77,9 @@ func New(opts ...Option) (*Client, error) {
 	for _, opt := range opts {
 		opt(&o)
 	}
-	control := RefusePrivate
-	if o.loopback {
-		if !inTest() {
-			return nil, errors.New("egress: loopback is allowed only in tests")
-		}
-		control = allowLoopback
+	control, err := o.control()
+	if err != nil {
+		return nil, err
 	}
 	dialer := &net.Dialer{Timeout: ConnectTimeout, Control: control}
 	return &Client{http: &http.Client{
@@ -81,6 +96,42 @@ func New(opts ...Option) (*Client, error) {
 		},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}, nil
+}
+
+// control is the dialer's check of every address dialled: RefusePrivate,
+// unless an option widens it.
+func (o options) control() (func(network, address string, c syscall.RawConn) error, error) {
+	switch {
+	case o.loopback && o.receiver != nil:
+		return nil, errors.New("egress: the test option and the walkthrough's receiver exclude each other")
+	case o.loopback:
+		if !inTest() {
+			return nil, errors.New("egress: loopback is allowed only in tests")
+		}
+		return allowLoopback, nil
+	case o.receiver != nil:
+		r := *o.receiver
+		if !r.IsValid() || !r.Addr().Unmap().IsLoopback() || r.Port() == 0 {
+			return nil, fmt.Errorf("egress: the walkthrough's receiver %s is not a loopback address and port", r)
+		}
+		if o.roots == nil {
+			return nil, errors.New("egress: the walkthrough's receiver needs the roots its certificate chains to")
+		}
+		return allowReceiver(netip.AddrPortFrom(r.Addr().Unmap(), r.Port())), nil
+	}
+	return RefusePrivate, nil
+}
+
+// allowReceiver is RefusePrivate letting the one address and port of the
+// walkthrough's receiver through: another port of the machine stays
+// refused.
+func allowReceiver(receiver netip.AddrPort) func(network, address string, c syscall.RawConn) error {
+	return func(network, address string, c syscall.RawConn) error {
+		if ap, err := netip.ParseAddrPort(address); err == nil && netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()) == receiver {
+			return nil
+		}
+		return RefusePrivate(network, address, c)
+	}
 }
 
 // allowLoopback is RefusePrivate letting loopback addresses through, for

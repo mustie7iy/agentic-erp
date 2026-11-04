@@ -7189,6 +7189,13 @@
         "r": "internal/integration/deliveries.go · api/openapi.yaml · db/migrations/000106 · T50g",
         "src": "baseline",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "A webhook delivered in the walkthrough: an embedded event bus and a subscriber on the walkthrough's machine, the one loopback address and port a development server may deliver to (ERP_WALKTHROUGH_RECEIVER, refused outside development); CashSnapshotTaken delivered, its signature verified and a changed body refused",
+        "r": "egress.WalkthroughReceiver, CheckURL's receiver · config.Walkthrough (ERP_WALKTHROUGH_RECEIVER, ERP_WALKTHROUGH_RECEIVER_CA) · integration.Endpoints.Receiver · app.Config.WebhookReceiver · erp-server webhookClient · natstest/natsstub · webhooktest/webhookstub · TestWalkthroughReceiverOption, TestAllowReceiver, TestWalkthroughReceiver, TestCheckURLReceiver, TestWebhookWalkthroughReceiver, TestWebhookClient, TestProductionFailsClosed · walkthrough step 35 · ADR-0041 (as built, T50i) · ADR-0051 (as built) · T50i",
+        "src": "po:2026-11-04 · adr:ADR-0041",
+        "c": []
        }
       ]
      },

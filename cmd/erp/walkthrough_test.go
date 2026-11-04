@@ -32,11 +32,12 @@ func TestWalkthrough(t *testing.T) {
 		}
 	}
 	run := exec.CommandContext(t.Context(), "bash", "../../scripts/walkthrough.sh")
-	addrs := freeAddrs(t, 3)
+	addrs := freeAddrs(t, 5)
 	// The last value of a variable wins: a developer's own walkthrough
 	// settings (keep the server, stop early, a work directory) do not apply.
 	run.Env = append(os.Environ(), "DATABASE_URL="+db, "WALKTHROUGH_PAUSE=0", "WALKTHROUGH_BIN="+bin,
-		"WALKTHROUGH_API_ADDR="+addrs[0], "WALKTHROUGH_ADMIN_ADDR="+addrs[1], "WALKTHROUGH_MODEL_ADDR="+addrs[2], "WALKTHROUGH_KEEP=0", "WALKTHROUGH_UNTIL=", "WALKTHROUGH_DIR=")
+		"WALKTHROUGH_API_ADDR="+addrs[0], "WALKTHROUGH_ADMIN_ADDR="+addrs[1], "WALKTHROUGH_MODEL_ADDR="+addrs[2],
+		"WALKTHROUGH_NATS_ADDR="+addrs[3], "WALKTHROUGH_HOOK_ADDR="+addrs[4], "WALKTHROUGH_KEEP=0", "WALKTHROUGH_UNTIL=", "WALKTHROUGH_DIR=")
 	start := time.Now()
 	out, err := run.CombinedOutput()
 	if err != nil {
@@ -44,7 +45,7 @@ func TestWalkthrough(t *testing.T) {
 	}
 	for _, want := range []string{"Step 15 — GR/IR maintenance", "Step 16 — SAP's open down payment", "Step 17 — The audit trail", "Step 18 — A scanned invoice above the request limit is captured by upload",
 		"Step 19 — Asset accounting", "Step 20 — The asset master", "Step 21 — The liquidity forecast by liquidity item", "Step 22 — Asset acquisitions", "Step 23 — The liquidity forecast opened, converted and drilled down",
-		"Step 24 — Asset corrections", "Step 25 — Depreciation schedule and preview", "Step 26 — Snapshots of the liquidity forecast", "Step 27 — Cash actuals", "Step 28 — Forecast variance", "Step 29 — The depreciation run", "Step 30 — Variance comments", "Step 31 — Asset retirements", "Step 32 — Asset transfers", "Step 33 — Purchase orders", "Step 34 — The asset history sheet", "Step 35 — The treasury connector", "Step 36 — The group liquidity forecast", "Step 37 — Cash actuals in analytics", "Final step — Financial close", "none failed"} {
+		"Step 24 — Asset corrections", "Step 25 — Depreciation schedule and preview", "Step 26 — Snapshots of the liquidity forecast", "Step 27 — Cash actuals", "Step 28 — Forecast variance", "Step 29 — The depreciation run", "Step 30 — Variance comments", "Step 31 — Asset retirements", "Step 32 — Asset transfers", "Step 33 — Purchase orders", "Step 34 — The asset history sheet", "Step 35 — The treasury connector", "verified true, a changed body refused true", "Step 36 — The group liquidity forecast", "Step 37 — Cash actuals in analytics", "Final step — Financial close", "none failed"} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("walkthrough output: got\n%s\nwant it to contain %q", tail(string(out), 40), want)
 		}

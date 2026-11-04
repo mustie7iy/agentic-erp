@@ -264,6 +264,7 @@ type server struct {
 	engineClient workflow.Client
 	tls          *tlsconf.Store  // nil: no TLS material configured (development)
 	gateway      *agents.Gateway // nil: no model provider configured
+	egress       *egress.Client  // posts webhooks (webhookClient)
 	apiCfg       app.Config
 	apiHandler   http.Handler
 	simulator    *configuration.SimulationWorker
@@ -671,7 +672,8 @@ func (s *server) newAPI() error {
 		Metrics: s.metrics, Tracer: s.tp, Meter: otel.GetMeterProvider(), Now: time.Now,
 		RequireBoundAgents: cfg.Environment == config.Production, EvalCell: cfg.EvalCell,
 		RefuseEBICS: cfg.Environment == config.Production, RefuseUnsignedPacks: cfg.Environment == config.Production,
-		UnreleasedPacks: cfg.PacksDir, // config.Load refuses it in production
+		UnreleasedPacks: cfg.PacksDir,             // config.Load refuses it in production
+		WebhookReceiver: cfg.Walkthrough.Receiver, // config.Load refuses it outside development
 	}
 	if s.gateway != nil {
 		s.apiCfg.Model = s.gateway
@@ -683,10 +685,28 @@ func (s *server) newAPI() error {
 			HTTP: s.tls.InternalClient(analyticsTimeout)}
 	}
 	var err error
+	if s.egress, err = webhookClient(cfg); err != nil {
+		return err
+	}
 	if s.apiHandler, err = app.New(s.apiCfg); err != nil {
 		return err
 	}
 	return nil
+}
+
+// webhookClient is the client webhooks are posted with (ADR-0041): to
+// public addresses only, and, in the walkthrough alone, to its receiver
+// (ERP_WALKTHROUGH_RECEIVER, which config.Load refuses outside
+// development).
+func webhookClient(cfg config.Config) (*egress.Client, error) {
+	if !cfg.Walkthrough.Receiver.IsValid() {
+		return egress.New()
+	}
+	client, err := egress.New(egress.WalkthroughReceiver(cfg.Walkthrough.Receiver, cfg.Walkthrough.Roots))
+	if err != nil {
+		return nil, fmt.Errorf("erp-server: the walkthrough's webhook receiver: %w", err)
+	}
+	return client, nil
 }
 
 // withRecord joins the record's failure into the server's exit, unless
@@ -748,10 +768,7 @@ func (s *server) startWorkers(runCtx context.Context) {
 // the fan-out recorded, so it runs with or without a bus, and prunes
 // deliveries past their retention.
 func (s *server) startWebhooks(runCtx context.Context) {
-	// New fails only for egress.LoopbackForTests outside a test binary; with
-	// no option it always makes a client.
-	client, _ := egress.New()
-	dispatcher := &integration.Dispatcher{Pool: s.pool, AppRole: s.cfg.AppRole, WorkerRole: s.cfg.WorkerRole, Keys: s.keys, Client: client, Log: s.log}
+	dispatcher := &integration.Dispatcher{Pool: s.pool, AppRole: s.cfg.AppRole, WorkerRole: s.cfg.WorkerRole, Keys: s.keys, Client: s.egress, Log: s.log}
 	s.spawn("webhook dispatcher", func() { dispatcher.Run(runCtx) })
 }
 

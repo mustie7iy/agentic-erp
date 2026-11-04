@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
@@ -168,6 +169,7 @@ type Endpoints struct {
 	Requesters    Requesters       // the workflow's Execute refuses a requester no longer active
 	Keys          Sealer           // seals webhook secrets with the tenant's key
 	Resolver      egress.Resolver  // resolves webhook hosts when a URL is written
+	Receiver      netip.AddrPort   // the walkthrough's webhook receiver, a URL may name it (ERP_WALKTHROUGH_RECEIVER, development only); zero: none
 	ExtractDir    string           // sap_file connectors read extracts below it; empty: they cannot be used
 	HTTP          *http.Client     // for sap_odata connectors; nil: the reader's default
 	Now           func() time.Time // the clock replay and ping read, the dispatcher's where both are wired; nil: the wall clock
