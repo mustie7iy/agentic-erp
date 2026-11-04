@@ -1740,8 +1740,9 @@ type Handler interface {
 	// at the time of the call (ADR-0054): the buyer company, the supplier's name, number and address (its
 	// `order_from` address valid today, else its `legal` one; none when neither is held), the document
 	// number, revision, order date and currency, the purchasing organisation, the payment term with its
-	// description, the date the requisition needed the goods by, and each item with its quantity, unit,
-	// price per price unit, tax code and amount, with the order's total. Only a `released` or `closed`
+	// description, and each item with its quantity, unit, price per price unit, tax code, amount and its
+	// own delivery date when it has one, with the order's total; the date the requisition needed the goods
+	// by is printed for the items without a delivery date of their own. Only a `released` or `closed`
 	// order has one (409 `procurement.invalid_status`). Producing it changes nothing: transmission to the
 	// supplier by email or EDI is not built (post-pilot).
 	//

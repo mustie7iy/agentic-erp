@@ -2785,6 +2785,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "The purchase order document prints each item's delivery date, else the requisition's needed-by date, qualified when an order holds both",
+        "r": "ADR-0054 As built (podate) · ADR-0051 As built T53g (procurement.purchase_order_item.delivery_date, 000205) · internal/procurement/order_document.go · walkthrough step 4",
+        "src": "adr:ADR-0054 · adr:ADR-0051",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "The purchase order document also as a PDF, with an embedded font for every script the tenants' names and addresses use (Latin, and Arabic for the UAE pilot)",
         "r": "T72g · ADR-0054 \"What a PDF would need\": a PDF library is a new third-party module, a decision for the product owner",
