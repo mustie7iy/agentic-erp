@@ -56,23 +56,7 @@ var (
 // cash.forecast.read. A legal entity the caller cannot act in is not
 // found.
 func (e *Endpoints) ActualShares(ctx context.Context, legalEntity uuid.UUID) ([]ActualShare, error) {
-	if _, _, err := reqctx.Request(ctx); err != nil {
-		return nil, err
-	}
-	co, err := e.company(ctx, legalEntity)
-	if err != nil {
-		return nil, err
-	}
-	if e.Consistent == nil {
-		return nil, errors.New("cash: the actuals' shares need a consistent read, which the composition root wires")
-	}
-	rctx, rtx, err := e.Consistent.Read(ctx)
-	if err != nil {
-		return nil, err
-	}
-	// Read only: nothing to keep, and the rollback's error changes nothing read.
-	defer func() { _ = rtx.Rollback(context.WithoutCancel(ctx)) }()
-	return e.shares(rctx, rtx, co, legalEntity)
+	return asCaller(ctx, e, legalEntity, e.shares)
 }
 
 // ExtractActualShares are the shares of every statement line of the legal
@@ -82,6 +66,37 @@ func (e *Endpoints) ActualShares(ctx context.Context, legalEntity uuid.UUID) ([]
 // transaction (ADR-0044). A legal entity the directory does not know has
 // none.
 func (e *Endpoints) ExtractActualShares(ctx context.Context, legalEntity uuid.UUID) ([]ActualShare, error) {
+	return asExtract(ctx, e, legalEntity, e.shares)
+}
+
+// asCaller is what read gives of the legal entity, read as the caller in a
+// consistent read of its own (Consistent): the semantic layer's database
+// path. A legal entity the caller cannot act in is not found.
+func asCaller[T any](ctx context.Context, e *Endpoints, legalEntity uuid.UUID, read func(context.Context, pgx.Tx, Company, uuid.UUID) ([]T, error)) ([]T, error) {
+	if _, _, err := reqctx.Request(ctx); err != nil {
+		return nil, err
+	}
+	co, err := e.company(ctx, legalEntity)
+	if err != nil {
+		return nil, err
+	}
+	if e.Consistent == nil {
+		return nil, errors.New("cash: the analytical store's reads need a consistent read, which the composition root wires")
+	}
+	rctx, rtx, err := e.Consistent.Read(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Read only: nothing to keep, and the rollback's error changes nothing read.
+	defer func() { _ = rtx.Rollback(context.WithoutCancel(ctx)) }()
+	return read(rctx, rtx, co, legalEntity)
+}
+
+// asExtract is what read gives of the legal entity, read in the context's
+// transaction without a company access check: the analytical store's
+// extract (ADR-0044). A legal entity the directory does not know has
+// nothing.
+func asExtract[T any](ctx context.Context, e *Endpoints, legalEntity uuid.UUID, read func(context.Context, pgx.Tx, Company, uuid.UUID) ([]T, error)) ([]T, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
@@ -93,7 +108,7 @@ func (e *Endpoints) ExtractActualShares(ctx context.Context, legalEntity uuid.UU
 	if !ok {
 		return nil, nil
 	}
-	return e.shares(ctx, tx, co, legalEntity)
+	return read(ctx, tx, co, legalEntity)
 }
 
 // shares reads, in tx, and classifies the company's statement lines of

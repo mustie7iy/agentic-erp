@@ -3710,12 +3710,16 @@ type Invoker interface {
 	// read is 403 as that read is, and the store answers only a caller who holds the permissions of those
 	// reads; the cash actuals (metric `actual`, ADR-0051 §11) are read as `getCashActuals` classifies
 	// them, with `cash.forecast.read`, and name no supplier, so a query of them alone needs no
-	// `partner.supplier.read`; actuals adding up to more than an amount can hold are 422
-	// `cash.amount_too_large`. A tenant without a configuration is 409 `config.not_bootstrapped`. A query
-	// the semantic layer refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two
-	// currencies summed) is 422 `analytics.invalid_query`; too many queries answering at once on the
-	// server is 503 `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may
-	// run it.
+	// `partner.supplier.read`; so are the forecast's metrics (`forecast_lag_0`, `forecast_lag_7`,
+	// `forecast_lag_30`, ADR-0051 §6), each value date's flows as the company's snapshot taken that many
+	// days before it kept them (its daily snapshot, else the last taken on demand that day; at document
+	// level, blocked suppliers' flows left out), so a week or a month adds days of different snapshots,
+	// unlike `getLiquidityForecastVariance`, which compares one snapshot over its period; actuals adding
+	// up to more than an amount can hold are 422 `cash.amount_too_large`. A tenant without a configuration
+	// is 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or
+	// dimension, a filter it cannot apply, amounts of two currencies summed) is 422
+	// `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy`
+	// with `Retry-After`. Changes nothing: agents of any autonomy level may run it.
 	//
 	// POST /v1/analytics-queries
 	RunAnalyticsQuery(ctx context.Context, request *AnalyticsQuery, params RunAnalyticsQueryParams) (RunAnalyticsQueryRes, error)
@@ -62661,12 +62665,16 @@ func (c *Client) sendRotateWebhookSubscriptionSecret(ctx context.Context, params
 // read is 403 as that read is, and the store answers only a caller who holds the permissions of those
 // reads; the cash actuals (metric `actual`, ADR-0051 §11) are read as `getCashActuals` classifies
 // them, with `cash.forecast.read`, and name no supplier, so a query of them alone needs no
-// `partner.supplier.read`; actuals adding up to more than an amount can hold are 422
-// `cash.amount_too_large`. A tenant without a configuration is 409 `config.not_bootstrapped`. A query
-// the semantic layer refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two
-// currencies summed) is 422 `analytics.invalid_query`; too many queries answering at once on the
-// server is 503 `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may
-// run it.
+// `partner.supplier.read`; so are the forecast's metrics (`forecast_lag_0`, `forecast_lag_7`,
+// `forecast_lag_30`, ADR-0051 §6), each value date's flows as the company's snapshot taken that many
+// days before it kept them (its daily snapshot, else the last taken on demand that day; at document
+// level, blocked suppliers' flows left out), so a week or a month adds days of different snapshots,
+// unlike `getLiquidityForecastVariance`, which compares one snapshot over its period; actuals adding
+// up to more than an amount can hold are 422 `cash.amount_too_large`. A tenant without a configuration
+// is 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or
+// dimension, a filter it cannot apply, amounts of two currencies summed) is 422
+// `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy`
+// with `Retry-After`. Changes nothing: agents of any autonomy level may run it.
 //
 // POST /v1/analytics-queries
 func (c *Client) RunAnalyticsQuery(ctx context.Context, request *AnalyticsQuery, params RunAnalyticsQueryParams) (RunAnalyticsQueryRes, error) {

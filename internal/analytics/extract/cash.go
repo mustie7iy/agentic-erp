@@ -43,11 +43,13 @@ type CashShare struct {
 	Amount        money.Minor
 }
 
-// CashActuals reads a legal entity's cash actuals in the context's
+// Cash reads a legal entity's cash actuals and forecast in the context's
 // transaction, without a company access check: the run reads every
-// company of its tenant (the cash context's ExtractActualShares).
-type CashActuals interface {
+// company of its tenant (the cash context's ExtractActualShares and
+// ExtractForecastShares).
+type Cash interface {
 	ExtractActualShares(ctx context.Context, legalEntity uuid.UUID) ([]CashShare, error)
+	ExtractForecastShares(ctx context.Context, legalEntity uuid.UUID) ([]ForecastShare, error)
 }
 
 // ExtractActor is the principal the run asks the cash context as, in every
@@ -85,41 +87,54 @@ func (r *run) cashActuals(ctx context.Context, tx pgx.Tx) error {
 	if r.x.Cash == nil {
 		return nil
 	}
-	type company struct {
-		ID   uuid.UUID
-		Code string
-	}
-	rows, _ := tx.Query(ctx, cashCompaniesSQL)
-	companies, err := pgx.CollectRows(rows, pgx.RowToStructByPos[company])
+	all, err := cashOf(ctx, tx, r, cashActualsDataset, cashCompaniesSQL, r.x.Cash.ExtractActualShares)
 	if err != nil {
-		return fmt.Errorf("%s: companies: %w", cashActualsDataset, err)
+		return err
 	}
-	ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), reqctx.Principal{ID: ExtractActor(), Kind: reqctx.KindSystem, TenantID: r.tenant})
-	type share struct {
-		company string
-		CashShare
-	}
-	var all []share
-	for _, co := range companies {
-		shares, err := r.x.Cash.ExtractActualShares(ctx, co.ID)
-		if err != nil {
-			return fmt.Errorf("%s of %s: %w", cashActualsDataset, co.Code, err)
-		}
-		for _, sh := range shares {
-			all = append(all, share{co.Code, sh})
-		}
-	}
-	slices.SortFunc(all, func(a, b share) int {
-		return cmp.Or(a.ValueDate.Compare(b.ValueDate), strings.Compare(a.company, b.company), bytes.Compare(a.StatementID[:], b.StatementID[:]),
-			cmp.Compare(a.LineNo, b.LineNo), strings.Compare(a.Item, b.Item))
+	slices.SortFunc(all, func(a, b ofCompany[CashShare]) int {
+		return cmp.Or(a.v.ValueDate.Compare(b.v.ValueDate), strings.Compare(a.company, b.company), bytes.Compare(a.v.StatementID[:], b.v.StatementID[:]),
+			cmp.Compare(a.v.LineNo, b.v.LineNo), strings.Compare(a.v.Item, b.v.Item))
 	})
 	months, done := snapshotOf[cashActual](ctx, r, cashActualsDataset)
 	for _, sh := range all {
-		if err = months.add(sh.ValueDate.Format(monthLayout), cashRow(r.tenant, sh.company, sh.CashShare)); err != nil {
+		if err = months.add(sh.v.ValueDate.Format(monthLayout), cashRow(r.tenant, sh.company, sh.v)); err != nil {
 			break
 		}
 	}
 	return done(err)
+}
+
+// ofCompany is what the cash context gave of a company, with its code.
+type ofCompany[T any] struct {
+	company string
+	v       T
+}
+
+// cashOf asks the cash context, as ExtractActor in the run's transaction,
+// for what read gives of each legal entity companiesSQL lists (its id and
+// company code), each with its company's code.
+func cashOf[T any](ctx context.Context, tx pgx.Tx, r *run, dataset, companiesSQL string, read func(context.Context, uuid.UUID) ([]T, error)) ([]ofCompany[T], error) {
+	type company struct {
+		ID   uuid.UUID
+		Code string
+	}
+	rows, _ := tx.Query(ctx, companiesSQL)
+	companies, err := pgx.CollectRows(rows, pgx.RowToStructByPos[company])
+	if err != nil {
+		return nil, fmt.Errorf("%s: companies: %w", dataset, err)
+	}
+	ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), reqctx.Principal{ID: ExtractActor(), Kind: reqctx.KindSystem, TenantID: r.tenant})
+	var all []ofCompany[T]
+	for _, co := range companies {
+		vs, err := read(ctx, co.ID)
+		if err != nil {
+			return nil, fmt.Errorf("%s of %s: %w", dataset, co.Code, err)
+		}
+		for _, v := range vs {
+			all = append(all, ofCompany[T]{co.Code, v})
+		}
+	}
+	return all, nil
 }
 
 // cashRow is a share as the dataset holds it: a share of no item has a

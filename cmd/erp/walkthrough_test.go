@@ -44,7 +44,7 @@ func TestWalkthrough(t *testing.T) {
 	}
 	for _, want := range []string{"Step 15 — GR/IR maintenance", "Step 16 — SAP's open down payment", "Step 17 — The audit trail", "Step 18 — A scanned invoice above the request limit is captured by upload",
 		"Step 19 — Asset accounting", "Step 20 — The asset master", "Step 21 — The liquidity forecast by liquidity item", "Step 22 — Asset acquisitions", "Step 23 — The liquidity forecast opened, converted and drilled down",
-		"Step 24 — Asset corrections", "Step 25 — Depreciation schedule and preview", "Step 26 — Snapshots of the liquidity forecast", "Step 27 — Cash actuals", "Step 28 — Forecast variance", "Step 29 — The depreciation run", "Step 30 — Variance comments", "Step 31 — Asset retirements", "Step 32 — Asset transfers", "Step 33 — Purchase orders", "Step 34 — The asset history sheet", "Step 35 — The treasury connector", "Step 36 — The group liquidity forecast", "Step 37 — Cash actuals in analytics", "Final step — Financial close", "none failed"} {
+		"Step 24 — Asset corrections", "Step 25 — Depreciation schedule and preview", "Step 26 — Snapshots of the liquidity forecast", "Step 27 — Cash actuals", "Step 28 — Forecast variance", "Step 29 — The depreciation run", "Step 30 — Variance comments", "Step 31 — Asset retirements", "Step 32 — Asset transfers", "Step 33 — Purchase orders", "Step 34 — The asset history sheet", "Step 35 — The treasury connector", "Step 36 — The group liquidity forecast", "Step 37 — Cash actuals in analytics", "Step 38 — The forecast in analytics", "Final step — Financial close", "none failed"} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("walkthrough output: got\n%s\nwant it to contain %q", tail(string(out), 40), want)
 		}

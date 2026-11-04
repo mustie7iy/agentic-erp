@@ -25,7 +25,9 @@
 // returns (the semantic layer's BuildFacts), held to it by the parity test
 // (T55e), and a dataset's columns are the contract in analytics/datasets.
 // The cash actuals are classified in Go by the cash context, so the run
-// asks it through a port (CashActuals) in the same transaction (T53j1).
+// asks it through a port (Cash) in the same transaction (T53j1), as it
+// asks for the snapshots' lines with their banks' codes and items' names
+// (T53j2).
 // Money is integer minor units with its currency and exponent (ADR-0005).
 package extract
 
@@ -77,10 +79,10 @@ type Extractor struct {
 	// merges them into one; default CompactAt.
 	CompactAt int
 	// Cash classifies the tenant's bank statement lines for cash_actuals
-	// (the cash context, wired by the composition root); nil extracts no
-	// cash_actuals, and the semantic layer answers its metrics from the
-	// database.
-	Cash CashActuals
+	// and reads its snapshots' lines for cash_snapshots (the cash context,
+	// wired by the composition root); nil extracts neither, and the
+	// semantic layer answers their metrics from the database.
+	Cash Cash
 	// Replayed reports whether the replica has replayed past lsn; nil asks
 	// the replica (pg_last_wal_replay_lsn). Tests replace it to stand for a
 	// lagging replica.

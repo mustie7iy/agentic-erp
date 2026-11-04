@@ -45,9 +45,10 @@ type Endpoints struct {
 	// Loopback reads the API in-process as the caller
 	// (httpapi.Loopback): the database path.
 	Loopback http.RoundTripper
-	// Cash reads the cash actuals as the caller, the database path of
-	// cash_actuals (the cash context, wired by the composition root).
-	Cash analytics.CashActuals
+	// Cash reads the cash actuals and the snapshots' lines as the caller,
+	// the database path of cash_actuals and cash_snapshots (the cash
+	// context, wired by the composition root).
+	Cash analytics.Cash
 	// Fallbacks bounds the database answers running at once: each holds
 	// its request's transaction while it reads the API in transactions of
 	// its own. Beyond it a query is 503 analytics.busy. Default 2.

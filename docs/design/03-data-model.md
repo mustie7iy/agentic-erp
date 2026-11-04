@@ -2959,6 +2959,14 @@ them, for the legal entities that have a `payments.bank_statement`. No
 migration; querying them is `analytics.query.run` and
 `cash.forecast.read`.
 
+T53j2 copies the forecast into the analytical store (ADR-0044 As built
+T53j2), storing nothing in PostgreSQL either: dataset `cash_snapshots`,
+one row per `cash.snapshot_flow` line at document level (`bucket_end`
+null) of each legal entity's snapshot of each date the variance would
+compare against, with `lag_days` (`value_date` less the snapshot's
+`snapshot_date`). No migration; querying it is `analytics.query.run` and
+`cash.forecast.read`.
+
 T53f4 stores people's comments on the variance (000201,
 `cash.variance_comment` above), each naming the `cash.snapshot` its
 variance compares with, found as T53f3 finds it; 000201 replaces

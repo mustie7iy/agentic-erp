@@ -361,7 +361,7 @@ start() {
   say "    memo records and payments in transit, conversion and drill-down; step 26 its snapshots; step 27 the cash actuals;"
   say "    step 28 the forecast's variance, step 30 a person's comment on it; step 33 its purchase orders; step 35 its"
   say "    treasury connector over SFTP; step 36 the forecast across companies in group currency; step 37 the actuals in"
-  say "    analytics (the forecast's datasets and metrics wait for T53j)"
+  say "    analytics, step 38 the forecast in analytics (its variance and accuracy metrics wait for T53j3)"
   say "  - a webhook delivered: the walkthrough runs without the event bus and never sends one to this machine"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - accounts receivable, the period close's accruals and its close agent (T64e-T64g, T64j), consolidation (T68)"
@@ -3923,6 +3923,73 @@ step_cash_analytics() {
   passed
 }
 
+# step_cash_forecast_analytics is the forecast as governed metrics of the
+# semantic layer (T53j2, ADR-0044 As built T53j2): each value date's flows
+# as Maple's snapshot of the day the lag before kept them, here today's
+# (the last taken on demand, step 35's, or the daily one when the
+# walkthrough runs after Maple's snapshot time, which is then read instead),
+# at lags 0, 7 and 30, each the snapshot's own lines of that day, blocked
+# suppliers' flows left out; Rita, who holds the forecast's read alone,
+# reads the same.
+step_cash_forecast_analytics() {
+  heading "Step 38 — The forecast in analytics: what today's snapshot expected for today, a week and a month ahead"
+  as tom
+  local snap kind other day lag q kept got seen=0 total=0 preferred=0 on_demand=0
+  say "The variance report compares one snapshot over its period. The governed forecast metrics read each value date"
+  say "from the snapshot taken that many days before it (0, 7 or 30): the company's daily snapshot of that date, else the"
+  say "last one taken on demand that day. Today's is the one Tom's metrics read for today, in a week and in a month:"
+  api 200 '.items[] | "  \(.snapshot_date) \(.kind) \(.name // "") taken \(.taken_at)"' listCashSnapshots -p "legal_entity_id=$LE" -p "from=$TODAY" -p "to=$TODAY"
+  snap=$(field '([.items[] | select(.kind == "daily")] + .items)[0].id')
+  kind=$(field '([.items[] | select(.kind == "daily")] + .items)[0].kind')
+  other=$(field '[.items[] | select(.kind == "on_demand")][0].id')
+  say "The metrics read today's $kind snapshot."
+  QUIET=1 api 200 '' listCashSnapshotFlows -p "id=$snap" -p currency=CAD -p page_size=500
+  cp "$WORK/last.json" "$WORK/forecast_lines.json"
+  QUIET=1 api 200 '' listCashSnapshotFlows -p "id=$other" -p currency=CAD -p page_size=500
+  cp "$WORK/last.json" "$WORK/forecast_other.json"
+  for lag in 0 7 30; do
+    day=$(date_add "$TODAY" "$lag")
+    kept=$(kept_on "$WORK/forecast_lines.json" "$day")
+    q="{\"measures\": [\"forecast_lag_$lag\"], \"by\": [\"currency\", \"value_date\", \"source\", \"certainty\", \"liquidity_item\"], \"companies\": [\"$CC\"], \"order_by\": \"value_date\"}"
+    say "forecast_lag_$lag, by currency, value date, source, certainty and liquidity item: $day is today's snapshot's day $lag."
+    api 200 '"answered from \(.source) as of \(.as_of)", (.rows[] | "  " + (map(.value // "-") | join("  ")))' runAnalyticsQuery -body "$q"
+    got=$(cad_on "$day")
+    expect "the CAD forecast of $day at lag $lag, the snapshot's lines of that day" "$(amount "$got")" "$(amount "$kept")"
+    expect "lag $lag: today's snapshot's other days left out" "$(field "[.rows[] | select(.[1].value != \"$day\")] | length")" 0
+    if [ "$kept" != 0 ]; then seen=1; fi
+    total=$((total + got)) preferred=$((preferred + kept)) on_demand=$((on_demand + $(kept_on "$WORK/forecast_other.json" "$day")))
+  done
+  expect "the measure's definition" "$(field '.definitions[0].name')" forecast_lag_30
+  if [ "$kind" = daily ] && [ "$preferred" != "$on_demand" ]; then
+    # Run after Maple's snapshot time, the daily snapshot was taken early in the story, before most of its flows.
+    say "Today has a daily snapshot, taken before most of the story's flows: the metrics read it ($(amount "$preferred") over the three"
+    say "days), not the one taken on demand later ($(amount "$on_demand")), as the variance would compare against it."
+    expect "the three days' CAD forecast, the daily snapshot's" "$(amount "$total")" "$(amount "$preferred")"
+  else
+    expect "today's snapshot forecasts one of those days" "$seen" 1
+  fi
+  as rita
+  say "Rita, who holds the forecast's read alone, reads the day-ahead forecast: it names no supplier (ADR-0044 As built T53j2)."
+  q="{\"measures\": [\"forecast_lag_0\"], \"by\": [\"currency\", \"value_date\"], \"companies\": [\"$CC\"]}"
+  api 200 '(.rows[] | "  " + (map(.value // "-") | join("  ")))' runAnalyticsQuery -body "$q"
+  expect "Rita's CAD forecast of $TODAY, Tom's" "$(amount "$(cad_on "$TODAY")")" "$(amount "$(kept_on "$WORK/forecast_lines.json" "$TODAY")")"
+  as tom
+  passed
+}
+
+# kept_on FILE DAY is the CAD cents a snapshot's page of lines (FILE)
+# forecast for DAY at document level, blocked suppliers' flows left out.
+kept_on() {
+  jq -r --arg d "$2" 'def c: sub("\\."; "") | tonumber;
+    [.items[] | select(.bucket_end == null and .value_date == $d and .source != "payable_blocked") | .amount.amount | c] | add // 0' "$1"
+}
+
+# cad_on DAY is the CAD cents of the last query's rows of DAY (currency
+# the first column, value date the second, the measure the last).
+cad_on() {
+  field "[.rows[] | select(.[0].value == \"CAD\" and .[1].value == \"$1\") | .[-1].value | sub(\"\\\\.\"; \"\") | tonumber] | add // 0"
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -3944,7 +4011,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_close'
 
 main() {
   start
