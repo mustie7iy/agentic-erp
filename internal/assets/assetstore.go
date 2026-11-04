@@ -169,6 +169,19 @@ func inLedgerOrder[T any](items []T, ledgers []LedgerRef, ledger func(T) uuid.UU
 	})
 }
 
+// inPortLedgerOrder sorts items in the order the ledger port lists the
+// tenant's ledgers (inLedgerOrder) and returns that order, for a
+// document's values per ledger read grouped, in no order, before its
+// audit records and events list them (batch 50's fix forward, ADR-0057).
+func inPortLedgerOrder[T any](ctx context.Context, port Ledger, items []T, ledger func(T) uuid.UUID) ([]LedgerRef, error) {
+	order, err := port.Ledgers(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("assets: ledgers: %w", err)
+	}
+	inLedgerOrder(items, order, ledger)
+	return order, nil
+}
+
 // record audits a change of an asset, with its terms per ledger in ledger
 // order (inLedgerOrder), and publishes it as AssetChanged, as the asset is
 // after it.

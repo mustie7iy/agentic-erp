@@ -68,12 +68,7 @@ func entryOf(es []DocumentEntry, v RetiredValues) (DocumentEntry, bool) {
 // are read grouped, in no order (batch 50's fix forward, ADR-0057), and
 // returns the ledgers in that order for the asset's terms.
 func (e *Endpoints) retiredInLedgerOrder(ctx context.Context, q Retirement) ([]LedgerRef, error) {
-	order, err := e.Ledger.Ledgers(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("assets: ledgers: %w", err)
-	}
-	inLedgerOrder(q.Ledgers, order, func(v RetiredValues) uuid.UUID { return v.LedgerID })
-	return order, nil
+	return inPortLedgerOrder(ctx, e.Ledger, q.Ledgers, func(v RetiredValues) uuid.UUID { return v.LedgerID })
 }
 
 // recordRetirement audits the retirement and publishes it as

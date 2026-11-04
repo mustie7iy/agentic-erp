@@ -2934,16 +2934,22 @@ components:
       summary: An acquisition, retirement or transfer of an asset was posted.
       description: |
         Emitted by `asset-acquisitions` (POST, `acquisition`) and
-        `asset-retirements` (POST, `retirement`, T57g), ADR-0057 §6, §8,
-        §10; transfers add their kind with their slice. It carries the
+        `asset-retirements` (POST, `retirement`, T57g) and `asset-transfers`
+        (POST, `transfer`, T57h), ADR-0057 §6, §8, §10. It carries the
         asset, its status and version after the posting, and per ledger the
         change of acquisition cost in local and group currency with the
         journal entry, a retirement also the change of accumulated
         depreciation (its catch-up included) and its gain or loss, so a
         consumer need not read the document for its values (a retirement's
         kind and proceeds are on `GET /v1/asset-retirements/{id}`). A
-        retirement lists the ledgers it posted an entry in. Subject is the
-        document id.
+        retirement lists the ledgers it posted an entry in. A transfer
+        carries its kind; a center transfer its centers before and after
+        (its ledgers' cost unchanged, their accumulated depreciation its
+        catch-up, a catch-up entry of its own named beside the main one);
+        an asset transfer its receiver with the receiver's status and
+        version after it (the cost and accumulated depreciation taken off
+        the asset are brought onto the receiver). Subject is the document
+        id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -2961,8 +2967,10 @@ components:
       summary: An acquisition, retirement or transfer of an asset was reversed.
       description: |
         Emitted by `asset-acquisitions/{id}:reverse` (`acquisition`) and
-        `asset-retirements/{id}:reverse` (`retirement`, T57g), ADR-0057 §6,
-        §8, §10; transfers add their kind with their slice. It carries the asset, its status and version after
+        `asset-retirements/{id}:reverse` (`retirement`, T57g) and
+        `asset-transfers/{id}:reverse` (`transfer`, T57h), ADR-0057 §6, §8,
+        §10, a transfer with the same fields as when it was posted. It
+        carries the asset, its status and version after
         the reversal, the reversal's posting date and reason, and per
         ledger the change of acquisition cost the reversal made (the
         original's negated) in local and group currency with the reversal
@@ -3830,8 +3838,18 @@ components:
       type: object
       required: [document_kind, document_id, asset_id, legal_entity_id, asset_number, class_code, value_date, posting_date, currency_lc, currency_gc, ledgers, asset_status, asset_version]
       properties:
-        document_kind: {type: string, description: 'Open enum: acquisition, retirement.'}
-        document_id: {$ref: '#/components/schemas/Uuid', description: '`assets.acquisition.id` for an acquisition, `assets.retirement.id` for a retirement.'}
+        document_kind: {type: string, description: 'Open enum: acquisition, retirement, transfer.'}
+        document_id: {$ref: '#/components/schemas/Uuid', description: '`assets.acquisition.id` for an acquisition, `assets.retirement.id` for a retirement, `assets.transfer.id` for a transfer.'}
+        transfer_kind: {type: string, description: 'A transfer''s kind. Open enum: center, asset.'}
+        from_cost_center_id: {$ref: '#/components/schemas/NullableUuid', description: 'A center transfer''s previous cost center; null without one. Center ids are named through the centers API (GET /v1/cost-centers/{id}, /v1/profit-centers/{id}), which needs ledger.cost_center.read.'}
+        from_profit_center_id: {$ref: '#/components/schemas/NullableUuid', description: 'A center transfer''s previous profit center; null without one.'}
+        cost_center_id: {$ref: '#/components/schemas/NullableUuid', description: 'A center transfer''s new cost center; null without one.'}
+        profit_center_id: {$ref: '#/components/schemas/NullableUuid', description: 'A center transfer''s new profit center; null without one.'}
+        to_asset_id: {$ref: '#/components/schemas/Uuid', description: 'An asset transfer''s receiver.'}
+        to_asset_number: {type: string, description: 'The receiver''s number.'}
+        to_class_code: {type: string, description: 'The receiver''s class.'}
+        to_asset_status: {type: string, description: 'The receiver''s status after it. Open enum: planned, active.'}
+        to_asset_version: {type: integer, description: 'The receiver''s version after it.'}
         asset_id: {$ref: '#/components/schemas/Uuid'}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
         asset_number: {type: string}
@@ -3850,8 +3868,11 @@ components:
               ledger_id: {$ref: '#/components/schemas/Uuid'}
               cost: {$ref: '#/components/schemas/SignedMoney', description: In local currency; negative for a reduction or a retirement.}
               cost_gc: {$ref: '#/components/schemas/SignedMoney', description: In group currency.}
-              accumulated: {$ref: '#/components/schemas/SignedMoney', description: 'A retirement''s change of accumulated depreciation in local currency, its catch-up and the share taken off (positive: a debit).'}
-              accumulated_gc: {$ref: '#/components/schemas/SignedMoney', description: 'The same in group currency (a retirement).'}
+              accumulated: {$ref: '#/components/schemas/SignedMoney', description: 'A retirement''s or transfer''s change of accumulated depreciation in local currency, its catch-up and the share taken off (positive: a debit).'}
+              catch_up_journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'A center transfer''s catch-up entry of its own, dated the last day of the period before.'}
+              catch_up_fiscal_year: {type: integer}
+              catch_up_document_number: {type: string}
+              accumulated_gc: {$ref: '#/components/schemas/SignedMoney', description: 'The same in group currency (a retirement or transfer).'}
               gain: {$ref: '#/components/schemas/SignedMoney', description: 'A retirement''s gain (positive) or loss (negative) in local currency.'}
               gain_gc: {$ref: '#/components/schemas/SignedMoney', description: 'The same in group currency (a retirement).'}
               journal_entry_id: {$ref: '#/components/schemas/Uuid'}
@@ -3863,8 +3884,18 @@ components:
       type: object
       required: [document_kind, document_id, asset_id, legal_entity_id, asset_number, class_code, posting_date, reason, currency_lc, currency_gc, ledgers, asset_status, asset_version]
       properties:
-        document_kind: {type: string, description: 'Open enum: acquisition, retirement.'}
-        document_id: {$ref: '#/components/schemas/Uuid', description: '`assets.acquisition.id` for an acquisition, `assets.retirement.id` for a retirement.'}
+        document_kind: {type: string, description: 'Open enum: acquisition, retirement, transfer.'}
+        document_id: {$ref: '#/components/schemas/Uuid', description: '`assets.acquisition.id` for an acquisition, `assets.retirement.id` for a retirement, `assets.transfer.id` for a transfer.'}
+        transfer_kind: {type: string, description: 'A transfer''s kind. Open enum: center, asset.'}
+        from_cost_center_id: {$ref: '#/components/schemas/NullableUuid', description: 'A center transfer''s previous cost center; null without one. Center ids are named through the centers API (GET /v1/cost-centers/{id}, /v1/profit-centers/{id}), which needs ledger.cost_center.read.'}
+        from_profit_center_id: {$ref: '#/components/schemas/NullableUuid', description: 'A center transfer''s previous profit center; null without one.'}
+        cost_center_id: {$ref: '#/components/schemas/NullableUuid', description: 'A center transfer''s new cost center; null without one.'}
+        profit_center_id: {$ref: '#/components/schemas/NullableUuid', description: 'A center transfer''s new profit center; null without one.'}
+        to_asset_id: {$ref: '#/components/schemas/Uuid', description: 'An asset transfer''s receiver.'}
+        to_asset_number: {type: string, description: 'The receiver''s number.'}
+        to_class_code: {type: string, description: 'The receiver''s class.'}
+        to_asset_status: {type: string, description: 'The receiver''s status after it. Open enum: planned, active.'}
+        to_asset_version: {type: integer, description: 'The receiver''s version after it.'}
         asset_id: {$ref: '#/components/schemas/Uuid'}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
         asset_number: {type: string}
@@ -3883,8 +3914,12 @@ components:
               ledger_id: {$ref: '#/components/schemas/Uuid'}
               cost: {$ref: '#/components/schemas/SignedMoney', description: In local currency; the original's negated.}
               cost_gc: {$ref: '#/components/schemas/SignedMoney', description: In group currency; the original's negated.}
-              accumulated: {$ref: '#/components/schemas/SignedMoney', description: 'A retirement''s change of accumulated depreciation negated, in local currency.'}
-              accumulated_gc: {$ref: '#/components/schemas/SignedMoney', description: 'The same in group currency (a retirement).'}
+              accumulated: {$ref: '#/components/schemas/SignedMoney', description: 'A retirement''s or transfer''s change of accumulated depreciation negated, in local currency.'}
+              catch_up_journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The reversal of a center transfer''s catch-up entry of its own.'}
+              catch_up_fiscal_year: {type: integer}
+              catch_up_document_number: {type: string}
+              catch_up_reversed_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The catch-up entry it reversed.'}
+              accumulated_gc: {$ref: '#/components/schemas/SignedMoney', description: 'The same in group currency (a retirement or transfer).'}
               gain: {$ref: '#/components/schemas/SignedMoney', description: 'A retirement''s gain or loss negated, in local currency.'}
               gain_gc: {$ref: '#/components/schemas/SignedMoney', description: 'The same in group currency (a retirement).'}
               journal_entry_id: {$ref: '#/components/schemas/Uuid', description: The reversal entry.}

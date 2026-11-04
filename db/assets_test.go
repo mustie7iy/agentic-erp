@@ -533,3 +533,103 @@ func TestAssetRetirementRules(t *testing.T) {
 const movementShareSQL = `INSERT INTO assets.movement (tenant_id, id, asset_id, seq, legal_entity_id, ledger_id, class_code, kind, value_date, posting_date,
 		fiscal_year, fiscal_period, share, document_kind, document_id, created_by)
 	VALUES ($1, gen_random_uuid(), $2, 2, $3, $4, 'MACHINES', 'retirement', '2026-06-15', '2026-06-15', 2026, 6, $5::numeric, 'retirement', gen_random_uuid(), $6)`
+
+// transferSQL writes a transfer of f.active to the asset (nil for a
+// center transfer) with the seqs, the kind, value and posting dates, a
+// share and centers.
+const transferSQL = `INSERT INTO assets.transfer (tenant_id, id, legal_entity_id, asset_id, seq, kind, value_date, posting_date, fiscal_year,
+		fiscal_period, currency, currency_gc, to_asset_id, to_seq, share_percent, cost_center_id, profit_center_id, status, created_by, updated_by, share_cost)
+	VALUES ($1, $2, $3, $4, $5, $6, $7::date, $8::date, 2026, 6, 'EUR', 'USD', $9, $10, $11::numeric, $12, $13, $14, $15, $15, $16)`
+
+// TestAssetTransferRules: a transfer starts posted, is reversed at most
+// once on or after its own date and keeps what it posted; a center
+// transfer names centers and is valued on its period's first day, an
+// asset transfer names its receiver and is valued in its period; and a
+// row restoring an earlier assignment repeats its centers and valid_from.
+func TestAssetTransferRules(t *testing.T) {
+	need(t)
+	f := newAssetFixture(t)
+	center := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, transferSQL, f.tenant, center, f.entity, f.active, 2, "center", "2026-06-01", "2026-06-15", nil, nil, nil, f.cc, f.pc, "posted",
+			f.actor, nil); err != nil {
+			return err
+		}
+		return exec(tx, transferSQL, f.tenant, id(), f.entity, f.active, 9, "asset", "2026-06-10", "2026-06-15", f.planned, 5, nil, nil, nil, "posted",
+			f.actor, 100)
+	})
+	row := func(seq int, kind, value, posting string, to, toSeq, percent, pc any, status string) error {
+		return f.try(t, transferSQL, f.tenant, id(), f.entity, f.active, seq, kind, value, posting, to, toSeq, percent, nil, pc, status, f.actor, nil)
+	}
+	shared := func(toSeq int, percent, cost any) error {
+		return f.try(t, transferSQL, f.tenant, id(), f.entity, f.active, 10, "asset", "2026-06-10", "2026-06-15", f.planned, toSeq, percent, nil, nil,
+			"posted", f.actor, cost)
+	}
+	reverse := `UPDATE assets.transfer SET status = 'reversed', reversal_posting_date = $2::date, reversal_reason = $3, version = version + 1 WHERE id = $1`
+	for name, c := range map[string]struct {
+		err  error
+		want string
+	}{
+		"a transfer starting reversed":           {row(3, "center", "2026-06-01", "2026-06-15", nil, nil, nil, f.pc, "reversed"), "starts posted"},
+		"another kind":                           {row(3, "sale", "2026-06-01", "2026-06-15", nil, nil, nil, f.pc, "posted"), "transfer_kind_check"},
+		"a center transfer mid-period":           {row(3, "center", "2026-06-02", "2026-06-15", nil, nil, nil, f.pc, "posted"), "transfer_value_date"},
+		"a center transfer with a receiver":      {row(3, "center", "2026-06-01", "2026-06-15", f.planned, 2, nil, f.pc, "posted"), "transfer_kind"},
+		"a center transfer with a share":         {row(3, "center", "2026-06-01", "2026-06-15", nil, nil, "50", f.pc, "posted"), "transfer_kind"},
+		"an asset transfer without its receiver": {row(3, "asset", "2026-06-10", "2026-06-15", nil, nil, nil, nil, "posted"), "transfer_kind"},
+		"an asset transfer with centers":         {row(3, "asset", "2026-06-10", "2026-06-15", f.planned, 2, nil, f.pc, "posted"), "transfer_kind"},
+		"an asset transferred to itself":         {row(3, "asset", "2026-06-10", "2026-06-15", f.active, 3, nil, nil, "posted"), "transfer_same_asset"},
+		"valued in the month before":             {row(3, "asset", "2026-05-31", "2026-06-15", f.planned, 2, nil, nil, "posted"), "transfer_value_date"},
+		"valued after its posting date":          {row(3, "asset", "2026-06-16", "2026-06-15", f.planned, 2, nil, nil, "posted"), "transfer_value_date"},
+		"a percent above 100":                    {row(3, "asset", "2026-06-10", "2026-06-15", f.planned, 2, "100.5", nil, "posted"), "transfer_share_percent_check"},
+		"a percent and a cost":                   {shared(6, "5", 100), "transfer_share"},
+		"a cost of zero":                         {shared(6, nil, 0), "transfer_share_cost_check"},
+		"a receiver's seq taken":                 {shared(5, nil, 100), "transfer_to_seq_once"},
+		"a seq taken":                            {row(2, "asset", "2026-06-10", "2026-06-15", f.planned, 2, nil, nil, "posted"), "transfer_seq_once"},
+		"reversed without its date":              {f.try(t, `UPDATE assets.transfer SET status = 'reversed', version = version + 1 WHERE id = $1`, center), "transfer_reversal"},
+		"reversed before it was posted":          {f.try(t, reverse, center, "2026-06-14", "r"), "transfer_reversal_date"},
+		"its centers changed":                    {f.try(t, `UPDATE assets.transfer SET cost_center_id = NULL, version = version + 1 WHERE id = $1`, center), "keeps what it posted"},
+		"a transfer deleted":                     {f.try(t, `DELETE FROM assets.transfer WHERE id = $1`, center), "permission denied"},
+	} {
+		t.Run(name, func(t *testing.T) { failsWith(t, c.err, c.want) })
+	}
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		for _, s := range []struct {
+			sql  string
+			args []any
+		}{
+			{`UPDATE assets.asset SET last_seq = 2, version = version + 1 WHERE id = $1`, []any{f.planned}},
+			{assignmentSQL, []any{f.tenant, f.planned, 2, "2026-07-01", nil, id(), f.actor}},
+			{`UPDATE assets.asset SET last_seq = 3, version = version + 1 WHERE id = $1`, []any{f.planned}},
+			{reverse, []any{center, "2026-06-15", "r"}},
+		} {
+			if err := exec(tx, s.sql, s.args...); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	failsWith(t, f.try(t, `UPDATE assets.transfer SET status = 'posted', version = version + 1 WHERE id = $1`, center), "cannot change from reversed to posted")
+	failsWith(t, f.try(t, `UPDATE assets.transfer SET reversal_reason = 'other', version = version + 1 WHERE id = $1`, center), "keeps what it posted")
+
+	// f.planned: row 1 from -infinity on (cc, pc), row 2 from 2026-07-01 on
+	// (no cost center, another profit center); last_seq 3.
+	restore := `INSERT INTO assets.asset_assignment (tenant_id, asset_id, seq, valid_from, cost_center_id, profit_center_id, restores_seq, created_by)
+		VALUES ($1, $2, 3, $3::date, $4, $5, $6, $7)`
+	for name, c := range map[string]struct {
+		args []any
+		want string
+	}{
+		"another valid_from":     {[]any{f.tenant, f.planned, "2026-07-01", f.cc, f.pc, 1, f.actor}, "a restoring assignment repeats"},
+		"other centers":          {[]any{f.tenant, f.planned, "-infinity", nil, f.pc, 1, f.actor}, "a restoring assignment repeats"},
+		"itself":                 {[]any{f.tenant, f.planned, "-infinity", f.cc, f.pc, 3, f.actor}, "a restoring assignment repeats"},
+		"a row of no seq":        {[]any{f.tenant, f.planned, "-infinity", f.cc, f.pc, 0, f.actor}, "a restoring assignment repeats"},
+		"-infinity not restored": {[]any{f.tenant, f.planned, "-infinity", f.cc, f.pc, nil, f.actor}, "only its first assignment is valid from -infinity"},
+	} {
+		t.Run(name, func(t *testing.T) { failsWith(t, f.try(t, restore, c.args...), c.want) })
+	}
+	failsWith(t, f.try(t, `INSERT INTO assets.asset_assignment (tenant_id, asset_id, seq, valid_from, restores_seq, created_by)
+		VALUES ($1, $2, 1, '-infinity', 1, $3)`, f.tenant, f.active, f.actor), "a restoring assignment repeats")
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, restore, f.tenant, f.planned, "-infinity", f.cc, f.pc, 1, f.actor)
+	})
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -146,7 +147,7 @@ func (e *Endpoints) prepareRetirement(ctx context.Context, tx pgx.Tx, in NewReti
 		return nil, err
 	}
 	for _, l := range r.ledgers {
-		if err := l.take(in, r.asset.Number); err != nil {
+		if err := l.take(in.Percent, in.Cost, r.asset.Number); err != nil {
 			return nil, err
 		}
 	}
@@ -188,44 +189,71 @@ func (e *Endpoints) retirementAccountsOf(ctx context.Context, r *retiring) (*con
 	return doc, nil
 }
 
-// retirementDates sets the posting date (the company's date today by
-// default), the value date (the posting date by default) and the posting
-// period V with the regular period before it (the previous fiscal year's
-// last for period 1: twelve regular periods a year, ADR-0057 as built
-// T57e). The value date lies in V on or before the posting date (422
-// assets.value_date_outside_period, decided by default 13) and not before
-// the asset's capitalisation date (422
+// retirementDates sets the posting date, the value date (the posting
+// date by default) and the posting period V with the period before it
+// (postingDates). The value date lies in V on or before the posting date
+// (422 assets.value_date_outside_period, decided by default 13) and not
+// before the asset's capitalisation date (422
 // assets.value_date_before_capitalisation).
 func (e *Endpoints) retirementDates(ctx context.Context, doc *config.Config, r *retiring) error {
-	if r.in.PostingDate != nil {
-		r.posting = *r.in.PostingDate
-	} else {
-		today, err := doc.CompanyDay(r.company.Code, clock.Now(e.Now))
-		if err != nil {
-			return fmt.Errorf("assets: %w", err)
-		}
-		r.posting = today.Date
+	var err error
+	if r.posting, r.period, r.before, err = e.postingDates(ctx, doc, r.company, r.in.PostingDate); err != nil {
+		return err
 	}
 	r.value = r.posting
 	if r.in.ValueDate != nil {
 		r.value = *r.in.ValueDate
 	}
-	per, err := e.Ledger.Period(ctx, r.company.ID, r.posting)
+	if err := valuedInPeriod("retirement", r.value, r.posting, r.period); err != nil {
+		return err
+	}
+	return notBeforeCapitalisation(r.asset, r.value)
+}
+
+// postingDates are a retirement's or transfer's posting date (the
+// company's date today when none is given), its regular period V and the
+// regular period before V (the previous fiscal year's last for period 1:
+// twelve regular periods a year, ADR-0057 as built T57e).
+func (e *Endpoints) postingDates(ctx context.Context, doc *config.Config, co Company, given *time.Time) (time.Time, Period, postingPeriod, error) {
+	var posting time.Time
+	if given != nil {
+		posting = *given
+	} else {
+		today, err := doc.CompanyDay(co.Code, clock.Now(e.Now))
+		if err != nil {
+			return time.Time{}, Period{}, postingPeriod{}, fmt.Errorf("assets: %w", err)
+		}
+		posting = today.Date
+	}
+	per, err := e.Ledger.Period(ctx, co.ID, posting)
 	if err != nil {
-		return fmt.Errorf("assets: period of %s: %w", r.posting.Format(time.DateOnly), err)
+		return time.Time{}, Period{}, postingPeriod{}, fmt.Errorf("assets: period of %s: %w", posting.Format(time.DateOnly), err)
 	}
-	r.period, r.before = per, postingPeriod{per.FiscalYear, per.Number - 1}
+	before := postingPeriod{per.FiscalYear, per.Number - 1}
 	if per.Number == 1 {
-		r.before = postingPeriod{per.FiscalYear - 1, 12}
+		before = postingPeriod{per.FiscalYear - 1, 12}
 	}
-	if r.value.Before(per.Start) || r.value.After(r.posting) {
-		return invalid("assets.value_date_outside_period", fmt.Sprintf("A retirement is valued in its posting period, %s to its posting date %s; "+
-			"it is not backdated.", per.Start.Format(time.DateOnly), r.posting.Format(time.DateOnly)), "value_date",
-			"a date from "+per.Start.Format(time.DateOnly)+" to "+r.posting.Format(time.DateOnly))
+	return posting, per, before, nil
+}
+
+// valuedInPeriod refuses a value date outside the posting period V or
+// after the posting date (422 assets.value_date_outside_period): a
+// retirement or transfer is not backdated (decided by default 13).
+func valuedInPeriod(document string, value, posting time.Time, per Period) error {
+	if value.Before(per.Start) || value.After(posting) {
+		return invalid("assets.value_date_outside_period", fmt.Sprintf("A %s is valued in its posting period, %s to its posting date %s; "+
+			"it is not backdated.", document, per.Start.Format(time.DateOnly), posting.Format(time.DateOnly)), "value_date",
+			"a date from "+per.Start.Format(time.DateOnly)+" to "+posting.Format(time.DateOnly))
 	}
-	if on := r.asset.CapitalisedOn; on != nil && r.value.Before(*on) { // an active asset has its date (§5)
-		return invalid("assets.value_date_before_capitalisation", fmt.Sprintf("Asset %s was capitalised on %s; nothing is retired before.",
-			r.asset.Number, on.Format(time.DateOnly)), "value_date", "on or after "+on.Format(time.DateOnly))
+	return nil
+}
+
+// notBeforeCapitalisation refuses a value date before the asset's
+// capitalisation date (422 assets.value_date_before_capitalisation).
+func notBeforeCapitalisation(a Asset, value time.Time) error {
+	if on := a.CapitalisedOn; on != nil && value.Before(*on) { // an active asset has its date (§5)
+		return invalid("assets.value_date_before_capitalisation", fmt.Sprintf("Asset %s was capitalised on %s; nothing leaves it before.",
+			a.Number, on.Format(time.DateOnly)), "value_date", "on or after "+on.Format(time.DateOnly))
 	}
 	return nil
 }
@@ -235,12 +263,14 @@ func (e *Endpoints) retirementDates(ctx context.Context, doc *config.Config, r *
 // through a later period in a ledger (409 assets.later_value_date,
 // ADR-0057 §6): a run of a later period, an acquisition valued later, a
 // transfer from a later date. A reversed movement and its reversal cancel
-// out (§7) and do not count.
+// out (§7) and do not count, and only the latest assignment row is read:
+// a reversed center transfer's row is followed by the row restoring the
+// previous one, and the rows left are in date order (§8).
 func laterValueDate(ctx context.Context, tx pgx.Tx, a Asset, v Period) error {
 	var later bool
 	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM assets.movement m WHERE m.asset_id = $1 AND m.value_date > $2 AND m.reverses_id IS NULL
 				AND NOT EXISTS (SELECT FROM assets.movement r WHERE r.tenant_id = m.tenant_id AND r.reverses_id = m.id))
-			OR EXISTS (SELECT FROM assets.asset_assignment WHERE asset_id = $1 AND valid_from > $2)
+			OR (SELECT valid_from FROM assets.asset_assignment WHERE asset_id = $1 ORDER BY seq DESC LIMIT 1) > $2
 			OR EXISTS (SELECT FROM assets.asset_terms WHERE asset_id = $1 AND (booked_through_year, booked_through_period) > ($3::smallint, $4::smallint))`,
 		a.ID, v.End, v.FiscalYear, v.Number).Scan(&later)
 	if err != nil {
@@ -254,30 +284,53 @@ func laterValueDate(ctx context.Context, tx pgx.Tx, a Asset, v Period) error {
 	return nil
 }
 
-// retiredLedgers reads, per ledger the company keeps, the asset's terms
-// (422 assets.ledger_terms_missing in a ledger it has none in: give them
-// by PATCH first) and values there, and its catch-up: planned(V-1) less
-// booked (ADR-0057 §7), negative when V's run already posted.
+// retiredLedgers reads what the retirement takes per ledger the company
+// keeps, its catch-up first (catchUps).
 func (e *Endpoints) retiredLedgers(ctx context.Context, tx pgx.Tx, r *retiring) error {
-	kept, err := e.Ledger.Ledgers(ctx, &r.company.ID)
+	var err error
+	r.ledgers, err = e.catchUps(ctx, tx, r.asset, r.company, r.period)
+	return err
+}
+
+// catchUps reads, per ledger the company keeps (the leading first, then
+// by code), the asset's terms (422 assets.ledger_terms_missing in a ledger
+// it has none in: give them by PATCH first) and values there, and its
+// catch-up through the period before V: planned(V-1) less booked
+// (ADR-0057 §7), negative when V's run already posted. A retirement and
+// both kinds of transfer catch up so (§8).
+func (e *Endpoints) catchUps(ctx context.Context, tx pgx.Tx, a Asset, co Company, v Period) ([]*retiredLedger, error) {
+	kept, err := e.Ledger.Ledgers(ctx, &co.ID)
 	if err != nil {
-		return fmt.Errorf("assets: ledgers of %s: %w", r.company.Code, err)
+		return nil, fmt.Errorf("assets: ledgers of %s: %w", co.Code, err)
 	}
+	if err := termsInEvery(a, kept, "asset_id"); err != nil {
+		return nil, err
+	}
+	var out []*retiredLedger
 	for _, l := range kept {
-		t, ok := termsIn(r.asset, l.ID)
-		if !ok {
-			return invalid("assets.ledger_terms_missing", fmt.Sprintf("Asset %s has no depreciation terms in ledger %s, which its company keeps; "+
-				"give them (PATCH /v1/assets/{id}) before it is retired.", r.asset.Number, l.Code), "asset_id", "an asset with terms in every ledger")
+		t, _ := termsIn(a, l.ID) // termsInEvery found them
+		d := &depreciable{asset: a.ID, terms: t, capitalised: a.CapitalisedOn, bookedIn: map[postingPeriod]money.Minor{}}
+		if err := readMovements(ctx, tx, l.ID, map[uuid.UUID]*depreciable{a.ID: d}); err != nil {
+			return nil, err
 		}
-		d := &depreciable{asset: r.asset.ID, terms: t, capitalised: r.asset.CapitalisedOn, bookedIn: map[postingPeriod]money.Minor{}}
-		if err := readMovements(ctx, tx, l.ID, map[uuid.UUID]*depreciable{r.asset.ID: d}); err != nil {
-			return err
-		}
-		_, planned, err := d.planned(MonthOf(r.period.Start) - 1)
+		_, planned, err := d.planned(MonthOf(v.Start) - 1)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		r.ledgers = append(r.ledgers, &retiredLedger{ledger: l, terms: t, values: r.asset.Values[l.ID], catchUp: planned - d.booked})
+		out = append(out, &retiredLedger{ledger: l, terms: t, values: a.Values[l.ID], catchUp: planned - d.booked})
+	}
+	return out, nil
+}
+
+// termsInEvery refuses an asset without terms in a ledger of the company
+// (422 assets.ledger_terms_missing on the field naming the asset), so
+// every ledger's catch-up and schedule are planned (§7).
+func termsInEvery(a Asset, kept []LedgerRef, field string) error {
+	for _, l := range kept {
+		if _, ok := termsIn(a, l.ID); !ok {
+			return invalid("assets.ledger_terms_missing", fmt.Sprintf("Asset %s has no depreciation terms in ledger %s, which its company keeps; "+
+				"give them (PATCH /v1/assets/{id}) before it is retired or transferred.", a.Number, l.Code), field, "an asset with terms in every ledger")
+		}
 	}
 	return nil
 }
@@ -299,54 +352,65 @@ func termsIn(a Asset, ledger uuid.UUID) (Terms, bool) {
 // residual value taken are the share of each rounded half away from zero,
 // all of them for a full share. With no base cost only a full share is
 // accepted (422 assets.share_of_zero_cost).
-func (l *retiredLedger) take(in NewRetirement, number string) error {
-	cost, accumulated, residual := l.values.Cost, l.values.Accumulated-l.catchUp, l.terms.Residual+l.values.Residual
+func (l *retiredLedger) take(percent *int64, cost *money.Minor, number string) error {
+	base, accumulated, residual := l.values.Cost, l.values.Accumulated-l.catchUp, l.terms.Residual+l.values.Residual
 	num, den := int64(1), int64(1) // all of it
 	switch {
-	case in.Cost != nil:
-		num, den = int64(*in.Cost), int64(cost)
-	case in.Percent != nil:
-		num, den = *in.Percent, hundredPercent
+	case cost != nil:
+		num, den = int64(*cost), int64(base)
+	case percent != nil:
+		num, den = *percent, hundredPercent
 	}
-	if cost == 0 && num != den {
-		return invalid("assets.share_of_zero_cost", fmt.Sprintf("Asset %s has no cost left in ledger %s; only a full retirement takes what is "+
+	if base == 0 && num != den {
+		return invalid("assets.share_of_zero_cost", fmt.Sprintf("Asset %s has no cost left in ledger %s; only a full share takes what is "+
 			"left of it.", number, l.ledger.Code), "share", "all of it (no share, or 100 percent)")
 	}
 	if num > den {
-		return invalid("assets.share_exceeds", fmt.Sprintf("Asset %s's cost in ledger %s is %d minor units; a retirement takes at most that.",
-			number, l.ledger.Code, int64(cost)), "share.cost", "at most the asset's cost")
+		return invalid("assets.share_exceeds", fmt.Sprintf("Asset %s's cost in ledger %s is %d minor units; a share takes at most that.",
+			number, l.ledger.Code, int64(base)), "share.cost", "at most the asset's cost")
 	}
 	l.share = big.NewRat(num, den)
 	if num == den {
-		l.cost, l.accumulated, l.residual = cost, accumulated, residual
+		l.cost, l.accumulated, l.residual = base, accumulated, residual
 		return nil
 	}
-	l.cost = proportion(cost, money.Minor(num), money.Minor(den))
+	l.cost = proportion(base, money.Minor(num), money.Minor(den))
 	l.accumulated = proportion(accumulated, money.Minor(num), money.Minor(den))
 	l.residual = proportion(residual, money.Minor(num), money.Minor(den))
 	return nil
 }
 
-// retirementGroupAmounts translates the proceeds and each ledger's
-// catch-up at the posting date's rate (ADR-0057 §7, §8), and sets the
-// group amounts of the cost and accumulated depreciation taken (groupTaken).
+// retirementGroupAmounts translates the proceeds and sets the group
+// amounts of what each ledger takes (sharedGroupAmounts).
 func (e *Endpoints) retirementGroupAmounts(ctx context.Context, r *retiring) error {
-	local := []money.Minor{r.in.Proceeds}
-	for _, l := range r.ledgers {
-		local = append(local, l.catchUp, l.cost, l.accumulated)
-	}
-	gc, err := e.Ledger.GroupAmounts(ctx, r.company.Currency, r.group, r.posting, local)
+	gc, err := e.sharedGroupAmounts(ctx, r.company.Currency, r.group, r.posting, r.ledgers, r.in.Proceeds)
 	if err != nil {
 		return fmt.Errorf("assets: group amounts of the retirement of asset %s: %w", r.asset.Number, err)
 	}
 	r.proceedsGC = gc[0]
-	for i, l := range r.ledgers {
-		at := gc[1+3*i:]
+	return nil
+}
+
+// sharedGroupAmounts translates the amounts given and each ledger's
+// catch-up at the date's rate (ADR-0057 §7, §8), sets the group amounts
+// of the cost and accumulated depreciation each takes (groupTaken), and
+// returns the amounts given translated.
+func (e *Endpoints) sharedGroupAmounts(ctx context.Context, from, to string, date time.Time, ls []*retiredLedger, given ...money.Minor) ([]money.Minor, error) {
+	local := slices.Clone(given)
+	for _, l := range ls {
+		local = append(local, l.catchUp, l.cost, l.accumulated)
+	}
+	gc, err := e.Ledger.GroupAmounts(ctx, from, to, date, local)
+	if err != nil {
+		return nil, err
+	}
+	for i, l := range ls {
+		at := gc[len(given)+3*i:]
 		l.catchUpGC = at[0]
 		l.costGC = groupTaken(l.cost, l.values.Cost, l.values.CostGC, at[1])
 		l.accumulatedGC = groupTaken(l.accumulated, l.values.Accumulated-l.catchUp, l.values.AccumulatedGC-l.catchUpGC, at[2])
 	}
-	return nil
+	return gc[:len(given)], nil
 }
 
 // groupTaken is the group amount of taken, a share of a booked balance

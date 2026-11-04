@@ -446,8 +446,8 @@ period, which posts what is left.
   same way, naming `goods-receipts/{id}:reverse` (a 102 posts its own
   entry, T33); an assets document's entry names its document's path
   (`asset-acquisitions/{id}:reverse`, `asset-retirements/{id}:reverse`
-  (T57g), and the transfers' with their slice; a depreciation run's entries
-  are never reversed one by one, ADR-0057 §4, T57d). Entries of contexts with no reversal path yet
+  (T57g), `asset-transfers/{id}:reverse` (T57h); a depreciation run's
+  entries are never reversed one by one, ADR-0057 §4, T57d). Entries of contexts with no reversal path yet
   (receivables) are refused the same way, saying so.
 - Approval decisions (`:approve`, `:reject` on approval requests) require a
   human principal; agent tokens are refused with `403 identity.agent_not_allowed`
