@@ -80,6 +80,12 @@
 // order, so postings never deadlock on them), which the sheet reads by
 // class or by asset, with the opening and closing values and the year's
 // columns of a company, ledger and fiscal year.
+//
+// T57f3 brings a run's preview over 100,000 assets within the report
+// class's p95 (ADR-0043, 01 §1.3): every posting also adds its
+// depreciation to the depreciation booked on the assets' terms (keepTotals,
+// keepBooked), which the preview, a run's batches and a catch-up read with
+// the terms, and their moves are read from a covering index.
 package assets
 
 import (

@@ -61,8 +61,28 @@ type Step struct {
 // nothing. A plan whose start is after through, without moves by then,
 // has no steps.
 func Walk(p Plan, moves []Move, through Month) ([]Step, error) {
-	moves = slices.Clone(moves)
-	slices.SortStableFunc(moves, func(a, b Move) int { return int(a.Month) - int(b.Month) })
+	var steps []Step
+	err := walk(p, moves, through, func(s Step) { steps = append(steps, s) })
+	return steps, err
+}
+
+// PlannedThrough is Planned(Walk(p, moves, through), through) without the
+// steps: a run's batch and its preview walk every selected asset, and
+// keeping each one's steps allocated some 270 MB a preview over 100,000
+// assets (T57f3).
+func PlannedThrough(p Plan, moves []Move, through Month) (money.Minor, error) {
+	var sum money.Minor
+	err := walk(p, moves, through, func(s Step) { sum += s.Depreciation })
+	return sum, err
+}
+
+// walk visits Walk's steps in order.
+func walk(p Plan, moves []Move, through Month, visit func(Step)) error {
+	byMonth := func(a, b Move) int { return int(a.Month) - int(b.Month) }
+	if !slices.IsSortedFunc(moves, byMonth) { // copied only to sort: most assets have one move
+		moves = slices.Clone(moves)
+		slices.SortStableFunc(moves, byMonth)
+	}
 	first := through + 1
 	if p.Start != nil {
 		first = min(first, *p.Start)
@@ -70,7 +90,6 @@ func Walk(p Plan, moves []Move, through Month) ([]Step, error) {
 	if len(moves) > 0 {
 		first = min(first, moves[0].Month)
 	}
-	var steps []Step
 	var cost, taken, depreciation money.Minor // taken: accumulated depreciation moves brought (negative) or took (positive)
 	residual, i := p.Residual, 0
 	for m := first; m <= through; m++ {
@@ -82,13 +101,13 @@ func Walk(p Plan, moves []Move, through Month) ([]Step, error) {
 		if p.Start != nil && m >= *p.Start {
 			var err error
 			if d, err = p.period(int32(m-*p.Start)+1, book, residual); err != nil {
-				return nil, err
+				return err
 			}
 		}
 		depreciation += d
-		steps = append(steps, Step{Month: m, Depreciation: d, BookValue: book - d})
+		visit(Step{Month: m, Depreciation: d, BookValue: book - d})
 	}
-	return steps, nil
+	return nil
 }
 
 // Planned is the planned depreciation through a period, Σ d_k for k up to

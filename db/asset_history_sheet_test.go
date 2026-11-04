@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -153,5 +154,73 @@ func TestAssetYearTotalRules(t *testing.T) {
 		"the totals of an unknown asset":        {insert, []any{f.tenant, f.ledger, id(), f.entity}, "year_total_tenant_id_asset_id_fkey"},
 	} {
 		t.Run(name, func(t *testing.T) { failsWith(t, f.try(t, c.sql, c.args...), c.want) })
+	}
+}
+
+// TestAssetTermsBookedBackfilled: 000211 keeps on each asset's terms the
+// depreciation booked in their ledger (T57f3), minus the sum of its
+// depreciation movements there, a reversal's included; the cost and
+// accumulated depreciation other movements move count nothing, and terms
+// without depreciation stay at zero.
+func TestAssetTermsBookedBackfilled(t *testing.T) {
+	conn := emptyDatabase(t)
+	migrateBefore(t, conn, 199)
+	f := fixtureIDs()
+	mill, plot, ledger2 := id(), id(), id()
+	inTenant(t, conn, f.tenant, func(tx pgx.Tx) error {
+		if err := f.seed(tx); err != nil {
+			return err
+		}
+		if err := exec(tx, "INSERT INTO ledger.ledger (tenant_id, id, code, name, is_leading, accounting_principle, created_by) VALUES ($1,$2,'2L','Local',false,'HGB',$3)",
+			f.tenant, ledger2, f.actor); err != nil {
+			return err
+		}
+		for _, a := range []struct {
+			id     uuid.UUID
+			number string
+		}{{mill, "1"}, {plot, "2"}} {
+			if err := exec(tx, assetSQL, f.tenant, a.id, f.entity, a.number, "MACHINES", "planned", f.actor); err != nil {
+				return err
+			}
+		}
+		for _, terms := range [][2]uuid.UUID{{mill, f.ledger}, {mill, ledger2}, {plot, f.ledger}} {
+			if err := exec(tx, termsSQL, f.tenant, terms[0], terms[1], "straight_line", 120, nil, 0, f.actor); err != nil {
+				return err
+			}
+		}
+		for _, m := range []struct {
+			asset, ledger uuid.UUID
+			kind          string
+			year          int
+			cost, acc     int64
+		}{
+			{mill, f.ledger, "acquisition", 2025, 1200, 0}, {mill, f.ledger, "depreciation", 2025, 0, -60}, {mill, f.ledger, "depreciation", 2026, 0, -120},
+			{mill, f.ledger, "retirement", 2026, -300, 45}, {mill, f.ledger, "transfer_out", 2026, -300, 45}, {plot, f.ledger, "transfer_in", 2026, 300, -45},
+			{mill, ledger2, "acquisition", 2026, 1200, 0}, {mill, ledger2, "depreciation", 2026, 0, -30}, {mill, ledger2, "depreciation", 2026, 0, 10},
+		} {
+			if err := exec(tx, yearMovementSQL, f.tenant, m.asset, m.ledger, m.kind, m.year, m.cost, m.acc, f.actor); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if _, err := Migrate(context.Background(), conn); err != nil {
+		t.Fatal(err)
+	}
+	names := map[uuid.UUID]string{mill: "mill", plot: "plot", f.ledger: "0L", ledger2: "2L"}
+	var got []string
+	inTenant(t, conn, f.tenant, func(tx pgx.Tx) error {
+		rows, _ := tx.Query(context.Background(), `SELECT asset_id, ledger_id, booked_depreciation FROM assets.asset_terms`)
+		var asset, ledger uuid.UUID
+		var booked int64
+		_, err := pgx.ForEachRow(rows, []any{&asset, &ledger, &booked}, func() error {
+			got = append(got, fmt.Sprintf("%s %s: %d", names[asset], names[ledger], booked))
+			return nil
+		})
+		return err
+	})
+	slices.Sort(got)
+	if want := "mill 0L: 180; mill 2L: 20; plot 0L: 0"; strings.Join(got, "; ") != want {
+		t.Errorf("the depreciation booked on the terms: got %s, want %s", strings.Join(got, "; "), want)
 	}
 }

@@ -1102,7 +1102,9 @@ type Handler interface {
 	// class. `class` keeps one class's rows. `totals` sums every row the filters select, on every page.
 	// `ledger_id` defaults to the leading ledger; one the company does not keep is 422
 	// `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page
-	// token is issued only by asset. A legal entity the caller cannot act in is 404. Reads only.
+	// token is issued only by asset. Read from one database state (a repeatable-read snapshot), so
+	// `totals` and the page agree whatever posts meanwhile. A legal entity the caller cannot act in is
+	// 404. Reads only.
 	//
 	// GET /v1/asset-history-sheet
 	GetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (GetAssetHistorySheetRes, error)
@@ -3158,7 +3160,8 @@ type Handler interface {
 	// `ledger.no_fiscal_period`. Whether the period is open and runs' order are the run's checks. An asset
 	// of a class the active configuration no longer gives the company fails the preview (422
 	// `assets.class_unknown`, `assets.class_not_in_company`), as it would fail the run. A legal entity the
-	// caller cannot act in is 404. Reads only; every agent autonomy level may call it.
+	// caller cannot act in is 404. Read from one database state (a repeatable-read snapshot), so `totals`
+	// and the page agree whatever posts meanwhile. Reads only; every agent autonomy level may call it.
 	//
 	// POST /v1/depreciation-runs/preview
 	PreviewDepreciationRun(ctx context.Context, req *DepreciationRunPreviewRequest, params PreviewDepreciationRunParams) (PreviewDepreciationRunRes, error)

@@ -1178,6 +1178,20 @@
        },
        {
         "s": "D",
+        "t": "The depreciation run's preview within the report class's p95 of 1 s over 100,000 assets, every page, its contract unchanged (T57f2 met only the p99; the p95 stands, coordinator 2026-11-04): the depreciation booked per asset and ledger kept on its terms by every posting, the moves read from a covering index, the selection planned by hash with the assets ranked by number; the preview's 01 §1.3 row",
+        "r": "migrations 000211 (asset_terms.booked_depreciation, backfilled), 000212 (movement_moves_covering, concurrently), 000213 (drops movement_moves_by_asset) · internal/assets (keepBooked in keepTotals; readMoves beside the schedule's readMovements, ids as pgtype.UUID; selectDepreciable: booked from the terms, the latest assignments by DISTINCT ON with the tenant, the rank by number, the columns every difference needs; pageNames; PlannedThrough; Terms.depreciated; grouped) · TestDepreciationRunBudget at the report class's p95 · TestAssetTermsBookedBackfilled · totalsDiffer counts the kept amounts · TestDepreciationActivitiesRunTwice compares them · 01 §1.3 · 03-data-model §3.21 · ADR-0057 (as built, T57f3) · T57f3",
+        "src": "review:T57f",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "The depreciation run's preview and the asset history sheet read in one snapshot (review finding on T57f3, a step of T57f's): the preview's selection with the depreciation booked, its moves and its page's names, and the sheet's totals and its page by asset, are separate statements, so a posting committed between them could leave one response's totals disagreeing with its own figures; both are marked x-snapshot, which now allows a read carried in a POST (x-autonomy: read)",
+        "r": "api/openapi.yaml (previewDepreciationRun, getAssetHistorySheet: x-snapshot) · api/spec.go (x-snapshot on GET or x-autonomy: read) · uow.Middleware.scope (a marked POST at REPEATABLE READ, read-write) · app.Config.Begin, httpapi.Pipeline.Begin (tests) · TestPreviewInOneSnapshot, TestAssetHistorySheetInOneSnapshot, TestSnapshotOperations, TestSnapshotRequests · 04-api-design §4.7 · ADR-0051 (one snapshot, as built) · ADR-0057 (as built, the preview's snapshot)",
+        "src": "review:T57f",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "Long-running jobs refuse a deactivated requester (pre-existing security finding on T57f; PO decision 2026-11-03: deactivated requesters are refused): every step that does deferred work as its requester (a migration run, a payment proposal and release, a simulation, a depreciation run's plan, batches and finish; workflow and in-process runners alike) first calls identity.Actors.MayAct, which refuses a requester blocked or deprovisioned since the start with 403 identity.principal_blocked, not retried; the job fails through its existing problem path, audited and recorded as the requester, its earlier postings kept and its slot freed (a migration run back to queued, a release left releasing for :release)",
         "r": "internal/identity/directory.go Actors.MayAct · internal/workflows (working, Depreciations.acting) · integration prepareAs · payments mayAct · configuration simulation · ADR-0012 As built · ADR-0057 As built · 04 §4.8",
         "src": "review:T57f · po:2026-11-03",

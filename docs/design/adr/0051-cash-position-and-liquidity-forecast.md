@@ -888,7 +888,13 @@ As built (T53c):
   payments, the ledger and the configuration are read as of one state
   (`uow.Middleware.Snapshot`, `api.Operation.Snapshot`, 04 §4.7). A
   separate transaction was rejected: it would hold a second connection
-  per request.
+  per request. As built (review:T57f3, 2026-11-04): the mark is allowed on a
+  read carried in a `POST` too (`x-autonomy: read`, which changes no
+  business data), such as a depreciation run's preview (ADR-0057); its
+  transaction is read-write at REPEATABLE READ, for its idempotency
+  record alone, so only a concurrent request of the same key can fail to
+  serialise (503, retried with the key). Any other `POST` is refused the
+  mark.
 - **Ports.** `cash` declares `Payments` (house banks with their opening
   statement, posted payments by id, payments of runs not posted),
   `Ledger` (open lines on accounts, a rate of a type), `LegalEntities` and
