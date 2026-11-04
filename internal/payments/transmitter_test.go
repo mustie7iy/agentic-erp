@@ -513,6 +513,8 @@ func TestTransmitterStaleClaim(t *testing.T) {
 	first := operationOf(t, file)
 	later := func() time.Time { return time.Now().Add(claimLapsed) }
 	h := &held{claimed: make(chan struct{}), released: make(chan struct{})}
+	var release sync.Once
+	t.Cleanup(func() { release.Do(func() { close(h.released) }) }) // a failed step leaves no upload held
 	var again string
 	done := make(chan error, 1)
 	e.connector.during = func() {
@@ -535,12 +537,16 @@ func TestTransmitterStaleClaim(t *testing.T) {
 			_, err := next.RunOnce(context.Background())
 			done <- err
 		}()
-		<-h.claimed
+		select {
+		case <-h.claimed:
+		case err := <-done:
+			t.Fatalf("new claim: got %v before its upload, want it in flight", err)
+		}
 	}
 	if _, err := e.transmitter(t).RunOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	close(h.released)
+	release.Do(func() { close(h.released) })
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}

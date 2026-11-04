@@ -51,18 +51,6 @@ func (f *FailingTx) Commit(ctx context.Context) error {
 	return f.Tx.Commit(ctx) //nolint:wrapcheck // test double: returns exactly what the real Tx returns, so the code under test behaves as in production
 }
 
-// AckLostTx commits, then reports the commit failed with ErrInjected: a
-// commit whose acknowledgement was lost, for the paths that must leave the
-// same state when they run again after it (ADR-0012).
-type AckLostTx struct{ pgx.Tx }
-
-func (a AckLostTx) Commit(ctx context.Context) error {
-	if err := a.Tx.Commit(ctx); err != nil {
-		return err //nolint:wrapcheck // test double: returns exactly what the real Tx returns
-	}
-	return ErrInjected
-}
-
 func (f *FailingTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	if f.fail() {
 		return pgconn.CommandTag{}, ErrInjected
@@ -100,3 +88,15 @@ func (errRows) Values() ([]any, error)                       { return nil, ErrIn
 func (errRows) RawValues() [][]byte                          { return nil }
 func (errRows) Conn() *pgx.Conn                              { return nil }
 func (errRows) TypeMap() *pgtype.Map                         { return nil }
+
+// AckLostTx commits, then reports the commit failed with ErrInjected: a
+// commit whose acknowledgement was lost, for the paths that must leave the
+// same state when they run again after it (ADR-0012).
+type AckLostTx struct{ pgx.Tx }
+
+func (a AckLostTx) Commit(ctx context.Context) error {
+	if err := a.Tx.Commit(ctx); err != nil {
+		return err //nolint:wrapcheck // test double: returns exactly what the real Tx returns
+	}
+	return ErrInjected
+}

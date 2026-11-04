@@ -178,9 +178,10 @@ and France, by EBICS.
   while a stalled claim was out and asked for again has a new claim
   `sending` at attempt 1 too, whose outcome the stalled one recorded,
   leaving the new operation never completed: T53h review,
-  `TestTransmitterStaleClaim`; an outcome recorded already moved the
-  version as well, so a finish whose commit applied unacknowledged is
-  recorded and published once, `TestTransmitterUnacknowledgedFinish`),
+  `TestTransmitterStaleClaim`; a finish whose commit applied
+  unacknowledged is recorded and published once, as the transmitted file
+  is no longer due, and a finish run again on the same claim would find
+  the version moved, `TestTransmitterUnacknowledgedFinish`),
   records the hash and marks the file `transmitted` together,
   publishes `bank_file_transmitted` and completes the operation. The hash
   record and the status now commit together, so T44c's transaction of its

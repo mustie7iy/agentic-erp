@@ -300,9 +300,10 @@ func (w *Transmitter) send(ctx context.Context, c *claim) error {
 
 // finish records the upload's outcome, if the claim still holds: the row
 // is as the claim left it. A claim that lapsed belongs to the sweep, which
-// queued the file again or failed it; an outcome recorded already (a
-// finish run again after a commit whose acknowledgement was lost) moved
-// the version too, so it is recorded and published once. Status and
+// queued the file again or failed it. A finish whose commit applied
+// unacknowledged is not run again, as the transmitted file is no longer
+// due; were it run again on the same claim, the version it moved would
+// refuse it, so the outcome is recorded and published once. Status and
 // attempt number do not tell claims apart: a file failed and asked for
 // again counts its attempts afresh, so its new claim has the stalled
 // one's status and number (T53h review).
