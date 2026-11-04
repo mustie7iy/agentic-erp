@@ -375,7 +375,7 @@ func TestRetirementInTheFirstPeriod(t *testing.T) {
 // fix forward, which T57g's events predate): posted with the ledger port's
 // order and with it reversed, each in a transaction rolled back, on the
 // same asset; its reversal's record, after the reversal wrote its rows,
-// gives them in the ledgers' order too.
+// gives them in the port's order too, either way.
 func TestRetirementRecordedInLedgerOrder(t *testing.T) {
 	e := newRuns(t)
 	mill, _ := e.depreciable(t, "Mill")
@@ -401,11 +401,25 @@ func TestRetirementRecordedInLedgerOrder(t *testing.T) {
 		})
 	}
 	q := e.retire(t, mill, `"kind": "scrapping"`)
-	h := app.Assets(app.Config{Now: func() time.Time { return assetDay }})
-	got := recordedLedgers(t, e, "assets.retirement.reverse", "$.ledgers[*].ledger_id", func(ctx context.Context) error {
-		_, err := h.ReverseAssetRetirement(ctx, &gen.AssetRetirementReverse{Reason: "r"},
-			gen.ReverseAssetRetirementParams{ID: uuid.MustParse(q["id"].(string)), IfMatch: "*"})
-		return err
-	})
-	want(t, "the reversal's ledgers", got, ledgerList(e.l0, e.l2))
+	for _, c := range []struct {
+		name     string
+		reversed bool
+		want     string
+	}{
+		{"its reversal in the ledgers' order", false, ledgerList(e.l0, e.l2)},
+		{"its reversal in the port's order, reversed", true, ledgerList(e.l2, e.l0)},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := app.Assets(app.Config{Now: func() time.Time { return assetDay }})
+			if c.reversed {
+				h.Ledger = ledgersReversed{h.Ledger}
+			}
+			got := recordedLedgers(t, e, "assets.retirement.reverse", "$.ledgers[*].ledger_id", func(ctx context.Context) error {
+				_, err := h.ReverseAssetRetirement(ctx, &gen.AssetRetirementReverse{Reason: "r"},
+					gen.ReverseAssetRetirementParams{ID: uuid.MustParse(q["id"].(string)), IfMatch: "*"})
+				return err
+			})
+			want(t, "the reversal's ledgers", got, c.want)
+		})
+	}
 }

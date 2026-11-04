@@ -2050,6 +2050,7 @@ retirement's path. Decided by default, for the product owner to overrule:
 - **Ledger order of the records (batch 51's merge).** T57g predates
   batch 50's fix forward above: its audit records and events listed a
   retirement's ledgers as the database grouped its movements. They now
-  take the ledger port's order too (`retiredInLedgerOrder`), as do the
-  terms of the AssetChanged a retirement or its reversal records
-  (`TestRetirementRecordedInLedgerOrder`).
+  take the ledger port's order too (`retiredInLedgerOrder`,
+  `TestRetirementRecordedInLedgerOrder` for the posting and its reversal),
+  and the AssetChanged a retirement or its reversal records gets that order
+  for its terms, as every asset change's (`record`).
