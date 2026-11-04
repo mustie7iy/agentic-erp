@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -263,7 +264,11 @@ type ClearingKey struct {
 // worklist): one fiscal year's partition, by the account index. The page
 // is chosen first and only its lines are joined to their reversal pair:
 // joining every line of the year before the limit doubled the query's
-// time (TestClearingItemsBudget in batch 48).
+// time (TestClearingItemsBudget in batch 48). It is planned per call
+// (pagination.PlanPerCall), as every listing is: from a cached
+// statement's sixth run PostgreSQL took a generic plan that cannot drop
+// the first page's cursor condition nor size the Skip and Keep arrays,
+// and the query went from 38 ms to 65-80 ms over 20,000 lines.
 func (AssetReads) ClearingLines(ctx context.Context, q ClearingQuery) ([]AssetLine, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -286,7 +291,7 @@ func (AssetReads) ClearingLines(ctx context.Context, q ClearingQuery) ([]AssetLi
 					ELSE (l.fiscal_year, l.journal_entry_id, l.line_no) IN (SELECT * FROM unnest($12::smallint[], $13::uuid[], $14::integer[])) END)
 			ORDER BY l.posting_date, l.journal_entry_id, l.line_no LIMIT $8) p
 			ON p.tenant_id = l.tenant_id AND p.fiscal_year = l.fiscal_year AND p.journal_entry_id = l.journal_entry_id AND p.line_no = l.line_no
-		ORDER BY l.posting_date, l.journal_entry_id, l.line_no`,
+		ORDER BY l.posting_date, l.journal_entry_id, l.line_no`, pagination.PlanPerCall,
 		q.LegalEntityID, q.Accounts, q.FiscalYear, q.After == nil, after.PostingDate, after.EntryID, after.LineNo, q.Limit, sy, se, sl, ky, ke, kl, q.ExceptContext)
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (AssetLine, error) { return scanAssetLine(r) })
 	return out, errs.Wrapf(err, "ledger: clearing lines of %s in %d", q.LegalEntityID, q.FiscalYear)
