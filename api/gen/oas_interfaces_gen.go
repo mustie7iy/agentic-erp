@@ -13,6 +13,10 @@ type AcceptMemoRecordProposalRes interface {
 	acceptMemoRecordProposalRes()
 }
 
+type AcceptVarianceCommentRes interface {
+	acceptVarianceCommentRes()
+}
+
 type ActivateChangeRequestRes interface {
 	activateChangeRequestRes()
 }
@@ -179,6 +183,10 @@ type CreateEntryTemplateRes interface {
 
 type CreateExchangeRateRes interface {
 	createExchangeRateRes()
+}
+
+type CreateForecastVarianceCommentRes interface {
+	createForecastVarianceCommentRes()
 }
 
 type CreateGrIrClearingRes interface {
@@ -463,6 +471,10 @@ type GetExchangeRateRes interface {
 
 type GetFiscalPeriodRes interface {
 	getFiscalPeriodRes()
+}
+
+type GetForecastVarianceCommentRes interface {
+	getForecastVarianceCommentRes()
 }
 
 type GetGoodsReceiptRes interface {
@@ -801,6 +813,10 @@ type ListFiscalPeriodsRes interface {
 	listFiscalPeriodsRes()
 }
 
+type ListForecastVarianceCommentsRes interface {
+	listForecastVarianceCommentsRes()
+}
+
 type ListGoodsReceiptsRes interface {
 	listGoodsReceiptsRes()
 }
@@ -1125,6 +1141,10 @@ type ProposePaymentRunRes interface {
 	proposePaymentRunRes()
 }
 
+type ProposeVarianceCommentRes interface {
+	proposeVarianceCommentRes()
+}
+
 type RealiseMemoRecordRes interface {
 	realiseMemoRecordRes()
 }
@@ -1163,6 +1183,10 @@ type RejectMemoRecordProposalRes interface {
 
 type RejectPaymentRunRes interface {
 	rejectPaymentRunRes()
+}
+
+type RejectVarianceCommentRes interface {
+	rejectVarianceCommentRes()
 }
 
 type ReleaseContractRes interface {

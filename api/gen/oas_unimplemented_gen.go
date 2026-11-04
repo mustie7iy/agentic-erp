@@ -64,6 +64,24 @@ func (UnimplementedHandler) AcceptMemoRecordProposal(ctx context.Context, req Op
 	return r, ht.ErrNotImplemented
 }
 
+// AcceptVarianceComment implements acceptVarianceComment operation.
+//
+// A person accepts an agent's proposed comment (409 `closing.comment_not_proposed` for any other)
+// (ADR-0058 §10, T64i), with its text as it is or replaced by `text` (`edited`, the proposal's text
+// kept as `proposed_text`). It keeps the figures it was proposed against: when the row's figures
+// changed since, it is `stale` at once, and the person writes a new comment instead. The row's comment
+// accepted before it is `superseded` in the same transaction. `If-Match` is the comment's ETag. Under
+// a lock on the close; a signed-off close whose covered periods are all locked refuses it (409
+// `closing.close_signed_off`), and once one of them was unlocked it sets the close open again first.
+// People only. Besides `closing.variance.comment` the caller needs `ledger.entry.read`
+// (`x-also-permissions`). Audited, and published as VarianceCommentChanged (`accepted`, and
+// `superseded` for the comment it replaces).
+//
+// POST /v1/variance-comments/{id}:acceptProposal
+func (UnimplementedHandler) AcceptVarianceComment(ctx context.Context, req OptVarianceCommentAccept, params AcceptVarianceCommentParams) (r AcceptVarianceCommentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ActivateChangeRequest implements activateChangeRequest operation.
 //
 // Creates and activates a new configuration version from an approved change request; each context
@@ -404,14 +422,17 @@ func (UnimplementedHandler) CaptureSupplierInvoice(ctx context.Context, req *Sup
 // of the company dated in the period (the leading ledger's period's first to last day) is `parked` or
 // `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted`
 // passes when each covered ledger has a posted revaluation run keyed on its period's last day, and
-// names each ledger with its run. A check is a statement about the moment it ran: run it again to
-// refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and
-// for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the
-// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
-// (`task_checked`, with `check_passed`). A signed-off close whose covered periods are all locked
-// refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved
-// `unlockFiscalPeriod` request), the change sets the close open again first, published as
-// PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d).
+// names each ledger with its run; `variances_explained` (T64i) passes when every row requiring a
+// comment of each basis the company configures (`companies[].close.variance`; none configured fails)
+// has an accepted comment that is not stale, and names the first 20 that have none, or only a stale
+// one. A check is a statement about the moment it ran: run it again to refresh it. Refused while a
+// task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409
+// `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's
+// new ETag. People only. Audited, and published as PeriodCloseChanged (`task_checked`, with
+// `check_passed`). A signed-off close whose covered periods are all locked refuses it (409
+// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
+// request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`)
+// (ADR-0058 §7, T64d).
 //
 // POST /v1/period-closes/{id}/tasks/{code}:check
 func (UnimplementedHandler) CheckCloseTask(ctx context.Context, params CheckCloseTaskParams) (r CheckCloseTaskRes, _ error) {
@@ -661,6 +682,25 @@ func (UnimplementedHandler) CreateEntryTemplate(ctx context.Context, req *EntryT
 //
 // POST /v1/exchange-rates
 func (UnimplementedHandler) CreateExchangeRate(ctx context.Context, req *ExchangeRateCreate, params CreateExchangeRateParams) (r CreateExchangeRateRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateForecastVarianceComment implements createForecastVarianceComment operation.
+//
+// A person explains one row of a legal entity's forecast variance (ADR-0051 §11, §13, T53f4): a
+// liquidity item (`liquidity_item`, its code; a tenant's item, active or not) or what no rule assigns
+// (`unclassified: true`), exactly one of the two, over the period `from` to `to` at `lag`, as
+// `getLiquidityForecastVariance` reads that variance. The comment is checked as the variance's request
+// is: a lag other than 0, 7 and 30, a period ending before it starts or more than 36 months long,
+// ending after the company's date or after the snapshot's horizon is 422; a period whose snapshot was
+// not taken is 409 `cash.snapshot_not_taken`; a legal entity the caller cannot act in is 404. It names
+// the snapshot that variance compares with (the daily one taken `lag` days before `from`, else the
+// last taken on demand that day), which is then kept as long as the comment, past its 25 months. A
+// person's comment is `accepted` as written, decided by its author; the forecast agent's proposals are
+// other statuses. Audited, and published as VarianceCommentDecided.
+//
+// POST /v1/liquidity-forecast-variance/comments
+func (UnimplementedHandler) CreateForecastVarianceComment(ctx context.Context, req *ForecastVarianceCommentCreate, params CreateForecastVarianceCommentParams) (r CreateForecastVarianceCommentRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -951,20 +991,20 @@ func (UnimplementedHandler) CreateUpload(ctx context.Context, req *UploadCreate,
 
 // CreateVarianceComment implements createVarianceComment operation.
 //
-// A person explains one row of a legal entity's forecast variance (ADR-0051 §11, §13, T53f4): a
-// liquidity item (`liquidity_item`, its code; a tenant's item, active or not) or what no rule assigns
-// (`unclassified: true`), exactly one of the two, over the period `from` to `to` at `lag`, as
-// `getLiquidityForecastVariance` reads that variance. The comment is checked as the variance's request
-// is: a lag other than 0, 7 and 30, a period ending before it starts or more than 36 months long,
-// ending after the company's date or after the snapshot's horizon is 422; a period whose snapshot was
-// not taken is 409 `cash.snapshot_not_taken`; a legal entity the caller cannot act in is 404. It names
-// the snapshot that variance compares with (the daily one taken `lag` days before `from`, else the
-// last taken on demand that day), which is then kept as long as the comment, past its 25 months. A
-// person's comment is `accepted` as written, decided by its author; the forecast agent's proposals are
-// other statuses. Audited, and published as VarianceCommentDecided.
+// A person explains one row of a period close's variance report (ADR-0058 §10, T64i): the same body
+// and checks as `proposeVarianceComment` without a session (the row's account, 422
+// `closing.variance_row_unknown`; the basis, 422 `closing.basis_not_configured`; each citation, 422
+// `closing.citation_invalid` on `citations[i]`). The comment is `accepted` at once, with the row's
+// actual and comparison as they are now; the row's comment accepted before it is `superseded` in the
+// same transaction, so a row has one accepted comment. Under a lock on the close; a signed-off close
+// whose covered periods are all locked refuses it (409 `closing.close_signed_off`), and once one of
+// them was unlocked it sets the close open again first (PeriodCloseChanged `reopened`). People only.
+// Besides `closing.variance.comment` the caller needs `ledger.entry.read` (`x-also-permissions`).
+// Audited, and published as VarianceCommentChanged (`accepted`, and `superseded` for the comment it
+// replaces).
 //
-// POST /v1/liquidity-forecast-variance/comments
-func (UnimplementedHandler) CreateVarianceComment(ctx context.Context, req *VarianceCommentCreate, params CreateVarianceCommentParams) (r CreateVarianceCommentRes, _ error) {
+// POST /v1/variance-comments
+func (UnimplementedHandler) CreateVarianceComment(ctx context.Context, req *VarianceCommentInput, params CreateVarianceCommentParams) (r CreateVarianceCommentRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1559,6 +1599,16 @@ func (UnimplementedHandler) GetFiscalPeriod(ctx context.Context, params GetFisca
 	return r, ht.ErrNotImplemented
 }
 
+// GetForecastVarianceComment implements getForecastVarianceComment operation.
+//
+// One comment on a legal entity's forecast variance (ADR-0051 §11, T53f4). A comment on a legal
+// entity the caller cannot act in is not found.
+//
+// GET /v1/liquidity-forecast-variance/comments/{id}
+func (UnimplementedHandler) GetForecastVarianceComment(ctx context.Context, params GetForecastVarianceCommentParams) (r GetForecastVarianceCommentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetGoodsReceipt implements getGoodsReceipt operation.
 //
 // Returns one goods receipt.
@@ -2087,10 +2137,12 @@ func (UnimplementedHandler) GetUpload(ctx context.Context, params GetUploadParam
 
 // GetVarianceComment implements getVarianceComment operation.
 //
-// One comment on a legal entity's forecast variance (ADR-0051 §11, T53f4). A comment on a legal
-// entity the caller cannot act in is not found.
+// One variance comment (ADR-0058 §10, T64i), as `listVarianceComments` shows it; its ETag is the
+// version `:acceptProposal` and `:rejectProposal` take as `If-Match`. A comment of a close of a legal
+// entity the caller cannot act in is not found. Besides `closing.close.read` the caller needs
+// `ledger.entry.read` (`x-also-permissions`).
 //
-// GET /v1/liquidity-forecast-variance/comments/{id}
+// GET /v1/variance-comments/{id}
 func (UnimplementedHandler) GetVarianceComment(ctx context.Context, params GetVarianceCommentParams) (r GetVarianceCommentRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
@@ -2406,8 +2458,8 @@ func (UnimplementedHandler) ListCashSnapshotFlows(ctx context.Context, params Li
 // TakeCashSnapshot workflow takes once a day per company after its `cash.snapshot_time` (local time,
 // default 07:00), and those people take on demand (`takeCashSnapshot`). Each gives its totals per
 // currency. A snapshot is kept 25 months after its date, then deleted by the workflow that takes the
-// daily ones, unless a variance comment refers to it (`createVarianceComment`), which keeps it as long
-// as the comment. Sortable by: `snapshot_date` (default descending).
+// daily ones, unless a variance comment refers to it (`createForecastVarianceComment`), which keeps it
+// as long as the comment. Sortable by: `snapshot_date` (default descending).
 //
 // GET /v1/cash-snapshots
 func (UnimplementedHandler) ListCashSnapshots(ctx context.Context, params ListCashSnapshotsParams) (r ListCashSnapshotsRes, _ error) {
@@ -2606,6 +2658,20 @@ func (UnimplementedHandler) ListExchangeRates(ctx context.Context, params ListEx
 //
 // GET /v1/fiscal-periods
 func (UnimplementedHandler) ListFiscalPeriods(ctx context.Context, params ListFiscalPeriodsParams) (r ListFiscalPeriodsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListForecastVarianceComments implements listForecastVarianceComments operation.
+//
+// The comments people wrote on the forecast variance of the legal entities the caller may act in
+// (ADR-0051 §11, T53f4), newest first: each explains one row of a company's variance
+// (`getLiquidityForecastVariance`), a liquidity item or what no rule assigns (`unclassified`), over a
+// period at a lag, against the snapshot that variance compares with. Filters: the legal entity, the
+// liquidity item or the unclassified row (not both, 422), the lag, the status, and the periods that
+// end on or after `from` and start on or before `to`. Sortable by: `created_at` (default descending).
+//
+// GET /v1/liquidity-forecast-variance/comments
+func (UnimplementedHandler) ListForecastVarianceComments(ctx context.Context, params ListForecastVarianceCommentsParams) (r ListForecastVarianceCommentsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -2901,13 +2967,17 @@ func (UnimplementedHandler) ListPayments(ctx context.Context, params ListPayment
 // and, when a `threshold_percent` is configured and the row has a percent, the percent's absolute
 // value (as shown, two places) is at least it. The bases and thresholds are the active configuration's
 // `companies[].close.variance` (tier 2); a basis the company does not configure is 422
-// `closing.basis_not_configured`. Rows are in account number order (as the database orders text, byte
-// by byte), cursor-paged; `requires_comment` keeps only the rows that do (`true`) or do not (`false`).
-// `totals` sum the whole report, every row whatever the filter and on every page alike: the actuals
-// summed are the period's profit and loss in the trial balance (a loss positive). Variance comments
-// and the rows they explain are T64i's. A close of a legal entity the caller cannot act in is not
-// found. The figures are ledger amounts, so besides `closing.close.read` the caller needs
-// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+// `closing.basis_not_configured`. Each row carries its accepted comment (`comment`, with `stale`:
+// whether the row's figures now differ from those it was written against), `explained` (an accepted
+// comment that is not stale) and how many agents' proposals wait for a person (`proposed_comments`)
+// (ADR-0058 §10, T64i). Rows are in account number order (as the database orders text, byte by byte),
+// cursor-paged; `requires_comment` keeps only the rows that do (`true`) or do not (`false`),
+// `unexplained` only the rows not explained (`true`) or explained (`false`). `totals` sum the whole
+// report, every row whatever the filters and on every page alike: the actuals summed are the period's
+// profit and loss in the trial balance (a loss positive), and `rows_explained` counts the rows
+// explained. A close of a legal entity the caller cannot act in is not found. The figures are ledger
+// amounts, so besides `closing.close.read` the caller needs `ledger.entry.read` (`x-also-permissions`;
+// 403 `identity.permission_missing` otherwise).
 //
 // GET /v1/period-closes/{id}/variances
 func (UnimplementedHandler) ListPeriodCloseVariances(ctx context.Context, params ListPeriodCloseVariancesParams) (r ListPeriodCloseVariancesRes, _ error) {
@@ -3199,14 +3269,14 @@ func (UnimplementedHandler) ListTaxReturns(ctx context.Context, params ListTaxRe
 
 // ListVarianceComments implements listVarianceComments operation.
 //
-// The comments people wrote on the forecast variance of the legal entities the caller may act in
-// (ADR-0051 §11, T53f4), newest first: each explains one row of a company's variance
-// (`getLiquidityForecastVariance`), a liquidity item or what no rule assigns (`unclassified`), over a
-// period at a lag, against the snapshot that variance compares with. Filters: the legal entity, the
-// liquidity item or the unclassified row (not both, 422), the lag, the status, and the periods that
-// end on or after `from` and start on or before `to`. Sortable by: `created_at` (default descending).
+// The variance comments of the period closes of the legal entities the caller may act in (ADR-0058
+// §10, T64i), oldest first (sortable by `created_at`, the default), each with its row's account, the
+// figures it was written against and whether they still are the row's (`stale`), its citations, its
+// author and who decided it. Filters: the close, the basis, the account, the status and the agent's
+// session. Besides `closing.close.read` the caller needs `ledger.entry.read`, since the figures and
+// cited entries are ledger data (`x-also-permissions`).
 //
-// GET /v1/liquidity-forecast-variance/comments
+// GET /v1/variance-comments
 func (UnimplementedHandler) ListVarianceComments(ctx context.Context, params ListVarianceCommentsParams) (r ListVarianceCommentsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
@@ -3786,6 +3856,31 @@ func (UnimplementedHandler) ProposePaymentRun(ctx context.Context, req *PaymentR
 	return r, ht.ErrNotImplemented
 }
 
+// ProposeVarianceComment implements proposeVarianceComment operation.
+//
+// The close agent proposes a comment explaining one row of a period close's variance report (ADR-0058
+// §10, T64i): the close, the basis and the row's account (a row of the report against that basis: 422
+// `closing.variance_row_unknown`; a basis the company does not configure is 422
+// `closing.basis_not_configured`), a text of at most 2,000 characters, and 0-20 cited journal entries,
+// each with a line on the account in the leading ledger in the close's period or, for `prior_period`
+// and `prior_year`, in the period compared against (422 `closing.citation_invalid` on `citations[i]`):
+// the agent cites what the figures are made of. Made in the agent's running session (`session_id`;
+// another's or an ended one is refused as `proposeMemoRecord` refuses it); agents only (403
+// `agents.not_an_agent`). The comment is `proposed`, with the row's actual and comparison as they are
+// now, and counts for nothing until a person accepts it (`:acceptProposal`) or rejects it
+// (`:rejectProposal`). One proposal per session and row: the same again (same text and citations)
+// answers 200 with it, another is 409 `closing.comment_already_proposed`. Under a lock on the close; a
+// signed-off close whose covered periods are all locked refuses it (409 `closing.close_signed_off`),
+// and once one of them was unlocked it sets the close open again first (PeriodCloseChanged `reopened`,
+// ADR-0058 §7). The figures and the cited entries are ledger data, so besides
+// `closing.variance.propose` the caller needs `ledger.entry.read` (`x-also-permissions`). Audited, and
+// published as VarianceCommentChanged (`proposed`).
+//
+// POST /v1/variance-comment-proposals
+func (UnimplementedHandler) ProposeVarianceComment(ctx context.Context, req *VarianceCommentProposal, params ProposeVarianceCommentParams) (r ProposeVarianceCommentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // RealiseMemoRecord implements realiseMemoRecord operation.
 //
 // Marks an `active` or `expired` memo record `realised` (409 `cash.memo_record_closed`; an agent's
@@ -3931,6 +4026,20 @@ func (UnimplementedHandler) RejectMemoRecordProposal(ctx context.Context, req *R
 //
 // POST /v1/payment-runs/{id}:reject
 func (UnimplementedHandler) RejectPaymentRun(ctx context.Context, req *ReasonInput, params RejectPaymentRunParams) (r RejectPaymentRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RejectVarianceComment implements rejectVarianceComment operation.
+//
+// A person rejects an agent's proposed comment, with a reason (409 `closing.comment_not_proposed` for
+// any other comment) (ADR-0058 §10, T64i). `If-Match` is the comment's ETag. Under a lock on the
+// close; a signed-off close whose covered periods are all locked refuses it (409
+// `closing.close_signed_off`), and once one of them was unlocked it sets the close open again first.
+// People only. Besides `closing.variance.comment` the caller needs `ledger.entry.read`
+// (`x-also-permissions`). Audited, and published as VarianceCommentChanged (`rejected`).
+//
+// POST /v1/variance-comments/{id}:rejectProposal
+func (UnimplementedHandler) RejectVarianceComment(ctx context.Context, req *ReasonInput, params RejectVarianceCommentParams) (r RejectVarianceCommentRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

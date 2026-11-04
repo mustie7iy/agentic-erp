@@ -28,7 +28,13 @@
 // close's variances (ADR-0058 §9): each profit and loss account's actual
 // of the period against the prior period, the prior year's period or a
 // plan category (read through controlling's port), flagged by the
-// company's thresholds.
+// company's thresholds. T64i explains them (ADR-0058 §10): the close agent
+// proposes a comment on a row in its session, citing the journal entries
+// the row's figures are made of (checked through the ledger's port), and a
+// person accepts or rejects it, or writes one; a comment keeps the figures
+// it was written against and is stale once they change, and the check
+// variances_explained passes when every row requiring a comment has an
+// accepted one that is current.
 package closing
 
 import (
@@ -91,6 +97,17 @@ type AccountNet struct {
 	Net          money.Minor
 }
 
+// CitedEntry is a posted journal entry a variance comment cites: its
+// fiscal year, document number and posting date, and the periods of its
+// fiscal year in which it has a line on the account asked about.
+type CitedEntry struct {
+	ID             uuid.UUID
+	FiscalYear     int16
+	DocumentNumber string
+	PostingDate    time.Time
+	Periods        []int16
+}
+
 // ParkedEntry is a parked entry of the ledger context as a close's check
 // names it: what identifies it to a person, and who parked it.
 type ParkedEntry struct {
@@ -109,8 +126,10 @@ type ParkedEntry struct {
 // code; how many of its parked entries with a posting date from from to to
 // are in one of the statuses, and the first limit of them by posting date;
 // its ledger's posted revaluation run at a key date, ok false when there
-// is none; and every profit and loss account of it with its net movement
-// of a fiscal year and period in the leading ledger, by account number.
+// is none; every profit and loss account of it with its net movement of a
+// fiscal year and period in the leading ledger, by account number; and
+// those of the ids that are its posted journal entries in the leading
+// ledger, each with the periods it has a line on the account in.
 // Each reads nothing of a legal entity the caller may not act in. Lock
 // locks a closed period as the period lock does (T32), refusing
 // one whose version is no longer the one read.
@@ -121,6 +140,14 @@ type Ledger interface {
 	PostedRevaluation(ctx context.Context, legalEntity, ledger uuid.UUID, keyDate time.Time) (run uuid.UUID, ok bool, err error)
 	Lock(ctx context.Context, period uuid.UUID, version int32) error
 	ProfitAndLoss(ctx context.Context, legalEntity uuid.UUID, fiscalYear, period int16) ([]AccountNet, error)
+	Cited(ctx context.Context, legalEntity, account uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]CitedEntry, error)
+}
+
+// Sessions reads the agents context's sessions: that a session is the
+// calling agent's and running, refused with the agents context's problem
+// when it is not (agents.not_your_session, agents.session_ended).
+type Sessions interface {
+	Running(ctx context.Context, id uuid.UUID) error
 }
 
 // PlanCategory is a plan category of the controlling context.
@@ -160,6 +187,7 @@ type Endpoints struct {
 	Ledger    Ledger
 	People    People
 	Plans     Plans
+	Sessions  Sessions
 	Pages     *pagination.Codec
 	Now       func() time.Time
 }

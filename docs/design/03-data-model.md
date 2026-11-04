@@ -3119,7 +3119,7 @@ adapts, and no context reads it. Its template is configuration (T64a):
 (`[A-Z0-9_]{1,30}`), a `name` (cosmetic), a `kind` (`manual` or `check`,
 with a `check` this build runs exactly when the kind is `check`; each
 slice that builds a check adds it: `no_parked_entries` and
-`revaluation_posted` from T64c), a `due_day` (business days after the
+`revaluation_posted` from T64c, `variances_explained` from T64i), a `due_day` (business days after the
 period's last day, -31 to 31, 0 that day itself), `depends_on` (other
 tasks of the template, each once, without a cycle, and given to every
 company the dependent task is) and optional `companies` (only these
@@ -3223,3 +3223,40 @@ balance's rows (`ledger.period_balance` and the entries still queued,
 through `ledger.CloseAccounts`), or the plan category's current lines of
 the period (`controlling.plan_line`, `replaced_by_batch_id IS NULL`, on cost
 centers or on profit centers, through `controlling.Plans`).
+
+Variance comments (T64i, migration 000202), with the closing outbox
+(`VarianceCommentChanged`):
+
+```
+closing.variance_comment  (tenant_id, id, close_id, basis, account_id, account_number, account_name,
+                           text, proposed_text, author_kind human|agent, author_id, session_id,
+                           currency, actual, comparison, status proposed|accepted|rejected|superseded,
+                           decided_by, decided_at, decision_reason, version, created_*, updated_*)
+                           PK (tenant_id, id); FK (tenant_id, close_id) -> period_close
+closing.variance_citation (tenant_id, comment_id, seq 1-20, journal_entry_year, journal_entry_id,
+                           document_number, posting_date)
+                           PK (tenant_id, comment_id, seq); UNIQUE (tenant_id, comment_id, journal_entry_id)
+```
+
+A comment explains one row (`account_id`) of one basis of its close's
+variance report, with the row's `actual` and `comparison` in minor units
+of `currency` when it was written, and the account's number and name as
+they were then; it is stale once the row's figures differ, judged at the
+read. An agent's comment starts `proposed`, in its session
+(`variance_comment_session`), and a person's `accepted`; a proposal moves
+to `accepted` (its text then replaceable, the proposal's kept as
+`proposed_text`, `variance_comment_edited`) or `rejected` with a reason,
+an accepted comment to `superseded`, and nothing else of it changes
+(`closing.check_variance_comment`). `decided_by` and `decided_at` are set
+exactly once it is decided, the reason exactly when it was rejected
+(`variance_comment_decided`). A row has at most one accepted comment
+(`variance_comment_accepted_once`, partial unique) and a session one
+proposal per row (`variance_comment_proposed_once`). A citation is a
+journal entry (`ledger.journal_entry` by year and id, its document number
+and posting date as cited), each once, never updated or deleted
+(`platform.forbid_mutation`). Every write reads the close `FOR UPDATE`
+first. The report and the check read a close's comments of a basis
+(`variance_comment_by_row`), the list by creation
+(`variance_comment_by_created`). The account, entries, session and
+principals are other contexts', by id, without foreign keys. Schema
+tests: `db/closing_test.go` (`TestVarianceCommentRules`).

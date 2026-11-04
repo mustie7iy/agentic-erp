@@ -280,7 +280,7 @@ func (e *Endpoints) VarianceComments(ctx context.Context, q CommentsQuery) ([]Va
 		return nil, "", problem.Unprocessable("request.validation_failed", "A liquidity item and the row of what no rule assigns are two different selections.",
 			problem.FieldError{Field: "unclassified", Code: "invalid", Message: "not with liquidity_item"})
 	}
-	scope := fmt.Sprintf("listVarianceComments|%s|%s|%v|%v|%s|%s|%s", q.LegalEntity, q.Item, q.Unclassified, lagText(q.Lag), q.Status, dayText(q.From), dayText(q.To))
+	scope := fmt.Sprintf("listForecastVarianceComments|%s|%s|%v|%v|%s|%s|%s", q.LegalEntity, q.Item, q.Unclassified, lagText(q.Lag), q.Status, dayText(q.From), dayText(q.To))
 	ks, err := e.Pages.Keyset(commentSort, scope, q.Page)
 	if err != nil {
 		return nil, "", err

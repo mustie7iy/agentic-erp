@@ -1899,13 +1899,13 @@ As built (T53f4, variance comments by people; decided by default where
   the same key once the comment commits, keeps the snapshot, and on its
   retry finds the comment and skips it (review round 1).
 - **API.** `POST /v1/liquidity-forecast-variance/comments`
-  (`createVarianceComment`, `cash.variance.comment`, Idempotency-Key,
+  (`createForecastVarianceComment`, `cash.variance.comment`, Idempotency-Key,
   `x-agent: false`: §13 gives the agent a proposal, never a comment),
-  `GET /v1/liquidity-forecast-variance/comments` (`listVarianceComments`:
+  `GET /v1/liquidity-forecast-variance/comments` (`listForecastVarianceComments`:
   the companies the caller may act in, newest first by `created_at`, by
   legal entity, item or the unclassified row, lag, status and periods
   overlapping `from`..`to`, paged) and `GET …/comments/{id}`
-  (`getVarianceComment`), both read with `cash.forecast.read`, the
+  (`getForecastVarianceComment`), both read with `cash.forecast.read`, the
   variance's own (§15 names no read permission for comments). The path is
   the one §13 names; the agent's proposals take a collection of their own
   (T53i), as memo records' did (T53d, `/v1/memo-record-proposals`),
@@ -1922,7 +1922,13 @@ As built (T53f4, variance comments by people; decided by default where
   the text); the event names the row, period, lag, snapshot, status and
   who decided, not the text, which the comment's read returns (as
   `MemoRecordChanged`). No webhook (`x-webhook`): §14 names one for
-  snapshots only.
+  snapshots only. The operations and schemas are named for the forecast
+  variance (`ForecastVarianceComment`, `ForecastVarianceCommentCreate`,
+  `ForecastVarianceCommentPage`), as their path is: T64i's close variance
+  comments (ADR-0058 §10), built in the same batch, own the plain
+  `VarianceComment` names with `/v1/variance-comments`, and one contract
+  cannot hold two schemas or operations of one name; the list's page
+  token is scoped to `listForecastVarianceComments` (batch 51's merge).
 - **What it does not do.** A comment does not carry the variance's
   figures (they are read again from the snapshot it keeps); T64's
   threshold on which variances need a comment is T64's.

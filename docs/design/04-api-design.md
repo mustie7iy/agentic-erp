@@ -585,7 +585,13 @@ a memo record of an expected receipt or payment (ADR-0051 §13, T53d:
 `proposeMemoRecord`, `x-autonomy: propose`, counted nowhere until a person
 takes it up with `acceptMemoRecordProposal` or turns it down with
 `rejectMemoRecordProposal`, `x-agent: false`, as every other memo record
-write is); free-text advice is a recommendation. Bank statements reach agents with the accounts masked to
+write is), and the close agent proposes a comment explaining a period
+close's variance in its session, citing the journal entries the row's
+figures are made of (ADR-0058 §10, T64i: `proposeVarianceComment`,
+`x-autonomy: propose`; a person takes it up with
+`acceptVarianceComment`, its text as it is or replaced, or turns it down
+with `rejectVarianceComment`, `x-agent: false`); free-text advice is a
+recommendation. Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation
 (`getBankReconciliation`, ADR-0047, T49h: its statements' balances against
