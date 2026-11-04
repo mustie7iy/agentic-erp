@@ -513,6 +513,10 @@ type GetGrIrClearingRes interface {
 	getGrIrClearingRes()
 }
 
+type GetGroupLiquidityForecastRes interface {
+	getGroupLiquidityForecastRes()
+}
+
 type GetHierarchyNodeRes interface {
 	getHierarchyNodeRes()
 }

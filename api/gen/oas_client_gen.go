@@ -1449,6 +1449,37 @@ type Invoker interface {
 	//
 	// GET /v1/gr-ir-clearings/{id}
 	GetGrIrClearing(ctx context.Context, params GetGrIrClearingParams) (GetGrIrClearingRes, error)
+	// GetGroupLiquidityForecast invokes getGroupLiquidityForecast operation.
+	//
+	// The liquidity forecast across the companies the caller may act in, summed in the tenant's group
+	// currency (ADR-0051 §9, §10, §15; T53e5), computed at the read from one database state (a
+	// repeatable-read snapshot). Each legal entity the caller may act in (its company access, or every one
+	// with `all_companies`) contributes, whatever its status, and no other: one outside the caller's
+	// access is neither read nor named nor counted anywhere in the answer. Each company's flows, opening
+	// and certainty cut are exactly its own forecast's (`getLiquidityForecast`: the same sources, dates,
+	// amounts, netting and `include_blocked`), read on its own read date in its own time zone (listed in
+	// `companies`); they are placed in the group's buckets, which start on `read_date`, the earliest of
+	// the companies' read dates (today in UTC when the caller may act in none), so no company's flow falls
+	// before the first bucket: the default buckets (14 days, 11 weeks and 9 months), since each company
+	// may configure its own `cash.buckets`, or `grain` with `to` (one grain over a range, as in
+	// `getLiquidityForecast`; one without the other, a `to` before the read date or more periods are 422).
+	// `currencies` sums the companies' figures per currency, never converted: the opening, each bucket's
+	// flows by source, certainty and lateness, its `total` and `closing`, the `total`, `beyond` and
+	// `blocked`. `converted` is the group currency's total: each company's currencies converted as its own
+	// forecast converts them with `display_currency` set to the group currency (at the latest rate of the
+	// company's `cash.rate_type` valid on its read date, default `planning`, else `average`; one rate per
+	// currency for every bucket; each currency's opening, buckets' totals and `beyond` rounded once to the
+	// group currency's minor unit, half away from zero), then summed over the companies; each converted
+	// `closing` is the converted opening plus the converted totals so far. So the group's converted
+	// figures are the sum of what each company's forecast converted into the group currency gives over the
+	// same buckets. Each company lists the rates it was converted at and the currencies it has no rate
+	// for; a currency without a rate is left out of that company's converted figures and listed in the
+	// company's and the group's `incomplete_currencies`, never counted as zero. The forecast's rows by
+	// liquidity item and its drill-down stay per company (`getLiquidityForecast`,
+	// `listLiquidityForecastFlows`).
+	//
+	// GET /v1/group-liquidity-forecast
+	GetGroupLiquidityForecast(ctx context.Context, params GetGroupLiquidityForecastParams) (GetGroupLiquidityForecastRes, error)
 	// GetHierarchy invokes getHierarchy operation.
 	//
 	// Returns the hierarchy with its whole tree: its nodes in tree order (each after its parent, siblings
@@ -23260,6 +23291,216 @@ func (c *Client) sendGetGrIrClearing(ctx context.Context, params GetGrIrClearing
 
 	stage = "DecodeResponse"
 	result, err := decodeGetGrIrClearingResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetGroupLiquidityForecast invokes getGroupLiquidityForecast operation.
+//
+// The liquidity forecast across the companies the caller may act in, summed in the tenant's group
+// currency (ADR-0051 §9, §10, §15; T53e5), computed at the read from one database state (a
+// repeatable-read snapshot). Each legal entity the caller may act in (its company access, or every one
+// with `all_companies`) contributes, whatever its status, and no other: one outside the caller's
+// access is neither read nor named nor counted anywhere in the answer. Each company's flows, opening
+// and certainty cut are exactly its own forecast's (`getLiquidityForecast`: the same sources, dates,
+// amounts, netting and `include_blocked`), read on its own read date in its own time zone (listed in
+// `companies`); they are placed in the group's buckets, which start on `read_date`, the earliest of
+// the companies' read dates (today in UTC when the caller may act in none), so no company's flow falls
+// before the first bucket: the default buckets (14 days, 11 weeks and 9 months), since each company
+// may configure its own `cash.buckets`, or `grain` with `to` (one grain over a range, as in
+// `getLiquidityForecast`; one without the other, a `to` before the read date or more periods are 422).
+// `currencies` sums the companies' figures per currency, never converted: the opening, each bucket's
+// flows by source, certainty and lateness, its `total` and `closing`, the `total`, `beyond` and
+// `blocked`. `converted` is the group currency's total: each company's currencies converted as its own
+// forecast converts them with `display_currency` set to the group currency (at the latest rate of the
+// company's `cash.rate_type` valid on its read date, default `planning`, else `average`; one rate per
+// currency for every bucket; each currency's opening, buckets' totals and `beyond` rounded once to the
+// group currency's minor unit, half away from zero), then summed over the companies; each converted
+// `closing` is the converted opening plus the converted totals so far. So the group's converted
+// figures are the sum of what each company's forecast converted into the group currency gives over the
+// same buckets. Each company lists the rates it was converted at and the currencies it has no rate
+// for; a currency without a rate is left out of that company's converted figures and listed in the
+// company's and the group's `incomplete_currencies`, never counted as zero. The forecast's rows by
+// liquidity item and its drill-down stay per company (`getLiquidityForecast`,
+// `listLiquidityForecastFlows`).
+//
+// GET /v1/group-liquidity-forecast
+func (c *Client) GetGroupLiquidityForecast(ctx context.Context, params GetGroupLiquidityForecastParams) (GetGroupLiquidityForecastRes, error) {
+	res, err := c.sendGetGroupLiquidityForecast(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetGroupLiquidityForecast(ctx context.Context, params GetGroupLiquidityForecastParams) (res GetGroupLiquidityForecastRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getGroupLiquidityForecast"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/group-liquidity-forecast"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetGroupLiquidityForecastOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/group-liquidity-forecast"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "grain" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "grain",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Grain.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.To.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "min_certainty" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "min_certainty",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MinCertainty.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include_blocked" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include_blocked",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.IncludeBlocked.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetGroupLiquidityForecastOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetGroupLiquidityForecastResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

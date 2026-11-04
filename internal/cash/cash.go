@@ -36,7 +36,9 @@
 // variance compares with past the snapshot's retention. T53g adds the
 // released purchase orders' open values (ADR-0051 §5, decision P7), read
 // through payments' port as the invoices they expect, and matches a
-// payment of an order's invoice to the order in the variance.
+// payment of an order's invoice to the order in the variance. T53e5 sums
+// the forecast across the companies the caller may act in, each read and
+// converted into the group currency as its own forecast is.
 package cash
 
 import (

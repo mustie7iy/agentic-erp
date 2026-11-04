@@ -16527,6 +16527,236 @@ func decodeGetGrIrClearingParams(args [1]string, argsEscaped bool, r *http.Reque
 	return params, nil
 }
 
+// GetGroupLiquidityForecastParams is parameters of getGroupLiquidityForecast operation.
+type GetGroupLiquidityForecastParams struct {
+	// One grain over a range (with `to`): `day`, `week` (seven days) or `month` (to the same day of the
+	// next month, its last day when shorter), instead of the default buckets.
+	Grain OptString `json:",omitempty,omitzero"`
+	// With `grain`: the last bucket is the one holding this day, on or after the group's read date; at
+	// most 92 days, 104 weeks or 36 months from it.
+	To OptDate `json:",omitempty,omitzero"`
+	// The least certain flows counted: `actual`, `confirmed`, `expected` or `planned` (default, every
+	// flow); another value is 422.
+	MinCertainty OptString `json:",omitempty,omitzero"`
+	// Count the `payable_blocked` flows (what suppliers no run pays are owed) in the totals and `beyond`
+	// too; by default (false) they are listed and summed in `blocked` only.
+	IncludeBlocked OptBool `json:",omitempty,omitzero"`
+}
+
+func unpackGetGroupLiquidityForecastParams(packed middleware.Parameters) (params GetGroupLiquidityForecastParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "grain",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Grain = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "to",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.To = v.(OptDate)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "min_certainty",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.MinCertainty = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "include_blocked",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.IncludeBlocked = v.(OptBool)
+		}
+	}
+	return params
+}
+
+func decodeGetGroupLiquidityForecastParams(args [0]string, argsEscaped bool, r *http.Request) (params GetGroupLiquidityForecastParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
+	// Decode query: grain.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "grain",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotGrainVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotGrainVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Grain.SetTo(paramsDotGrainVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "grain",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: to.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotToVal time.Time
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToDate(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotToVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.To.SetTo(paramsDotToVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "to",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: min_certainty.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "min_certainty",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotMinCertaintyVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotMinCertaintyVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.MinCertainty.SetTo(paramsDotMinCertaintyVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "min_certainty",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Set default value for query: include_blocked.
+	{
+		val := bool(false)
+		params.IncludeBlocked.SetTo(val)
+	}
+	// Decode query: include_blocked.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "include_blocked",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotIncludeBlockedVal bool
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToBool(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotIncludeBlockedVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.IncludeBlocked.SetTo(paramsDotIncludeBlockedVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "include_blocked",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // GetHierarchyParams is parameters of getHierarchy operation.
 type GetHierarchyParams struct {
 	// Resource identifier (UUIDv7).

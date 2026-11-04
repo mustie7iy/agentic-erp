@@ -16751,6 +16751,72 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/group-liquidity-forecast:
+    get:
+      operationId: getGroupLiquidityForecast
+      tags:
+        - cash
+      summary: Get the liquidity forecast across companies, in group currency
+      description: "The liquidity forecast across the companies the caller may act in, summed in the tenant's group currency (ADR-0051 §9, §10, §15; T53e5), computed at the read from one database state (a repeatable-read snapshot). Each legal entity the caller may act in (its company access, or every one with `all_companies`) contributes, whatever its status, and no other: one outside the caller's access is neither read nor named nor counted anywhere in the answer. Each company's flows, opening and certainty cut are exactly its own forecast's (`getLiquidityForecast`: the same sources, dates, amounts, netting and `include_blocked`), read on its own read date in its own time zone (listed in `companies`); they are placed in the group's buckets, which start on `read_date`, the earliest of the companies' read dates (today in UTC when the caller may act in none), so no company's flow falls before the first bucket: the default buckets (14 days, 11 weeks and 9 months), since each company may configure its own `cash.buckets`, or `grain` with `to` (one grain over a range, as in `getLiquidityForecast`; one without the other, a `to` before the read date or more periods are 422). `currencies` sums the companies' figures per currency, never converted: the opening, each bucket's flows by source, certainty and lateness, its `total` and `closing`, the `total`, `beyond` and `blocked`. `converted` is the group currency's total: each company's currencies converted as its own forecast converts them with `display_currency` set to the group currency (at the latest rate of the company's `cash.rate_type` valid on its read date, default `planning`, else `average`; one rate per currency for every bucket; each currency's opening, buckets' totals and `beyond` rounded once to the group currency's minor unit, half away from zero), then summed over the companies; each converted `closing` is the converted opening plus the converted totals so far. So the group's converted figures are the sum of what each company's forecast converted into the group currency gives over the same buckets. Each company lists the rates it was converted at and the currencies it has no rate for; a currency without a rate is left out of that company's converted figures and listed in the company's and the group's `incomplete_currencies`, never counted as zero. The forecast's rows by liquidity item and its drill-down stay per company (`getLiquidityForecast`, `listLiquidityForecastFlows`)."
+      x-permission: cash.forecast.read
+      x-slo-class: report
+      x-snapshot: true
+      x-problem-codes:
+        - cash.amount_too_large
+        - cash.unknown_currency
+        - config.not_bootstrapped
+        - payables.unknown_payment_term
+        - payables.withholding_exceeds_invoice
+        - payables.withholding_tax_code_unknown
+        - request.validation_failed
+      parameters:
+        - name: grain
+          in: query
+          required: false
+          description: "One grain over a range (with `to`): `day`, `week` (seven days) or `month` (to the same day of the next month, its last day when shorter), instead of the default buckets."
+          schema:
+            type: string
+            description: "A bucket's length. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [day, week, month]
+        - name: to
+          in: query
+          required: false
+          description: "With `grain`: the last bucket is the one holding this day, on or after the group's read date; at most 92 days, 104 weeks or 36 months from it."
+          schema:
+            type: string
+            format: date
+        - name: min_certainty
+          in: query
+          required: false
+          description: "The least certain flows counted: `actual`, `confirmed`, `expected` or `planned` (default, every flow); another value is 422."
+          schema:
+            type: string
+            description: "A certainty level. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [actual, confirmed, expected, planned]
+        - name: include_blocked
+          in: query
+          required: false
+          description: "Count the `payable_blocked` flows (what suppliers no run pays are owed) in the totals and `beyond` too; by default (false) they are listed and summed in `blocked` only."
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: The liquidity forecast across the caller's companies.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupLiquidityForecast"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/cash-snapshots/{id}/exports":
     post:
       operationId: createCashExport
@@ -39313,6 +39379,150 @@ components:
         opening: {$ref: "#/components/schemas/Money"}
         closing: {$ref: "#/components/schemas/Money"}
         available: {$ref: "#/components/schemas/Money"}
+    GroupLiquidityForecast:
+      type: object
+      description: "The liquidity forecast across the companies the caller may act in (ADR-0051 §9, §10, §15; T53e5): per currency, and summed in the tenant's group currency. Amounts are signed: a payment out is negative."
+      required: [group_currency, read_date, min_certainty, include_blocked, companies, buckets, currencies, converted]
+      properties:
+        group_currency: {type: string, description: "The tenant's group currency (ISO 4217), which `converted` is in.", readOnly: true}
+        read_date: {type: string, format: date, description: "The earliest of the companies' read dates (today in UTC when there is no company): the first bucket starts on it.", readOnly: true}
+        min_certainty:
+          type: string
+          description: "The least certain flows counted. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [actual, confirmed, expected, planned]
+          readOnly: true
+        include_blocked: {type: boolean, description: "Whether the `payable_blocked` flows are counted in the totals and `beyond`; they are listed in the buckets' flows and summed in each currency's `blocked` either way.", readOnly: true}
+        companies:
+          type: array
+          items: {$ref: "#/components/schemas/GroupLiquidityForecastCompany"}
+          description: "The companies summed: every legal entity the caller may act in, by company code; empty when it may act in none."
+          readOnly: true
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastBucket"}
+          description: "The columns, in order: consecutive periods from the read date."
+          readOnly: true
+        currencies:
+          type: array
+          items: {$ref: "#/components/schemas/GroupLiquidityForecastCurrency"}
+          description: "The companies' figures summed per currency, never converted, by currency code: each currency with a flow or an active house bank in one of the companies."
+          readOnly: true
+        converted: {$ref: "#/components/schemas/GroupLiquidityForecastConverted"}
+      examples:
+        - group_currency: CAD
+          read_date: "2026-04-17"
+          min_certainty: planned
+          include_blocked: false
+          companies:
+            - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+              company_code: "3000"
+              name: Maple Industries Canada
+              read_date: "2026-04-17"
+              time_zone: America/Toronto
+              rates: []
+              incomplete_currencies: []
+            - legal_entity_id: 0192a000-0000-7000-8000-000000000202
+              company_code: "1000"
+              name: Maple Industries US
+              read_date: "2026-04-18"
+              time_zone: UTC
+              rates: [{currency: USD, rate_type: average, rate: "1.350000000000", valid_from: "2026-01-01", stale: true}]
+              incomplete_currencies: []
+          buckets:
+            - {grain: day, start: "2026-04-17", end: "2026-04-17"}
+            - {grain: day, start: "2026-04-18", end: "2026-04-18"}
+          currencies:
+            - currency: CAD
+              opening: {amount: {amount: "10000.00", currency: CAD}, banks: 1, stale: false, gap: false}
+              buckets:
+                - start: "2026-04-17"
+                  flows: [{source: payment_run, certainty: confirmed, late: false, amount: {amount: "-500.00", currency: CAD}, count: 1}]
+                  total: {amount: "-500.00", currency: CAD}
+                  closing: {amount: "9500.00", currency: CAD}
+                - start: "2026-04-18"
+                  flows: []
+                  total: {amount: "0.00", currency: CAD}
+                  closing: {amount: "9500.00", currency: CAD}
+              total: {amount: "-500.00", currency: CAD}
+              beyond: {amount: {amount: "0.00", currency: CAD}, count: 0}
+              blocked: {amount: {amount: "0.00", currency: CAD}, count: 0}
+            - currency: USD
+              opening: {amount: {amount: "0.00", currency: USD}, banks: 0, stale: false, gap: false}
+              buckets:
+                - start: "2026-04-17"
+                  flows: []
+                  total: {amount: "0.00", currency: USD}
+                  closing: {amount: "0.00", currency: USD}
+                - start: "2026-04-18"
+                  flows: [{source: memo, certainty: expected, late: false, amount: {amount: "1000.00", currency: USD}, count: 1}]
+                  total: {amount: "1000.00", currency: USD}
+                  closing: {amount: "1000.00", currency: USD}
+              total: {amount: "1000.00", currency: USD}
+              beyond: {amount: {amount: "0.00", currency: USD}, count: 0}
+              blocked: {amount: {amount: "0.00", currency: USD}, count: 0}
+          converted:
+            currency: CAD
+            incomplete_currencies: []
+            opening: {amount: "10000.00", currency: CAD}
+            buckets:
+              - {start: "2026-04-17", total: {amount: "-500.00", currency: CAD}, closing: {amount: "9500.00", currency: CAD}}
+              - {start: "2026-04-18", total: {amount: "1350.00", currency: CAD}, closing: {amount: "10850.00", currency: CAD}}
+            total: {amount: "850.00", currency: CAD}
+            beyond: {amount: "0.00", currency: CAD}
+    GroupLiquidityForecastCompany:
+      type: object
+      description: "A company the group forecast sums (T53e5): its legal entity, the read date its own figures are read on, and how they were converted into the group currency."
+      required: [legal_entity_id, company_code, name, read_date, time_zone, rates, incomplete_currencies]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        company_code: {type: string, description: "The legal entity's company code.", readOnly: true}
+        name: {type: string, description: "The legal entity's name.", readOnly: true}
+        read_date: {type: string, format: date, description: "The company's date when the forecast was read, in `time_zone`: what is late is judged by it, and its flows are not before it.", readOnly: true}
+        time_zone: {type: string, description: "The IANA time zone of the read date: the company's configured `time_zone`, or `UTC` when it has none or is not in the configuration.", readOnly: true}
+        rates:
+          type: array
+          items: {$ref: "#/components/schemas/CashPositionRate"}
+          description: "The rates the company's currencies were converted into the group currency at, by currency (the company's `cash.rate_type`); none for the group currency itself."
+          readOnly: true
+        incomplete_currencies:
+          type: array
+          items: {type: string}
+          description: "The company's currencies without a rate into the group currency, left out of every converted figure; empty when the company's are complete."
+          readOnly: true
+    GroupLiquidityForecastCurrency:
+      type: object
+      description: "One currency's figures summed over the companies, never converted (T53e5): the openings, the flows per bucket in the buckets' order, the total over the horizon, what is expected after it, and what suppliers no run pays are owed."
+      required: [currency, opening, buckets, total, beyond, blocked]
+      properties:
+        currency: {type: string, description: The currency (ISO 4217)., readOnly: true}
+        opening: {$ref: "#/components/schemas/LiquidityForecastOpening"}
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastBucketFlows"}
+          description: "One per bucket of the forecast, in the same order; each `closing` is the opening plus the totals so far."
+          readOnly: true
+        total: {$ref: "#/components/schemas/Money"}
+        beyond: {$ref: "#/components/schemas/LiquidityForecastBeyond"}
+        blocked: {$ref: "#/components/schemas/LiquidityForecastBlocked"}
+    GroupLiquidityForecastConverted:
+      type: object
+      description: "The group forecast in the group currency (ADR-0051 §10, T53e5): each company's converted figures, as its own forecast converts them into the group currency, summed; the rates are each company's (`companies`)."
+      required: [currency, incomplete_currencies, opening, buckets, total, beyond]
+      properties:
+        currency: {type: string, description: "The group currency (ISO 4217).", readOnly: true}
+        incomplete_currencies:
+          type: array
+          items: {type: string}
+          description: "The currencies some company has no rate for into the group currency, sorted, each left out of that company's converted figures (the company's `incomplete_currencies` say whose); empty when the figures are complete."
+          readOnly: true
+        opening: {$ref: "#/components/schemas/Money"}
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastConvertedBucket"}
+          description: "One per bucket of the forecast, in the same order."
+          readOnly: true
+        total: {$ref: "#/components/schemas/Money"}
+        beyond: {$ref: "#/components/schemas/Money"}
     LiquidityForecast:
       type: object
       description: "A legal entity's liquidity forecast (ADR-0051 §9, T53e): the flows expected per currency and bucket from the read date. Amounts are signed: a payment out is negative."

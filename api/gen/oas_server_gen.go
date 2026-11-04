@@ -1428,6 +1428,37 @@ type Handler interface {
 	//
 	// GET /v1/gr-ir-clearings/{id}
 	GetGrIrClearing(ctx context.Context, params GetGrIrClearingParams) (GetGrIrClearingRes, error)
+	// GetGroupLiquidityForecast implements getGroupLiquidityForecast operation.
+	//
+	// The liquidity forecast across the companies the caller may act in, summed in the tenant's group
+	// currency (ADR-0051 §9, §10, §15; T53e5), computed at the read from one database state (a
+	// repeatable-read snapshot). Each legal entity the caller may act in (its company access, or every one
+	// with `all_companies`) contributes, whatever its status, and no other: one outside the caller's
+	// access is neither read nor named nor counted anywhere in the answer. Each company's flows, opening
+	// and certainty cut are exactly its own forecast's (`getLiquidityForecast`: the same sources, dates,
+	// amounts, netting and `include_blocked`), read on its own read date in its own time zone (listed in
+	// `companies`); they are placed in the group's buckets, which start on `read_date`, the earliest of
+	// the companies' read dates (today in UTC when the caller may act in none), so no company's flow falls
+	// before the first bucket: the default buckets (14 days, 11 weeks and 9 months), since each company
+	// may configure its own `cash.buckets`, or `grain` with `to` (one grain over a range, as in
+	// `getLiquidityForecast`; one without the other, a `to` before the read date or more periods are 422).
+	// `currencies` sums the companies' figures per currency, never converted: the opening, each bucket's
+	// flows by source, certainty and lateness, its `total` and `closing`, the `total`, `beyond` and
+	// `blocked`. `converted` is the group currency's total: each company's currencies converted as its own
+	// forecast converts them with `display_currency` set to the group currency (at the latest rate of the
+	// company's `cash.rate_type` valid on its read date, default `planning`, else `average`; one rate per
+	// currency for every bucket; each currency's opening, buckets' totals and `beyond` rounded once to the
+	// group currency's minor unit, half away from zero), then summed over the companies; each converted
+	// `closing` is the converted opening plus the converted totals so far. So the group's converted
+	// figures are the sum of what each company's forecast converted into the group currency gives over the
+	// same buckets. Each company lists the rates it was converted at and the currencies it has no rate
+	// for; a currency without a rate is left out of that company's converted figures and listed in the
+	// company's and the group's `incomplete_currencies`, never counted as zero. The forecast's rows by
+	// liquidity item and its drill-down stay per company (`getLiquidityForecast`,
+	// `listLiquidityForecastFlows`).
+	//
+	// GET /v1/group-liquidity-forecast
+	GetGroupLiquidityForecast(ctx context.Context, params GetGroupLiquidityForecastParams) (GetGroupLiquidityForecastRes, error)
 	// GetHierarchy implements getHierarchy operation.
 	//
 	// Returns the hierarchy with its whole tree: its nodes in tree order (each after its parent, siblings

@@ -27222,6 +27222,18 @@ type GetGrIrClearingNotFound Problem
 
 func (*GetGrIrClearingNotFound) getGrIrClearingRes() {}
 
+type GetGroupLiquidityForecastBadRequest Problem
+
+func (*GetGroupLiquidityForecastBadRequest) getGroupLiquidityForecastRes() {}
+
+type GetGroupLiquidityForecastForbidden Problem
+
+func (*GetGroupLiquidityForecastForbidden) getGroupLiquidityForecastRes() {}
+
+type GetGroupLiquidityForecastUnprocessableEntity Problem
+
+func (*GetGroupLiquidityForecastUnprocessableEntity) getGroupLiquidityForecastRes() {}
+
 type GetHierarchyBadRequest Problem
 
 func (*GetHierarchyBadRequest) getHierarchyRes() {}
@@ -29849,6 +29861,363 @@ func (*GrantRolePermissionPreconditionRequired) grantRolePermissionRes() {}
 type GrantRolePermissionUnprocessableEntity Problem
 
 func (*GrantRolePermissionUnprocessableEntity) grantRolePermissionRes() {}
+
+// The liquidity forecast across the companies the caller may act in (ADR-0051 §9, §10, §15; T53e5):
+// per currency, and summed in the tenant's group currency. Amounts are signed: a payment out is
+// negative.
+// Ref: #/components/schemas/GroupLiquidityForecast
+type GroupLiquidityForecast struct {
+	// The tenant's group currency (ISO 4217), which `converted` is in.
+	GroupCurrency string `json:"group_currency"`
+	// The earliest of the companies' read dates (today in UTC when there is no company): the first bucket
+	// starts on it.
+	ReadDate time.Time `json:"read_date"`
+	// The least certain flows counted. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	MinCertainty string `json:"min_certainty"`
+	// Whether the `payable_blocked` flows are counted in the totals and `beyond`; they are listed in the
+	// buckets' flows and summed in each currency's `blocked` either way.
+	IncludeBlocked bool `json:"include_blocked"`
+	// The companies summed: every legal entity the caller may act in, by company code; empty when it may
+	// act in none.
+	Companies []GroupLiquidityForecastCompany `json:"companies"`
+	// The columns, in order: consecutive periods from the read date.
+	Buckets []LiquidityForecastBucket `json:"buckets"`
+	// The companies' figures summed per currency, never converted, by currency code: each currency with a
+	// flow or an active house bank in one of the companies.
+	Currencies []GroupLiquidityForecastCurrency `json:"currencies"`
+	Converted  GroupLiquidityForecastConverted  `json:"converted"`
+}
+
+// GetGroupCurrency returns the value of GroupCurrency.
+func (s *GroupLiquidityForecast) GetGroupCurrency() string {
+	return s.GroupCurrency
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *GroupLiquidityForecast) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetMinCertainty returns the value of MinCertainty.
+func (s *GroupLiquidityForecast) GetMinCertainty() string {
+	return s.MinCertainty
+}
+
+// GetIncludeBlocked returns the value of IncludeBlocked.
+func (s *GroupLiquidityForecast) GetIncludeBlocked() bool {
+	return s.IncludeBlocked
+}
+
+// GetCompanies returns the value of Companies.
+func (s *GroupLiquidityForecast) GetCompanies() []GroupLiquidityForecastCompany {
+	return s.Companies
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *GroupLiquidityForecast) GetBuckets() []LiquidityForecastBucket {
+	return s.Buckets
+}
+
+// GetCurrencies returns the value of Currencies.
+func (s *GroupLiquidityForecast) GetCurrencies() []GroupLiquidityForecastCurrency {
+	return s.Currencies
+}
+
+// GetConverted returns the value of Converted.
+func (s *GroupLiquidityForecast) GetConverted() GroupLiquidityForecastConverted {
+	return s.Converted
+}
+
+// SetGroupCurrency sets the value of GroupCurrency.
+func (s *GroupLiquidityForecast) SetGroupCurrency(val string) {
+	s.GroupCurrency = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *GroupLiquidityForecast) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetMinCertainty sets the value of MinCertainty.
+func (s *GroupLiquidityForecast) SetMinCertainty(val string) {
+	s.MinCertainty = val
+}
+
+// SetIncludeBlocked sets the value of IncludeBlocked.
+func (s *GroupLiquidityForecast) SetIncludeBlocked(val bool) {
+	s.IncludeBlocked = val
+}
+
+// SetCompanies sets the value of Companies.
+func (s *GroupLiquidityForecast) SetCompanies(val []GroupLiquidityForecastCompany) {
+	s.Companies = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *GroupLiquidityForecast) SetBuckets(val []LiquidityForecastBucket) {
+	s.Buckets = val
+}
+
+// SetCurrencies sets the value of Currencies.
+func (s *GroupLiquidityForecast) SetCurrencies(val []GroupLiquidityForecastCurrency) {
+	s.Currencies = val
+}
+
+// SetConverted sets the value of Converted.
+func (s *GroupLiquidityForecast) SetConverted(val GroupLiquidityForecastConverted) {
+	s.Converted = val
+}
+
+func (*GroupLiquidityForecast) getGroupLiquidityForecastRes() {}
+
+// A company the group forecast sums (T53e5): its legal entity, the read date its own figures are read
+// on, and how they were converted into the group currency.
+// Ref: #/components/schemas/GroupLiquidityForecastCompany
+type GroupLiquidityForecastCompany struct {
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// The legal entity's name.
+	Name string `json:"name"`
+	// The company's date when the forecast was read, in `time_zone`: what is late is judged by it, and its
+	// flows are not before it.
+	ReadDate time.Time `json:"read_date"`
+	// The IANA time zone of the read date: the company's configured `time_zone`, or `UTC` when it has none
+	// or is not in the configuration.
+	TimeZone string `json:"time_zone"`
+	// The rates the company's currencies were converted into the group currency at, by currency (the
+	// company's `cash.rate_type`); none for the group currency itself.
+	Rates []CashPositionRate `json:"rates"`
+	// The company's currencies without a rate into the group currency, left out of every converted figure;
+	// empty when the company's are complete.
+	IncompleteCurrencies []string `json:"incomplete_currencies"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *GroupLiquidityForecastCompany) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *GroupLiquidityForecastCompany) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetName returns the value of Name.
+func (s *GroupLiquidityForecastCompany) GetName() string {
+	return s.Name
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *GroupLiquidityForecastCompany) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *GroupLiquidityForecastCompany) GetTimeZone() string {
+	return s.TimeZone
+}
+
+// GetRates returns the value of Rates.
+func (s *GroupLiquidityForecastCompany) GetRates() []CashPositionRate {
+	return s.Rates
+}
+
+// GetIncompleteCurrencies returns the value of IncompleteCurrencies.
+func (s *GroupLiquidityForecastCompany) GetIncompleteCurrencies() []string {
+	return s.IncompleteCurrencies
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *GroupLiquidityForecastCompany) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *GroupLiquidityForecastCompany) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetName sets the value of Name.
+func (s *GroupLiquidityForecastCompany) SetName(val string) {
+	s.Name = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *GroupLiquidityForecastCompany) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *GroupLiquidityForecastCompany) SetTimeZone(val string) {
+	s.TimeZone = val
+}
+
+// SetRates sets the value of Rates.
+func (s *GroupLiquidityForecastCompany) SetRates(val []CashPositionRate) {
+	s.Rates = val
+}
+
+// SetIncompleteCurrencies sets the value of IncompleteCurrencies.
+func (s *GroupLiquidityForecastCompany) SetIncompleteCurrencies(val []string) {
+	s.IncompleteCurrencies = val
+}
+
+// The group forecast in the group currency (ADR-0051 §10, T53e5): each company's converted figures,
+// as its own forecast converts them into the group currency, summed; the rates are each company's
+// (`companies`).
+// Ref: #/components/schemas/GroupLiquidityForecastConverted
+type GroupLiquidityForecastConverted struct {
+	// The group currency (ISO 4217).
+	Currency string `json:"currency"`
+	// The currencies some company has no rate for into the group currency, sorted, each left out of that
+	// company's converted figures (the company's `incomplete_currencies` say whose); empty when the
+	// figures are complete.
+	IncompleteCurrencies []string `json:"incomplete_currencies"`
+	Opening              Money    `json:"opening"`
+	// One per bucket of the forecast, in the same order.
+	Buckets []LiquidityForecastConvertedBucket `json:"buckets"`
+	Total   Money                              `json:"total"`
+	Beyond  Money                              `json:"beyond"`
+}
+
+// GetCurrency returns the value of Currency.
+func (s *GroupLiquidityForecastConverted) GetCurrency() string {
+	return s.Currency
+}
+
+// GetIncompleteCurrencies returns the value of IncompleteCurrencies.
+func (s *GroupLiquidityForecastConverted) GetIncompleteCurrencies() []string {
+	return s.IncompleteCurrencies
+}
+
+// GetOpening returns the value of Opening.
+func (s *GroupLiquidityForecastConverted) GetOpening() Money {
+	return s.Opening
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *GroupLiquidityForecastConverted) GetBuckets() []LiquidityForecastConvertedBucket {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *GroupLiquidityForecastConverted) GetTotal() Money {
+	return s.Total
+}
+
+// GetBeyond returns the value of Beyond.
+func (s *GroupLiquidityForecastConverted) GetBeyond() Money {
+	return s.Beyond
+}
+
+// SetCurrency sets the value of Currency.
+func (s *GroupLiquidityForecastConverted) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetIncompleteCurrencies sets the value of IncompleteCurrencies.
+func (s *GroupLiquidityForecastConverted) SetIncompleteCurrencies(val []string) {
+	s.IncompleteCurrencies = val
+}
+
+// SetOpening sets the value of Opening.
+func (s *GroupLiquidityForecastConverted) SetOpening(val Money) {
+	s.Opening = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *GroupLiquidityForecastConverted) SetBuckets(val []LiquidityForecastConvertedBucket) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *GroupLiquidityForecastConverted) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetBeyond sets the value of Beyond.
+func (s *GroupLiquidityForecastConverted) SetBeyond(val Money) {
+	s.Beyond = val
+}
+
+// One currency's figures summed over the companies, never converted (T53e5): the openings, the flows
+// per bucket in the buckets' order, the total over the horizon, what is expected after it, and what
+// suppliers no run pays are owed.
+// Ref: #/components/schemas/GroupLiquidityForecastCurrency
+type GroupLiquidityForecastCurrency struct {
+	// The currency (ISO 4217).
+	Currency string                   `json:"currency"`
+	Opening  LiquidityForecastOpening `json:"opening"`
+	// One per bucket of the forecast, in the same order; each `closing` is the opening plus the totals so
+	// far.
+	Buckets []LiquidityForecastBucketFlows `json:"buckets"`
+	Total   Money                          `json:"total"`
+	Beyond  LiquidityForecastBeyond        `json:"beyond"`
+	Blocked LiquidityForecastBlocked       `json:"blocked"`
+}
+
+// GetCurrency returns the value of Currency.
+func (s *GroupLiquidityForecastCurrency) GetCurrency() string {
+	return s.Currency
+}
+
+// GetOpening returns the value of Opening.
+func (s *GroupLiquidityForecastCurrency) GetOpening() LiquidityForecastOpening {
+	return s.Opening
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *GroupLiquidityForecastCurrency) GetBuckets() []LiquidityForecastBucketFlows {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *GroupLiquidityForecastCurrency) GetTotal() Money {
+	return s.Total
+}
+
+// GetBeyond returns the value of Beyond.
+func (s *GroupLiquidityForecastCurrency) GetBeyond() LiquidityForecastBeyond {
+	return s.Beyond
+}
+
+// GetBlocked returns the value of Blocked.
+func (s *GroupLiquidityForecastCurrency) GetBlocked() LiquidityForecastBlocked {
+	return s.Blocked
+}
+
+// SetCurrency sets the value of Currency.
+func (s *GroupLiquidityForecastCurrency) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetOpening sets the value of Opening.
+func (s *GroupLiquidityForecastCurrency) SetOpening(val LiquidityForecastOpening) {
+	s.Opening = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *GroupLiquidityForecastCurrency) SetBuckets(val []LiquidityForecastBucketFlows) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *GroupLiquidityForecastCurrency) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetBeyond sets the value of Beyond.
+func (s *GroupLiquidityForecastCurrency) SetBeyond(val LiquidityForecastBeyond) {
+	s.Beyond = val
+}
+
+// SetBlocked sets the value of Blocked.
+func (s *GroupLiquidityForecastCurrency) SetBlocked(val LiquidityForecastBlocked) {
+	s.Blocked = val
+}
 
 // Merged schema.
 // Ref: #/components/schemas/Hierarchy
@@ -60811,6 +61180,7 @@ func (*TooManyRequestsHeaders) getFiscalPeriodRes()                  {}
 func (*TooManyRequestsHeaders) getForecastVarianceCommentRes()       {}
 func (*TooManyRequestsHeaders) getGoodsReceiptRes()                  {}
 func (*TooManyRequestsHeaders) getGrIrClearingRes()                  {}
+func (*TooManyRequestsHeaders) getGroupLiquidityForecastRes()        {}
 func (*TooManyRequestsHeaders) getHierarchyNodeRes()                 {}
 func (*TooManyRequestsHeaders) getHierarchyRes()                     {}
 func (*TooManyRequestsHeaders) getJournalEntryRes()                  {}
@@ -61233,6 +61603,7 @@ func (*UnauthorizedHeaders) getFiscalPeriodRes()                  {}
 func (*UnauthorizedHeaders) getForecastVarianceCommentRes()       {}
 func (*UnauthorizedHeaders) getGoodsReceiptRes()                  {}
 func (*UnauthorizedHeaders) getGrIrClearingRes()                  {}
+func (*UnauthorizedHeaders) getGroupLiquidityForecastRes()        {}
 func (*UnauthorizedHeaders) getHierarchyNodeRes()                 {}
 func (*UnauthorizedHeaders) getHierarchyRes()                     {}
 func (*UnauthorizedHeaders) getJournalEntryRes()                  {}

@@ -55,12 +55,24 @@ type LegalEntities interface {
 	Company(ctx context.Context, id uuid.UUID) (Company, bool, error)
 	// ByCode is the id of the legal entity with the company code.
 	ByCode(ctx context.Context, code string) (uuid.UUID, bool, error)
+	// Entities are the tenant's legal entities by company code, company
+	// access not applied: what the group forecast starts from (T53e5).
+	Entities(ctx context.Context) ([]Entity, error)
+	// GroupCurrency is the tenant's group currency.
+	GroupCurrency(ctx context.Context) (string, error)
 }
 
 // Company is a legal entity as the cash position reads it.
 type Company struct {
 	Code     string // its company code in the configuration
+	Name     string
 	Currency string // its local currency
+}
+
+// Entity is a legal entity with its company.
+type Entity struct {
+	ID uuid.UUID
+	Company
 }
 
 // Settings reads the active configuration (configuration context): the

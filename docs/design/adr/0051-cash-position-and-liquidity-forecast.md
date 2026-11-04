@@ -1636,7 +1636,7 @@ default where §7, §9 and §10 leave it open):
   counted as zero. An unknown display currency is 422
   `cash.unknown_currency`; an amount out of range 422
   `cash.amount_too_large`. Across companies in group currency (§9, §10,
-  §15) is not this slice (tracker, src `adr:ADR-0051`).
+  §15) is T53e5 (below).
 - **Drill-down** (§9). The flows of one currency from `from` (default the
   read date) to `to` (default no end, so `beyond` is reachable), computed
   exactly as the forecast computes them from the same database state, by
@@ -1720,6 +1720,97 @@ default where §7, §9 and §10 leave it open):
   holding `cash.forecast.read` alone shown the same flows without their
   documents or suppliers; step 21 now lists step 13's memo records under
   Customer receipts.
+
+As built (T53e5, the forecast across companies in group currency; decided
+by default where §9, §10 and §15 leave it open):
+- **Request and response.** `GET /v1/group-liquidity-forecast`
+  (`getGroupLiquidityForecast`, `GroupLiquidityForecast`;
+  `cash.forecast.read`, agents too, `x-slo-class: report`,
+  `x-snapshot: true`) takes `min_certainty`, `include_blocked`, and `grain`
+  with `to`, as the company's forecast does; no legal entity and no display
+  currency. An operation of its own rather than `getLiquidityForecast` without
+  `legal_entity_id`: the answer has another shape (its companies, no rows
+  by item), and the company's operation keeps its required parameter. No
+  migration: `cash.forecast.read` covers it.
+- **Which companies** (§9 "the companies the caller has", §15 "the
+  caller's access to each company"). Every legal entity of the tenant the
+  caller may act in (`authz.Companies`: its company access, or every one
+  with `all_companies`), from the tenancy directory
+  (`tenancy.Directory.Entities`, through the cash context's
+  `LegalEntities.Entities`, adapted in `internal/app`), whatever its
+  status, as `getLiquidityForecast` answers for each of them; a legal
+  entity outside the caller's access is never read, so it reaches no
+  figure, list, count or error. Permissions are tenant-wide (ADR-0010):
+  holding `cash.forecast.read` is the operation's check, company access
+  the per-company one. Listed in `companies` by company code (sorted, not
+  read order) with its name, read date and zone, the rates it was
+  converted at and its currencies without a rate. A caller in no company
+  reads an empty forecast from today's date in UTC, not a refusal.
+- **Group currency** (§10). The tenant's (`tenancy.tenant.group_currency`,
+  `LegalEntities.GroupCurrency`), the third currency of every journal
+  line (ADR-0005); there is no display currency parameter (§10's "group
+  currency across companies").
+- **One conversion path.** Each company's forecast is read exactly as
+  `getLiquidityForecast` reads it (`readForecastOf`: its sources, read date
+  in its zone, certainty cut, `include_blocked`, memo series expanded to
+  the group's last day), summed into the group's buckets (`byCurrency`)
+  and converted into the group currency exactly as its own forecast
+  converts it with `display_currency` set to it (`convertForecast`: the
+  latest rate of the company's `cash.rate_type` valid on its read date,
+  planning else average, one rate per currency for every bucket, each
+  currency's opening, buckets' totals and `beyond` rounded once, half away
+  from zero, `stale` beyond its `cash.rate_max_age_days`); the group's
+  converted opening, totals and `beyond` are those summed over the
+  companies, its total and closings recomputed from them
+  (`sums.close`, shared with `convertForecast`). So the group's converted
+  figures are the sum of what each company's forecast converted into the
+  group currency gives over the same buckets
+  (`TestGroupLiquidityForecast`), and a currency is converted at each
+  company's own rate type: two companies setting different
+  `cash.rate_type`s convert their USD at different rates, each listed
+  with its company. No group-level rate setting exists to settle one rate
+  per currency; one would be configuration, not this slice.
+- **A missing rate** (§10, T53e4's rule). A company's currency without a
+  rate into the group currency is left out of that company's converted
+  figures and listed in its `incomplete_currencies`, and the group's
+  `incomplete_currencies` lists every such currency once, sorted: never
+  counted as zero, never refused.
+- **Buckets and dates.** Companies may set their own `cash.buckets` and
+  read dates differ by time zone, so the group's buckets are the default
+  buckets (`config.DefaultBuckets`), or one grain over a range, from the
+  earliest of the companies' read dates (`read_date`): every company's
+  flows are on or after its own read date, so none falls before the
+  first bucket, and a Toronto evening is in the first bucket when UTC is
+  already on the next day (`TestGroupLiquidityForecastReadDates`). Each
+  company still opens and judges lateness on its own read date, as its
+  own forecast does.
+- **Per currency** (§9 "per currency always"). `currencies` sums the
+  companies' figures of each currency, never converted, by code: the
+  openings (banks counted, `stale` and `gap` when one company's are), each
+  bucket's flows by source, certainty and lateness, its `total` and
+  `closing` (recomputed, `sums.closings`, shared with `byCurrency`), the
+  `total`, `beyond` and `blocked`. Rows by liquidity item and the
+  drill-down stay per company (`getLiquidityForecast`,
+  `listLiquidityForecastFlows`): §9 does not ask for them across
+  companies, and no per-company subtotals are given beyond what each
+  company's own forecast already answers.
+- **Refusals.** A `min_certainty` not known is 422 before any company is
+  read, a caller in none included; sums out of the range of an amount, a
+  company's or the companies' together, are 422 `cash.amount_too_large`.
+- **Evidence.** `cash.TestGroupLiquidityForecast` (Maple Inc, Acme Corp US
+  and Acme GmbH in EUR, the group currency: the companies by code, each
+  currency summed, the converted figures equal to the companies' own
+  converted into EUR, USD without a rate listed and then with one),
+  `TestGroupLiquidityForecastAccess` (a reader of two companies sees
+  neither the third's company, currency nor amounts; tampering with the
+  access filter fails it; a reader of none, and its refusals),
+  `TestGroupLiquidityForecastReadDates`, `TestGroupLiquidityForecastTooLarge`,
+  `TestGroupLiquidityForecastFailures` (the directory, the group
+  currency, a zone, a payment and every database failure),
+  `tenancy.TestDirectory`; the walkthrough's step 36: Acme Corp US created
+  in USD with a memo record, the group forecast in CAD equal to the two
+  companies' own converted forecasts summed, and a person with company
+  access to Maple alone shown Maple's figures alone.
 
 ### 10. Currency conversion
 Amounts are kept and shown in their own currency first: a bank's balance
@@ -2266,6 +2357,9 @@ As built (T53h; decided by default where §14 and §15 leave it open):
   `CashExportDelivered`.
 - Cross-company views (group cash position) need the caller's access to
   each company; they sum in group currency (§10).
+  As built (T53e5): the group liquidity forecast,
+  `GET /v1/group-liquidity-forecast` (§9 as built), reads every legal
+  entity the caller may act in and no other.
 
 ### 16. SAP migration (T53k, if the pilot uses SAP Cash Management)
 From memory, to check against the pilot's release: liquidity items and

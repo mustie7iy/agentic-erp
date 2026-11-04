@@ -85,13 +85,31 @@ func (cashPartners) Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]c
 	return out, err
 }
 
-// cashCompanies gives the cash context a legal entity's code and currency,
-// and the legal entity of a company code.
+// cashCompanies gives the cash context a legal entity's code, name and
+// currency, the legal entity of a company code, every legal entity and the
+// tenant's group currency.
 type cashCompanies struct{}
 
 func (cashCompanies) Company(ctx context.Context, id uuid.UUID) (cash.Company, bool, error) {
 	le, ok, err := tenancy.Directory{}.Entity(ctx, id)
-	return cash.Company{Code: le.Code, Currency: le.LocalCurrency}, ok, err
+	return cashCompany(le), ok, err
+}
+
+func (cashCompanies) Entities(ctx context.Context) ([]cash.Entity, error) {
+	les, err := tenancy.Directory{}.Entities(ctx)
+	out := make([]cash.Entity, len(les))
+	for i, le := range les {
+		out[i] = cash.Entity{ID: le.ID, Company: cashCompany(le)}
+	}
+	return out, err
+}
+
+func (cashCompanies) GroupCurrency(ctx context.Context) (string, error) {
+	return tenancy.Directory{}.GroupCurrency(ctx)
+}
+
+func cashCompany(le tenancy.Entity) cash.Company {
+	return cash.Company{Code: le.Code, Name: le.Name, Currency: le.LocalCurrency}
 }
 
 func (cashCompanies) ByCode(ctx context.Context, code string) (uuid.UUID, bool, error) {

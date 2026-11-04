@@ -134,6 +134,7 @@ const (
 	GetForecastVarianceCommentOperation       OperationName = "GetForecastVarianceComment"
 	GetGoodsReceiptOperation                  OperationName = "GetGoodsReceipt"
 	GetGrIrClearingOperation                  OperationName = "GetGrIrClearing"
+	GetGroupLiquidityForecastOperation        OperationName = "GetGroupLiquidityForecast"
 	GetHierarchyOperation                     OperationName = "GetHierarchy"
 	GetHierarchyNodeOperation                 OperationName = "GetHierarchyNode"
 	GetJournalEntryOperation                  OperationName = "GetJournalEntry"

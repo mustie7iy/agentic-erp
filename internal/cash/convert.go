@@ -145,12 +145,19 @@ func (e *Endpoints) convertForecast(ctx context.Context, tx pgx.Tx, r reader, cs
 			out.Totals[b] = r.sums.add(out.Totals[b], at(bf.Total))
 		}
 	}
-	closing := out.Opening
-	for b, t := range out.Totals {
-		out.Total, closing = r.sums.add(out.Total, t), r.sums.add(closing, t)
-		out.Closing[b] = closing
-	}
+	r.sums.close(&out)
 	return out, nil
+}
+
+// close sums the converted buckets' totals into the converted total and
+// closes each bucket at the converted opening plus the totals so far.
+func (s *sums) close(c *ForecastConverted) {
+	closing := c.Opening
+	c.Total = 0
+	for b, t := range c.Totals {
+		c.Total, closing = s.add(c.Total, t), s.add(closing, t)
+		c.Closing[b] = closing
+	}
 }
 
 // at is the converter remembering a conversion out of the range of an

@@ -3,6 +3,7 @@ package tenancy_test
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -522,6 +523,20 @@ func TestDirectory(t *testing.T) {
 		if c, err := d.GroupCurrency(ctx); err != nil || c != "EUR" {
 			t.Errorf("group currency: %s %v", c, err)
 		}
+		all, err := d.Entities(ctx)
+		if err != nil {
+			t.Fatalf("entities: %v", err)
+		}
+		codes := make([]string, len(all))
+		for i, le := range all {
+			codes[i] = le.Code
+		}
+		if !slices.IsSorted(codes) {
+			t.Errorf("entities: got %v, want them by code", codes)
+		}
+		if !slices.Contains(all, e) {
+			t.Errorf("entities: got %+v, want DE01 among them as Entity reads it, %+v", all, e)
+		}
 		return nil
 	})
 	if err != nil {
@@ -539,6 +554,13 @@ func TestDirectory(t *testing.T) {
 	})
 	apitest.EveryFailure(t, ten, ten.Human, "group currency", func(ctx context.Context) error {
 		_, err := tenancy.Directory{}.GroupCurrency(ctx)
+		return err
+	})
+	if _, err := (tenancy.Directory{}).Entities(context.Background()); err == nil {
+		t.Error("entities outside a request")
+	}
+	apitest.EveryFailure(t, ten, ten.Human, "entities", func(ctx context.Context) error {
+		_, err := tenancy.Directory{}.Entities(ctx)
 		return err
 	})
 
