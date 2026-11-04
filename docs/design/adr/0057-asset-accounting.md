@@ -2248,17 +2248,18 @@ the other lanes' suites, so with the load averages named:
   machine's gate slots were needed). After the first fix alone (below):
   preview median 6.4 s, p95 7.1 s; run 117 s (load 35 to 41).
 - **After, ERP_BUDGET_SCALE=1** (load 9 to 18): preview first page median
-  1.56 s, p95 1.77 s; next page median 1.53 s, p95 2.03 s; run 20.6 s
+  1.56 s, worst of ten 1.77 s; next page median 1.53 s, worst 2.03 s; run 20.6 s
   (budget 120 s). Seeding took 64 s, the whole test 120 s.
 - **After, ERP_BUDGET_SCALE=2** (load 17 to 18): preview first page
-  median 1.62 s, p95 3.11 s; next page median 1.56 s, p95 1.90 s; run
+  median 1.62 s, worst of ten 3.11 s; next page median 1.56 s, worst 1.90 s; run
   20.7 s (budget 240 s).
 The run meets its budget six times over. The preview does not meet the
 report class's p95 of 1 s at this scale: it reads the 100,001 selected
 assets (0.43 s), their 100,001 other movements and 580,000 totals rows
 (0.6 s) and walks them on every page, as T57e built it. The test checks
-the class's p99 (3 s, scaled) on every read, so the gate holds the 4.5
-times gained, and the p95 is a question for the product owner (below).
+the class's p99 on every read (3 s at scale 1, 6 s at ci-local's scale
+2), which catches a return of the movement read but not every smaller
+loss, and the p95 is a question for the product owner (below).
 Causes found with `EXPLAIN (ANALYZE, BUFFERS)` and a CPU profile, and
 fixed with behaviour unchanged (every existing test passes as before):
 - **Every page read every movement.** `readMovements` read all of the

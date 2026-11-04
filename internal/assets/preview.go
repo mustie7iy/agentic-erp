@@ -47,10 +47,11 @@ type candidate struct {
 // only, just those of the assets named are read: a run's batch re-checks
 // its assets' selection under their locks (T57f). The latest assignment
 // of each of the company's assets is read in one pass (DISTINCT ON)
-// rather than looked up per asset, and with only the terms are read by their key too (the same
-// assets, said of both tables): over 100,000 assets the lookups' estimate
-// had the planner compile the query (JIT) and a batch's 500 assets
-// scanned every asset's terms (T57f2: 860 ms to 430 ms, 86 ms to 9 ms).
+// rather than looked up per asset, and with only the terms are read by
+// their key too (the same assets, said of both tables): over 100,000
+// assets the lookups' estimate had the planner compile the query (JIT)
+// and a batch's 500 assets scanned every asset's terms (T57f2: 860 ms to
+// 430 ms, 86 ms to 9 ms).
 func selectDepreciable(ctx context.Context, tx pgx.Tx, le, ledger uuid.UUID, p Period, after *previewKey, only []uuid.UUID) ([]*candidate, error) {
 	var number *string
 	var id *uuid.UUID

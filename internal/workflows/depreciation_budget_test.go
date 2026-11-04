@@ -116,7 +116,7 @@ func TestDepreciationRunBudget(t *testing.T) {
 		}
 		slices.Sort(times)
 		p95, worst := times[len(times)*95/100], times[len(times)-1]
-		t.Logf("preview, %s, over 100,001 assets: median %v, p95 %v (report class: p95 1 s, p99 3 s)", name, times[len(times)/2], p95)
+		t.Logf("preview, %s, over 100,001 assets: median %v, p95 (worst of ten) %v (report class: p95 1 s, p99 3 s)", name, times[len(times)/2], p95)
 		// The report class's p95 of 1 s is not met at this scale (some
 		// 1.5 s, ADR-0057 as built, T57f2: a question for the product
 		// owner); its p99 of 3 s holds every read.
