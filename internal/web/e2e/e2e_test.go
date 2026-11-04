@@ -455,6 +455,18 @@ func checkPage(t *testing.T, browserCtx context.Context, s stack, src, header, l
 var loaded = chromedp.Poll[chromedp.Void](`document.readyState === "complete"`,
 	chromedp.WithPollingInterval(50*time.Millisecond), chromedp.WithPollingTimeout(20*time.Second))
 
+// htmxSettled waits until htmx has finished every request it started:
+// answered, swapped and settled. htmx puts the content it swaps in at
+// once but processes it (the listeners of its hx- attributes, its
+// autofocus) only as the swap settles, htmx.config.defaultSettleDelay
+// (20 ms, more under load) later, and marks it htmx-added until then. A
+// wait for the swapped content alone can end inside that window, and a
+// field typed in then sends no request: TestEntryFormJobsInTheBrowser's
+// totals stayed at zero under the whole tree's race run (batch 52). It
+// polls on a timer, as loaded does.
+var htmxSettled = chromedp.Poll[chromedp.Void](`document.querySelector(".htmx-request, .htmx-swapping, .htmx-settling, .htmx-added") === null`,
+	chromedp.WithPollingInterval(50*time.Millisecond), chromedp.WithPollingTimeout(20*time.Second))
+
 // shown is the tab's address (with its query) and text once its page has
 // loaded, and "loading" until then, for waits that poll it. The check is
 // in the polled expression rather than a wait after it: a wait started

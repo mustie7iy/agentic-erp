@@ -9669,6 +9669,13 @@
       "r": "internal/platform/rules compile.go compile · TestDeterministic · TestTimeLimit · internal/nfr measure.go Measure · scripts/budgets.sh · internal/ledger periodlockorder_test.go behindCopies · docs/testing.md · 06 §6.5",
       "src": "review:batch52",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "The browser tests wait for htmx to settle after a change they send, not for the swapped content alone: htmx puts the content in at once but processes it (its hx- attributes' listeners, its autofocus) only as the swap settles, 20 ms or more later, so an amount typed in that window sent no request and TestEntryFormJobsInTheBrowser's running totals stayed at zero under the whole tree's race run (batch 52 ci-local); choose returns only once no element is htmx-request, htmx-swapping, htmx-settling or htmx-added (htmxSettled), and the test passes with the settle delay raised to 3 s, where it failed without the wait",
+      "r": "internal/web/e2e e2e_test.go htmxSettled · entry_test.go choose · TestEntryFormJobsInTheBrowser",
+      "src": "review:batch52",
+      "c": []
      }
     ]
    },
