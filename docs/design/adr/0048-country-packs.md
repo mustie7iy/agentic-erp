@@ -187,6 +187,19 @@ settings cannot simply overwrite their document.
   an ordinary upgrade; the walkthrough's illustrative copy of the latest
   pack drops the `sign_off`, since the specialist reviewed the released
   pack, not the walkthrough's illustrative return.
+- **As built (T61j): Canada 2026.6** is 2026.5 plus `returns.yaml`, the
+  GST/HST return (ADR-0049 §11 As built, T61j): every other file is
+  2026.5's byte for byte and the manifest gains the CRA's instructions for
+  the return as its first source and drops the `sign_off`
+  (`TestCanadaPack2026_6`), so production refuses to apply it until the
+  tax specialist confirms the lines and their mapping
+  (`packs/ca/TAX-PENDING-T61j.md`, `TestCanadaPackGST34`), and 2026.5
+  stays the signed-off version. **Decided by default**, as for 2026.4: a
+  version with content the specialist has not seen is released unsigned
+  and signed off as the next version. It is the newest Canada version, so
+  the API lists it first by version and a tenant in production applies
+  2026.5 until the signed version exists. The walkthrough applies it
+  instead of an unreleased copy with an illustrative return.
 
 ## Consequences
 - A pack upgrade never silently overwrites a tenant's decision; reviewers

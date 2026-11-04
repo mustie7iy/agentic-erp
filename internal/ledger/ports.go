@@ -544,7 +544,7 @@ func (Accounts) IsPostable(ctx context.Context, legalEntity, account uuid.UUID) 
 type TaxCode struct {
 	Code       string
 	Direction  string // input or output
-	Kind       string // standard, zero, exempt, out_of_scope, reverse_charge or import
+	Kind       string // standard, zero, exempt, out_of_scope, reverse_charge, import or adjustment
 	Category   string // UN/CEFACT 5305, "" when none
 	Components []TaxComponent
 }

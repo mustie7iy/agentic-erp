@@ -155,7 +155,7 @@ func (c Component) rateOn(code Code, day time.Time) (rated, error) {
 	if err != nil || rate.Cmp(hundred) >= 0 {
 		return rated{}, fmt.Errorf("%w %s: component %s: rate %q is a percentage from 0 to below 100", ErrInvalidCode, code.Code, c.Key, pct)
 	}
-	if rate.Sign() != 0 && (code.Kind == KindZero || code.Kind == KindExempt || code.Kind == KindOutOfScope) {
+	if rate.Sign() != 0 && slices.Contains([]string{KindZero, KindExempt, KindOutOfScope, KindAdjustment}, code.Kind) {
 		return rated{}, fmt.Errorf("%w %s: a %s code has a rate of 0, component %s has %s", ErrInvalidCode, code.Code, code.Kind, c.Key, pct)
 	}
 	rec, err := money.ParsePlain(c.RecoverablePct)

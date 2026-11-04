@@ -68,8 +68,11 @@ const baselineItems = 949
 // walk-through split into T73j5, which inherits the tag (92). 94 since
 // T73h3: amounts in Arabic-Indic digits (T73h4) and the walk-through by a
 // pilot GL accountant and controller, human acceptance (T73h5), split
-// from it, each inheriting the tag (94).
-const pilotItems = 94
+// from it, each inheriting the tag (94). 96 since T61j: the GST/HST
+// return's sign-off by the tax specialist and the FPZ-500 for a Quebec
+// registrant (P4), in the approved scope, split from it, each inheriting
+// the tag (96).
+const pilotItems = 96
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

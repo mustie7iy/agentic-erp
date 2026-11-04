@@ -178,20 +178,43 @@ func (s *returnScope) draft(ctx context.Context, sums returnSums) (*gen.TaxRetur
 }
 
 // values are every box's value from the selection boxes' sums, in all and
-// their prior-period part, by code: the expression boxes computed.
+// their prior-period part, by code: the expression boxes computed. An
+// expression box's prior-period part is what the earlier periods' items
+// add to it: its value less its value without them. That is the
+// expression over the parts only when it is linear; a refund or balance
+// owing (a line's positive or negative part, GST34's 114 and 115) is not.
 func (s *returnScope) values(ctx context.Context, sums returnSums) (all, prior map[string]money.Minor, err error) {
 	all, prior = map[string]money.Minor{}, map[string]money.Minor{}
 	for code, b := range sums.boxes {
 		all[code], prior[code] = b.all, b.prior
 	}
-	all, err = s.def.Evaluate(ctx, all)
+	current, err := difference(all, prior)
 	if err == nil {
-		prior, err = s.def.Evaluate(ctx, prior)
+		all, err = s.def.Evaluate(ctx, all)
+	}
+	if err == nil {
+		current, err = s.def.Evaluate(ctx, current)
+	}
+	if err == nil {
+		prior, err = difference(all, current)
 	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("taxfiling: return of %s: %w", s.reg.Code, err)
 	}
 	return all, prior, nil
+}
+
+// difference is a less b, box by box.
+func difference(a, b map[string]money.Minor) (map[string]money.Minor, error) {
+	out := make(map[string]money.Minor, len(a))
+	for code, v := range a {
+		d, err := money.Sum(v, -b[code])
+		if err != nil {
+			return nil, fmt.Errorf("box %s: %w", code, err)
+		}
+		out[code] = d
+	}
+	return out, nil
 }
 
 // itemCursor is a box items page's position: the last item's place in the

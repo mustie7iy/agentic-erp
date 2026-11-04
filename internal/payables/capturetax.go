@@ -66,7 +66,9 @@ func (e *Endpoints) capturedTax(ctx context.Context, tx pgx.Tx, in *Input, ext *
 
 // proposeCode is the code a line printing a tax rate gets: none when its
 // order item's code charges that rate; else the one input code that does,
-// with a warning; else a reason to hold the invoice.
+// with a warning; else a reason to hold the invoice. An adjustment code is
+// a manual entry's tax alone (ADR-0049 §11), never a document's line, so
+// it is not proposed for a printed 0%.
 func proposeCode(codes []ledger.TaxCode, current *string, printed string, line int) (code *string, warning, reason string) {
 	rate := money.ParseRat(printed)
 	if rate == nil {
@@ -74,7 +76,7 @@ func proposeCode(codes []ledger.TaxCode, current *string, printed string, line i
 	}
 	var matching []string
 	for _, c := range codes {
-		if c.Direction != config.TaxInput || charged(c).Cmp(rate) != 0 {
+		if c.Direction != config.TaxInput || c.Kind == config.TaxAdjustment || charged(c).Cmp(rate) != 0 {
 			continue
 		}
 		if current != nil && c.Code == *current {
