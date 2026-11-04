@@ -9783,6 +9783,13 @@
       "r": "scripts/walkthrough.sh stop_unseen, command_failed, substitution_ended · scripts/lib/on-exit.sh on_substitution_exit · scripts/test-on-exit.sh a SIGTERM, on_substitution_exit · cmd/erp TestWalkthroughExitStatus · 06 §6.5",
       "src": "review:T61j",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "erp-temporal's TestServe dials its engine at 127.0.0.1, not localhost (batch 55's ci-local failed TestServe/refusals twice: another identity and another namespace got failed reaching server: context deadline exceeded after 5.00 s instead of permission denied): for a name, gRPC's DNS resolver also looks up the TXT record _grpc_config.<name> at the network's nameservers before the channel has an address, and one lost answer took the system resolver's 5 s timeout, the SDK's whole GetSystemInfo timeout (seen in gRPC's channel log: a channel's name resolution not done 5 s after it left idle). The engine was already serving (the readiness wait had started a workflow as the cell's server); the refusals stay PermissionDenied and fail if the authorizer is removed",
+      "r": "temporal/cmd/erp-temporal/serve_test.go (newEngineWith's frontend, engineYAML's publicClient) · scripts/temporal-checks.sh · ADR-0035",
+      "src": "ci:batch55",
+      "c": []
      }
     ]
    },

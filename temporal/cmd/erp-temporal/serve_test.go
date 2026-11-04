@@ -101,16 +101,17 @@ namespaceDefaults:
   archival:
     history: {state: disabled}
     visibility: {state: disabled}
+# An address, not localhost: see engine.frontend.
 publicClient:
-  hostPort: localhost:{{index .Ports 0}}
+  hostPort: 127.0.0.1:{{index .Ports 0}}
 `))
 
 // engine is a cell's engine of the test: its certificates and settings.
 type engine struct {
 	dir      string
 	ca       authority
-	frontend string
-	ports    []int // frontend, history, matching, worker: each gRPC, then membership
+	frontend string // 127.0.0.1:port; the certificates' name, localhost, is the TLS server name
+	ports    []int  // frontend, history, matching, worker: each gRPC, then membership
 	env      map[string]string
 	certs    map[string][2]string // name: certificate, key
 }
@@ -144,7 +145,12 @@ func newEngineWith(t *testing.T, o engineOptions) *engine {
 	c, k := other.issue(t, e.dir, "impostor", idOf("erp-server"))
 	e.certs["impostor"] = [2]string{c, k}
 	ports := freePorts(t, 8)
-	e.frontend = fmt.Sprintf("localhost:%d", ports[0])
+	// An address, not a name: for a name the SDK's gRPC resolver also asks
+	// the network's DNS for _grpc_config.<name>'s TXT record, and one lost
+	// answer holds the first call for the system resolver's 5 s timeout, the
+	// SDK's whole GetSystemInfo timeout (batch 55's ci-local). The engine
+	// listens on 127.0.0.1 alone (bindOnLocalHost).
+	e.frontend = fmt.Sprintf("127.0.0.1:%d", ports[0])
 	e.ports = ports
 	var buf bytes.Buffer
 	unless := func(off bool, v string) string {
