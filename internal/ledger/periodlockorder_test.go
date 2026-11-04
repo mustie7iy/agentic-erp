@@ -220,11 +220,13 @@ func bitmapScans(ctx context.Context) error {
 // transaction, so no old version's space is reused, and the backend keeps
 // filling the page it chose; a full page leaves the map (its true free
 // space recorded), so the moves reach a page after the copies, or a new
-// one, after at most as many as the free space before them holds.
+// one, after about as many as the free space before them holds (a
+// line pointer reused on the copies' page, or autovacuum freeing space
+// meanwhile, costs a few more).
 func behindCopies(t *testing.T, first uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
-	const most = 10_000 // moves: far more than a test database's free space before a page holds
+	const most = 10_000 // far more moves than the free space on pages before the copies can absorb
 	moves := 0
 	if err := pgx.BeginFunc(ctx, pgtest.Admin(t), func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = replica`); err != nil {

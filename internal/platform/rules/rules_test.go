@@ -101,8 +101,10 @@ func TestDeterministic(t *testing.T) {
 }
 
 // TestTimeLimit holds every rule Compile builds to ADR-0046's Timeout and
-// shows a limit stops a rule, by one already past when it starts, so
-// neither depends on how fast the machine is.
+// shows a limit stops a rule, by one already past when it starts (a
+// negative one: context.WithTimeout cancels such a context before it
+// returns, where 1 ns can still be ahead of the clock and waits for a
+// timer), so neither depends on how fast the machine is.
 func TestTimeLimit(t *testing.T) {
 	for _, r := range mustCompile(t, map[string]Rule{"vat": vat()}).rules {
 		if r.timeout != Timeout {
@@ -111,7 +113,7 @@ func TestTimeLimit(t *testing.T) {
 	}
 	r := vat()
 	r.Expression = `["DE", "A", "FR"].filter(k, k != row.country_code)[0] == "DE" || ` + vatRule
-	_, issues := compile("business_partner", partnerSchema(), map[string]Rule{"vat": r}, time.Nanosecond)
+	_, issues := compile("business_partner", partnerSchema(), map[string]Rule{"vat": r}, -time.Second)
 	// Case 0 passes all the same: its VAT id makes the right side true,
 	// and CEL's || is true when either side is, an error on the other.
 	want := []extensions.Issue{{Path: "vat.cases[1]", Message: "evaluation: operation interrupted: context deadline exceeded"}}

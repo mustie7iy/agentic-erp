@@ -24,6 +24,6 @@ func Measure(tb testing.TB) {
 	case testing.Short() || raceDetector:
 		tb.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
 	case os.Getenv(MeasureEnv) == "":
-		tb.Skip("performance budget: measured only by scripts/budgets.sh (make perf, ci-local, CI), one package at a time")
+		tb.Skip("performance budget: measured only by scripts/budgets.sh (make perf, ci-local, CI), one package at a time; set " + MeasureEnv + "=1 to measure it here")
 	}
 }
