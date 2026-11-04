@@ -471,3 +471,65 @@ func TestDepreciationRunRules(t *testing.T) {
 	failsWith(t, f.try(t, `UPDATE assets.depreciation_run SET status = 'running', assets_planned = 0, error = NULL, version = version + 1 WHERE id = $1`, failed),
 		"cannot change from failed to running")
 }
+
+// Asset retirements (T57g, migration 000203).
+const retirementSQL = `INSERT INTO assets.retirement (tenant_id, id, legal_entity_id, asset_id, seq, kind, value_date, posting_date, fiscal_year,
+		fiscal_period, currency, share_percent, share_cost, proceeds, currency_gc, proceeds_gc, status, created_by, updated_by)
+	VALUES ($1, $2, $3, $4, $5, $6, $7::date, '2026-06-15', 2026, 6, 'EUR', $8::numeric, $9, $10, 'USD', $11, $12, $13, $13)`
+
+// TestAssetRetirementRules: a retirement starts posted, is reversed at
+// most once, never before it was posted, and keeps what it posted; it is
+// a sale or a scrapping, a scrapping without proceeds and no group amount
+// without proceeds; its share is a percent above 0 and at most 100 or a
+// positive cost, not both; its value date lies in its posting date's
+// month, on or before it; it takes its asset's seq once; a movement's
+// share lies above 0 and at most 1.
+func TestAssetRetirementRules(t *testing.T) {
+	need(t)
+	f := newAssetFixture(t)
+	ret := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, retirementSQL, f.tenant, ret, f.entity, f.active, 2, "sale", "2026-06-15", "50", nil, 700, 760, "posted", f.actor)
+	})
+	row := func(seq int, kind, value string, percent, cost any, proceeds, proceedsGC int, status string) error {
+		return f.try(t, retirementSQL, f.tenant, id(), f.entity, f.active, seq, kind, value, percent, cost, proceeds, proceedsGC, status, f.actor)
+	}
+	reverse := `UPDATE assets.retirement SET status = 'reversed', reversal_posting_date = $2::date, reversal_reason = $3, version = version + 1 WHERE id = $1`
+	for name, c := range map[string]struct {
+		err  error
+		want string
+	}{
+		"a retirement starting reversed":  {row(3, "scrapping", "2026-06-15", nil, nil, 0, 0, "reversed"), "starts posted"},
+		"another kind":                    {row(3, "donation", "2026-06-15", nil, nil, 0, 0, "posted"), "retirement_kind_check"},
+		"a scrapping with proceeds":       {row(3, "scrapping", "2026-06-15", nil, nil, 1, 1, "posted"), "retirement_proceeds"},
+		"a group amount without proceeds": {row(3, "sale", "2026-06-15", nil, nil, 0, 1, "posted"), "retirement_proceeds"},
+		"negative proceeds":               {row(3, "sale", "2026-06-15", nil, nil, -1, -1, "posted"), "retirement_proceeds_check"},
+		"a percent and a cost":            {row(3, "scrapping", "2026-06-15", "5", 100, 0, 0, "posted"), "retirement_share"},
+		"a percent of zero":               {row(3, "scrapping", "2026-06-15", "0", nil, 0, 0, "posted"), "retirement_share_percent_check"},
+		"a percent above 100":             {row(3, "scrapping", "2026-06-15", "100.01", nil, 0, 0, "posted"), "retirement_share_percent_check"},
+		"a cost of zero":                  {row(3, "scrapping", "2026-06-15", nil, 0, 0, 0, "posted"), "retirement_share_cost_check"},
+		"valued in the month before":      {row(3, "scrapping", "2026-05-31", nil, nil, 0, 0, "posted"), "retirement_value_date"},
+		"valued after its posting date":   {row(3, "scrapping", "2026-06-16", nil, nil, 0, 0, "posted"), "retirement_value_date"},
+		"a seq taken":                     {row(2, "scrapping", "2026-06-15", nil, nil, 0, 0, "posted"), "retirement_seq_once"},
+		"reversed without its date":       {f.try(t, `UPDATE assets.retirement SET status = 'reversed', version = version + 1 WHERE id = $1`, ret), "retirement_reversal"},
+		"reversed without a reason":       {f.try(t, reverse, ret, "2026-06-16", nil), "retirement_reversal"},
+		"reversed before it was posted":   {f.try(t, reverse, ret, "2026-06-14", "r"), "retirement_reversal_date"},
+		"proceeds changed":                {f.try(t, `UPDATE assets.retirement SET proceeds = 1, version = version + 1 WHERE id = $1`, ret), "keeps what it posted"},
+		"a retirement deleted":            {f.try(t, `DELETE FROM assets.retirement WHERE id = $1`, ret), "permission denied"},
+		"a movement's share of zero":      {f.try(t, movementShareSQL, f.tenant, f.active, f.entity, f.ledger, "0", f.actor), "movement_share"},
+		"a movement's share above all":    {f.try(t, movementShareSQL, f.tenant, f.active, f.entity, f.ledger, "1.5", f.actor), "movement_share"},
+	} {
+		t.Run(name, func(t *testing.T) { failsWith(t, c.err, c.want) })
+	}
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, movementShareSQL, f.tenant, f.active, f.entity, f.ledger, "1", f.actor)
+	})
+	mustApp(t, f.tenant, func(tx pgx.Tx) error { return exec(tx, reverse, ret, "2026-06-15", "r") })
+	failsWith(t, f.try(t, `UPDATE assets.retirement SET status = 'posted', version = version + 1 WHERE id = $1`, ret), "cannot change from reversed to posted")
+	failsWith(t, f.try(t, `UPDATE assets.retirement SET reversal_reason = 'other', version = version + 1 WHERE id = $1`, ret), "keeps what it posted")
+}
+
+// movementShareSQL writes a retirement movement taking a share.
+const movementShareSQL = `INSERT INTO assets.movement (tenant_id, id, asset_id, seq, legal_entity_id, ledger_id, class_code, kind, value_date, posting_date,
+		fiscal_year, fiscal_period, share, document_kind, document_id, created_by)
+	VALUES ($1, gen_random_uuid(), $2, 2, $3, $4, 'MACHINES', 'retirement', '2026-06-15', '2026-06-15', 2026, 6, $5::numeric, 'retirement', gen_random_uuid(), $6)`

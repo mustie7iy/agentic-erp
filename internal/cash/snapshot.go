@@ -227,7 +227,7 @@ func (e *Endpoints) readSnapshot(ctx context.Context, tx pgx.Tx, co Company, leg
 	}
 	t := taken{company: co.Code, date: fr.r.read, horizon: bs[len(bs)-1].End, zone: fr.zone, version: fr.version, lines: fr.snapshotLines(bs)}
 	if fr.r.sums.overflow {
-		return taken{}, errForecastTooLarge
+		return taken{}, errForecastTooLarge()
 	}
 	return t, nil
 }

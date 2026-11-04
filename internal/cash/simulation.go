@@ -161,7 +161,7 @@ func (s Simulation) company(ctx context.Context, tx pgx.Tx, base, proposed *conf
 		}
 	}
 	if r.sums.overflow {
-		return out, errForecastTooLarge
+		return out, errForecastTooLarge()
 	}
 	slices.SortStableFunc(moved, func(a, b movedFlow) int {
 		return cmp.Or(a.date.Compare(b.date), cmp.Compare(a.currency, b.currency), cmp.Compare(a.source, b.source))
@@ -234,7 +234,7 @@ func (r reader) moves(ctx context.Context, tx pgx.Tx, out CompanyMoves, moved []
 			Proposed: apitypes.Money(t[1], k.currency, exps[k.currency])})
 	}
 	if r.sums.overflow {
-		return out, errForecastTooLarge
+		return out, errForecastTooLarge()
 	}
 	return out, nil
 }

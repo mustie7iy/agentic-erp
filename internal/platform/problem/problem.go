@@ -2,6 +2,18 @@
 // with a stable, documented `code` that clients branch on (04-api-design
 // §4.6). Every error that leaves the service is a *Problem; database errors
 // are translated here so raw database messages never reach a client.
+//
+// A problem is one request's answer, never a shared value: a refusal that
+// many requests give is a function returning a new problem each call, not
+// a package-level variable (internal/layout's TestNoSharedProblems refuses
+// one). Write stamps the request's instance and trace id, and WithCause
+// records its cause, on a copy, so even a problem reached by two requests
+// is not changed by either. The copy is shallow: Errors, MatchIssues,
+// CalculatedTax and Header stay shared with the original, so a helper that
+// rewrites a problem it is given (ledger's asItems and asAsset) relies on
+// the problem being its request's alone
+// (review:T53f4: a shared one carried the first refused request's
+// instance and trace id to every later one, of any tenant, and raced).
 package problem
 
 import (
@@ -12,6 +24,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -113,8 +126,13 @@ func (p *Problem) Error() string {
 // Unwrap exposes the cause to errors.Is and errors.As.
 func (p *Problem) Unwrap() error { return p.cause }
 
-// WithCause records the underlying error for logging.
-func (p *Problem) WithCause(err error) *Problem { p.cause = err; return p }
+// WithCause is p with the underlying error recorded for logging, as a
+// copy: p itself is left as it was (the package doc).
+func (p *Problem) WithCause(err error) *Problem {
+	q := *p
+	q.cause = err
+	return &q
+}
 
 // New builds a problem. The type URI is derived from the code:
 // "payables.duplicate_invoice" → TypeBase + "payables/duplicate-invoice".
@@ -318,8 +336,11 @@ func lostConnection(err error) bool {
 // Cause returns the logged cause of a problem, if any.
 func Cause(p *Problem) error { return p.cause }
 
-// Write sends a problem as application/problem+json.
-func Write(w http.ResponseWriter, r *http.Request, p *Problem) {
+// Write sends a problem as application/problem+json, with the request's
+// path as its instance and the request's trace id unless p sets them. It
+// sends a copy: p itself is left as it was (the package doc).
+func Write(w http.ResponseWriter, r *http.Request, given *Problem) {
+	p := *given
 	if r != nil {
 		if p.Instance == "" {
 			p.Instance = r.URL.Path
@@ -330,12 +351,12 @@ func Write(w http.ResponseWriter, r *http.Request, p *Problem) {
 	}
 	h := w.Header()
 	for k, vs := range p.Header {
-		h[k] = vs
+		h[k] = slices.Clone(vs) // the response's own: a later Add must not reach p's
 	}
 	if p.RetryAfter > 0 {
 		h.Set("Retry-After", strconv.Itoa(p.RetryAfter))
 	}
 	h.Set("Content-Type", "application/problem+json")
 	w.WriteHeader(p.Status)
-	_ = json.NewEncoder(w).Encode(p) // the status is already sent; a failed write cannot be reported
+	_ = json.NewEncoder(w).Encode(&p) // the status is already sent; a failed write cannot be reported
 }

@@ -186,15 +186,24 @@ func writeMovements(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.
 }
 
 // derive sets the asset's last seq and derives its status and
-// capitalisation date from its posted acquisitions that add cost (ADR-0057
-// §5): planned while it holds none, active with the earliest value date
-// otherwise; a reduction (from a credit line) capitalises nothing.
-// Retirements and transfers in join the rule with their slices (T57g,
-// T57h).
+// capitalisation date (ADR-0057 §5): planned while it holds no posted
+// acquisition that adds cost (a reduction, from a credit line,
+// capitalises nothing), with the earliest one's value date otherwise;
+// retired when its cost is zero in every ledger and its latest movement
+// that reduced its cost or took a full share, a reversed one and its
+// reversal set aside, is a retirement or transfer out (decided by default
+// 21: a credit memo bringing the cost to zero leaves it active); active
+// otherwise. Transfers in join the rule with T57h.
 func derive(ctx context.Context, tx pgx.Tx, p reqctx.Principal, asset uuid.UUID, seq int32) error {
-	_, err := tx.Exec(ctx, `UPDATE assets.asset a SET last_seq = $2, capitalised_on = x.on, status = CASE WHEN x.on IS NULL THEN 'planned' ELSE 'active' END,
-			version = a.version + 1, updated_by = $3
-		FROM (SELECT min(value_date) AS on FROM assets.acquisition WHERE asset_id = $1 AND status = 'posted' AND amount > 0) x WHERE a.id = $1`, asset, seq, p.ID)
+	_, err := tx.Exec(ctx, `UPDATE assets.asset a SET last_seq = $2, capitalised_on = x.on,
+			status = CASE WHEN x.on IS NULL THEN 'planned' WHEN y.retired THEN 'retired' ELSE 'active' END, version = a.version + 1, updated_by = $3
+		FROM (SELECT min(value_date) AS on FROM assets.acquisition WHERE asset_id = $1 AND status = 'posted' AND amount > 0) x,
+			(SELECT coalesce((SELECT bool_and(c = 0) FROM (SELECT sum(cost) AS c FROM assets.movement WHERE asset_id = $1 GROUP BY ledger_id) s), false)
+				AND coalesce((SELECT m.kind IN ('retirement', 'transfer_out') FROM assets.movement m
+					WHERE m.asset_id = $1 AND m.kind <> 'depreciation' AND m.reverses_id IS NULL AND (m.cost < 0 OR m.share = 1)
+						AND NOT EXISTS (SELECT FROM assets.movement r WHERE r.tenant_id = m.tenant_id AND r.reverses_id = m.id)
+					ORDER BY m.seq DESC LIMIT 1), false) AS retired) y
+		WHERE a.id = $1`, asset, seq, p.ID)
 	return errs.Wrapf(err, "assets: derive asset %s", asset)
 }
 

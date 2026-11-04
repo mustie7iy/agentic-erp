@@ -51,8 +51,10 @@ func (e *Endpoints) validTaxDate(ctx context.Context, tx pgx.Tx, in Input) (time
 }
 
 // errTaxTooLarge refuses an invoice whose tax is out of range.
-var errTaxTooLarge = problem.Unprocessable("payables.amount_too_large",
-	"The invoice's tax amounts, or their local amounts at the tax date's rate, are too large to post.")
+func errTaxTooLarge() *problem.Problem {
+	return problem.Unprocessable("payables.amount_too_large",
+		"The invoice's tax amounts, or their local amounts at the tax date's rate, are too large to post.")
+}
 
 // taxDateSet is whether the input sets a tax date: a new invoice's given
 // one, or a change's that sets, changes or clears the invoice's.
@@ -155,7 +157,7 @@ func (e *Endpoints) calculateTax(ctx context.Context, v Invoice, taxDate time.Ti
 func calculationFailed(id uuid.UUID, err error) error {
 	switch {
 	case errors.Is(err, money.ErrOverflow):
-		return errTaxTooLarge
+		return errTaxTooLarge()
 	case errors.Is(err, tax.ErrNoRate):
 		return problem.Unprocessable("payables.no_tax_rate", "The invoice's tax cannot be calculated: "+tax.Reason(err)+".")
 	case errors.Is(err, tax.ErrInvalidCode):
@@ -389,7 +391,7 @@ func chargedTax(stated money.Minor, items []tax.ComponentTax) (charged, diff mon
 		diff, err = money.Diff(stated, charged)
 	}
 	if err != nil {
-		return 0, 0, 0, errTaxTooLarge
+		return 0, 0, 0, errTaxTooLarge()
 	}
 	return charged, diff, codes, nil
 }
@@ -451,7 +453,7 @@ func withShares(items []tax.ComponentTax, shares []money.Minor, onAccount bool, 
 		}
 		lc, err := conv.Convert(out[i].Tax)
 		if err != nil {
-			return nil, false, errTaxTooLarge // the conversion's only error: its rate and exponents are the calculator's
+			return nil, false, errTaxTooLarge() // the conversion's only error: its rate and exponents are the calculator's
 		}
 		if recovers {
 			out[i].Local.Recoverable += lc - out[i].Local.Tax

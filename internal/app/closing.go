@@ -6,6 +6,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/agents"
+	"github.com/mustie7iy/agentic-erp/internal/assets"
 	"github.com/mustie7iy/agentic-erp/internal/closing"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/controlling"
@@ -16,12 +18,12 @@ import (
 )
 
 // Closing is the financial close context as the API wires it (ADR-0058
-// §2): a leaf that reads the configuration, tenancy, ledger, identity
-// and controlling contexts through the adapters below, so none of them
-// imports it and it imports none of them.
+// §2): a leaf that reads the configuration, tenancy, ledger, identity,
+// controlling, agents and assets contexts through the adapters below, so
+// none of them imports it and it imports none of them.
 func Closing(cfg Config) *closing.Endpoints {
 	return &closing.Endpoints{Settings: configuration.Settings{}, Companies: closingCompanies{}, Ledger: closingLedger{}, People: closingPeople{},
-		Plans: closingPlans{}, Pages: cfg.Pages, Now: cfg.Now}
+		Plans: closingPlans{}, Sessions: agents.Sessions{}, Depreciation: closingDepreciation{}, Pages: cfg.Pages, Now: cfg.Now}
 }
 
 // closingCompanies gives the closing context a legal entity's code, name
@@ -34,8 +36,9 @@ func (closingCompanies) Company(ctx context.Context, id uuid.UUID) (closing.Comp
 }
 
 // closingLedger gives the closing context the ledger's posting periods,
-// what a close's checks read (parked entries and revaluation runs), and
-// the period lock a sign-off takes.
+// what a close's checks read (parked entries and revaluation runs), the
+// period lock a sign-off takes, the variance report's profit and loss and
+// the journal entries its comments cite.
 type closingLedger struct{}
 
 func (closingLedger) LeadingPeriods(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]closing.Period, error) {
@@ -88,6 +91,15 @@ func (closingLedger) ProfitAndLoss(ctx context.Context, legalEntity uuid.UUID, f
 	return out, err
 }
 
+func (closingLedger) Cited(ctx context.Context, legalEntity, account uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]closing.CitedEntry, error) {
+	cs, err := ledger.CloseAccounts{}.Cited(ctx, legalEntity, account, ids)
+	out := make(map[uuid.UUID]closing.CitedEntry, len(cs))
+	for id, c := range cs {
+		out[id] = closing.CitedEntry{ID: c.ID, FiscalYear: c.FiscalYear, DocumentNumber: c.DocumentNumber, PostingDate: c.PostingDate, Periods: c.Periods}
+	}
+	return out, err
+}
+
 func closingPeriod(p ledger.Period) closing.Period {
 	return closing.Period{ID: p.ID, Number: p.Period, StartDate: p.StartDate, EndDate: p.EndDate, Status: p.Status, Version: p.Version}
 }
@@ -116,4 +128,13 @@ func (closingPlans) Category(ctx context.Context, code string) (closing.PlanCate
 
 func (closingPlans) Amounts(ctx context.Context, legalEntity, category uuid.UUID, fiscalYear, period int16, profit bool) (map[uuid.UUID]money.Minor, error) {
 	return controlling.Plans{}.Amounts(ctx, legalEntity, category, fiscalYear, period, profit)
+}
+
+// closingDepreciation gives the closing context the assets context's
+// depreciation of a period, the depreciation check's (T64k).
+type closingDepreciation struct{}
+
+func (closingDepreciation) Posted(ctx context.Context, legalEntity, ledgerID uuid.UUID, fiscalYear, period int16, end time.Time) (*uuid.UUID, int, error) {
+	d, err := assets.CloseChecks{}.Depreciation(ctx, legalEntity, ledgerID, fiscalYear, period, end)
+	return d.Run, d.Selected, err
 }

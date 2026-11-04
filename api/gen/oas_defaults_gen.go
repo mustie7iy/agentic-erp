@@ -35,6 +35,18 @@ func (s *EntryTemplateCreate) setDefaults() {
 }
 
 // setDefaults set default value of fields.
+func (s *ForecastVarianceCommentCreate) setDefaults() {
+	{
+		val := int32(7)
+		s.Lag.SetTo(val)
+	}
+	{
+		val := bool(false)
+		s.Unclassified.SetTo(val)
+	}
+}
+
+// setDefaults set default value of fields.
 func (s *GoodsReceiptCreate) setDefaults() {
 	{
 		val := string("101")

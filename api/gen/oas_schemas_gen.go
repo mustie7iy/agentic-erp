@@ -122,6 +122,70 @@ type AcceptMemoRecordProposalUnprocessableEntity Problem
 
 func (*AcceptMemoRecordProposalUnprocessableEntity) acceptMemoRecordProposalRes() {}
 
+type AcceptVarianceCommentBadRequest Problem
+
+func (*AcceptVarianceCommentBadRequest) acceptVarianceCommentRes() {}
+
+type AcceptVarianceCommentForbidden Problem
+
+func (*AcceptVarianceCommentForbidden) acceptVarianceCommentRes() {}
+
+type AcceptVarianceCommentNotFound Problem
+
+func (*AcceptVarianceCommentNotFound) acceptVarianceCommentRes() {}
+
+// AcceptVarianceCommentOKHeaders wraps VarianceComment with response headers.
+type AcceptVarianceCommentOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           VarianceComment
+}
+
+// GetETag returns the value of ETag.
+func (s *AcceptVarianceCommentOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AcceptVarianceCommentOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *AcceptVarianceCommentOKHeaders) GetResponse() VarianceComment {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *AcceptVarianceCommentOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AcceptVarianceCommentOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AcceptVarianceCommentOKHeaders) SetResponse(val VarianceComment) {
+	s.Response = val
+}
+
+func (*AcceptVarianceCommentOKHeaders) acceptVarianceCommentRes() {}
+func (*AcceptVarianceCommentOKHeaders) rejectVarianceCommentRes() {}
+
+type AcceptVarianceCommentPreconditionFailed Problem
+
+func (*AcceptVarianceCommentPreconditionFailed) acceptVarianceCommentRes() {}
+
+type AcceptVarianceCommentPreconditionRequired Problem
+
+func (*AcceptVarianceCommentPreconditionRequired) acceptVarianceCommentRes() {}
+
+type AcceptVarianceCommentUnprocessableEntity Problem
+
+func (*AcceptVarianceCommentUnprocessableEntity) acceptVarianceCommentRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/Account
 type Account struct {
@@ -4890,8 +4954,8 @@ type AssetMovement struct {
 	// The kind of document it belongs to. Open enumeration: clients must accept and preserve values not
 	// listed here; values may be added within /v1.
 	DocumentKind string `json:"document_kind"`
-	// The document (an acquisition: `GET /v1/asset-acquisitions/{id}`; a depreciation run:
-	// `GET /v1/depreciation-runs/{id}`).
+	// The document (an acquisition: `GET /v1/asset-acquisitions/{id}`; a retirement:
+	// `GET /v1/asset-retirements/{id}`; a depreciation run: `GET /v1/depreciation-runs/{id}`).
 	DocumentID uuid.UUID `json:"document_id"`
 	// That ledger's journal entry (`GET /v1/journal-entries/{id}`); absent for a catch-up of zero.
 	JournalEntryID OptUUID `json:"journal_entry_id"`
@@ -5248,6 +5312,775 @@ func (s *AssetPage) SetNextPageToken(val OptString) {
 }
 
 func (*AssetPage) listAssetsRes() {}
+
+// Merged schema.
+// Ref: #/components/schemas/AssetRetirement
+type AssetRetirement struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The asset.
+	AssetID uuid.UUID `json:"asset_id"`
+	// The asset's number in its company.
+	AssetNumber string `json:"asset_number"`
+	// The asset's description.
+	AssetDescription string `json:"asset_description"`
+	// `sale` or `scrapping`. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Kind string `json:"kind"`
+	// The date the share left from.
+	ValueDate time.Time `json:"value_date"`
+	// The posting date of its entries.
+	PostingDate time.Time `json:"posting_date"`
+	// The posting date's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The posting date's regular period.
+	Period int32 `json:"period"`
+	// Whether it took all of the asset's balances in every ledger: no share, 100 %, or the whole cost.
+	Full bool `json:"full"`
+	// The share given as a percentage of cost, as a plain decimal.
+	SharePercent OptString `json:"share_percent"`
+	// The share given as a cost, in local currency.
+	ShareCost OptMoney `json:"share_cost"`
+	// The sale's proceeds in local currency; zero for a scrapping.
+	Proceeds Money `json:"proceeds"`
+	// The proceeds in group currency, at the posting date's rate.
+	ProceedsGc Money `json:"proceeds_gc"`
+	// The retirement's text.
+	Text OptString `json:"text"`
+	// `posted`, or `reversed`. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+	// What it took per ledger the company keeps, the leading ledger first and then by ledger code.
+	Ledgers []AssetRetirementLedger `json:"ledgers"`
+	// Its journal entries, one per ledger it posted in (none in a ledger where every amount was zero),
+	// each with its reversal once reversed.
+	Entries  []AssetDocumentEntry       `json:"entries"`
+	Reversal OptAssetRetirementReversal `json:"reversal"`
+}
+
+// GetID returns the value of ID.
+func (s *AssetRetirement) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *AssetRetirement) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *AssetRetirement) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *AssetRetirement) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *AssetRetirement) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *AssetRetirement) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AssetRetirement) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *AssetRetirement) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetAssetID returns the value of AssetID.
+func (s *AssetRetirement) GetAssetID() uuid.UUID {
+	return s.AssetID
+}
+
+// GetAssetNumber returns the value of AssetNumber.
+func (s *AssetRetirement) GetAssetNumber() string {
+	return s.AssetNumber
+}
+
+// GetAssetDescription returns the value of AssetDescription.
+func (s *AssetRetirement) GetAssetDescription() string {
+	return s.AssetDescription
+}
+
+// GetKind returns the value of Kind.
+func (s *AssetRetirement) GetKind() string {
+	return s.Kind
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *AssetRetirement) GetValueDate() time.Time {
+	return s.ValueDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetRetirement) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetRetirement) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *AssetRetirement) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetFull returns the value of Full.
+func (s *AssetRetirement) GetFull() bool {
+	return s.Full
+}
+
+// GetSharePercent returns the value of SharePercent.
+func (s *AssetRetirement) GetSharePercent() OptString {
+	return s.SharePercent
+}
+
+// GetShareCost returns the value of ShareCost.
+func (s *AssetRetirement) GetShareCost() OptMoney {
+	return s.ShareCost
+}
+
+// GetProceeds returns the value of Proceeds.
+func (s *AssetRetirement) GetProceeds() Money {
+	return s.Proceeds
+}
+
+// GetProceedsGc returns the value of ProceedsGc.
+func (s *AssetRetirement) GetProceedsGc() Money {
+	return s.ProceedsGc
+}
+
+// GetText returns the value of Text.
+func (s *AssetRetirement) GetText() OptString {
+	return s.Text
+}
+
+// GetStatus returns the value of Status.
+func (s *AssetRetirement) GetStatus() string {
+	return s.Status
+}
+
+// GetLedgers returns the value of Ledgers.
+func (s *AssetRetirement) GetLedgers() []AssetRetirementLedger {
+	return s.Ledgers
+}
+
+// GetEntries returns the value of Entries.
+func (s *AssetRetirement) GetEntries() []AssetDocumentEntry {
+	return s.Entries
+}
+
+// GetReversal returns the value of Reversal.
+func (s *AssetRetirement) GetReversal() OptAssetRetirementReversal {
+	return s.Reversal
+}
+
+// SetID sets the value of ID.
+func (s *AssetRetirement) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *AssetRetirement) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *AssetRetirement) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *AssetRetirement) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *AssetRetirement) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *AssetRetirement) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AssetRetirement) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *AssetRetirement) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetAssetID sets the value of AssetID.
+func (s *AssetRetirement) SetAssetID(val uuid.UUID) {
+	s.AssetID = val
+}
+
+// SetAssetNumber sets the value of AssetNumber.
+func (s *AssetRetirement) SetAssetNumber(val string) {
+	s.AssetNumber = val
+}
+
+// SetAssetDescription sets the value of AssetDescription.
+func (s *AssetRetirement) SetAssetDescription(val string) {
+	s.AssetDescription = val
+}
+
+// SetKind sets the value of Kind.
+func (s *AssetRetirement) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *AssetRetirement) SetValueDate(val time.Time) {
+	s.ValueDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetRetirement) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetRetirement) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *AssetRetirement) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetFull sets the value of Full.
+func (s *AssetRetirement) SetFull(val bool) {
+	s.Full = val
+}
+
+// SetSharePercent sets the value of SharePercent.
+func (s *AssetRetirement) SetSharePercent(val OptString) {
+	s.SharePercent = val
+}
+
+// SetShareCost sets the value of ShareCost.
+func (s *AssetRetirement) SetShareCost(val OptMoney) {
+	s.ShareCost = val
+}
+
+// SetProceeds sets the value of Proceeds.
+func (s *AssetRetirement) SetProceeds(val Money) {
+	s.Proceeds = val
+}
+
+// SetProceedsGc sets the value of ProceedsGc.
+func (s *AssetRetirement) SetProceedsGc(val Money) {
+	s.ProceedsGc = val
+}
+
+// SetText sets the value of Text.
+func (s *AssetRetirement) SetText(val OptString) {
+	s.Text = val
+}
+
+// SetStatus sets the value of Status.
+func (s *AssetRetirement) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetLedgers sets the value of Ledgers.
+func (s *AssetRetirement) SetLedgers(val []AssetRetirementLedger) {
+	s.Ledgers = val
+}
+
+// SetEntries sets the value of Entries.
+func (s *AssetRetirement) SetEntries(val []AssetDocumentEntry) {
+	s.Entries = val
+}
+
+// SetReversal sets the value of Reversal.
+func (s *AssetRetirement) SetReversal(val OptAssetRetirementReversal) {
+	s.Reversal = val
+}
+
+// A retirement of an asset by sale or scrapping, in full or in part (ADR-0057 §8).
+// Ref: #/components/schemas/AssetRetirementCreate
+type AssetRetirementCreate struct {
+	// The asset retired (an active one).
+	AssetID uuid.UUID `json:"asset_id"`
+	// `sale`, with `proceeds`, or `scrapping`, without. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Kind string `json:"kind"`
+	// A sale's proceeds, zero or more, in the company's local currency; required for a sale, none for a
+	// scrapping. They are posted on the class's sale clearing account.
+	Proceeds OptMoney                `json:"proceeds"`
+	Share    OptAssetRetirementShare `json:"share"`
+	// The date the share leaves from (the start of its period for depreciation); default the posting date.
+	// In the posting date's period, on or before the posting date.
+	ValueDate OptDate `json:"value_date"`
+	// The retirement's posting date; default the company's date today.
+	PostingDate OptDate `json:"posting_date"`
+	// A text for the retirement and its entries.
+	Text OptString `json:"text"`
+}
+
+// GetAssetID returns the value of AssetID.
+func (s *AssetRetirementCreate) GetAssetID() uuid.UUID {
+	return s.AssetID
+}
+
+// GetKind returns the value of Kind.
+func (s *AssetRetirementCreate) GetKind() string {
+	return s.Kind
+}
+
+// GetProceeds returns the value of Proceeds.
+func (s *AssetRetirementCreate) GetProceeds() OptMoney {
+	return s.Proceeds
+}
+
+// GetShare returns the value of Share.
+func (s *AssetRetirementCreate) GetShare() OptAssetRetirementShare {
+	return s.Share
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *AssetRetirementCreate) GetValueDate() OptDate {
+	return s.ValueDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetRetirementCreate) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetText returns the value of Text.
+func (s *AssetRetirementCreate) GetText() OptString {
+	return s.Text
+}
+
+// SetAssetID sets the value of AssetID.
+func (s *AssetRetirementCreate) SetAssetID(val uuid.UUID) {
+	s.AssetID = val
+}
+
+// SetKind sets the value of Kind.
+func (s *AssetRetirementCreate) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetProceeds sets the value of Proceeds.
+func (s *AssetRetirementCreate) SetProceeds(val OptMoney) {
+	s.Proceeds = val
+}
+
+// SetShare sets the value of Share.
+func (s *AssetRetirementCreate) SetShare(val OptAssetRetirementShare) {
+	s.Share = val
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *AssetRetirementCreate) SetValueDate(val OptDate) {
+	s.ValueDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetRetirementCreate) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetText sets the value of Text.
+func (s *AssetRetirementCreate) SetText(val OptString) {
+	s.Text = val
+}
+
+// AssetRetirementHeaders wraps AssetRetirement with response headers.
+type AssetRetirementHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           AssetRetirement
+}
+
+// GetETag returns the value of ETag.
+func (s *AssetRetirementHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AssetRetirementHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *AssetRetirementHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *AssetRetirementHeaders) GetResponse() AssetRetirement {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *AssetRetirementHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AssetRetirementHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *AssetRetirementHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AssetRetirementHeaders) SetResponse(val AssetRetirement) {
+	s.Response = val
+}
+
+func (*AssetRetirementHeaders) createAssetRetirementRes() {}
+
+// What a retirement took in one ledger (ADR-0057 §8): its depreciation catch-up, then its share of
+// the asset's balances, and its gain or loss.
+// Ref: #/components/schemas/AssetRetirementLedger
+type AssetRetirementLedger struct {
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// The fraction of the asset's cost in this ledger it took, as a plain decimal (1: all of it).
+	Share string `json:"share"`
+	// The depreciation it caught up through the period before its posting period, an expense; negative
+	// when it posted the posting period's run back.
+	CatchUp Money `json:"catch_up"`
+	// The catch-up in group currency, at the posting date's rate.
+	CatchUpGc Money `json:"catch_up_gc"`
+	// The acquisition cost it took off, in local currency.
+	Cost Money `json:"cost"`
+	// The acquisition cost it took off, at its booked group amount.
+	CostGc Money `json:"cost_gc"`
+	// The accumulated depreciation it took off, after the catch-up, negative as the credit it was.
+	Accumulated Money `json:"accumulated"`
+	// The accumulated depreciation it took off, at its booked group amount.
+	AccumulatedGc Money `json:"accumulated_gc"`
+	// The residual value it took off, in local currency.
+	Residual Money `json:"residual"`
+	// The book value it took off: `cost` plus `accumulated`.
+	NetBookValue Money `json:"net_book_value"`
+	// The book value it took off in group currency.
+	NetBookValueGc Money `json:"net_book_value_gc"`
+	// The proceeds less the book value taken: a gain when positive (on the gain account), a loss when
+	// negative (on the loss account).
+	Gain Money `json:"gain"`
+	// The gain or loss in group currency: the proceeds' group amount less the book value's.
+	GainGc Money `json:"gain_gc"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *AssetRetirementLedger) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *AssetRetirementLedger) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *AssetRetirementLedger) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetShare returns the value of Share.
+func (s *AssetRetirementLedger) GetShare() string {
+	return s.Share
+}
+
+// GetCatchUp returns the value of CatchUp.
+func (s *AssetRetirementLedger) GetCatchUp() Money {
+	return s.CatchUp
+}
+
+// GetCatchUpGc returns the value of CatchUpGc.
+func (s *AssetRetirementLedger) GetCatchUpGc() Money {
+	return s.CatchUpGc
+}
+
+// GetCost returns the value of Cost.
+func (s *AssetRetirementLedger) GetCost() Money {
+	return s.Cost
+}
+
+// GetCostGc returns the value of CostGc.
+func (s *AssetRetirementLedger) GetCostGc() Money {
+	return s.CostGc
+}
+
+// GetAccumulated returns the value of Accumulated.
+func (s *AssetRetirementLedger) GetAccumulated() Money {
+	return s.Accumulated
+}
+
+// GetAccumulatedGc returns the value of AccumulatedGc.
+func (s *AssetRetirementLedger) GetAccumulatedGc() Money {
+	return s.AccumulatedGc
+}
+
+// GetResidual returns the value of Residual.
+func (s *AssetRetirementLedger) GetResidual() Money {
+	return s.Residual
+}
+
+// GetNetBookValue returns the value of NetBookValue.
+func (s *AssetRetirementLedger) GetNetBookValue() Money {
+	return s.NetBookValue
+}
+
+// GetNetBookValueGc returns the value of NetBookValueGc.
+func (s *AssetRetirementLedger) GetNetBookValueGc() Money {
+	return s.NetBookValueGc
+}
+
+// GetGain returns the value of Gain.
+func (s *AssetRetirementLedger) GetGain() Money {
+	return s.Gain
+}
+
+// GetGainGc returns the value of GainGc.
+func (s *AssetRetirementLedger) GetGainGc() Money {
+	return s.GainGc
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *AssetRetirementLedger) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *AssetRetirementLedger) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *AssetRetirementLedger) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetShare sets the value of Share.
+func (s *AssetRetirementLedger) SetShare(val string) {
+	s.Share = val
+}
+
+// SetCatchUp sets the value of CatchUp.
+func (s *AssetRetirementLedger) SetCatchUp(val Money) {
+	s.CatchUp = val
+}
+
+// SetCatchUpGc sets the value of CatchUpGc.
+func (s *AssetRetirementLedger) SetCatchUpGc(val Money) {
+	s.CatchUpGc = val
+}
+
+// SetCost sets the value of Cost.
+func (s *AssetRetirementLedger) SetCost(val Money) {
+	s.Cost = val
+}
+
+// SetCostGc sets the value of CostGc.
+func (s *AssetRetirementLedger) SetCostGc(val Money) {
+	s.CostGc = val
+}
+
+// SetAccumulated sets the value of Accumulated.
+func (s *AssetRetirementLedger) SetAccumulated(val Money) {
+	s.Accumulated = val
+}
+
+// SetAccumulatedGc sets the value of AccumulatedGc.
+func (s *AssetRetirementLedger) SetAccumulatedGc(val Money) {
+	s.AccumulatedGc = val
+}
+
+// SetResidual sets the value of Residual.
+func (s *AssetRetirementLedger) SetResidual(val Money) {
+	s.Residual = val
+}
+
+// SetNetBookValue sets the value of NetBookValue.
+func (s *AssetRetirementLedger) SetNetBookValue(val Money) {
+	s.NetBookValue = val
+}
+
+// SetNetBookValueGc sets the value of NetBookValueGc.
+func (s *AssetRetirementLedger) SetNetBookValueGc(val Money) {
+	s.NetBookValueGc = val
+}
+
+// SetGain sets the value of Gain.
+func (s *AssetRetirementLedger) SetGain(val Money) {
+	s.Gain = val
+}
+
+// SetGainGc sets the value of GainGc.
+func (s *AssetRetirementLedger) SetGainGc(val Money) {
+	s.GainGc = val
+}
+
+// One page of asset retirements.
+// Ref: #/components/schemas/AssetRetirementPage
+type AssetRetirementPage struct {
+	// The retirements on this page.
+	Items []AssetRetirement `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *AssetRetirementPage) GetItems() []AssetRetirement {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AssetRetirementPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *AssetRetirementPage) SetItems(val []AssetRetirement) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AssetRetirementPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*AssetRetirementPage) listAssetRetirementsRes() {}
+
+// The reversal of a retirement; its entries are shown beside the retirement's in `entries`.
+// Ref: #/components/schemas/AssetRetirementReversal
+type AssetRetirementReversal struct {
+	// The reversal's posting date.
+	PostingDate time.Time `json:"posting_date"`
+	// Why it was reversed.
+	Reason string `json:"reason"`
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetRetirementReversal) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetReason returns the value of Reason.
+func (s *AssetRetirementReversal) GetReason() string {
+	return s.Reason
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetRetirementReversal) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetReason sets the value of Reason.
+func (s *AssetRetirementReversal) SetReason(val string) {
+	s.Reason = val
+}
+
+// The reversal of an asset retirement (ADR-0057 §8).
+// Ref: #/components/schemas/AssetRetirementReverse
+type AssetRetirementReverse struct {
+	// Why the retirement is reversed.
+	Reason string `json:"reason"`
+	// The reversal's posting date; default the retirement's. On or after the retirement's posting date, in
+	// a period open in every ledger.
+	PostingDate OptDate `json:"posting_date"`
+}
+
+// GetReason returns the value of Reason.
+func (s *AssetRetirementReverse) GetReason() string {
+	return s.Reason
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetRetirementReverse) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// SetReason sets the value of Reason.
+func (s *AssetRetirementReverse) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetRetirementReverse) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// The share of the asset's cost retired, one of `percent` and `cost`; absent: all of it.
+// Ref: #/components/schemas/AssetRetirementShare
+type AssetRetirementShare struct {
+	// A percentage of the cost in each ledger, above 0 and at most 100, up to four decimals; 100 is a full
+	// retirement.
+	Percent OptString `json:"percent"`
+	// A cost in the company's local currency, above zero and at most the asset's cost; all of it is a full
+	// retirement.
+	Cost OptMoney `json:"cost"`
+}
+
+// GetPercent returns the value of Percent.
+func (s *AssetRetirementShare) GetPercent() OptString {
+	return s.Percent
+}
+
+// GetCost returns the value of Cost.
+func (s *AssetRetirementShare) GetCost() OptMoney {
+	return s.Cost
+}
+
+// SetPercent sets the value of Percent.
+func (s *AssetRetirementShare) SetPercent(val OptString) {
+	s.Percent = val
+}
+
+// SetCost sets the value of Cost.
+func (s *AssetRetirementShare) SetCost(val OptMoney) {
+	s.Cost = val
+}
 
 // An asset's planned and booked depreciation per regular period of a fiscal year in one ledger
 // (ADR-0057 §7), in the company's local currency.
@@ -13984,7 +14817,7 @@ func (s *CloseCalendarPeriod) SetClose(val OptCloseCalendarClose) {
 	s.Close = val
 }
 
-// A covered ledger as a `revaluation_posted` check found it.
+// A covered ledger as a `revaluation_posted` or a `depreciation_posted` check found it.
 // Ref: #/components/schemas/CloseCheckLedger
 type CloseCheckLedger struct {
 	// The ledger.
@@ -13993,12 +14826,23 @@ type CloseCheckLedger struct {
 	LedgerCode string `json:"ledger_code"`
 	// Its name.
 	LedgerName string `json:"ledger_name"`
-	// Its period's last day, the key date its revaluation run is keyed on.
+	// Its period's last day: the key date a revaluation run is keyed on, the posting date of a
+	// depreciation run.
 	KeyDate time.Time `json:"key_date"`
-	// Whether it has a posted revaluation run at the key date.
+	// Whether it has a posted run of the check's kind: a revaluation run at the key date, or a
+	// depreciation run of the period. A ledger without a posted depreciation run still passes
+	// `depreciation_posted` when `assets_to_depreciate` is 0.
 	Posted bool `json:"posted"`
-	// The posted run (`GET /v1/revaluation-runs/{id}`); absent without one.
+	// `revaluation_posted`: the posted run (`GET /v1/revaluation-runs/{id}`); absent without one and for
+	// another check.
 	RevaluationRunID OptUUID `json:"revaluation_run_id"`
+	// `depreciation_posted`: the latest posted depreciation run of the period in this ledger
+	// (`GET /v1/depreciation-runs/{id}`); absent without one and for another check.
+	DepreciationRunID OptUUID `json:"depreciation_run_id"`
+	// `depreciation_posted` without a posted run: how many of the company's assets a run of the period in
+	// this ledger would select (`POST /v1/depreciation-runs/preview`); 0, nothing to depreciate, passes.
+	// Absent with a posted run and for another check.
+	AssetsToDepreciate OptInt32 `json:"assets_to_depreciate"`
 }
 
 // GetLedgerID returns the value of LedgerID.
@@ -14031,6 +14875,16 @@ func (s *CloseCheckLedger) GetRevaluationRunID() OptUUID {
 	return s.RevaluationRunID
 }
 
+// GetDepreciationRunID returns the value of DepreciationRunID.
+func (s *CloseCheckLedger) GetDepreciationRunID() OptUUID {
+	return s.DepreciationRunID
+}
+
+// GetAssetsToDepreciate returns the value of AssetsToDepreciate.
+func (s *CloseCheckLedger) GetAssetsToDepreciate() OptInt32 {
+	return s.AssetsToDepreciate
+}
+
 // SetLedgerID sets the value of LedgerID.
 func (s *CloseCheckLedger) SetLedgerID(val uuid.UUID) {
 	s.LedgerID = val
@@ -14059,6 +14913,16 @@ func (s *CloseCheckLedger) SetPosted(val bool) {
 // SetRevaluationRunID sets the value of RevaluationRunID.
 func (s *CloseCheckLedger) SetRevaluationRunID(val OptUUID) {
 	s.RevaluationRunID = val
+}
+
+// SetDepreciationRunID sets the value of DepreciationRunID.
+func (s *CloseCheckLedger) SetDepreciationRunID(val OptUUID) {
+	s.DepreciationRunID = val
+}
+
+// SetAssetsToDepreciate sets the value of AssetsToDepreciate.
+func (s *CloseCheckLedger) SetAssetsToDepreciate(val OptInt32) {
+	s.AssetsToDepreciate = val
 }
 
 // A parked entry a `no_parked_entries` check found (`GET /v1/parked-journal-entries/{id}`), as it was
@@ -14204,8 +15068,17 @@ type CloseCheckResult struct {
 	// there are); absent for another check.
 	ParkedEntries []CloseCheckParkedEntry `json:"parked_entries"`
 	// `revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted
-	// revaluation run keyed on its period's last day, if it has one; absent for another check.
+	// revaluation run keyed on its period's last day, if it has one; `depreciation_posted`: each covered
+	// ledger, in the same order, with its latest posted depreciation run of the period, if it has one, or
+	// how many assets a run would select; absent for another check.
 	Ledgers []CloseCheckLedger `json:"ledgers"`
+	// `variances_explained`: how many rows of the company's configured bases require a comment and have no
+	// accepted one that is current (T64i); absent for another check, and when the company configures no
+	// basis (the summary says so).
+	UnexplainedRowsCount OptInt32 `json:"unexplained_rows_count"`
+	// `variances_explained`: the first 20 of them, by basis as the company configures them, then by
+	// account number; absent for another check.
+	UnexplainedRows []CloseCheckVariance `json:"unexplained_rows"`
 }
 
 // GetCheck returns the value of Check.
@@ -14253,6 +15126,16 @@ func (s *CloseCheckResult) GetLedgers() []CloseCheckLedger {
 	return s.Ledgers
 }
 
+// GetUnexplainedRowsCount returns the value of UnexplainedRowsCount.
+func (s *CloseCheckResult) GetUnexplainedRowsCount() OptInt32 {
+	return s.UnexplainedRowsCount
+}
+
+// GetUnexplainedRows returns the value of UnexplainedRows.
+func (s *CloseCheckResult) GetUnexplainedRows() []CloseCheckVariance {
+	return s.UnexplainedRows
+}
+
 // SetCheck sets the value of Check.
 func (s *CloseCheckResult) SetCheck(val string) {
 	s.Check = val
@@ -14296,6 +15179,95 @@ func (s *CloseCheckResult) SetParkedEntries(val []CloseCheckParkedEntry) {
 // SetLedgers sets the value of Ledgers.
 func (s *CloseCheckResult) SetLedgers(val []CloseCheckLedger) {
 	s.Ledgers = val
+}
+
+// SetUnexplainedRowsCount sets the value of UnexplainedRowsCount.
+func (s *CloseCheckResult) SetUnexplainedRowsCount(val OptInt32) {
+	s.UnexplainedRowsCount = val
+}
+
+// SetUnexplainedRows sets the value of UnexplainedRows.
+func (s *CloseCheckResult) SetUnexplainedRows(val []CloseCheckVariance) {
+	s.UnexplainedRows = val
+}
+
+// A variance report row a `variances_explained` check found unexplained: it requires a comment and has
+// no accepted one, or only a stale one.
+// Ref: #/components/schemas/CloseCheckVariance
+type CloseCheckVariance struct {
+	// The row's basis. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Basis string `json:"basis"`
+	// The row's account.
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name.
+	AccountName string `json:"account_name"`
+	// The row's variance when the check ran.
+	Variance Money `json:"variance"`
+	// Whether the row has an accepted comment that is stale (true) or none (false).
+	StaleComment bool `json:"stale_comment"`
+}
+
+// GetBasis returns the value of Basis.
+func (s *CloseCheckVariance) GetBasis() string {
+	return s.Basis
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *CloseCheckVariance) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *CloseCheckVariance) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *CloseCheckVariance) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetVariance returns the value of Variance.
+func (s *CloseCheckVariance) GetVariance() Money {
+	return s.Variance
+}
+
+// GetStaleComment returns the value of StaleComment.
+func (s *CloseCheckVariance) GetStaleComment() bool {
+	return s.StaleComment
+}
+
+// SetBasis sets the value of Basis.
+func (s *CloseCheckVariance) SetBasis(val string) {
+	s.Basis = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *CloseCheckVariance) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *CloseCheckVariance) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *CloseCheckVariance) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetVariance sets the value of Variance.
+func (s *CloseCheckVariance) SetVariance(val Money) {
+	s.Variance = val
+}
+
+// SetStaleComment sets the value of StaleComment.
+func (s *CloseCheckVariance) SetStaleComment(val bool) {
+	s.StaleComment = val
 }
 
 type CloseFiscalPeriodBadRequest Problem
@@ -15494,6 +16466,7 @@ func (s *ConflictHeaders) SetResponse(val Problem) {
 func (*ConflictHeaders) acceptBankStatementGapRes()           {}
 func (*ConflictHeaders) acceptBankStatementLineProposalRes()  {}
 func (*ConflictHeaders) acceptMemoRecordProposalRes()         {}
+func (*ConflictHeaders) acceptVarianceCommentRes()            {}
 func (*ConflictHeaders) activateChangeRequestRes()            {}
 func (*ConflictHeaders) activateLegalEntityRes()              {}
 func (*ConflictHeaders) activateOrgUnitRes()                  {}
@@ -15526,6 +16499,7 @@ func (*ConflictHeaders) closePurchaseOrderRes()               {}
 func (*ConflictHeaders) completeCloseTaskRes()                {}
 func (*ConflictHeaders) createAssetAcquisitionRes()           {}
 func (*ConflictHeaders) createAssetRes()                      {}
+func (*ConflictHeaders) createAssetRetirementRes()            {}
 func (*ConflictHeaders) createBusinessPartnerRes()            {}
 func (*ConflictHeaders) createChangeRequestRes()              {}
 func (*ConflictHeaders) createClearingRes()                   {}
@@ -15536,6 +16510,7 @@ func (*ConflictHeaders) createCostCenterRes()                 {}
 func (*ConflictHeaders) createDownPaymentRequestRes()         {}
 func (*ConflictHeaders) createEntryTemplateRes()              {}
 func (*ConflictHeaders) createExchangeRateRes()               {}
+func (*ConflictHeaders) createForecastVarianceCommentRes()    {}
 func (*ConflictHeaders) createGrIrClearingRes()               {}
 func (*ConflictHeaders) createHierarchyRes()                  {}
 func (*ConflictHeaders) createLegalEntityRes()                {}
@@ -15557,6 +16532,7 @@ func (*ConflictHeaders) createSegmentRes()                    {}
 func (*ConflictHeaders) createSodRuleRes()                    {}
 func (*ConflictHeaders) createSupplierInvoiceRes()            {}
 func (*ConflictHeaders) createUploadRes()                     {}
+func (*ConflictHeaders) createVarianceCommentRes()            {}
 func (*ConflictHeaders) createWebhookSubscriptionRes()        {}
 func (*ConflictHeaders) decideRecommendationRes()             {}
 func (*ConflictHeaders) deleteWebhookSubscriptionRes()        {}
@@ -15577,6 +16553,7 @@ func (*ConflictHeaders) getLiquidityForecastVarianceRes()     {}
 func (*ConflictHeaders) getPeriodCloseRes()                   {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()         {}
 func (*ConflictHeaders) getTaxReturnDraftRes()                {}
+func (*ConflictHeaders) getVarianceCommentRes()               {}
 func (*ConflictHeaders) grantRolePermissionRes()              {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()              {}
 func (*ConflictHeaders) importBankStatementsRes()             {}
@@ -15585,6 +16562,7 @@ func (*ConflictHeaders) listPeriodCloseVariancesRes()         {}
 func (*ConflictHeaders) listPeriodClosesRes()                 {}
 func (*ConflictHeaders) listTaxPeriodsRes()                   {}
 func (*ConflictHeaders) listTaxReturnDraftItemsRes()          {}
+func (*ConflictHeaders) listVarianceCommentsRes()             {}
 func (*ConflictHeaders) lockCostCenterRes()                   {}
 func (*ConflictHeaders) lockFiscalPeriodRes()                 {}
 func (*ConflictHeaders) lockPlanCategoryRes()                 {}
@@ -15613,6 +16591,7 @@ func (*ConflictHeaders) previewRevaluationRes()               {}
 func (*ConflictHeaders) proposeBankStatementLineRes()         {}
 func (*ConflictHeaders) proposeMemoRecordRes()                {}
 func (*ConflictHeaders) proposePaymentRunRes()                {}
+func (*ConflictHeaders) proposeVarianceCommentRes()           {}
 func (*ConflictHeaders) realiseMemoRecordRes()                {}
 func (*ConflictHeaders) reconcileMigrationRunRes()            {}
 func (*ConflictHeaders) recordAgentToolCallRes()              {}
@@ -15623,6 +16602,7 @@ func (*ConflictHeaders) rejectApprovalRequestRes()            {}
 func (*ConflictHeaders) rejectBankStatementLineProposalRes()  {}
 func (*ConflictHeaders) rejectMemoRecordProposalRes()         {}
 func (*ConflictHeaders) rejectPaymentRunRes()                 {}
+func (*ConflictHeaders) rejectVarianceCommentRes()            {}
 func (*ConflictHeaders) releaseContractRes()                  {}
 func (*ConflictHeaders) releasePaymentRunRes()                {}
 func (*ConflictHeaders) releasePurchaseOrderRes()             {}
@@ -15638,6 +16618,7 @@ func (*ConflictHeaders) requestBankAccountEndRes()            {}
 func (*ConflictHeaders) resumeWebhookSubscriptionRes()        {}
 func (*ConflictHeaders) retireEntryTemplateRes()              {}
 func (*ConflictHeaders) reverseAssetAcquisitionRes()          {}
+func (*ConflictHeaders) reverseAssetRetirementRes()           {}
 func (*ConflictHeaders) reverseGoodsReceiptRes()              {}
 func (*ConflictHeaders) reverseJournalEntryRes()              {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()           {}
@@ -18181,6 +19162,30 @@ type CreateAssetPreconditionRequired Problem
 
 func (*CreateAssetPreconditionRequired) createAssetRes() {}
 
+type CreateAssetRetirementBadRequest Problem
+
+func (*CreateAssetRetirementBadRequest) createAssetRetirementRes() {}
+
+type CreateAssetRetirementForbidden Problem
+
+func (*CreateAssetRetirementForbidden) createAssetRetirementRes() {}
+
+type CreateAssetRetirementNotFound Problem
+
+func (*CreateAssetRetirementNotFound) createAssetRetirementRes() {}
+
+type CreateAssetRetirementPreconditionFailed Problem
+
+func (*CreateAssetRetirementPreconditionFailed) createAssetRetirementRes() {}
+
+type CreateAssetRetirementPreconditionRequired Problem
+
+func (*CreateAssetRetirementPreconditionRequired) createAssetRetirementRes() {}
+
+type CreateAssetRetirementUnprocessableEntity Problem
+
+func (*CreateAssetRetirementUnprocessableEntity) createAssetRetirementRes() {}
+
 type CreateAssetUnprocessableEntity Problem
 
 func (*CreateAssetUnprocessableEntity) createAssetRes() {}
@@ -18340,6 +19345,26 @@ func (*CreateExchangeRatePreconditionRequired) createExchangeRateRes() {}
 type CreateExchangeRateUnprocessableEntity Problem
 
 func (*CreateExchangeRateUnprocessableEntity) createExchangeRateRes() {}
+
+type CreateForecastVarianceCommentBadRequest Problem
+
+func (*CreateForecastVarianceCommentBadRequest) createForecastVarianceCommentRes() {}
+
+type CreateForecastVarianceCommentForbidden Problem
+
+func (*CreateForecastVarianceCommentForbidden) createForecastVarianceCommentRes() {}
+
+type CreateForecastVarianceCommentNotFound Problem
+
+func (*CreateForecastVarianceCommentNotFound) createForecastVarianceCommentRes() {}
+
+type CreateForecastVarianceCommentPreconditionRequired Problem
+
+func (*CreateForecastVarianceCommentPreconditionRequired) createForecastVarianceCommentRes() {}
+
+type CreateForecastVarianceCommentUnprocessableEntity Problem
+
+func (*CreateForecastVarianceCommentUnprocessableEntity) createForecastVarianceCommentRes() {}
 
 type CreateGrIrClearingBadRequest Problem
 
@@ -18808,6 +19833,26 @@ func (*CreateUploadPreconditionRequired) createUploadRes() {}
 type CreateUploadUnprocessableEntity Problem
 
 func (*CreateUploadUnprocessableEntity) createUploadRes() {}
+
+type CreateVarianceCommentBadRequest Problem
+
+func (*CreateVarianceCommentBadRequest) createVarianceCommentRes() {}
+
+type CreateVarianceCommentForbidden Problem
+
+func (*CreateVarianceCommentForbidden) createVarianceCommentRes() {}
+
+type CreateVarianceCommentNotFound Problem
+
+func (*CreateVarianceCommentNotFound) createVarianceCommentRes() {}
+
+type CreateVarianceCommentPreconditionRequired Problem
+
+func (*CreateVarianceCommentPreconditionRequired) createVarianceCommentRes() {}
+
+type CreateVarianceCommentUnprocessableEntity Problem
+
+func (*CreateVarianceCommentUnprocessableEntity) createVarianceCommentRes() {}
 
 type CreateWebhookSubscriptionBadRequest Problem
 
@@ -22971,6 +24016,381 @@ func (s *FiscalPeriodPage) SetTotalEstimate(val OptInt64) {
 
 func (*FiscalPeriodPage) listFiscalPeriodsRes() {}
 
+// A comment on one row of a legal entity's forecast variance (ADR-0051 §11, T53f4), with the snapshot
+// that variance compares with, which is kept as long as the comment.
+// Ref: #/components/schemas/ForecastVarianceComment
+type ForecastVarianceComment struct {
+	// Comment id.
+	ID uuid.UUID `json:"id"`
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// The period's first day.
+	From time.Time `json:"from"`
+	// The period's last day.
+	To time.Time `json:"to"`
+	// The variance's lag in days.
+	Lag int32 `json:"lag"`
+	// The code of the liquidity item whose row it explains; absent when `unclassified`.
+	LiquidityItem OptString `json:"liquidity_item"`
+	// The liquidity item's name; absent when `unclassified`.
+	LiquidityItemName OptString `json:"liquidity_item_name"`
+	// True: it explains the row of what no rule assigns.
+	Unclassified bool `json:"unclassified"`
+	// The snapshot the variance compares with (`getCashSnapshot`).
+	SnapshotID uuid.UUID `json:"snapshot_id"`
+	// The snapshot's date, `lag` days before `from`.
+	SnapshotDate time.Time `json:"snapshot_date"`
+	// The explanation.
+	Text string `json:"text"`
+	// `accepted` (a person's comment, decided as written, or a proposal a person accepted), `proposed`
+	// (the forecast agent's, until a person decides it) or `rejected` (a proposal a person turned down).
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Status string `json:"status"`
+	// The person who decided it: a person's comment, its author; absent while proposed.
+	DecidedBy OptUUID `json:"decided_by"`
+	// When it was decided; absent while proposed.
+	DecidedAt OptDateTime `json:"decided_at"`
+	// When it was written.
+	CreatedAt time.Time `json:"created_at"`
+	// Its author.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *ForecastVarianceComment) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ForecastVarianceComment) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ForecastVarianceComment) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetFrom returns the value of From.
+func (s *ForecastVarianceComment) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *ForecastVarianceComment) GetTo() time.Time {
+	return s.To
+}
+
+// GetLag returns the value of Lag.
+func (s *ForecastVarianceComment) GetLag() int32 {
+	return s.Lag
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *ForecastVarianceComment) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetLiquidityItemName returns the value of LiquidityItemName.
+func (s *ForecastVarianceComment) GetLiquidityItemName() OptString {
+	return s.LiquidityItemName
+}
+
+// GetUnclassified returns the value of Unclassified.
+func (s *ForecastVarianceComment) GetUnclassified() bool {
+	return s.Unclassified
+}
+
+// GetSnapshotID returns the value of SnapshotID.
+func (s *ForecastVarianceComment) GetSnapshotID() uuid.UUID {
+	return s.SnapshotID
+}
+
+// GetSnapshotDate returns the value of SnapshotDate.
+func (s *ForecastVarianceComment) GetSnapshotDate() time.Time {
+	return s.SnapshotDate
+}
+
+// GetText returns the value of Text.
+func (s *ForecastVarianceComment) GetText() string {
+	return s.Text
+}
+
+// GetStatus returns the value of Status.
+func (s *ForecastVarianceComment) GetStatus() string {
+	return s.Status
+}
+
+// GetDecidedBy returns the value of DecidedBy.
+func (s *ForecastVarianceComment) GetDecidedBy() OptUUID {
+	return s.DecidedBy
+}
+
+// GetDecidedAt returns the value of DecidedAt.
+func (s *ForecastVarianceComment) GetDecidedAt() OptDateTime {
+	return s.DecidedAt
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ForecastVarianceComment) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *ForecastVarianceComment) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *ForecastVarianceComment) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ForecastVarianceComment) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ForecastVarianceComment) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetFrom sets the value of From.
+func (s *ForecastVarianceComment) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *ForecastVarianceComment) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetLag sets the value of Lag.
+func (s *ForecastVarianceComment) SetLag(val int32) {
+	s.Lag = val
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *ForecastVarianceComment) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetLiquidityItemName sets the value of LiquidityItemName.
+func (s *ForecastVarianceComment) SetLiquidityItemName(val OptString) {
+	s.LiquidityItemName = val
+}
+
+// SetUnclassified sets the value of Unclassified.
+func (s *ForecastVarianceComment) SetUnclassified(val bool) {
+	s.Unclassified = val
+}
+
+// SetSnapshotID sets the value of SnapshotID.
+func (s *ForecastVarianceComment) SetSnapshotID(val uuid.UUID) {
+	s.SnapshotID = val
+}
+
+// SetSnapshotDate sets the value of SnapshotDate.
+func (s *ForecastVarianceComment) SetSnapshotDate(val time.Time) {
+	s.SnapshotDate = val
+}
+
+// SetText sets the value of Text.
+func (s *ForecastVarianceComment) SetText(val string) {
+	s.Text = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ForecastVarianceComment) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetDecidedBy sets the value of DecidedBy.
+func (s *ForecastVarianceComment) SetDecidedBy(val OptUUID) {
+	s.DecidedBy = val
+}
+
+// SetDecidedAt sets the value of DecidedAt.
+func (s *ForecastVarianceComment) SetDecidedAt(val OptDateTime) {
+	s.DecidedAt = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ForecastVarianceComment) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *ForecastVarianceComment) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+func (*ForecastVarianceComment) getForecastVarianceCommentRes() {}
+
+// A person's comment on one row of a legal entity's forecast variance (ADR-0051 §11): a liquidity
+// item or, with `unclassified`, what no rule assigns.
+// Ref: #/components/schemas/ForecastVarianceCommentCreate
+type ForecastVarianceCommentCreate struct {
+	// The legal entity whose variance it explains.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The period's first day, as the variance's `from`.
+	From time.Time `json:"from"`
+	// The period's last day, as the variance's `to`.
+	To time.Time `json:"to"`
+	// The variance's lag: 0, 7 (default) or 30 days.
+	Lag OptInt32 `json:"lag"`
+	// The code of the liquidity item whose row it explains; absent with `unclassified`.
+	LiquidityItem OptString `json:"liquidity_item"`
+	// True: it explains the row of what no rule assigns, and names no `liquidity_item`.
+	Unclassified OptBool `json:"unclassified"`
+	// The explanation, such as "The run of the 7th was released a week late.".
+	Text string `json:"text"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ForecastVarianceCommentCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFrom returns the value of From.
+func (s *ForecastVarianceCommentCreate) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *ForecastVarianceCommentCreate) GetTo() time.Time {
+	return s.To
+}
+
+// GetLag returns the value of Lag.
+func (s *ForecastVarianceCommentCreate) GetLag() OptInt32 {
+	return s.Lag
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *ForecastVarianceCommentCreate) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetUnclassified returns the value of Unclassified.
+func (s *ForecastVarianceCommentCreate) GetUnclassified() OptBool {
+	return s.Unclassified
+}
+
+// GetText returns the value of Text.
+func (s *ForecastVarianceCommentCreate) GetText() string {
+	return s.Text
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ForecastVarianceCommentCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFrom sets the value of From.
+func (s *ForecastVarianceCommentCreate) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *ForecastVarianceCommentCreate) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetLag sets the value of Lag.
+func (s *ForecastVarianceCommentCreate) SetLag(val OptInt32) {
+	s.Lag = val
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *ForecastVarianceCommentCreate) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetUnclassified sets the value of Unclassified.
+func (s *ForecastVarianceCommentCreate) SetUnclassified(val OptBool) {
+	s.Unclassified = val
+}
+
+// SetText sets the value of Text.
+func (s *ForecastVarianceCommentCreate) SetText(val string) {
+	s.Text = val
+}
+
+// ForecastVarianceCommentHeaders wraps ForecastVarianceComment with response headers.
+type ForecastVarianceCommentHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           ForecastVarianceComment
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ForecastVarianceCommentHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *ForecastVarianceCommentHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *ForecastVarianceCommentHeaders) GetResponse() ForecastVarianceComment {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ForecastVarianceCommentHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *ForecastVarianceCommentHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ForecastVarianceCommentHeaders) SetResponse(val ForecastVarianceComment) {
+	s.Response = val
+}
+
+func (*ForecastVarianceCommentHeaders) createForecastVarianceCommentRes() {}
+
+// One page of comments on the forecast variance.
+// Ref: #/components/schemas/ForecastVarianceCommentPage
+type ForecastVarianceCommentPage struct {
+	// The comments on this page, newest first.
+	Items []ForecastVarianceComment `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ForecastVarianceCommentPage) GetItems() []ForecastVarianceComment {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ForecastVarianceCommentPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ForecastVarianceCommentPage) SetItems(val []ForecastVarianceComment) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ForecastVarianceCommentPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ForecastVarianceCommentPage) listForecastVarianceCommentsRes() {}
+
 type GetAccountBadRequest Problem
 
 func (*GetAccountBadRequest) getAccountRes() {}
@@ -23142,6 +24562,46 @@ func (s *GetAssetOKHeaders) SetResponse(val Asset) {
 }
 
 func (*GetAssetOKHeaders) getAssetRes() {}
+
+type GetAssetRetirementBadRequest Problem
+
+func (*GetAssetRetirementBadRequest) getAssetRetirementRes() {}
+
+type GetAssetRetirementForbidden Problem
+
+func (*GetAssetRetirementForbidden) getAssetRetirementRes() {}
+
+type GetAssetRetirementNotFound Problem
+
+func (*GetAssetRetirementNotFound) getAssetRetirementRes() {}
+
+// GetAssetRetirementOKHeaders wraps AssetRetirement with response headers.
+type GetAssetRetirementOKHeaders struct {
+	ETag     OptString
+	Response AssetRetirement
+}
+
+// GetETag returns the value of ETag.
+func (s *GetAssetRetirementOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetAssetRetirementOKHeaders) GetResponse() AssetRetirement {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetAssetRetirementOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetAssetRetirementOKHeaders) SetResponse(val AssetRetirement) {
+	s.Response = val
+}
+
+func (*GetAssetRetirementOKHeaders) getAssetRetirementRes() {}
 
 type GetAssetScheduleBadRequest Problem
 
@@ -23788,6 +25248,18 @@ func (*GetFiscalPeriodForbidden) getFiscalPeriodRes() {}
 type GetFiscalPeriodNotFound Problem
 
 func (*GetFiscalPeriodNotFound) getFiscalPeriodRes() {}
+
+type GetForecastVarianceCommentBadRequest Problem
+
+func (*GetForecastVarianceCommentBadRequest) getForecastVarianceCommentRes() {}
+
+type GetForecastVarianceCommentForbidden Problem
+
+func (*GetForecastVarianceCommentForbidden) getForecastVarianceCommentRes() {}
+
+type GetForecastVarianceCommentNotFound Problem
+
+func (*GetForecastVarianceCommentNotFound) getForecastVarianceCommentRes() {}
 
 type GetGoodsReceiptBadRequest Problem
 
@@ -25095,6 +26567,46 @@ func (s *GetUploadOKHeaders) SetResponse(val Upload) {
 }
 
 func (*GetUploadOKHeaders) getUploadRes() {}
+
+type GetVarianceCommentBadRequest Problem
+
+func (*GetVarianceCommentBadRequest) getVarianceCommentRes() {}
+
+type GetVarianceCommentForbidden Problem
+
+func (*GetVarianceCommentForbidden) getVarianceCommentRes() {}
+
+type GetVarianceCommentNotFound Problem
+
+func (*GetVarianceCommentNotFound) getVarianceCommentRes() {}
+
+// GetVarianceCommentOKHeaders wraps VarianceComment with response headers.
+type GetVarianceCommentOKHeaders struct {
+	ETag     OptString
+	Response VarianceComment
+}
+
+// GetETag returns the value of ETag.
+func (s *GetVarianceCommentOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetVarianceCommentOKHeaders) GetResponse() VarianceComment {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetVarianceCommentOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetVarianceCommentOKHeaders) SetResponse(val VarianceComment) {
+	s.Response = val
+}
+
+func (*GetVarianceCommentOKHeaders) getVarianceCommentRes() {}
 
 type GetWebhookDeliveryBadRequest Problem
 
@@ -31403,6 +32915,14 @@ type ListAssetMovementsNotFound Problem
 
 func (*ListAssetMovementsNotFound) listAssetMovementsRes() {}
 
+type ListAssetRetirementsBadRequest Problem
+
+func (*ListAssetRetirementsBadRequest) listAssetRetirementsRes() {}
+
+type ListAssetRetirementsForbidden Problem
+
+func (*ListAssetRetirementsForbidden) listAssetRetirementsRes() {}
+
 type ListAssetsBadRequest Problem
 
 func (*ListAssetsBadRequest) listAssetsRes() {}
@@ -31674,6 +33194,18 @@ func (*ListFiscalPeriodsBadRequest) listFiscalPeriodsRes() {}
 type ListFiscalPeriodsForbidden Problem
 
 func (*ListFiscalPeriodsForbidden) listFiscalPeriodsRes() {}
+
+type ListForecastVarianceCommentsBadRequest Problem
+
+func (*ListForecastVarianceCommentsBadRequest) listForecastVarianceCommentsRes() {}
+
+type ListForecastVarianceCommentsForbidden Problem
+
+func (*ListForecastVarianceCommentsForbidden) listForecastVarianceCommentsRes() {}
+
+type ListForecastVarianceCommentsUnprocessableEntity Problem
+
+func (*ListForecastVarianceCommentsUnprocessableEntity) listForecastVarianceCommentsRes() {}
 
 type ListGoodsReceiptsBadRequest Problem
 
@@ -32134,6 +33666,14 @@ func (*ListTaxReturnsForbidden) listTaxReturnsRes() {}
 type ListTaxReturnsNotFound Problem
 
 func (*ListTaxReturnsNotFound) listTaxReturnsRes() {}
+
+type ListVarianceCommentsBadRequest Problem
+
+func (*ListVarianceCommentsBadRequest) listVarianceCommentsRes() {}
+
+type ListVarianceCommentsForbidden Problem
+
+func (*ListVarianceCommentsForbidden) listVarianceCommentsRes() {}
 
 type ListWebhookDeliveriesBadRequest Problem
 
@@ -36630,6 +38170,98 @@ func (o OptAssetOffsetAccount) Or(d AssetOffsetAccount) AssetOffsetAccount {
 	return d
 }
 
+// NewOptAssetRetirementReversal returns new OptAssetRetirementReversal with value set to v.
+func NewOptAssetRetirementReversal(v AssetRetirementReversal) OptAssetRetirementReversal {
+	return OptAssetRetirementReversal{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetRetirementReversal is optional AssetRetirementReversal.
+type OptAssetRetirementReversal struct {
+	Value AssetRetirementReversal
+	Set   bool
+}
+
+// IsSet returns true if OptAssetRetirementReversal was set.
+func (o OptAssetRetirementReversal) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetRetirementReversal) Reset() {
+	var v AssetRetirementReversal
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetRetirementReversal) SetTo(v AssetRetirementReversal) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetRetirementReversal) Get() (v AssetRetirementReversal, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetRetirementReversal) Or(d AssetRetirementReversal) AssetRetirementReversal {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssetRetirementShare returns new OptAssetRetirementShare with value set to v.
+func NewOptAssetRetirementShare(v AssetRetirementShare) OptAssetRetirementShare {
+	return OptAssetRetirementShare{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetRetirementShare is optional AssetRetirementShare.
+type OptAssetRetirementShare struct {
+	Value AssetRetirementShare
+	Set   bool
+}
+
+// IsSet returns true if OptAssetRetirementShare was set.
+func (o OptAssetRetirementShare) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetRetirementShare) Reset() {
+	var v AssetRetirementShare
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetRetirementShare) SetTo(v AssetRetirementShare) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetRetirementShare) Get() (v AssetRetirementShare, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetRetirementShare) Or(d AssetRetirementShare) AssetRetirementShare {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptAssetSupplierInvoiceRef returns new OptAssetSupplierInvoiceRef with value set to v.
 func NewOptAssetSupplierInvoiceRef(v AssetSupplierInvoiceRef) OptAssetSupplierInvoiceRef {
 	return OptAssetSupplierInvoiceRef{
@@ -39768,6 +41400,98 @@ func (o OptUUID) Get() (v uuid.UUID, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptUUID) Or(d uuid.UUID) uuid.UUID {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptVarianceCommentAccept returns new OptVarianceCommentAccept with value set to v.
+func NewOptVarianceCommentAccept(v VarianceCommentAccept) OptVarianceCommentAccept {
+	return OptVarianceCommentAccept{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptVarianceCommentAccept is optional VarianceCommentAccept.
+type OptVarianceCommentAccept struct {
+	Value VarianceCommentAccept
+	Set   bool
+}
+
+// IsSet returns true if OptVarianceCommentAccept was set.
+func (o OptVarianceCommentAccept) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptVarianceCommentAccept) Reset() {
+	var v VarianceCommentAccept
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptVarianceCommentAccept) SetTo(v VarianceCommentAccept) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptVarianceCommentAccept) Get() (v VarianceCommentAccept, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptVarianceCommentAccept) Or(d VarianceCommentAccept) VarianceCommentAccept {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptVarianceRowComment returns new OptVarianceRowComment with value set to v.
+func NewOptVarianceRowComment(v VarianceRowComment) OptVarianceRowComment {
+	return OptVarianceRowComment{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptVarianceRowComment is optional VarianceRowComment.
+type OptVarianceRowComment struct {
+	Value VarianceRowComment
+	Set   bool
+}
+
+// IsSet returns true if OptVarianceRowComment was set.
+func (o OptVarianceRowComment) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptVarianceRowComment) Reset() {
+	var v VarianceRowComment
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptVarianceRowComment) SetTo(v VarianceRowComment) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptVarianceRowComment) Get() (v VarianceRowComment, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptVarianceRowComment) Or(d VarianceRowComment) VarianceRowComment {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -43657,6 +45381,13 @@ type PeriodCloseVariance struct {
 	// Whether the variance reaches the company's thresholds, so that it needs a comment before the close
 	// is signed off.
 	RequiresComment bool `json:"requires_comment"`
+	// Whether the row has an accepted comment that is not stale (T64i).
+	Explained bool `json:"explained"`
+	// The row's accepted comment, with whether it is stale; absent without one (T64i).
+	Comment OptVarianceRowComment `json:"comment"`
+	// How many of the agents' comments on the row wait for a person
+	// (`listVarianceComments?status=proposed`) (T64i).
+	ProposedComments int32 `json:"proposed_comments"`
 }
 
 // GetAccountID returns the value of AccountID.
@@ -43699,6 +45430,21 @@ func (s *PeriodCloseVariance) GetRequiresComment() bool {
 	return s.RequiresComment
 }
 
+// GetExplained returns the value of Explained.
+func (s *PeriodCloseVariance) GetExplained() bool {
+	return s.Explained
+}
+
+// GetComment returns the value of Comment.
+func (s *PeriodCloseVariance) GetComment() OptVarianceRowComment {
+	return s.Comment
+}
+
+// GetProposedComments returns the value of ProposedComments.
+func (s *PeriodCloseVariance) GetProposedComments() int32 {
+	return s.ProposedComments
+}
+
 // SetAccountID sets the value of AccountID.
 func (s *PeriodCloseVariance) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
@@ -43737,6 +45483,21 @@ func (s *PeriodCloseVariance) SetVariancePercent(val OptDecimal) {
 // SetRequiresComment sets the value of RequiresComment.
 func (s *PeriodCloseVariance) SetRequiresComment(val bool) {
 	s.RequiresComment = val
+}
+
+// SetExplained sets the value of Explained.
+func (s *PeriodCloseVariance) SetExplained(val bool) {
+	s.Explained = val
+}
+
+// SetComment sets the value of Comment.
+func (s *PeriodCloseVariance) SetComment(val OptVarianceRowComment) {
+	s.Comment = val
+}
+
+// SetProposedComments sets the value of ProposedComments.
+func (s *PeriodCloseVariance) SetProposedComments(val int32) {
+	s.ProposedComments = val
 }
 
 // One page of a period close's variance report against one basis (ADR-0058 §9), with what it compares
@@ -44031,6 +45792,8 @@ type PeriodCloseVarianceTotals struct {
 	Rows int32 `json:"rows"`
 	// How many of them require a comment.
 	RowsRequiringComment int32 `json:"rows_requiring_comment"`
+	// How many of them have an accepted comment that is not stale (T64i).
+	RowsExplained int32 `json:"rows_explained"`
 }
 
 // GetActual returns the value of Actual.
@@ -44058,6 +45821,11 @@ func (s *PeriodCloseVarianceTotals) GetRowsRequiringComment() int32 {
 	return s.RowsRequiringComment
 }
 
+// GetRowsExplained returns the value of RowsExplained.
+func (s *PeriodCloseVarianceTotals) GetRowsExplained() int32 {
+	return s.RowsExplained
+}
+
 // SetActual sets the value of Actual.
 func (s *PeriodCloseVarianceTotals) SetActual(val Money) {
 	s.Actual = val
@@ -44081,6 +45849,11 @@ func (s *PeriodCloseVarianceTotals) SetRows(val int32) {
 // SetRowsRequiringComment sets the value of RowsRequiringComment.
 func (s *PeriodCloseVarianceTotals) SetRowsRequiringComment(val int32) {
 	s.RowsRequiringComment = val
+}
+
+// SetRowsExplained sets the value of RowsExplained.
+func (s *PeriodCloseVarianceTotals) SetRowsExplained(val int32) {
+	s.RowsExplained = val
 }
 
 type PingWebhookSubscriptionBadRequest Problem
@@ -46737,6 +48510,77 @@ type ProposePaymentRunUnprocessableEntity Problem
 
 func (*ProposePaymentRunUnprocessableEntity) proposePaymentRunRes() {}
 
+type ProposeVarianceCommentBadRequest Problem
+
+func (*ProposeVarianceCommentBadRequest) proposeVarianceCommentRes() {}
+
+// ProposeVarianceCommentCreatedHeaders wraps VarianceComment with response headers.
+type ProposeVarianceCommentCreatedHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           VarianceComment
+}
+
+// GetETag returns the value of ETag.
+func (s *ProposeVarianceCommentCreatedHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ProposeVarianceCommentCreatedHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *ProposeVarianceCommentCreatedHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *ProposeVarianceCommentCreatedHeaders) GetResponse() VarianceComment {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ProposeVarianceCommentCreatedHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ProposeVarianceCommentCreatedHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *ProposeVarianceCommentCreatedHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ProposeVarianceCommentCreatedHeaders) SetResponse(val VarianceComment) {
+	s.Response = val
+}
+
+func (*ProposeVarianceCommentCreatedHeaders) createVarianceCommentRes()  {}
+func (*ProposeVarianceCommentCreatedHeaders) proposeVarianceCommentRes() {}
+
+type ProposeVarianceCommentForbidden Problem
+
+func (*ProposeVarianceCommentForbidden) proposeVarianceCommentRes() {}
+
+type ProposeVarianceCommentNotFound Problem
+
+func (*ProposeVarianceCommentNotFound) proposeVarianceCommentRes() {}
+
+type ProposeVarianceCommentPreconditionRequired Problem
+
+func (*ProposeVarianceCommentPreconditionRequired) proposeVarianceCommentRes() {}
+
+type ProposeVarianceCommentUnprocessableEntity Problem
+
+func (*ProposeVarianceCommentUnprocessableEntity) proposeVarianceCommentRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/PurchaseOrder
 type PurchaseOrder struct {
@@ -49059,6 +50903,30 @@ type RejectPaymentRunUnprocessableEntity Problem
 
 func (*RejectPaymentRunUnprocessableEntity) rejectPaymentRunRes() {}
 
+type RejectVarianceCommentBadRequest Problem
+
+func (*RejectVarianceCommentBadRequest) rejectVarianceCommentRes() {}
+
+type RejectVarianceCommentForbidden Problem
+
+func (*RejectVarianceCommentForbidden) rejectVarianceCommentRes() {}
+
+type RejectVarianceCommentNotFound Problem
+
+func (*RejectVarianceCommentNotFound) rejectVarianceCommentRes() {}
+
+type RejectVarianceCommentPreconditionFailed Problem
+
+func (*RejectVarianceCommentPreconditionFailed) rejectVarianceCommentRes() {}
+
+type RejectVarianceCommentPreconditionRequired Problem
+
+func (*RejectVarianceCommentPreconditionRequired) rejectVarianceCommentRes() {}
+
+type RejectVarianceCommentUnprocessableEntity Problem
+
+func (*RejectVarianceCommentUnprocessableEntity) rejectVarianceCommentRes() {}
+
 type ReleaseContractBadRequest Problem
 
 func (*ReleaseContractBadRequest) releaseContractRes() {}
@@ -50989,6 +52857,69 @@ type ReverseAssetAcquisitionUnprocessableEntity Problem
 
 func (*ReverseAssetAcquisitionUnprocessableEntity) reverseAssetAcquisitionRes() {}
 
+type ReverseAssetRetirementBadRequest Problem
+
+func (*ReverseAssetRetirementBadRequest) reverseAssetRetirementRes() {}
+
+type ReverseAssetRetirementForbidden Problem
+
+func (*ReverseAssetRetirementForbidden) reverseAssetRetirementRes() {}
+
+type ReverseAssetRetirementNotFound Problem
+
+func (*ReverseAssetRetirementNotFound) reverseAssetRetirementRes() {}
+
+// ReverseAssetRetirementOKHeaders wraps AssetRetirement with response headers.
+type ReverseAssetRetirementOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           AssetRetirement
+}
+
+// GetETag returns the value of ETag.
+func (s *ReverseAssetRetirementOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ReverseAssetRetirementOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ReverseAssetRetirementOKHeaders) GetResponse() AssetRetirement {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ReverseAssetRetirementOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ReverseAssetRetirementOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReverseAssetRetirementOKHeaders) SetResponse(val AssetRetirement) {
+	s.Response = val
+}
+
+func (*ReverseAssetRetirementOKHeaders) reverseAssetRetirementRes() {}
+
+type ReverseAssetRetirementPreconditionFailed Problem
+
+func (*ReverseAssetRetirementPreconditionFailed) reverseAssetRetirementRes() {}
+
+type ReverseAssetRetirementPreconditionRequired Problem
+
+func (*ReverseAssetRetirementPreconditionRequired) reverseAssetRetirementRes() {}
+
+type ReverseAssetRetirementUnprocessableEntity Problem
+
+func (*ReverseAssetRetirementUnprocessableEntity) reverseAssetRetirementRes() {}
+
 type ReverseGoodsReceiptBadRequest Problem
 
 func (*ReverseGoodsReceiptBadRequest) reverseGoodsReceiptRes() {}
@@ -52299,6 +54230,7 @@ func (s *ServiceUnavailableHeaders) SetResponse(val Problem) {
 func (*ServiceUnavailableHeaders) acceptBankStatementGapRes()           {}
 func (*ServiceUnavailableHeaders) acceptBankStatementLineProposalRes()  {}
 func (*ServiceUnavailableHeaders) acceptMemoRecordProposalRes()         {}
+func (*ServiceUnavailableHeaders) acceptVarianceCommentRes()            {}
 func (*ServiceUnavailableHeaders) activateChangeRequestRes()            {}
 func (*ServiceUnavailableHeaders) activateLegalEntityRes()              {}
 func (*ServiceUnavailableHeaders) activateOrgUnitRes()                  {}
@@ -52331,6 +54263,7 @@ func (*ServiceUnavailableHeaders) closePurchaseOrderRes()               {}
 func (*ServiceUnavailableHeaders) completeCloseTaskRes()                {}
 func (*ServiceUnavailableHeaders) createAssetAcquisitionRes()           {}
 func (*ServiceUnavailableHeaders) createAssetRes()                      {}
+func (*ServiceUnavailableHeaders) createAssetRetirementRes()            {}
 func (*ServiceUnavailableHeaders) createBusinessPartnerRes()            {}
 func (*ServiceUnavailableHeaders) createChangeRequestRes()              {}
 func (*ServiceUnavailableHeaders) createClearingRes()                   {}
@@ -52341,6 +54274,7 @@ func (*ServiceUnavailableHeaders) createCostCenterRes()                 {}
 func (*ServiceUnavailableHeaders) createDownPaymentRequestRes()         {}
 func (*ServiceUnavailableHeaders) createEntryTemplateRes()              {}
 func (*ServiceUnavailableHeaders) createExchangeRateRes()               {}
+func (*ServiceUnavailableHeaders) createForecastVarianceCommentRes()    {}
 func (*ServiceUnavailableHeaders) createGrIrClearingRes()               {}
 func (*ServiceUnavailableHeaders) createHierarchyRes()                  {}
 func (*ServiceUnavailableHeaders) createLegalEntityRes()                {}
@@ -52363,6 +54297,7 @@ func (*ServiceUnavailableHeaders) createSegmentRes()                    {}
 func (*ServiceUnavailableHeaders) createSodRuleRes()                    {}
 func (*ServiceUnavailableHeaders) createSupplierInvoiceRes()            {}
 func (*ServiceUnavailableHeaders) createUploadRes()                     {}
+func (*ServiceUnavailableHeaders) createVarianceCommentRes()            {}
 func (*ServiceUnavailableHeaders) createWebhookSubscriptionRes()        {}
 func (*ServiceUnavailableHeaders) decideRecommendationRes()             {}
 func (*ServiceUnavailableHeaders) deleteWebhookSubscriptionRes()        {}
@@ -52406,6 +54341,7 @@ func (*ServiceUnavailableHeaders) prepareTaxReturnRes()                 {}
 func (*ServiceUnavailableHeaders) proposeBankStatementLineRes()         {}
 func (*ServiceUnavailableHeaders) proposeMemoRecordRes()                {}
 func (*ServiceUnavailableHeaders) proposePaymentRunRes()                {}
+func (*ServiceUnavailableHeaders) proposeVarianceCommentRes()           {}
 func (*ServiceUnavailableHeaders) realiseMemoRecordRes()                {}
 func (*ServiceUnavailableHeaders) reconcileMigrationRunRes()            {}
 func (*ServiceUnavailableHeaders) recordAgentToolCallRes()              {}
@@ -52416,6 +54352,7 @@ func (*ServiceUnavailableHeaders) rejectApprovalRequestRes()            {}
 func (*ServiceUnavailableHeaders) rejectBankStatementLineProposalRes()  {}
 func (*ServiceUnavailableHeaders) rejectMemoRecordProposalRes()         {}
 func (*ServiceUnavailableHeaders) rejectPaymentRunRes()                 {}
+func (*ServiceUnavailableHeaders) rejectVarianceCommentRes()            {}
 func (*ServiceUnavailableHeaders) releaseContractRes()                  {}
 func (*ServiceUnavailableHeaders) releasePaymentRunRes()                {}
 func (*ServiceUnavailableHeaders) releasePurchaseOrderRes()             {}
@@ -52431,6 +54368,7 @@ func (*ServiceUnavailableHeaders) requestBankAccountEndRes()            {}
 func (*ServiceUnavailableHeaders) resumeWebhookSubscriptionRes()        {}
 func (*ServiceUnavailableHeaders) retireEntryTemplateRes()              {}
 func (*ServiceUnavailableHeaders) reverseAssetAcquisitionRes()          {}
+func (*ServiceUnavailableHeaders) reverseAssetRetirementRes()           {}
 func (*ServiceUnavailableHeaders) reverseGoodsReceiptRes()              {}
 func (*ServiceUnavailableHeaders) reverseJournalEntryRes()              {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()           {}
@@ -56647,6 +58585,7 @@ func (s *TooManyRequestsHeaders) SetResponse(val Problem) {
 func (*TooManyRequestsHeaders) acceptBankStatementGapRes()           {}
 func (*TooManyRequestsHeaders) acceptBankStatementLineProposalRes()  {}
 func (*TooManyRequestsHeaders) acceptMemoRecordProposalRes()         {}
+func (*TooManyRequestsHeaders) acceptVarianceCommentRes()            {}
 func (*TooManyRequestsHeaders) activateChangeRequestRes()            {}
 func (*TooManyRequestsHeaders) activateLegalEntityRes()              {}
 func (*TooManyRequestsHeaders) activateOrgUnitRes()                  {}
@@ -56679,6 +58618,7 @@ func (*TooManyRequestsHeaders) closePurchaseOrderRes()               {}
 func (*TooManyRequestsHeaders) completeCloseTaskRes()                {}
 func (*TooManyRequestsHeaders) createAssetAcquisitionRes()           {}
 func (*TooManyRequestsHeaders) createAssetRes()                      {}
+func (*TooManyRequestsHeaders) createAssetRetirementRes()            {}
 func (*TooManyRequestsHeaders) createBusinessPartnerRes()            {}
 func (*TooManyRequestsHeaders) createChangeRequestRes()              {}
 func (*TooManyRequestsHeaders) createClearingRes()                   {}
@@ -56689,6 +58629,7 @@ func (*TooManyRequestsHeaders) createCostCenterRes()                 {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()         {}
 func (*TooManyRequestsHeaders) createEntryTemplateRes()              {}
 func (*TooManyRequestsHeaders) createExchangeRateRes()               {}
+func (*TooManyRequestsHeaders) createForecastVarianceCommentRes()    {}
 func (*TooManyRequestsHeaders) createGrIrClearingRes()               {}
 func (*TooManyRequestsHeaders) createHierarchyRes()                  {}
 func (*TooManyRequestsHeaders) createLegalEntityRes()                {}
@@ -56711,6 +58652,7 @@ func (*TooManyRequestsHeaders) createSegmentRes()                    {}
 func (*TooManyRequestsHeaders) createSodRuleRes()                    {}
 func (*TooManyRequestsHeaders) createSupplierInvoiceRes()            {}
 func (*TooManyRequestsHeaders) createUploadRes()                     {}
+func (*TooManyRequestsHeaders) createVarianceCommentRes()            {}
 func (*TooManyRequestsHeaders) createWebhookSubscriptionRes()        {}
 func (*TooManyRequestsHeaders) decideRecommendationRes()             {}
 func (*TooManyRequestsHeaders) deleteWebhookSubscriptionRes()        {}
@@ -56732,6 +58674,7 @@ func (*TooManyRequestsHeaders) getAnalyticsModelRes()                {}
 func (*TooManyRequestsHeaders) getApprovalRequestRes()               {}
 func (*TooManyRequestsHeaders) getAssetAcquisitionRes()              {}
 func (*TooManyRequestsHeaders) getAssetRes()                         {}
+func (*TooManyRequestsHeaders) getAssetRetirementRes()               {}
 func (*TooManyRequestsHeaders) getAssetScheduleRes()                 {}
 func (*TooManyRequestsHeaders) getBankAccountRes()                   {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()               {}
@@ -56759,6 +58702,7 @@ func (*TooManyRequestsHeaders) getDownPaymentRequestRes()            {}
 func (*TooManyRequestsHeaders) getEntryTemplateRes()                 {}
 func (*TooManyRequestsHeaders) getExchangeRateRes()                  {}
 func (*TooManyRequestsHeaders) getFiscalPeriodRes()                  {}
+func (*TooManyRequestsHeaders) getForecastVarianceCommentRes()       {}
 func (*TooManyRequestsHeaders) getGoodsReceiptRes()                  {}
 func (*TooManyRequestsHeaders) getGrIrClearingRes()                  {}
 func (*TooManyRequestsHeaders) getHierarchyNodeRes()                 {}
@@ -56799,6 +58743,7 @@ func (*TooManyRequestsHeaders) getSupplierInvoiceRes()               {}
 func (*TooManyRequestsHeaders) getTaxReturnDraftRes()                {}
 func (*TooManyRequestsHeaders) getTaxReturnRes()                     {}
 func (*TooManyRequestsHeaders) getUploadRes()                        {}
+func (*TooManyRequestsHeaders) getVarianceCommentRes()               {}
 func (*TooManyRequestsHeaders) getWebhookDeliveryRes()               {}
 func (*TooManyRequestsHeaders) getWebhookSubscriptionRes()           {}
 func (*TooManyRequestsHeaders) grantRolePermissionRes()              {}
@@ -56812,6 +58757,7 @@ func (*TooManyRequestsHeaders) listAssetAcquisitionsRes()            {}
 func (*TooManyRequestsHeaders) listAssetClassesRes()                 {}
 func (*TooManyRequestsHeaders) listAssetClearingItemsRes()           {}
 func (*TooManyRequestsHeaders) listAssetMovementsRes()               {}
+func (*TooManyRequestsHeaders) listAssetRetirementsRes()             {}
 func (*TooManyRequestsHeaders) listAssetsRes()                       {}
 func (*TooManyRequestsHeaders) listAuditEventsRes()                  {}
 func (*TooManyRequestsHeaders) listBalancesRes()                     {}
@@ -56842,6 +58788,7 @@ func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()          {}
 func (*TooManyRequestsHeaders) listEntryTemplatesRes()               {}
 func (*TooManyRequestsHeaders) listExchangeRatesRes()                {}
 func (*TooManyRequestsHeaders) listFiscalPeriodsRes()                {}
+func (*TooManyRequestsHeaders) listForecastVarianceCommentsRes()     {}
 func (*TooManyRequestsHeaders) listGoodsReceiptsRes()                {}
 func (*TooManyRequestsHeaders) listGrIrBalancesRes()                 {}
 func (*TooManyRequestsHeaders) listGrIrClearingsRes()                {}
@@ -56892,6 +58839,7 @@ func (*TooManyRequestsHeaders) listTaxPeriodsRes()                   {}
 func (*TooManyRequestsHeaders) listTaxRegistrationsRes()             {}
 func (*TooManyRequestsHeaders) listTaxReturnDraftItemsRes()          {}
 func (*TooManyRequestsHeaders) listTaxReturnsRes()                   {}
+func (*TooManyRequestsHeaders) listVarianceCommentsRes()             {}
 func (*TooManyRequestsHeaders) listWebhookDeliveriesRes()            {}
 func (*TooManyRequestsHeaders) listWebhookSubscriptionsRes()         {}
 func (*TooManyRequestsHeaders) lockCostCenterRes()                   {}
@@ -56922,6 +58870,7 @@ func (*TooManyRequestsHeaders) previewRevaluationRes()               {}
 func (*TooManyRequestsHeaders) proposeBankStatementLineRes()         {}
 func (*TooManyRequestsHeaders) proposeMemoRecordRes()                {}
 func (*TooManyRequestsHeaders) proposePaymentRunRes()                {}
+func (*TooManyRequestsHeaders) proposeVarianceCommentRes()           {}
 func (*TooManyRequestsHeaders) realiseMemoRecordRes()                {}
 func (*TooManyRequestsHeaders) reconcileMigrationRunRes()            {}
 func (*TooManyRequestsHeaders) recordAgentToolCallRes()              {}
@@ -56932,6 +58881,7 @@ func (*TooManyRequestsHeaders) rejectApprovalRequestRes()            {}
 func (*TooManyRequestsHeaders) rejectBankStatementLineProposalRes()  {}
 func (*TooManyRequestsHeaders) rejectMemoRecordProposalRes()         {}
 func (*TooManyRequestsHeaders) rejectPaymentRunRes()                 {}
+func (*TooManyRequestsHeaders) rejectVarianceCommentRes()            {}
 func (*TooManyRequestsHeaders) releaseContractRes()                  {}
 func (*TooManyRequestsHeaders) releasePaymentRunRes()                {}
 func (*TooManyRequestsHeaders) releasePurchaseOrderRes()             {}
@@ -56947,6 +58897,7 @@ func (*TooManyRequestsHeaders) requestBankAccountEndRes()            {}
 func (*TooManyRequestsHeaders) resumeWebhookSubscriptionRes()        {}
 func (*TooManyRequestsHeaders) retireEntryTemplateRes()              {}
 func (*TooManyRequestsHeaders) reverseAssetAcquisitionRes()          {}
+func (*TooManyRequestsHeaders) reverseAssetRetirementRes()           {}
 func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()              {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()              {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()           {}
@@ -57048,6 +58999,7 @@ func (s *UnauthorizedHeaders) SetResponse(val Problem) {
 func (*UnauthorizedHeaders) acceptBankStatementGapRes()           {}
 func (*UnauthorizedHeaders) acceptBankStatementLineProposalRes()  {}
 func (*UnauthorizedHeaders) acceptMemoRecordProposalRes()         {}
+func (*UnauthorizedHeaders) acceptVarianceCommentRes()            {}
 func (*UnauthorizedHeaders) activateChangeRequestRes()            {}
 func (*UnauthorizedHeaders) activateLegalEntityRes()              {}
 func (*UnauthorizedHeaders) activateOrgUnitRes()                  {}
@@ -57080,6 +59032,7 @@ func (*UnauthorizedHeaders) closePurchaseOrderRes()               {}
 func (*UnauthorizedHeaders) completeCloseTaskRes()                {}
 func (*UnauthorizedHeaders) createAssetAcquisitionRes()           {}
 func (*UnauthorizedHeaders) createAssetRes()                      {}
+func (*UnauthorizedHeaders) createAssetRetirementRes()            {}
 func (*UnauthorizedHeaders) createBusinessPartnerRes()            {}
 func (*UnauthorizedHeaders) createChangeRequestRes()              {}
 func (*UnauthorizedHeaders) createClearingRes()                   {}
@@ -57090,6 +59043,7 @@ func (*UnauthorizedHeaders) createCostCenterRes()                 {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()         {}
 func (*UnauthorizedHeaders) createEntryTemplateRes()              {}
 func (*UnauthorizedHeaders) createExchangeRateRes()               {}
+func (*UnauthorizedHeaders) createForecastVarianceCommentRes()    {}
 func (*UnauthorizedHeaders) createGrIrClearingRes()               {}
 func (*UnauthorizedHeaders) createHierarchyRes()                  {}
 func (*UnauthorizedHeaders) createLegalEntityRes()                {}
@@ -57112,6 +59066,7 @@ func (*UnauthorizedHeaders) createSegmentRes()                    {}
 func (*UnauthorizedHeaders) createSodRuleRes()                    {}
 func (*UnauthorizedHeaders) createSupplierInvoiceRes()            {}
 func (*UnauthorizedHeaders) createUploadRes()                     {}
+func (*UnauthorizedHeaders) createVarianceCommentRes()            {}
 func (*UnauthorizedHeaders) createWebhookSubscriptionRes()        {}
 func (*UnauthorizedHeaders) decideRecommendationRes()             {}
 func (*UnauthorizedHeaders) deleteWebhookSubscriptionRes()        {}
@@ -57133,6 +59088,7 @@ func (*UnauthorizedHeaders) getAnalyticsModelRes()                {}
 func (*UnauthorizedHeaders) getApprovalRequestRes()               {}
 func (*UnauthorizedHeaders) getAssetAcquisitionRes()              {}
 func (*UnauthorizedHeaders) getAssetRes()                         {}
+func (*UnauthorizedHeaders) getAssetRetirementRes()               {}
 func (*UnauthorizedHeaders) getAssetScheduleRes()                 {}
 func (*UnauthorizedHeaders) getBankAccountRes()                   {}
 func (*UnauthorizedHeaders) getBankFileContentRes()               {}
@@ -57160,6 +59116,7 @@ func (*UnauthorizedHeaders) getDownPaymentRequestRes()            {}
 func (*UnauthorizedHeaders) getEntryTemplateRes()                 {}
 func (*UnauthorizedHeaders) getExchangeRateRes()                  {}
 func (*UnauthorizedHeaders) getFiscalPeriodRes()                  {}
+func (*UnauthorizedHeaders) getForecastVarianceCommentRes()       {}
 func (*UnauthorizedHeaders) getGoodsReceiptRes()                  {}
 func (*UnauthorizedHeaders) getGrIrClearingRes()                  {}
 func (*UnauthorizedHeaders) getHierarchyNodeRes()                 {}
@@ -57200,6 +59157,7 @@ func (*UnauthorizedHeaders) getSupplierInvoiceRes()               {}
 func (*UnauthorizedHeaders) getTaxReturnDraftRes()                {}
 func (*UnauthorizedHeaders) getTaxReturnRes()                     {}
 func (*UnauthorizedHeaders) getUploadRes()                        {}
+func (*UnauthorizedHeaders) getVarianceCommentRes()               {}
 func (*UnauthorizedHeaders) getWebhookDeliveryRes()               {}
 func (*UnauthorizedHeaders) getWebhookSubscriptionRes()           {}
 func (*UnauthorizedHeaders) grantRolePermissionRes()              {}
@@ -57213,6 +59171,7 @@ func (*UnauthorizedHeaders) listAssetAcquisitionsRes()            {}
 func (*UnauthorizedHeaders) listAssetClassesRes()                 {}
 func (*UnauthorizedHeaders) listAssetClearingItemsRes()           {}
 func (*UnauthorizedHeaders) listAssetMovementsRes()               {}
+func (*UnauthorizedHeaders) listAssetRetirementsRes()             {}
 func (*UnauthorizedHeaders) listAssetsRes()                       {}
 func (*UnauthorizedHeaders) listAuditEventsRes()                  {}
 func (*UnauthorizedHeaders) listBalancesRes()                     {}
@@ -57243,6 +59202,7 @@ func (*UnauthorizedHeaders) listDownPaymentRequestsRes()          {}
 func (*UnauthorizedHeaders) listEntryTemplatesRes()               {}
 func (*UnauthorizedHeaders) listExchangeRatesRes()                {}
 func (*UnauthorizedHeaders) listFiscalPeriodsRes()                {}
+func (*UnauthorizedHeaders) listForecastVarianceCommentsRes()     {}
 func (*UnauthorizedHeaders) listGoodsReceiptsRes()                {}
 func (*UnauthorizedHeaders) listGrIrBalancesRes()                 {}
 func (*UnauthorizedHeaders) listGrIrClearingsRes()                {}
@@ -57293,6 +59253,7 @@ func (*UnauthorizedHeaders) listTaxPeriodsRes()                   {}
 func (*UnauthorizedHeaders) listTaxRegistrationsRes()             {}
 func (*UnauthorizedHeaders) listTaxReturnDraftItemsRes()          {}
 func (*UnauthorizedHeaders) listTaxReturnsRes()                   {}
+func (*UnauthorizedHeaders) listVarianceCommentsRes()             {}
 func (*UnauthorizedHeaders) listWebhookDeliveriesRes()            {}
 func (*UnauthorizedHeaders) listWebhookSubscriptionsRes()         {}
 func (*UnauthorizedHeaders) lockCostCenterRes()                   {}
@@ -57323,6 +59284,7 @@ func (*UnauthorizedHeaders) previewRevaluationRes()               {}
 func (*UnauthorizedHeaders) proposeBankStatementLineRes()         {}
 func (*UnauthorizedHeaders) proposeMemoRecordRes()                {}
 func (*UnauthorizedHeaders) proposePaymentRunRes()                {}
+func (*UnauthorizedHeaders) proposeVarianceCommentRes()           {}
 func (*UnauthorizedHeaders) realiseMemoRecordRes()                {}
 func (*UnauthorizedHeaders) reconcileMigrationRunRes()            {}
 func (*UnauthorizedHeaders) recordAgentToolCallRes()              {}
@@ -57333,6 +59295,7 @@ func (*UnauthorizedHeaders) rejectApprovalRequestRes()            {}
 func (*UnauthorizedHeaders) rejectBankStatementLineProposalRes()  {}
 func (*UnauthorizedHeaders) rejectMemoRecordProposalRes()         {}
 func (*UnauthorizedHeaders) rejectPaymentRunRes()                 {}
+func (*UnauthorizedHeaders) rejectVarianceCommentRes()            {}
 func (*UnauthorizedHeaders) releaseContractRes()                  {}
 func (*UnauthorizedHeaders) releasePaymentRunRes()                {}
 func (*UnauthorizedHeaders) releasePurchaseOrderRes()             {}
@@ -57348,6 +59311,7 @@ func (*UnauthorizedHeaders) requestBankAccountEndRes()            {}
 func (*UnauthorizedHeaders) resumeWebhookSubscriptionRes()        {}
 func (*UnauthorizedHeaders) retireEntryTemplateRes()              {}
 func (*UnauthorizedHeaders) reverseAssetAcquisitionRes()          {}
+func (*UnauthorizedHeaders) reverseAssetRetirementRes()           {}
 func (*UnauthorizedHeaders) reverseGoodsReceiptRes()              {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()              {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()           {}
@@ -59134,6 +61098,847 @@ func (*UploadMemoRecordsPreconditionRequired) uploadMemoRecordsRes() {}
 type UploadMemoRecordsUnprocessableEntity Problem
 
 func (*UploadMemoRecordsUnprocessableEntity) uploadMemoRecordsRes() {}
+
+// A journal entry a variance comment cites, as it was when cited (a posted entry does not change).
+// Ref: #/components/schemas/VarianceCitation
+type VarianceCitation struct {
+	// The journal entry (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// Its fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// Its document number.
+	DocumentNumber string `json:"document_number"`
+	// Its posting date.
+	PostingDate time.Time `json:"posting_date"`
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *VarianceCitation) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *VarianceCitation) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *VarianceCitation) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *VarianceCitation) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *VarianceCitation) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *VarianceCitation) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *VarianceCitation) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *VarianceCitation) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// A comment explaining one row (an account) of one basis of a period close's variance report (ADR-0058
+// §10, T64i): proposed by the close agent or written by a person, with the row's figures when it was
+// written, in the company's local currency, and the journal entries it cites. A row has at most one
+// `accepted` comment; it is `stale` once the row's figures differ from those it was written against.
+// Ref: #/components/schemas/VarianceComment
+type VarianceComment struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The period close (`GET /v1/period-closes/{id}`).
+	CloseID uuid.UUID `json:"close_id"`
+	// The close's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The close's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The close's regular period.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The row's basis. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Basis string `json:"basis"`
+	// The row's account.
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name, as it was when the comment was written.
+	AccountName string `json:"account_name"`
+	// The explanation; the accepting person's when they replaced the proposal's.
+	Text string `json:"text"`
+	// Whether the person accepting the proposal replaced its text.
+	Edited bool `json:"edited"`
+	// The proposal's text, when the person accepting it replaced it; absent otherwise.
+	ProposedText OptString `json:"proposed_text"`
+	// Who wrote it: the agent that proposed it, or the person.
+	AuthorID uuid.UUID `json:"author_id"`
+	// Whether an agent or a person wrote it. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	AuthorKind string `json:"author_kind"`
+	// Their name.
+	AuthorName string `json:"author_name"`
+	// The agent's session it was proposed in (`GET /v1/agent-sessions/{id}`); absent for a person's
+	// comment.
+	SessionID OptUUID `json:"session_id"`
+	// The row's actual when the comment was written.
+	Actual Money `json:"actual"`
+	// The row's comparison when the comment was written.
+	Comparison Money `json:"comparison"`
+	// The actual less the comparison, as they were when the comment was written.
+	Variance Money `json:"variance"`
+	// Whether the row's figures now differ from those it was written against (an entry posted or reversed
+	// since, or the plan changed): a stale comment explains nothing until a person accepts or writes a
+	// current one. Absent when the company no longer compares against the basis.
+	Stale OptBool `json:"stale"`
+	// The journal entries it cites, in the order given.
+	Citations []VarianceCitation `json:"citations"`
+	// `proposed` (an agent's, waiting for a person), `accepted`, `rejected` or `superseded` (accepted,
+	// then replaced by the row's next accepted comment). Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The person who accepted or rejected it (the author, for a person's comment); absent while it is
+	// proposed.
+	DecidedBy OptUUID `json:"decided_by"`
+	// Their name; absent while it is proposed.
+	DecidedByName OptString `json:"decided_by_name"`
+	// When; absent while it is proposed.
+	DecidedAt OptDateTime `json:"decided_at"`
+	// Why it was rejected; absent otherwise.
+	DecisionReason OptString `json:"decision_reason"`
+	// The comment's version, its ETag.
+	Version int32 `json:"version"`
+	// When it was written.
+	CreatedAt time.Time `json:"created_at"`
+	// When it last changed.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *VarianceComment) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCloseID returns the value of CloseID.
+func (s *VarianceComment) GetCloseID() uuid.UUID {
+	return s.CloseID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *VarianceComment) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *VarianceComment) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *VarianceComment) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *VarianceComment) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *VarianceComment) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetBasis returns the value of Basis.
+func (s *VarianceComment) GetBasis() string {
+	return s.Basis
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *VarianceComment) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *VarianceComment) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *VarianceComment) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetText returns the value of Text.
+func (s *VarianceComment) GetText() string {
+	return s.Text
+}
+
+// GetEdited returns the value of Edited.
+func (s *VarianceComment) GetEdited() bool {
+	return s.Edited
+}
+
+// GetProposedText returns the value of ProposedText.
+func (s *VarianceComment) GetProposedText() OptString {
+	return s.ProposedText
+}
+
+// GetAuthorID returns the value of AuthorID.
+func (s *VarianceComment) GetAuthorID() uuid.UUID {
+	return s.AuthorID
+}
+
+// GetAuthorKind returns the value of AuthorKind.
+func (s *VarianceComment) GetAuthorKind() string {
+	return s.AuthorKind
+}
+
+// GetAuthorName returns the value of AuthorName.
+func (s *VarianceComment) GetAuthorName() string {
+	return s.AuthorName
+}
+
+// GetSessionID returns the value of SessionID.
+func (s *VarianceComment) GetSessionID() OptUUID {
+	return s.SessionID
+}
+
+// GetActual returns the value of Actual.
+func (s *VarianceComment) GetActual() Money {
+	return s.Actual
+}
+
+// GetComparison returns the value of Comparison.
+func (s *VarianceComment) GetComparison() Money {
+	return s.Comparison
+}
+
+// GetVariance returns the value of Variance.
+func (s *VarianceComment) GetVariance() Money {
+	return s.Variance
+}
+
+// GetStale returns the value of Stale.
+func (s *VarianceComment) GetStale() OptBool {
+	return s.Stale
+}
+
+// GetCitations returns the value of Citations.
+func (s *VarianceComment) GetCitations() []VarianceCitation {
+	return s.Citations
+}
+
+// GetStatus returns the value of Status.
+func (s *VarianceComment) GetStatus() string {
+	return s.Status
+}
+
+// GetDecidedBy returns the value of DecidedBy.
+func (s *VarianceComment) GetDecidedBy() OptUUID {
+	return s.DecidedBy
+}
+
+// GetDecidedByName returns the value of DecidedByName.
+func (s *VarianceComment) GetDecidedByName() OptString {
+	return s.DecidedByName
+}
+
+// GetDecidedAt returns the value of DecidedAt.
+func (s *VarianceComment) GetDecidedAt() OptDateTime {
+	return s.DecidedAt
+}
+
+// GetDecisionReason returns the value of DecisionReason.
+func (s *VarianceComment) GetDecisionReason() OptString {
+	return s.DecisionReason
+}
+
+// GetVersion returns the value of Version.
+func (s *VarianceComment) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *VarianceComment) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *VarianceComment) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *VarianceComment) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCloseID sets the value of CloseID.
+func (s *VarianceComment) SetCloseID(val uuid.UUID) {
+	s.CloseID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *VarianceComment) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *VarianceComment) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *VarianceComment) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *VarianceComment) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *VarianceComment) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetBasis sets the value of Basis.
+func (s *VarianceComment) SetBasis(val string) {
+	s.Basis = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *VarianceComment) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *VarianceComment) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *VarianceComment) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetText sets the value of Text.
+func (s *VarianceComment) SetText(val string) {
+	s.Text = val
+}
+
+// SetEdited sets the value of Edited.
+func (s *VarianceComment) SetEdited(val bool) {
+	s.Edited = val
+}
+
+// SetProposedText sets the value of ProposedText.
+func (s *VarianceComment) SetProposedText(val OptString) {
+	s.ProposedText = val
+}
+
+// SetAuthorID sets the value of AuthorID.
+func (s *VarianceComment) SetAuthorID(val uuid.UUID) {
+	s.AuthorID = val
+}
+
+// SetAuthorKind sets the value of AuthorKind.
+func (s *VarianceComment) SetAuthorKind(val string) {
+	s.AuthorKind = val
+}
+
+// SetAuthorName sets the value of AuthorName.
+func (s *VarianceComment) SetAuthorName(val string) {
+	s.AuthorName = val
+}
+
+// SetSessionID sets the value of SessionID.
+func (s *VarianceComment) SetSessionID(val OptUUID) {
+	s.SessionID = val
+}
+
+// SetActual sets the value of Actual.
+func (s *VarianceComment) SetActual(val Money) {
+	s.Actual = val
+}
+
+// SetComparison sets the value of Comparison.
+func (s *VarianceComment) SetComparison(val Money) {
+	s.Comparison = val
+}
+
+// SetVariance sets the value of Variance.
+func (s *VarianceComment) SetVariance(val Money) {
+	s.Variance = val
+}
+
+// SetStale sets the value of Stale.
+func (s *VarianceComment) SetStale(val OptBool) {
+	s.Stale = val
+}
+
+// SetCitations sets the value of Citations.
+func (s *VarianceComment) SetCitations(val []VarianceCitation) {
+	s.Citations = val
+}
+
+// SetStatus sets the value of Status.
+func (s *VarianceComment) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetDecidedBy sets the value of DecidedBy.
+func (s *VarianceComment) SetDecidedBy(val OptUUID) {
+	s.DecidedBy = val
+}
+
+// SetDecidedByName sets the value of DecidedByName.
+func (s *VarianceComment) SetDecidedByName(val OptString) {
+	s.DecidedByName = val
+}
+
+// SetDecidedAt sets the value of DecidedAt.
+func (s *VarianceComment) SetDecidedAt(val OptDateTime) {
+	s.DecidedAt = val
+}
+
+// SetDecisionReason sets the value of DecisionReason.
+func (s *VarianceComment) SetDecisionReason(val OptString) {
+	s.DecisionReason = val
+}
+
+// SetVersion sets the value of Version.
+func (s *VarianceComment) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *VarianceComment) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *VarianceComment) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// The acceptance of a proposed variance comment.
+// Ref: #/components/schemas/VarianceCommentAccept
+type VarianceCommentAccept struct {
+	// A text replacing the proposal's; the comment is then `edited`, the proposal's text kept as
+	// `proposed_text`.
+	Text OptString `json:"text"`
+}
+
+// GetText returns the value of Text.
+func (s *VarianceCommentAccept) GetText() OptString {
+	return s.Text
+}
+
+// SetText sets the value of Text.
+func (s *VarianceCommentAccept) SetText(val OptString) {
+	s.Text = val
+}
+
+// VarianceCommentHeaders wraps VarianceComment with response headers.
+type VarianceCommentHeaders struct {
+	ETag     OptString
+	Location OptString
+	Response VarianceComment
+}
+
+// GetETag returns the value of ETag.
+func (s *VarianceCommentHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetLocation returns the value of Location.
+func (s *VarianceCommentHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *VarianceCommentHeaders) GetResponse() VarianceComment {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *VarianceCommentHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetLocation sets the value of Location.
+func (s *VarianceCommentHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *VarianceCommentHeaders) SetResponse(val VarianceComment) {
+	s.Response = val
+}
+
+func (*VarianceCommentHeaders) proposeVarianceCommentRes() {}
+
+// A comment explaining one row of a period close's variance report (ADR-0058 §10).
+// Ref: #/components/schemas/VarianceCommentInput
+type VarianceCommentInput struct {
+	// The period close (`GET /v1/period-closes/{id}`).
+	CloseID uuid.UUID `json:"close_id"`
+	// The row's basis, one the company configures. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Basis string `json:"basis"`
+	// The row's account, a row of the report against the basis (`GET /v1/period-closes/{id}/variances`).
+	AccountID uuid.UUID `json:"account_id"`
+	// The explanation.
+	Text string `json:"text"`
+	// The journal entries the explanation rests on (`GET /v1/journal-entries/{id}`), each with a line on
+	// the account in the leading ledger in the close's period or, for a prior basis, in the period
+	// compared against; none when absent.
+	Citations []uuid.UUID `json:"citations"`
+}
+
+// GetCloseID returns the value of CloseID.
+func (s *VarianceCommentInput) GetCloseID() uuid.UUID {
+	return s.CloseID
+}
+
+// GetBasis returns the value of Basis.
+func (s *VarianceCommentInput) GetBasis() string {
+	return s.Basis
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *VarianceCommentInput) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetText returns the value of Text.
+func (s *VarianceCommentInput) GetText() string {
+	return s.Text
+}
+
+// GetCitations returns the value of Citations.
+func (s *VarianceCommentInput) GetCitations() []uuid.UUID {
+	return s.Citations
+}
+
+// SetCloseID sets the value of CloseID.
+func (s *VarianceCommentInput) SetCloseID(val uuid.UUID) {
+	s.CloseID = val
+}
+
+// SetBasis sets the value of Basis.
+func (s *VarianceCommentInput) SetBasis(val string) {
+	s.Basis = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *VarianceCommentInput) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetText sets the value of Text.
+func (s *VarianceCommentInput) SetText(val string) {
+	s.Text = val
+}
+
+// SetCitations sets the value of Citations.
+func (s *VarianceCommentInput) SetCitations(val []uuid.UUID) {
+	s.Citations = val
+}
+
+// One page of variance comments.
+// Ref: #/components/schemas/VarianceCommentPage
+type VarianceCommentPage struct {
+	// The variance comments on this page.
+	Items []VarianceComment `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *VarianceCommentPage) GetItems() []VarianceComment {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *VarianceCommentPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *VarianceCommentPage) SetItems(val []VarianceComment) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *VarianceCommentPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*VarianceCommentPage) listVarianceCommentsRes() {}
+
+// An agent's proposed comment explaining one row of a period close's variance report, in its running
+// session (ADR-0058 §10).
+// Ref: #/components/schemas/VarianceCommentProposal
+type VarianceCommentProposal struct {
+	// The agent's running session (`startAgentSession`).
+	SessionID uuid.UUID `json:"session_id"`
+	// The period close (`GET /v1/period-closes/{id}`).
+	CloseID uuid.UUID `json:"close_id"`
+	// The row's basis, one the company configures. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Basis string `json:"basis"`
+	// The row's account, a row of the report against the basis (`GET /v1/period-closes/{id}/variances`).
+	AccountID uuid.UUID `json:"account_id"`
+	// The explanation.
+	Text string `json:"text"`
+	// The journal entries the explanation rests on (`GET /v1/journal-entries/{id}`), each with a line on
+	// the account in the leading ledger in the close's period or, for a prior basis, in the period
+	// compared against; none when absent.
+	Citations []uuid.UUID `json:"citations"`
+}
+
+// GetSessionID returns the value of SessionID.
+func (s *VarianceCommentProposal) GetSessionID() uuid.UUID {
+	return s.SessionID
+}
+
+// GetCloseID returns the value of CloseID.
+func (s *VarianceCommentProposal) GetCloseID() uuid.UUID {
+	return s.CloseID
+}
+
+// GetBasis returns the value of Basis.
+func (s *VarianceCommentProposal) GetBasis() string {
+	return s.Basis
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *VarianceCommentProposal) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetText returns the value of Text.
+func (s *VarianceCommentProposal) GetText() string {
+	return s.Text
+}
+
+// GetCitations returns the value of Citations.
+func (s *VarianceCommentProposal) GetCitations() []uuid.UUID {
+	return s.Citations
+}
+
+// SetSessionID sets the value of SessionID.
+func (s *VarianceCommentProposal) SetSessionID(val uuid.UUID) {
+	s.SessionID = val
+}
+
+// SetCloseID sets the value of CloseID.
+func (s *VarianceCommentProposal) SetCloseID(val uuid.UUID) {
+	s.CloseID = val
+}
+
+// SetBasis sets the value of Basis.
+func (s *VarianceCommentProposal) SetBasis(val string) {
+	s.Basis = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *VarianceCommentProposal) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetText sets the value of Text.
+func (s *VarianceCommentProposal) SetText(val string) {
+	s.Text = val
+}
+
+// SetCitations sets the value of Citations.
+func (s *VarianceCommentProposal) SetCitations(val []uuid.UUID) {
+	s.Citations = val
+}
+
+// A variance report row's accepted comment (ADR-0058 §9, §10): what explains it, who wrote and
+// accepted it, the figures it was written against, and whether the row's figures now differ (`stale`).
+// Ref: #/components/schemas/VarianceRowComment
+type VarianceRowComment struct {
+	// The comment (`GET /v1/variance-comments/{id}`).
+	ID uuid.UUID `json:"id"`
+	// The explanation.
+	Text string `json:"text"`
+	// Whether the person accepting an agent's proposal replaced its text.
+	Edited bool `json:"edited"`
+	// Who wrote it.
+	AuthorID uuid.UUID `json:"author_id"`
+	// Whether an agent or a person wrote it. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	AuthorKind string `json:"author_kind"`
+	// Their name.
+	AuthorName string `json:"author_name"`
+	// The person who accepted it (the author, for a person's comment).
+	DecidedBy uuid.UUID `json:"decided_by"`
+	// Their name.
+	DecidedByName string `json:"decided_by_name"`
+	// When.
+	DecidedAt time.Time `json:"decided_at"`
+	// The row's actual when the comment was written.
+	Actual Money `json:"actual"`
+	// The row's comparison when the comment was written.
+	Comparison Money `json:"comparison"`
+	// Whether the row's figures now differ from those: a stale comment does not explain the row.
+	Stale bool `json:"stale"`
+	// The comment's version, its ETag.
+	Version int32 `json:"version"`
+}
+
+// GetID returns the value of ID.
+func (s *VarianceRowComment) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetText returns the value of Text.
+func (s *VarianceRowComment) GetText() string {
+	return s.Text
+}
+
+// GetEdited returns the value of Edited.
+func (s *VarianceRowComment) GetEdited() bool {
+	return s.Edited
+}
+
+// GetAuthorID returns the value of AuthorID.
+func (s *VarianceRowComment) GetAuthorID() uuid.UUID {
+	return s.AuthorID
+}
+
+// GetAuthorKind returns the value of AuthorKind.
+func (s *VarianceRowComment) GetAuthorKind() string {
+	return s.AuthorKind
+}
+
+// GetAuthorName returns the value of AuthorName.
+func (s *VarianceRowComment) GetAuthorName() string {
+	return s.AuthorName
+}
+
+// GetDecidedBy returns the value of DecidedBy.
+func (s *VarianceRowComment) GetDecidedBy() uuid.UUID {
+	return s.DecidedBy
+}
+
+// GetDecidedByName returns the value of DecidedByName.
+func (s *VarianceRowComment) GetDecidedByName() string {
+	return s.DecidedByName
+}
+
+// GetDecidedAt returns the value of DecidedAt.
+func (s *VarianceRowComment) GetDecidedAt() time.Time {
+	return s.DecidedAt
+}
+
+// GetActual returns the value of Actual.
+func (s *VarianceRowComment) GetActual() Money {
+	return s.Actual
+}
+
+// GetComparison returns the value of Comparison.
+func (s *VarianceRowComment) GetComparison() Money {
+	return s.Comparison
+}
+
+// GetStale returns the value of Stale.
+func (s *VarianceRowComment) GetStale() bool {
+	return s.Stale
+}
+
+// GetVersion returns the value of Version.
+func (s *VarianceRowComment) GetVersion() int32 {
+	return s.Version
+}
+
+// SetID sets the value of ID.
+func (s *VarianceRowComment) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetText sets the value of Text.
+func (s *VarianceRowComment) SetText(val string) {
+	s.Text = val
+}
+
+// SetEdited sets the value of Edited.
+func (s *VarianceRowComment) SetEdited(val bool) {
+	s.Edited = val
+}
+
+// SetAuthorID sets the value of AuthorID.
+func (s *VarianceRowComment) SetAuthorID(val uuid.UUID) {
+	s.AuthorID = val
+}
+
+// SetAuthorKind sets the value of AuthorKind.
+func (s *VarianceRowComment) SetAuthorKind(val string) {
+	s.AuthorKind = val
+}
+
+// SetAuthorName sets the value of AuthorName.
+func (s *VarianceRowComment) SetAuthorName(val string) {
+	s.AuthorName = val
+}
+
+// SetDecidedBy sets the value of DecidedBy.
+func (s *VarianceRowComment) SetDecidedBy(val uuid.UUID) {
+	s.DecidedBy = val
+}
+
+// SetDecidedByName sets the value of DecidedByName.
+func (s *VarianceRowComment) SetDecidedByName(val string) {
+	s.DecidedByName = val
+}
+
+// SetDecidedAt sets the value of DecidedAt.
+func (s *VarianceRowComment) SetDecidedAt(val time.Time) {
+	s.DecidedAt = val
+}
+
+// SetActual sets the value of Actual.
+func (s *VarianceRowComment) SetActual(val Money) {
+	s.Actual = val
+}
+
+// SetComparison sets the value of Comparison.
+func (s *VarianceRowComment) SetComparison(val Money) {
+	s.Comparison = val
+}
+
+// SetStale sets the value of Stale.
+func (s *VarianceRowComment) SetStale(val bool) {
+	s.Stale = val
+}
+
+// SetVersion sets the value of Version.
+func (s *VarianceRowComment) SetVersion(val int32) {
+	s.Version = val
+}
 
 type VerifyAuditChainBadRequest Problem
 

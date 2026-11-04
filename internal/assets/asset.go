@@ -55,9 +55,10 @@ type Terms struct {
 
 // Values are an asset's values in one ledger, the sums of its movements
 // there (ADR-0057 §5): cost and accumulated depreciation (negative, a
-// credit) in local and group currency.
+// credit) in local and group currency, and the change of residual value
+// that retirements and transfers made (Terms.Residual is the terms').
 type Values struct {
-	Cost, CostGC, Accumulated, AccumulatedGC money.Minor
+	Cost, CostGC, Accumulated, AccumulatedGC, Residual money.Minor
 }
 
 // booked reports whether depreciation has been posted in the terms'

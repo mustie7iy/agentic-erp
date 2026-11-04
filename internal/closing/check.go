@@ -22,12 +22,15 @@ import (
 // The checks this build runs (ADR-0058 §6; config.CloseChecks lists them
 // for the template's validation).
 const (
-	CheckNoParked    = "no_parked_entries"
-	CheckRevaluation = "revaluation_posted"
+	CheckNoParked     = "no_parked_entries"
+	CheckRevaluation  = "revaluation_posted"
+	CheckVariances    = "variances_explained"
+	CheckDepreciation = "depreciation_posted"
 )
 
-// maxNamed is how many parked entries a no_parked_entries result names;
-// it counts them all (ADR-0058 §6).
+// maxNamed is how many parked entries a no_parked_entries result names,
+// and how many rows a variances_explained result names; each counts them
+// all (ADR-0058 §6).
 const maxNamed = 20
 
 // openParked are the statuses of a parked entry still waiting for a
@@ -42,6 +45,22 @@ type found struct {
 	ParkedCount int           `json:"parked_entries_count,omitempty"`
 	Parked      []foundParked `json:"parked_entries,omitempty"`
 	Ledgers     []foundLedger `json:"ledgers,omitempty"`
+	// variances_explained: how many rows are unexplained, the first of them.
+	Compared         bool            `json:"compared,omitempty"` // a basis was compared: the count is one
+	UnexplainedCount int             `json:"unexplained_rows_count,omitempty"`
+	Unexplained      []foundVariance `json:"unexplained_rows,omitempty"`
+}
+
+// foundVariance is a row a variances_explained check found unexplained,
+// with its variance then as a decimal in the currency's digits.
+type foundVariance struct {
+	Basis         string    `json:"basis"`
+	AccountID     uuid.UUID `json:"account_id"`
+	AccountNumber string    `json:"account_number"`
+	AccountName   string    `json:"account_name"`
+	Variance      string    `json:"variance"`
+	Currency      string    `json:"currency"`
+	StaleComment  bool      `json:"stale_comment"`
 }
 
 // foundParked is a parked entry a no_parked_entries check named.
@@ -57,13 +76,17 @@ type foundParked struct {
 	CreatedByName string    `json:"created_by_name"`
 }
 
-// foundLedger is a covered ledger as a revaluation_posted check found it.
+// foundLedger is a covered ledger as a revaluation_posted or a
+// depreciation_posted check found it: its run, and for depreciation
+// without a posted run how many assets a run would select.
 type foundLedger struct {
-	LedgerID   uuid.UUID  `json:"ledger_id"`
-	LedgerCode string     `json:"ledger_code"`
-	LedgerName string     `json:"ledger_name"`
-	KeyDate    string     `json:"key_date"`
-	Run        *uuid.UUID `json:"revaluation_run_id,omitempty"`
+	LedgerID     uuid.UUID  `json:"ledger_id"`
+	LedgerCode   string     `json:"ledger_code"`
+	LedgerName   string     `json:"ledger_name"`
+	KeyDate      string     `json:"key_date"`
+	Run          *uuid.UUID `json:"revaluation_run_id,omitempty"`
+	Depreciation *uuid.UUID `json:"depreciation_run_id,omitempty"`
+	ToDepreciate *int       `json:"assets_to_depreciate,omitempty"`
 }
 
 // toAPI shows a recorded result; what a check found is shown for its own
@@ -80,13 +103,31 @@ func (f *found) toAPI(check string, passed bool, at time.Time, by uuid.UUID, byN
 				Reference: apitypes.OptString(p.Reference), HeaderText: apitypes.OptString(p.HeaderText), CreatedBy: p.CreatedBy,
 				CreatedByKind: p.CreatedByKind, CreatedByName: p.CreatedByName}
 		}
-	case CheckRevaluation:
+	case CheckRevaluation, CheckDepreciation:
 		out.Ledgers = make([]gen.CloseCheckLedger, len(f.Ledgers))
 		for i, l := range f.Ledgers {
-			day, _ := time.Parse(time.DateOnly, l.KeyDate) // written by run from a date
-			out.Ledgers[i] = gen.CloseCheckLedger{LedgerID: l.LedgerID, LedgerCode: l.LedgerCode, LedgerName: l.LedgerName, KeyDate: day,
-				Posted: l.Run != nil, RevaluationRunID: apitypes.OptUUID(l.Run)}
+			out.Ledgers[i] = l.toAPI()
 		}
+	case CheckVariances:
+		if f.Compared {
+			out.UnexplainedRowsCount.SetTo(int32(f.UnexplainedCount)) // at most the accounts of one chart per basis
+		}
+		out.UnexplainedRows = make([]gen.CloseCheckVariance, len(f.Unexplained))
+		for i, u := range f.Unexplained {
+			out.UnexplainedRows[i] = gen.CloseCheckVariance{Basis: u.Basis, AccountID: u.AccountID, AccountNumber: u.AccountNumber, AccountName: u.AccountName,
+				Variance: gen.Money{Amount: u.Variance, Currency: u.Currency}, StaleComment: u.StaleComment}
+		}
+	}
+	return out
+}
+
+// toAPI shows a covered ledger as its check found it.
+func (l foundLedger) toAPI() gen.CloseCheckLedger {
+	day, _ := time.Parse(time.DateOnly, l.KeyDate) // written by run from a date
+	out := gen.CloseCheckLedger{LedgerID: l.LedgerID, LedgerCode: l.LedgerCode, LedgerName: l.LedgerName, KeyDate: day,
+		Posted: l.Run != nil || l.Depreciation != nil, RevaluationRunID: apitypes.OptUUID(l.Run), DepreciationRunID: apitypes.OptUUID(l.Depreciation)}
+	if l.ToDepreciate != nil {
+		out.AssetsToDepreciate.SetTo(int32(*l.ToDepreciate)) // at most a company's assets
 	}
 	return out
 }
@@ -143,6 +184,10 @@ func (e *Endpoints) run(ctx context.Context, tx pgx.Tx, t task) (bool, found, er
 		return e.noParked(ctx, t.LegalEntityID, covered[0].Period) // the leading ledger, always covered, first
 	case CheckRevaluation:
 		return e.revaluationPosted(ctx, t.LegalEntityID, covered)
+	case CheckVariances:
+		return e.variancesExplained(ctx, tx, t)
+	case CheckDepreciation:
+		return e.depreciationPosted(ctx, t.LegalEntityID, t.FiscalYear, t.FiscalPeriod, covered)
 	}
 	return false, found{}, fmt.Errorf("closing: task %s of close %s runs check %q, which this build does not", t.Code, t.CloseID, *t.Check)
 }
@@ -199,4 +244,109 @@ func (e *Endpoints) revaluationPosted(ctx context.Context, legalEntity uuid.UUID
 		f.Summary = "No posted revaluation run at the period's last day in ledger " + strings.Join(missing, ", ") + "; run the revaluation first."
 	}
 	return len(missing) == 0, f, nil
+}
+
+// variancesExplained passes when every row requiring a comment of each
+// basis the company configures has an accepted comment that is not stale
+// (ADR-0058 §6, §10), and names the first of those that have none, or a
+// stale one. A company that configures no basis fails: the template asks
+// for its variances to be explained, and nothing would be compared.
+func (e *Endpoints) variancesExplained(ctx context.Context, tx pgx.Tx, t task) (bool, found, error) {
+	bases, code, err := e.bases(ctx, t.LegalEntityID)
+	if err != nil {
+		return false, found{}, err
+	}
+	if len(bases) == 0 {
+		return false, found{Summary: "Company " + code + " compares its variances against no basis; configure companies[].close.variance first."}, nil
+	}
+	f := found{Compared: true}
+	for _, basis := range bases {
+		r, err := e.report(ctx, tx, t.CloseID, basis)
+		if err != nil {
+			return false, found{}, err
+		}
+		for _, row := range r.rows {
+			if !row.flagged || row.explained {
+				continue
+			}
+			if f.UnexplainedCount++; len(f.Unexplained) < maxNamed {
+				f.Unexplained = append(f.Unexplained, foundVariance{Basis: basis, AccountID: row.AccountID, AccountNumber: row.Number, AccountName: row.Name,
+					Variance: row.variance.Plain(r.exp), Currency: r.company.LocalCurrency, StaleComment: row.accepted != nil})
+			}
+		}
+	}
+	against := strings.Join(bases, ", ")
+	switch f.UnexplainedCount {
+	case 0:
+		f.Summary = "Every row requiring a comment against " + against + " has an accepted comment that is current."
+	case 1:
+		f.Summary = "1 row requiring a comment against " + against + " has no accepted comment that is current; explain it or accept a proposal."
+	default:
+		f.Summary = fmt.Sprintf("%d rows requiring a comment against %s have no accepted comment that is current; explain them or accept proposals.",
+			f.UnexplainedCount, against)
+	}
+	return f.UnexplainedCount == 0, f, nil
+}
+
+// bases are the variance bases a legal entity's company configures, with
+// its code.
+func (e *Endpoints) bases(ctx context.Context, legalEntity uuid.UUID) ([]string, string, error) {
+	co, err := e.company(ctx, legalEntity)
+	if err != nil {
+		return nil, "", err
+	}
+	doc, _, err := e.Settings.Document(ctx)
+	if err != nil {
+		return nil, "", fmt.Errorf("closing: variance settings: %w", err)
+	}
+	if dc := doc.Company(co.Code); dc != nil && dc.Close.Variance != nil {
+		return dc.Close.Variance.Bases, co.Code, nil
+	}
+	return nil, co.Code, nil
+}
+
+// company reads a legal entity's company; one the tenancy context does
+// not hold is broken data.
+func (e *Endpoints) company(ctx context.Context, legalEntity uuid.UUID) (Company, error) {
+	co, ok, err := e.Companies.Company(ctx, legalEntity)
+	if err == nil && !ok {
+		err = fmt.Errorf("legal entity %s is not held by the tenancy context", legalEntity)
+	}
+	return co, errs.Wrapf(err, "closing: company of %s", legalEntity)
+}
+
+// depreciationPosted passes when each covered ledger has a posted
+// depreciation run of the period, or has no asset a run of it would
+// select (ADR-0057 §7), and names each ledger with its run or, without
+// one, how many assets a run would select.
+func (e *Endpoints) depreciationPosted(ctx context.Context, legalEntity uuid.UUID, year, period int16, covered []LedgerPeriod) (bool, found, error) {
+	f := found{Ledgers: make([]foundLedger, len(covered))}
+	var missing []string
+	for i, k := range covered {
+		run, selected, err := e.Depreciation.Posted(ctx, legalEntity, k.LedgerID, year, period, k.Period.EndDate)
+		if err != nil {
+			return false, found{}, fmt.Errorf("closing: depreciation of ledger %s: %w", k.Code, err)
+		}
+		f.Ledgers[i] = foundLedger{LedgerID: k.LedgerID, LedgerCode: k.Code, LedgerName: k.Name, KeyDate: k.Period.EndDate.Format(time.DateOnly),
+			Depreciation: run}
+		if run == nil {
+			f.Ledgers[i].ToDepreciate = &selected
+			if selected > 0 {
+				missing = append(missing, fmt.Sprintf("%s (%s)", k.Code, assetCount(selected)))
+			}
+		}
+	}
+	f.Summary = fmt.Sprintf("Every covered ledger has a posted depreciation run of %d/%d or nothing to depreciate.", year, period)
+	if len(missing) > 0 {
+		f.Summary = fmt.Sprintf("No posted depreciation run of %d/%d in ledger %s; run the depreciation first.", year, period, strings.Join(missing, ", "))
+	}
+	return len(missing) == 0, f, nil
+}
+
+// assetCount is n assets in words.
+func assetCount(n int) string {
+	if n == 1 {
+		return "1 asset to depreciate"
+	}
+	return fmt.Sprintf("%d assets to depreciate", n)
 }

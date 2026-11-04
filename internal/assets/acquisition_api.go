@@ -220,7 +220,7 @@ func (e *Endpoints) newAcquisition(ctx context.Context, req *gen.AssetAcquisitio
 		return NewAcquisition{}, validation("source", "a source line or an offset account (offset_account_id), one of the two")
 	}
 	if m, ok := req.Amount.Get(); ok {
-		amount, err := e.amountOf(ctx, m)
+		amount, err := e.amountOf(ctx, m, "amount")
 		if err != nil {
 			return NewAcquisition{}, err
 		}
@@ -245,15 +245,16 @@ func (e *Endpoints) ReverseAssetAcquisition(ctx context.Context, req *gen.AssetA
 	return &gen.ReverseAssetAcquisitionOKHeaders{ETag: gen.NewOptString(etag.Format(q.Version)), Response: out}, nil
 }
 
-// amountOf parses an amount with its currency's minor-unit digits (400
-// request.invalid_amount otherwise; an unknown currency is one).
-func (e *Endpoints) amountOf(ctx context.Context, m gen.Money) (money.Minor, error) {
+// amountOf parses an amount of the request's field with its currency's
+// minor-unit digits (400 request.invalid_amount otherwise; an unknown
+// currency is one).
+func (e *Endpoints) amountOf(ctx context.Context, m gen.Money, field string) (money.Minor, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return 0, err
 	}
 	bad := problem.BadRequest("request.invalid_amount", "The amount is not one of its currency.",
-		problem.FieldError{Field: "amount", Code: "invalid", Message: "an amount with its currency's decimals"})
+		problem.FieldError{Field: field, Code: "invalid", Message: "an amount with its currency's decimals"})
 	exp, err := currency.Exponent(ctx, tx, m.Currency, bad)
 	if err != nil {
 		return 0, err

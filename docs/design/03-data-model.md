@@ -2683,7 +2683,7 @@ procurement through ports they publish and owns only what it adds; no
 context imports it (`internal/layout`). Migration 000141 (T53b) creates the
 schema with the configuration it keeps; memo records follow in T53d
 (000152), snapshots of the forecast in T53f (000198), variance comments in
-T53f4.
+T53f4 (000201).
 
 ```mermaid
 erDiagram
@@ -2741,16 +2741,30 @@ erDiagram
     uuid payment_id "payments context"
     text document_kind
     uuid document_id "the owning context's" }
+  snapshot ||--o{ variance_comment : "kept for"
+  liquidity_item ||--o{ variance_comment : "explained in"
+  variance_comment { uuid id PK
+    uuid legal_entity_id "tenancy context"
+    date period_from
+    date period_to
+    int lag "0 | 7 | 30"
+    text liquidity_item FK "null: what no rule assigns"
+    uuid snapshot_id FK "of the same company"
+    text text
+    text status "proposed | accepted | rejected"
+    uuid decided_by
+    uuid created_by "the author" }
 ```
 
 | Table | Purpose |
 |---|---|
-| `cash.liquidity_item` | The configuration's `cash.liquidity_items` (SAP FLQLITEM), kept by `cash.Setup`: cash by purpose in one tree, a code of upper-case letters, digits and underscores, a direction, a parent of the tenant (never itself). One the document drops becomes inactive, never deleted, since memo records and snapshots name items; the configuration's validation keeps the tree acyclic, at most four levels, children of their parent's direction or of one for both |
+| `cash.liquidity_item` | The configuration's `cash.liquidity_items` (SAP FLQLITEM), kept by `cash.Setup`: cash by purpose in one tree, a code of upper-case letters, digits and underscores, a direction, a parent of the tenant (never itself). One the document drops becomes inactive, never deleted, since memo records, snapshots and variance comments name items; the configuration's validation keeps the tree acyclic, at most four levels, children of their parent's direction or of one for both |
 | `cash.planning_group` | The configuration's `cash.planning_groups` (SAP T035), kept by `cash.Setup`, inactive once dropped; suppliers name one per company (`partner.supplier_company.planning_group`, §3.6) |
 | `cash.memo_record` | An expected receipt or payment (SAP's memo records, ADR-0051 §7; T53d): a signed, non-zero amount in minor units of its currency, a value date and an expiry date on or after it, a certainty, an active liquidity item of the amount's direction (`cash.check_memo_item`, when the item or amount is written; `cash.Setup` refuses taking away an item an open record names), a house bank or none (forecast only), optionally a series (`weekly`, `monthly` on the value date's day, `quarterly`; until a day or a count of 2-520, or neither) expanded at read time, `counts_until` the last occurrence's expiry (a one-off record's `expires_on`, null for a series without end; an active record past it is shown `expired`). An override (`recurrence_of`, `occurrence_date`) replaces one occurrence of a series, once per occurrence (`memo_record_override_once`). `origin` `agent` records carry their session and reason and are the only ones `proposed` or `rejected`; `upload` ones carry their batch key and a reference unique per company and key (`memo_record_batch_reference`). Realised by a statement line or by a person; a series only through an override of an occurrence. Changes are versions; never deleted |
-| `cash.snapshot` | A snapshot of a company's liquidity forecast (ADR-0051 §6, T53f, 000198): `daily` (the TakeCashSnapshot workflow's, one per company and date, `snapshot_daily`) or `on_demand` (a person's, named, `snapshot_name`), its date and zone, the last day of its buckets and the configuration version that classified it. Insert-only (no version, no update or delete granted); deleted with its lines 25 months after its date by the workflow through `cash.delete_expired_snapshots`, which computes the 25 months and refuses a day after UTC's tomorrow |
+| `cash.snapshot` | A snapshot of a company's liquidity forecast (ADR-0051 §6, T53f, 000198): `daily` (the TakeCashSnapshot workflow's, one per company and date, `snapshot_daily`) or `on_demand` (a person's, named, `snapshot_name`), its date and zone, the last day of its buckets and the configuration version that classified it. Insert-only (no version, no update or delete granted); deleted with its lines 25 months after its date by the workflow through `cash.delete_expired_snapshots`, which computes the 25 months and refuses a day after UTC's tomorrow, unless a variance comment refers to it (000201) |
 | `cash.snapshot_flow` | A snapshot's lines in transaction currency: within 31 days of its date, what one forecast flow (`flow_no`) pays of one document under one liquidity item, with its day at the bank, house bank, source, certainty, lateness, supplier and payment (`flow_count` 1, `snapshot_flow_count`); beyond, a bucket's sum (`bucket_end`) per currency, source, certainty, item and house bank, naming no document, supplier or payment and never late (`snapshot_flow_bucket`). A document is named whole (`snapshot_flow_document`); an item is the tenant's (null: unclassified). Insert-only |
-| `cash.outbox`, `cash.inbox` | The context's events (`MemoRecordChanged`, `CashSnapshotTaken`), relayed as every context's (000152, `outbox.Contexts`) |
+| `cash.variance_comment` | A comment on one row of a company's forecast variance (ADR-0051 §11, T53f4, 000201): its period (`variance_comment_period`), lag (0, 7 or 30), liquidity item (the tenant's, active or not; null: what no rule assigns) and the snapshot that variance compares with, of the same company (`variance_comment_snapshot`, which keeps the snapshot past its retention); a text of 1 to 2,000 characters, not blank; `proposed` (an agent's, T53i), `accepted` or `rejected`, decided exactly when not proposed (`variance_comment_decided`; a person's is accepted as written, decided by its author). Insert-only, never deleted |
+| `cash.outbox`, `cash.inbox` | The context's events (`MemoRecordChanged`, `CashSnapshotTaken`, `VarianceCommentDecided`), relayed as every context's (000152, `outbox.Contexts`) |
 
 What is not stored, and read from the active document when a position or
 forecast is computed: the derivation rules (`cash.derivation`: account
@@ -2862,6 +2876,14 @@ the `cash.memo_record`s the snapshot names (whether each is a series) or
 a line realised (`realised_statement_id`, `realised_line_no`, an
 override's `recurrence_of` and `occurrence_date`). No migration; reading
 the variance is `cash.forecast.read`.
+
+T53f4 stores people's comments on the variance (000201,
+`cash.variance_comment` above), each naming the `cash.snapshot` its
+variance compares with, found as T53f3 finds it; 000201 replaces
+`cash.delete_expired_snapshots` with one that skips a snapshot a comment
+refers to, adds `snapshot_company` (unique on `tenant_id`, `id`,
+`legal_entity_id`) for the comment's foreign key, and seeds
+`cash.variance.comment`; reading comments is `cash.forecast.read`.
 
 ## 3.19 Controlling (`controlling`)
 
@@ -2991,8 +3013,9 @@ by `ledger.tax_item_reported_in`, built concurrently by migration 000180).
 
 The asset master (ADR-0057 §5, §7, §8, T57b), its acquisitions and
 their reversals (§6, T57c, T57d), its depreciation schedule, read from
-them (§7, T57e, no table of its own), and the depreciation runs that post
-it (§7, T57f, migration 000200), owned by the assets context
+them (§7, T57e, no table of its own), the depreciation runs that post
+it (§7, T57f, migration 000200) and its retirements (§8, T57g, migration
+000203), owned by the assets context
 (`internal/assets`, a leaf). Migration 000191 creates the schema, its
 outbox (`assets.outbox`, AssetChanged) and the permission
 `assets.asset.change` (`assets.asset.read` came with T57a). The classes and
@@ -3010,6 +3033,8 @@ erDiagram
   acquisition ||--|{ document_entry : "one per ledger"
   depreciation_run ||--o{ depreciation_batch : "500 assets each"
   depreciation_batch ||--o{ movement : "a depreciation movement per asset"
+  asset ||--o{ retirement : "by seq"
+  retirement ||--o{ document_entry : "one per ledger it posts in"
   asset { uuid id PK
     uuid legal_entity_id "tenancy context"
     text asset_number "unique in the company"
@@ -3068,6 +3093,15 @@ erDiagram
     uuid operation_id "platform.operation"
     bigint amount "local currency, once posted"
     jsonb error "once failed" }
+  retirement { uuid id PK
+    uuid asset_id
+    int seq
+    text kind "sale | scrapping"
+    numeric share_percent
+    bigint share_cost "local currency"
+    bigint proceeds "local currency"
+    bigint proceeds_gc
+    text status "posted | reversed" }
   depreciation_batch { uuid run_id PK
     int batch_no PK
     uuid_array asset_ids "1-500"
@@ -3085,6 +3119,7 @@ erDiagram
 | `assets.clearing_use` | What acquisitions used of a capitalised line, keyed by the line: its amounts in its currency, local and group currency, and what is used of each, which stays between zero and the line's amount (the mirror for a credit line, `clearing_use_within_line`); the line's amounts never change (`clearing_use_line_fixed`). Read FOR UPDATE by every acquisition from the line, and given back by its reversal. A reversal's line names the line it reverses (`reverses_entry_year`, `reverses_entry_id`, both or neither, `clearing_use_reverses`; T57d), which never changes, so an asset's take-off through it is bounded by what it holds from that line |
 | `assets.movement` | The subledger (ADR-0057 §5): one append-only row per asset, ledger and effect (`acquisition`, `depreciation`, `retirement`, `transfer_out`, `transfer_in`) with the signed change of cost and accumulated depreciation in local and group currency, of residual value (negative when a retirement or transfer out took it, positive when a transfer in brought it, T57e), proceeds and share, its document and journal entry. The depreciation schedule and a run's preview (T57e) are computed from these rows and `asset_terms` at the read, never stored (ADR-0057 §7), and `GET /v1/assets/{id}/movements` lists them. A reversal row has its original's kind, asset and ledger and exactly the negated amounts (`movement_reversal`), each original is reversed at most once (`movement_reversed_once`), and depreciation changes accumulated depreciation alone (`movement_depreciation`) |
 | `assets.document_entry` | The journal entry of each assets document per ledger and part (`main`, or a center transfer's `catch_up`), with its document number; the reversal records its reversal entry and that entry's number once (`document_entry_reversal`, `document_entry_reversal_number`, `document_entry_reversed_once`; T57d), the only update granted |
+| `assets.retirement` | A retirement (T57g, migration 000203; ADR-0057 §8): a `sale` with proceeds in local currency, zero or more, or a `scrapping` without (`retirement_proceeds`, which also keeps the proceeds' group amount zero without proceeds), of a share given as a percent above 0 and at most 100 or a positive cost, not both (`retirement_share`; neither: all of it), valued in its posting date's month on or before it (`retirement_value_date`: not backdated, decided by default 13), with the asset's `seq` (`retirement_seq_once`). It starts `posted` and is reversed at most once, keeping what it posted (`retirement_transition`, `retirement_fixed`); it is `reversed` exactly when its reversal's posting date and reason are recorded (`retirement_reversal`), never dated before its own (`retirement_reversal_date`). Per ledger it writes a `depreciation` movement (its catch-up, with `booked_through_before_*`) and a `retirement` movement (cost, accumulated depreciation and residual value taken, proceeds, `share`, above 0 and at most 1: `movement_share`), and a `document_entry` where the ledger posted an entry |
 | `assets.depreciation_run` | A depreciation run (T57f, migration 000200; ADR-0057 §7) of a company, ledger and regular period (`depreciation_run_fiscal_period_check`), dated the period's last day, with its Operation. It starts `queued` and moves queued -> running -> posted, or to failed from queued or running; posted and failed are final (`depreciation_run_transition`), and what it runs never changes, nor its plan once running nor its outcome once ended (`depreciation_run_fixed`). It is planned (`assets_planned`) once running (`depreciation_run_planned`), has its totals (`amount`, `assets_posted`, `assets_skipped`) exactly when posted (`depreciation_run_totals`) and its problem exactly when failed (`depreciation_run_error`). One run of a company and ledger is queued or running at a time (`depreciation_run_one_at_a_time`, a partial unique index; 409 `assets.run_in_progress`) |
 | `assets.depreciation_batch` | A run's batch of 1-500 assets by asset number (`depreciation_batch_asset_ids_check`), `pending` until posted once in one transaction (`depreciation_batch_transition`, which keeps its assets), with its totals exactly when posted (`depreciation_batch_posted`) and its journal entry and document number only then, all or none (`depreciation_batch_entry`; none when no asset of it had a difference). A run's depreciation movements (`document_kind` `depreciation_run`) carry the batch's entry, whose document number the movements list reads from here |
 
@@ -3097,7 +3132,8 @@ adapts, and no context reads it. Its template is configuration (T64a):
 (`[A-Z0-9_]{1,30}`), a `name` (cosmetic), a `kind` (`manual` or `check`,
 with a `check` this build runs exactly when the kind is `check`; each
 slice that builds a check adds it: `no_parked_entries` and
-`revaluation_posted` from T64c), a `due_day` (business days after the
+`revaluation_posted` from T64c, `variances_explained` from T64i,
+`depreciation_posted` from T64k), a `due_day` (business days after the
 period's last day, -31 to 31, 0 that day itself), `depends_on` (other
 tasks of the template, each once, without a cycle, and given to every
 company the dependent task is) and optional `companies` (only these
@@ -3161,7 +3197,9 @@ closing.close_task    + checked_at, checked_by, check_passed, check_result jsonb
 what it found (`check_result`: its summary and, for `no_parked_entries`,
 the count and the first 20 parked entries with who parked them; for
 `revaluation_posted`, each covered ledger with its key date and posted
-run), names included as they were then. The four are set together, on a
+run; for `depreciation_posted` (T64k), each covered ledger with its
+latest posted depreciation run of the period or, without one, how many
+assets a run would select), names included as they were then. The four are set together, on a
 check task only (`close_task_checked`), never when the task is created,
 and once recorded are replaced by the next check, never removed
 (`closing.check_close_task`). A check task is `done` only while its latest
@@ -3170,7 +3208,13 @@ and when become its completion, unless it was done already) and a failure
 open; reopening it keeps the result. The checks read the ledger through
 its port (`ledger.CloseChecks`): parked entries of the company by posting
 date in the leading ledger's period (`ledger.parked_entry`) and posted
-revaluation runs per ledger and key date (`ledger.revaluation_run`).
+revaluation runs per ledger and key date (`ledger.revaluation_run`);
+the depreciation check reads the assets context through its port
+(`assets.CloseChecks`): the latest `posted` run of the company, ledger,
+fiscal year and period (`assets.depreciation_run`,
+`depreciation_run_by_company`) and, without one, the assets a run would
+select (the run's and the preview's selection over `assets.asset`,
+`asset_terms`, `asset_assignment` and `movement`, ADR-0057 §7).
 
 A close's sign-offs (T64d, migration 000199):
 
@@ -3201,3 +3245,40 @@ balance's rows (`ledger.period_balance` and the entries still queued,
 through `ledger.CloseAccounts`), or the plan category's current lines of
 the period (`controlling.plan_line`, `replaced_by_batch_id IS NULL`, on cost
 centers or on profit centers, through `controlling.Plans`).
+
+Variance comments (T64i, migration 000202), with the closing outbox
+(`VarianceCommentChanged`):
+
+```
+closing.variance_comment  (tenant_id, id, close_id, basis, account_id, account_number, account_name,
+                           text, proposed_text, author_kind human|agent, author_id, session_id,
+                           currency, actual, comparison, status proposed|accepted|rejected|superseded,
+                           decided_by, decided_at, decision_reason, version, created_*, updated_*)
+                           PK (tenant_id, id); FK (tenant_id, close_id) -> period_close
+closing.variance_citation (tenant_id, comment_id, seq 1-20, journal_entry_year, journal_entry_id,
+                           document_number, posting_date)
+                           PK (tenant_id, comment_id, seq); UNIQUE (tenant_id, comment_id, journal_entry_id)
+```
+
+A comment explains one row (`account_id`) of one basis of its close's
+variance report, with the row's `actual` and `comparison` in minor units
+of `currency` when it was written, and the account's number and name as
+they were then; it is stale once the row's figures differ, judged at the
+read. An agent's comment starts `proposed`, in its session
+(`variance_comment_session`), and a person's `accepted`; a proposal moves
+to `accepted` (its text then replaceable, the proposal's kept as
+`proposed_text`, `variance_comment_edited`) or `rejected` with a reason,
+an accepted comment to `superseded`, and nothing else of it changes
+(`closing.check_variance_comment`). `decided_by` and `decided_at` are set
+exactly once it is decided, the reason exactly when it was rejected
+(`close_variance_comment_decided`). A row has at most one accepted comment
+(`variance_comment_accepted_once`, partial unique) and a session one
+proposal per row (`variance_comment_proposed_once`). A citation is a
+journal entry (`ledger.journal_entry` by year and id, its document number
+and posting date as cited), each once, never updated or deleted
+(`platform.forbid_mutation`). Every write reads the close `FOR UPDATE`
+first. The report and the check read a close's comments of a basis
+(`variance_comment_by_row`), the list by creation
+(`variance_comment_by_created`). The account, entries, session and
+principals are other contexts', by id, without foreign keys. Schema
+tests: `db/closing_test.go` (`TestVarianceCommentRules`).

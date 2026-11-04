@@ -1949,3 +1949,108 @@ api/asyncapi.yaml says so for the two events. Decided by default: the order
 is taken from the port rather than the database, since the ledgers' codes
 are the ledger context's (ADR-0057 §10); the cost is one read of the
 tenant's ledgers per recorded change.
+
+**T57g (retirements).** Built as §5, §6, §7 and §8 for retirements:
+migration 000203 creates `assets.retirement` (`retirement_transition`,
+`retirement_fixed`, `retirement_seq_once`, `retirement_share`,
+`retirement_proceeds`, `retirement_value_date`, `retirement_reversal`,
+`retirement_reversal_date`) and adds `movement_share` (a share above 0 and
+at most 1) to `assets.movement` (schema test `TestAssetRetirementRules`).
+`POST`, `GET /v1/asset-retirements`, `GET /v1/asset-retirements/{id}` and
+`POST /v1/asset-retirements/{id}:reverse` (`createAssetRetirement`,
+`listAssetRetirements`, `getAssetRetirement`, `reverseAssetRetirement`;
+`assets.asset.post` for the writes, human-only, `assets.asset.read` for the
+reads), audited (`assets.retirement.post`, `.reverse`) and published as
+AssetMovementPosted and AssetMovementReversed (`document_kind`
+`retirement`) and, when a retirement retires the asset or its reversal makes
+it active again, AssetChanged (`retired`, `reactivated`, §10). The asset's
+status follows §5 from now on (`derive`): retired when its cost is zero in
+every ledger and its latest movement that reduced its cost or took a full
+share, a reversed one and its reversal set aside, is a retirement or
+transfer out. The ledger's `ledger.entry_owned_elsewhere` names the
+retirement's path. Decided by default, for the product owner to overrule:
+- **The request.** `kind` `sale` requires `proceeds` (zero or more, in the
+  company's local currency); `scrapping` takes none (422
+  `request.validation_failed` on `proceeds` otherwise). `share` is a
+  `percent` (above 0, at most 100, up to four decimals) or a `cost` (above
+  zero, local currency), one of the two; no share is all of it. The value
+  date defaults to the posting date, the posting date to the company's date
+  today. A `planned` asset is 422 `assets.asset_not_capitalised` (§10's
+  code: it holds no acquisition, so there is nothing to retire), and an
+  asset without terms in a ledger its company keeps 422
+  `assets.ledger_terms_missing` (a ledger assigned later gets its terms by
+  `PATCH` first, §7), so every ledger's catch-up is planned. A retirement
+  already reversed is 409 `assets.retirement_not_posted`, a code beside
+  §10's list (as T57d added `assets.acquisition_not_posted`).
+- **Periods are months** (T57e as built), so V−1 is the period before V in
+  its fiscal year, the previous year's period 12 for period 1, without a
+  calendar read; `booked_through` is raised to it whether or not that
+  year is set up. The database holds the value date in its posting date's
+  calendar month (`retirement_value_date`).
+- **`assets.later_value_date`** reads the asset's movements valued after
+  V's last day, a reversed movement and its reversal set aside (they cancel
+  out in the schedule, §7), its assignment rows valid from after it, and its
+  `booked_through` in every ledger after V.
+- **Shares per ledger.** A `cost` share is that cost over each ledger's base
+  cost (the same in every ledger, decided by default 9) and a `percent` that
+  fraction; the cost, accumulated depreciation and residual value taken are
+  rounded half away from zero (`proportion`, T57c), all of them for a full
+  share; the movement records the fraction (`share`, twelve decimals).
+- **Group amounts.** One translation of the posting date (the average rate,
+  as T57f's `GroupAmounts`) gives the proceeds', each catch-up's and, for
+  §8's second rule, the taken amounts' group amounts. The first rule (all
+  of the booked group amount when nothing is left locally) also covers a
+  zero booked local amount, since any share of zero leaves zero; so the
+  second applies when the booked group amount has the other sign.
+- **A line with a group amount and no local one.** The leaf's case (the
+  catch-up posting the period's run back at another rate, so accumulated
+  depreciation is zero locally and not in group currency) needs a line
+  taking off that group amount alone. The ledger's posting API now accepts
+  a line of zero amount that keeps a non-zero group amount
+  (`PostingLine.GC`, §4; before, `ledger.zero_amount`); the database already
+  held such lines (exchange differences). Lines with neither amount are left
+  out, and the gain or loss line, which takes the difference in both
+  currencies, is a loss when its local amount is a debit, or with no local
+  amount when its group amount is.
+- **Entries.** One ledger-specific entry per ledger the company keeps,
+  posted in the order `Ledger.Ledgers` gives (the leading ledger first,
+  then by code), so two retirements take the ledgers' number ranges in the
+  same order after the asset's lock (`TestRetirementsAtOnce`), with the
+  header text "Retirement of asset <number> <description>" or the
+  retirement's text. A ledger in which every amount is zero (a full
+  retirement of an asset at zero cost) gets no entry; its two movements
+  (the catch-up's and the retirement's) are written without one, and the
+  response's `entries` and the events' `ledgers` leave it out. The catch-up
+  is a `depreciation` movement of the retirement in every ledger, recording
+  `booked_through` before it; the retirement's movement records the cost,
+  accumulated depreciation and residual value taken and the proceeds.
+- **Lines and centers** as §8: the depreciation (catch-up) and loss lines on
+  the asset's cost center and profit center, as a run's expense lines are;
+  accumulated depreciation, acquisition cost, sale clearing and gain on its
+  profit center.
+- **Reversal.** The body is a reason and an optional posting date, by
+  default the retirement's own. It is refused once the asset's `last_seq`
+  is beyond the retirement's (anything posted after it, §8), reverses each
+  ledger's entry through the ledger's reversal path in ledger order, negates
+  both movements per ledger with the asset's next `seq` (in the reversal
+  entry's period, or the date's for a ledger without an entry), and returns
+  `booked_through` in each ledger to what the catch-up's movement recorded.
+  A ledger without an entry posts nothing, so its period is not checked.
+- **Representation.** Per ledger in ledger order: the share, the catch-up,
+  the cost, accumulated depreciation (negative, as the asset's values show
+  it) and residual value taken, the book value taken and the gain (positive)
+  or loss (negative), each in local and group currency; `full` when every
+  ledger's share is all of it; the proceeds in both currencies (the group
+  amount is kept on the retirement, `proceeds_gc`, as it is the same in every
+  ledger). The list is filtered by company, asset, kind, posting dates and
+  status, ordered by posting date (default) or creation.
+- **Gain and loss accounting** follows §8 as designed; whether and how the
+  sale is taxed stays with the manual billing entry that clears the sale
+  clearing account (§8), so nothing about tax is built here.
+- **Ledger order of the records (batch 51's merge).** T57g predates
+  batch 50's fix forward above: its audit records and events listed a
+  retirement's ledgers as the database grouped its movements. They now
+  take the ledger port's order too (`retiredInLedgerOrder`,
+  `TestRetirementRecordedInLedgerOrder` for the posting and its reversal),
+  and the AssetChanged a retirement or its reversal records gets that order
+  for its terms, as every asset change's (`record`).

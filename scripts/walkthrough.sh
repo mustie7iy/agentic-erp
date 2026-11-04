@@ -314,19 +314,22 @@ start() {
   say "  - the GST34's lines (T61j-T61l): step 2 configures one"
   say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
-  say "  - the liquidity forecast's purchase orders and variance comments (T53f4-T53k): step 13 shows the daily cash"
+  say "  - the liquidity forecast's purchase orders and an agent's variance comments (T53g-T53k): step 13 shows the daily cash"
   say "    position with a memo record and the forecast of the supplier open items, payment runs, parked invoices, down"
   say "    payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening, memo records"
   say "    and payments in transit, conversion and drill-down; step 26 its snapshots; step 27 the cash actuals;"
-  say "    step 28 the forecast's variance"
+  say "    step 28 the forecast's variance, step 30 a person's comment on it"
   say "  - cost center postings, reports and planning (T56d-T56j)"
-  say "  - asset retirements, transfers and the rest of asset accounting (T57g-T57i): steps 19 and 20 show the classes and"
-  say "    the master, steps 22 and 24 acquisitions and their corrections, step 25 the depreciation schedule and preview, step 29"
-  say "    a depreciation run"
-  say "  - accounts receivable, the period close beyond its checklist, automatic checks, variances and sign-off (T64e-T64g, T64i-T64k), consolidation (T68)"
+  say "  - asset transfers and the rest of asset accounting (T57h-T57i): steps 19 and 20 show the classes and the master,"
+  say "    steps 22 and 24 acquisitions and their corrections, step 25 the depreciation schedule and preview, step 29 a"
+  say "    depreciation run, step 31 retirements"
+  say "  - accounts receivable, the period close's accruals and its close agent (T64e-T64g, T64j), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
-  export DATABASE_URL ERP_ENV=development ERP_DEV_ISSUER=true ERP_MIGRATE_ON_START=true
+  # ERP_EVAL_CELL: the close agent's principal runs at level 1 before its
+  # type is certified, as an evaluation cell raises its agents (ADR-0058
+  # §12, ADR-0039); production refuses it.
+  export DATABASE_URL ERP_ENV=development ERP_DEV_ISSUER=true ERP_MIGRATE_ON_START=true ERP_EVAL_CELL=true
   export ERP_HTTP_ADDR="$API_ADDR" ERP_ADMIN_ADDR="$ADMIN_ADDR"
   export ERP_API_URL="http://$API_ADDR" ERP_ADMIN_URL="http://$ADMIN_ADDR" ERP_CONTROL_URL="http://$ADMIN_ADDR"
   export ERP_EXTRACT_DIR="$WORK/data" ERP_OBJECT_DIR="$WORK/data/objects"
@@ -2880,14 +2883,16 @@ step_asset_depreciation() {
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
 # the process owner approves; Carla reads the year's close calendar, each
 # period's planned first and last due dates on the company's business days.
-# Then the close's checklist (T64b), its checks (T64c), its variances
-# (T64h) and, last, its sign-off (T64d), which locks the period.
+# Then the close's checklist (T64b), its depreciation check (T64k), its
+# other checks (T64c), its variances (T64h) and their comments (T64i)
+# and, last, its sign-off (T64d), which locks the period.
 step_close() {
   heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off"
   as ada
   say "Ada proposes the close template (ADR-0058 §3): the tasks every company's period close is given, each due"
   say "a number of business days after the period's last day (negative: before it), some waiting for others:"
-  say "manual tasks a person completes, and a check the system runs (no entry of the period left parked). The"
+  say "manual tasks a person completes, and checks the system runs (no entry of the period left parked, the"
+  say "period's depreciation posted in every ledger, its variances explained). The"
   say "template decides what a sign-off requires, so it is configuration, approved as a tier 2 change."
   api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
   local base cr request
@@ -2897,13 +2902,15 @@ step_close() {
       {\"code\": \"CUTOFF_NOTICE\", \"name\": \"Cut-off reminder sent to the team\", \"kind\": \"manual\", \"due_day\": -2},
       {\"code\": \"AP_CUTOFF\", \"name\": \"Supplier invoices of the period entered\", \"kind\": \"manual\", \"due_day\": 1, \"depends_on\": [\"CUTOFF_NOTICE\"]},
       {\"code\": \"TB_REVIEW\", \"name\": \"Trial balance reviewed\", \"kind\": \"manual\", \"due_day\": 3, \"depends_on\": [\"AP_CUTOFF\"]},
-      {\"code\": \"NO_PARKED\", \"name\": \"No entry of the period left parked\", \"kind\": \"check\", \"check\": \"no_parked_entries\", \"due_day\": 3, \"depends_on\": [\"AP_CUTOFF\"]}])}" \
+      {\"code\": \"NO_PARKED\", \"name\": \"No entry of the period left parked\", \"kind\": \"check\", \"check\": \"no_parked_entries\", \"due_day\": 3, \"depends_on\": [\"AP_CUTOFF\"]},
+      {\"code\": \"DEPRECIATED\", \"name\": \"Depreciation of the period posted in every ledger\", \"kind\": \"check\", \"check\": \"depreciation_posted\", \"due_day\": 2},
+      {\"code\": \"VARIANCES\", \"name\": \"Variances explained\", \"kind\": \"check\", \"check\": \"variances_explained\", \"due_day\": 4, \"depends_on\": [\"TB_REVIEW\"]}])}" \
     "$WORK/last.json" >"$WORK/close.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @close.json
   cr=$(field .id)
   api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
   expect "the change's tier" "$(field .tier)" 2
-  expect "the tasks among the changes" "$(field '[.items[] | select(.path | startswith("close.tasks["))] | length')" 4
+  expect "the tasks among the changes" "$(field '[.items[] | select(.path | startswith("close.tasks["))] | length')" 6
   expect "status after submit" "$(field .status)" pending_approval
   request=$(field .workflow_request_id)
   approve priya "$request" "The monthly close checklist, as agreed with the controller"
@@ -2929,8 +2936,10 @@ step_close() {
   expect "the cut-off reminder before each period's end, the review after it" \
     "$(field '[.periods[] | .first_due_on < .end_date and .last_due_on > .end_date] | all')" true
   close_checklist
+  close_depreciation
   close_checks
   close_variances
+  close_comments
   close_sign_off
   passed
 }
@@ -2951,7 +2960,7 @@ close_checklist() {
     createPeriodClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
   close=$(field .id)
   tag=$ETAG
-  expect "the close's tasks" "$(field '[.tasks[].code] | join(" ")')" "CUTOFF_NOTICE AP_CUTOFF TB_REVIEW NO_PARKED"
+  expect "the close's tasks" "$(field '[.tasks[].code] | join(" ")')" "CUTOFF_NOTICE AP_CUTOFF TB_REVIEW NO_PARKED DEPRECIATED VARIANCES"
   expect "the leading ledger first" "$(field '.ledgers[0].ledger_code')" 0L
   say "A second close of the period is refused, and names the first:"
   refused 409 closing.close_exists createPeriodClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
@@ -2985,6 +2994,48 @@ close_checklist() {
   api 200 ".periods[] | select(.period == $period) | \"  period \\(.period): close \\(.close.status), \\(.close.tasks_done) of \\(.close.tasks_total) done\"" \
     getCloseCalendar -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
   expect "the calendar's close" "$(field ".periods[] | select(.period == $period) | .close.id")" "$close"
+}
+
+# close_depreciation is T64k's part of step_close (ADR-0058 §6): the
+# depreciation check names each covered ledger without a posted run of the
+# period. Step 29 ran the period's depreciation in the leading ledger
+# alone, so the check fails naming 2L, where the lathe still waits for
+# its depreciation; Carla runs the period's depreciation in 2L and the
+# check passes, naming each ledger's run.
+close_depreciation() {
+  local period close tag l2 run
+  period=$((10#${TODAY:5:2}))
+  as carla
+  QUIET=1 api 200 '' listPeriodCloses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  close=$(field ".items[] | select(.fiscal_period == $period) | .id")
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  tag=$ETAG
+  say "DEPRECIATED checks that each ledger the close covers has a posted depreciation run of the period, or no asset"
+  say "a run would select. Step 29 posted the period's run in the leading ledger alone; Carla runs the check:"
+  api 200 '"  \(.code) \(.status): \(.check_result.summary)",
+    (.check_result.ledgers[] | "    \(.ledger_code) \(.ledger_name): \(if .posted then "posted run \(.depreciation_run_id[0:8])…" else "no posted run, \(.assets_to_depreciate) assets a run would select" end)")' \
+    checkCloseTask -p "id=$close" -p code=DEPRECIATED -if-match "$tag"
+  tag=$ETAG
+  expect "the check's verdict before 2L's run" "$(field '.check_result.passed')" false
+  expect "the ledgers without a posted run" "$(field '[.check_result.ledgers[] | select(.posted | not) | .ledger_code] | join(" ")')" 2L
+  expect "2L's assets to depreciate" "$(field '.check_result.ledgers[] | select(.ledger_code == "2L") | .assets_to_depreciate > 0')" true
+  expect "the task after a failing check" "$(field .status)" open
+  l2=$(field '.check_result.ledgers[] | select(.ledger_code == "2L") | .ledger_id')
+  say "Carla runs the period's depreciation in 2L:"
+  api 202 '"\(.kind) \(.status): \(.resource)"' startDepreciationRun \
+    -body "{\"legal_entity_id\": \"$LE\", \"ledger_id\": \"$l2\", \"fiscal_year\": $YEAR, \"period\": $period}"
+  run=$(field .resource)
+  run=${run##*/}
+  wait_op
+  api 200 '"  run \(.fiscal_year)/\(.period) in \(.ledger_code): \(.status), \(.assets_posted) assets posted, \(.amount.amount) \(.amount.currency)"' getDepreciationRun -p "id=$run"
+  expect "2L's run" "$(field .status)" posted
+  say "and runs the check again: it passes, naming each ledger's run, and the task is done."
+  api 200 '"  \(.code) \(.status) by \(.completed_by_name): \(.check_result.summary)",
+    (.check_result.ledgers[] | "    \(.ledger_code): posted run \(.depreciation_run_id[0:8])…")' \
+    checkCloseTask -p "id=$close" -p code=DEPRECIATED -if-match "$tag"
+  expect "the check's verdict after 2L's run" "$(field '.check_result.passed')" true
+  expect "2L's run named" "$(field '.check_result.ledgers[] | select(.ledger_code == "2L") | .depreciation_run_id')" "$run"
+  expect "the task after a passing check" "$(field .status)" done
 }
 
 # close_checks is T64c's part of step_close (ADR-0058 §6): the close's
@@ -3027,7 +3078,8 @@ close_checks() {
   expect "the check's verdict" "$(field '.check_result.passed')" true
   expect "the task after a passing check" "$(field .status)" done
   QUIET=1 api 200 '' getPeriodClose -p "id=$close"
-  expect "every task done" "$(field '.tasks_done == .tasks_total')" true
+  expect "every task done but the variances' check, which comes with their comments" \
+    "$(field '[.tasks[] | select(.status != "done") | .code] | join(" ")')" VARIANCES
 }
 
 step_cash_snapshot() {
@@ -3126,6 +3178,87 @@ close_variances() {
   expect "the totals still the whole report's" "$(field '.totals.actual.amount | tonumber * 100 | round')" "$actual"
   say "The plan is no basis $CC configures:"
   refused 422 closing.basis_not_configured listPeriodCloseVariances -p "id=$close" -p basis=plan
+}
+
+# close_comments is T64i's part of step_close (ADR-0058 §10): the close
+# agent, a level-1 agent principal, proposes a comment on a flagged row
+# citing the entry behind it, as the agent will (T64j); a citation of an
+# entry with no line on the row's account is refused. Carla accepts the
+# proposal and explains the other flagged rows herself; the report shows
+# each row's accepted comment, the unexplained filter and the rows
+# explained, and the variances check passes.
+close_comments() {
+  local period close role agent session row account entry other comment tag basis n
+  period=$((10#${TODAY:5:2}))
+  as ada
+  say "Ada sets up the close agent (ADR-0058 §12): an agent principal at autonomy level 1, which proposes and"
+  say "decides nothing; its role reads closes and the ledger, and proposes variance comments in its sessions."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "close_agent", "name": "Close agent"}'
+  role=$(field .id)
+  grant "$role" closing.close.read closing.variance.propose ledger.entry.read agents.session.record
+  api 201 '"\(.kind) \(.display_name), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' createPrincipal \
+    -body '{"kind": "agent", "external_subject": "close-agent", "display_name": "Close agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "model": "erp-default", "description": "Proposes accruals and variance comments for people to decide (ADR-0058)"}}'
+  agent=$(field .id)
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$agent\", \"role_id\": \"$role\"}"
+  token close-agent "Close agent"
+  printf '%s\tClose agent\n' "$agent" >>"$WORK/names"
+  as carla
+  QUIET=1 api 200 '' listPeriodCloses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  close=$(field ".items[] | select(.fiscal_period == $period) | .id")
+  QUIET=1 api 200 '' listPeriodCloseVariances -p "id=$close" -p basis=prior_period -p requires_comment=true -p page_size=500
+  row=$(field '.items[0].account_number // empty')
+  [ -n "$row" ] || fail "no row of the prior period requires a comment"
+  account=$(field '.items[0].account_id')
+  as close-agent
+  say "The agent starts a session and finds the entries behind the flagged row $row against the prior period:"
+  api 201 '"session \(.id[0:8])…: \(.status)"' startAgentSession -body '{"purpose": "Explain the variances of the close", "model": "erp-default"}'
+  session=$(field .id)
+  api 200 '(.items[] | "  entry \(.document_number) of \(.posting_date): \(.header_text // "")")' \
+    listJournalEntries -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "fiscal_period=$period" -p "account_id=$account" -p page_size=5
+  entry=$(field '.items[0].id')
+  QUIET=1 api 200 '' listJournalEntries -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "fiscal_period=$period" -p page_size=200
+  other=$(field "[.items[] | select([.lines[].account_id] | index(\"$account\") | not)][0].id // empty")
+  [ -n "$other" ] || fail "every entry of the period has a line on account $row"
+  say "A citation of an entry with no line on the row's account is refused: a comment cites what its figures are made of."
+  refused 422 closing.citation_invalid proposeVarianceComment \
+    -body "{\"session_id\": \"$session\", \"close_id\": \"$close\", \"basis\": \"prior_period\", \"account_id\": \"$account\", \"text\": \"Explained by another entry\", \"citations\": [\"$other\"]}"
+  say "It proposes a comment citing the entry, for a person to decide:"
+  api 201 '"  \(.account_number) \(.account_name) against \(.basis): \(.status) by \(.author_name), \(.actual.amount) against \(.comparison.amount) \(.actual.currency), citing \([.citations[].document_number] | join(", "))"' \
+    proposeVarianceComment -body "{\"session_id\": \"$session\", \"close_id\": \"$close\", \"basis\": \"prior_period\", \"account_id\": \"$account\", \"text\": \"The period's movement on this account comes from the entry cited.\", \"citations\": [\"$entry\"]}"
+  comment=$(field .id)
+  tag=$ETAG
+  expect "the proposal" "$(field .status)" proposed
+  say "Proposing is all it may do: accepting a comment is a person's."
+  refused 403 identity.agent_not_allowed acceptVarianceComment -p "id=$comment" -if-match "$tag" -body '{}'
+  QUIET=1 api 200 '' endAgentSession -p "id=$session" -if-match '*' -body '{"status": "completed", "input_tokens": 0, "output_tokens": 0}'
+  as carla
+  say "Carla sees the proposal on the row, reads it and accepts it:"
+  api 200 ".items[] | select(.account_number == \"$row\") | \"  \\(.account_number): \\(.proposed_comments) proposed, explained \\(.explained)\"" \
+    listPeriodCloseVariances -p "id=$close" -p basis=prior_period -p requires_comment=true -p page_size=500
+  api 200 '"  \(.status) by \(.decided_by_name), proposed by \(.author_name) (\(.author_kind))"' acceptVarianceComment -p "id=$comment" -if-match "$tag" -body '{}'
+  say "She explains the other flagged rows herself, against each basis $CC compares, as the unexplained filter lists them:"
+  for basis in prior_period prior_year; do
+    QUIET=1 api 200 '' listPeriodCloseVariances -p "id=$close" -p "basis=$basis" -p requires_comment=true -p unexplained=true -p page_size=500
+    for account in $(field '.items[].account_id'); do
+      api 201 '"  \(.basis) \(.account_number) \(.account_name): \(.status), by \(.author_name)"' createVarianceComment \
+        -body "{\"close_id\": \"$close\", \"basis\": \"$basis\", \"account_id\": \"$account\", \"text\": \"Reviewed with the department: the movement is expected.\"}"
+    done
+    api 200 '"  against \(.basis): \(.totals.rows_requiring_comment) rows need a comment, \(.totals.rows_explained) explained", (.items[] | select(.comment) | "    \(.account_number): \(.comment.text) (\(.comment.author_name), accepted by \(.comment.decided_by_name), stale \(.comment.stale))")' \
+      listPeriodCloseVariances -p "id=$close" -p "basis=$basis" -p requires_comment=true -p page_size=500
+    expect "every flagged row explained against $basis" "$(field '[.items[] | .explained] | all')" true
+    n=$(field .totals.rows_requiring_comment)
+    expect "the rows explained against $basis" "$(field .totals.rows_explained)" "$n"
+    QUIET=1 api 200 '' listPeriodCloseVariances -p "id=$close" -p "basis=$basis" -p requires_comment=true -p unexplained=true
+    expect "the unexplained flagged rows against $basis" "$(field '.items | length')" 0
+  done
+  QUIET=1 api 200 '' listPeriodCloseVariances -p "id=$close" -p basis=prior_period -p page_size=500
+  expect "the agent's comment on row $row" "$(field ".items[] | select(.account_number == \"$row\") | \"\(.comment.author_name) \(.comment.stale)\"")" "Close agent false"
+  say "The variances check passes: every flagged row has an accepted comment that is current."
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  api 200 '"  \(.code) \(.status): \(.check_result.summary)"' checkCloseTask -p "id=$close" -p code=VARIANCES -if-match "$ETAG"
+  expect "the check's verdict" "$(field '.check_result.passed')" true
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  expect "every task done" "$(field '.tasks_done == .tasks_total')" true
 }
 
 # close_sign_off is T64d's part of step_close, its end (ADR-0058 §7): the
@@ -3304,6 +3437,88 @@ step_depreciation_run() {
   passed
 }
 
+# step_cash_variance_comment is a person's explanation of a row of the
+# day's variance, read back by another reader, who may not write one
+# (T53f4, ADR-0051 §11, §13, §15).
+step_cash_variance_comment() {
+  heading "Step 30 — Variance comments: Tom explains a row of the day's variance; Rita reads it and may not write one"
+  as tom
+  local day item row comment snap
+  QUIET=1 api 200 '' listCashSnapshots -p "legal_entity_id=$LE" -p kind=on_demand
+  day=$(field '[.items[] | select(.name == "Board meeting")][0].snapshot_date')
+  QUIET=1 api 200 '' getLiquidityForecastVariance -p "legal_entity_id=$LE" -p "from=$day" -p "to=$day" -p lag=0
+  snap=$(field .snapshot.id)
+  item=$(field '[.currencies[] | select(.currency == "CAD") | .items[] | select(.liquidity_item != null and .level == 0)][0].liquidity_item // empty')
+  if [ -n "$item" ]; then row="\"liquidity_item\": \"$item\""; else row='"unclassified": true'; fi
+  say "Tom explains the variance of ${item:-what no rule assigns} on $day at lag 0 (T53f4). The comment names the row, the"
+  say "period and the lag, and the snapshot that variance compares with, which is then kept with it past its 25 months;"
+  say "a person's comment is accepted as written, audited and published as VarianceCommentDecided."
+  api 201 '"comment on \(.liquidity_item // "unclassified") \(.liquidity_item_name // ""): \(.from)..\(.to) lag \(.lag), snapshot of \(.snapshot_date), \(.status)", "  \"\(.text)\""' \
+    createForecastVarianceComment -body "{\"legal_entity_id\": \"$LE\", \"from\": \"$day\", \"to\": \"$day\", \"lag\": 0, $row, \"text\": \"The run of the day paid as forecast; the rest is the bank's timing.\"}"
+  comment=$(field .id)
+  expect "the comment accepted as written" "$(field .status)" accepted
+  expect "the comment's row" "$(field '.liquidity_item // "unclassified"')" "${item:-unclassified}"
+  QUIET=1 api 200 '' getForecastVarianceComment -p "id=$comment"
+  expect "its snapshot, the variance's" "$(field .snapshot_id)" "$snap"
+  as rita
+  say "Rita holds the forecast's read alone: she reads the comments of the period, and may not write one."
+  api 200 '.items[] | "  \(.company_code) \(.from)..\(.to) lag \(.lag) \(.liquidity_item // "unclassified"): \(.text) (\(.status))"' \
+    listForecastVarianceComments -p "legal_entity_id=$LE" -p "from=$day" -p "to=$day"
+  expect "Tom's comment listed for Rita" "$(field "[.items[].id] | index(\"$comment\") != null")" true
+  refused 403 identity.permission_missing createForecastVarianceComment \
+    -body "{\"legal_entity_id\": \"$LE\", \"from\": \"$day\", \"to\": \"$day\", \"lag\": 0, $row, \"text\": \"Not mine to explain.\"}"
+  as tom
+  passed
+}
+
+# step_asset_retirement is half the press of step 24 sold and the rest
+# scrapped after step 29's run, retiring it (T57g, ADR-0057 §8).
+step_asset_retirement() {
+  heading "Step 31 — Asset retirements: half the press sold with a gain, the rest scrapped, the press retired; a retirement valued in the period before refused"
+  as carla
+  say "Maple sells half of the hydraulic press of step 24 for CAD 4,000.00 and scraps the rest (ADR-0057 §8, T57g). This"
+  say "period's run (step 29) already posted the press's depreciation in the leading ledger. A retirement first catches"
+  say "up each ledger's depreciation through the period before its own, which posts this period's back, so the half sold"
+  say "depreciates for none of it; it then takes its share of the press's cost and accumulated depreciation and posts one"
+  say "entry per ledger: Dr sale clearing for the proceeds, Cr machinery for the cost, the gain or loss for the difference."
+  local press start prev values sale scrap
+  accounts
+  QUIET=1 api 200 '' listAssets -p "legal_entity_id=$LE" -p status=active
+  press=$(field '[.items[] | select(.description == "Hydraulic press") | .id][0]')
+  values='"  asset \(.asset_number) \(.description): \(.status); \([.values[] | "\(.ledger_code) cost \(.cost.amount), accumulated \(.accumulated.amount), net \(.net_book_value.amount) \(.net_book_value.currency)"] | join("; "))"'
+  api 200 "$values" getAsset -p "id=$press"
+  QUIET=1 api 200 '' getAssetSchedule -p "id=$press" -p "fiscal_year=$YEAR"
+  start=$(field ".periods[] | select(.start_date <= \"$TODAY\" and .end_date >= \"$TODAY\") | .start_date")
+  prev=$(date_add "$start" -1)
+  say "A retirement is not backdated: one valued in the period before this one is refused."
+  refused 422 assets.value_date_outside_period createAssetRetirement \
+    -body "{\"asset_id\": \"$press\", \"kind\": \"scrapping\", \"value_date\": \"$prev\", \"posting_date\": \"$TODAY\"}"
+  api 201 '"retirement \(.kind) of asset \(.asset_number), \(.share_percent) %, proceeds \(.proceeds.amount) \(.proceeds.currency) (group \(.proceeds_gc.amount) \(.proceeds_gc.currency)): \(.status)",
+    (.ledgers[] | "  \(.ledger_code): catch-up \(.catch_up.amount), cost \(.cost.amount), accumulated \(.accumulated.amount), book value \(.net_book_value.amount), gain \(.gain.amount) \(.gain.currency) (group \(.gain_gc.amount) \(.gain_gc.currency))"),
+    "  entries \([.entries[] | "\(.ledger_code) \(.document_number)"] | join(", "))"' \
+    createAssetRetirement -body "{\"asset_id\": \"$press\", \"kind\": \"sale\", \"proceeds\": {\"amount\": \"4000.00\", \"currency\": \"CAD\"}, \"share\": {\"percent\": \"50\"}, \"text\": \"Half the press sold\"}"
+  sale=$(field .id)
+  expect "the gain in every ledger" "$(field '[.ledgers[].gain.amount] | unique | join(" ")')" "250.00"
+  expect "the leading ledger's catch-up, this period's run posted back" "$(field '.ledgers[] | select(.ledger_code == "0L") | .catch_up.amount')" "-62.50"
+  expect "an entry in every ledger" "$(field '.entries | length')" "$(field '.ledgers | length')"
+  api 200 '"entry \(.document_number) in the leading ledger: \(.leading_ledger); \([.lines[] | "\(.account_id | acct) \(.amount.amount)"] | join(", "))"' \
+    getJournalEntry -p "id=$(field '.entries[] | select(.ledger_code == "0L") | .journal_entry_id')"
+  api 200 "$values" getAsset -p "id=$press"
+  expect "the half left" "$(field '"\(.status) \([.values[].cost.amount] | unique | join(" "))"')" "active 3750.00"
+  say "The rest is scrapped: a full retirement, no proceeds, the book value left a loss. It retires the press."
+  api 201 '"retirement \(.kind) of asset \(.asset_number), full \(.full): \(.status)", (.ledgers[] | "  \(.ledger_code): cost \(.cost.amount), book value \(.net_book_value.amount), loss \(.gain.amount) \(.gain.currency)")' \
+    createAssetRetirement -body "{\"asset_id\": \"$press\", \"kind\": \"scrapping\", \"text\": \"Rest of the press scrapped\"}"
+  scrap=$(field .id)
+  expect "the loss in every ledger" "$(field '[.ledgers[].gain.amount] | unique | join(" ")')" "-3750.00"
+  api 200 "$values" getAsset -p "id=$press"
+  expect "the press, retired with nothing left" "$(field '"\(.status) \([.values[] | .cost.amount, .cost_gc.amount, .accumulated.amount, .accumulated_gc.amount] | unique | join(" "))"')" "retired 0.00"
+  say "A retired asset takes no more documents:"
+  refused 422 assets.asset_retired createAssetRetirement -body "{\"asset_id\": \"$press\", \"kind\": \"scrapping\"}"
+  api 200 '"the press'"'"'s retirements: \([.items[] | "\(.kind) \(.status)"] | join(", "))"' listAssetRetirements -p "asset_id=$press"
+  expect "the press's retirements" "$(field '[.items[].id] | join(" ")')" "$sale $scrap"
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -3325,7 +3540,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_close'
 
 main() {
   start

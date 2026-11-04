@@ -144,7 +144,7 @@ func (e *Endpoints) ActualLines(ctx context.Context, q ActualLinesQuery) (Actual
 		p.Total = ar.r.sums.add(p.Total, k.share)
 	}
 	if ar.r.sums.overflow {
-		return ActualLinePage{}, errActualsTooLarge
+		return ActualLinePage{}, errActualsTooLarge()
 	}
 	start, _ := slices.BinarySearchFunc(listed, c.After, func(k keyedActual, after string) int { return cmp.Compare(k.key, after) })
 	if start < len(listed) && listed[start].key == c.After {

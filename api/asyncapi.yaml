@@ -334,12 +334,13 @@ channels:
   cash:
     address: 'erp.{cell}.cash.{tenant}.{event}'
     title: Cash management events
-    description: Memo records of expected receipts and payments, and snapshots of the liquidity forecast (ADR-0051).
+    description: Memo records of expected receipts and payments, snapshots of the liquidity forecast and comments on its variance (ADR-0051).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       MemoRecordChanged: {$ref: '#/components/messages/MemoRecordChanged'}
       CashSnapshotTaken: {$ref: '#/components/messages/CashSnapshotTaken'}
+      VarianceCommentDecided: {$ref: '#/components/messages/VarianceCommentDecided'}
   controlling:
     address: 'erp.{cell}.controlling.{tenant}.{event}'
     title: Controlling events
@@ -375,12 +376,13 @@ channels:
   closing:
     address: 'erp.{cell}.closing.{tenant}.{event}'
     title: Financial close events
-    description: Period closes, their checklists and sign-offs (ADR-0058 §13).
+    description: Period closes, their checklists, sign-offs and variance comments (ADR-0058 §13).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       PeriodCloseChanged: {$ref: '#/components/messages/PeriodCloseChanged'}
       PeriodCloseSignedOff: {$ref: '#/components/messages/PeriodCloseSignedOff'}
+      VarianceCommentChanged: {$ref: '#/components/messages/VarianceCommentChanged'}
   platform:
     address: 'erp.{cell}.platform.{tenant}.{event}'
     title: Platform operation events
@@ -573,6 +575,7 @@ operations:
     messages:
       - $ref: '#/channels/cash/messages/MemoRecordChanged'
       - $ref: '#/channels/cash/messages/CashSnapshotTaken'
+      - $ref: '#/channels/cash/messages/VarianceCommentDecided'
   publishControllingEvents:
     action: send
     title: Controlling publishes
@@ -606,6 +609,7 @@ operations:
     messages:
       - $ref: '#/channels/closing/messages/PeriodCloseChanged'
       - $ref: '#/channels/closing/messages/PeriodCloseSignedOff'
+      - $ref: '#/channels/closing/messages/VarianceCommentChanged'
   publishPlatformEvents:
     action: send
     title: Platform publishes
@@ -2878,6 +2882,29 @@ components:
         - name: daily
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000601, source: /erp/eu-1/cash, type: com.example.erp.cash.cash_snapshot_taken.v1, subject: 0192a000-0000-7000-8000-000000000e01, time: '2026-10-21T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {cash_snapshot_id: 0192a000-0000-7000-8000-000000000e01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: '3000', kind: daily, snapshot_date: '2026-10-21', line_count: 42}
+    VarianceCommentDecided:
+      name: VarianceCommentDecided
+      title: Variance comment decided
+      summary: A comment on a row of a company's forecast variance was decided.
+      description: |
+        Emitted by `liquidity-forecast-variance/comments` (POST): a person's
+        comment is decided as it is written (`accepted`, decided by its
+        author) (ADR-0051 §11, §15). It names the row the comment explains
+        (the liquidity item, null for what no rule assigns), its period and
+        lag, and the snapshot that variance compares with; the comment
+        itself is `GET /v1/liquidity-forecast-variance/comments/{id}`.
+        Subject is the comment id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.cash.variance_comment_decided.v1}
+      payload: {$ref: '#/components/schemas/VarianceCommentDecidedV1'}
+      examples:
+        - name: accepted
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000621, source: /erp/eu-1/cash, type: com.example.erp.cash.variance_comment_decided.v1, subject: 0192a000-0000-7000-8000-000000000e21, time: '2026-05-04T14:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {variance_comment_id: 0192a000-0000-7000-8000-000000000e21, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: '3000', from: '2026-04-24', to: '2026-04-30', lag: 7, liquidity_item: PAY_SUPPLIERS, snapshot_id: 0192a000-0000-7000-8000-000000000e01, status: accepted, decided_by: 0192a000-0000-7000-8000-000000000101}
     AssetChanged:
       name: AssetChanged
       title: Asset changed
@@ -2906,12 +2933,17 @@ components:
       title: Asset movement posted
       summary: An acquisition, retirement or transfer of an asset was posted.
       description: |
-        Emitted by `asset-acquisitions` (POST, `acquisition`), ADR-0057
-        §6, §10; retirements and transfers add their kinds with their
-        slices. It carries the asset, its status and version after the
-        posting, and per ledger the change of acquisition cost in local and
-        group currency with the journal entry, so a consumer need not read
-        the document. Subject is the document id.
+        Emitted by `asset-acquisitions` (POST, `acquisition`) and
+        `asset-retirements` (POST, `retirement`, T57g), ADR-0057 §6, §8,
+        §10; transfers add their kind with their slice. It carries the
+        asset, its status and version after the posting, and per ledger the
+        change of acquisition cost in local and group currency with the
+        journal entry, a retirement also the change of accumulated
+        depreciation (its catch-up included) and its gain or loss, so a
+        consumer need not read the document for its values (a retirement's
+        kind and proceeds are on `GET /v1/asset-retirements/{id}`). A
+        retirement lists the ledgers it posted an entry in. Subject is the
+        document id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -2928,9 +2960,9 @@ components:
       title: Asset movement reversed
       summary: An acquisition, retirement or transfer of an asset was reversed.
       description: |
-        Emitted by `asset-acquisitions/{id}:reverse` (`acquisition`),
-        ADR-0057 §6, §10; retirements and transfers add their kinds with
-        their slices. It carries the asset, its status and version after
+        Emitted by `asset-acquisitions/{id}:reverse` (`acquisition`) and
+        `asset-retirements/{id}:reverse` (`retirement`, T57g), ADR-0057 §6,
+        §8, §10; transfers add their kind with their slice. It carries the asset, its status and version after
         the reversal, the reversal's posting date and reason, and per
         ledger the change of acquisition cost the reversal made (the
         original's negated) in local and group currency with the reversal
@@ -3146,6 +3178,32 @@ components:
         - name: signed_off
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000802, source: /erp/eu-1/closing, type: com.example.erp.closing.period_close_signed_off.v1, subject: 0192a000-0000-7000-8000-000000000f01, time: '2026-11-05T16:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {period_close_id: 0192a000-0000-7000-8000-000000000f01, sign_off_id: 0192a000-0000-7000-8000-000000000f21, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2026, fiscal_period: 10, signed_by: 0192a000-0000-7000-8000-000000000101, note: null, periods: [{ledger_id: 0192a000-0000-7000-8000-000000000a01, ledger_code: 0L, fiscal_period_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41, locked: true}], status: signed_off, version: 9}
+    VarianceCommentChanged:
+      name: VarianceCommentChanged
+      x-webhook: true
+      title: Variance comment changed
+      summary: A comment explaining a period close's variance was proposed, accepted, rejected or superseded.
+      description: |
+        Emitted by `variance-comment-proposals` (POST, `proposed`: an
+        agent's), `variance-comments` (POST, `accepted`: a person's, accepted
+        at once), `:acceptProposal` (`accepted`, with `edited` when the
+        person replaced the text) and `:rejectProposal` (`rejected`, with
+        the reason)
+        (ADR-0058 §10, T64i); and `superseded` for the row's comment
+        accepted before, when another is accepted or written, in the same
+        transaction. It says what changed; `GET /v1/variance-comments/{id}`
+        returns the comment at `version`. Subject is the variance comment id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.closing.variance_comment_changed.v1}
+      payload: {$ref: '#/components/schemas/VarianceCommentChangedV1'}
+      examples:
+        - name: accepted
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000803, source: /erp/eu-1/closing, type: com.example.erp.closing.variance_comment_changed.v1, subject: 0192a000-0000-7000-8000-000000000f31, time: '2026-11-03T15:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {variance_comment_id: 0192a000-0000-7000-8000-000000000f31, period_close_id: 0192a000-0000-7000-8000-000000000f01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2026, fiscal_period: 10, basis: prior_period, account_id: 0192a000-0000-7000-8000-000000000402, change: accepted, author_kind: agent, edited: false, reason: null, status: accepted, version: 2}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -3586,6 +3644,20 @@ components:
         kind: {type: string, description: 'Open enum: daily, on_demand.'}
         snapshot_date: {$ref: '#/components/schemas/Date'}
         line_count: {type: integer, description: The lines the snapshot kept.}
+    VarianceCommentDecidedV1:
+      type: object
+      required: [variance_comment_id, legal_entity_id, company_code, from, to, lag, liquidity_item, snapshot_id, status, decided_by]
+      properties:
+        variance_comment_id: {$ref: '#/components/schemas/Uuid', description: '`cash.variance_comment.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        company_code: {type: string, description: "The legal entity's company code."}
+        from: {$ref: '#/components/schemas/Date'}
+        to: {$ref: '#/components/schemas/Date'}
+        lag: {type: integer, description: "The variance's lag in days: 0, 7 or 30."}
+        liquidity_item: {type: [string, 'null'], description: "The liquidity item's code; null for the row of what no rule assigns."}
+        snapshot_id: {$ref: '#/components/schemas/Uuid', description: The snapshot the variance compares with.}
+        status: {type: string, description: 'Open enum: accepted, rejected.'}
+        decided_by: {$ref: '#/components/schemas/Uuid', description: The person who decided it.}
     TaxReturnPreparedV1:
       type: object
       required: ["tax_return_id", "registration_id", "registration_code", "legal_entity_id", "kind", "return_type", "period_start", "period_end", "amends_id", "pack_country", "pack_version", "item_count", "items_hash", "boxes", "approval_request_id"]
@@ -3702,6 +3774,23 @@ components:
         check_passed: {type: [boolean, 'null'], description: "Whether the task's check passed (T64c); null for any change but task_checked. `GET /v1/period-closes/{id}` shows what it found."}
         status: {type: string, description: "The close's status after the change. Open enum: open, signed_off."}
         version: {type: integer, description: "The close's version after the change."}
+    VarianceCommentChangedV1:
+      type: object
+      required: [variance_comment_id, period_close_id, legal_entity_id, fiscal_year, fiscal_period, basis, account_id, change, author_kind, edited, reason, status, version]
+      properties:
+        variance_comment_id: {$ref: '#/components/schemas/Uuid', description: '`closing.variance_comment.id`.'}
+        period_close_id: {$ref: '#/components/schemas/Uuid', description: '`closing.period_close.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        fiscal_year: {type: integer}
+        fiscal_period: {type: integer, description: The regular period (1-12).}
+        basis: {type: string, description: 'The row''s basis. Open enum: prior_period, prior_year, plan.'}
+        account_id: {$ref: '#/components/schemas/Uuid', description: The row's account.}
+        change: {type: string, description: 'Open enum: proposed, accepted, rejected, superseded.'}
+        author_kind: {type: string, description: 'Who wrote the comment. Open enum: agent, human.'}
+        edited: {type: boolean, description: Whether the person accepting it replaced the proposal's text.}
+        reason: {type: [string, 'null'], description: Why it was rejected; null for any other change.}
+        status: {type: string, description: "The comment's status after the change. Open enum: proposed, accepted, rejected, superseded."}
+        version: {type: integer, description: "The comment's version after the change."}
     PeriodCloseSignedOffV1:
       type: object
       required: [period_close_id, sign_off_id, legal_entity_id, fiscal_year, fiscal_period, signed_by, note, periods, status, version]
@@ -3734,15 +3823,15 @@ components:
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
         asset_number: {type: string}
         class_code: {type: string}
-        change: {type: string, description: 'Open enum: created, changed, cancelled.'}
+        change: {type: string, description: 'Open enum: created, changed, cancelled, retired (a retirement retired it, T57g), reactivated (the reversal of the retirement that retired it).'}
         status: {type: string, description: 'The status after the change. Open enum: planned, active, retired, cancelled.'}
         version: {type: integer, description: "The asset's version after the change."}
     AssetMovementPostedV1:
       type: object
       required: [document_kind, document_id, asset_id, legal_entity_id, asset_number, class_code, value_date, posting_date, currency_lc, currency_gc, ledgers, asset_status, asset_version]
       properties:
-        document_kind: {type: string, description: 'Open enum: acquisition.'}
-        document_id: {$ref: '#/components/schemas/Uuid', description: '`assets.acquisition.id` for an acquisition.'}
+        document_kind: {type: string, description: 'Open enum: acquisition, retirement.'}
+        document_id: {$ref: '#/components/schemas/Uuid', description: '`assets.acquisition.id` for an acquisition, `assets.retirement.id` for a retirement.'}
         asset_id: {$ref: '#/components/schemas/Uuid'}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
         asset_number: {type: string}
@@ -3759,8 +3848,12 @@ components:
             required: [ledger_id, cost, cost_gc, journal_entry_id, fiscal_year, document_number]
             properties:
               ledger_id: {$ref: '#/components/schemas/Uuid'}
-              cost: {$ref: '#/components/schemas/SignedMoney', description: In local currency; negative for a reduction.}
+              cost: {$ref: '#/components/schemas/SignedMoney', description: In local currency; negative for a reduction or a retirement.}
               cost_gc: {$ref: '#/components/schemas/SignedMoney', description: In group currency.}
+              accumulated: {$ref: '#/components/schemas/SignedMoney', description: 'A retirement''s change of accumulated depreciation in local currency, its catch-up and the share taken off (positive: a debit).'}
+              accumulated_gc: {$ref: '#/components/schemas/SignedMoney', description: 'The same in group currency (a retirement).'}
+              gain: {$ref: '#/components/schemas/SignedMoney', description: 'A retirement''s gain (positive) or loss (negative) in local currency.'}
+              gain_gc: {$ref: '#/components/schemas/SignedMoney', description: 'The same in group currency (a retirement).'}
               journal_entry_id: {$ref: '#/components/schemas/Uuid'}
               fiscal_year: {type: integer}
               document_number: {type: string}
@@ -3770,8 +3863,8 @@ components:
       type: object
       required: [document_kind, document_id, asset_id, legal_entity_id, asset_number, class_code, posting_date, reason, currency_lc, currency_gc, ledgers, asset_status, asset_version]
       properties:
-        document_kind: {type: string, description: 'Open enum: acquisition.'}
-        document_id: {$ref: '#/components/schemas/Uuid', description: '`assets.acquisition.id` for an acquisition.'}
+        document_kind: {type: string, description: 'Open enum: acquisition, retirement.'}
+        document_id: {$ref: '#/components/schemas/Uuid', description: '`assets.acquisition.id` for an acquisition, `assets.retirement.id` for a retirement.'}
         asset_id: {$ref: '#/components/schemas/Uuid'}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
         asset_number: {type: string}
@@ -3790,6 +3883,10 @@ components:
               ledger_id: {$ref: '#/components/schemas/Uuid'}
               cost: {$ref: '#/components/schemas/SignedMoney', description: In local currency; the original's negated.}
               cost_gc: {$ref: '#/components/schemas/SignedMoney', description: In group currency; the original's negated.}
+              accumulated: {$ref: '#/components/schemas/SignedMoney', description: 'A retirement''s change of accumulated depreciation negated, in local currency.'}
+              accumulated_gc: {$ref: '#/components/schemas/SignedMoney', description: 'The same in group currency (a retirement).'}
+              gain: {$ref: '#/components/schemas/SignedMoney', description: 'A retirement''s gain or loss negated, in local currency.'}
+              gain_gc: {$ref: '#/components/schemas/SignedMoney', description: 'The same in group currency (a retirement).'}
               journal_entry_id: {$ref: '#/components/schemas/Uuid', description: The reversal entry.}
               fiscal_year: {type: integer, description: "The reversal entry's fiscal year."}
               document_number: {type: string, description: "The reversal entry's document number."}

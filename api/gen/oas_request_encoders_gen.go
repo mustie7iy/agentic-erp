@@ -69,6 +69,26 @@ func encodeAcceptMemoRecordProposalRequest(
 	return nil
 }
 
+func encodeAcceptVarianceCommentRequest(
+	req OptVarianceCommentAccept,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	if !req.Set {
+		// Keep request with empty body if value is not set.
+		return nil
+	}
+	e := new(jx.Encoder)
+	{
+		if req.Set {
+			req.Encode(e)
+		}
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeAddHierarchyNodeRequest(
 	req *HierarchyNodeAdd,
 	r *http.Request,
@@ -416,6 +436,20 @@ func encodeCreateAssetAcquisitionRequest(
 	return nil
 }
 
+func encodeCreateAssetRetirementRequest(
+	req *AssetRetirementCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateBusinessPartnerRequest(
 	req *BusinessPartnerCreate,
 	r *http.Request,
@@ -544,6 +578,20 @@ func encodeCreateEntryTemplateRequest(
 
 func encodeCreateExchangeRateRequest(
 	req *ExchangeRateCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateForecastVarianceCommentRequest(
+	req *ForecastVarianceCommentCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -852,6 +900,20 @@ func encodeCreateSupplierInvoiceRequest(
 
 func encodeCreateUploadRequest(
 	req *UploadCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateVarianceCommentRequest(
+	req *VarianceCommentInput,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -1381,6 +1443,20 @@ func encodeProposePaymentRunRequest(
 	return nil
 }
 
+func encodeProposeVarianceCommentRequest(
+	req *VarianceCommentProposal,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeRealiseMemoRecordRequest(
 	req OptMemoRecordRealise,
 	r *http.Request,
@@ -1486,6 +1562,20 @@ func encodeRejectMemoRecordProposalRequest(
 }
 
 func encodeRejectPaymentRunRequest(
+	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeRejectVarianceCommentRequest(
 	req *ReasonInput,
 	r *http.Request,
 ) error {
@@ -1653,6 +1743,20 @@ func encodeRequestBankAccountEndRequest(
 
 func encodeReverseAssetAcquisitionRequest(
 	req *AssetAcquisitionReverse,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeReverseAssetRetirementRequest(
+	req *AssetRetirementReverse,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"

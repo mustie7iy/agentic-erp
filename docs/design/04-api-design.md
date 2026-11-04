@@ -445,9 +445,9 @@ period, which posts what is left.
   for `payables.invoice.post`; a goods movement's WE entry is refused the
   same way, naming `goods-receipts/{id}:reverse` (a 102 posts its own
   entry, T33); an assets document's entry names its document's path
-  (`asset-acquisitions/{id}:reverse`, and the retirements' and transfers'
-  with their slices; a depreciation run's entries are never reversed one by
-  one, ADR-0057 §4, T57d). Entries of contexts with no reversal path yet
+  (`asset-acquisitions/{id}:reverse`, `asset-retirements/{id}:reverse`
+  (T57g), and the transfers' with their slice; a depreciation run's entries
+  are never reversed one by one, ADR-0057 §4, T57d). Entries of contexts with no reversal path yet
   (receivables) are refused the same way, saying so.
 - Approval decisions (`:approve`, `:reject` on approval requests) require a
   human principal; agent tokens are refused with `403 identity.agent_not_allowed`
@@ -585,7 +585,13 @@ a memo record of an expected receipt or payment (ADR-0051 §13, T53d:
 `proposeMemoRecord`, `x-autonomy: propose`, counted nowhere until a person
 takes it up with `acceptMemoRecordProposal` or turns it down with
 `rejectMemoRecordProposal`, `x-agent: false`, as every other memo record
-write is); free-text advice is a recommendation. Bank statements reach agents with the accounts masked to
+write is), and the close agent proposes a comment explaining a period
+close's variance in its session, citing the journal entries the row's
+figures are made of (ADR-0058 §10, T64i: `proposeVarianceComment`,
+`x-autonomy: propose`; a person takes it up with
+`acceptVarianceComment`, its text as it is or replaced, or turns it down
+with `rejectVarianceComment`, `x-agent: false`); free-text advice is a
+recommendation. Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation
 (`getBankReconciliation`, ADR-0047, T49h: its statements' balances against
@@ -610,7 +616,7 @@ with the month's total against the tenant's cap.
 | procurement | `requisitions`, `purchase-orders` (with `{id}/document`, the order's plain-text document for the supplier, ADR-0054), `contracts`, `goods-receipts` | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse` |
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:submit`, `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
-| cash | `cash-position`, `liquidity-forecast` (computed on read, ADR-0051), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
+| cash | `cash-position`, `liquidity-forecast` (computed on read, ADR-0051), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key), `cash-snapshots`, `liquidity-forecast-variance` (computed on read) and its `comments` (a person's, T53f4) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
 | controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual`, `profit-center-plan-actual` (computed on read, ADR-0050 §8) | `:lock`, `:unlock` |
 | tax | `tax-registrations` (from the configuration), `tax-registrations/{id}/periods`, `tax-registrations/{id}/draft-return` and its `items` (computed on read, ADR-0049 §10-§11), `tax-registrations/{id}/returns`, `tax-returns/{id}` | `:file`, `:withdraw` (T61i) |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |

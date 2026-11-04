@@ -207,8 +207,9 @@ func TestClosePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(codes, " "); got != "closing.close.manage closing.close.read closing.close.sign_off" {
-		t.Errorf("got %v, want closing.close.manage, closing.close.read and closing.close.sign_off", codes)
+	want := "closing.close.manage closing.close.read closing.close.sign_off closing.variance.comment closing.variance.propose"
+	if got := strings.Join(codes, " "); got != want {
+		t.Errorf("got %v, want %s", codes, want)
 	}
 }
 
@@ -278,6 +279,172 @@ func TestCloseSignOffRules(t *testing.T) {
 			var n int
 			if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM closing.sign_off`).Scan(&n); err != nil || n != 0 {
 				t.Errorf("another tenant's sign-offs: got %d (%v), want none", n, err)
+			}
+			return nil
+		})
+	})
+}
+
+// Variance comments (T64i, migration 000202): an agent's comment starts
+// proposed, in its session, and a person's accepted, in none; a proposal
+// is accepted (its text then replaceable, the proposal's kept) or rejected
+// with a reason, an accepted comment superseded, and nothing else moves or
+// changes; who decided and when are set exactly once decided; a row has at
+// most one accepted comment, and a session one proposal per row. Its
+// citations, at most 20 and each entry once, are never updated or
+// deleted, nor is a comment. Another tenant sees neither.
+func TestVarianceCommentRules(t *testing.T) {
+	need(t)
+	const (
+		closeRow = `INSERT INTO closing.period_close (tenant_id, id, legal_entity_id, fiscal_year, fiscal_period, period_end, config_version,
+			created_by, updated_by) VALUES ($1, $2, gen_random_uuid(), 2026, 1, '2026-01-31', 1, $3, $3)`
+		commentRow = `INSERT INTO closing.variance_comment (tenant_id, id, close_id, basis, account_id, account_number, account_name, text, author_kind,
+			author_id, session_id, currency, actual, comparison, status, decided_by, decided_at, created_by, updated_by)
+			VALUES ($1, $2, $3, 'prior_period', $4, '6000', 'Rent', 'Rent doubled', $5, $6, $7, 'EUR', 200000, 100000, $8, $9, $10, $6, $6)`
+		citeRow = `INSERT INTO closing.variance_citation (tenant_id, comment_id, seq, journal_entry_year, journal_entry_id, document_number, posting_date)
+			VALUES ($1, $2, $3, 2026, $4, '100001', '2026-01-15')`
+	)
+	type scene struct{ tenant, actor, close, account, comment, session uuid.UUID }
+	open := func(s scene) stmt { return step(closeRow, s.tenant, s.close, s.actor) }
+	proposal := func(s scene, id, session uuid.UUID) stmt {
+		return step(commentRow, s.tenant, id, s.close, s.account, "agent", s.actor, session, "proposed", nil, nil)
+	}
+	written := func(s scene, id uuid.UUID) stmt {
+		return step(commentRow, s.tenant, id, s.close, s.account, "human", s.actor, nil, "accepted", s.actor, "2026-02-03T10:00:00Z")
+	}
+	set := func(sql string, args ...any) stmt {
+		return step(`UPDATE closing.variance_comment SET `+sql+`, version = version + 1 WHERE id = $1`, args...)
+	}
+	accept := func(id uuid.UUID) stmt {
+		return set(`status = 'accepted', decided_by = updated_by, decided_at = now()`, id)
+	}
+	cases := []struct {
+		name string
+		run  func(tx pgx.Tx, s scene) error
+		want string // empty: allowed
+	}{
+		{"a proposal accepted with its text replaced, then superseded by a person's", func(tx pgx.Tx, s scene) error {
+			other := id()
+			return all(tx, open(s), proposal(s, s.comment, s.session), step(citeRow, s.tenant, s.comment, 1, id()), step(citeRow, s.tenant, s.comment, 2, id()),
+				set(`status = 'accepted', text = 'Rent doubled in January', proposed_text = text, decided_by = updated_by, decided_at = now()`, s.comment),
+				set(`status = 'superseded'`, s.comment), written(s, other))
+		}, ""},
+		{"a proposal rejected with a reason", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), proposal(s, s.comment, s.session), set(`status = 'rejected', decided_by = updated_by, decided_at = now(),
+				decision_reason = 'Not the reason'`, s.comment))
+		}, ""},
+		{"a proposal rejected without a reason", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), proposal(s, s.comment, s.session), set(`status = 'rejected', decided_by = updated_by, decided_at = now()`, s.comment))
+		}, "close_variance_comment_decided"},
+		{"a proposal accepted without who decided", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), proposal(s, s.comment, s.session), set(`status = 'accepted', decided_at = now()`, s.comment))
+		}, "close_variance_comment_decided"},
+		{"an agent's comment created accepted", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(commentRow, s.tenant, s.comment, s.close, s.account, "agent", s.actor, s.session, "accepted", s.actor, "2026-02-03T10:00:00Z"))
+		}, "starts proposed"},
+		{"a person's comment created proposed", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(commentRow, s.tenant, s.comment, s.close, s.account, "human", s.actor, nil, "proposed", nil, nil))
+		}, "starts proposed"},
+		{"an agent's comment without a session", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(commentRow, s.tenant, s.comment, s.close, s.account, "agent", s.actor, nil, "proposed", nil, nil))
+		}, "variance_comment_session"},
+		{"a person's comment in a session", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(commentRow, s.tenant, s.comment, s.close, s.account, "human", s.actor, s.session, "accepted", s.actor, "2026-02-03T10:00:00Z"))
+		}, "variance_comment_session"},
+		{"a rejected proposal with a replaced text", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), proposal(s, s.comment, s.session), set(`status = 'rejected', text = 'Other', proposed_text = text, decided_by = updated_by,
+				decided_at = now(), decision_reason = 'No'`, s.comment))
+		}, "variance_comment_edited"},
+		{"a person's comment created with a proposal's text", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(`INSERT INTO closing.variance_comment (tenant_id, id, close_id, basis, account_id, account_number, account_name, text,
+				proposed_text, author_kind, author_id, currency, actual, comparison, status, decided_by, decided_at, created_by, updated_by)
+				VALUES ($1, $2, $3, 'plan', $4, '6000', 'Rent', 'Rent', 'Before', 'human', $5, 'EUR', 0, 0, 'accepted', $5, now(), $5, $5)`, s.tenant, s.comment, s.close, s.account, s.actor))
+		}, "starts proposed"},
+		{"two accepted comments of a row", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), written(s, s.comment), written(s, id()))
+		}, "variance_comment_accepted_once"},
+		{"two proposals of a session for a row", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), proposal(s, s.comment, s.session), proposal(s, id(), s.session))
+		}, "variance_comment_proposed_once"},
+		{"proposals of two sessions for a row", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), proposal(s, s.comment, s.session), proposal(s, id(), id()))
+		}, ""},
+		{"a rejected proposal accepted", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), proposal(s, s.comment, s.session), set(`status = 'rejected', decided_by = updated_by, decided_at = now(),
+				decision_reason = 'No'`, s.comment), set(`status = 'accepted', decision_reason = NULL`, s.comment))
+		}, "does not move from rejected to accepted"},
+		{"a proposal superseded", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), proposal(s, s.comment, s.session), set(`status = 'superseded', decided_by = updated_by, decided_at = now()`, s.comment))
+		}, "does not move from proposed to superseded"},
+		{"an accepted comment's text changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), written(s, s.comment), set(`text = 'Later'`, s.comment))
+		}, "keeps its text and decision"},
+		{"a superseded comment's decision changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), proposal(s, s.comment, s.session), accept(s.comment), set(`status = 'superseded', decided_at = now() + interval '1 day'`, s.comment))
+		}, "keeps its text and decision"},
+		{"a comment's figures changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), written(s, s.comment), set(`actual = 1`, s.comment))
+		}, "changes only its status and decision"},
+		{"a comment changed without its version", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), proposal(s, s.comment, s.session), step(`UPDATE closing.variance_comment SET status = 'accepted', decided_by = updated_by,
+				decided_at = now()`))
+		}, "optimistic lock"},
+		{"an empty text", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), proposal(s, s.comment, s.session), set(`status = 'accepted', text = ' ', decided_by = updated_by, decided_at = now()`, s.comment))
+		}, "variance_comment_text_check"},
+		{"a comment of no close", func(tx pgx.Tx, s scene) error { return all(tx, written(s, s.comment)) }, "variance_comment_tenant_id_close_id_fkey"},
+		{"a comment deleted", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), written(s, s.comment), step(`DELETE FROM closing.variance_comment`))
+		}, "permission denied"},
+		{"an entry cited twice", func(tx pgx.Tx, s scene) error {
+			entry := id()
+			return all(tx, open(s), written(s, s.comment), step(citeRow, s.tenant, s.comment, 1, entry), step(citeRow, s.tenant, s.comment, 2, entry))
+		}, "variance_citation_once"},
+		{"a 21st citation", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), written(s, s.comment), step(citeRow, s.tenant, s.comment, 21, id()))
+		}, "variance_citation_seq_check"},
+		{"a citation of no comment", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(citeRow, s.tenant, s.comment, 1, id()))
+		}, "variance_citation_tenant_id_comment_id_fkey"},
+		{"a citation changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), written(s, s.comment), step(citeRow, s.tenant, s.comment, 1, id()),
+				step(`UPDATE closing.variance_citation SET document_number = '9'`))
+		}, "permission denied"},
+		{"a citation deleted", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), written(s, s.comment), step(citeRow, s.tenant, s.comment, 1, id()), step(`DELETE FROM closing.variance_citation`))
+		}, "permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), actor: id(), close: id(), account: id(), comment: id(), session: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+	t.Run("a citation changed by the owner", func(t *testing.T) {
+		s := scene{tenant: id(), actor: id(), close: id(), account: id(), comment: id()}
+		mustApp(t, s.tenant, func(tx pgx.Tx) error {
+			return all(tx, open(s), written(s, s.comment), step(citeRow, s.tenant, s.comment, 1, id()))
+		})
+		_, err := testDB.Exec(context.Background(), `UPDATE closing.variance_citation SET document_number = '9' WHERE tenant_id = $1`, s.tenant)
+		failsWith(t, err, "insert-only")
+	})
+	t.Run("another tenant's", func(t *testing.T) {
+		a, b := scene{tenant: id(), actor: id(), close: id(), account: id(), comment: id()}, id()
+		mustApp(t, a.tenant, func(tx pgx.Tx) error {
+			return all(tx, open(a), written(a, a.comment), step(citeRow, a.tenant, a.comment, 1, id()))
+		})
+		mustApp(t, b, func(tx pgx.Tx) error {
+			var n int
+			if err := tx.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM closing.variance_comment) + (SELECT count(*) FROM closing.variance_citation)`).
+				Scan(&n); err != nil || n != 0 {
+				t.Errorf("another tenant's comments and citations: got %d (%v), want none", n, err)
 			}
 			return nil
 		})

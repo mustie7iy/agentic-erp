@@ -186,3 +186,29 @@ func sourceRateRefusals(t *testing.T, e env, expense, ap uuid.UUID) {
 		})
 	}
 }
+
+// TestGroupAmountOnlyLine: a line keeping a group amount but no amount in
+// its currency or local currency posts (ADR-0057 As built T57g: an asset
+// balance zero locally and not in group currency, taken off at its booked
+// amounts), with the group amounts as kept.
+func TestGroupAmountOnlyLine(t *testing.T) {
+	e := setup(t)
+	expense, loss := settleAccount(t, e, "2000", "520000"), settleAccount(t, e, "2000", "610000")
+	var posted ledger.Entry
+	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
+		posted, err = postings().Post(ctx, ledger.Posting{LegalEntityID: e.de, DocumentType: "SA", DocumentDate: date("2026-03-02"),
+			PostingDate: date("2026-03-02"), Currency: "EUR", SourceContext: "assets", SourceDocumentID: uuid.New(), Lines: []ledger.PostingLine{
+				{AccountID: expense, Amount: 100, LC: kept(100), GC: kept(110)}, {AccountID: expense, Amount: 0, LC: kept(0), GC: kept(5)},
+				{AccountID: loss, Amount: -100, LC: kept(-100), GC: kept(-115)}}})
+		return err
+	}); err != nil {
+		t.Fatalf("post a line of a group amount alone: %v", err)
+	}
+	var lines []string
+	for _, l := range posted.Lines {
+		lines = append(lines, fmt.Sprintf("%d %d %d", l.TC, l.LC, l.GC))
+	}
+	if got, want := strings.Join(lines, ", "), "100 100 110, 0 0 5, -100 -100 -115"; got != want {
+		t.Errorf("lines (tc lc gc): got %s, want %s, the group amounts kept and no exchange difference added", got, want)
+	}
+}

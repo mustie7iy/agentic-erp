@@ -13,6 +13,10 @@ type AcceptMemoRecordProposalRes interface {
 	acceptMemoRecordProposalRes()
 }
 
+type AcceptVarianceCommentRes interface {
+	acceptVarianceCommentRes()
+}
+
 type ActivateChangeRequestRes interface {
 	activateChangeRequestRes()
 }
@@ -141,6 +145,10 @@ type CreateAssetRes interface {
 	createAssetRes()
 }
 
+type CreateAssetRetirementRes interface {
+	createAssetRetirementRes()
+}
+
 type CreateBusinessPartnerRes interface {
 	createBusinessPartnerRes()
 }
@@ -179,6 +187,10 @@ type CreateEntryTemplateRes interface {
 
 type CreateExchangeRateRes interface {
 	createExchangeRateRes()
+}
+
+type CreateForecastVarianceCommentRes interface {
+	createForecastVarianceCommentRes()
 }
 
 type CreateGrIrClearingRes interface {
@@ -269,6 +281,10 @@ type CreateUploadRes interface {
 	createUploadRes()
 }
 
+type CreateVarianceCommentRes interface {
+	createVarianceCommentRes()
+}
+
 type CreateWebhookSubscriptionRes interface {
 	createWebhookSubscriptionRes()
 }
@@ -351,6 +367,10 @@ type GetAssetAcquisitionRes interface {
 
 type GetAssetRes interface {
 	getAssetRes()
+}
+
+type GetAssetRetirementRes interface {
+	getAssetRetirementRes()
 }
 
 type GetAssetScheduleRes interface {
@@ -459,6 +479,10 @@ type GetExchangeRateRes interface {
 
 type GetFiscalPeriodRes interface {
 	getFiscalPeriodRes()
+}
+
+type GetForecastVarianceCommentRes interface {
+	getForecastVarianceCommentRes()
 }
 
 type GetGoodsReceiptRes interface {
@@ -621,6 +645,10 @@ type GetUploadRes interface {
 	getUploadRes()
 }
 
+type GetVarianceCommentRes interface {
+	getVarianceCommentRes()
+}
+
 type GetWebhookDeliveryRes interface {
 	getWebhookDeliveryRes()
 }
@@ -671,6 +699,10 @@ type ListAssetClearingItemsRes interface {
 
 type ListAssetMovementsRes interface {
 	listAssetMovementsRes()
+}
+
+type ListAssetRetirementsRes interface {
+	listAssetRetirementsRes()
 }
 
 type ListAssetsRes interface {
@@ -791,6 +823,10 @@ type ListExchangeRatesRes interface {
 
 type ListFiscalPeriodsRes interface {
 	listFiscalPeriodsRes()
+}
+
+type ListForecastVarianceCommentsRes interface {
+	listForecastVarianceCommentsRes()
 }
 
 type ListGoodsReceiptsRes interface {
@@ -993,6 +1029,10 @@ type ListTaxReturnsRes interface {
 	listTaxReturnsRes()
 }
 
+type ListVarianceCommentsRes interface {
+	listVarianceCommentsRes()
+}
+
 type ListWebhookDeliveriesRes interface {
 	listWebhookDeliveriesRes()
 }
@@ -1113,6 +1153,10 @@ type ProposePaymentRunRes interface {
 	proposePaymentRunRes()
 }
 
+type ProposeVarianceCommentRes interface {
+	proposeVarianceCommentRes()
+}
+
 type RealiseMemoRecordRes interface {
 	realiseMemoRecordRes()
 }
@@ -1151,6 +1195,10 @@ type RejectMemoRecordProposalRes interface {
 
 type RejectPaymentRunRes interface {
 	rejectPaymentRunRes()
+}
+
+type RejectVarianceCommentRes interface {
+	rejectVarianceCommentRes()
 }
 
 type ReleaseContractRes interface {
@@ -1211,6 +1259,10 @@ type RetireEntryTemplateRes interface {
 
 type ReverseAssetAcquisitionRes interface {
 	reverseAssetAcquisitionRes()
+}
+
+type ReverseAssetRetirementRes interface {
+	reverseAssetRetirementRes()
 }
 
 type ReverseGoodsReceiptRes interface {
