@@ -272,3 +272,23 @@ func TestSchedulersClaimOnce(t *testing.T) {
 		t.Errorf("runs of the tenant: got %d, want 1", n)
 	}
 }
+
+// TestMarksTheActualsChanged: a batch of the payments context's events (a
+// statement imported, a line matched or posted) or of the configuration's
+// (derivation rules, house banks) marks its tenant due, since either
+// changes the cash actuals; the cash context's own events (memo records,
+// snapshots, comments) change no dataset.
+func TestMarksTheActualsChanged(t *testing.T) {
+	c := newScheduled(t)
+	for schema, want := range map[string]int{"cash": 0, "payments": 1, "config": 1} {
+		t.Run(schema, func(t *testing.T) {
+			pgtest.Exec(t, `DELETE FROM analytics.extract_due WHERE tenant_id = $1`, c.Tenant.ID)
+			c.mark(t, schema)
+			var n int
+			pgtest.Scan(t, `SELECT count(*) FROM analytics.extract_due WHERE tenant_id = $1`, []any{c.Tenant.ID}, &n)
+			if n != want {
+				t.Errorf("marks: got %d, want %d", n, want)
+			}
+		})
+	}
+}

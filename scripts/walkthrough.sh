@@ -314,11 +314,12 @@ start() {
   say "  - the GST34's lines (T61j-T61l): step 2 configures one"
   say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
-  say "  - the liquidity forecast's treasury connector, agent, analytics and SAP migration (T53h-T53k): step 13 shows the"
+  say "  - the liquidity forecast's treasury connector, agent, forecast analytics and SAP migration (T53h-T53k): step 13 shows the"
   say "    daily cash position with a memo record and the forecast of the supplier open items, payment runs, parked"
   say "    invoices, down payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening,"
   say "    memo records and payments in transit, conversion and drill-down; step 26 its snapshots; step 27 the cash actuals;"
-  say "    step 28 the forecast's variance, step 30 a person's comment on it; step 33 its purchase orders"
+  say "    step 28 the forecast's variance, step 30 a person's comment on it; step 33 its purchase orders; step 34 the"
+  say "    actuals in analytics (the forecast's datasets and metrics wait for T53j)"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - the rest of asset accounting (T57i): steps 19 and 20 show the classes and the master, steps 22 and 24"
   say "    acquisitions and their corrections, step 25 the depreciation schedule and preview, step 29 a depreciation run,"
@@ -3642,6 +3643,42 @@ step_cash_orders() {
   passed
 }
 
+# step_cash_analytics is the cash actuals as a governed metric of the
+# semantic layer (T53j1, ADR-0044 As built T53j1): the same statement lines
+# as step 27, classified by the cash context, broken down by currency,
+# liquidity item and what classified them; a reader of the forecast alone
+# runs it without the suppliers' read and is refused supplier data.
+step_cash_analytics() {
+  heading "Step 34 — Cash actuals in analytics: the week's statement lines through the governed metric actual"
+  as tom
+  local from moved q sum
+  from=$(date_add "$TODAY" -6)
+  moved=$(amount $(($(cents "$CLOSING") - $(cents 500000.00))))
+  q="{\"measures\": [\"actual\"], \"by\": [\"currency\", \"liquidity_item\", \"match\"], \"companies\": [\"$CC\"], \"where\": [{\"dim\": \"value_date\", \"op\": \"between\", \"values\": [\"$from\", \"$TODAY\"]}], \"order_by\": \"liquidity_item\"}"
+  # The CAD cells of the measure (the last column), in cents, added up.
+  sum='[.rows[] | select(.[0].value == "CAD") | .[-1].value | sub("\\."; "") | tonumber] | add'
+  say "Tom asks the semantic layer for what actually moved on Maple's accounts from $from to $TODAY: the metric"
+  say "actual, the statement lines' shares by liquidity item as step 27 classified them, by currency (Maple's house"
+  say "banks keep CAD and USD), item and what classified each line:"
+  api 200 '"answered from \(.source) as of \(.as_of), \(.columns | map(.name) | join(", "))", (.rows[] | "  " + (map(.value // "-") | join("  ")))' \
+    runAnalyticsQuery -body "$q"
+  expect "the CAD actuals, step 27's total" "$(amount "$(field "$sum")")" "$moved"
+  expect "every line classified by its payment" "$(field '[.rows[] | select(.[0].value == "CAD") | .[2].value] | unique | join(" ")')" payment
+  expect "the measure's definition" "$(field '.definitions[0].name')" actual
+  as ada
+  say "Ada lets Rita, who holds the forecast's read alone, run governed queries over the companies she reads"
+  say "(analytics.query.run, tenancy.org.read); she still holds no partner.supplier.read:"
+  grant "$(role cash_reporting)" analytics.query.run tenancy.org.read
+  as rita
+  say "Rita reads the same actuals: they name no supplier, so the suppliers' read is not needed (ADR-0044 As built T53j1)."
+  api 200 '(.rows[] | "  " + (map(.value // "-") | join("  ")))' runAnalyticsQuery -body "$q"
+  expect "Rita's CAD actuals, Tom's" "$(amount "$(field "$sum")")" "$moved"
+  say "Supplier invoices by vendor are another context's data, read with its own permission: she is refused them."
+  refused 403 identity.permission_missing runAnalyticsQuery -body "{\"measures\": [\"invoice_value\"], \"by\": [\"company\", \"vendor_name\"], \"companies\": [\"$CC\"]}"
+  as tom
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -3663,7 +3700,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_cash_analytics step_close'
 
 main() {
   start

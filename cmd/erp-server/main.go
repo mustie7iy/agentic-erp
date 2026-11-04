@@ -767,7 +767,8 @@ func (s *server) startAnalytics(runCtx context.Context) {
 	if s.replica != nil {
 		replica = s.replica.Begin
 	}
-	scheduler := &extract.Scheduler{Extractor: extract.Extractor{Replica: replica, Primary: s.pool.Begin, Role: s.cfg.AppRole, WorkerRole: s.cfg.WorkerRole, Store: s.store},
+	scheduler := &extract.Scheduler{Extractor: extract.Extractor{Replica: replica, Primary: s.pool.Begin, Role: s.cfg.AppRole, WorkerRole: s.cfg.WorkerRole, Store: s.store,
+		Cash: app.NewAnalyticsCash(s.apiCfg)},
 		Begin: s.pool.Begin, WorkerRole: s.cfg.WorkerRole, Log: s.log}
 	s.spawn("analytics extract", func() { scheduler.Run(runCtx) })
 }

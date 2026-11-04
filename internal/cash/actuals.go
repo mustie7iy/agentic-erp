@@ -204,16 +204,24 @@ func actualBuckets(from, to time.Time, grain string) ([]Bucket, error) {
 }
 
 // readActuals reads the legal entity's statement lines whose value date
-// is from from to to and classifies each by the active derivation.
+// is from from to to and classifies each by the active derivation; a
+// legal entity the caller cannot act in is not found.
 func (e *Endpoints) readActuals(ctx context.Context, legalEntity uuid.UUID, from, to time.Time) (actualsRead, error) {
+	co, err := e.company(ctx, legalEntity)
+	if err != nil {
+		return actualsRead{}, err
+	}
+	return e.classified(ctx, co, legalEntity, from, to)
+}
+
+// classified is readActuals of the company of the legal entity, its
+// access already decided.
+func (e *Endpoints) classified(ctx context.Context, co Company, legalEntity uuid.UUID, from, to time.Time) (actualsRead, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return actualsRead{}, err
 	}
-	ar := actualsRead{tx: tx}
-	if ar.co, err = e.company(ctx, legalEntity); err != nil {
-		return actualsRead{}, err
-	}
+	ar := actualsRead{tx: tx, co: co}
 	doc, _, err := e.Settings.Document(ctx)
 	if err != nil {
 		return actualsRead{}, fmt.Errorf("cash: configuration: %w", err)

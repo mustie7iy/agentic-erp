@@ -1509,8 +1509,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Analytics, the actuals: dataset cash_actuals (contract file, one row per statement line and liquidity item, classified by the cash context through ports the analytics context declares, extracted in the tenant's run; the relay marks a tenant due for payments' and the configuration's events), metric actual with dimensions company, currency, value date, house bank (by code), match and liquidity item; the database path through the cash context as the caller, no partner.supplier.read for the actuals alone; parity, isolation and tamper tests",
+        "r": "analytics/datasets/v1/cash_actuals.yaml · semantic.yaml actual · cash.ActualShares, ExtractActualShares · analytics.CashActuals, Source.Cash, namesVendors · extract.CashActuals, ExtractActor, cashActuals · app.AnalyticsCash · extract changing payments, config · reader currency names · runAnalyticsQuery cash.amount_too_large · TestCashActuals, TestCashActualsFailures, TestMarksTheActualsChanged, TestActualShares, TestActualSharesFailures, TestSourceReadsCashActuals, TestParity (actual, permissions, isolation) · walkthrough step 34 · ADR-0044 (As built T53j1) · ADR-0051 §6 (As built T53j1) · 03-data-model §3.18 · T53j1",
+        "src": "split:T53j · adr:ADR-0051",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Analytics: datasets cash_snapshots and cash_actuals (contract files, extraction in the tenant's run; the relay marks a tenant due for payments' and cash's events), semantic dimensions (liquidity item, source, certainty, house bank) and metrics (forecast, actual, variance, accuracy); isolation tests passing",
+        "t": "Analytics, the forecast: dataset cash_snapshots (contract file, extraction in the tenant's run; the relay marks a tenant due for the cash context's snapshot events), semantic dimensions source and certainty, metrics forecast, variance and accuracy; isolation tests passing; waits for the product owner on how accuracy is computed and how the forecast's lag is represented",
         "r": "T53j",
         "src": "baseline",
         "c": []
