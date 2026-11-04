@@ -6,7 +6,9 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# shellcheck source=scripts/lib/on-exit.sh
+. "$root/scripts/lib/on-exit.sh"
+on_exit 'rm -rf "$work"'
 repo="$work/repo"
 mkdir -p "$repo/scripts" "$repo/deploy/environments"
 cp "$root/scripts/promotion-checks.sh" "$repo/scripts/"
@@ -201,4 +203,5 @@ BASE=prodrun approval undrilled-rollback production 'put "$(env_file production/
 BASE=prodgood approval known-good-elsewhere production 'put "$(env_file production/prod2)" "$(release v1.1.0 2)" p'
 approval restore-drill-record "" 'put "$restores" "[$(restore point-in-time aws 2026-09-01T10:00:00Z passed), $(restore point-in-time aws 2026-10-18T10:00:00Z passed)]" p'
 BASE=stg12 approval drill-record "" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 3 v1.1.0 passed)" p'
+finished
 exit "$failed"

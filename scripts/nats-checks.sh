@@ -22,7 +22,9 @@ cleanup() {
   fi
   rm -rf "$work"
 }
-trap cleanup EXIT
+# shellcheck source=scripts/lib/on-exit.sh
+. "$root/scripts/lib/on-exit.sh"
+on_exit cleanup
 cd "$work"
 
 (cd "$root" && go build -o "$work/nats-server" github.com/nats-io/nats-server/v2)
@@ -144,3 +146,4 @@ if grep -q PONG <<<"$out"; then fail "a certificate of another authority was adm
 out="$(session none)"
 if grep -q PONG <<<"$out"; then fail "a client without a certificate was admitted: $out"; fi
 echo "nats-checks: another identity, another authority and no certificate are refused"
+finished

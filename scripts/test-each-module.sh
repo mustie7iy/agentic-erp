@@ -6,7 +6,9 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# shellcheck source=scripts/lib/on-exit.sh
+. "$root/scripts/lib/on-exit.sh"
+on_exit 'rm -rf "$work"'
 failed=0
 
 check() { # check NAME GOT WANT
@@ -70,4 +72,5 @@ for f in scripts/ci-local.sh .github/workflows/ci.yml .github/workflows/weekly.y
   n="$(grep -c 'each-module\.sh .*govulncheck' "$root/$f" || true)"
   check "$f runs govulncheck in every module" "$n" 1
 done
+finished
 exit "$failed"

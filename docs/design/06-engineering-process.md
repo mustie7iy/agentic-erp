@@ -184,7 +184,11 @@ gates on each pull request:
   every batch and is each slice's acceptance evidence: the slice's step is
   among the steps the summary lists as passed, not skipped, which the
   coordinator reads from a `make walkthrough` run on the batch for the digest
-  (the test prints the summary only when it fails). The coordinator records the
+  (the test prints the summary only when it fails). `make walkthrough` exits
+  0 only when every step of the story ran and passed or skipped (or the
+  steps up to `WALKTHROUGH_UNTIL`, which the summary counts), and its
+  summary ends "none failed" only when all of them ran; anything else that stops it, an
+  unbound variable included, exits non-zero (2026-11-04 below). The coordinator records the
   cause of every `make ci-local` failure; if more than one batch in three fails
   on something the full lane gates would have caught, the lanes return to them.
 - **Locally, before a pull request is merged:** `make ci-local`
@@ -424,6 +428,24 @@ gates on each pull request:
     listener with shrunk timeouts (`TestUploadOutlastsTheListener` in
     payables and router, `TestCaptureOutlastsTheListener`; ADR-0020 As
     built).
+  - 2026-11-04 (review:T61j, walkexit): a lane's `make walkthrough` stopped
+    on an unbound variable (`CA_PACK`) and exited 0. macOS's `/bin/bash`
+    (3.2, which `#!/usr/bin/env bash` finds on the lanes' machine) runs an
+    EXIT trap with status 0 after an expansion error under `set -u` (an
+    unbound variable, `${x:?}`, an empty `"${a[@]}"`), so every script with
+    a cleanup trap exited 0 when one stopped it; bash 5 on GitHub's runners
+    keeps the status. Layer: the machine checks, which ran the scripts only
+    under bash 5 or by their exit status alone; `TestWalkthrough` would
+    have failed on its missing "none failed", but the lanes' evidence is
+    `make walkthrough`'s status. Changed: the scripts clean up through
+    `scripts/lib/on-exit.sh`, which turns a status-0 exit before the script
+    says it `finished` into 1, and `scripts/test-on-exit.sh` (in ci.yml's
+    skip-rules step and `make ci-local`) holds the helper and that no script
+    under `scripts/` sets an EXIT trap itself. The walkthrough also stops on
+    a check failed in a command substitution whose status the caller drops,
+    and on a step that did not pass or skip exactly once; its summary says
+    "none failed" only when every step of the story ran, and a
+    `WALKTHROUGH_UNTIL` run says how many did (`TestWalkthroughExitStatus`).
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull

@@ -19,7 +19,9 @@ os="$(go env GOOS)"
 arch="$(go env GOARCH)"
 platform="${os}_${arch}"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# shellcheck source=scripts/lib/on-exit.sh
+. scripts/lib/on-exit.sh
+on_exit 'rm -rf "$work"'
 
 # platform tool version algorithm:hash, from each release's checksum file.
 hashes='
@@ -119,3 +121,4 @@ for module in $(grep -o 'go install [^ ]*@v[^ ]*' .github/workflows/deploy.yml |
   fi
 done
 echo "$DIR"
+finished

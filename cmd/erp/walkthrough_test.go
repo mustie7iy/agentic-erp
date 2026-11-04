@@ -136,3 +136,77 @@ func tail(s string, n int) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// TestWalkthroughExitStatus: the walkthrough exits 0 only when every step
+// of its story ran and passed or skipped, since its run is a slice's
+// acceptance evidence (ADR-0053). A lane saw it stop on an unbound
+// variable and exit 0 (review:T61j): macOS's bash 3.2 runs the EXIT trap
+// with status 0 after an expansion error (scripts/lib/on-exit.sh). The
+// script runs here with its story replaced by three small steps, the
+// failure injected into one, and its own helpers, cleanup and summary.
+func TestWalkthroughExitStatus(t *testing.T) {
+	for name, c := range map[string]struct {
+		start, two, until string
+		ok                bool
+		want, unwanted    string
+	}{
+		"every step passes":                        {two: `passed`, ok: true, want: "3 steps passed, 0 skipped, none failed."},
+		"a step skips":                             {two: `skipped "not built"`, ok: true, want: "2 steps passed, 1 skipped, none failed."},
+		"an unbound variable":                      {two: `echo "$CA_PACK_NOT_SET"; passed`, unwanted: "none failed"},
+		"an unbound variable at start":             {start: `echo "$CA_PACK_NOT_SET"`, two: `passed`, unwanted: "Step 1"},
+		"a failed command":                         {two: `false; passed`, unwanted: "none failed"},
+		"a check failed in a command substitution": {two: `expect "the account" "$(fail "no account 4711")" ""; passed`, want: "no account 4711", unwanted: "none failed"},
+		"a step neither passes nor skips":          {two: `:`, want: "step_two ended having recorded 0 results", unwanted: "none failed"},
+		"a step passes twice":                      {two: `passed; passed`, want: "step_two ended having recorded 2 results", unwanted: "none failed"},
+		"WALKTHROUGH_UNTIL stops early":            {two: `passed`, until: "step_one", ok: true, want: "Stopped after step_one (WALKTHROUGH_UNTIL): 1 of the 3 steps ran", unwanted: "none failed"},
+		"WALKTHROUGH_UNTIL names the last step":    {two: `passed`, until: "step_three", ok: true, want: "3 steps passed, 0 skipped, none failed."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			script := stubWalkthrough(t, "start() {\nheading start\n"+c.start+"\n}\n"+
+				"step_one() { heading \"Step 1\"; passed; }\n"+
+				"step_two() {\nheading \"Step 2\"\n"+c.two+"\n}\n"+
+				"step_three() { heading \"Step 3\"; passed; }\n"+
+				"STORY='step_one step_two step_three'\n")
+			run := exec.CommandContext(t.Context(), "bash", script)
+			run.Env = append(os.Environ(), "TMPDIR="+t.TempDir(), "WALKTHROUGH_PAUSE=0", "WALKTHROUGH_KEEP=0", "WALKTHROUGH_DIR=", "WALKTHROUGH_UNTIL="+c.until)
+			out, err := run.CombinedOutput()
+			if got := err == nil; got != c.ok {
+				t.Errorf("walkthrough exited 0: got %v, want %v (%v)\n%s", got, c.ok, err, out)
+			}
+			if c.want != "" && !strings.Contains(string(out), c.want) {
+				t.Errorf("walkthrough output: got\n%s\nwant it to contain %q", out, c.want)
+			}
+			if c.unwanted != "" && strings.Contains(string(out), c.unwanted) {
+				t.Errorf("walkthrough output: got\n%s\nwant it without %q", out, c.unwanted)
+			}
+		})
+	}
+}
+
+// stubWalkthrough is scripts/walkthrough.sh with story put before its last
+// line, main "$@", in a copy of the scripts it reads.
+func stubWalkthrough(t *testing.T, story string) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, f := range []string{"walkthrough.sh", "walkthrough/dates.sh", "lib/on-exit.sh"} {
+		b, err := os.ReadFile(filepath.Join("../../scripts", f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f == "walkthrough.sh" {
+			const last = "\nmain \"$@\"\n"
+			if !strings.HasSuffix(string(b), last) {
+				t.Fatalf("scripts/walkthrough.sh: got a last line other than %q", strings.TrimSpace(last))
+			}
+			b = []byte(strings.TrimSuffix(string(b), last) + "\n" + story + last)
+		}
+		dst := filepath.Join(root, "scripts", f)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dst, b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return filepath.Join(root, "scripts", "walkthrough.sh")
+}

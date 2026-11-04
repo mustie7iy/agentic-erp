@@ -34,7 +34,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 root="$PWD"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# shellcheck source=scripts/lib/on-exit.sh
+. "$root/scripts/lib/on-exit.sh"
+on_exit 'rm -rf "$work"'
 mkdir -p "$work/bin"
 export CALLS="$work/calls"
 
@@ -363,3 +365,4 @@ if [ "$failed" -ne 0 ]; then
   exit 1
 fi
 echo "test-images: all cases passed"
+finished
