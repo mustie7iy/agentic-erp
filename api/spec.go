@@ -61,8 +61,10 @@ type Operation struct {
 	// work runs at REPEATABLE READ (a cash position computed from several
 	// contexts, ADR-0051 §6; a depreciation run's preview, whose request
 	// is a body, ADR-0057 As built). A marked POST writes nothing but its
-	// idempotency record (no audit, no outbox): any other write at that
-	// level fails to serialise whenever another commits after its snapshot.
+	// idempotency record (no audit, no outbox): at that level a write that
+	// updates or locks a shared row (the audit chain head, a counter) fails
+	// to serialise whenever another transaction changed it after the
+	// snapshot.
 	Snapshot bool
 }
 
