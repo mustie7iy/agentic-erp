@@ -67,6 +67,15 @@ func TestCashExportRules(t *testing.T) {
 			return []stmt{exportRow(f, sid, map[string]any{"status": "sent", "next_attempt_at": nil})}
 		}, "export_status_check"},
 		{"seven attempts", func(f fixture, sid uuid.UUID) []stmt { return []stmt{exportRow(f, sid, map[string]any{"attempts": 7})} }, "export_attempts_check"},
+		{"negative attempts", func(f fixture, sid uuid.UUID) []stmt {
+			return []stmt{exportRow(f, sid, map[string]any{"attempts": -1})}
+		}, "export_attempts_check"},
+		{"failed with a delivery time", func(f fixture, sid uuid.UUID) []stmt {
+			return []stmt{exportRow(f, sid, map[string]any{"status": "failed", "next_attempt_at": nil, "delivered_at": "2026-04-17T13:05:09Z"})}
+		}, "export_delivered"},
+		{"failed as a resend", func(f fixture, sid uuid.UUID) []stmt {
+			return []stmt{exportRow(f, sid, map[string]any{"status": "failed", "next_attempt_at": nil, "resend": false})}
+		}, "export_delivered"},
 		{"pending with no time", func(f fixture, sid uuid.UUID) []stmt {
 			return []stmt{exportRow(f, sid, map[string]any{"next_attempt_at": nil})}
 		}, "export_pending"},

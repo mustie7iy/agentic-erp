@@ -168,9 +168,9 @@ func (e *Endpoints) Export(ctx context.Context, id uuid.UUID) (Export, error) {
 
 // ExportsQuery filters the exports listed.
 type ExportsQuery struct {
-	Snapshot, LegalEntity *uuid.UUID
-	Status                string
-	Page                  pagination.Request
+	Snapshot, Connector, LegalEntity *uuid.UUID
+	Status                           string
+	Page                             pagination.Request
 }
 
 var exportSort = pagination.Sort{Default: "created_at", DefaultDesc: true, Fields: []pagination.Field{
@@ -184,7 +184,7 @@ func (e *Endpoints) Exports(ctx context.Context, q ExportsQuery) ([]Export, stri
 	if err != nil {
 		return nil, "", err
 	}
-	ks, err := e.Pages.Keyset(exportSort, fmt.Sprintf("listCashExports|%s|%s|%s", q.Snapshot, q.LegalEntity, q.Status), q.Page)
+	ks, err := e.Pages.Keyset(exportSort, fmt.Sprintf("listCashExports|%s|%s|%s|%s", q.Snapshot, q.Connector, q.LegalEntity, q.Status), q.Page)
 	if err != nil {
 		return nil, "", err
 	}
@@ -193,7 +193,8 @@ func (e *Endpoints) Exports(ctx context.Context, q ExportsQuery) ([]Export, stri
 		return nil, "", err
 	}
 	query, args := ks.SQL(exportSelect+` WHERE ($1 OR x.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR x.snapshot_id = $3)
-		AND ($4::uuid IS NULL OR x.legal_entity_id = $4) AND ($5 = '' OR x.status = $5)`, []any{access.All, access.IDs, q.Snapshot, q.LegalEntity, q.Status})
+		AND ($4::uuid IS NULL OR x.legal_entity_id = $4) AND ($5 = '' OR x.status = $5) AND ($6::uuid IS NULL OR x.connector_id = $6)`,
+		[]any{access.All, access.IDs, q.Snapshot, q.LegalEntity, q.Status, q.Connector})
 	rows, _ := tx.Query(ctx, query, args...)
 	xs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Export, error) { return scanExport(r) })
 	if err != nil {

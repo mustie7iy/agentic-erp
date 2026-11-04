@@ -2187,7 +2187,11 @@ As built (T53h; decided by default where §14 and §15 leave it open):
   claimed; a failed attempt waits 1, 5 and 15 minutes, 1 and 4 hours, a
   refusal (a problem below 500, such as a disabled channel) or the sixth
   failure is final (`failed`, the problem code kept). Its principal is the
-  system actor `cash-exporter`.
+  system actor `cash-exporter`. Each claim reads the channel again: one
+  that no longer names the snapshot's company, or no longer takes the
+  export's format, refuses it (`cash.export_channel_invalid`), so an export
+  waiting for its next attempt never goes where it is no longer set up for
+  (review round 1, `TestCashExportChannelChanged`).
 - **Resend recognised.** The file is named
   `cash-<company code>-<snapshot date>-<sha256 of its content>.<format>`
   (§14's company, date and hash; `cash-` names its kind in a shared
@@ -2198,10 +2202,16 @@ As built (T53h; decided by default where §14 and §15 leave it open):
   failure). A name that holds the hash is the same file, so the exporter
   takes `ErrExists` as delivered: a claim whose outcome was lost (the
   replica stopped, the commit unacknowledged) is claimed again after five
-  upload bounds and delivered once (`TestCashExportRetries`). A delivered
+  upload bounds and delivered once (`TestCashExportRetries`); a last
+  attempt whose claim lapsed is made again as the last rather than taken
+  for a failure, as sending it again either delivers it or finds it there
+  (review round 1). Each upload's hidden copy has a name of its own, so two
+  uploads of one file at once never write into each other's copy. A delivered
   export is `resend` when its channel was delivered the same hash before:
   the same snapshot sent again, the same name, which the treasury system
-  recognises (`TestCashExport`); the audit of the delivery says whether
+  recognises (`TestCashExport`); deliveries of one file to one channel are
+  decided in turn under an advisory lock of the transaction, so of two
+  finished at once exactly one is the first (`TestCashExportSameFileAtOnce`); the audit of the delivery says whether
   the file was still there (`found_there`).
 - **Access, audit and events.** `cash.export.read` (§15) reads the
   exports (`GET /v1/cash-exports`, by snapshot, legal entity and status,

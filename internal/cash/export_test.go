@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -232,6 +233,56 @@ func TestCashExport(t *testing.T) {
 	l, _ := e.Must(200, "GET", "/v1/cash-exports?status=delivered&legal_entity_id="+e.le.String()+"&page_size=2", "", "")
 	want(t, "listed newest first, paged", fmt.Sprint(len(l["items"].([]any)), " ", l["items"].([]any)[0].(map[string]any)["id"], " ", l["next_page_token"] != nil),
 		fmt.Sprint(2, " ", again["id"], " ", true))
+	l, _ = e.Must(200, "GET", "/v1/cash-exports?connector_id="+e.csv.String(), "", "")
+	want(t, "listed by channel", fmt.Sprint(len(l["items"].([]any)), " ", l["items"].([]any)[0].(map[string]any)["connector_name"]), "1 Treasury B")
+	want(t, "the event names the channel", events[2]["connector_name"], "Treasury A")
+}
+
+// TestCashExportChannelChanged: an export waiting for its next attempt is
+// refused when its channel no longer exports its company, or no longer
+// takes its format, rather than sent where it is no longer set up for.
+func TestCashExportChannelChanged(t *testing.T) {
+	e := setupExport(t)
+	sid := e.take(t, "Board")["id"].(string)
+	pgtest.Exec(t, `UPDATE integration.connector SET settings = jsonb_set(settings, '{companies}', '["4000"]'), version = version + 1 WHERE id = $1`, e.jsonl)
+	pgtest.Exec(t, `UPDATE integration.connector SET settings = jsonb_set(settings, '{format}', '"jsonl"'), version = version + 1 WHERE id = $1`, e.csv)
+	e.round(t, 2)
+	for _, ch := range []uuid.UUID{e.jsonl, e.csv} {
+		x := byChannel(t, e.exports(t, sid), ch)
+		want(t, "refused", fmt.Sprint(x["status"], " ", x["attempts"], " ", x["last_error_code"]), "failed 1 cash.export_channel_invalid")
+	}
+	if _, err := e.server.ReadFile("/cash/"+fmt.Sprint(byChannel(t, e.exports(t, sid), e.jsonl)["file_name"]), 1<<20); err == nil {
+		t.Error("file: got one sent, want none")
+	}
+}
+
+// TestCashExportSameFileAtOnce: two exports of one snapshot to one
+// channel, sent by two exporters at once, are delivered one after the
+// other: exactly one of them is a resend.
+func TestCashExportSameFileAtOnce(t *testing.T) {
+	e := setupExport(t)
+	sid := e.take(t, "Board")["id"].(string)
+	pgtest.Exec(t, `UPDATE cash.export SET status = 'failed', next_attempt_at = NULL, version = version + 1 WHERE snapshot_id = $1 AND connector_id = $2`, sid, e.csv)
+	e.Must(201, "POST", "/v1/cash-snapshots/"+sid+"/exports", `{"connector_id": "`+e.jsonl.String()+`"}`, "")
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := range 2 {
+		wg.Go(func() { _, errs[i] = e.exporter().RunOnce(context.Background()) })
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var resends []string
+	for _, x := range e.exports(t, sid) {
+		if x["connector_id"] == e.jsonl.String() {
+			resends = append(resends, fmt.Sprint(x["status"], " ", x["resend"]))
+		}
+	}
+	slices.Sort(resends)
+	want(t, "one first delivery, one resend", resends, []string{"delivered false", "delivered true"})
 }
 
 // TestCashExportRefusals: an export is asked for only to an active

@@ -31,7 +31,8 @@ func (e *Endpoints) GetCashExport(ctx context.Context, params gen.GetCashExportP
 // ListCashExports implements GET /v1/cash-exports.
 func (e *Endpoints) ListCashExports(ctx context.Context, params gen.ListCashExportsParams) (gen.ListCashExportsRes, error) {
 	xs, next, err := e.Exports(ctx, ExportsQuery{Snapshot: apitypes.Ptr[uuid.UUID](params.CashSnapshotID), LegalEntity: apitypes.Ptr[uuid.UUID](params.LegalEntityID),
-		Status: params.Status.Value, Page: apitypes.Page(params.OrderBy, params.PageSize, params.PageToken)})
+		Connector: apitypes.Ptr[uuid.UUID](params.ConnectorID),
+		Status:    params.Status.Value, Page: apitypes.Page(params.OrderBy, params.PageSize, params.PageToken)})
 	if err != nil {
 		return nil, err
 	}

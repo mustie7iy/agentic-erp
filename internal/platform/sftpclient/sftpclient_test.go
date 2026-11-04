@@ -41,8 +41,8 @@ func TestUpload(t *testing.T) {
 			if got, ok := b.Read(t, "/pain.xml"); got != "<Document/>" {
 				t.Errorf("uploaded file: got %q (found %v), want <Document/>", got, ok)
 			}
-			if _, ok := b.Read(t, "/.partial-pain.xml"); ok {
-				t.Error("partial file: got one left behind, want none")
+			if hidden := b.Hidden(t, "/"); len(hidden) != 0 {
+				t.Errorf("partial files: got %v left behind, want none", hidden)
 			}
 		})
 	}
@@ -61,9 +61,9 @@ func TestUploadFailures(t *testing.T) {
 		"unknown client":     {func(*sftptest.Server) {}, func(e sftpclient.Endpoint) sftpclient.Endpoint { e.Signer = sftptest.Signer(t); return e }, "f.xml", "sign in"},
 		"nobody listening":   {func(*sftptest.Server) {}, func(e sftpclient.Endpoint) sftpclient.Endpoint { e.Addr = "127.0.0.1:1"; return e }, "f.xml", "connect"},
 		"no sftp subsystem":  {func(b *sftptest.Server) { b.NoSubsystem = true }, keep, "f.xml", "start sftp"},
-		"create refused":     {func(b *sftptest.Server) { b.FailOpen = true }, keep, "f.xml", "create /.partial-f.xml"},
-		"write refused":      {func(b *sftptest.Server) { b.FailWrite = true }, keep, "f.xml", "write /.partial-f.xml"},
-		"rename refused":     {func(b *sftptest.Server) { b.FailRename = true }, keep, "f.xml", "rename /.partial-f.xml to /f.xml"},
+		"create refused":     {func(b *sftptest.Server) { b.FailOpen = true }, keep, "f.xml", "create /.partial-"},
+		"write refused":      {func(b *sftptest.Server) { b.FailWrite = true }, keep, "f.xml", "write /.partial-"},
+		"rename refused":     {func(b *sftptest.Server) { b.FailRename = true }, keep, "f.xml", "-f.xml to /f.xml"},
 		"a path":             {func(*sftptest.Server) {}, keep, "../f.xml", "not a file name"},
 		"no name":            {func(*sftptest.Server) {}, keep, "", "not a file name"},
 		"the parent":         {func(*sftptest.Server) {}, keep, "..", "not a file name"},
@@ -96,8 +96,8 @@ func TestUploadExisting(t *testing.T) {
 	if got, _ := b.Read(t, "/f.xml"); got != "first" {
 		t.Errorf("file: got %q, want the first left as it was", got)
 	}
-	if _, ok := b.Read(t, "/.partial-f.xml"); ok {
-		t.Error("partial file: got one left behind, want none")
+	if hidden := b.Hidden(t, "/"); len(hidden) != 0 {
+		t.Errorf("partial files: got %v left behind, want none", hidden)
 	}
 }
 

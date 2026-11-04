@@ -943,8 +943,11 @@ type Handler interface {
 	// it was a resend) or `failed` (with the problem code of the last attempt). A failed attempt is tried
 	// again after 1, 5 and 15 minutes, 1 and 4 hours; a refusal (the channel disabled or not resolving,
 	// `integration.connector_disabled`, `integration.secret_required`, `integration.secret_unavailable`,
-	// `integration.invalid_settings`, `integration.not_a_treasury_channel`) or the sixth attempt's failure
-	// is final. An export of a legal entity the caller cannot act in is not found.
+	// `integration.invalid_settings`, `integration.not_a_treasury_channel`, or
+	// `cash.export_channel_invalid` when the channel no longer names the snapshot's company or the
+	// export's format) or the sixth attempt's failure is final; a last attempt whose outcome was lost is
+	// made again, since the file under its name is the same. An export of a legal entity the caller cannot
+	// act in is not found.
 	//
 	// GET /v1/cash-exports/{id}
 	GetCashExport(ctx context.Context, params GetCashExportParams) (GetCashExportRes, error)
@@ -1667,8 +1670,8 @@ type Handler interface {
 	// The exports of snapshots of the liquidity forecast to treasury channels (ADR-0051 §14, T53h) of the
 	// legal entities the caller may act in, newest first: those queued when a snapshot was taken, one per
 	// active `treasury_export` channel naming its company, and those people asked for
-	// (`createCashExport`). Filtered by snapshot, legal entity and status. Sortable by: `created_at`
-	// (default descending).
+	// (`createCashExport`). Filtered by snapshot, treasury channel, legal entity and status. Sortable by:
+	// `created_at` (default descending).
 	//
 	// GET /v1/cash-exports
 	ListCashExports(ctx context.Context, params ListCashExportsParams) (ListCashExportsRes, error)

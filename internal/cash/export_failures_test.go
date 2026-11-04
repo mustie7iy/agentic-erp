@@ -191,6 +191,7 @@ func TestExporterFailures(t *testing.T) {
 	for name, change := range map[string]func(*cash.Endpoints){
 		"house banks not named": func(c *cash.Endpoints) { c.Payments = failingAccounts{c.Payments} },
 		"no legal entity":       func(c *cash.Endpoints) { c.LegalEntities = failingEntities{} },
+		"the channels down":     func(c *cash.Endpoints) { c.Treasury = failingTreasury{c.Treasury} },
 	} {
 		t.Run(name, func(t *testing.T) {
 			reset()
@@ -206,6 +207,15 @@ func TestExporterFailures(t *testing.T) {
 	t.Run("the last attempt lapsed", func(t *testing.T) {
 		reset()
 		pgtest.Exec(t, `UPDATE cash.export SET attempts = 6, version = version + 1 WHERE id = $1`, x)
+		e.round(t, 1)
+		got := mustExport(t, e, x)
+		want(t, "made again as the last, delivered", fmt.Sprint(got["status"], " ", got["attempts"]), "delivered 6")
+	})
+	t.Run("the last attempt lapsed, sent again and failing", func(t *testing.T) {
+		reset()
+		pgtest.Exec(t, `UPDATE cash.export SET attempts = 6, version = version + 1 WHERE id = $1`, x)
+		e.server.FailOpen = true
+		defer func() { e.server.FailOpen = false }()
 		e.round(t, 1)
 		got := mustExport(t, e, x)
 		want(t, "failed", fmt.Sprint(got["status"], " ", got["attempts"], " ", got["last_error_code"]), "failed 6 platform.unavailable")

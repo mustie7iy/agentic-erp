@@ -2908,7 +2908,7 @@ components:
       examples:
         - name: delivered
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000631, source: /erp/eu-1/cash, type: com.example.erp.cash.cash_export_delivered.v1, subject: 0192a000-0000-7000-8000-000000000e51, time: '2026-04-17T13:05:09Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
-          payload: {cash_export_id: 0192a000-0000-7000-8000-000000000e51, cash_snapshot_id: 0192a000-0000-7000-8000-000000000e01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: '3000', snapshot_date: '2026-04-17', connector_id: 0192a000-0000-7000-8000-000000000c11, format: csv, file_name: cash-3000-2026-04-17-4f2c1e0b9a7d6c5b4a3928170615f4e3d2c1b0a99887766554433221100ffeed.csv, sha256: 4f2c1e0b9a7d6c5b4a3928170615f4e3d2c1b0a99887766554433221100ffeed, resend: false}
+          payload: {cash_export_id: 0192a000-0000-7000-8000-000000000e51, cash_snapshot_id: 0192a000-0000-7000-8000-000000000e01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: '3000', snapshot_date: '2026-04-17', connector_id: 0192a000-0000-7000-8000-000000000c11, connector_name: Treasury SFTP, format: csv, file_name: cash-3000-2026-04-17-4f2c1e0b9a7d6c5b4a3928170615f4e3d2c1b0a99887766554433221100ffeed.csv, sha256: 4f2c1e0b9a7d6c5b4a3928170615f4e3d2c1b0a99887766554433221100ffeed, resend: false}
     AssetChanged:
       name: AssetChanged
       title: Asset changed
@@ -3500,7 +3500,7 @@ components:
         line_count: {type: integer, description: The lines the snapshot kept.}
     CashExportDeliveredV1:
       type: object
-      required: [cash_export_id, cash_snapshot_id, legal_entity_id, company_code, snapshot_date, connector_id, format, file_name, sha256, resend]
+      required: [cash_export_id, cash_snapshot_id, legal_entity_id, company_code, snapshot_date, connector_id, connector_name, format, file_name, sha256, resend]
       properties:
         cash_export_id: {$ref: '#/components/schemas/Uuid', description: '`cash.export.id`.'}
         cash_snapshot_id: {$ref: '#/components/schemas/Uuid', description: The snapshot exported.}
@@ -3508,6 +3508,7 @@ components:
         company_code: {type: string, description: "The legal entity's company code."}
         snapshot_date: {$ref: '#/components/schemas/Date'}
         connector_id: {$ref: '#/components/schemas/Uuid', description: 'The treasury channel, a `treasury_export` connector.'}
+        connector_name: {type: string, description: "The treasury channel's name."}
         format: {type: string, description: 'Open enum: jsonl, csv.'}
         file_name: {type: string, description: 'cash-<company code>-<snapshot date>-<sha256>.<format>.'}
         sha256: {type: string, description: "The file content's SHA-256, in hexadecimal."}

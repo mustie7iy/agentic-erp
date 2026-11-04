@@ -964,8 +964,11 @@ type Invoker interface {
 	// it was a resend) or `failed` (with the problem code of the last attempt). A failed attempt is tried
 	// again after 1, 5 and 15 minutes, 1 and 4 hours; a refusal (the channel disabled or not resolving,
 	// `integration.connector_disabled`, `integration.secret_required`, `integration.secret_unavailable`,
-	// `integration.invalid_settings`, `integration.not_a_treasury_channel`) or the sixth attempt's failure
-	// is final. An export of a legal entity the caller cannot act in is not found.
+	// `integration.invalid_settings`, `integration.not_a_treasury_channel`, or
+	// `cash.export_channel_invalid` when the channel no longer names the snapshot's company or the
+	// export's format) or the sixth attempt's failure is final; a last attempt whose outcome was lost is
+	// made again, since the file under its name is the same. An export of a legal entity the caller cannot
+	// act in is not found.
 	//
 	// GET /v1/cash-exports/{id}
 	GetCashExport(ctx context.Context, params GetCashExportParams) (GetCashExportRes, error)
@@ -1688,8 +1691,8 @@ type Invoker interface {
 	// The exports of snapshots of the liquidity forecast to treasury channels (ADR-0051 §14, T53h) of the
 	// legal entities the caller may act in, newest first: those queued when a snapshot was taken, one per
 	// active `treasury_export` channel naming its company, and those people asked for
-	// (`createCashExport`). Filtered by snapshot, legal entity and status. Sortable by: `created_at`
-	// (default descending).
+	// (`createCashExport`). Filtered by snapshot, treasury channel, legal entity and status. Sortable by:
+	// `created_at` (default descending).
 	//
 	// GET /v1/cash-exports
 	ListCashExports(ctx context.Context, params ListCashExportsParams) (ListCashExportsRes, error)
@@ -17527,8 +17530,11 @@ func (c *Client) sendGetCashActuals(ctx context.Context, params GetCashActualsPa
 // it was a resend) or `failed` (with the problem code of the last attempt). A failed attempt is tried
 // again after 1, 5 and 15 minutes, 1 and 4 hours; a refusal (the channel disabled or not resolving,
 // `integration.connector_disabled`, `integration.secret_required`, `integration.secret_unavailable`,
-// `integration.invalid_settings`, `integration.not_a_treasury_channel`) or the sixth attempt's failure
-// is final. An export of a legal entity the caller cannot act in is not found.
+// `integration.invalid_settings`, `integration.not_a_treasury_channel`, or
+// `cash.export_channel_invalid` when the channel no longer names the snapshot's company or the
+// export's format) or the sixth attempt's failure is final; a last attempt whose outcome was lost is
+// made again, since the file under its name is the same. An export of a legal entity the caller cannot
+// act in is not found.
 //
 // GET /v1/cash-exports/{id}
 func (c *Client) GetCashExport(ctx context.Context, params GetCashExportParams) (GetCashExportRes, error) {
@@ -29697,8 +29703,8 @@ func (c *Client) sendListCashActualLines(ctx context.Context, params ListCashAct
 // The exports of snapshots of the liquidity forecast to treasury channels (ADR-0051 §14, T53h) of the
 // legal entities the caller may act in, newest first: those queued when a snapshot was taken, one per
 // active `treasury_export` channel naming its company, and those people asked for
-// (`createCashExport`). Filtered by snapshot, legal entity and status. Sortable by: `created_at`
-// (default descending).
+// (`createCashExport`). Filtered by snapshot, treasury channel, legal entity and status. Sortable by:
+// `created_at` (default descending).
 //
 // GET /v1/cash-exports
 func (c *Client) ListCashExports(ctx context.Context, params ListCashExportsParams) (ListCashExportsRes, error) {
@@ -29759,6 +29765,23 @@ func (c *Client) sendListCashExports(ctx context.Context, params ListCashExports
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.CashSnapshotID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "connector_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "connector_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ConnectorID.Get(); ok {
 				return e.EncodeValue(conv.UUIDToString(val))
 			}
 			return nil

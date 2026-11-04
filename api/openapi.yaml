@@ -14453,7 +14453,7 @@ paths:
       tags:
         - cash
       summary: List the exports of snapshots to treasury systems
-      description: "The exports of snapshots of the liquidity forecast to treasury channels (ADR-0051 §14, T53h) of the legal entities the caller may act in, newest first: those queued when a snapshot was taken, one per active `treasury_export` channel naming its company, and those people asked for (`createCashExport`). Filtered by snapshot, legal entity and status. Sortable by: `created_at` (default descending)."
+      description: "The exports of snapshots of the liquidity forecast to treasury channels (ADR-0051 §14, T53h) of the legal entities the caller may act in, newest first: those queued when a snapshot was taken, one per active `treasury_export` channel naming its company, and those people asked for (`createCashExport`). Filtered by snapshot, treasury channel, legal entity and status. Sortable by: `created_at` (default descending)."
       x-permission: cash.export.read
       x-problem-codes:
         - request.invalid_order_by
@@ -14464,6 +14464,13 @@ paths:
           in: query
           required: false
           description: Only the exports of this snapshot.
+          schema:
+            type: string
+            format: uuid
+        - name: connector_id
+          in: query
+          required: false
+          description: Only the exports to this treasury channel.
           schema:
             type: string
             format: uuid
@@ -14500,7 +14507,7 @@ paths:
       tags:
         - cash
       summary: Get an export of a snapshot to a treasury system
-      description: "One export of a snapshot of the liquidity forecast to a treasury channel (ADR-0051 §14, T53h): `pending` until the exporter sends it, then `delivered` (with its file's name and hash, and whether it was a resend) or `failed` (with the problem code of the last attempt). A failed attempt is tried again after 1, 5 and 15 minutes, 1 and 4 hours; a refusal (the channel disabled or not resolving, `integration.connector_disabled`, `integration.secret_required`, `integration.secret_unavailable`, `integration.invalid_settings`, `integration.not_a_treasury_channel`) or the sixth attempt's failure is final. An export of a legal entity the caller cannot act in is not found."
+      description: "One export of a snapshot of the liquidity forecast to a treasury channel (ADR-0051 §14, T53h): `pending` until the exporter sends it, then `delivered` (with its file's name and hash, and whether it was a resend) or `failed` (with the problem code of the last attempt). A failed attempt is tried again after 1, 5 and 15 minutes, 1 and 4 hours; a refusal (the channel disabled or not resolving, `integration.connector_disabled`, `integration.secret_required`, `integration.secret_unavailable`, `integration.invalid_settings`, `integration.not_a_treasury_channel`, or `cash.export_channel_invalid` when the channel no longer names the snapshot's company or the export's format) or the sixth attempt's failure is final; a last attempt whose outcome was lost is made again, since the file under its name is the same. An export of a legal entity the caller cannot act in is not found."
       x-permission: cash.export.read
       x-problem-codes: []
       parameters:

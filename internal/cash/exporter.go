@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -72,7 +73,8 @@ type exportClaim struct {
 	attempt  int
 	endpoint sftpclient.Endpoint
 	file     exportFile
-	present  bool // the upload found the file there already
+	present  bool   // the upload found the file there already
+	channel  string // the channel's name
 }
 
 func (w *Exporter) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
@@ -189,14 +191,18 @@ func (w *Exporter) claim(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*exp
 
 // prepare builds the export's file and resolves its channel, and claims it
 // for upload; a channel that cannot be used, or a file that cannot be
-// built, is a failed attempt.
+// built, is a failed attempt, and a channel no longer set up for the
+// export's company and format a refusal. A last attempt whose claim lapsed
+// is made again as the last: the file is named by its content, so sending
+// it again either delivers it or finds it there, and the outcome a lost
+// commit hid is recovered rather than taken for a failure.
 func (w *Exporter) prepare(ctx context.Context, tx pgx.Tx, x Export, now time.Time) (*exportClaim, error) {
-	c := &exportClaim{x: x, attempt: x.Attempts + 1}
-	if c.attempt > maxExportAttempts { // the last attempt's claim lapsed
-		return nil, failExport(ctx, tx, c, x.Attempts, problem.Unavailable("The exporter stopped without an outcome on the last attempt.", 0))
-	}
+	c := &exportClaim{x: x, attempt: min(x.Attempts+1, maxExportAttempts)}
 	var err error
 	if c.file, err = w.Endpoints.exportFile(ctx, tx, x); err != nil {
+		return nil, w.retry(ctx, tx, c, err, now)
+	}
+	if c.channel, err = w.Endpoints.stillFor(ctx, x, c.file.company); err != nil {
 		return nil, w.retry(ctx, tx, c, err, now)
 	}
 	if c.endpoint, err = w.Endpoints.Treasury.Endpoint(ctx, x.Connector); err != nil {
@@ -207,6 +213,22 @@ func (w *Exporter) prepare(ctx context.Context, tx pgx.Tx, x Export, now time.Ti
 		return nil, fmt.Errorf("cash: claim export %s: %w", x.ID, err)
 	}
 	return c, nil
+}
+
+// stillFor refuses a channel that, since the export was queued, no longer
+// exports its company or no longer takes its format: a company's figures
+// go only to a channel set up for it (ADR-0051 As built, T53h). The
+// channel's status and settings are its endpoint's to check. It gives the
+// channel's name.
+func (e *Endpoints) stillFor(ctx context.Context, x Export, company string) (string, error) {
+	ch, found, err := e.Treasury.Channel(ctx, x.Connector)
+	if err != nil {
+		return "", fmt.Errorf("cash: treasury channel %s of export %s: %w", x.Connector, x.ID, err)
+	}
+	if !found || !slices.Contains(ch.Companies, company) || ch.Format != x.Format {
+		return "", problem.Unprocessable("cash.export_channel_invalid", "The connector no longer exports company "+company+" as "+x.Format+"; ask for an export again.")
+	}
+	return ch.Name, nil
 }
 
 // exportFile is the export's file: its snapshot's rows in its format.
@@ -267,6 +289,12 @@ func (w *Exporter) finish(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, c *e
 // delivered the same content before, audits and publishes it.
 func (w *Exporter) delivered(ctx context.Context, tx pgx.Tx, c *exportClaim) error {
 	x := c.x
+	// Two exports of one file to one channel, finished by two replicas at
+	// once, are told apart in turn: the second sees the first delivered.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('cash.export:' || $1::text || ':' || $2::text, 0))`,
+		x.Connector, hex.EncodeToString(c.file.sha256)); err != nil {
+		return fmt.Errorf("cash: lock the deliveries of %s to %s: %w", c.file.name, x.Connector, err)
+	}
 	var resend bool
 	if err := tx.QueryRow(ctx, `UPDATE cash.export x SET status = 'delivered', next_attempt_at = NULL, delivered_at = $2, version = version + 1,
 			resend = EXISTS (SELECT 1 FROM cash.export d WHERE d.connector_id = x.connector_id AND d.sha256 = x.sha256 AND d.status = 'delivered' AND d.id <> x.id)
@@ -278,7 +306,7 @@ func (w *Exporter) delivered(ctx context.Context, tx pgx.Tx, c *exportClaim) err
 		"file_name": c.file.name, "sha256": sum, "attempts": c.attempt, "resend": resend, "found_there": c.present, "requested_by": x.RequestedBy},
 		outbox.Event{Context: "cash", Name: "cash_export_delivered", AggregateType: "cash.export", AggregateID: x.ID,
 			Payload: map[string]any{"cash_export_id": x.ID, "cash_snapshot_id": x.Snapshot, "legal_entity_id": x.LegalEntity, "company_code": c.file.company,
-				"snapshot_date": x.SnapshotDate.Format(time.DateOnly), "connector_id": x.Connector, "format": x.Format, "file_name": c.file.name,
+				"snapshot_date": x.SnapshotDate.Format(time.DateOnly), "connector_id": x.Connector, "connector_name": c.channel, "format": x.Format, "file_name": c.file.name,
 				"sha256": sum, "resend": resend}})
 }
 

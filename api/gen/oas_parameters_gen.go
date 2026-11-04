@@ -25282,6 +25282,8 @@ func decodeListCashActualLinesParams(args [0]string, argsEscaped bool, r *http.R
 type ListCashExportsParams struct {
 	// Only the exports of this snapshot.
 	CashSnapshotID OptUUID `json:",omitempty,omitzero"`
+	// Only the exports to this treasury channel.
+	ConnectorID OptUUID `json:",omitempty,omitzero"`
 	// Only resources of this legal entity (company code).
 	LegalEntityID OptUUID `json:",omitempty,omitzero"`
 	// Only exports of this status: `pending`, `delivered` or `failed`.
@@ -25304,6 +25306,15 @@ func unpackListCashExportsParams(packed middleware.Parameters) (params ListCashE
 		}
 		if v, ok := packed[key]; ok {
 			params.CashSnapshotID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "connector_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.ConnectorID = v.(OptUUID)
 		}
 	}
 	{
@@ -25393,6 +25404,47 @@ func decodeListCashExportsParams(args [0]string, argsEscaped bool, r *http.Reque
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "cash_snapshot_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: connector_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "connector_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotConnectorIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotConnectorIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.ConnectorID.SetTo(paramsDotConnectorIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "connector_id",
 			In:   "query",
 			Err:  err,
 		}

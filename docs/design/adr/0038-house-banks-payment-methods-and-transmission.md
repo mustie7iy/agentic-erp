@@ -1074,6 +1074,8 @@ failing closed as a bank channel does (`integration.resolve`, which
 now tells a caller when the rename finds a file of the name there
 (`ErrExists`), leaving it as it is and removing its own hidden copy: a
 bank file, named by its id, still counts that a failed attempt, as
-before; an export, named by its content's hash, counts it delivered.
+before; an export, named by its content's hash, counts it delivered. The
+hidden copy is now named `.partial-<random>-<name>`, the upload's own, so
+two uploads of one name at once never write into the same copy.
 `sftptest` starts outside a test too (`Start`, `Close`, `Stored`), for
 the walkthrough's stand-in SFTP server (`sftptest/sftpstub`).

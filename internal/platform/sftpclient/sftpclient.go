@@ -8,6 +8,8 @@ package sftpclient
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -191,9 +193,14 @@ func hostKeyAlgorithms(k ssh.PublicKey) []string {
 	return []string{k.Type()}
 }
 
-// put writes the file under a hidden name, then renames it into place.
+// put writes the file under a hidden name of its own, then renames it
+// into place. The hidden name is the upload's alone, so two uploads of one
+// name at once never write into each other's copy: the first renamed is
+// the file, whole, and the second finds it there.
 func (e Endpoint) put(s *sftp.Client, name string, content []byte) error {
-	tmp, final := path.Join(e.Dir, ".partial-"+name), path.Join(e.Dir, name)
+	var nonce [8]byte
+	_, _ = rand.Read(nonce[:]) // crypto/rand.Read never fails (Go 1.24)
+	tmp, final := path.Join(e.Dir, ".partial-"+hex.EncodeToString(nonce[:])+"-"+name), path.Join(e.Dir, name)
 	f, err := s.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
 	if err != nil {
 		return fmt.Errorf("sftpclient: create %s: %w", tmp, err)
@@ -204,7 +211,7 @@ func (e Endpoint) put(s *sftp.Client, name string, content []byte) error {
 	}
 	if err := s.Rename(tmp, final); err != nil {
 		if _, there := s.Stat(final); there == nil {
-			_ = s.Remove(tmp) // a partial file left behind is hidden, and overwritten by the next upload of the name
+			_ = s.Remove(tmp) // a copy left behind is hidden, so never collected
 			return fmt.Errorf("sftpclient: %s: %w", final, ErrExists)
 		}
 		return fmt.Errorf("sftpclient: rename %s to %s: %w", tmp, final, err)

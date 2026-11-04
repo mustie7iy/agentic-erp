@@ -15,6 +15,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/pkg/sftp"
@@ -271,6 +272,25 @@ func (s *Server) ReadFile(path string, limit int) ([]byte, error) {
 	buf := make([]byte, limit)
 	n, _ := ra.ReadAt(buf, 0) // io.EOF after a short file
 	return buf[:n], nil
+}
+
+// Hidden are the names of the hidden files in dir, such as an upload's
+// copy left behind.
+func (s *Server) Hidden(tb testing.TB, dir string) []string {
+	tb.Helper()
+	l, err := s.files.FileList.Filelist(sftp.NewRequest("List", dir))
+	if err != nil {
+		tb.Fatal(err)
+	}
+	infos := make([]os.FileInfo, 1000)
+	n, _ := l.ListAt(infos, 0) // io.EOF once the listing ends
+	var out []string
+	for _, fi := range infos[:n] {
+		if strings.HasPrefix(fi.Name(), ".") {
+			out = append(out, fi.Name())
+		}
+	}
+	return out
 }
 
 // Put writes a file to the server's file system, as the bank leaves one;
