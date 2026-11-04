@@ -2683,7 +2683,7 @@ procurement through ports they publish and owns only what it adds; no
 context imports it (`internal/layout`). Migration 000141 (T53b) creates the
 schema with the configuration it keeps; memo records follow in T53d
 (000152), snapshots of the forecast in T53f (000198), variance comments in
-T53f4.
+T53f4 (000201).
 
 ```mermaid
 erDiagram
@@ -2741,16 +2741,30 @@ erDiagram
     uuid payment_id "payments context"
     text document_kind
     uuid document_id "the owning context's" }
+  snapshot ||--o{ variance_comment : "kept for"
+  liquidity_item ||--o{ variance_comment : "explained in"
+  variance_comment { uuid id PK
+    uuid legal_entity_id "tenancy context"
+    date period_from
+    date period_to
+    int lag "0 | 7 | 30"
+    text liquidity_item FK "null: what no rule assigns"
+    uuid snapshot_id FK "of the same company"
+    text text
+    text status "proposed | accepted | rejected"
+    uuid decided_by
+    uuid created_by "the author" }
 ```
 
 | Table | Purpose |
 |---|---|
-| `cash.liquidity_item` | The configuration's `cash.liquidity_items` (SAP FLQLITEM), kept by `cash.Setup`: cash by purpose in one tree, a code of upper-case letters, digits and underscores, a direction, a parent of the tenant (never itself). One the document drops becomes inactive, never deleted, since memo records and snapshots name items; the configuration's validation keeps the tree acyclic, at most four levels, children of their parent's direction or of one for both |
+| `cash.liquidity_item` | The configuration's `cash.liquidity_items` (SAP FLQLITEM), kept by `cash.Setup`: cash by purpose in one tree, a code of upper-case letters, digits and underscores, a direction, a parent of the tenant (never itself). One the document drops becomes inactive, never deleted, since memo records, snapshots and variance comments name items; the configuration's validation keeps the tree acyclic, at most four levels, children of their parent's direction or of one for both |
 | `cash.planning_group` | The configuration's `cash.planning_groups` (SAP T035), kept by `cash.Setup`, inactive once dropped; suppliers name one per company (`partner.supplier_company.planning_group`, §3.6) |
 | `cash.memo_record` | An expected receipt or payment (SAP's memo records, ADR-0051 §7; T53d): a signed, non-zero amount in minor units of its currency, a value date and an expiry date on or after it, a certainty, an active liquidity item of the amount's direction (`cash.check_memo_item`, when the item or amount is written; `cash.Setup` refuses taking away an item an open record names), a house bank or none (forecast only), optionally a series (`weekly`, `monthly` on the value date's day, `quarterly`; until a day or a count of 2-520, or neither) expanded at read time, `counts_until` the last occurrence's expiry (a one-off record's `expires_on`, null for a series without end; an active record past it is shown `expired`). An override (`recurrence_of`, `occurrence_date`) replaces one occurrence of a series, once per occurrence (`memo_record_override_once`). `origin` `agent` records carry their session and reason and are the only ones `proposed` or `rejected`; `upload` ones carry their batch key and a reference unique per company and key (`memo_record_batch_reference`). Realised by a statement line or by a person; a series only through an override of an occurrence. Changes are versions; never deleted |
-| `cash.snapshot` | A snapshot of a company's liquidity forecast (ADR-0051 §6, T53f, 000198): `daily` (the TakeCashSnapshot workflow's, one per company and date, `snapshot_daily`) or `on_demand` (a person's, named, `snapshot_name`), its date and zone, the last day of its buckets and the configuration version that classified it. Insert-only (no version, no update or delete granted); deleted with its lines 25 months after its date by the workflow through `cash.delete_expired_snapshots`, which computes the 25 months and refuses a day after UTC's tomorrow |
+| `cash.snapshot` | A snapshot of a company's liquidity forecast (ADR-0051 §6, T53f, 000198): `daily` (the TakeCashSnapshot workflow's, one per company and date, `snapshot_daily`) or `on_demand` (a person's, named, `snapshot_name`), its date and zone, the last day of its buckets and the configuration version that classified it. Insert-only (no version, no update or delete granted); deleted with its lines 25 months after its date by the workflow through `cash.delete_expired_snapshots`, which computes the 25 months and refuses a day after UTC's tomorrow, unless a variance comment refers to it (000201) |
 | `cash.snapshot_flow` | A snapshot's lines in transaction currency: within 31 days of its date, what one forecast flow (`flow_no`) pays of one document under one liquidity item, with its day at the bank, house bank, source, certainty, lateness, supplier and payment (`flow_count` 1, `snapshot_flow_count`); beyond, a bucket's sum (`bucket_end`) per currency, source, certainty, item and house bank, naming no document, supplier or payment and never late (`snapshot_flow_bucket`). A document is named whole (`snapshot_flow_document`); an item is the tenant's (null: unclassified). Insert-only |
-| `cash.outbox`, `cash.inbox` | The context's events (`MemoRecordChanged`, `CashSnapshotTaken`), relayed as every context's (000152, `outbox.Contexts`) |
+| `cash.variance_comment` | A comment on one row of a company's forecast variance (ADR-0051 §11, T53f4, 000201): its period (`variance_comment_period`), lag (0, 7 or 30), liquidity item (the tenant's, active or not; null: what no rule assigns) and the snapshot that variance compares with, of the same company (`variance_comment_snapshot`, which keeps the snapshot past its retention); a text of 1 to 2,000 characters, not blank; `proposed` (an agent's, T53i), `accepted` or `rejected`, decided exactly when not proposed (`variance_comment_decided`; a person's is accepted as written, decided by its author). Insert-only, never deleted |
+| `cash.outbox`, `cash.inbox` | The context's events (`MemoRecordChanged`, `CashSnapshotTaken`, `VarianceCommentDecided`), relayed as every context's (000152, `outbox.Contexts`) |
 
 What is not stored, and read from the active document when a position or
 forecast is computed: the derivation rules (`cash.derivation`: account
@@ -2862,6 +2876,14 @@ the `cash.memo_record`s the snapshot names (whether each is a series) or
 a line realised (`realised_statement_id`, `realised_line_no`, an
 override's `recurrence_of` and `occurrence_date`). No migration; reading
 the variance is `cash.forecast.read`.
+
+T53f4 stores people's comments on the variance (000201,
+`cash.variance_comment` above), each naming the `cash.snapshot` its
+variance compares with, found as T53f3 finds it; 000201 replaces
+`cash.delete_expired_snapshots` with one that skips a snapshot a comment
+refers to, adds `snapshot_company` (unique on `tenant_id`, `id`,
+`legal_entity_id`) for the comment's foreign key, and seeds
+`cash.variance.comment`; reading comments is `cash.forecast.read`.
 
 ## 3.19 Controlling (`controlling`)
 

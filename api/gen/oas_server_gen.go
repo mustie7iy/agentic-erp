@@ -743,6 +743,22 @@ type Handler interface {
 	//
 	// POST /v1/uploads
 	CreateUpload(ctx context.Context, req *UploadCreate, params CreateUploadParams) (CreateUploadRes, error)
+	// CreateVarianceComment implements createVarianceComment operation.
+	//
+	// A person explains one row of a legal entity's forecast variance (ADR-0051 §11, §13, T53f4): a
+	// liquidity item (`liquidity_item`, its code; a tenant's item, active or not) or what no rule assigns
+	// (`unclassified: true`), exactly one of the two, over the period `from` to `to` at `lag`, as
+	// `getLiquidityForecastVariance` reads that variance. The comment is checked as the variance's request
+	// is: a lag other than 0, 7 and 30, a period ending before it starts or more than 36 months long,
+	// ending after the company's date or after the snapshot's horizon is 422; a period whose snapshot was
+	// not taken is 409 `cash.snapshot_not_taken`; a legal entity the caller cannot act in is 404. It names
+	// the snapshot that variance compares with (the daily one taken `lag` days before `from`, else the
+	// last taken on demand that day), which is then kept as long as the comment, past its 25 months. A
+	// person's comment is `accepted` as written, decided by its author; the forecast agent's proposals are
+	// other statuses. Audited, and published as VarianceCommentDecided.
+	//
+	// POST /v1/liquidity-forecast-variance/comments
+	CreateVarianceComment(ctx context.Context, req *VarianceCommentCreate, params CreateVarianceCommentParams) (CreateVarianceCommentRes, error)
 	// CreateWebhookSubscription implements createWebhookSubscription operation.
 	//
 	// Subscribes an HTTPS endpoint to event types (ADR-0041). The URL's host must resolve to public
@@ -1596,6 +1612,13 @@ type Handler interface {
 	//
 	// GET /v1/uploads/{id}
 	GetUpload(ctx context.Context, params GetUploadParams) (GetUploadRes, error)
+	// GetVarianceComment implements getVarianceComment operation.
+	//
+	// One comment on a legal entity's forecast variance (ADR-0051 §11, T53f4). A comment on a legal
+	// entity the caller cannot act in is not found.
+	//
+	// GET /v1/liquidity-forecast-variance/comments/{id}
+	GetVarianceComment(ctx context.Context, params GetVarianceCommentParams) (GetVarianceCommentRes, error)
 	// GetWebhookDelivery implements getWebhookDelivery operation.
 	//
 	// Returns one delivery: its event, status and the outcome of its last attempt.
@@ -1835,7 +1858,8 @@ type Handler interface {
 	// TakeCashSnapshot workflow takes once a day per company after its `cash.snapshot_time` (local time,
 	// default 07:00), and those people take on demand (`takeCashSnapshot`). Each gives its totals per
 	// currency. A snapshot is kept 25 months after its date, then deleted by the workflow that takes the
-	// daily ones. Sortable by: `snapshot_date` (default descending).
+	// daily ones, unless a variance comment refers to it (`createVarianceComment`), which keeps it as long
+	// as the comment. Sortable by: `snapshot_date` (default descending).
 	//
 	// GET /v1/cash-snapshots
 	ListCashSnapshots(ctx context.Context, params ListCashSnapshotsParams) (ListCashSnapshotsRes, error)
@@ -2418,6 +2442,17 @@ type Handler interface {
 	//
 	// GET /v1/tax-registrations/{id}/returns
 	ListTaxReturns(ctx context.Context, params ListTaxReturnsParams) (ListTaxReturnsRes, error)
+	// ListVarianceComments implements listVarianceComments operation.
+	//
+	// The comments people wrote on the forecast variance of the legal entities the caller may act in
+	// (ADR-0051 §11, T53f4), newest first: each explains one row of a company's variance
+	// (`getLiquidityForecastVariance`), a liquidity item or what no rule assigns (`unclassified`), over a
+	// period at a lag, against the snapshot that variance compares with. Filters: the legal entity, the
+	// liquidity item or the unclassified row (not both, 422), the lag, the status, and the periods that
+	// end on or after `from` and start on or before `to`. Sortable by: `created_at` (default descending).
+	//
+	// GET /v1/liquidity-forecast-variance/comments
+	ListVarianceComments(ctx context.Context, params ListVarianceCommentsParams) (ListVarianceCommentsRes, error)
 	// ListWebhookDeliveries implements listWebhookDeliveries operation.
 	//
 	// The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:

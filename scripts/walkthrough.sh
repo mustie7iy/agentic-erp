@@ -314,11 +314,11 @@ start() {
   say "  - the GST34's lines (T61j-T61l): step 2 configures one"
   say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
-  say "  - the liquidity forecast's purchase orders and variance comments (T53f4-T53k): step 13 shows the daily cash"
+  say "  - the liquidity forecast's purchase orders and an agent's variance comments (T53g-T53k): step 13 shows the daily cash"
   say "    position with a memo record and the forecast of the supplier open items, payment runs, parked invoices, down"
   say "    payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening, memo records"
   say "    and payments in transit, conversion and drill-down; step 26 its snapshots; step 27 the cash actuals;"
-  say "    step 28 the forecast's variance"
+  say "    step 28 the forecast's variance, step 30 a person's comment on it"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - asset retirements, transfers and the rest of asset accounting (T57g-T57i): steps 19 and 20 show the classes and"
   say "    the master, steps 22 and 24 acquisitions and their corrections, step 25 the depreciation schedule and preview, step 29"
@@ -3304,6 +3304,40 @@ step_depreciation_run() {
   passed
 }
 
+# step_cash_variance_comment is a person's explanation of a row of the
+# day's variance, read back by another reader, who may not write one
+# (T53f4, ADR-0051 §11, §13, §15).
+step_cash_variance_comment() {
+  heading "Step 30 — Variance comments: Tom explains a row of the day's variance; Rita reads it and may not write one"
+  as tom
+  local day item row comment snap
+  QUIET=1 api 200 '' listCashSnapshots -p "legal_entity_id=$LE" -p kind=on_demand
+  day=$(field '[.items[] | select(.name == "Board meeting")][0].snapshot_date')
+  QUIET=1 api 200 '' getLiquidityForecastVariance -p "legal_entity_id=$LE" -p "from=$day" -p "to=$day" -p lag=0
+  snap=$(field .snapshot.id)
+  item=$(field '[.currencies[] | select(.currency == "CAD") | .items[] | select(.liquidity_item != null and .level == 0)][0].liquidity_item // empty')
+  if [ -n "$item" ]; then row="\"liquidity_item\": \"$item\""; else row='"unclassified": true'; fi
+  say "Tom explains the variance of ${item:-what no rule assigns} on $day at lag 0 (T53f4). The comment names the row, the"
+  say "period and the lag, and the snapshot that variance compares with, which is then kept with it past its 25 months;"
+  say "a person's comment is accepted as written, audited and published as VarianceCommentDecided."
+  api 201 '"comment on \(.liquidity_item // "unclassified") \(.liquidity_item_name // ""): \(.from)..\(.to) lag \(.lag), snapshot of \(.snapshot_date), \(.status)", "  \"\(.text)\""' \
+    createVarianceComment -body "{\"legal_entity_id\": \"$LE\", \"from\": \"$day\", \"to\": \"$day\", \"lag\": 0, $row, \"text\": \"The run of the day paid as forecast; the rest is the bank's timing.\"}"
+  comment=$(field .id)
+  expect "the comment accepted as written" "$(field .status)" accepted
+  expect "the comment's row" "$(field '.liquidity_item // "unclassified"')" "${item:-unclassified}"
+  QUIET=1 api 200 '' getVarianceComment -p "id=$comment"
+  expect "its snapshot, the variance's" "$(field .snapshot_id)" "$snap"
+  as rita
+  say "Rita holds the forecast's read alone: she reads the comments of the period, and may not write one."
+  api 200 '.items[] | "  \(.company_code) \(.from)..\(.to) lag \(.lag) \(.liquidity_item // "unclassified"): \(.text) (\(.status))"' \
+    listVarianceComments -p "legal_entity_id=$LE" -p "from=$day" -p "to=$day"
+  expect "Tom's comment listed for Rita" "$(field "[.items[].id] | index(\"$comment\") != null")" true
+  refused 403 identity.permission_missing createVarianceComment \
+    -body "{\"legal_entity_id\": \"$LE\", \"from\": \"$day\", \"to\": \"$day\", \"lag\": 0, $row, \"text\": \"Not mine to explain.\"}"
+  as tom
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -3325,7 +3359,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_close'
 
 main() {
   start

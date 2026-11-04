@@ -15490,7 +15490,7 @@ paths:
       tags:
         - cash
       summary: List snapshots of the liquidity forecast
-      description: "The snapshots of the liquidity forecast of the legal entities the caller may act in (ADR-0051 §6, T53f), newest first (by `snapshot_date`; those of one date latest taken first): the daily ones the TakeCashSnapshot workflow takes once a day per company after its `cash.snapshot_time` (local time, default 07:00), and those people take on demand (`takeCashSnapshot`). Each gives its totals per currency. A snapshot is kept 25 months after its date, then deleted by the workflow that takes the daily ones. Sortable by: `snapshot_date` (default descending)."
+      description: "The snapshots of the liquidity forecast of the legal entities the caller may act in (ADR-0051 §6, T53f), newest first (by `snapshot_date`; those of one date latest taken first): the daily ones the TakeCashSnapshot workflow takes once a day per company after its `cash.snapshot_time` (local time, default 07:00), and those people take on demand (`takeCashSnapshot`). Each gives its totals per currency. A snapshot is kept 25 months after its date, then deleted by the workflow that takes the daily ones, unless a variance comment refers to it (`createVarianceComment`), which keeps it as long as the comment. Sortable by: `snapshot_date` (default descending)."
       x-permission: cash.forecast.read
       x-problem-codes:
         - request.invalid_order_by
@@ -15952,6 +15952,161 @@ paths:
           $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/liquidity-forecast-variance/comments:
+    get:
+      operationId: listVarianceComments
+      tags:
+        - cash
+      summary: List comments on the forecast variance
+      description: "The comments people wrote on the forecast variance of the legal entities the caller may act in (ADR-0051 §11, T53f4), newest first: each explains one row of a company's variance (`getLiquidityForecastVariance`), a liquidity item or what no rule assigns (`unclassified`), over a period at a lag, against the snapshot that variance compares with. Filters: the legal entity, the liquidity item or the unclassified row (not both, 422), the lag, the status, and the periods that end on or after `from` and start on or before `to`. Sortable by: `created_at` (default descending)."
+      x-permission: cash.forecast.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: liquidity_item
+          in: query
+          required: false
+          description: Only comments on this liquidity item's row (its code).
+          schema:
+            type: string
+        - name: unclassified
+          in: query
+          required: false
+          description: "Only comments on the row of what no rule assigns; not with `liquidity_item`."
+          schema:
+            type: boolean
+        - name: lag
+          in: query
+          required: false
+          description: Only comments on the variance at this lag (0, 7 or 30 days).
+          schema:
+            type: integer
+            format: int32
+        - name: status
+          in: query
+          required: false
+          description: Only comments of this status.
+          schema:
+            type: string
+            description: "A comment's status. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [proposed, accepted, rejected]
+        - name: from
+          in: query
+          required: false
+          description: Only comments on periods ending on or after this day.
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          description: Only comments on periods starting on or before this day.
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of comments.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VarianceCommentPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createVarianceComment
+      tags:
+        - cash
+      summary: Comment on a row of the forecast variance
+      description: "A person explains one row of a legal entity's forecast variance (ADR-0051 §11, §13, T53f4): a liquidity item (`liquidity_item`, its code; a tenant's item, active or not) or what no rule assigns (`unclassified: true`), exactly one of the two, over the period `from` to `to` at `lag`, as `getLiquidityForecastVariance` reads that variance. The comment is checked as the variance's request is: a lag other than 0, 7 and 30, a period ending before it starts or more than 36 months long, ending after the company's date or after the snapshot's horizon is 422; a period whose snapshot was not taken is 409 `cash.snapshot_not_taken`; a legal entity the caller cannot act in is 404. It names the snapshot that variance compares with (the daily one taken `lag` days before `from`, else the last taken on demand that day), which is then kept as long as the comment, past its 25 months. A person's comment is `accepted` as written, decided by its author; the forecast agent's proposals are other statuses. Audited, and published as VarianceCommentDecided."
+      x-permission: cash.variance.comment
+      x-agent: false
+      x-problem-codes:
+        - cash.snapshot_not_taken
+        - config.not_bootstrapped
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The comment to write.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VarianceCommentCreate"
+      responses:
+        "201":
+          description: "Written; the comment."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VarianceComment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/liquidity-forecast-variance/comments/{id}":
+    get:
+      operationId: getVarianceComment
+      tags:
+        - cash
+      summary: Get a comment on the forecast variance
+      description: "One comment on a legal entity's forecast variance (ADR-0051 §11, T53f4). A comment on a legal entity the caller cannot act in is not found."
+      x-permission: cash.forecast.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The comment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VarianceComment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/memo-records:
@@ -37200,6 +37355,83 @@ components:
                       new: {amount: "0.00", currency: CAD}
                       missing: {amount: "0.00", currency: CAD}
                       unclassified: {amount: "0.00", currency: CAD}
+    VarianceCommentCreate:
+      type: object
+      description: "A person's comment on one row of a legal entity's forecast variance (ADR-0051 §11): a liquidity item or, with `unclassified`, what no rule assigns."
+      required: [legal_entity_id, from, to, text]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The legal entity whose variance it explains."}
+        from: {type: string, format: date, description: "The period's first day, as the variance's `from`."}
+        to: {type: string, format: date, description: "The period's last day, as the variance's `to`."}
+        lag: {type: integer, format: int32, default: 7, description: "The variance's lag: 0, 7 (default) or 30 days."}
+        liquidity_item: {type: string, minLength: 1, description: "The code of the liquidity item whose row it explains; absent with `unclassified`."}
+        unclassified: {type: boolean, default: false, description: "True: it explains the row of what no rule assigns, and names no `liquidity_item`."}
+        text: {type: string, minLength: 1, maxLength: 2000, pattern: '\S', description: "The explanation, such as \"The run of the 7th was released a week late.\""}
+      examples:
+        - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          from: "2026-04-24"
+          to: "2026-04-30"
+          lag: 7
+          liquidity_item: PAY_SUPPLIERS
+          text: "The run of the 24th was released a week late, on 1 May."
+    VarianceComment:
+      type: object
+      description: "A comment on one row of a legal entity's forecast variance (ADR-0051 §11, T53f4), with the snapshot that variance compares with, which is kept as long as the comment."
+      required: [id, legal_entity_id, company_code, from, to, lag, unclassified, snapshot_id, snapshot_date, text, status, created_at, created_by]
+      properties:
+        id: {type: string, format: uuid, description: Comment id., readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        company_code: {type: string, description: "The legal entity's company code.", readOnly: true}
+        from: {type: string, format: date, description: "The period's first day.", readOnly: true}
+        to: {type: string, format: date, description: "The period's last day.", readOnly: true}
+        lag: {type: integer, format: int32, description: "The variance's lag in days.", readOnly: true}
+        liquidity_item: {type: string, description: "The code of the liquidity item whose row it explains; absent when `unclassified`.", readOnly: true}
+        liquidity_item_name: {type: string, description: "The liquidity item's name; absent when `unclassified`.", readOnly: true}
+        unclassified: {type: boolean, description: "True: it explains the row of what no rule assigns.", readOnly: true}
+        snapshot_id: {type: string, format: uuid, description: "The snapshot the variance compares with (`getCashSnapshot`).", readOnly: true}
+        snapshot_date: {type: string, format: date, description: "The snapshot's date, `lag` days before `from`.", readOnly: true}
+        text: {type: string, description: The explanation., readOnly: true}
+        status:
+          type: string
+          description: "`accepted` (a person's comment, decided as written, or a proposal a person accepted), `proposed` (the forecast agent's, until a person decides it) or `rejected` (a proposal a person turned down). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [proposed, accepted, rejected]
+          readOnly: true
+        decided_by: {type: string, format: uuid, description: "The person who decided it: a person's comment, its author; absent while proposed.", readOnly: true}
+        decided_at: {type: string, format: date-time, description: "When it was decided; absent while proposed.", readOnly: true}
+        created_at: {type: string, format: date-time, description: When it was written., readOnly: true}
+        created_by: {type: string, format: uuid, description: "Its author.", readOnly: true}
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000e21
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "3000"
+          from: "2026-04-24"
+          to: "2026-04-30"
+          lag: 7
+          liquidity_item: PAY_SUPPLIERS
+          liquidity_item_name: Supplier payments
+          unclassified: false
+          snapshot_id: 0192a000-0000-7000-8000-000000000e01
+          snapshot_date: "2026-04-17"
+          text: "The run of the 24th was released a week late, on 1 May."
+          status: accepted
+          decided_by: 0192a000-0000-7000-8000-000000000101
+          decided_at: "2026-05-04T14:00:00Z"
+          created_at: "2026-05-04T14:00:00Z"
+          created_by: 0192a000-0000-7000-8000-000000000101
+    VarianceCommentPage:
+      type: object
+      description: One page of comments on the forecast variance.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/VarianceComment"}
+          description: The comments on this page, newest first.
+          readOnly: true
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          readOnly: true
     LiquidityForecastVarianceSnapshot:
       type: object
       description: "The snapshot a variance compares against (`getCashSnapshot`)."

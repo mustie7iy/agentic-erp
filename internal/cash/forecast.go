@@ -263,7 +263,7 @@ func (e *Endpoints) Forecast(ctx context.Context, q ForecastQuery) (Forecast, er
 		f.Converted = &c
 	}
 	if fr.r.sums.overflow {
-		return Forecast{}, errForecastTooLarge
+		return Forecast{}, errForecastTooLarge()
 	}
 	return f, nil
 }
@@ -374,7 +374,9 @@ func forecastBuckets(r reader, grain string, to *time.Time) ([]Bucket, error) {
 
 // errForecastTooLarge refuses a forecast whose sums are out of the range
 // of an amount.
-var errForecastTooLarge = problem.Unprocessable("cash.amount_too_large", "The amounts of the liquidity forecast add up to more than an amount can hold.")
+func errForecastTooLarge() *problem.Problem {
+	return problem.Unprocessable("cash.amount_too_large", "The amounts of the liquidity forecast add up to more than an amount can hold.")
+}
 
 // forecastFlows are the legal entity's supplier payments on their
 // expected days (supplierFlows: payable, invoice_unposted, down_payment,

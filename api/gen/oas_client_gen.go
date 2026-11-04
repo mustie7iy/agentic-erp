@@ -764,6 +764,22 @@ type Invoker interface {
 	//
 	// POST /v1/uploads
 	CreateUpload(ctx context.Context, request *UploadCreate, params CreateUploadParams) (CreateUploadRes, error)
+	// CreateVarianceComment invokes createVarianceComment operation.
+	//
+	// A person explains one row of a legal entity's forecast variance (ADR-0051 §11, §13, T53f4): a
+	// liquidity item (`liquidity_item`, its code; a tenant's item, active or not) or what no rule assigns
+	// (`unclassified: true`), exactly one of the two, over the period `from` to `to` at `lag`, as
+	// `getLiquidityForecastVariance` reads that variance. The comment is checked as the variance's request
+	// is: a lag other than 0, 7 and 30, a period ending before it starts or more than 36 months long,
+	// ending after the company's date or after the snapshot's horizon is 422; a period whose snapshot was
+	// not taken is 409 `cash.snapshot_not_taken`; a legal entity the caller cannot act in is 404. It names
+	// the snapshot that variance compares with (the daily one taken `lag` days before `from`, else the
+	// last taken on demand that day), which is then kept as long as the comment, past its 25 months. A
+	// person's comment is `accepted` as written, decided by its author; the forecast agent's proposals are
+	// other statuses. Audited, and published as VarianceCommentDecided.
+	//
+	// POST /v1/liquidity-forecast-variance/comments
+	CreateVarianceComment(ctx context.Context, request *VarianceCommentCreate, params CreateVarianceCommentParams) (CreateVarianceCommentRes, error)
 	// CreateWebhookSubscription invokes createWebhookSubscription operation.
 	//
 	// Subscribes an HTTPS endpoint to event types (ADR-0041). The URL's host must resolve to public
@@ -1617,6 +1633,13 @@ type Invoker interface {
 	//
 	// GET /v1/uploads/{id}
 	GetUpload(ctx context.Context, params GetUploadParams) (GetUploadRes, error)
+	// GetVarianceComment invokes getVarianceComment operation.
+	//
+	// One comment on a legal entity's forecast variance (ADR-0051 §11, T53f4). A comment on a legal
+	// entity the caller cannot act in is not found.
+	//
+	// GET /v1/liquidity-forecast-variance/comments/{id}
+	GetVarianceComment(ctx context.Context, params GetVarianceCommentParams) (GetVarianceCommentRes, error)
 	// GetWebhookDelivery invokes getWebhookDelivery operation.
 	//
 	// Returns one delivery: its event, status and the outcome of its last attempt.
@@ -1856,7 +1879,8 @@ type Invoker interface {
 	// TakeCashSnapshot workflow takes once a day per company after its `cash.snapshot_time` (local time,
 	// default 07:00), and those people take on demand (`takeCashSnapshot`). Each gives its totals per
 	// currency. A snapshot is kept 25 months after its date, then deleted by the workflow that takes the
-	// daily ones. Sortable by: `snapshot_date` (default descending).
+	// daily ones, unless a variance comment refers to it (`createVarianceComment`), which keeps it as long
+	// as the comment. Sortable by: `snapshot_date` (default descending).
 	//
 	// GET /v1/cash-snapshots
 	ListCashSnapshots(ctx context.Context, params ListCashSnapshotsParams) (ListCashSnapshotsRes, error)
@@ -2439,6 +2463,17 @@ type Invoker interface {
 	//
 	// GET /v1/tax-registrations/{id}/returns
 	ListTaxReturns(ctx context.Context, params ListTaxReturnsParams) (ListTaxReturnsRes, error)
+	// ListVarianceComments invokes listVarianceComments operation.
+	//
+	// The comments people wrote on the forecast variance of the legal entities the caller may act in
+	// (ADR-0051 §11, T53f4), newest first: each explains one row of a company's variance
+	// (`getLiquidityForecastVariance`), a liquidity item or what no rule assigns (`unclassified`), over a
+	// period at a lag, against the snapshot that variance compares with. Filters: the legal entity, the
+	// liquidity item or the unclassified row (not both, 422), the lag, the status, and the periods that
+	// end on or after `from` and start on or before `to`. Sortable by: `created_at` (default descending).
+	//
+	// GET /v1/liquidity-forecast-variance/comments
+	ListVarianceComments(ctx context.Context, params ListVarianceCommentsParams) (ListVarianceCommentsRes, error)
 	// ListWebhookDeliveries invokes listWebhookDeliveries operation.
 	//
 	// The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:
@@ -13843,6 +13878,146 @@ func (c *Client) sendCreateUpload(ctx context.Context, request *UploadCreate, pa
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateUploadResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateVarianceComment invokes createVarianceComment operation.
+//
+// A person explains one row of a legal entity's forecast variance (ADR-0051 §11, §13, T53f4): a
+// liquidity item (`liquidity_item`, its code; a tenant's item, active or not) or what no rule assigns
+// (`unclassified: true`), exactly one of the two, over the period `from` to `to` at `lag`, as
+// `getLiquidityForecastVariance` reads that variance. The comment is checked as the variance's request
+// is: a lag other than 0, 7 and 30, a period ending before it starts or more than 36 months long,
+// ending after the company's date or after the snapshot's horizon is 422; a period whose snapshot was
+// not taken is 409 `cash.snapshot_not_taken`; a legal entity the caller cannot act in is 404. It names
+// the snapshot that variance compares with (the daily one taken `lag` days before `from`, else the
+// last taken on demand that day), which is then kept as long as the comment, past its 25 months. A
+// person's comment is `accepted` as written, decided by its author; the forecast agent's proposals are
+// other statuses. Audited, and published as VarianceCommentDecided.
+//
+// POST /v1/liquidity-forecast-variance/comments
+func (c *Client) CreateVarianceComment(ctx context.Context, request *VarianceCommentCreate, params CreateVarianceCommentParams) (CreateVarianceCommentRes, error) {
+	res, err := c.sendCreateVarianceComment(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateVarianceComment(ctx context.Context, request *VarianceCommentCreate, params CreateVarianceCommentParams) (res CreateVarianceCommentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createVarianceComment"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/liquidity-forecast-variance/comments"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateVarianceCommentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/liquidity-forecast-variance/comments"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateVarianceCommentRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateVarianceCommentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateVarianceCommentResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -26687,6 +26862,138 @@ func (c *Client) sendGetUpload(ctx context.Context, params GetUploadParams) (res
 	return result, nil
 }
 
+// GetVarianceComment invokes getVarianceComment operation.
+//
+// One comment on a legal entity's forecast variance (ADR-0051 §11, T53f4). A comment on a legal
+// entity the caller cannot act in is not found.
+//
+// GET /v1/liquidity-forecast-variance/comments/{id}
+func (c *Client) GetVarianceComment(ctx context.Context, params GetVarianceCommentParams) (GetVarianceCommentRes, error) {
+	res, err := c.sendGetVarianceComment(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetVarianceComment(ctx context.Context, params GetVarianceCommentParams) (res GetVarianceCommentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getVarianceComment"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/liquidity-forecast-variance/comments/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetVarianceCommentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/liquidity-forecast-variance/comments/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetVarianceCommentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetVarianceCommentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetWebhookDelivery invokes getWebhookDelivery operation.
 //
 // Returns one delivery: its event, status and the outcome of its last attempt.
@@ -31895,7 +32202,8 @@ func (c *Client) sendListCashSnapshotFlows(ctx context.Context, params ListCashS
 // TakeCashSnapshot workflow takes once a day per company after its `cash.snapshot_time` (local time,
 // default 07:00), and those people take on demand (`takeCashSnapshot`). Each gives its totals per
 // currency. A snapshot is kept 25 months after its date, then deleted by the workflow that takes the
-// daily ones. Sortable by: `snapshot_date` (default descending).
+// daily ones, unless a variance comment refers to it (`createVarianceComment`), which keeps it as long
+// as the comment. Sortable by: `snapshot_date` (default descending).
 //
 // GET /v1/cash-snapshots
 func (c *Client) ListCashSnapshots(ctx context.Context, params ListCashSnapshotsParams) (ListCashSnapshotsRes, error) {
@@ -48162,6 +48470,298 @@ func (c *Client) sendListTaxReturns(ctx context.Context, params ListTaxReturnsPa
 
 	stage = "DecodeResponse"
 	result, err := decodeListTaxReturnsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListVarianceComments invokes listVarianceComments operation.
+//
+// The comments people wrote on the forecast variance of the legal entities the caller may act in
+// (ADR-0051 §11, T53f4), newest first: each explains one row of a company's variance
+// (`getLiquidityForecastVariance`), a liquidity item or what no rule assigns (`unclassified`), over a
+// period at a lag, against the snapshot that variance compares with. Filters: the legal entity, the
+// liquidity item or the unclassified row (not both, 422), the lag, the status, and the periods that
+// end on or after `from` and start on or before `to`. Sortable by: `created_at` (default descending).
+//
+// GET /v1/liquidity-forecast-variance/comments
+func (c *Client) ListVarianceComments(ctx context.Context, params ListVarianceCommentsParams) (ListVarianceCommentsRes, error) {
+	res, err := c.sendListVarianceComments(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListVarianceComments(ctx context.Context, params ListVarianceCommentsParams) (res ListVarianceCommentsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listVarianceComments"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/liquidity-forecast-variance/comments"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListVarianceCommentsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/liquidity-forecast-variance/comments"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "liquidity_item" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "liquidity_item",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LiquidityItem.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "unclassified" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "unclassified",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Unclassified.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "lag" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "lag",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Lag.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.From.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.To.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListVarianceCommentsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListVarianceCommentsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
