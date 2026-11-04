@@ -340,6 +340,7 @@ channels:
       MemoRecordChanged: {$ref: '#/components/messages/MemoRecordChanged'}
       CashSnapshotTaken: {$ref: '#/components/messages/CashSnapshotTaken'}
       VarianceCommentDecided: {$ref: '#/components/messages/VarianceCommentDecided'}
+      CashExportDelivered: {$ref: '#/components/messages/CashExportDelivered'}
   controlling:
     address: 'erp.{cell}.controlling.{tenant}.{event}'
     title: Controlling events
@@ -562,6 +563,7 @@ operations:
       - $ref: '#/channels/cash/messages/MemoRecordChanged'
       - $ref: '#/channels/cash/messages/CashSnapshotTaken'
       - $ref: '#/channels/cash/messages/VarianceCommentDecided'
+      - $ref: '#/channels/cash/messages/CashExportDelivered'
   publishControllingEvents:
     action: send
     title: Controlling publishes
@@ -2838,6 +2840,7 @@ components:
           payload: {memo_record_id: 0192a000-0000-7000-8000-000000000d01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, change: created, status: active, version: 1}
     CashSnapshotTaken:
       name: CashSnapshotTaken
+      x-webhook: true
       title: Cash snapshot taken
       summary: A snapshot of a company's liquidity forecast was taken.
       description: |
@@ -2845,7 +2848,10 @@ components:
         snapshot (`daily`, once per company and date) and by `cash-snapshots`
         (POST, `on_demand`, a person's) (ADR-0051 §6, §15). It names the
         snapshot, which `GET /v1/cash-snapshots/{id}` returns; a snapshot is
-        never changed. Subject is the snapshot id.
+        never changed. Subject is the snapshot id. Offered to webhooks
+        (ADR-0051 §14, T53h): a treasury system that pulls reads the
+        snapshot, its flows (`GET /v1/cash-snapshots/{id}/flows`) or its
+        exports when told it was taken.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -2880,6 +2886,29 @@ components:
         - name: accepted
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000621, source: /erp/eu-1/cash, type: com.example.erp.cash.variance_comment_decided.v1, subject: 0192a000-0000-7000-8000-000000000e21, time: '2026-05-04T14:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {variance_comment_id: 0192a000-0000-7000-8000-000000000e21, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: '3000', from: '2026-04-24', to: '2026-04-30', lag: 7, liquidity_item: PAY_SUPPLIERS, snapshot_id: 0192a000-0000-7000-8000-000000000e01, status: accepted, decided_by: 0192a000-0000-7000-8000-000000000101}
+    CashExportDelivered:
+      name: CashExportDelivered
+      title: Cash export delivered
+      summary: A snapshot of a company's liquidity forecast was delivered to a treasury system.
+      description: |
+        Emitted by the exporter when it has delivered a snapshot's export
+        to a treasury channel (ADR-0051 §14, §15): the file, in the cash
+        export schema v1, named by company, snapshot date and content hash,
+        is in the channel's SFTP directory. `resend` is true when the
+        channel had been delivered the same file before (the same snapshot
+        exported again), so a treasury system recognises it by its name.
+        The export is `GET /v1/cash-exports/{id}`. Subject is the export id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.cash.cash_export_delivered.v1}
+      payload: {$ref: '#/components/schemas/CashExportDeliveredV1'}
+      examples:
+        - name: delivered
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000631, source: /erp/eu-1/cash, type: com.example.erp.cash.cash_export_delivered.v1, subject: 0192a000-0000-7000-8000-000000000e51, time: '2026-04-17T13:05:09Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
+          payload: {cash_export_id: 0192a000-0000-7000-8000-000000000e51, cash_snapshot_id: 0192a000-0000-7000-8000-000000000e01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: '3000', snapshot_date: '2026-04-17', connector_id: 0192a000-0000-7000-8000-000000000c11, format: csv, file_name: cash-3000-2026-04-17-4f2c1e0b9a7d6c5b4a3928170615f4e3d2c1b0a99887766554433221100ffeed.csv, sha256: 4f2c1e0b9a7d6c5b4a3928170615f4e3d2c1b0a99887766554433221100ffeed, resend: false}
     AssetChanged:
       name: AssetChanged
       title: Asset changed
@@ -3469,6 +3498,20 @@ components:
         kind: {type: string, description: 'Open enum: daily, on_demand.'}
         snapshot_date: {$ref: '#/components/schemas/Date'}
         line_count: {type: integer, description: The lines the snapshot kept.}
+    CashExportDeliveredV1:
+      type: object
+      required: [cash_export_id, cash_snapshot_id, legal_entity_id, company_code, snapshot_date, connector_id, format, file_name, sha256, resend]
+      properties:
+        cash_export_id: {$ref: '#/components/schemas/Uuid', description: '`cash.export.id`.'}
+        cash_snapshot_id: {$ref: '#/components/schemas/Uuid', description: The snapshot exported.}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        company_code: {type: string, description: "The legal entity's company code."}
+        snapshot_date: {$ref: '#/components/schemas/Date'}
+        connector_id: {$ref: '#/components/schemas/Uuid', description: 'The treasury channel, a `treasury_export` connector.'}
+        format: {type: string, description: 'Open enum: jsonl, csv.'}
+        file_name: {type: string, description: 'cash-<company code>-<snapshot date>-<sha256>.<format>.'}
+        sha256: {type: string, description: "The file content's SHA-256, in hexadecimal."}
+        resend: {type: boolean, description: Whether the channel had been delivered this file before.}
     VarianceCommentDecidedV1:
       type: object
       required: [variance_comment_id, legal_entity_id, company_code, from, to, lag, liquidity_item, snapshot_id, status, decided_by]

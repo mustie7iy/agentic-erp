@@ -33,6 +33,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/audit"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
+	"github.com/mustie7iy/agentic-erp/internal/cash"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/controlplane"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
@@ -792,6 +793,10 @@ func (s *server) startOperations(runCtx context.Context) {
 	// workflow engine: the outbox of their transmission (T44e, ADR-0038).
 	transmitter := &payments.Transmitter{Endpoints: app.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
 	s.spawn("bank file transmitter", func() { transmitter.Run(runCtx) })
+	// Snapshots are exported to treasury systems the same way, on the
+	// same SFTP transport (T53h, ADR-0051 §14).
+	exporter := &cash.Exporter{Endpoints: app.Cash(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
+	s.spawn("cash exporter", func() { exporter.Run(runCtx) })
 	recurrences := &workflows.Recurrences{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Endpoints: app.Ledger(apiCfg)}
 	// The cash context is a leaf (ADR-0051 §2): its endpoints are the
 	// snapshot workflow's port, wired here.

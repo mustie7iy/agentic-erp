@@ -1061,3 +1061,19 @@ owner decided on 2026-11-02:
   removing the grant from `perms` would silently drop that coverage.
   No walkthrough step: the walkthrough's caller holds every permission, and
   this is a security fix, not a capability.
+
+## As built: the treasury connector on the SFTP transport (T53h, ADR-0051 §14)
+The cash context's exports of snapshots to a treasury system travel on
+this transport: an integration connector of kind `treasury_export` names
+its SFTP server with the settings a `bank_sftp` channel names (host, port,
+user, pinned host key, directory; the private key by `secret_ref`), checked
+by the same code (`integration.sftpServer`), and resolves into its endpoint
+failing closed as a bank channel does (`integration.resolve`, which
+`BankChannels.Endpoint` now calls; a disabled bank channel's detail reads
+"The bank channel … is disabled", its code unchanged). `sftpclient.Upload`
+now tells a caller when the rename finds a file of the name there
+(`ErrExists`), leaving it as it is and removing its own hidden copy: a
+bank file, named by its id, still counts that a failed attempt, as
+before; an export, named by its content's hash, counts it delivered.
+`sftptest` starts outside a test too (`Start`, `Close`, `Stored`), for
+the walkthrough's stand-in SFTP server (`sftptest/sftpstub`).

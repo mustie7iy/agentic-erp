@@ -1467,9 +1467,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Treasury connector (P8): export schema v1 (JSON lines, CSV); treasury_export connector on the SFTP transport, files named by company, date and hash, resend recognised; CashSnapshotTaken webhook; export audited",
-        "r": "T53h",
+        "r": "api/schemas/cash-export.v1.json (rows per currency, day or bucket, house bank, source, certainty and liquidity item; no documents, suppliers or payments) · connector kind treasury_export (host, port, user, host_key, directory, format, companies) · POST /v1/cash-snapshots/{id}/exports, GET /v1/cash-exports, GET /v1/cash-exports/{id} (createCashExport, listCashExports, getCashExport: CashExportCreate, CashExport, CashExportPage; 422 cash.export_channel_invalid) · CashSnapshotTaken x-webhook · CashExportDelivered event · migrations 000196-000197 (cash.export, connector_kind_check widened and validated, cash.export.read, cash.export.send) · cash.Exporter, Endpoints.RequestExport, Export, Exports, exportRows, renderExport, TreasuryChannels · integration.TreasuryChannels, TreasuryExport, treasurySettings, sftpServer, resolve · payments.CashPosition.HouseBankAccounts · sftpclient.ErrExists · sftptest.Start, sftpstub · apitypes.OptDateTime · TestExportGolden, TestExportSchema, TestCompareRows, TestCashExport, TestCashExportRefusals, TestCashExportRetries, TestCashExportFailures, TestExporterFailures, TestExporterUploadBound, TestTreasurySettings, TestTreasuryChannels, TestCashSnapshotTakenWebhook, TestUploadExisting, TestCashExportRules, TestCashExportPrivileges · walkthrough step 28 · ADR-0051 (as built, T53h) · ADR-0038, ADR-0041 (as built) · 03-data-model §3.18 · 04-api-design §4.12, §4.14 · T53h",
         "src": "baseline",
         "c": []
        },

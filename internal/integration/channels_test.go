@@ -115,3 +115,105 @@ func endpointOf(t *testing.T, f fixture.Env, b integration.BankChannels, id uuid
 	})
 	return ep, err
 }
+
+// TestTreasuryChannels: the treasury_export connectors the cash context
+// exports to (ADR-0051 §14, T53h): those active and naming a company are
+// its channels, by name; any connector is read by id, a channel when of
+// the kind; one resolves into its SFTP endpoint with the secret's key and
+// fails closed as a bank channel does.
+func TestTreasuryChannels(t *testing.T) {
+	f := fixture.New(t)
+	key, client := sftptest.PrivateKey(t)
+	host := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sftptest.Signer(t).PublicKey())))
+	vars := map[string]string{"TREASURY_KEY": string(key)}
+	tc := integration.TreasuryChannels{Secrets: secrets.Local{Getenv: func(n string) string { return vars[n] }}}
+	settings := func(format, companies string) string {
+		return `{"host": "sftp.treasury.example", "user": "erp", "host_key": "` + host + `", "directory": "/cash", "format": "` + format + `", "companies": ` + companies + `}`
+	}
+	conn := func(kind, name, settings, status string) uuid.UUID {
+		id := uuid.Must(uuid.NewV7())
+		pgtest.Exec(t, `INSERT INTO integration.connector (tenant_id, id, kind, name, settings, secret_ref, status, created_by, updated_by)
+			VALUES ($1, $2, $3, $4, $5, 'env:TREASURY_KEY', $6, $7, $7)`, f.Tenant.ID, id, kind, name, settings, status, f.Tenant.Human.ID)
+		return id
+	}
+	csv := conn(integration.TreasuryExport, "Treasury B", settings("csv", `["3000", "4000"]`), "active")
+	jsonl := conn(integration.TreasuryExport, "Treasury A", settings("jsonl", `["3000"]`), "active")
+	conn(integration.TreasuryExport, "Other company", settings("jsonl", `["4000"]`), "active")
+	off := conn(integration.TreasuryExport, "Off", settings("jsonl", `["3000"]`), "disabled")
+	conn(integration.TreasuryExport, "Old", `{"host": "h", "companies": ["3000"]}`, "active")
+	bank := conn(integration.BankSFTP, "Bank", `{"host": "h", "user": "u", "host_key": "`+host+`", "directory": "/in"}`, "active")
+	in := func(fn func(ctx context.Context) error) {
+		t.Helper()
+		if err := apitest.InRequest(t, f.Tenant, f.Tenant.Human, fn); err != nil {
+			t.Fatal(err)
+		}
+	}
+	in(func(ctx context.Context) error {
+		chans, err := tc.ForCompany(ctx, "3000")
+		var got []string
+		for _, ch := range chans {
+			got = append(got, ch.Name+" "+ch.Format+" "+strings.Join(ch.Companies, ","))
+		}
+		if want := []string{"Treasury A jsonl 3000", "Treasury B csv 3000,4000"}; strings.Join(got, "; ") != strings.Join(want, "; ") {
+			t.Errorf("channels of 3000: got %q, want %q (active, naming it, settings that resolve, by name)", got, want)
+		}
+		return err
+	})
+	for name, c := range map[string]struct {
+		id            uuid.UUID
+		found, active bool
+		format        string
+	}{
+		"a channel":            {jsonl, true, true, "jsonl"},
+		"a disabled channel":   {off, true, false, "jsonl"},
+		"a bank channel":       {bank, false, true, ""},
+		"no connector of that": {uuid.New(), false, false, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			in(func(ctx context.Context) error {
+				ch, found, err := tc.Channel(ctx, c.id)
+				if found != c.found || ch.Active != c.active || ch.Format != c.format {
+					t.Errorf("got found %v, active %v, format %q, want %v, %v, %q", found, ch.Active, ch.Format, c.found, c.active, c.format)
+				}
+				return err
+			})
+		})
+	}
+	in(func(ctx context.Context) error {
+		ep, err := tc.Endpoint(ctx, csv)
+		if err == nil && (ep.Addr != "sftp.treasury.example:22" || ep.Dir != "/cash" || ep.User != "erp") {
+			t.Errorf("endpoint: got %s %s %s, want sftp.treasury.example:22 /cash erp", ep.Addr, ep.Dir, ep.User)
+		}
+		if err == nil && string(ep.Signer.PublicKey().Marshal()) != string(client.PublicKey().Marshal()) {
+			t.Error("client key: got another, want the secret's")
+		}
+		return err
+	})
+	for name, c := range map[string]struct {
+		id   uuid.UUID
+		code string
+	}{
+		"not a treasury channel": {bank, "integration.not_a_treasury_channel"},
+		"disabled":               {off, "integration.connector_disabled"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error { _, err := tc.Endpoint(ctx, c.id); return err })
+			if problem.From(err).Code != c.code {
+				t.Errorf("got %v, want %s", err, c.code)
+			}
+		})
+	}
+	t.Run("outside a unit of work and failing statements", func(t *testing.T) {
+		for name, call := range map[string]func(ctx context.Context) error{
+			"for a company": func(ctx context.Context) error { _, err := tc.ForCompany(ctx, "3000"); return err },
+			"by id":         func(ctx context.Context) error { _, _, err := tc.Channel(ctx, jsonl); return err },
+		} {
+			t.Run(name, func(t *testing.T) {
+				if err := call(context.Background()); err == nil {
+					t.Error("outside a unit of work: got nil error, want an error")
+				}
+				apitest.EveryFailure(t, f.Tenant, f.Tenant.Human, name, call)
+			})
+		}
+	})
+}

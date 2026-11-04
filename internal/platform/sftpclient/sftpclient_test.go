@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/pem"
+	"errors"
 	"strings"
 	"testing"
 
@@ -79,6 +80,24 @@ func TestUploadFailures(t *testing.T) {
 				t.Error("file: got one, want none")
 			}
 		})
+	}
+}
+
+// TestUploadExisting: a file of the name in the directory is left as it
+// is, the upload's own copy removed, and the caller told (ErrExists).
+func TestUploadExisting(t *testing.T) {
+	client := sftptest.Signer(t)
+	b := sftptest.NewServer(t, client.PublicKey(), func(*sftptest.Server) {})
+	b.Put(t, "/f.xml", "first")
+	err := b.Endpoint(client).Upload(context.Background(), "f.xml", []byte("second"))
+	if !errors.Is(err, sftpclient.ErrExists) {
+		t.Fatalf("got %v, want ErrExists", err)
+	}
+	if got, _ := b.Read(t, "/f.xml"); got != "first" {
+		t.Errorf("file: got %q, want the first left as it was", got)
+	}
+	if _, ok := b.Read(t, "/.partial-f.xml"); ok {
+		t.Error("partial file: got one left behind, want none")
 	}
 }
 

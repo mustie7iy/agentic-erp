@@ -60,6 +60,14 @@ func OptDate(v *time.Time) gen.OptDate {
 	return gen.NewOptDate(*v)
 }
 
+// OptDateTime is an optional instant field from a pointer: unset when nil.
+func OptDateTime(v *time.Time) gen.OptDateTime {
+	if v == nil {
+		return gen.OptDateTime{}
+	}
+	return gen.NewOptDateTime(*v)
+}
+
 // OptInt32 is an optional integer field from a pointer: unset when nil.
 func OptInt32(v *int32) gen.OptInt32 {
 	if v == nil {

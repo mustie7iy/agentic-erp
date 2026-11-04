@@ -225,6 +225,30 @@ func (CashPosition) HouseBankCodes(ctx context.Context, ids []uuid.UUID) (map[uu
 	return houseBankCodes(ctx, ids)
 }
 
+// CashBankAccount is a house bank's code and the last four characters of
+// its account, as the treasury export names it (ADR-0051 §14, §15).
+type CashBankAccount struct {
+	Code, Last4 string
+}
+
+// HouseBankAccounts are the codes and account endings of the house banks
+// among the ids, active or not, keyed by id. An id that names no house
+// bank is left out.
+func (CashPosition) HouseBankAccounts(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]CashBankAccount, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, code, iban_last4 FROM payments.house_bank WHERE id = ANY($1)`, ids)
+	out := map[uuid.UUID]CashBankAccount{}
+	var id uuid.UUID
+	var a CashBankAccount
+	if _, err = pgx.ForEachRow(rows, []any{&id, &a.Code, &a.Last4}, func() error { out[id] = a; return nil }); err != nil {
+		return nil, fmt.Errorf("payments: accounts of %d house banks: %w", len(ids), err)
+	}
+	return out, nil
+}
+
 // CashStatementLine is a bank statement line as a memo record's
 // realisation or an agent's evidence reads it: its statement's legal
 // entity, house bank and currency, its signed amount and value date.

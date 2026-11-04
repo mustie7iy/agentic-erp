@@ -466,6 +466,27 @@ func (UnimplementedHandler) CreateBusinessPartner(ctx context.Context, req *Busi
 	return r, ht.ErrNotImplemented
 }
 
+// CreateCashExport implements createCashExport operation.
+//
+// Asks for the snapshot to be exported again through a treasury channel (ADR-0051 §14, T53h): an
+// integration connector of kind `treasury_export` whose `companies` name the snapshot's company. Every
+// active such channel is sent a snapshot when it is taken; this is for a channel set up later, or a
+// treasury system that lost the file. The export is queued (`pending`) and sent by the exporter in the
+// background, as `getCashExport` then shows: the file, in the cash export schema v1
+// (`api/schemas/cash-export.v1.json`) in the channel's `format`, is named
+// `cash-<company code>-<snapshot date>-<sha256 of its content>.<format>`. A snapshot never changes, so
+// the same snapshot sent to the same channel is the same file under the same name: delivered, it is
+// marked `resend`, and a treasury system recognises it by its name. A file of that name still in the
+// directory is left as it is. A connector that is not an active `treasury_export` connector naming the
+// snapshot's company is 422 `cash.export_channel_invalid`; a snapshot of a legal entity the caller
+// cannot act in is 404. Audited (`cash.export.request`); the delivery is audited and published as
+// CashExportDelivered.
+//
+// POST /v1/cash-snapshots/{id}/exports
+func (UnimplementedHandler) CreateCashExport(ctx context.Context, req *CashExportCreate, params CreateCashExportParams) (r CreateCashExportRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateChangeRequest implements createChangeRequest operation.
 //
 // Creates a change request in status `draft`.
@@ -1199,6 +1220,21 @@ func (UnimplementedHandler) GetBusinessPartner(ctx context.Context, params GetBu
 //
 // GET /v1/cash-actuals
 func (UnimplementedHandler) GetCashActuals(ctx context.Context, params GetCashActualsParams) (r GetCashActualsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetCashExport implements getCashExport operation.
+//
+// One export of a snapshot of the liquidity forecast to a treasury channel (ADR-0051 §14, T53h):
+// `pending` until the exporter sends it, then `delivered` (with its file's name and hash, and whether
+// it was a resend) or `failed` (with the problem code of the last attempt). A failed attempt is tried
+// again after 1, 5 and 15 minutes, 1 and 4 hours; a refusal (the channel disabled or not resolving,
+// `integration.connector_disabled`, `integration.secret_required`, `integration.secret_unavailable`,
+// `integration.invalid_settings`, `integration.not_a_treasury_channel`) or the sixth attempt's failure
+// is final. An export of a legal entity the caller cannot act in is not found.
+//
+// GET /v1/cash-exports/{id}
+func (UnimplementedHandler) GetCashExport(ctx context.Context, params GetCashExportParams) (r GetCashExportRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -2138,6 +2174,19 @@ func (UnimplementedHandler) ListBusinessPartners(ctx context.Context, params Lis
 //
 // GET /v1/cash-actual-lines
 func (UnimplementedHandler) ListCashActualLines(ctx context.Context, params ListCashActualLinesParams) (r ListCashActualLinesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListCashExports implements listCashExports operation.
+//
+// The exports of snapshots of the liquidity forecast to treasury channels (ADR-0051 §14, T53h) of the
+// legal entities the caller may act in, newest first: those queued when a snapshot was taken, one per
+// active `treasury_export` channel naming its company, and those people asked for
+// (`createCashExport`). Filtered by snapshot, legal entity and status. Sortable by: `created_at`
+// (default descending).
+//
+// GET /v1/cash-exports
+func (UnimplementedHandler) ListCashExports(ctx context.Context, params ListCashExportsParams) (r ListCashExportsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

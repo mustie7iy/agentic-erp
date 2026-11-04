@@ -14398,6 +14398,130 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/cash-snapshots/{id}/exports":
+    post:
+      operationId: createCashExport
+      tags:
+        - cash
+      summary: Export a snapshot of the liquidity forecast to a treasury system
+      description: "Asks for the snapshot to be exported again through a treasury channel (ADR-0051 §14, T53h): an integration connector of kind `treasury_export` whose `companies` name the snapshot's company. Every active such channel is sent a snapshot when it is taken; this is for a channel set up later, or a treasury system that lost the file. The export is queued (`pending`) and sent by the exporter in the background, as `getCashExport` then shows: the file, in the cash export schema v1 (`api/schemas/cash-export.v1.json`) in the channel's `format`, is named `cash-<company code>-<snapshot date>-<sha256 of its content>.<format>`. A snapshot never changes, so the same snapshot sent to the same channel is the same file under the same name: delivered, it is marked `resend`, and a treasury system recognises it by its name. A file of that name still in the directory is left as it is. A connector that is not an active `treasury_export` connector naming the snapshot's company is 422 `cash.export_channel_invalid`; a snapshot of a legal entity the caller cannot act in is 404. Audited (`cash.export.request`); the delivery is audited and published as CashExportDelivered."
+      x-permission: cash.export.send
+      x-agent: false
+      x-problem-codes:
+        - cash.export_channel_invalid
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The channel to export to.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CashExportCreate"
+      responses:
+        "201":
+          description: "Queued; the export, `pending` until the exporter sends it."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashExport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/cash-exports:
+    get:
+      operationId: listCashExports
+      tags:
+        - cash
+      summary: List the exports of snapshots to treasury systems
+      description: "The exports of snapshots of the liquidity forecast to treasury channels (ADR-0051 §14, T53h) of the legal entities the caller may act in, newest first: those queued when a snapshot was taken, one per active `treasury_export` channel naming its company, and those people asked for (`createCashExport`). Filtered by snapshot, legal entity and status. Sortable by: `created_at` (default descending)."
+      x-permission: cash.export.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: cash_snapshot_id
+          in: query
+          required: false
+          description: Only the exports of this snapshot.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: status
+          in: query
+          required: false
+          description: "Only exports of this status: `pending`, `delivered` or `failed`."
+          schema:
+            type: string
+            description: "An export's status. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [pending, delivered, failed]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of exports.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashExportPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/cash-exports/{id}":
+    get:
+      operationId: getCashExport
+      tags:
+        - cash
+      summary: Get an export of a snapshot to a treasury system
+      description: "One export of a snapshot of the liquidity forecast to a treasury channel (ADR-0051 §14, T53h): `pending` until the exporter sends it, then `delivered` (with its file's name and hash, and whether it was a resend) or `failed` (with the problem code of the last attempt). A failed attempt is tried again after 1, 5 and 15 minutes, 1 and 4 hours; a refusal (the channel disabled or not resolving, `integration.connector_disabled`, `integration.secret_required`, `integration.secret_unavailable`, `integration.invalid_settings`, `integration.not_a_treasury_channel`) or the sixth attempt's failure is final. An export of a legal entity the caller cannot act in is not found."
+      x-permission: cash.export.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The export.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashExport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/liquidity-forecast:
     get:
       operationId: getLiquidityForecast
@@ -16787,6 +16911,7 @@ paths:
               - email
               - tax_engine
               - ticketing
+              - treasury_export
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -33118,6 +33243,81 @@ components:
           maxLength: 2048
       examples:
         - items: []
+    CashExportCreate:
+      type: object
+      description: "An export of a snapshot to a treasury channel to queue (ADR-0051 §14)."
+      required: [connector_id]
+      properties:
+        connector_id: {type: string, format: uuid, description: "The treasury channel: an active `treasury_export` connector whose `companies` name the snapshot's company."}
+      examples:
+        - connector_id: 0192a000-0000-7000-8000-000000000c11
+    CashExport:
+      type: object
+      description: "An export of a snapshot of the liquidity forecast to a treasury channel (ADR-0051 §14, T53h), in the cash export schema v1."
+      required: [id, cash_snapshot_id, legal_entity_id, company_code, snapshot_date, connector_id, connector_name, format, status, attempts, requested_by, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid, description: Export id., readOnly: true}
+        cash_snapshot_id: {type: string, format: uuid, description: "The snapshot exported (`getCashSnapshot`).", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The snapshot's legal entity.", readOnly: true}
+        company_code: {type: string, description: "The legal entity's company code.", readOnly: true}
+        snapshot_date: {type: string, format: date, description: "The snapshot's date.", readOnly: true}
+        connector_id: {type: string, format: uuid, description: "The treasury channel (`getConnector`).", readOnly: true}
+        connector_name: {type: string, description: "The treasury channel's name.", readOnly: true}
+        format:
+          type: string
+          description: "The file's format, the channel's: `jsonl` (JSON lines) or `csv`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [jsonl, csv]
+          readOnly: true
+        status:
+          type: string
+          description: "`pending` (queued, or waiting for its next attempt), `delivered` or `failed`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [pending, delivered, failed]
+          readOnly: true
+        attempts: {type: integer, format: int32, minimum: 0, maximum: 6, description: "The attempts made to send it.", readOnly: true}
+        next_attempt_at: {type: string, format: date-time, description: "Pending: when it is next sent.", readOnly: true}
+        file_name: {type: string, description: "The file's name, `cash-<company code>-<snapshot date>-<sha256>.<format>`; absent until it is first sent.", readOnly: true}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "The SHA-256 of the file's content, in hexadecimal; absent until it is first sent.", readOnly: true}
+        resend: {type: boolean, description: "Delivered: whether the channel had been delivered this file before, under the same name.", readOnly: true}
+        last_error_code: {type: string, description: "The problem code of the last failed attempt; absent when none failed.", readOnly: true}
+        delivered_at: {type: string, format: date-time, description: "When it was delivered.", readOnly: true}
+        requested_by: {type: string, format: uuid, description: "Who took the snapshot, for an export queued then, or asked for the export.", readOnly: true}
+        created_at: {type: string, format: date-time, readOnly: true}
+        updated_at: {type: string, format: date-time, readOnly: true}
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000e51
+          cash_snapshot_id: 0192a000-0000-7000-8000-000000000e01
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "3000"
+          snapshot_date: "2026-04-17"
+          connector_id: 0192a000-0000-7000-8000-000000000c11
+          connector_name: Treasury SFTP
+          format: csv
+          status: delivered
+          attempts: 1
+          file_name: cash-3000-2026-04-17-4f2c1e0b9a7d6c5b4a3928170615f4e3d2c1b0a99887766554433221100ffeed.csv
+          sha256: 4f2c1e0b9a7d6c5b4a3928170615f4e3d2c1b0a99887766554433221100ffeed
+          resend: false
+          delivered_at: "2026-04-17T13:05:09Z"
+          requested_by: 0192a000-0000-7000-8000-000000000101
+          created_at: "2026-04-17T13:05:00Z"
+          updated_at: "2026-04-17T13:05:09Z"
+    CashExportPage:
+      type: object
+      description: One page of exports of snapshots to treasury systems.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CashExport"}
+          description: The exports on this page, newest first.
+          readOnly: true
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+          readOnly: true
+      examples:
+        - items: []
     CashSnapshotCreate:
       type: object
       description: "A snapshot of the liquidity forecast to take on demand (ADR-0051 §6)."
@@ -35996,6 +36196,7 @@ components:
                 - email
                 - tax_engine
                 - ticketing
+                - treasury_export
               readOnly: true
             name:
               type: string
@@ -36005,7 +36206,7 @@ components:
             settings:
               type: object
               additionalProperties: true
-              description: "Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`."
+              description: "Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key."
             secret_ref:
               type: string
               description: Vault path of the credentials.
@@ -36047,6 +36248,7 @@ components:
             - email
             - tax_engine
             - ticketing
+            - treasury_export
         name:
           type: string
           description: Name, unique per tenant.
@@ -36055,7 +36257,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`."
+          description: "Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key."
         secret_ref:
           type: string
           description: Vault path of the credentials.
@@ -36077,7 +36279,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`."
+          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key."
         secret_ref:
           type:
             - string

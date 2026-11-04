@@ -56,12 +56,19 @@ func ParseSigner(pem []byte) (ssh.Signer, error) {
 	return s, nil
 }
 
+// ErrExists is what Upload returns when a file of that name is in the
+// directory already: it is left as it is, and the upload's own copy
+// removed.
+var ErrExists = errors.New("sftpclient: the file is there already")
+
 // Upload writes content to name, a plain file name, in the endpoint's
 // directory. Cancelling ctx closes the connection, so a server that stops
 // answering does not hold the caller. SFTP's rename refuses an existing
 // target, so a file uploaded once is not overwritten by a retry under its
-// name: telling a retry after a lost acknowledgement from a new file is the
-// caller's, by content hash (ADR-0038, T44c).
+// name: Upload then returns ErrExists. Telling a retry after a lost
+// acknowledgement from a new file is the caller's, by content hash
+// (ADR-0038, T44c); a caller that names its files by their content knows
+// the file there is its own (the treasury export, ADR-0051 §14).
 func (e Endpoint) Upload(ctx context.Context, name string, content []byte) error {
 	if err := fileName(name); err != nil {
 		return err
@@ -196,6 +203,10 @@ func (e Endpoint) put(s *sftp.Client, name string, content []byte) error {
 		return fmt.Errorf("sftpclient: write %s: %w", tmp, err)
 	}
 	if err := s.Rename(tmp, final); err != nil {
+		if _, there := s.Stat(final); there == nil {
+			_ = s.Remove(tmp) // a partial file left behind is hidden, and overwritten by the next upload of the name
+			return fmt.Errorf("sftpclient: %s: %w", final, ErrExists)
+		}
 		return fmt.Errorf("sftpclient: rename %s to %s: %w", tmp, final, err)
 	}
 	return nil

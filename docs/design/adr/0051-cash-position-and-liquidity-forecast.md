@@ -2131,6 +2131,101 @@ Export only, as 07 says: no deals, no positions or payments come back.
   import, others) is a mapping on top of this schema, built when the pilot
   names one (facts).
 
+As built (T53h; decided by default where §14 and §15 leave it open):
+- **What a file holds.** One snapshot of one company (§6), so the same
+  snapshot always gives the same file. A row is what the snapshot kept of
+  one currency, day or bucket, house bank, source, certainty and liquidity
+  item, summed (`cash.exportRows`): within its 31 days one row per value
+  date (`granularity` `day`), beyond one per bucket (`bucket`), so §14's
+  "forecast per item, bucket, source, certainty and currency" and "per bank
+  and day" are one table; lateness is not a column. A snapshot keeps no
+  opening balance (T53f), so the file carries the flows of the position,
+  not its balances: a treasury system takes balances from the bank
+  statements it receives, and the position as of now stays the API's
+  (`getCashPosition`), which a file named by its content could not be. A
+  row names **no document, supplier or payment**, only a bank by its code
+  and the last four characters of its account (§15, through
+  `payments.CashPosition.HouseBankAccounts`), so what leaves for a treasury
+  system needs none of the read permissions the snapshot's lines show
+  those by (`partner.supplier.read` and the documents' contexts', T53e4):
+  the export raises no question of posture. The file carries no totals:
+  the snapshot's are `getCashSnapshot`'s, which the webhook points at.
+- **The schema** is `api/schemas/cash-export.v1.json`, as §14 names it: a
+  JSON Schema of one row, its columns in order in `x-columns`; JSON lines
+  (LF, nulls as `null`) or RFC 4180 CSV (CRLF, a header of the columns,
+  nulls empty); amounts signed decimals in the currency's minor-unit
+  digits, `taken_at` in UTC; rows ordered by currency, period, bank code,
+  source, certainty and item. Within v1 a change is a column added at the
+  end; anything else is a v2 published beside it. The golden files are
+  `internal/cash/testdata/cash-export.v1.jsonl` and `.csv`
+  (`TestExportGolden`, `TestExportSchema`, which holds the code, the schema
+  and the files to the same columns).
+- **The channel.** An integration connector of kind `treasury_export`
+  (migration 000196 widens `connector_kind_check` NOT VALID, 000197
+  validates it): the SFTP server's `host`, `port`, `user`, pinned
+  `host_key` and `directory`, checked as a `bank_sftp` channel's
+  (`integration.sftpServer`, shared), without statement directories, the
+  key by `secret_ref`; `format`, `jsonl` or `csv`, one per connector; and
+  `companies`, the company codes it is sent, named one by one and at least
+  one, so a company's figures go only to a channel set up for it.
+  `integration.TreasuryChannels` publishes them to the cash context as
+  `BankChannels` does to payments, wired by the application
+  (`app.cashTreasury`); its endpoint fails closed as a bank channel's
+  (`integration.resolve`, shared).
+- **When it is sent.** Taking a snapshot, daily or on demand, queues in
+  its transaction one `cash.export` per active channel naming its company
+  (`cash.export.request`, `with_snapshot` true); a person may ask for one
+  again (`POST /v1/cash-snapshots/{id}/exports`, `createCashExport`, 201,
+  Idempotency-Key, `x-agent: false`), to a channel set up later or for a
+  treasury system that lost the file; a connector that is not an active
+  `treasury_export` connector naming the snapshot's company is 422
+  `cash.export_channel_invalid`. The **exporter** (`cash.Exporter`, a
+  worker of every replica, as the bank file transmitter is, T44e) claims a
+  due export in a short transaction (FOR UPDATE SKIP LOCKED), builds the
+  file and resolves the channel, uploads with no transaction open, and
+  records the outcome in a second transaction guarded by the attempt it
+  claimed; a failed attempt waits 1, 5 and 15 minutes, 1 and 4 hours, a
+  refusal (a problem below 500, such as a disabled channel) or the sixth
+  failure is final (`failed`, the problem code kept). Its principal is the
+  system actor `cash-exporter`.
+- **Resend recognised.** The file is named
+  `cash-<company code>-<snapshot date>-<sha256 of its content>.<format>`
+  (§14's company, date and hash; `cash-` names its kind in a shared
+  directory). Uploaded under a hidden name and renamed, it appears whole;
+  SFTP's rename refuses an existing target, which `sftpclient.Upload` now
+  reports as `sftpclient.ErrExists` (leaving the file there and removing
+  its own copy; payments, which names files by id, still counts it a
+  failure). A name that holds the hash is the same file, so the exporter
+  takes `ErrExists` as delivered: a claim whose outcome was lost (the
+  replica stopped, the commit unacknowledged) is claimed again after five
+  upload bounds and delivered once (`TestCashExportRetries`). A delivered
+  export is `resend` when its channel was delivered the same hash before:
+  the same snapshot sent again, the same name, which the treasury system
+  recognises (`TestCashExport`); the audit of the delivery says whether
+  the file was still there (`found_there`).
+- **Access, audit and events.** `cash.export.read` (§15) reads the
+  exports (`GET /v1/cash-exports`, by snapshot, legal entity and status,
+  paged newest first; `GET /v1/cash-exports/{id}`), of the companies the
+  caller may act in; asking for one is a write and takes a permission of
+  its own, `cash.export.send` (000196), a person's. Requests, retries,
+  failures and deliveries are audited (`cash.export.request`, `.retry`,
+  `.fail`, `.deliver`); a delivery publishes `CashExportDelivered` (§15),
+  not offered to webhooks, as §14 offers `CashSnapshotTaken`; a failure is
+  the export's status, as §15 names no event for it. An export goes with
+  its snapshot when retention deletes it (ON DELETE CASCADE); its audit
+  stays.
+- **The webhook.** `CashSnapshotTaken` is marked `x-webhook` (ADR-0041):
+  its payload names the snapshot and company and carries no bank or
+  personal data; `TestCashSnapshotTakenWebhook` fans one out to a
+  subscription of `cash.*` and the dispatcher delivers it signed.
+- **Walkthrough.** Step 28 connects a treasury system (a stand-in SFTP
+  server, `sftptest/sftpstub`, the transport's test double on a port of
+  its own), takes a snapshot, shows its CSV delivered and its hash in its
+  name, and sends it again as a resend. It does not deliver a webhook: the
+  walkthrough runs without the event bus and the webhook client never
+  dials this machine (egress, ADR-0041); whether a development server may
+  is a question of posture for the product owner.
+
 ### 15. Access, audit and events
 - Company-level access as everywhere (ADR-0010); permissions
   `cash.position.read`, `cash.forecast.read` (agents too),
