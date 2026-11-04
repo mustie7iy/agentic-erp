@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -39,6 +40,26 @@ func (p ParkedEntries) Park(ctx context.Context, in NewEntry) (Parked, error) {
 		return Parked{}, err
 	}
 	return Parked{ID: pe.ID, Debits: pe.Debits}, nil
+}
+
+// ProfitCenter is the profit center a manual entry's line on the account
+// with the centers given takes when it is posted in the legal entity on
+// date, in fiscal year year: the one given, its cost center's, the
+// account's default cost center's, or the company's default profit
+// center, as a posting derives and checks it (assign, ADR-0050 §5); nil
+// for none. An accrual's credit line takes the expense line's (ADR-0058
+// §8). Refusals are the posting's, of line 1.
+func (CloseAccounts) ProfitCenter(ctx context.Context, legalEntity uuid.UUID, year int16, date time.Time, account uuid.UUID,
+	costCenter, profitCenter *uuid.UUID) (*uuid.UUID, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	lines := []Line{{AccountID: account, CostCenterID: costCenter, ProfitCenterID: profitCenter}}
+	if err := assign(ctx, tx, legalEntity, year, date, lines, false); err != nil {
+		return nil, err
+	}
+	return lines[0].ProfitCenterID, nil
 }
 
 // CloseAccount is an account as an accrual proposal reads it (T64e): its

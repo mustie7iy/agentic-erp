@@ -129,6 +129,11 @@ func (closingLedger) Centers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUI
 	return out, err
 }
 
+func (closingLedger) ProfitCenter(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16, date time.Time, account uuid.UUID,
+	costCenter, profitCenter *uuid.UUID) (*uuid.UUID, error) {
+	return ledger.CloseAccounts{}.ProfitCenter(ctx, legalEntity, fiscalYear, date, account, costCenter, profitCenter)
+}
+
 func (l closingLedger) Park(ctx context.Context, entry closing.ParkEntry) (uuid.UUID, error) {
 	in := ledger.NewEntry{LegalEntityID: entry.LegalEntityID, DocumentType: "SA", DocumentDate: entry.Date, PostingDate: entry.Date,
 		Currency: entry.Currency, HeaderText: &entry.HeaderText, Lines: make([]ledger.NewLine, len(entry.Lines))}

@@ -158,9 +158,10 @@ type accrualTarget struct {
 
 // writeAccrual writes the agent's proposal under the close's lock
 // (ADR-0058 §5, §8): a duplicate is refused, or answered as it is when it
-// is the session's retry of the same content (created false); else the
-// accounts, the supplier and the evidence are checked, the entry parked
-// and the proposal written.
+// is the session's retry of the same content (created false); else a
+// company without an accrual account it can post to is refused, the
+// expense account, the supplier and the evidence are checked, the entry
+// parked and the proposal written.
 func (e *Endpoints) writeAccrual(ctx context.Context, tx pgx.Tx, p reqctx.Principal, req *gen.AccrualProposalInput) (accrual, bool, error) {
 	if _, err := lockClose(ctx, tx, req.CloseID); err != nil {
 		return accrual{}, false, err
@@ -173,8 +174,13 @@ func (e *Endpoints) writeAccrual(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	if err != nil {
 		return accrual{}, false, err
 	}
+	// A retried proposal answers as it is stored, whatever happened to the
+	// accounts since.
 	if a, found, err := proposedAlready(ctx, tx, in); found || err != nil {
 		return a, false, err
+	}
+	if err := e.accounts(ctx, &target, req.AccountID); err != nil {
+		return accrual{}, false, err
 	}
 	if err := e.checkAccrual(ctx, target, in); err != nil {
 		return accrual{}, false, err
@@ -190,9 +196,8 @@ func (e *Endpoints) writeAccrual(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	return a, err == nil, err
 }
 
-// accrualTarget reads the close, its company and currency, parses the
-// amount, and refuses a company that configures no accrual account it can
-// post to.
+// accrualTarget reads the close, its company and currency, and parses
+// the amount.
 func (e *Endpoints) accrualTarget(ctx context.Context, tx pgx.Tx, req *gen.AccrualProposalInput) (accrualTarget, accrualInput, error) {
 	c, err := readClose(ctx, tx, req.CloseID)
 	if err != nil {
@@ -213,7 +218,7 @@ func (e *Endpoints) accrualTarget(ctx context.Context, tx pgx.Tx, req *gen.Accru
 	if in.amount, err = accrualAmount(req.Amount, co.LocalCurrency, t.exp); err != nil {
 		return accrualTarget{}, accrualInput{}, err
 	}
-	return t, in, e.accounts(ctx, &t, req.AccountID)
+	return t, in, nil
 }
 
 // accrualAmount parses the amount: in the company's local currency, with
@@ -304,17 +309,17 @@ func proposedAlready(ctx context.Context, tx pgx.Tx, in accrualInput) (accrual, 
 
 // sameAccrual reports whether a stored proposal has the content of the
 // input: its profit center, amount, description, reason and evidence (its
-// account, cost center and supplier found it).
+// account, cost center and supplier found it). A retry that gives no
+// profit center matches the one the proposal took from its expense line.
 func sameAccrual(a accrual, in accrualInput) bool {
 	cited := make([]gen.AccrualEvidenceInput, len(a.Evidence))
 	for i, ev := range a.Evidence {
 		cited[i] = gen.AccrualEvidenceInput{Kind: ev.Kind, DocumentID: ev.DocumentID}
 	}
-	return equalIDs(a.ProfitCenterID, in.profitCenter()) && a.Amount == in.amount && a.Description == in.Description && a.Reason == in.Reason &&
+	pc := in.profitCenter()
+	return (pc == nil || a.ProfitCenterID != nil && *a.ProfitCenterID == *pc) && a.Amount == in.amount && a.Description == in.Description && a.Reason == in.Reason &&
 		slices.Equal(cited, in.Evidence)
 }
-
-func equalIDs(a, b *uuid.UUID) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
 
 // checkAccrual refuses an expense account that is no profit and loss
 // account postable by hand in the company, and a supplier that is no
@@ -390,30 +395,36 @@ func (e *Endpoints) evidenceOf(ctx context.Context, t accrualTarget, in accrualI
 // parkAccrual parks the proposal's entry through the ledger as the agent,
 // dated the period's last day in local currency (ADR-0058 §8): Dr the
 // expense account with the centers, Cr the accrual account with the
-// profit center given, the description each line's text; then writes the
-// proposal and its evidence, audited and published.
+// expense line's profit center (the one given, or the one a posting of
+// the expense line derives), the description each line's text; then
+// writes the proposal, with that profit center, and its evidence,
+// audited and published.
 func (e *Endpoints) parkAccrual(ctx context.Context, tx pgx.Tx, p reqctx.Principal, t accrualTarget, in accrualInput, cited []evidence) (accrual, error) {
 	id := uuid.Must(uuid.NewV7())
 	amount := in.amount.Plain(t.exp)
-	entry, err := e.Ledger.Park(ctx, ParkEntry{LegalEntityID: t.close.LegalEntityID, Date: t.close.PeriodEnd, Currency: t.company.LocalCurrency,
-		HeaderText: "Accrual proposal " + id.String(), Lines: []ParkLine{
-			{AccountID: t.expense.ID, Amount: amount, CostCenterID: in.costCenter(), ProfitCenterID: in.profitCenter(), Text: in.Description},
-			{AccountID: t.accrual.ID, Amount: "-" + amount, ProfitCenterID: in.profitCenter(), Text: in.Description}}})
+	profit, err := e.Ledger.ProfitCenter(ctx, t.close.LegalEntityID, t.close.FiscalYear, t.close.PeriodEnd, t.expense.ID, in.costCenter(), in.profitCenter())
 	if err != nil {
 		return accrual{}, asProposal(err)
 	}
-	centers, err := e.centers(ctx, in)
+	entry, err := e.Ledger.Park(ctx, ParkEntry{LegalEntityID: t.close.LegalEntityID, Date: t.close.PeriodEnd, Currency: t.company.LocalCurrency,
+		HeaderText: "Accrual proposal " + id.String(), Lines: []ParkLine{
+			{AccountID: t.expense.ID, Amount: amount, CostCenterID: in.costCenter(), ProfitCenterID: profit, Text: in.Description},
+			{AccountID: t.accrual.ID, Amount: "-" + amount, ProfitCenterID: profit, Text: in.Description}}})
+	if err != nil {
+		return accrual{}, asProposal(err)
+	}
+	centers, err := e.centers(ctx, in.costCenter(), profit)
 	if err != nil {
 		return accrual{}, err
 	}
-	cc, pc := centers.of(in.costCenter()), centers.of(in.profitCenter())
+	cc, pc := centers.of(in.costCenter()), centers.of(profit)
 	if _, err := tx.Exec(ctx, `INSERT INTO closing.accrual_proposal (tenant_id, id, close_id, session_id, agent_id, account_id, account_number, account_name,
 			accrual_account_id, accrual_account_number, accrual_account_name, cost_center_id, cost_center_code, cost_center_name, profit_center_id,
 			profit_center_code, profit_center_name, supplier_id, currency, amount, description, reason, parked_entry_id, posting_date, status,
 			created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 'proposed', $5, $5)`,
 		p.TenantID, id, in.CloseID, in.SessionID, p.ID, t.expense.ID, t.expense.Number, t.expense.Name, t.accrual.ID, t.accrual.Number, t.accrual.Name,
-		in.costCenter(), cc.code, cc.name, in.profitCenter(), pc.code, pc.name, in.supplier(), t.company.LocalCurrency, in.amount, in.Description,
+		in.costCenter(), cc.code, cc.name, profit, pc.code, pc.name, in.supplier(), t.company.LocalCurrency, in.amount, in.Description,
 		in.Reason, entry, t.close.PeriodEnd); err != nil {
 		return accrual{}, fmt.Errorf("closing: insert accrual proposal of close %s: %w", in.CloseID, err)
 	}
@@ -434,16 +445,19 @@ func (e *Endpoints) parkAccrual(ctx context.Context, tx pgx.Tx, p reqctx.Princip
 var lineNames = strings.NewReplacer("Line 1: ", "The expense line: ", "Line 2: ", "The accrual account's line: ")
 
 // asProposal states the ledger's refusal of the parked entry in the
-// proposal's terms: a field of a line (lines[0].cost_center_id) is the
-// proposal's field (cost_center_id), and a line is named by what it is.
+// proposal's terms: a field of the expense line (lines[0].cost_center_id)
+// is the proposal's field (cost_center_id); one of the accrual account's
+// line, which the configuration names, keeps its line's field
+// (lines[1].account_id); and each line is named in the detail by what it
+// is.
 func asProposal(err error) error {
 	var p *problem.Problem
 	if !errors.As(err, &p) {
 		return err
 	}
 	for k, f := range p.Errors {
-		if rest, ok := strings.CutPrefix(f.Field, "lines["); ok {
-			_, p.Errors[k].Field, _ = strings.Cut(rest, "].")
+		if field, ok := strings.CutPrefix(f.Field, "lines[0]."); ok {
+			p.Errors[k].Field = field
 		}
 	}
 	p.Detail = lineNames.Replace(p.Detail)
@@ -467,9 +481,9 @@ func (c centerNames) of(id *uuid.UUID) centerText {
 // centers names the proposal's centers, which the parking checked exist
 // (a center the ledger did not name would leave its code empty, which
 // accrual_proposal_cost_center_code and accrual_proposal_profit_center_code refuse).
-func (e *Endpoints) centers(ctx context.Context, in accrualInput) (centerNames, error) {
+func (e *Endpoints) centers(ctx context.Context, cost, profit *uuid.UUID) (centerNames, error) {
 	var ids []uuid.UUID
-	for _, id := range []*uuid.UUID{in.costCenter(), in.profitCenter()} {
+	for _, id := range []*uuid.UUID{cost, profit} {
 		if id != nil {
 			ids = append(ids, *id)
 		}

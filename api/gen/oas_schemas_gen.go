@@ -602,7 +602,7 @@ type AccrualProposal struct {
 	CostCenterCode OptString `json:"cost_center_code"`
 	// Its name, as it was when proposed; absent without one.
 	CostCenterName OptString `json:"cost_center_name"`
-	// The profit center of both lines; absent without one.
+	// The profit center of both lines, given or derived from the expense line; absent without one.
 	ProfitCenterID OptUUID `json:"profit_center_id"`
 	// Its code; absent without one.
 	ProfitCenterCode OptString `json:"profit_center_code"`
@@ -1042,8 +1042,9 @@ type AccrualProposalInput struct {
 	// The expense line's cost center (`GET /v1/cost-centers`), checked as a posting checks it; none when
 	// absent.
 	CostCenterID OptUUID `json:"cost_center_id"`
-	// The profit center of both lines (`GET /v1/profit-centers`), checked as a posting checks it; none
-	// when absent, the expense line's then derived as a posting derives it.
+	// The profit center of both lines (`GET /v1/profit-centers`), checked as a posting checks it; when
+	// absent, both lines take the one a posting of the expense line derives (its cost center's, or the
+	// company's default), if any.
 	ProfitCenterID OptUUID `json:"profit_center_id"`
 	// The supplier whose service or goods the expense is for (`GET /v1/business-partners/{id}`); none when
 	// absent.

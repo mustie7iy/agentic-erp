@@ -1130,13 +1130,16 @@ down payment account) and is tier 3 by its own rule. `POST
 /v1/accrual-proposals` (`proposeAccrual`, agents only: 403
 `agents.not_an_agent` for a person; `x-autonomy: propose`;
 `ledger.entry.park` as `x-also-permissions`; in the agent's running
-session through `closing.Sessions`) reads the close `FOR UPDATE`, refuses a
+session through `closing.Sessions`) reads the close `FOR UPDATE`, answers
+the session's retry of the same proposal 200 as it is and refuses a
+duplicate (409 `closing.accrual_duplicate`, with `Location`), refuses a
 company without an accrual account it can post to (409
-`closing.accrual_account_missing`), answers the session's retry of the
-same proposal 200 as it is and refuses a duplicate (409
-`closing.accrual_duplicate`, with `Location`), checks the expense account
-(422 `closing.accrual_account_invalid`), the supplier and each evidence
-item (422 `closing.evidence_unknown` on `evidence[i]`), parks the entry
+`closing.accrual_account_missing`), checks the expense account (422
+`closing.accrual_account_invalid`), the supplier and each evidence item
+(422 `closing.evidence_unknown` on `evidence[i]`), derives the expense
+line's profit center through `closing.Ledger.ProfitCenter`, over the
+ledger's new `ledger.CloseAccounts.ProfitCenter` (the posting's own
+derivation and checks, `assign`), parks the entry
 through `closing.Ledger.Park`, over the ledger's new published
 `ledger.ParkedEntries` (`Park` runs `parkJournalEntry`'s own parking,
 checks, problems and `ParkedJournalEntryChanged` included, as the request's
@@ -1177,8 +1180,10 @@ default, for the product owner to overrule:
   cost center and the supplier, an absent center or supplier equal to
   another absent one. The session's retry is the same content: the profit
   center, the amount, the description, the reason and the evidence in the
-  order given; it answers 200 with the proposal as stored, publishing
-  nothing again. The same key with other content, or from another
+  order given (a retry that leaves the profit center out matches the one
+  the proposal took from its expense line); it is looked for before the
+  accounts are checked and answers 200 with the proposal as stored,
+  publishing nothing again, as T64i's retried comment does. The same key with other content, or from another
   session, is 409 `closing.accrual_duplicate` naming the first.
 - **The accrual account at the proposal.** The configuration checks the
   chart; the ledger's master data is checked when a proposal is made: an
@@ -1193,7 +1198,7 @@ default, for the product owner to overrule:
   more than zero; another currency, other digits and an amount of zero or
   less are each 422 `request.invalid_amount` on `amount` (§8's code), not
   the 400 other operations give for the digits.
-- **The supplier** names a business partner (422
+- **The supplier** names a business partner, of any role (422
   `request.reference_not_found` on `supplier_id`), is not checked against
   the evidence's suppliers and is not on the entry's lines (an expense line
   takes no partner and the accrual account reconciles no supplier): it is
@@ -1208,15 +1213,17 @@ default, for the product owner to overrule:
 - **The parked entry**: document type `SA`, document and posting date the
   close's `period_end`, header text `Accrual proposal <id>`, each line's
   text the description (1-200 characters, the ledger's line text limit),
-  the credit line with the profit center given and no cost center. When the
-  proposal gives only a cost center, each line's profit center is the
-  ledger's derivation, as for any manual entry (the expense line's from its
-  cost center); §8's "Cr the accrual account with the expense line's profit
-  center" holds as written when the profit center is given. The ledger's
-  refusals pass through with their codes (listed by `TestProblemCodes` from
-  the call graph), a line's field renamed to the proposal's
-  (`lines[0].cost_center_id` becomes `cost_center_id`) and the line named in
-  the detail ("The expense line: ...").
+  the credit line without a cost center. Both lines carry the expense
+  line's profit center (§8): the one given or, without one, the one a
+  posting of the expense line derives on that date (its cost center's, its
+  account's default cost center's, or the company's default profit
+  center), read before parking; the proposal records it as its profit
+  center. The ledger's refusals pass through with their codes (listed by
+  `TestProblemCodes` from the call graph): a field of the expense line is
+  renamed to the proposal's (`lines[0].cost_center_id` becomes
+  `cost_center_id`), one of the accrual account's line, which the
+  configuration names, keeps `lines[1].…`, and the detail names the line
+  ("The expense line: ...").
 - **Names.** The accounts' numbers and names and the centers' codes and
   names are kept as they were when proposed, as T64i keeps a comment's
   account; the suppliers' numbers and names, the proposal's and each

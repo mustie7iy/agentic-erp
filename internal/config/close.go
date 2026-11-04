@@ -362,19 +362,10 @@ func (v *validator) accrualAccount(ap string, co *Company) {
 	case a == nil:
 		v.err(ap, "account %s is not in the chart of accounts", number)
 	case a.Type != Liability:
-		v.err(ap, "account %s is a%s %s account; accruals are credited to a liability", number, article(string(a.Type)), a.Type)
+		v.err(ap, "account %s is of type %q; accruals are credited to a liability", number, a.Type)
 	case a.VendorReconciliation, a.AssetReconciliation, number == ad.GRIR, number == ad.DownPayment:
 		v.err(ap, "account %s is a reconciliation account, posted only through its own postings; accruals are credited to one posted by hand", number)
 	}
-}
-
-// article is the indefinite article's ending before a word: "n" before a
-// vowel.
-func article(word string) string {
-	if strings.ContainsAny(word[:1], "aeiou") {
-		return "n"
-	}
-	return ""
 }
 
 // variancePlan checks the plan basis's settings: a category code and cost

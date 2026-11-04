@@ -115,9 +115,10 @@ func parkedLine(t *testing.T, m map[string]any) string {
 // TestAccrualProposals: the agent proposes an accrual of the close's
 // period in its session, citing a posted invoice; it is parked as the
 // agent's entry, Dr the expense with its center, Cr the accrual account,
-// on the period's last day, and published; the same proposal again
-// answers it, another of the same expense is a duplicate, in this session
-// or another. A person reads it with its evidence and posts the entry.
+// on the period's last day, both lines with the cost center's profit
+// center, and published; the same proposal again answers it, even once
+// the accrual account can no longer be posted to, another of the same
+// expense is a duplicate, in this session or another. A person reads it with its evidence and posts the entry.
 func TestAccrualProposals(t *testing.T) {
 	a := newAccruing(t)
 	p, tag := a.agent.Must(201, "POST", "/v1/accrual-proposals", a.proposal("100.00"), "")
@@ -125,15 +126,15 @@ func TestAccrualProposals(t *testing.T) {
 		t.Errorf("ETag: got %s, want \"1\"", tag)
 	}
 	id := apitest.String(t, p, "id")
-	want := fmt.Sprintf(`2000 2026/3 by agent: Dr 520000 Office Supplies (CC100 Cost center hundred, <nil> <nil>) Cr 219500 Accrued liabilities for `+
+	want := fmt.Sprintf(`2000 2026/3 by agent: Dr 520000 Office Supplies (CC100 Cost center hundred, PC10 Profit center ten) Cr 219500 Accrued liabilities for `+
 		`BP90000001 BP90000001, 100.00 EUR on 2026-03-31, proposed; "Courier of March"; cites [supplier_invoice %s BP90000001/BP90000001]`, a.invoiceNo)
 	if got := accrualLine(t, p); got != want {
 		t.Errorf("proposal:\ngot  %s\nwant %s", got, want)
 	}
 	entry := apitest.String(t, p, "parked_entry_id")
 	parked, entryTag := a.Must(200, "GET", "/v1/parked-journal-entries/"+entry, "", "")
-	want = fmt.Sprintf(`parked by agent, 2026-03-31/2026-03-31 EUR "Accrual proposal %s": %s 100.00 cc=%s pc=<nil> "Courier of March"; %s -100.00 cc=<nil> pc=<nil> "Courier of March";`,
-		id, a.expense, a.centers.Cost, a.accrualAcount)
+	want = fmt.Sprintf(`parked by agent, 2026-03-31/2026-03-31 EUR "Accrual proposal %s": %s 100.00 cc=%s pc=%s "Courier of March"; %s -100.00 cc=<nil> pc=%s "Courier of March";`,
+		id, a.expense, a.centers.Cost, a.centers.Profit, a.accrualAcount, a.centers.Profit)
 	if got := parkedLine(t, parked); got != want {
 		t.Errorf("parked entry:\ngot  %s\nwant %s", got, want)
 	}
@@ -146,6 +147,13 @@ func TestAccrualProposals(t *testing.T) {
 	if again["id"] != id {
 		t.Errorf("the same proposal again: got %v, want %v", again["id"], id)
 	}
+	pgtest.Exec(t, `UPDATE ledger.company_account SET is_posting_blocked = true, version = version + 1 WHERE legal_entity_id = $1 AND account_id = $2`,
+		a.DE, a.accrualAcount)
+	if again, _ := a.agent.Must(200, "POST", "/v1/accrual-proposals", a.proposal("100.00"), ""); again["id"] != id {
+		t.Errorf("the same proposal again, the accrual account blocked: got %v, want %v", again["id"], id)
+	}
+	pgtest.Exec(t, `UPDATE ledger.company_account SET is_posting_blocked = false, version = version + 1 WHERE legal_entity_id = $1 AND account_id = $2`,
+		a.DE, a.accrualAcount)
 	a.agent.Problem(409, "closing.accrual_duplicate", "POST", "/v1/accrual-proposals", a.proposal("120.00"), "")
 	s, _ := a.agent.Must(201, "POST", "/v1/agent-sessions", `{"purpose": "Again", "model": "erp-default"}`, "")
 	other := a.body(a.expense, "100.00", apitest.String(t, s, "id"), [][2]string{{"supplier_invoice", a.invoice.String()}},

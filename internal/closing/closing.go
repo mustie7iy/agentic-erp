@@ -177,7 +177,9 @@ type ParkEntry struct {
 // accounts among ids, and those set up in the legal entity among numbers,
 // by number. Each reads nothing of a legal entity the caller may not act
 // in. Centers names the cost and profit centers among ids; an id of
-// neither is absent. Lock locks a closed period as the period lock does
+// neither is absent. ProfitCenter is the profit center a manual entry's
+// line on the account with the centers given takes when posted on the
+// date, as a posting derives and checks it, nil for none. Lock locks a closed period as the period lock does
 // (T32), refusing one whose version is no longer the one read. Park parks
 // an entry as the request's principal, as parkJournalEntry does (its
 // checks and problems), and returns its id.
@@ -191,6 +193,7 @@ type Ledger interface {
 	Cited(ctx context.Context, legalEntity, account uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]CitedEntry, error)
 	Accounts(ctx context.Context, legalEntity uuid.UUID, ids []uuid.UUID, numbers []string) ([]Account, error)
 	Centers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Center, error)
+	ProfitCenter(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16, date time.Time, account uuid.UUID, costCenter, profitCenter *uuid.UUID) (*uuid.UUID, error)
 	Park(ctx context.Context, entry ParkEntry) (uuid.UUID, error)
 }
 

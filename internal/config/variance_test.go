@@ -140,8 +140,12 @@ func TestCloseAccrualAccount(t *testing.T) {
 		want   string
 	}{
 		{"an account the chart lacks", func(co *Company) { co.Close.AccrualAccount = "299999" }, "not in the chart of accounts"},
-		{"an expense", func(co *Company) { co.Close.AccrualAccount = "510000" }, "is an expense account"},
-		{"an asset", func(co *Company) { co.Close.AccrualAccount = "100000" }, "is an asset account"},
+		{"an expense", func(co *Company) { co.Close.AccrualAccount = "510000" }, `is of type "expense"`},
+		{"an asset", func(co *Company) { co.Close.AccrualAccount = "100000" }, `is of type "asset"`},
+		{"an account without a type", func(co *Company) {
+			co.ChartOfAccounts = append(co.ChartOfAccounts, Account{Number: "219700", Name: "Untyped"})
+			co.Close.AccrualAccount = "219700"
+		}, `is of type ""`},
 		{"the suppliers' reconciliation account", func(co *Company) { co.Close.AccrualAccount = "211000" }, "is a reconciliation account"},
 		{"an asset reconciliation account", func(co *Company) {
 			co.ChartOfAccounts = append(co.ChartOfAccounts, Account{Number: "219600", Name: "Assets", Type: Liability, AssetReconciliation: true})

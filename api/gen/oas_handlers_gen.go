@@ -60973,12 +60973,12 @@ func (s *Server) handlePreviewRevaluationRequest(args [0]string, argsEscaped boo
 // The close agent proposes one expense the close's period bore and the ledger does not show yet
 // (ADR-0058 §8, T64e): the close, an expense account (a profit and loss account of the company, set
 // up and postable in it, no reconciliation account: 422 `closing.accrual_account_invalid` on
-// `account_id`) with its cost and profit center, an optional supplier (422
-// `request.reference_not_found` on `supplier_id` for no business partner), the amount in the company's
-// local currency, more than zero (422 `request.invalid_amount`), a description, a reason, and 1-10
-// evidence items: supplier invoices of the company that are posted, purchase orders of the company
-// that are released and journal entries of the company posted in the leading ledger (422
-// `closing.evidence_unknown` on `evidence[i]` otherwise). Made in the agent's running session
+// `account_id`) with its cost and profit center, an optional supplier (any business partner of the
+// tenant; 422 `request.reference_not_found` on `supplier_id` for no business partner), the amount in
+// the company's local currency, more than zero (422 `request.invalid_amount`), a description, a
+// reason, and 1-10 evidence items: supplier invoices of the company that are posted, purchase orders
+// of the company that are released and journal entries of the company posted in the leading ledger
+// (422 `closing.evidence_unknown` on `evidence[i]` otherwise). Made in the agent's running session
 // (`session_id`; another's or an ended one is refused as `proposeMemoRecord` refuses it); agents only
 // (403 `agents.not_an_agent`). Under a lock on the close, it refuses a close whose company configures
 // no accrual account (`companies[].close.accrual_account`; 409 `closing.accrual_account_missing`) and
@@ -60988,14 +60988,15 @@ func (s *Server) handlePreviewRevaluationRequest(args [0]string, argsEscaped boo
 // evidence), which answers 200 with it: a retried proposal. Else it parks a journal entry as the agent
 // (`parkJournalEntry`'s checks and problems, the centers checked as a posting checks them), dated on
 // the period's last day (document and posting date), in local currency, its header text naming the
-// proposal: Dr the expense account with the centers, Cr the accrual account with the profit center
-// given, each line's text the description. A person posts it (`postParkedJournalEntry`, within their
-// approval limit), edits it or cancels it; the agent never posts it. A signed-off close whose covered
-// periods are all locked refuses the proposal (409 `closing.close_signed_off`), and once one of them
-// was unlocked it sets the close open again first (PeriodCloseChanged `reopened`, ADR-0058 §7). Since
-// it parks a ledger entry, besides `closing.accrual.propose` the caller needs `ledger.entry.park`
-// (`x-also-permissions`). Audited, and published as AccrualProposed (and ParkedJournalEntryChanged for
-// the entry).
+// proposal: Dr the expense account with the centers, Cr the accrual account with the expense line's
+// profit center (the one given, or the one a posting of the expense line derives: its cost center's,
+// or the company's default), each line's text the description. A person posts it
+// (`postParkedJournalEntry`, within their approval limit), edits it or cancels it; the agent never
+// posts it. A signed-off close whose covered periods are all locked refuses the proposal (409
+// `closing.close_signed_off`), and once one of them was unlocked it sets the close open again first
+// (PeriodCloseChanged `reopened`, ADR-0058 §7). Since it parks a ledger entry, besides
+// `closing.accrual.propose` the caller needs `ledger.entry.park` (`x-also-permissions`). Audited, and
+// published as AccrualProposed (and ParkedJournalEntryChanged for the entry).
 //
 // POST /v1/accrual-proposals
 func (s *Server) handleProposeAccrualRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
