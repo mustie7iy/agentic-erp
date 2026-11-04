@@ -46,7 +46,7 @@ CREATE TABLE closing.variance_comment (
   CONSTRAINT variance_comment_session CHECK ((author_kind = 'agent') = (session_id IS NOT NULL)),
   -- Who decided it and when are set exactly once it is decided; a reason
   -- exactly when it was rejected.
-  CONSTRAINT variance_comment_decided CHECK ((status = 'proposed') = (decided_by IS NULL) AND (status = 'proposed') = (decided_at IS NULL)
+  CONSTRAINT close_variance_comment_decided CHECK ((status = 'proposed') = (decided_by IS NULL) AND (status = 'proposed') = (decided_at IS NULL)
     AND (status = 'rejected') = (decision_reason IS NOT NULL)),
   -- A proposal's text is kept when the person accepting it replaced it.
   CONSTRAINT variance_comment_edited CHECK (proposed_text IS NULL OR author_kind = 'agent' AND status IN ('accepted', 'superseded'))

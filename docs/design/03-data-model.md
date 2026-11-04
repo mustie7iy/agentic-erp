@@ -3271,7 +3271,7 @@ to `accepted` (its text then replaceable, the proposal's kept as
 an accepted comment to `superseded`, and nothing else of it changes
 (`closing.check_variance_comment`). `decided_by` and `decided_at` are set
 exactly once it is decided, the reason exactly when it was rejected
-(`variance_comment_decided`). A row has at most one accepted comment
+(`close_variance_comment_decided`). A row has at most one accepted comment
 (`variance_comment_accepted_once`, partial unique) and a session one
 proposal per row (`variance_comment_proposed_once`). A citation is a
 journal entry (`ledger.journal_entry` by year and id, its document number

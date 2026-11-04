@@ -335,10 +335,10 @@ func TestVarianceCommentRules(t *testing.T) {
 		}, ""},
 		{"a proposal rejected without a reason", func(tx pgx.Tx, s scene) error {
 			return all(tx, open(s), proposal(s, s.comment, s.session), set(`status = 'rejected', decided_by = updated_by, decided_at = now()`, s.comment))
-		}, "variance_comment_decided"},
+		}, "close_variance_comment_decided"},
 		{"a proposal accepted without who decided", func(tx pgx.Tx, s scene) error {
 			return all(tx, open(s), proposal(s, s.comment, s.session), set(`status = 'accepted', decided_at = now()`, s.comment))
-		}, "variance_comment_decided"},
+		}, "close_variance_comment_decided"},
 		{"an agent's comment created accepted", func(tx pgx.Tx, s scene) error {
 			return all(tx, open(s), step(commentRow, s.tenant, s.comment, s.close, s.account, "agent", s.actor, s.session, "accepted", s.actor, "2026-02-03T10:00:00Z"))
 		}, "starts proposed"},

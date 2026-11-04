@@ -162,7 +162,7 @@ func (v commentView) toAPI(c comment) gen.VarianceComment {
 	}
 	if c.DecidedBy != nil {
 		out.DecidedByName.SetTo(v.people[*c.DecidedBy].Name)
-		out.DecidedAt.SetTo(*c.DecidedAt) // set with who decided (variance_comment_decided)
+		out.DecidedAt.SetTo(*c.DecidedAt) // set with who decided (close_variance_comment_decided)
 	}
 	return out
 }

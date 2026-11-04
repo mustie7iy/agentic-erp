@@ -126,7 +126,7 @@ func (r *report) commenters() []uuid.UUID {
 	var ids []uuid.UUID
 	for _, row := range r.rows {
 		if row.accepted != nil {
-			ids = append(ids, row.accepted.AuthorID, *row.accepted.DecidedBy) // an accepted comment is decided (variance_comment_decided)
+			ids = append(ids, row.accepted.AuthorID, *row.accepted.DecidedBy) // an accepted comment is decided (close_variance_comment_decided)
 		}
 	}
 	return ids
