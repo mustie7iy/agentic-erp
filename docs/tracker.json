@@ -9704,6 +9704,13 @@
       "r": "scripts/lib/on-exit.sh · scripts/test-on-exit.sh · scripts/walkthrough.sh ran, summary · cmd/erp TestWalkthroughExitStatus · the 19 scripts with a cleanup trap · 06 §6.5",
       "src": "review:T61j",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "A failed command or an unbound variable inside a command substitution stops the walkthrough, whatever the substitution's form (an argument, a local's value, printed text or an assignment): an ERR trap with set -E, and a DEBUG trap that gives every command substitution (no other subshell, which bash 3.2 would then give status 0 after an unbound variable) an EXIT trap, leave fail's mark, which the step runner checks after each step; a tolerated failure goes inside the parentheses; on_exit's reason for a stop with status 0 names a signal among its causes",
+      "r": "scripts/walkthrough.sh stop_unseen, command_failed, substitution_ended · scripts/lib/on-exit.sh on_substitution_exit · scripts/test-on-exit.sh a SIGTERM, on_substitution_exit · cmd/erp TestWalkthroughExitStatus · 06 §6.5",
+      "src": "review:T61j",
+      "c": []
      }
     ]
    },

@@ -141,9 +141,12 @@ func tail(s string, n int) string {
 // of its story ran and passed or skipped, since its run is a slice's
 // acceptance evidence (ADR-0053). A lane saw it stop on an unbound
 // variable and exit 0 (review:T61j): macOS's bash 3.2 runs the EXIT trap
-// with status 0 after an expansion error (scripts/lib/on-exit.sh). The
-// script runs here with its story replaced by three small steps, the
-// failure injected into one, and its own helpers, cleanup and summary.
+// with status 0 after an expansion error (scripts/lib/on-exit.sh), and a
+// failed command or an unbound variable inside a command substitution
+// stopped nothing when the substitution was an argument, a local's value
+// or printed text (stop_unseen). The script runs here with its story
+// replaced by three small steps, the failure injected into one, and its
+// own helpers, cleanup and summary.
 func TestWalkthroughExitStatus(t *testing.T) {
 	for name, c := range map[string]struct {
 		start, two, until string
@@ -156,10 +159,19 @@ func TestWalkthroughExitStatus(t *testing.T) {
 		"an unbound variable at start":             {start: `echo "$CA_PACK_NOT_SET"`, two: `passed`, unwanted: "Step 1"},
 		"a failed command":                         {two: `false; passed`, unwanted: "none failed"},
 		"a check failed in a command substitution": {two: `expect "the account" "$(fail "no account 4711")" ""; passed`, want: "no account 4711", unwanted: "none failed"},
-		"a step neither passes nor skips":          {two: `:`, want: "step_two ended having recorded 0 results", unwanted: "none failed"},
-		"a step passes twice":                      {two: `passed; passed`, want: "step_two ended having recorded 2 results", unwanted: "none failed"},
-		"WALKTHROUGH_UNTIL stops early":            {two: `passed`, until: "step_one", ok: true, want: "Stopped after step_one (WALKTHROUGH_UNTIL): 1 of the 3 steps ran", unwanted: "none failed"},
-		"WALKTHROUGH_UNTIL names the last step":    {two: `passed`, until: "step_three", ok: true, want: "3 steps passed, 0 skipped, none failed."},
+		"an unbound variable in a captured helper used as an argument": {two: `h() { echo "$CA_PACK_NOT_SET"; }; expect "the pack" "$(h)" ""; passed`, want: "a command substitution stopped with status 1", unwanted: "none failed"},
+		"an unbound variable in a captured helper assigned to a local": {two: `h() { echo "$CA_PACK_NOT_SET"; }; local pack=$(h); passed`, want: "a command substitution stopped with status 1", unwanted: "none failed"},
+		"a failed command in a captured helper only printed":           {two: `h() { false; echo 4711; }; say "the account: $(h)"; passed`, want: "the command `false` failed with status 1", unwanted: "none failed"},
+		"a failed command in a captured helper assigned":               {two: `h() { false; echo 4711; }; account=$(h); say "$account"; passed`, want: "the command `false` failed with status 1", unwanted: "none failed"},
+		"a failure tolerated inside a substitution":                    {two: `x=$(false || true); say "$x$(grep -c x /dev/null || true)"; passed`, ok: true, want: "3 steps passed, 0 skipped, none failed."},
+		"an unbound variable in a subshell":                            {two: `( echo "$CA_PACK_NOT_SET" ); passed`, unwanted: "none failed"},
+		"an unbound variable in a pipeline's function":                 {two: `h() { echo "$CA_PACK_NOT_SET"; }; h | cat; passed`, unwanted: "none failed"},
+		"an unbound variable in a subshell inside a substitution":      {two: `h() { echo "$CA_PACK_NOT_SET"; }; say "$( ( h ) )"; passed`, want: "a command substitution stopped with status 1", unwanted: "none failed"},
+		"a failure tolerated outside a substitution stops the run":     {two: `x=$(false) || true; passed`, unwanted: "none failed"},
+		"a step neither passes nor skips":                              {two: `:`, want: "step_two ended having recorded 0 results", unwanted: "none failed"},
+		"a step passes twice":                                          {two: `passed; passed`, want: "step_two ended having recorded 2 results", unwanted: "none failed"},
+		"WALKTHROUGH_UNTIL stops early":                                {two: `passed`, until: "step_one", ok: true, want: "Stopped after step_one (WALKTHROUGH_UNTIL): 1 of the 3 steps ran", unwanted: "none failed"},
+		"WALKTHROUGH_UNTIL names the last step":                        {two: `passed`, until: "step_three", ok: true, want: "3 steps passed, 0 skipped, none failed."},
 	} {
 		t.Run(name, func(t *testing.T) {
 			script := stubWalkthrough(t, "start() {\nheading start\n"+c.start+"\n}\n"+
