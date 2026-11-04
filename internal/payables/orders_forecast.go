@@ -39,10 +39,11 @@ import (
 // rate, amounts out of range) adds no tax rather than refuse the
 // forecast. The order's down payments not yet cleared (open, forecast as
 // down_payment; paid, out already) are taken off its earliest documents,
-// since its invoice is cleared against them. The day is the item's delivery date, else the order date plus
-// the company's cash.order_lead_days; the order's payment terms count from
-// it (a term not configured: none, so its supplier's net days, as an
-// unposted invoice's). Its lines are its items' accounts and open values
+// since its invoice is cleared against them. The day is the item's
+// delivery date, else the order date plus the company's
+// cash.order_lead_days; the order's payment terms count from it (a term
+// not configured: none, so its supplier's net days, as an unposted
+// invoice's). Its lines are its items' accounts and open values
 // with their tax codes, signed as an invoice posts them (T53e3). An order
 // whose items are all invoiced adds nothing.
 func (e *Endpoints) OpenOrders(ctx context.Context, legalEntity uuid.UUID, on time.Time) ([]ledger.PayableItem, error) {

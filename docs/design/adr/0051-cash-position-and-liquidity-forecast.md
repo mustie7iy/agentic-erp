@@ -475,7 +475,10 @@ As built (T53g, the purchase orders, decision P7; decided by default where
   are reduced by the order's requests `open` or `paid` (not `cleared` nor
   `cancelled`, tax included, in the order's currency), the earliest first
   and none below nothing; a document they cover in full is left out
-  (`orderAdvances`). Without this the order would be forecast twice.
+  (`orderAdvances`). Without this the order would be forecast twice. What
+  is left of them after the order's last open document is not carried to
+  the order's invoices already posted or parked: those are forecast as a
+  run would pay them, in full until the clearing (review round 2).
 - **The tax** (§5: "T61's engine port once it is there"; it is, ADR-0049).
   The tax the supplier would charge on the open values, calculated as an
   invoice's is (`codesDocument`, `tax.Calculate`, `chargedSum`: every
