@@ -117,9 +117,9 @@ func (s *tableScan) endTable(keep bool) {
 // tableProblems lists, for one markdown document, each place its tables are
 // not well formed:
 //
-//   - a run of rows that does not open with a header and a delimiter row
-//     where a table may start (after a blank line, a heading or a fence):
-//     rows cut off from their header, as by a blank line inside a table;
+//   - a run of rows, anywhere, that does not open with a header and a
+//     delimiter row: rows cut off from their header, as by a blank line
+//     inside a table;
 //   - a row whose cell count differs from its header's, or a second
 //     delimiter row;
 //   - a text line directly after a row that is neither a row nor the start
