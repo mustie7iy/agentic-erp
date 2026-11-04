@@ -340,7 +340,10 @@ type Invoker interface {
 	// refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and
 	// for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the
 	// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
-	// (`task_checked`, with `check_passed`).
+	// (`task_checked`, with `check_passed`). A signed-off close whose covered periods are all locked
+	// refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved
+	// `unlockFiscalPeriod` request), the change sets the close open again first, published as
+	// PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d).
 	//
 	// POST /v1/period-closes/{id}/tasks/{code}:check
 	CheckCloseTask(ctx context.Context, params CheckCloseTaskParams) (CheckCloseTaskRes, error)
@@ -380,7 +383,10 @@ type Invoker interface {
 	// already done (409 `closing.task_already_done`) and for a check task, which is done by its check
 	// passing (409 `closing.task_is_check`; T64c: run it with `:check`). `If-Match` is the close's ETag;
 	// the answer is the task, with the close's new ETag. People only. Audited, and published as
-	// PeriodCloseChanged (`task_completed`).
+	// PeriodCloseChanged (`task_completed`). A signed-off close whose covered periods are all locked
+	// refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved
+	// `unlockFiscalPeriod` request), the change sets the close open again first, published as
+	// PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d).
 	//
 	// POST /v1/period-closes/{id}/tasks/{code}:complete
 	CompleteCloseTask(ctx context.Context, request OptCloseTaskComplete, params CompleteCloseTaskParams) (CompleteCloseTaskRes, error)
@@ -1030,6 +1036,25 @@ type Invoker interface {
 	//
 	// GET /v1/business-partners/{id}
 	GetBusinessPartner(ctx context.Context, params GetBusinessPartnerParams) (GetBusinessPartnerRes, error)
+	// GetCashActuals invokes getCashActuals operation.
+	//
+	// The actual cash flows of a legal entity (ADR-0051 §11, T53f2), computed at the read from one
+	// database state (a repeatable-read snapshot): its bank statement lines, posted or not, whose value
+	// date is from `from` to `to`, per currency, house bank and bucket, classified by liquidity item as
+	// their matches say (ADR-0051 §4): a line matched to payments takes the liquidity items of the
+	// supplier items those payments settled (each split over its offsetting lines' items, as the liquidity
+	// forecast splits it, shared out over the line's amount in proportion), a line matched to a posting
+	// rule the rule's item (`cash.derivation.posting_rules`, else its direction's default), a line matched
+	// to the incoming payments clearing account or excluded by a person its direction's default
+	// (`cash.derivation.defaults`); a line with no decided match takes its direction's default too and is
+	// counted `unclassified`, so the actuals are visible before reconciliation finishes. Buckets are
+	// periods of `grain` (default `day`) from `from`, the last ending on `to`; at most 92 days, 104 weeks
+	// or 36 months. Every active house bank is listed, with or without lines; a bank no longer active only
+	// when it has lines. Amounts are signed: money into the bank positive. The lines themselves are listed
+	// by `listCashActualLines`.
+	//
+	// GET /v1/cash-actuals
+	GetCashActuals(ctx context.Context, params GetCashActualsParams) (GetCashActualsRes, error)
 	// GetCashPosition invokes getCashPosition operation.
 	//
 	// The daily cash position of a legal entity (ADR-0051 §8, T53c), computed at the read from one
@@ -1152,6 +1177,15 @@ type Invoker interface {
 	//
 	// GET /v1/me
 	GetCurrentPrincipal(ctx context.Context) (GetCurrentPrincipalRes, error)
+	// GetDepreciationRun invokes getDepreciationRun operation.
+	//
+	// One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it
+	// planned, posted and skipped, the depreciation it posted, the problem that failed it, and its batches
+	// with their journal entries and document numbers. One of a legal entity the caller cannot act in is
+	// not found.
+	//
+	// GET /v1/depreciation-runs/{id}
+	GetDepreciationRun(ctx context.Context, params GetDepreciationRunParams) (GetDepreciationRunRes, error)
 	// GetDownPaymentRequest invokes getDownPaymentRequest operation.
 	//
 	// Returns one down payment request.
@@ -1323,6 +1357,32 @@ type Invoker interface {
 	//
 	// GET /v1/liquidity-forecast
 	GetLiquidityForecast(ctx context.Context, params GetLiquidityForecastParams) (GetLiquidityForecastRes, error)
+	// GetLiquidityForecastVariance invokes getLiquidityForecastVariance operation.
+	//
+	// What the liquidity forecast said of a period against what the bank statements show (ADR-0051 §11,
+	// T53f3), computed at the read from one database state (a repeatable-read snapshot), per currency,
+	// liquidity item and bucket: the forecast is that of the legal entity's snapshot taken `lag` days
+	// before `from` (its daily snapshot of that date, else the last taken on demand that day; 409
+	// `cash.snapshot_not_taken` when none was), without what blocked suppliers were owed, as the
+	// forecast's totals leave them out; the actuals are the statement lines by value date as
+	// `getCashActuals` classifies them; the variance is the actual less the forecast, and
+	// `variance_percent` its size in percent of the forecast's size. A snapshot keeps each document it
+	// forecast for 31 days from its date (`document_level_until`) and bucket sums after (T53f), so the
+	// period's days up to that day are in `buckets` (of `grain` from `from`, the last ending on `to` or on
+	// that day) with the variance attributed: each document the snapshot forecast is matched to the
+	// statement lines that paid it (a run's payment or a payment in transit by the payment, a supplier
+	// item by its journal entry, an invoice forecast before it was posted by the entry it posted, a down
+	// payment request by its payment, a memo record by the line that realised it, a series' occurrence by
+	// its override), and its part of the variance is `timing` when it was forecast in one bucket and paid
+	// in another (paid before or after the period included), `amount` when paid in the bucket it was
+	// forecast in, `missing` when nothing paid it; a statement line's part that pays no document the
+	// snapshot forecast is `new`, or `unclassified` when the line has no decided match. The five add up to
+	// the variance. The days after the document level up to `to` are compared per item only (`beyond`), up
+	// to the day before a snapshot bucket that ends after `to` (its sum cannot be told apart by day). The
+	// variance names no document or supplier, so `cash.forecast.read` is all it needs.
+	//
+	// GET /v1/liquidity-forecast-variance
+	GetLiquidityForecastVariance(ctx context.Context, params GetLiquidityForecastVarianceParams) (GetLiquidityForecastVarianceRes, error)
 	// GetMatchResult invokes getMatchResult operation.
 	//
 	// Returns one three-way match evaluation.
@@ -1757,6 +1817,22 @@ type Invoker interface {
 	//
 	// GET /v1/business-partners
 	ListBusinessPartners(ctx context.Context, params ListBusinessPartnersParams) (ListBusinessPartnersRes, error)
+	// ListCashActualLines invokes listCashActualLines operation.
+	//
+	// The bank statement lines of one currency that `getCashActuals` sums (ADR-0051 §11, T53f2), whose
+	// value date is from `from` to `to` (at most 36 months), computed from one database state, by value
+	// date: each with its house bank, its status in reconciliation, what classified it (`match`) and its
+	// shares by liquidity item; with `liquidity_item`, only the lines with a share of that item or its
+	// descendants, each with that `share`; with `unclassified=true`, only the lines with no decided match;
+	// with `house_bank_id`, only that bank's. `total` adds the selected shares of every page, `count` the
+	// lines. A line's statement is given only to a caller who may use `payments.statement.read`, the
+	// payments it was matched to only with `payments.run.read`, and their suppliers only with
+	// `partner.supplier.read` (`authz.MayUse`: held and not barred by a segregation-of-duties rule), else
+	// left out, never refused, as the liquidity forecast's drill-down shows its documents. Paged by
+	// cursor; the token names no statement.
+	//
+	// GET /v1/cash-actual-lines
+	ListCashActualLines(ctx context.Context, params ListCashActualLinesParams) (ListCashActualLinesRes, error)
 	// ListCashSnapshotFlows invokes listCashSnapshotFlows operation.
 	//
 	// The flows a snapshot kept (ADR-0051 §6, T53f), of one currency, by value date and line: within 31
@@ -1892,6 +1968,14 @@ type Invoker interface {
 	//
 	// GET /v1/country-packs
 	ListCountryPacks(ctx context.Context, params ListCountryPacksParams) (ListCountryPacksRes, error)
+	// ListDepreciationRuns invokes listDepreciationRuns operation.
+	//
+	// The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
+	// its batches and their journal entries' document numbers. Filters: company, ledger, fiscal year and
+	// status. Sortable by: `created_at` (default).
+	//
+	// GET /v1/depreciation-runs
+	ListDepreciationRuns(ctx context.Context, params ListDepreciationRunsParams) (ListDepreciationRunsRes, error)
 	// ListDownPaymentRequests invokes listDownPaymentRequests operation.
 	//
 	// Down payment requests (SAP F-47, ADR-0037). Sortable by: `due_date`.
@@ -2120,6 +2204,33 @@ type Invoker interface {
 	//
 	// GET /v1/payment-runs/{id}/payments
 	ListPayments(ctx context.Context, params ListPaymentsParams) (ListPaymentsRes, error)
+	// ListPeriodCloseVariances invokes listPeriodCloseVariances operation.
+	//
+	// The variance report of a period close (ADR-0058 §9, T64h): one row per profit and loss account of
+	// the company's leading ledger with a non-zero actual or comparison, in the company's local currency,
+	// debit positive as the trial balance signs it (`GET /v1/balances`). `actual` is the account's net
+	// movement in the close's period, exact at the moment of the read; `comparison` is, by `basis`, the
+	// net movement of the previous regular period (`prior_period`: period 12 of the previous fiscal year
+	// for period 1), of the same period of the previous fiscal year (`prior_year`), or the plan of the
+	// company's configured plan category for the period (`plan`: its lines on cost centers or on profit
+	// centers, as `companies[].close.variance.plan_centers` says, never both); a comparison period the
+	// company has no posting period for compares as zero. `variance` is the actual less the comparison and
+	// `variance_percent` the variance in percent of the comparison's absolute value, two places, computed
+	// exactly and rounded half away from zero, absent when the comparison is zero. A row
+	// `requires_comment` when the variance's absolute value is at least the company's `threshold_amount`
+	// and, when a `threshold_percent` is configured and the row has a percent, the percent's absolute
+	// value (as shown, two places) is at least it. The bases and thresholds are the active configuration's
+	// `companies[].close.variance` (tier 2); a basis the company does not configure is 422
+	// `closing.basis_not_configured`. Rows are in account number order (as the database orders text, byte
+	// by byte), cursor-paged; `requires_comment` keeps only the rows that do (`true`) or do not (`false`).
+	// `totals` sum the whole report, every row whatever the filter and on every page alike: the actuals
+	// summed are the period's profit and loss in the trial balance (a loss positive). Variance comments
+	// and the rows they explain are T64i's. A close of a legal entity the caller cannot act in is not
+	// found. The figures are ledger amounts, so besides `closing.close.read` the caller needs
+	// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/period-closes/{id}/variances
+	ListPeriodCloseVariances(ctx context.Context, params ListPeriodCloseVariancesParams) (ListPeriodCloseVariancesRes, error)
 	// ListPeriodCloses invokes listPeriodCloses operation.
 	//
 	// The period closes of the legal entities the caller may act in (ADR-0058 §6, T64b), without their
@@ -3041,7 +3152,10 @@ type Invoker interface {
 	// its latest `check_result`), and the reason is kept in the audit trail and the event. It reopens
 	// nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is
 	// the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
-	// (`task_reopened`).
+	// (`task_reopened`). A signed-off close whose covered periods are all locked refuses it (409
+	// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
+	// request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`)
+	// (ADR-0058 §7, T64d).
 	//
 	// POST /v1/period-closes/{id}/tasks/{code}:reopen
 	ReopenCloseTask(ctx context.Context, request *ReasonInput, params ReopenCloseTaskParams) (ReopenCloseTaskRes, error)
@@ -3193,6 +3307,31 @@ type Invoker interface {
 	//
 	// POST /v1/analytics-queries
 	RunAnalyticsQuery(ctx context.Context, request *AnalyticsQuery, params RunAnalyticsQueryParams) (RunAnalyticsQueryRes, error)
+	// SignOffPeriodClose invokes signOffPeriodClose operation.
+	//
+	// Signs off a period close and locks its covered ledgers' periods through the period lock (ADR-0058
+	// §7, T64d), in one transaction under a lock on the close: refused while a manual task is open (409
+	// `closing.tasks_open`, naming them); then every check task's check runs again, and if any fails the
+	// sign-off is refused (409 `closing.checks_failing`, the problem's `failing_checks` naming each
+	// failing task with what its check found) and nothing is kept (`:check` records a result); when all
+	// pass each result is recorded on its task. Each covered ledger's period must then be `closed` or
+	// `locked` (409 `closing.period_not_closed`, naming the ledgers still open): a close is signed off
+	// after its period stopped taking postings, and a sign-off never closes a period. Each `closed`
+	// covered period is locked as `lockFiscalPeriod` locks it (the ledger's audit record and
+	// PeriodLocked), the leading ledger first, then by ledger code, the order postings lock periods in; a
+	// period already locked is left as it is, and a period changed by someone else between its read and
+	// its lock refuses the sign-off (412 `request.version_mismatch`). The sign-off is recorded with who
+	// signed off, when, the note and, per covered ledger, its period and whether this sign-off locked it,
+	// and the close is `signed_off`. A close already signed off whose covered periods are all locked is
+	// refused (409 `closing.close_signed_off`); after a covered period was unlocked (an approved
+	// `unlockFiscalPeriod` request) it is signed off again, adding a second sign-off. `If-Match` is the
+	// close's ETag; the answer is the sign-off, with the close's new ETag. People only. Besides
+	// `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks periods, and
+	// `ledger.entry.read`, since its refusal names what the checks found (`x-also-permissions`; 403
+	// `identity.permission_missing` otherwise). Audited, and published as PeriodCloseSignedOff.
+	//
+	// POST /v1/period-closes/{id}:signOff
+	SignOffPeriodClose(ctx context.Context, request OptPeriodCloseSignOffInput, params SignOffPeriodCloseParams) (SignOffPeriodCloseRes, error)
 	// SimulateChangeRequest invokes simulateChangeRequest operation.
 	//
 	// Replays recent business transactions against the proposed configuration and records the result as
@@ -3219,6 +3358,44 @@ type Invoker interface {
 	//
 	// POST /v1/agent-sessions
 	StartAgentSession(ctx context.Context, request *AgentSessionStart, params StartAgentSessionParams) (StartAgentSessionRes, error)
+	// StartDepreciationRun invokes startDepreciationRun operation.
+	//
+	// Starts the depreciation run of a company, ledger and regular period (ADR-0057 §7, T57f; SAP's
+	// AFAB): the run is written `queued` with its Operation (kind `assets.depreciate`, its `resource` the
+	// run) and carried out as a workflow, or in process in a cell without a workflow engine. It selects
+	// the assets the preview shows (`POST /v1/depreciation-runs/preview`), in batches of 500 by asset
+	// number, and posts per batch one journal entry in the run's ledger alone (document type AF, dated the
+	// period's last day, source context `assets`), per asset the planned depreciation through the period
+	// less what is booked in the ledger: the period's depreciation, a catch-up of earlier periods, or
+	// depreciation posted back (negative) after an acquisition's reversal. Each asset's lines take its
+	// latest center assignment: the expense per depreciation account, cost center and profit center, the
+	// credit per accumulated depreciation account and profit center, debits and credits on separate lines;
+	// each line's group amount is the sum of its assets' local amounts translated at the posting date's
+	// rate. Each batch re-checks its assets under their locks: one retired, cancelled, booked through a
+	// later period or moved to centers valid after the period's last day since the plan is skipped and
+	// counted. Each asset a batch processes is booked through the period in the ledger (its terms are
+	// fixed from then on) and gets a depreciation movement when it had a difference. A period already run
+	// posts only what changed since. `ledger_id` defaults to the leading ledger; one the company does not
+	// keep is 422 `ledger.ledger_not_kept`; a special period (13-16) is 422 `assets.special_period`; a
+	// fiscal year or period not set up is 422 `ledger.no_fiscal_period`; a period not open in the ledger
+	// is 409 `ledger.period_not_open`; a period before the latest posted run's in the ledger is 409
+	// `assets.run_out_of_order`; a run of the company and ledger already queued or running is 409
+	// `assets.run_in_progress`, whose detail names it. A business problem while posting (the period closed
+	// or locked meanwhile, an account blocked, a center invalid, a class no longer the company's, a
+	// missing exchange rate) fails the run and its Operation with the problem; batches already posted stay
+	// posted, and a new run of the period, or the next period's run, posts what is left. Cancelling the
+	// Operation (`POST /v1/operations/{id}:cancel`) stops the run at its next step: a cancellation during
+	// the plan or a batch answers at once, the step under way commits as a whole, the next step then fails
+	// the run with `assets.run_cancelled`, freeing its company and ledger for a new run, its batches
+	// already posted stay posted, and the Operation stays `cancelled`. A step failing on an error of the
+	// machinery is tried five times; one that outlasts them fails the run, and its Operation, with
+	// `platform.internal`. In a cell without a workflow engine a failing step is tried again every round
+	// until it succeeds or the Operation is cancelled. The run is published as DepreciationRunCompleted
+	// when it ends, posted or failed, and audited. A legal entity the caller cannot act in is 404.
+	// Human-only.
+	//
+	// POST /v1/depreciation-runs
+	StartDepreciationRun(ctx context.Context, request *DepreciationRunStart, params StartDepreciationRunParams) (StartDepreciationRunRes, error)
 	// StartMigrationRun invokes startMigrationRun operation.
 	//
 	// Extracts, transforms and loads the scope; the run becomes `loaded`, or `failed`. Requires status
@@ -3394,7 +3571,10 @@ type Invoker interface {
 	// active person of the tenant (422 `closing.assignee_invalid` for an agent, a service, a blocked or
 	// unknown principal). `If-Match` is the close's ETag, so a change made on a stale view of the
 	// checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited,
-	// and published as PeriodCloseChanged (`task_assigned`).
+	// and published as PeriodCloseChanged (`task_assigned`). A signed-off close whose covered periods are
+	// all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved
+	// `unlockFiscalPeriod` request), the change sets the close open again first, published as
+	// PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d).
 	//
 	// PATCH /v1/period-closes/{id}/tasks/{code}
 	UpdateCloseTask(ctx context.Context, request *CloseTaskUpdate, params UpdateCloseTaskParams) (UpdateCloseTaskRes, error)
@@ -8193,7 +8373,10 @@ func (c *Client) sendCaptureSupplierInvoice(ctx context.Context, request *Suppli
 // refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and
 // for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the
 // task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
-// (`task_checked`, with `check_passed`).
+// (`task_checked`, with `check_passed`). A signed-off close whose covered periods are all locked
+// refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved
+// `unlockFiscalPeriod` request), the change sets the close open again first, published as
+// PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d).
 //
 // POST /v1/period-closes/{id}/tasks/{code}:check
 func (c *Client) CheckCloseTask(ctx context.Context, params CheckCloseTaskParams) (CheckCloseTaskRes, error) {
@@ -8859,7 +9042,10 @@ func (c *Client) sendClosePurchaseOrder(ctx context.Context, params ClosePurchas
 // already done (409 `closing.task_already_done`) and for a check task, which is done by its check
 // passing (409 `closing.task_is_check`; T64c: run it with `:check`). `If-Match` is the close's ETag;
 // the answer is the task, with the close's new ETag. People only. Audited, and published as
-// PeriodCloseChanged (`task_completed`).
+// PeriodCloseChanged (`task_completed`). A signed-off close whose covered periods are all locked
+// refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved
+// `unlockFiscalPeriod` request), the change sets the close open again first, published as
+// PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d).
 //
 // POST /v1/period-closes/{id}/tasks/{code}:complete
 func (c *Client) CompleteCloseTask(ctx context.Context, request OptCloseTaskComplete, params CompleteCloseTaskParams) (CompleteCloseTaskRes, error) {
@@ -18185,6 +18371,195 @@ func (c *Client) sendGetBusinessPartner(ctx context.Context, params GetBusinessP
 	return result, nil
 }
 
+// GetCashActuals invokes getCashActuals operation.
+//
+// The actual cash flows of a legal entity (ADR-0051 §11, T53f2), computed at the read from one
+// database state (a repeatable-read snapshot): its bank statement lines, posted or not, whose value
+// date is from `from` to `to`, per currency, house bank and bucket, classified by liquidity item as
+// their matches say (ADR-0051 §4): a line matched to payments takes the liquidity items of the
+// supplier items those payments settled (each split over its offsetting lines' items, as the liquidity
+// forecast splits it, shared out over the line's amount in proportion), a line matched to a posting
+// rule the rule's item (`cash.derivation.posting_rules`, else its direction's default), a line matched
+// to the incoming payments clearing account or excluded by a person its direction's default
+// (`cash.derivation.defaults`); a line with no decided match takes its direction's default too and is
+// counted `unclassified`, so the actuals are visible before reconciliation finishes. Buckets are
+// periods of `grain` (default `day`) from `from`, the last ending on `to`; at most 92 days, 104 weeks
+// or 36 months. Every active house bank is listed, with or without lines; a bank no longer active only
+// when it has lines. Amounts are signed: money into the bank positive. The lines themselves are listed
+// by `listCashActualLines`.
+//
+// GET /v1/cash-actuals
+func (c *Client) GetCashActuals(ctx context.Context, params GetCashActualsParams) (GetCashActualsRes, error) {
+	res, err := c.sendGetCashActuals(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCashActuals(ctx context.Context, params GetCashActualsParams) (res GetCashActualsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCashActuals"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/cash-actuals"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCashActualsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/cash-actuals"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.From))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.To))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "grain" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "grain",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Grain.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCashActualsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCashActualsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetCashPosition invokes getCashPosition operation.
 //
 // The daily cash position of a legal entity (ADR-0051 §8, T53c), computed at the read from one
@@ -19847,6 +20222,140 @@ func (c *Client) sendGetCurrentPrincipal(ctx context.Context) (res GetCurrentPri
 
 	stage = "DecodeResponse"
 	result, err := decodeGetCurrentPrincipalResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetDepreciationRun invokes getDepreciationRun operation.
+//
+// One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it
+// planned, posted and skipped, the depreciation it posted, the problem that failed it, and its batches
+// with their journal entries and document numbers. One of a legal entity the caller cannot act in is
+// not found.
+//
+// GET /v1/depreciation-runs/{id}
+func (c *Client) GetDepreciationRun(ctx context.Context, params GetDepreciationRunParams) (GetDepreciationRunRes, error) {
+	res, err := c.sendGetDepreciationRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetDepreciationRun(ctx context.Context, params GetDepreciationRunParams) (res GetDepreciationRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getDepreciationRun"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/depreciation-runs/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetDepreciationRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/depreciation-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetDepreciationRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetDepreciationRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -21653,6 +22162,219 @@ func (c *Client) sendGetLiquidityForecast(ctx context.Context, params GetLiquidi
 
 	stage = "DecodeResponse"
 	result, err := decodeGetLiquidityForecastResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetLiquidityForecastVariance invokes getLiquidityForecastVariance operation.
+//
+// What the liquidity forecast said of a period against what the bank statements show (ADR-0051 §11,
+// T53f3), computed at the read from one database state (a repeatable-read snapshot), per currency,
+// liquidity item and bucket: the forecast is that of the legal entity's snapshot taken `lag` days
+// before `from` (its daily snapshot of that date, else the last taken on demand that day; 409
+// `cash.snapshot_not_taken` when none was), without what blocked suppliers were owed, as the
+// forecast's totals leave them out; the actuals are the statement lines by value date as
+// `getCashActuals` classifies them; the variance is the actual less the forecast, and
+// `variance_percent` its size in percent of the forecast's size. A snapshot keeps each document it
+// forecast for 31 days from its date (`document_level_until`) and bucket sums after (T53f), so the
+// period's days up to that day are in `buckets` (of `grain` from `from`, the last ending on `to` or on
+// that day) with the variance attributed: each document the snapshot forecast is matched to the
+// statement lines that paid it (a run's payment or a payment in transit by the payment, a supplier
+// item by its journal entry, an invoice forecast before it was posted by the entry it posted, a down
+// payment request by its payment, a memo record by the line that realised it, a series' occurrence by
+// its override), and its part of the variance is `timing` when it was forecast in one bucket and paid
+// in another (paid before or after the period included), `amount` when paid in the bucket it was
+// forecast in, `missing` when nothing paid it; a statement line's part that pays no document the
+// snapshot forecast is `new`, or `unclassified` when the line has no decided match. The five add up to
+// the variance. The days after the document level up to `to` are compared per item only (`beyond`), up
+// to the day before a snapshot bucket that ends after `to` (its sum cannot be told apart by day). The
+// variance names no document or supplier, so `cash.forecast.read` is all it needs.
+//
+// GET /v1/liquidity-forecast-variance
+func (c *Client) GetLiquidityForecastVariance(ctx context.Context, params GetLiquidityForecastVarianceParams) (GetLiquidityForecastVarianceRes, error) {
+	res, err := c.sendGetLiquidityForecastVariance(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetLiquidityForecastVariance(ctx context.Context, params GetLiquidityForecastVarianceParams) (res GetLiquidityForecastVarianceRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getLiquidityForecastVariance"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/liquidity-forecast-variance"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetLiquidityForecastVarianceOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/liquidity-forecast-variance"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.From))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.To))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "lag" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "lag",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Lag.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "grain" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "grain",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Grain.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetLiquidityForecastVarianceOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetLiquidityForecastVarianceResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -30619,6 +31341,274 @@ func (c *Client) sendListBusinessPartners(ctx context.Context, params ListBusine
 	return result, nil
 }
 
+// ListCashActualLines invokes listCashActualLines operation.
+//
+// The bank statement lines of one currency that `getCashActuals` sums (ADR-0051 §11, T53f2), whose
+// value date is from `from` to `to` (at most 36 months), computed from one database state, by value
+// date: each with its house bank, its status in reconciliation, what classified it (`match`) and its
+// shares by liquidity item; with `liquidity_item`, only the lines with a share of that item or its
+// descendants, each with that `share`; with `unclassified=true`, only the lines with no decided match;
+// with `house_bank_id`, only that bank's. `total` adds the selected shares of every page, `count` the
+// lines. A line's statement is given only to a caller who may use `payments.statement.read`, the
+// payments it was matched to only with `payments.run.read`, and their suppliers only with
+// `partner.supplier.read` (`authz.MayUse`: held and not barred by a segregation-of-duties rule), else
+// left out, never refused, as the liquidity forecast's drill-down shows its documents. Paged by
+// cursor; the token names no statement.
+//
+// GET /v1/cash-actual-lines
+func (c *Client) ListCashActualLines(ctx context.Context, params ListCashActualLinesParams) (ListCashActualLinesRes, error) {
+	res, err := c.sendListCashActualLines(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCashActualLines(ctx context.Context, params ListCashActualLinesParams) (res ListCashActualLinesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCashActualLines"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/cash-actual-lines"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCashActualLinesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/cash-actual-lines"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "currency" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "currency",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.Currency))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.From))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.To))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "house_bank_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "house_bank_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.HouseBankID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "liquidity_item" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "liquidity_item",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LiquidityItem.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "unclassified" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "unclassified",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Unclassified.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCashActualLinesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCashActualLinesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListCashSnapshotFlows invokes listCashSnapshotFlows operation.
 //
 // The flows a snapshot kept (ADR-0051 §6, T53f), of one currency, by value date and line: within 31
@@ -34166,6 +35156,244 @@ func (c *Client) sendListCountryPacks(ctx context.Context, params ListCountryPac
 
 	stage = "DecodeResponse"
 	result, err := decodeListCountryPacksResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListDepreciationRuns invokes listDepreciationRuns operation.
+//
+// The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
+// its batches and their journal entries' document numbers. Filters: company, ledger, fiscal year and
+// status. Sortable by: `created_at` (default).
+//
+// GET /v1/depreciation-runs
+func (c *Client) ListDepreciationRuns(ctx context.Context, params ListDepreciationRunsParams) (ListDepreciationRunsRes, error) {
+	res, err := c.sendListDepreciationRuns(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListDepreciationRuns(ctx context.Context, params ListDepreciationRunsParams) (res ListDepreciationRunsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listDepreciationRuns"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/depreciation-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListDepreciationRunsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/depreciation-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "ledger_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "ledger_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LedgerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalYear.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListDepreciationRunsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListDepreciationRunsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -40906,6 +42134,228 @@ func (c *Client) sendListPayments(ctx context.Context, params ListPaymentsParams
 
 	stage = "DecodeResponse"
 	result, err := decodeListPaymentsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListPeriodCloseVariances invokes listPeriodCloseVariances operation.
+//
+// The variance report of a period close (ADR-0058 §9, T64h): one row per profit and loss account of
+// the company's leading ledger with a non-zero actual or comparison, in the company's local currency,
+// debit positive as the trial balance signs it (`GET /v1/balances`). `actual` is the account's net
+// movement in the close's period, exact at the moment of the read; `comparison` is, by `basis`, the
+// net movement of the previous regular period (`prior_period`: period 12 of the previous fiscal year
+// for period 1), of the same period of the previous fiscal year (`prior_year`), or the plan of the
+// company's configured plan category for the period (`plan`: its lines on cost centers or on profit
+// centers, as `companies[].close.variance.plan_centers` says, never both); a comparison period the
+// company has no posting period for compares as zero. `variance` is the actual less the comparison and
+// `variance_percent` the variance in percent of the comparison's absolute value, two places, computed
+// exactly and rounded half away from zero, absent when the comparison is zero. A row
+// `requires_comment` when the variance's absolute value is at least the company's `threshold_amount`
+// and, when a `threshold_percent` is configured and the row has a percent, the percent's absolute
+// value (as shown, two places) is at least it. The bases and thresholds are the active configuration's
+// `companies[].close.variance` (tier 2); a basis the company does not configure is 422
+// `closing.basis_not_configured`. Rows are in account number order (as the database orders text, byte
+// by byte), cursor-paged; `requires_comment` keeps only the rows that do (`true`) or do not (`false`).
+// `totals` sum the whole report, every row whatever the filter and on every page alike: the actuals
+// summed are the period's profit and loss in the trial balance (a loss positive). Variance comments
+// and the rows they explain are T64i's. A close of a legal entity the caller cannot act in is not
+// found. The figures are ledger amounts, so besides `closing.close.read` the caller needs
+// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/period-closes/{id}/variances
+func (c *Client) ListPeriodCloseVariances(ctx context.Context, params ListPeriodCloseVariancesParams) (ListPeriodCloseVariancesRes, error) {
+	res, err := c.sendListPeriodCloseVariances(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListPeriodCloseVariances(ctx context.Context, params ListPeriodCloseVariancesParams) (res ListPeriodCloseVariancesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listPeriodCloseVariances"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/period-closes/{id}/variances"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListPeriodCloseVariancesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/period-closes/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/variances"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "basis" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "basis",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.Basis))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "requires_comment" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "requires_comment",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.RequiresComment.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListPeriodCloseVariancesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListPeriodCloseVariancesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -54665,7 +56115,10 @@ func (c *Client) sendRenewContract(ctx context.Context, request *ContractRenew, 
 // its latest `check_result`), and the reason is kept in the audit trail and the event. It reopens
 // nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is
 // the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
-// (`task_reopened`).
+// (`task_reopened`). A signed-off close whose covered periods are all locked refuses it (409
+// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
+// request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`)
+// (ADR-0058 §7, T64d).
 //
 // POST /v1/period-closes/{id}/tasks/{code}:reopen
 func (c *Client) ReopenCloseTask(ctx context.Context, request *ReasonInput, params ReopenCloseTaskParams) (ReopenCloseTaskRes, error) {
@@ -56807,6 +58260,185 @@ func (c *Client) sendRunAnalyticsQuery(ctx context.Context, request *AnalyticsQu
 	return result, nil
 }
 
+// SignOffPeriodClose invokes signOffPeriodClose operation.
+//
+// Signs off a period close and locks its covered ledgers' periods through the period lock (ADR-0058
+// §7, T64d), in one transaction under a lock on the close: refused while a manual task is open (409
+// `closing.tasks_open`, naming them); then every check task's check runs again, and if any fails the
+// sign-off is refused (409 `closing.checks_failing`, the problem's `failing_checks` naming each
+// failing task with what its check found) and nothing is kept (`:check` records a result); when all
+// pass each result is recorded on its task. Each covered ledger's period must then be `closed` or
+// `locked` (409 `closing.period_not_closed`, naming the ledgers still open): a close is signed off
+// after its period stopped taking postings, and a sign-off never closes a period. Each `closed`
+// covered period is locked as `lockFiscalPeriod` locks it (the ledger's audit record and
+// PeriodLocked), the leading ledger first, then by ledger code, the order postings lock periods in; a
+// period already locked is left as it is, and a period changed by someone else between its read and
+// its lock refuses the sign-off (412 `request.version_mismatch`). The sign-off is recorded with who
+// signed off, when, the note and, per covered ledger, its period and whether this sign-off locked it,
+// and the close is `signed_off`. A close already signed off whose covered periods are all locked is
+// refused (409 `closing.close_signed_off`); after a covered period was unlocked (an approved
+// `unlockFiscalPeriod` request) it is signed off again, adding a second sign-off. `If-Match` is the
+// close's ETag; the answer is the sign-off, with the close's new ETag. People only. Besides
+// `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks periods, and
+// `ledger.entry.read`, since its refusal names what the checks found (`x-also-permissions`; 403
+// `identity.permission_missing` otherwise). Audited, and published as PeriodCloseSignedOff.
+//
+// POST /v1/period-closes/{id}:signOff
+func (c *Client) SignOffPeriodClose(ctx context.Context, request OptPeriodCloseSignOffInput, params SignOffPeriodCloseParams) (SignOffPeriodCloseRes, error) {
+	res, err := c.sendSignOffPeriodClose(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendSignOffPeriodClose(ctx context.Context, request OptPeriodCloseSignOffInput, params SignOffPeriodCloseParams) (res SignOffPeriodCloseRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("signOffPeriodClose"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/period-closes/{id}:signOff"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, SignOffPeriodCloseOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/period-closes/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":signOff"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeSignOffPeriodCloseRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, SignOffPeriodCloseOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeSignOffPeriodCloseResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // SimulateChangeRequest invokes simulateChangeRequest operation.
 //
 // Replays recent business transactions against the proposed configuration and records the result as
@@ -57101,6 +58733,168 @@ func (c *Client) sendStartAgentSession(ctx context.Context, request *AgentSessio
 
 	stage = "DecodeResponse"
 	result, err := decodeStartAgentSessionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// StartDepreciationRun invokes startDepreciationRun operation.
+//
+// Starts the depreciation run of a company, ledger and regular period (ADR-0057 §7, T57f; SAP's
+// AFAB): the run is written `queued` with its Operation (kind `assets.depreciate`, its `resource` the
+// run) and carried out as a workflow, or in process in a cell without a workflow engine. It selects
+// the assets the preview shows (`POST /v1/depreciation-runs/preview`), in batches of 500 by asset
+// number, and posts per batch one journal entry in the run's ledger alone (document type AF, dated the
+// period's last day, source context `assets`), per asset the planned depreciation through the period
+// less what is booked in the ledger: the period's depreciation, a catch-up of earlier periods, or
+// depreciation posted back (negative) after an acquisition's reversal. Each asset's lines take its
+// latest center assignment: the expense per depreciation account, cost center and profit center, the
+// credit per accumulated depreciation account and profit center, debits and credits on separate lines;
+// each line's group amount is the sum of its assets' local amounts translated at the posting date's
+// rate. Each batch re-checks its assets under their locks: one retired, cancelled, booked through a
+// later period or moved to centers valid after the period's last day since the plan is skipped and
+// counted. Each asset a batch processes is booked through the period in the ledger (its terms are
+// fixed from then on) and gets a depreciation movement when it had a difference. A period already run
+// posts only what changed since. `ledger_id` defaults to the leading ledger; one the company does not
+// keep is 422 `ledger.ledger_not_kept`; a special period (13-16) is 422 `assets.special_period`; a
+// fiscal year or period not set up is 422 `ledger.no_fiscal_period`; a period not open in the ledger
+// is 409 `ledger.period_not_open`; a period before the latest posted run's in the ledger is 409
+// `assets.run_out_of_order`; a run of the company and ledger already queued or running is 409
+// `assets.run_in_progress`, whose detail names it. A business problem while posting (the period closed
+// or locked meanwhile, an account blocked, a center invalid, a class no longer the company's, a
+// missing exchange rate) fails the run and its Operation with the problem; batches already posted stay
+// posted, and a new run of the period, or the next period's run, posts what is left. Cancelling the
+// Operation (`POST /v1/operations/{id}:cancel`) stops the run at its next step: a cancellation during
+// the plan or a batch answers at once, the step under way commits as a whole, the next step then fails
+// the run with `assets.run_cancelled`, freeing its company and ledger for a new run, its batches
+// already posted stay posted, and the Operation stays `cancelled`. A step failing on an error of the
+// machinery is tried five times; one that outlasts them fails the run, and its Operation, with
+// `platform.internal`. In a cell without a workflow engine a failing step is tried again every round
+// until it succeeds or the Operation is cancelled. The run is published as DepreciationRunCompleted
+// when it ends, posted or failed, and audited. A legal entity the caller cannot act in is 404.
+// Human-only.
+//
+// POST /v1/depreciation-runs
+func (c *Client) StartDepreciationRun(ctx context.Context, request *DepreciationRunStart, params StartDepreciationRunParams) (StartDepreciationRunRes, error) {
+	res, err := c.sendStartDepreciationRun(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendStartDepreciationRun(ctx context.Context, request *DepreciationRunStart, params StartDepreciationRunParams) (res StartDepreciationRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("startDepreciationRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/depreciation-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, StartDepreciationRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/depreciation-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeStartDepreciationRunRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, StartDepreciationRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeStartDepreciationRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -59688,7 +61482,10 @@ func (c *Client) sendUpdateChangeRequest(ctx context.Context, request *ChangeReq
 // active person of the tenant (422 `closing.assignee_invalid` for an agent, a service, a blocked or
 // unknown principal). `If-Match` is the close's ETag, so a change made on a stale view of the
 // checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited,
-// and published as PeriodCloseChanged (`task_assigned`).
+// and published as PeriodCloseChanged (`task_assigned`). A signed-off close whose covered periods are
+// all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved
+// `unlockFiscalPeriod` request), the change sets the close open again first, published as
+// PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d).
 //
 // PATCH /v1/period-closes/{id}/tasks/{code}
 func (c *Client) UpdateCloseTask(ctx context.Context, request *CloseTaskUpdate, params UpdateCloseTaskParams) (UpdateCloseTaskRes, error) {

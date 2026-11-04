@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/assets"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -352,5 +354,85 @@ func TestDepreciationRunOperations(t *testing.T) {
 	for id, status := range map[uuid.UUID]string{done: "succeeded", failed: "failed"} {
 		o, _ := e.Must(200, "GET", "/v1/operations/"+id.String(), "", "")
 		want(t, "the operation's status", o["status"], status)
+	}
+}
+
+// ledgersReversed is the ledger port listing the tenant's ledgers in the
+// reverse of their order.
+type ledgersReversed struct{ assets.Ledger }
+
+func (l ledgersReversed) Ledgers(ctx context.Context, le *uuid.UUID) ([]assets.LedgerRef, error) {
+	out, err := l.Ledger.Ledgers(ctx, le)
+	slices.Reverse(out)
+	return out, err
+}
+
+// recordedLedgers calls fn as the tenant's person and returns the ledger
+// ids at path in the audit record of the action it writes, in their order
+// there: its buffered records are written in its transaction and read
+// back before the transaction is rolled back.
+func recordedLedgers(t *testing.T, e assetEnv, action, path string, fn func(ctx context.Context) error) string {
+	t.Helper()
+	var got string
+	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		ctx, buf := audit.WithBuffer(ctx)
+		if err := fn(ctx); err != nil {
+			return err
+		}
+		tx, p, err := reqctx.Request(ctx)
+		if err != nil {
+			return err
+		}
+		if err := buf.Flush(ctx, tx, p, "", assetDay); err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx, `SELECT jsonb_path_query_array(detail, $2::jsonpath)::text FROM audit.audit_event WHERE action = $1
+			ORDER BY seq DESC LIMIT 1`, action, path).Scan(&got)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+// ledgerList is the ledger ids as recordedLedgers shows them.
+func ledgerList(ids ...uuid.UUID) string {
+	quoted := make([]string, len(ids))
+	for i, id := range ids {
+		quoted[i] = fmt.Sprintf("%q", id)
+	}
+	return "[" + strings.Join(quoted, ", ") + "]"
+}
+
+// TestAssetRecordedInLedgerOrder: a change's audit record lists the
+// asset's terms in the ledgers' order, not in the order the database
+// returns their rows in (batch 50's ci-local saw 2L's first after a PATCH
+// moved 0L's row). Two changes of the description leave the terms' rows
+// as they are, so the database returns them alike both times, and each
+// records them in its ledger port's order: as listed, then reversed.
+func TestAssetRecordedInLedgerOrder(t *testing.T) {
+	e := newAssets(t)
+	a, _ := e.create(t, e.body(e.DE, "MACHINES", fmt.Sprintf(`, "cost_center_id": %q`, e.c.Admin)))
+	id := uuid.MustParse(a["id"].(string))
+	for _, c := range []struct {
+		name     string
+		reversed bool
+		want     string
+	}{
+		{"in the ledgers' order", false, ledgerList(e.l0, e.l2)},
+		{"in the port's order, reversed", true, ledgerList(e.l2, e.l0)},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := app.Assets(app.Config{})
+			if c.reversed {
+				h.Ledger = ledgersReversed{h.Ledger}
+			}
+			got := recordedLedgers(t, e, "assets.asset.change", "$.terms[*].ledger_id", func(ctx context.Context) error {
+				_, err := h.UpdateAsset(ctx, &gen.AssetUpdate{Description: gen.NewOptString(c.name)}, gen.UpdateAssetParams{ID: id, IfMatch: "*"})
+				return err
+			})
+			if got != c.want {
+				t.Errorf("the change's terms: got %s, want %s", got, c.want)
+			}
+		})
 	}
 }

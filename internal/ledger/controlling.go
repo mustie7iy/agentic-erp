@@ -100,7 +100,12 @@ func (c *companyControlling) checkSwitches(ctx context.Context, tx pgx.Tx, p str
 		return nil
 	}
 	if lock {
-		if _, err := tx.Exec(ctx, `SELECT FROM ledger.period_status WHERE legal_entity_id = $1 AND fiscal_year >= $2 FOR UPDATE`, le, c.year); err != nil {
+		// In the one order (ADR-0058 §5): by year and period, the leading
+		// ledger first, then by code, as postings and sign-offs take a
+		// period's rows, not in the order a scan finds them.
+		if _, err := tx.Exec(ctx, `SELECT FROM ledger.period_status ps JOIN ledger.ledger g ON g.tenant_id = ps.tenant_id AND g.id = ps.ledger_id
+			WHERE ps.legal_entity_id = $1 AND ps.fiscal_year >= $2 ORDER BY ps.fiscal_year, ps.period, NOT g.is_leading, g.code FOR UPDATE OF ps`,
+			le, c.year); err != nil {
 			return fmt.Errorf("ledger: controlling of company %s: lock periods: %w", co.Code, err)
 		}
 	}

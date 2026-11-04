@@ -253,6 +253,24 @@ func finished(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Operation, error) {
 	return Operation{}, problem.Conflict("platform.operation_finished", "The operation has already "+o.Status+".")
 }
 
+// IsCancelled says whether an operation was cancelled, in the request's
+// transaction: under its row lock with lock, as it stands without. Work
+// that stops at the boundaries of its steps asks it at the start of each
+// step (a depreciation run, ADR-0057 §7). A step that may run long reads it
+// without the lock, so a :cancel during the step commits at once rather
+// than waiting out the transactions' lock timeout; the cancellation takes
+// effect at the next boundary, and the step under way is never cut off
+// half done. A step that finishes the operation reads it under the lock,
+// so a :cancel cannot slip in between the read and the finish.
+func IsCancelled(ctx context.Context, id uuid.UUID, lock bool) (bool, error) {
+	tx, _, err := request(ctx)
+	if err != nil {
+		return false, err
+	}
+	o, err := get(ctx, tx, id, lock)
+	return o.Status == Cancelled, err
+}
+
 // Report records the progress of a queued or running operation. One that
 // has finished is left alone: progress reported late, by a worker still
 // busy after a cancellation, never brings it back to running.

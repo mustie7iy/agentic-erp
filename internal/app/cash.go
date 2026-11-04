@@ -128,19 +128,38 @@ func (c cashPayments) Payables(ctx context.Context, legalEntity uuid.UUID, on ti
 }
 
 // Paying gives the forecast what the payments of runs not released pay,
-// to derive their liquidity items from (T53e3).
+// to derive their liquidity items from (T53e3), and the variance the
+// documents a payment paid (T53f3).
 func (c cashPayments) Paying(ctx context.Context, legalEntity uuid.UUID, ids []uuid.UUID, on time.Time) (map[uuid.UUID]cash.Paying, error) {
 	ps, err := c.position.Paying(ctx, legalEntity, ids, on)
 	out := make(map[uuid.UUID]cash.Paying, len(ps))
 	for id, p := range ps {
 		items := make([]cash.Paid, len(p.Items))
 		for i, it := range p.Items {
-			items[i] = cash.Paid{Amount: it.Amount, Lines: cashLines(it.Lines)}
+			items[i] = cash.Paid{Amount: it.Amount, Lines: cashLines(it.Lines), Entry: it.Entry, Invoice: it.Invoice}
 		}
-		out[id] = cash.Paying{PlanningGroup: p.PlanningGroup, Items: items}
+		out[id] = cash.Paying{PlanningGroup: p.PlanningGroup, Items: items, Request: p.Request}
 	}
 	return out, err
 }
+
+// Actuals gives the cash actuals the statement lines with what their
+// decided matches clear (T53f2).
+func (c cashPayments) Actuals(ctx context.Context, legalEntity uuid.UUID, from, to time.Time) ([]cash.ActualLine, error) {
+	ls, err := c.position.Actuals(ctx, legalEntity, from, to)
+	out := make([]cash.ActualLine, len(ls))
+	for i, l := range ls {
+		out[i] = cash.ActualLine{StatementID: l.StatementID, LineNo: l.LineNo, StatementRef: l.StatementRef,
+			BankReference: l.BankReference, HouseBankID: l.HouseBankID, Currency: l.Currency, Amount: l.Amount,
+			ValueDate: l.ValueDate, Status: l.Status, Match: cashMatches[l.Match], PostingRule: l.PostingRule, Payments: cashPaymentsOf(l.Payments)}
+	}
+	return out, err
+}
+
+// cashMatches are the cash actuals' kinds of match of the payments
+// context's (ADR-0051 §4, T53f2).
+var cashMatches = map[string]string{payments.CashMatchPayment: cash.MatchPayment, payments.CashMatchPostingRule: cash.MatchPostingRule,
+	payments.CashMatchIncoming: cash.MatchIncoming, payments.CashMatchExcluded: cash.MatchExcluded, payments.CashMatchNone: cash.MatchNone}
 
 // cashLines are a document's offsetting lines as the cash context reads
 // them.

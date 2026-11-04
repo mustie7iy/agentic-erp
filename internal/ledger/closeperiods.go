@@ -10,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -64,7 +65,7 @@ func (ClosePeriods) Of(ctx context.Context, legalEntity uuid.UUID, fiscalYear, p
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT l.id, l.code, l.name, c.is_leading, p.id, p.start_date, p.end_date, p.status
+	rows, _ := tx.Query(ctx, `SELECT l.id, l.code, l.name, c.is_leading, p.id, p.start_date, p.end_date, p.status, p.version
 		FROM ledger.company_ledger c JOIN ledger.ledger l ON l.tenant_id = c.tenant_id AND l.id = c.ledger_id
 		LEFT JOIN (`+periodSelect+`) p ON p.legal_entity_id = c.legal_entity_id AND p.ledger_id = c.ledger_id AND p.fiscal_year = $4 AND p.period = $5
 		WHERE ($1 OR c.legal_entity_id = ANY($2)) AND c.legal_entity_id = $3
@@ -74,10 +75,11 @@ func (ClosePeriods) Of(ctx context.Context, legalEntity uuid.UUID, fiscalYear, p
 		var id *uuid.UUID
 		var start, end *time.Time
 		var status *string
-		err := row.Scan(&k.LedgerID, &k.LedgerCode, &k.LedgerName, &k.IsLeading, &id, &start, &end, &status)
+		var version *int32
+		err := row.Scan(&k.LedgerID, &k.LedgerCode, &k.LedgerName, &k.IsLeading, &id, &start, &end, &status, &version)
 		if err == nil && id != nil {
 			k.Period = &Period{ID: *id, LegalEntityID: legalEntity, LedgerID: k.LedgerID, FiscalYear: fiscalYear, Period: period,
-				StartDate: *start, EndDate: *end, Status: *status}
+				StartDate: *start, EndDate: *end, Status: *status, Version: *version}
 		}
 		return k, errs.Wrapf(err, "scan kept ledger")
 	})
@@ -85,4 +87,16 @@ func (ClosePeriods) Of(ctx context.Context, legalEntity uuid.UUID, fiscalYear, p
 		return nil, fmt.Errorf("ledger: periods of %s, %d/%d, by ledger: %w", legalEntity, fiscalYear, period, err)
 	}
 	return kept, nil
+}
+
+// Lock locks a closed period as lockFiscalPeriod does, audited and
+// published as that is, for a close's sign-off (ADR-0058 §7): version is
+// the one the sign-off read the period at, so a period changed since (an
+// open, a close, an unlock) refuses it (412 request.version_mismatch)
+// rather than being locked unseen. The caller locks a close's periods in
+// the order postings take them, the leading ledger first, then by code
+// (postingPeriod), so a sign-off and a posting never wait on each other's
+// periods in opposite orders.
+func (ClosePeriods) Lock(ctx context.Context, id uuid.UUID, version int32) (Period, error) {
+	return LockPeriod(ctx, id, etag.IfMatch(etag.Format(version)))
 }

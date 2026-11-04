@@ -52,7 +52,7 @@ func (e *Endpoints) ListPeriodCloses(ctx context.Context, params gen.ListPeriodC
 		}
 		return c.PeriodEnd.Format(time.DateOnly), c.ID
 	}, func(page []periodClose) (view, error) {
-		return e.view(ctx, idref.Of(page, func(c periodClose) *uuid.UUID { return &c.LegalEntityID }), nil)
+		return e.view(ctx, idref.Of(page, func(c periodClose) *uuid.UUID { return &c.LegalEntityID }), nil, signers(page...)...)
 	}, func(c periodClose, v view) gen.PeriodCloseItem { return v.itemToAPI(c) })
 	if err != nil {
 		return nil, err

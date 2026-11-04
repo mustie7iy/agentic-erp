@@ -94,6 +94,10 @@ type Payments interface {
 	// pays, keyed by payment: what the forecast derives a run's payment's
 	// liquidity items from (ADR-0051 §4, T53e3).
 	Paying(ctx context.Context, legalEntity uuid.UUID, ids []uuid.UUID, on time.Time) (map[uuid.UUID]Paying, error)
+	// Actuals are the legal entity's bank statement lines whose value
+	// date is from from to to, posted or not, each with what its decided
+	// match clears: what the cash actuals classify (ADR-0051 §11, T53f2).
+	Actuals(ctx context.Context, legalEntity uuid.UUID, from, to time.Time) ([]ActualLine, error)
 }
 
 // Ledger is what the cash position reads of the ledger context.

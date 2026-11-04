@@ -270,6 +270,9 @@ type Company struct {
 	// AssetAccounts are the accounts of each asset class the company uses
 	// (SAP's account determination of asset classes; ADR-0057 §3).
 	AssetAccounts []AssetAccounts `yaml:"asset_accounts,omitempty" json:"asset_accounts,omitempty"`
+	// Close is how the company's period close works (ADR-0058 §3): its
+	// variance report's bases and thresholds (T64h).
+	Close CompanyClose `yaml:"close,omitempty" json:"close,omitzero"`
 }
 
 // FXValuation is the company's foreign-currency valuation (ADR-0042): the

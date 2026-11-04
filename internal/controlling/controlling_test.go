@@ -144,21 +144,6 @@ func on(account uuid.UUID, amount money.Minor, cc *uuid.UUID) ledger.PostingLine
 	return ledger.PostingLine{AccountID: account, Amount: amount, CostCenterID: cc}
 }
 
-// project runs the balance projector until it has nothing left.
-func project(t *testing.T) {
-	t.Helper()
-	pr := &ledger.Projector{Pool: pgtest.Pool(t), Role: "erp_projector"}
-	for {
-		n, err := pr.RunOnce(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if n == 0 {
-			return
-		}
-	}
-}
-
 // events are the controlling events of a name the tenant published.
 func (p plan) events(t *testing.T, name string) []map[string]any {
 	t.Helper()

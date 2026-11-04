@@ -78,3 +78,34 @@ func (OpenItems) Offsetting(ctx context.Context, entries []EntryRef) (map[EntryR
 	}
 	return out, nil
 }
+
+// Sources returns the document each of the entries was posted for in the
+// context, keyed by entry: a supplier invoice's entry names its invoice
+// (payables). An entry of another context, or of no document, is left
+// out. The forecast variance matches an invoice forecast before it was
+// posted to the payment that paid its entry (ADR-0051 §11, T53f3).
+func (OpenItems) Sources(ctx context.Context, sourceContext string, entries []EntryRef) (map[EntryRef]uuid.UUID, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	years, ids := make([]int16, len(entries)), make([]uuid.UUID, len(entries))
+	for i, e := range entries {
+		years[i], ids[i] = e.FiscalYear, e.EntryID
+	}
+	rows, _ := tx.Query(ctx, `SELECT e.fiscal_year, e.id, e.source_document_id
+		FROM unnest($1::smallint[], $2::uuid[]) AS x(y, id)
+		JOIN ledger.journal_entry e ON e.fiscal_year = x.y AND e.id = x.id
+		WHERE e.source_context = $3 AND e.source_document_id IS NOT NULL`, years, ids, sourceContext)
+	out := map[EntryRef]uuid.UUID{}
+	var ref EntryRef
+	var doc uuid.UUID
+	_, err = pgx.ForEachRow(rows, []any{&ref.FiscalYear, &ref.EntryID, &doc}, func() error {
+		out[ref] = doc
+		return nil
+	})
+	if err != nil {
+		return nil, errs.Wrapf(err, "ledger: source documents of %d entries", len(entries))
+	}
+	return out, nil
+}

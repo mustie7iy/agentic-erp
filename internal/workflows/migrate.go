@@ -45,6 +45,23 @@ type Actors interface {
 	Actor(ctx context.Context, tx pgx.Tx, id uuid.UUID) (reqctx.Principal, error)
 }
 
+// requester is who an operation's work acts as: the person who queued it,
+// read from the operation in the work's transaction; what names the work
+// in errors.
+func requester(actors Actors, operation uuid.UUID, what string) func(ctx context.Context, tx pgx.Tx) (reqctx.Principal, bool, error) {
+	return func(ctx context.Context, tx pgx.Tx) (reqctx.Principal, bool, error) {
+		var by uuid.UUID
+		if err := tx.QueryRow(ctx, `SELECT created_by FROM platform.operation WHERE id = $1`, operation).Scan(&by); err != nil {
+			return reqctx.Principal{}, false, fmt.Errorf("workflows: %s: read the requester of operation %s: %w", what, operation, err)
+		}
+		actor, err := actors.Actor(ctx, tx, by)
+		if err != nil {
+			return reqctx.Principal{}, false, fmt.Errorf("workflows: %s: %w", what, err)
+		}
+		return actor, true, nil
+	}
+}
+
 // Migrations holds the migration activity: the integration endpoints the
 // API uses, and the pool and role they run under.
 type Migrations struct {
@@ -65,19 +82,8 @@ func (m *Migrations) begin(ctx context.Context, s database.Scope) (pgx.Tx, error
 // transaction with its report, audit entries and events; an operation no
 // longer running is left alone.
 func (m *Migrations) Execute(ctx context.Context, in MigrateInput) error {
-	requester := func(ctx context.Context, tx pgx.Tx) (reqctx.Principal, bool, error) {
-		var by uuid.UUID
-		if err := tx.QueryRow(ctx, `SELECT created_by FROM platform.operation WHERE id = $1`, in.OperationID).Scan(&by); err != nil {
-			return reqctx.Principal{}, false, fmt.Errorf("workflows: migration run %s: read the requester of operation %s: %w", in.RunID, in.OperationID, err)
-		}
-		actor, err := m.Actors.Actor(ctx, tx, by)
-		if err != nil {
-			return reqctx.Principal{}, false, fmt.Errorf("workflows: migration run %s: %w", in.RunID, err)
-		}
-		return actor, true, nil
-	}
 	return uow.Job{Begin: m.begin, Scope: database.Scope{Role: m.AppRole, TenantID: in.TenantID}, Now: m.Now,
-		Name: fmt.Sprintf("workflows: migration run %s", in.RunID)}.As(ctx, requester, func(ctx context.Context) error {
+		Name: fmt.Sprintf("workflows: migration run %s", in.RunID)}.As(ctx, requester(m.Actors, in.OperationID, "migration run "+in.RunID.String()), func(ctx context.Context) error {
 		_, err := m.Endpoints.Execute(ctx, in.RunID)
 		return err
 	})

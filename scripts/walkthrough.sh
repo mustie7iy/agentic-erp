@@ -314,14 +314,16 @@ start() {
   say "  - the GST34's lines (T61j-T61l): step 2 configures one"
   say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
-  say "  - the liquidity forecast's purchase orders, actuals and variance (T53f2-T53k): step 13 shows the daily cash"
+  say "  - the liquidity forecast's purchase orders and variance comments (T53f4-T53k): step 13 shows the daily cash"
   say "    position with a memo record and the forecast of the supplier open items, payment runs, parked invoices, down"
   say "    payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening, memo records"
-  say "    and payments in transit, conversion and drill-down; step 26 its snapshots"
+  say "    and payments in transit, conversion and drill-down; step 26 its snapshots; step 27 the cash actuals;"
+  say "    step 28 the forecast's variance"
   say "  - cost center postings, reports and planning (T56d-T56j)"
-  say "  - asset depreciation runs, retirements, transfers and the rest of asset accounting (T57f-T57i): steps 19 and 20 show the"
-  say "    classes and the master, steps 22 and 24 acquisitions and their corrections, step 25 the depreciation schedule and preview"
-  say "  - accounts receivable, the period close beyond its checklist and automatic checks (T64d-T64k), consolidation (T68)"
+  say "  - asset retirements, transfers and the rest of asset accounting (T57g-T57i): steps 19 and 20 show the classes and"
+  say "    the master, steps 22 and 24 acquisitions and their corrections, step 25 the depreciation schedule and preview, step 29"
+  say "    a depreciation run"
+  say "  - accounts receivable, the period close beyond its checklist, automatic checks, variances and sign-off (T64e-T64g, T64i-T64k), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
   export DATABASE_URL ERP_ENV=development ERP_DEV_ISSUER=true ERP_MIGRATE_ON_START=true
@@ -2878,8 +2880,10 @@ step_asset_depreciation() {
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
 # the process owner approves; Carla reads the year's close calendar, each
 # period's planned first and last due dates on the company's business days.
+# Then the close's checklist (T64b), its checks (T64c), its variances
+# (T64h) and, last, its sign-off (T64d), which locks the period.
 step_close() {
-  heading "Final step — Financial close: the close template through a governed change, and the year's close calendar"
+  heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off"
   as ada
   say "Ada proposes the close template (ADR-0058 §3): the tasks every company's period close is given, each due"
   say "a number of business days after the period's last day (negative: before it), some waiting for others:"
@@ -2926,6 +2930,8 @@ step_close() {
     "$(field '[.periods[] | .first_due_on < .end_date and .last_due_on > .end_date] | all')" true
   close_checklist
   close_checks
+  close_variances
+  close_sign_off
   passed
 }
 
@@ -3059,6 +3065,245 @@ step_cash_snapshot() {
   passed
 }
 
+# close_variances is T64h's part of step_close (ADR-0058 §9): Ada sets the
+# company's variance thresholds through a tier 2 change; Carla reads the
+# period's variances against the prior period, the rows past the
+# thresholds flagged, and its totals, whose actuals are the period's
+# profit and loss in the trial balance; the plan, not configured, is
+# refused.
+close_variances() {
+  local period close base cr request threshold=500 percent=10
+  period=$((10#${TODAY:5:2}))
+  as ada
+  say "Ada proposes $CC's variance settings (ADR-0058 §3): its close compares each profit and loss account with the"
+  say "prior period and the same period of the prior year, and a variance of at least $threshold.00 CAD and $percent %"
+  say "needs a comment before sign-off. They post nothing, so the change is tier 2."
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Variance thresholds\", rationale: \"The close's variance report (T64h)\", base_version: $base,
+    proposed: (.items[0].document | .companies |= map(if .code == \"$CC\" then .close.variance = {bases: [\"prior_period\", \"prior_year\"],
+      threshold_amount: \"$threshold.00\", threshold_percent: \"$percent\"} else . end))}" "$WORK/last.json" >"$WORK/variance.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @variance.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 2
+  request=$(field .workflow_request_id)
+  approve priya "$request" "The variance thresholds, as agreed with the controller"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  as carla
+  accounts
+  QUIET=1 api 200 '' listPeriodCloses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  close=$(field ".items[] | select(.fiscal_period == $period) | .id")
+  say "Carla reads the close's variances against the prior period: per profit and loss account of the leading ledger,"
+  say "the period's net movement in CAD (debit positive), the prior period's, the variance and its percent, flagged"
+  say "where it reaches the thresholds:"
+  api 200 '"\(.company_code) \(.fiscal_year)/\(.fiscal_period) against \(.comparison_fiscal_year)/\(.comparison_fiscal_period), \(.ledger_code), \(.currency):",
+    (.items[] | "  \(.account_number) \(.account_name): \(.actual.amount) against \(.comparison.amount), \(.variance.amount)\(if .variance_percent then " (" + .variance_percent + " %)" else "" end)\(if .requires_comment then ", needs a comment" else "" end)"),
+    "  totals: \(.totals.actual.amount) against \(.totals.comparison.amount), \(.totals.variance.amount); \(.totals.rows) rows, \(.totals.rows_requiring_comment) needing a comment"' \
+    listPeriodCloseVariances -p "id=$close" -p basis=prior_period -p page_size=500
+  expect "a report with rows" "$(field '.totals.rows > 0')" true
+  expect "every row flagged exactly when it reaches the thresholds" \
+    "$(field "[.items[] | ((.variance.amount | tonumber) as \$v | (if \$v < 0 then -\$v else \$v end) >= $threshold
+      and (.variance_percent == null or ((.variance_percent | tonumber) as \$p | (if \$p < 0 then -\$p else \$p end) >= $percent))) == .requires_comment] | all")" true
+  expect "the flagged rows counted" "$(field '[.items[] | select(.requires_comment)] | length')" "$(field .totals.rows_requiring_comment)"
+  local actual comparison flagged
+  actual=$(field '.totals.actual.amount | tonumber * 100 | round')
+  comparison=$(field '.totals.comparison.amount | tonumber * 100 | round')
+  flagged=$(field .totals.rows_requiring_comment)
+  expect "the variance the actual less the comparison" "$(field '.totals.variance.amount | tonumber * 100 | round')" "$((actual - comparison))"
+  local pl
+  pl=$(jq -c '[.items[] | select(.is_balance_sheet | not) | .id]' "$WORK/accounts.json")
+  api 200 "\"  the trial balance's profit and loss of period $period: \\([.items[] | select(.account_id as \$a | $pl | index(\$a)) | (.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)] | add // 0 | . * 100 | round / 100) CAD\"" \
+    listBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "fiscal_period=$period" -p page_size=500
+  expect "the totals' actuals the period's profit and loss in the trial balance" \
+    "$(field "[.items[] | select(.account_id as \$a | $pl | index(\$a)) | (.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)] | add // 0 | . * 100 | round")" "$actual"
+  say "The rows that need a comment alone:"
+  api 200 '(.items[] | "  \(.account_number) \(.account_name): \(.variance.amount)")' \
+    listPeriodCloseVariances -p "id=$close" -p basis=prior_period -p requires_comment=true -p page_size=500
+  expect "the flagged rows" "$(field '.items | length')" "$flagged"
+  expect "the totals still the whole report's" "$(field '.totals.actual.amount | tonumber * 100 | round')" "$actual"
+  say "The plan is no basis $CC configures:"
+  refused 422 closing.basis_not_configured listPeriodCloseVariances -p "id=$close" -p basis=plan
+}
+
+# close_sign_off is T64d's part of step_close, its end (ADR-0058 §7): the
+# sign-off is refused while the period is open; Carla closes it in each
+# covered ledger and signs off, which runs the checks again and locks each
+# period through the period lock (T32), the leading ledger first; a manual
+# entry dated in the period is then refused.
+close_sign_off() {
+  local period close tag p
+  period=$((10#${TODAY:5:2}))
+  as carla
+  QUIET=1 api 200 '' listPeriodCloses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  close=$(field ".items[] | select(.fiscal_period == $period) | .id")
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  tag=$ETAG
+  say "Every task is done. Carla signs off the close; it is refused while the period still takes postings: a close"
+  say "is signed off after the period is closed, and a sign-off never closes a period itself."
+  refused 409 closing.period_not_closed signOffPeriodClose -p "id=$close" -if-match "$tag" -body '{}'
+  say "She closes the period in each ledger the close covers (closeFiscalPeriod):"
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  for p in $(field '.ledgers[] | "\(.ledger_code)=\(.fiscal_period_id)"'); do
+    QUIET=1 api 200 '' getFiscalPeriod -p "id=${p#*=}"
+    api 200 '"  '"${p%%=*}"' period \(.fiscal_year)/\(.period): \(.status)"' closeFiscalPeriod -p "id=${p#*=}" -if-match "$ETAG"
+  done
+  say "and signs off. The checks run again (the parked-entries check passes and is recorded), and each covered period"
+  say "is locked through the period lock, the leading ledger first: it no longer reopens with :open, only through an"
+  say "approved unlock request."
+  api 200 '"signed off by \(.signed_by_name) at \(.signed_at): \(.note)", (.ledgers[] | "  \(.ledger_code) \(.ledger_name): period \(if .locked then "locked by the sign-off" else "locked already" end)")' \
+    signOffPeriodClose -p "id=$close" -if-match "$tag" -body '{"note": "Period closed; every task done and every check passing"}'
+  expect "every covered period locked by the sign-off" "$(field '[.ledgers[].locked] | all')" true
+  expect "the leading ledger first" "$(field '.ledgers[0].is_leading')" true
+  api 200 '"\(.company_code) \(.fiscal_year)/\(.fiscal_period): \(.status), by \(.signed_off_by_name)",
+    (.ledgers[] | "  \(.ledger_code): \(.period_status)")' getPeriodClose -p "id=$close"
+  expect "the close" "$(field .status)" signed_off
+  expect "the periods" "$(field '[.ledgers[].period_status] | unique | join(" ")')" locked
+  expect "its sign-offs" "$(field '.sign_offs | length')" 1
+  as tom
+  say "A manual entry dated in the period is refused: the period is locked."
+  refused 409 ledger.period_not_open postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"A late courier charge\", \"lines\": [{\"account_id\": \"$(account 6000)\", \"amount\": {\"amount\": \"40.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$(account 211000)\", \"amount\": {\"amount\": \"-40.00\", \"currency\": \"CAD\"}, \"partner_id\": \"$SUPPLIER\"}]}"
+}
+
+# step_cash_actuals is the statement lines of the week classified by
+# their matches, by liquidity item and bucket, and the lines behind them
+# as each reader may see them (T53f2, ADR-0051 §4, §11).
+step_cash_actuals() {
+  heading "Step 27 — Cash actuals: the week's statement lines by liquidity item, classified by what they were matched to"
+  as tom
+  local from moved payments
+  from=$(date_add "$TODAY" -6)
+  moved=$(amount $(($(cents "$CLOSING") - $(cents 500000.00))))
+  payments=$(jq '.items | length' "$WORK/payments.json")
+  say "Tom reads what actually moved on Maple's accounts from $from to $TODAY, in one bucket of a week (T53f2): step 8's"
+  say "statement lines by value date, each classified as its match says; a line matched to payments takes the liquidity"
+  say "items of the supplier items they settled, a line not matched yet its direction's default, counted unclassified."
+  api 200 '"\(.from)..\(.to) by \(.grain), read on \(.read_date) in \(.time_zone)", (.currencies[] | .currency as $c
+      | "  \($c): in \(.inflow.amount), out \(.outflow.amount), total \(.total.amount) of \(.count) lines, unclassified \(.unclassified.amount.amount) (\(.unclassified.count))",
+      (.banks[] | "    bank \(.house_bank_code): \(.total.amount) of \(.count) lines"),
+      (.items[] | "    \("  " * .level)\(.liquidity_item // "unclassified") \(.name // ""): \(.total.amount)\([.matches[] | ", \(.match) \(.total.amount)"] | join(""))"))' \
+    getCashActuals -p "legal_entity_id=$LE" -p "from=$from" -p "to=$TODAY" -p grain=week
+  expect "the CAD total, what step 8's statement moved" "$(field '.currencies[] | select(.currency == "CAD") | .total.amount')" "$moved"
+  expect "the CAD lines, one per payment of the run" "$(field '.currencies[] | select(.currency == "CAD") | .count')" "$payments"
+  expect "the unclassified lines once reconciled" "$(field '.currencies[] | select(.currency == "CAD") | .unclassified.count')" 0
+  expect "RBC's total, the currency's" "$(field '.currencies[] | select(.currency == "CAD") | .banks[] | select(.house_bank_code == "RBC") | .total.amount')" "$moved"
+  expect "the top rows add up to the total" \
+    "$(field '.currencies[] | select(.currency == "CAD") | ([.items[] | select(.level == 0) | .total.amount | sub("\\."; "") | tonumber] | add) == (.total.amount | sub("\\."; "") | tonumber)')" true
+  say "The lines behind them, each with its statement, the payment it was matched to and its supplier:"
+  api 200 '"  \(.count) lines, total \(.total.amount) \(.total.currency)", (.items[0:5][] | "  \(.value_date) \(.house_bank_code) line \(.statement.line_no // "-") of \(.statement.statement_ref // "-") \(.status) by \(.match): \(.amount.amount)\([.shares[] | ", \(.liquidity_item // "unclassified") \(.amount.amount)"] | join(""));\([.payments[] | " run \(.payment_run_number) \(.amount.amount) to \(.supplier.name // "-")"] | join(""))")' \
+    listCashActualLines -p "legal_entity_id=$LE" -p currency=CAD -p "from=$from" -p "to=$TODAY" -p page_size=500
+  expect "every line matched to a payment" "$(field '[.items[] | select(.match == "payment" and .payment_count == 1)] | length')" "$payments"
+  expect "each payment and its supplier shown to Tom" "$(field '[.items[] | select((.payments | length) == 1 and .payments[0].supplier and (.suppliers | length) == 1 and .statement.statement_ref)] | length')" "$payments"
+  as rita
+  say "Rita holds the forecast's read alone: she reads the same lines without their statements, payments or suppliers."
+  api 200 '"  \(.count) lines; statements shown \([.items[] | select(.statement)] | length), payments \([.items[].payments[]] | length), suppliers \([.items[].suppliers[]] | length)"' \
+    listCashActualLines -p "legal_entity_id=$LE" -p currency=CAD -p "from=$from" -p "to=$TODAY" -p page_size=500
+  expect "what Rita is shown of other contexts" "$(field '[.items[] | select(.statement or (.payments | length) > 0 or (.suppliers | length) > 0)] | length')" 0
+  as tom
+  passed
+}
+
+# step_cash_variance is the forecast of the day's snapshot against the
+# day's statement lines, attributed by document (T53f3, ADR-0051 §11).
+step_cash_variance() {
+  heading "Step 28 — Forecast variance: what the snapshot forecast for the day against what the statements show, attributed"
+  as tom
+  local day board snap kind adds actual forecast
+  QUIET=1 api 200 '' listCashSnapshots -p "legal_entity_id=$LE" -p kind=on_demand
+  board=$(field '[.items[] | select(.name == "Board meeting")][0].id')
+  day=$(field '[.items[] | select(.name == "Board meeting")][0].snapshot_date')
+  say "Tom compares the forecast of the snapshot taken on $day (lag 0: the day itself) with what the bank statements show"
+  say "for that day (T53f3): per liquidity item and bucket the forecast, the actual and the variance (actual less forecast),"
+  say "its size in percent of the forecast's; each document the snapshot forecast is matched to the statement lines that"
+  say "paid it, and the variance is attributed to timing, amount, new (paid, not forecast), missing (forecast, not paid)"
+  say "and unclassified (not matched yet). The daily snapshot is compared if one was taken, else the last taken on demand."
+  api 200 '"snapshot \(.snapshot.kind) of \(.snapshot.snapshot_date), per document to \(.snapshot.document_level_until); \(.from)..\(.to) lag \(.lag) by \(.grain), read on \(.read_date) in \(.time_zone)",
+      (.currencies[] | .currency as $c
+      | "  \($c): forecast \(.total.forecast.amount), actual \(.total.actual.amount), variance \(.total.variance.amount) (\(.total.variance_percent // "-")%)",
+        "    timing \(.total.attribution.timing.amount), amount \(.total.attribution.amount.amount), new \(.total.attribution.new.amount), missing \(.total.attribution.missing.amount), unclassified \(.total.attribution.unclassified.amount)",
+        (.items[] | "    \("  " * .level)\(.liquidity_item // "unclassified"): \(.total.forecast.amount) -> \(.total.actual.amount), variance \(.total.variance.amount)"))' \
+    getLiquidityForecastVariance -p "legal_entity_id=$LE" -p "from=$day" -p "to=$day" -p lag=0
+  snap=$(field .snapshot.id)
+  kind=$(field .snapshot.kind)
+  adds=$(field 'def c: sub("\\."; "") | tonumber; [.currencies[] | (.buckets[], .total, .items[].total, .items[].buckets[])
+    | ([.attribution[] | .amount | c] | add) == (.variance.amount | c)] | all')
+  expect "every cell's attribution adds up to its variance" "$adds" true
+  actual=$(field '[.currencies[] | select(.currency == "CAD") | .total.actual.amount][0] // "0.00"')
+  forecast=$(field '[.currencies[] | select(.currency == "CAD") | .total.forecast.amount][0] // "0.00"')
+  QUIET=1 api 200 '' getCashActuals -p "legal_entity_id=$LE" -p "from=$day" -p "to=$day"
+  expect "the CAD actual, the day's statement lines (getCashActuals)" "$actual" "$(field '[.currencies[] | select(.currency == "CAD") | .total.amount][0] // "0.00"')"
+  QUIET=1 api 200 '' listCashSnapshotFlows -p "id=$snap" -p currency=CAD -p "from=$day" -p "to=$day" -p page_size=500
+  expect "the CAD forecast, the snapshot's lines of the day but blocked suppliers'" "$forecast" \
+    "$(amount "$(field 'def c: sub("\\."; "") | tonumber; [.items[] | select(.source != "payable_blocked") | .amount.amount | c] | add // 0')")"
+  if [ "$kind" = on_demand ]; then
+    expect "the snapshot compared, step 26's" "$snap" "$board"
+  fi
+  as rita
+  say "Rita holds the forecast's read alone: the variance names no document or supplier, so she reads the same figures."
+  api 200 '"  \([.currencies[] | "\(.currency) variance \(.total.variance.amount)"] | join(", "))"' \
+    getLiquidityForecastVariance -p "legal_entity_id=$LE" -p "from=$day" -p "to=$day" -p lag=0
+  expect "Rita's CAD actual, Tom's" "$(field '[.currencies[] | select(.currency == "CAD") | .total.actual.amount][0] // "0.00"')" "$actual"
+  as tom
+  say "A week's lag needs the snapshot of a week before, which this new tenant never took; lags of 0, 7 and 30 days are offered:"
+  refused 409 cash.snapshot_not_taken getLiquidityForecastVariance -p "legal_entity_id=$LE" -p "from=$day" -p "to=$day" -p lag=7
+  refused 422 request.validation_failed getLiquidityForecastVariance -p "legal_entity_id=$LE" -p "from=$day" -p "to=$day" -p lag=5
+  passed
+}
+
+# step_depreciation_run is this period's depreciation posted by a run in
+# the leading ledger, the lathe of step 22 among the assets step 25
+# previewed, and a repeat run posting nothing (T57f, ADR-0057 §7).
+step_depreciation_run() {
+  heading "Step 29 — The depreciation run: this period's depreciation posted in the leading ledger, one entry per batch; a repeat run posts nothing"
+  as carla
+  say "Carla runs this period's depreciation in the leading ledger (ADR-0057 §7, T57f). The run is a long-running"
+  say "operation: it selects the assets the preview shows, in batches of 500, and posts each batch as one entry in"
+  say "that ledger alone (document type AF, dated the period's last day), each asset's planned depreciation less what is"
+  say "booked, on its class's accounts and its centers."
+  local period lathe run expected entry number
+  QUIET=1 api 200 '' listAssets -p "legal_entity_id=$LE" -p status=active
+  lathe=$(field '[.items[] | select(.description == "CNC lathe") | .id][0]')
+  QUIET=1 api 200 '' getAssetSchedule -p "id=$lathe" -p "fiscal_year=$YEAR"
+  period=$(field ".periods[] | select(.start_date <= \"$TODAY\" and .end_date >= \"$TODAY\") | .period")
+  api 200 '"the preview of \(.fiscal_year)/\(.period) in \(.ledger_code): \(.totals.assets) assets, difference \(.totals.difference.amount) \(.totals.difference.currency)"' \
+    previewDepreciationRun -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"period\": $period}"
+  expected=$(field .totals.difference.amount)
+  api 202 '"\(.kind) \(.status): \(.resource)"' startDepreciationRun -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"period\": $period}"
+  run=$(field .resource)
+  run=${run##*/}
+  wait_op
+  api 200 '"run \(.fiscal_year)/\(.period) in \(.ledger_code) dated \(.posting_date): \(.status), \(.assets_planned) assets planned, \(.assets_posted) posted, \(.amount.amount) \(.amount.currency)",
+    (.batches[] | "  batch \(.batch_no): \(.assets) assets, \(.amount.amount), entry \(.document_number)")' getDepreciationRun -p "id=$run"
+  expect "the run's status" "$(field .status)" posted
+  expect "what the run posted, the preview's difference" "$(field .amount.amount)" "$expected"
+  entry=$(field '.batches[0].journal_entry_id')
+  number=$(field '.batches[0].document_number')
+  api 200 '"entry \(.document_number) on \(.posting_date), in the leading ledger: \(.leading_ledger); lines \([.lines[] | .amount.amount] | join(", "))"' \
+    getJournalEntry -p "id=$entry"
+  expect "the batch's entry's ledger" "$(field '"\(.leading_ledger) \(.document_number)"')" "true $number"
+  say "The lathe's movements name the batch's entry, in the leading ledger alone; it is booked through the period there,"
+  say "so its terms in that ledger are fixed now:"
+  api 200 '.items[] | "  \(.seq) \(.kind) \(.ledger_code) \(.posting_date): accumulated \(.accumulated.amount) \(.accumulated.currency), entry \(.document_number)"' \
+    listAssetMovements -p "id=$lathe" -p kind=depreciation
+  expect "the lathe's depreciation in 0L" "$(field '[.items[] | "\(.ledger_code) \(.accumulated.amount) \(.document_number)"] | join(", ")')" "0L -41.67 $number"
+  say "A second run of the period posts only what changed since: nothing."
+  api 202 '"\(.kind) \(.status)"' startDepreciationRun -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"period\": $period}"
+  run=$(field .resource)
+  run=${run##*/}
+  wait_op
+  api 200 '"repeat run: \(.status), \(.assets_planned) assets, \(.assets_posted) posted, \(.amount.amount) \(.amount.currency), entries \([.batches[] | .document_number // "none"] | join(", "))"' \
+    getDepreciationRun -p "id=$run"
+  expect "the repeat run" "$(field '"\(.status) \(.assets_posted) \(.amount.amount) \([.batches[].journal_entry_id] | map(select(. != null)) | length)"')" "posted 0 0.00 0"
+  say "A run of an earlier period is refused while this one's is posted:"
+  if [ "$period" -gt 1 ]; then
+    refused 409 assets.run_out_of_order startDepreciationRun -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"period\": $((period - 1))}"
+  fi
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -3080,7 +3325,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_close'
 
 main() {
   start

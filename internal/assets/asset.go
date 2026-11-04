@@ -163,7 +163,7 @@ func (e *Endpoints) createAsset(ctx context.Context, in NewAsset) (Asset, error)
 	if err := insertAsset(ctx, tx, p, id, number, in, pc, terms); err != nil {
 		return Asset{}, err
 	}
-	return written(ctx, tx, id, "create", "created")
+	return e.written(ctx, tx, id, "create", "created")
 }
 
 // assign derives the asset's profit center from its cost center on the
@@ -206,13 +206,17 @@ func (e *Endpoints) classTerms(ctx context.Context, le uuid.UUID, cls *config.As
 }
 
 // written reads an asset just written back, and audits and publishes the
-// change.
-func written(ctx context.Context, tx pgx.Tx, id uuid.UUID, action, change string) (Asset, error) {
+// change, its terms in the tenant's ledger order.
+func (e *Endpoints) written(ctx context.Context, tx pgx.Tx, id uuid.UUID, action, change string) (Asset, error) {
 	a, err := readAsset(ctx, tx, id, false)
 	if err != nil {
 		return Asset{}, err
 	}
-	return a, record(ctx, a, action, change)
+	ledgers, err := e.Ledger.Ledgers(ctx, nil)
+	if err != nil {
+		return Asset{}, fmt.Errorf("assets: ledgers: %w", err)
+	}
+	return a, record(ctx, a, ledgers, action, change)
 }
 
 // cancelAsset cancels a planned asset without movements (ADR-0057 §5):
@@ -245,5 +249,5 @@ func (e *Endpoints) cancelAsset(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err := setStatus(ctx, tx, p, id, StatusCancelled); err != nil {
 		return Asset{}, err
 	}
-	return written(ctx, tx, id, "cancel", "cancelled")
+	return e.written(ctx, tx, id, "cancel", "cancelled")
 }

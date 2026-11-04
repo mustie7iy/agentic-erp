@@ -319,7 +319,10 @@ type Handler interface {
 	// refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and
 	// for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the
 	// task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
-	// (`task_checked`, with `check_passed`).
+	// (`task_checked`, with `check_passed`). A signed-off close whose covered periods are all locked
+	// refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved
+	// `unlockFiscalPeriod` request), the change sets the close open again first, published as
+	// PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d).
 	//
 	// POST /v1/period-closes/{id}/tasks/{code}:check
 	CheckCloseTask(ctx context.Context, params CheckCloseTaskParams) (CheckCloseTaskRes, error)
@@ -359,7 +362,10 @@ type Handler interface {
 	// already done (409 `closing.task_already_done`) and for a check task, which is done by its check
 	// passing (409 `closing.task_is_check`; T64c: run it with `:check`). `If-Match` is the close's ETag;
 	// the answer is the task, with the close's new ETag. People only. Audited, and published as
-	// PeriodCloseChanged (`task_completed`).
+	// PeriodCloseChanged (`task_completed`). A signed-off close whose covered periods are all locked
+	// refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved
+	// `unlockFiscalPeriod` request), the change sets the close open again first, published as
+	// PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d).
 	//
 	// POST /v1/period-closes/{id}/tasks/{code}:complete
 	CompleteCloseTask(ctx context.Context, req OptCloseTaskComplete, params CompleteCloseTaskParams) (CompleteCloseTaskRes, error)
@@ -1009,6 +1015,25 @@ type Handler interface {
 	//
 	// GET /v1/business-partners/{id}
 	GetBusinessPartner(ctx context.Context, params GetBusinessPartnerParams) (GetBusinessPartnerRes, error)
+	// GetCashActuals implements getCashActuals operation.
+	//
+	// The actual cash flows of a legal entity (ADR-0051 §11, T53f2), computed at the read from one
+	// database state (a repeatable-read snapshot): its bank statement lines, posted or not, whose value
+	// date is from `from` to `to`, per currency, house bank and bucket, classified by liquidity item as
+	// their matches say (ADR-0051 §4): a line matched to payments takes the liquidity items of the
+	// supplier items those payments settled (each split over its offsetting lines' items, as the liquidity
+	// forecast splits it, shared out over the line's amount in proportion), a line matched to a posting
+	// rule the rule's item (`cash.derivation.posting_rules`, else its direction's default), a line matched
+	// to the incoming payments clearing account or excluded by a person its direction's default
+	// (`cash.derivation.defaults`); a line with no decided match takes its direction's default too and is
+	// counted `unclassified`, so the actuals are visible before reconciliation finishes. Buckets are
+	// periods of `grain` (default `day`) from `from`, the last ending on `to`; at most 92 days, 104 weeks
+	// or 36 months. Every active house bank is listed, with or without lines; a bank no longer active only
+	// when it has lines. Amounts are signed: money into the bank positive. The lines themselves are listed
+	// by `listCashActualLines`.
+	//
+	// GET /v1/cash-actuals
+	GetCashActuals(ctx context.Context, params GetCashActualsParams) (GetCashActualsRes, error)
 	// GetCashPosition implements getCashPosition operation.
 	//
 	// The daily cash position of a legal entity (ADR-0051 §8, T53c), computed at the read from one
@@ -1131,6 +1156,15 @@ type Handler interface {
 	//
 	// GET /v1/me
 	GetCurrentPrincipal(ctx context.Context) (GetCurrentPrincipalRes, error)
+	// GetDepreciationRun implements getDepreciationRun operation.
+	//
+	// One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it
+	// planned, posted and skipped, the depreciation it posted, the problem that failed it, and its batches
+	// with their journal entries and document numbers. One of a legal entity the caller cannot act in is
+	// not found.
+	//
+	// GET /v1/depreciation-runs/{id}
+	GetDepreciationRun(ctx context.Context, params GetDepreciationRunParams) (GetDepreciationRunRes, error)
 	// GetDownPaymentRequest implements getDownPaymentRequest operation.
 	//
 	// Returns one down payment request.
@@ -1302,6 +1336,32 @@ type Handler interface {
 	//
 	// GET /v1/liquidity-forecast
 	GetLiquidityForecast(ctx context.Context, params GetLiquidityForecastParams) (GetLiquidityForecastRes, error)
+	// GetLiquidityForecastVariance implements getLiquidityForecastVariance operation.
+	//
+	// What the liquidity forecast said of a period against what the bank statements show (ADR-0051 §11,
+	// T53f3), computed at the read from one database state (a repeatable-read snapshot), per currency,
+	// liquidity item and bucket: the forecast is that of the legal entity's snapshot taken `lag` days
+	// before `from` (its daily snapshot of that date, else the last taken on demand that day; 409
+	// `cash.snapshot_not_taken` when none was), without what blocked suppliers were owed, as the
+	// forecast's totals leave them out; the actuals are the statement lines by value date as
+	// `getCashActuals` classifies them; the variance is the actual less the forecast, and
+	// `variance_percent` its size in percent of the forecast's size. A snapshot keeps each document it
+	// forecast for 31 days from its date (`document_level_until`) and bucket sums after (T53f), so the
+	// period's days up to that day are in `buckets` (of `grain` from `from`, the last ending on `to` or on
+	// that day) with the variance attributed: each document the snapshot forecast is matched to the
+	// statement lines that paid it (a run's payment or a payment in transit by the payment, a supplier
+	// item by its journal entry, an invoice forecast before it was posted by the entry it posted, a down
+	// payment request by its payment, a memo record by the line that realised it, a series' occurrence by
+	// its override), and its part of the variance is `timing` when it was forecast in one bucket and paid
+	// in another (paid before or after the period included), `amount` when paid in the bucket it was
+	// forecast in, `missing` when nothing paid it; a statement line's part that pays no document the
+	// snapshot forecast is `new`, or `unclassified` when the line has no decided match. The five add up to
+	// the variance. The days after the document level up to `to` are compared per item only (`beyond`), up
+	// to the day before a snapshot bucket that ends after `to` (its sum cannot be told apart by day). The
+	// variance names no document or supplier, so `cash.forecast.read` is all it needs.
+	//
+	// GET /v1/liquidity-forecast-variance
+	GetLiquidityForecastVariance(ctx context.Context, params GetLiquidityForecastVarianceParams) (GetLiquidityForecastVarianceRes, error)
 	// GetMatchResult implements getMatchResult operation.
 	//
 	// Returns one three-way match evaluation.
@@ -1736,6 +1796,22 @@ type Handler interface {
 	//
 	// GET /v1/business-partners
 	ListBusinessPartners(ctx context.Context, params ListBusinessPartnersParams) (ListBusinessPartnersRes, error)
+	// ListCashActualLines implements listCashActualLines operation.
+	//
+	// The bank statement lines of one currency that `getCashActuals` sums (ADR-0051 §11, T53f2), whose
+	// value date is from `from` to `to` (at most 36 months), computed from one database state, by value
+	// date: each with its house bank, its status in reconciliation, what classified it (`match`) and its
+	// shares by liquidity item; with `liquidity_item`, only the lines with a share of that item or its
+	// descendants, each with that `share`; with `unclassified=true`, only the lines with no decided match;
+	// with `house_bank_id`, only that bank's. `total` adds the selected shares of every page, `count` the
+	// lines. A line's statement is given only to a caller who may use `payments.statement.read`, the
+	// payments it was matched to only with `payments.run.read`, and their suppliers only with
+	// `partner.supplier.read` (`authz.MayUse`: held and not barred by a segregation-of-duties rule), else
+	// left out, never refused, as the liquidity forecast's drill-down shows its documents. Paged by
+	// cursor; the token names no statement.
+	//
+	// GET /v1/cash-actual-lines
+	ListCashActualLines(ctx context.Context, params ListCashActualLinesParams) (ListCashActualLinesRes, error)
 	// ListCashSnapshotFlows implements listCashSnapshotFlows operation.
 	//
 	// The flows a snapshot kept (ADR-0051 §6, T53f), of one currency, by value date and line: within 31
@@ -1871,6 +1947,14 @@ type Handler interface {
 	//
 	// GET /v1/country-packs
 	ListCountryPacks(ctx context.Context, params ListCountryPacksParams) (ListCountryPacksRes, error)
+	// ListDepreciationRuns implements listDepreciationRuns operation.
+	//
+	// The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
+	// its batches and their journal entries' document numbers. Filters: company, ledger, fiscal year and
+	// status. Sortable by: `created_at` (default).
+	//
+	// GET /v1/depreciation-runs
+	ListDepreciationRuns(ctx context.Context, params ListDepreciationRunsParams) (ListDepreciationRunsRes, error)
 	// ListDownPaymentRequests implements listDownPaymentRequests operation.
 	//
 	// Down payment requests (SAP F-47, ADR-0037). Sortable by: `due_date`.
@@ -2099,6 +2183,33 @@ type Handler interface {
 	//
 	// GET /v1/payment-runs/{id}/payments
 	ListPayments(ctx context.Context, params ListPaymentsParams) (ListPaymentsRes, error)
+	// ListPeriodCloseVariances implements listPeriodCloseVariances operation.
+	//
+	// The variance report of a period close (ADR-0058 §9, T64h): one row per profit and loss account of
+	// the company's leading ledger with a non-zero actual or comparison, in the company's local currency,
+	// debit positive as the trial balance signs it (`GET /v1/balances`). `actual` is the account's net
+	// movement in the close's period, exact at the moment of the read; `comparison` is, by `basis`, the
+	// net movement of the previous regular period (`prior_period`: period 12 of the previous fiscal year
+	// for period 1), of the same period of the previous fiscal year (`prior_year`), or the plan of the
+	// company's configured plan category for the period (`plan`: its lines on cost centers or on profit
+	// centers, as `companies[].close.variance.plan_centers` says, never both); a comparison period the
+	// company has no posting period for compares as zero. `variance` is the actual less the comparison and
+	// `variance_percent` the variance in percent of the comparison's absolute value, two places, computed
+	// exactly and rounded half away from zero, absent when the comparison is zero. A row
+	// `requires_comment` when the variance's absolute value is at least the company's `threshold_amount`
+	// and, when a `threshold_percent` is configured and the row has a percent, the percent's absolute
+	// value (as shown, two places) is at least it. The bases and thresholds are the active configuration's
+	// `companies[].close.variance` (tier 2); a basis the company does not configure is 422
+	// `closing.basis_not_configured`. Rows are in account number order (as the database orders text, byte
+	// by byte), cursor-paged; `requires_comment` keeps only the rows that do (`true`) or do not (`false`).
+	// `totals` sum the whole report, every row whatever the filter and on every page alike: the actuals
+	// summed are the period's profit and loss in the trial balance (a loss positive). Variance comments
+	// and the rows they explain are T64i's. A close of a legal entity the caller cannot act in is not
+	// found. The figures are ledger amounts, so besides `closing.close.read` the caller needs
+	// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/period-closes/{id}/variances
+	ListPeriodCloseVariances(ctx context.Context, params ListPeriodCloseVariancesParams) (ListPeriodCloseVariancesRes, error)
 	// ListPeriodCloses implements listPeriodCloses operation.
 	//
 	// The period closes of the legal entities the caller may act in (ADR-0058 §6, T64b), without their
@@ -3020,7 +3131,10 @@ type Handler interface {
 	// its latest `check_result`), and the reason is kept in the audit trail and the event. It reopens
 	// nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is
 	// the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged
-	// (`task_reopened`).
+	// (`task_reopened`). A signed-off close whose covered periods are all locked refuses it (409
+	// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
+	// request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`)
+	// (ADR-0058 §7, T64d).
 	//
 	// POST /v1/period-closes/{id}/tasks/{code}:reopen
 	ReopenCloseTask(ctx context.Context, req *ReasonInput, params ReopenCloseTaskParams) (ReopenCloseTaskRes, error)
@@ -3172,6 +3286,31 @@ type Handler interface {
 	//
 	// POST /v1/analytics-queries
 	RunAnalyticsQuery(ctx context.Context, req *AnalyticsQuery, params RunAnalyticsQueryParams) (RunAnalyticsQueryRes, error)
+	// SignOffPeriodClose implements signOffPeriodClose operation.
+	//
+	// Signs off a period close and locks its covered ledgers' periods through the period lock (ADR-0058
+	// §7, T64d), in one transaction under a lock on the close: refused while a manual task is open (409
+	// `closing.tasks_open`, naming them); then every check task's check runs again, and if any fails the
+	// sign-off is refused (409 `closing.checks_failing`, the problem's `failing_checks` naming each
+	// failing task with what its check found) and nothing is kept (`:check` records a result); when all
+	// pass each result is recorded on its task. Each covered ledger's period must then be `closed` or
+	// `locked` (409 `closing.period_not_closed`, naming the ledgers still open): a close is signed off
+	// after its period stopped taking postings, and a sign-off never closes a period. Each `closed`
+	// covered period is locked as `lockFiscalPeriod` locks it (the ledger's audit record and
+	// PeriodLocked), the leading ledger first, then by ledger code, the order postings lock periods in; a
+	// period already locked is left as it is, and a period changed by someone else between its read and
+	// its lock refuses the sign-off (412 `request.version_mismatch`). The sign-off is recorded with who
+	// signed off, when, the note and, per covered ledger, its period and whether this sign-off locked it,
+	// and the close is `signed_off`. A close already signed off whose covered periods are all locked is
+	// refused (409 `closing.close_signed_off`); after a covered period was unlocked (an approved
+	// `unlockFiscalPeriod` request) it is signed off again, adding a second sign-off. `If-Match` is the
+	// close's ETag; the answer is the sign-off, with the close's new ETag. People only. Besides
+	// `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks periods, and
+	// `ledger.entry.read`, since its refusal names what the checks found (`x-also-permissions`; 403
+	// `identity.permission_missing` otherwise). Audited, and published as PeriodCloseSignedOff.
+	//
+	// POST /v1/period-closes/{id}:signOff
+	SignOffPeriodClose(ctx context.Context, req OptPeriodCloseSignOffInput, params SignOffPeriodCloseParams) (SignOffPeriodCloseRes, error)
 	// SimulateChangeRequest implements simulateChangeRequest operation.
 	//
 	// Replays recent business transactions against the proposed configuration and records the result as
@@ -3198,6 +3337,44 @@ type Handler interface {
 	//
 	// POST /v1/agent-sessions
 	StartAgentSession(ctx context.Context, req *AgentSessionStart, params StartAgentSessionParams) (StartAgentSessionRes, error)
+	// StartDepreciationRun implements startDepreciationRun operation.
+	//
+	// Starts the depreciation run of a company, ledger and regular period (ADR-0057 §7, T57f; SAP's
+	// AFAB): the run is written `queued` with its Operation (kind `assets.depreciate`, its `resource` the
+	// run) and carried out as a workflow, or in process in a cell without a workflow engine. It selects
+	// the assets the preview shows (`POST /v1/depreciation-runs/preview`), in batches of 500 by asset
+	// number, and posts per batch one journal entry in the run's ledger alone (document type AF, dated the
+	// period's last day, source context `assets`), per asset the planned depreciation through the period
+	// less what is booked in the ledger: the period's depreciation, a catch-up of earlier periods, or
+	// depreciation posted back (negative) after an acquisition's reversal. Each asset's lines take its
+	// latest center assignment: the expense per depreciation account, cost center and profit center, the
+	// credit per accumulated depreciation account and profit center, debits and credits on separate lines;
+	// each line's group amount is the sum of its assets' local amounts translated at the posting date's
+	// rate. Each batch re-checks its assets under their locks: one retired, cancelled, booked through a
+	// later period or moved to centers valid after the period's last day since the plan is skipped and
+	// counted. Each asset a batch processes is booked through the period in the ledger (its terms are
+	// fixed from then on) and gets a depreciation movement when it had a difference. A period already run
+	// posts only what changed since. `ledger_id` defaults to the leading ledger; one the company does not
+	// keep is 422 `ledger.ledger_not_kept`; a special period (13-16) is 422 `assets.special_period`; a
+	// fiscal year or period not set up is 422 `ledger.no_fiscal_period`; a period not open in the ledger
+	// is 409 `ledger.period_not_open`; a period before the latest posted run's in the ledger is 409
+	// `assets.run_out_of_order`; a run of the company and ledger already queued or running is 409
+	// `assets.run_in_progress`, whose detail names it. A business problem while posting (the period closed
+	// or locked meanwhile, an account blocked, a center invalid, a class no longer the company's, a
+	// missing exchange rate) fails the run and its Operation with the problem; batches already posted stay
+	// posted, and a new run of the period, or the next period's run, posts what is left. Cancelling the
+	// Operation (`POST /v1/operations/{id}:cancel`) stops the run at its next step: a cancellation during
+	// the plan or a batch answers at once, the step under way commits as a whole, the next step then fails
+	// the run with `assets.run_cancelled`, freeing its company and ledger for a new run, its batches
+	// already posted stay posted, and the Operation stays `cancelled`. A step failing on an error of the
+	// machinery is tried five times; one that outlasts them fails the run, and its Operation, with
+	// `platform.internal`. In a cell without a workflow engine a failing step is tried again every round
+	// until it succeeds or the Operation is cancelled. The run is published as DepreciationRunCompleted
+	// when it ends, posted or failed, and audited. A legal entity the caller cannot act in is 404.
+	// Human-only.
+	//
+	// POST /v1/depreciation-runs
+	StartDepreciationRun(ctx context.Context, req *DepreciationRunStart, params StartDepreciationRunParams) (StartDepreciationRunRes, error)
 	// StartMigrationRun implements startMigrationRun operation.
 	//
 	// Extracts, transforms and loads the scope; the run becomes `loaded`, or `failed`. Requires status
@@ -3373,7 +3550,10 @@ type Handler interface {
 	// active person of the tenant (422 `closing.assignee_invalid` for an agent, a service, a blocked or
 	// unknown principal). `If-Match` is the close's ETag, so a change made on a stale view of the
 	// checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited,
-	// and published as PeriodCloseChanged (`task_assigned`).
+	// and published as PeriodCloseChanged (`task_assigned`). A signed-off close whose covered periods are
+	// all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved
+	// `unlockFiscalPeriod` request), the change sets the close open again first, published as
+	// PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d).
 	//
 	// PATCH /v1/period-closes/{id}/tasks/{code}
 	UpdateCloseTask(ctx context.Context, req *CloseTaskUpdate, params UpdateCloseTaskParams) (UpdateCloseTaskRes, error)

@@ -14,23 +14,9 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/nfr"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
-
-// project runs the projector until nothing is pending in any tenant.
-func project(tb testing.TB) {
-	tb.Helper()
-	p := &ledger.Projector{Pool: pgtest.Pool(tb), Role: "erp_projector"}
-	for {
-		n, err := p.RunOnce(context.Background())
-		if err != nil {
-			tb.Fatal(err)
-		}
-		if n == 0 {
-			return
-		}
-	}
-}
 
 // trialBalance lists the balances of a query as "account period debit/credit lc".
 func (e env) trialBalance(tb testing.TB, q string) []string {
@@ -50,7 +36,7 @@ func (e env) trialBalance(tb testing.TB, q string) []string {
 
 func TestBalancesAndProjector(t *testing.T) {
 	e := setup(t)
-	project(t)
+	fixture.Project(t)
 	bank, revenue, expense := e.account(t, "2000", "100000"), e.account(t, "2000", "400000"), e.account(t, "2000", "520000")
 	e.rate(t, "USD", "EUR", "2026-01-01", "0.5")
 	e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "100.00", ""}, line{revenue, "-100.00", ""}), "")
@@ -68,7 +54,7 @@ func TestBalancesAndProjector(t *testing.T) {
 	if pending != 3 {
 		t.Fatalf("pending: %d", pending)
 	}
-	project(t)
+	fixture.Project(t)
 	after := e.trialBalance(t, q+"&page_size=500")
 	if strings.Join(before, "|") != strings.Join(after, "|") {
 		t.Fatalf("projection changed the figures:\n%v\n%v", before, after)
@@ -149,7 +135,7 @@ func TestProjectorRuns(t *testing.T) {
 	// it in full batches first, so the batches of one below project only
 	// this test's three entries rather than the whole backlog, one
 	// transaction each, against the wait's deadline.
-	project(t)
+	fixture.Project(t)
 	for range 3 {
 		e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "1.00", ""}, line{revenue, "-1.00", ""}), "")
 	}
@@ -204,7 +190,7 @@ func TestTrialBalanceBudget(t *testing.T) {
 		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
 	}
 	e := setup(t)
-	project(t)
+	fixture.Project(t)
 	var chart uuid.UUID
 	admin := pgtest.Admin(t)
 	if err := admin.QueryRow(context.Background(), `SELECT id FROM ledger.chart_of_accounts WHERE tenant_id = $1 AND code = '2000'`, e.ten.ID).Scan(&chart); err != nil {

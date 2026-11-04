@@ -247,7 +247,9 @@ func readAcquisition(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Acquisition,
 }
 
 // readEntries reads the main journal entries of documents of a kind, by
-// document, each with its reversal entry once reversed.
+// document, each with its reversal entry once reversed, in no particular
+// order: a reversal updates the rows, which can change the order they are
+// read in. What shows or records them orders them (inLedgerOrder).
 func readEntries(ctx context.Context, tx pgx.Tx, kind string, ids []uuid.UUID) (map[uuid.UUID][]DocumentEntry, error) {
 	rows, _ := tx.Query(ctx, `SELECT document_id, ledger_id, journal_entry_year, journal_entry_id, document_number, reversal_entry_year, reversal_entry_id,
 			reversal_document_number
@@ -281,8 +283,8 @@ func (n nullableReversal) entry() *ReversalEntry {
 
 // recordAcquisition audits the acquisition and publishes it as
 // AssetMovementPosted, with the asset's status and version after it.
-func recordAcquisition(ctx context.Context, tx pgx.Tx, q Acquisition) error {
-	asset, ledgers, err := eventLedgers(ctx, tx, q, 1, func(en DocumentEntry) map[string]any {
+func (e *Endpoints) recordAcquisition(ctx context.Context, tx pgx.Tx, q Acquisition) error {
+	asset, ledgers, err := e.eventLedgers(ctx, tx, q, 1, func(en DocumentEntry) map[string]any {
 		return map[string]any{"journal_entry_id": en.EntryID, "fiscal_year": en.FiscalYear, "document_number": en.DocumentNumber}
 	})
 	if err != nil {
@@ -305,13 +307,20 @@ func recordAcquisition(ctx context.Context, tx pgx.Tx, q Acquisition) error {
 }
 
 // eventLedgers reads the asset after an acquisition's posting or reversal
-// and, per ledger, the change of cost it made (its amounts times sign) with
-// the entry fields of each ledger's entry.
-func eventLedgers(ctx context.Context, tx pgx.Tx, q Acquisition, sign money.Minor, entry func(DocumentEntry) map[string]any) (Asset, []map[string]any, error) {
+// and, per ledger in ledger order (inLedgerOrder), the change of cost it
+// made (its amounts times sign) with the entry fields of each ledger's
+// entry.
+func (e *Endpoints) eventLedgers(ctx context.Context, tx pgx.Tx, q Acquisition, sign money.Minor,
+	entry func(DocumentEntry) map[string]any) (Asset, []map[string]any, error) {
 	asset, err := readAsset(ctx, tx, q.AssetID, false)
 	if err != nil {
 		return Asset{}, nil, err
 	}
+	order, err := e.Ledger.Ledgers(ctx, nil)
+	if err != nil {
+		return Asset{}, nil, fmt.Errorf("assets: ledgers: %w", err)
+	}
+	inLedgerOrder(q.Entries, order, func(en DocumentEntry) uuid.UUID { return en.LedgerID })
 	expLC, err := currency.Exponent(ctx, tx, q.CurrencyLC, nil)
 	if err != nil {
 		return Asset{}, nil, fmt.Errorf("assets: currency %s: %w", q.CurrencyLC, err)

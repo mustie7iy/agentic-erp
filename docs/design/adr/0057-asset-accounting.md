@@ -1817,3 +1817,135 @@ Decided by default, for the product owner to overrule:
   document and journal entry with the entry's document number (from
   `assets.document_entry`; a depreciation run's entries are named by T57f,
   which records them), and the movement it reverses or that reverses it.
+
+**T57f (the depreciation run).** Built as §4 (`Posting.LedgerID`) and §7's
+run: migration 000200 creates `assets.depreciation_run`
+(`depreciation_run_transition`, `depreciation_run_fixed`,
+`depreciation_run_planned`, `depreciation_run_totals`,
+`depreciation_run_error`; `depreciation_run_one_at_a_time`, the partial
+unique index, registered as 409 `assets.run_in_progress`) and
+`assets.depreciation_batch` (`depreciation_batch_transition`,
+`depreciation_batch_posted`, `depreciation_batch_entry`), and the
+permission `assets.depreciation.run` (schema test
+`TestDepreciationRunRules`). `POST /v1/depreciation-runs`
+(`startDepreciationRun`, 202 with the Operation, human-only), `GET
+/v1/depreciation-runs` and `GET /v1/depreciation-runs/{id}`
+(`listDepreciationRuns`, `getDepreciationRun`, `assets.asset.read`); the
+start is audited (`assets.depreciation_run.start`), the plan
+(`assets.depreciation_run.plan`: the assets and batches), each batch
+(`assets.depreciation_run.post_batch`) and the end
+(`assets.depreciation_run.post`, `.fail`), which publishes
+DepreciationRunCompleted. The workflow `DepreciationRun`
+(`internal/workflows/depreciation.go`) calls the assets context through
+the port `workflows.Depreciation`, which `*assets.Endpoints` implements
+and the composition root wires (`cmd/erp-server`); the dispatcher starts
+it from the queued `assets.depreciate` Operation
+(`operations.QueuedOf`), and a cell without an engine runs the same steps
+in process (`workflows.Depreciator`). The ledger publishes two reads,
+`ledger.AssetReads.PeriodOpen` (the ledger's own 409
+`ledger.period_not_open`) and `ledger.AssetReads.GroupAmounts` (the
+average rate of the posting date, as a posting translates; 422
+`ledger.no_exchange_rate`), the ports `assets.Ledger.PeriodOpen` and
+`GroupAmounts`; `assets.Runs` gains `Report` (the batches posted of all, on
+the Operation). The movements list names a run's depreciation movements
+by their batch's entry's document number (T57e asked for it). The 01 §1.3
+budget of a run over 100,000 assets and the preview's at that scale are
+split to T57f2 (`split:T57f`): the slice is the run itself, end to end.
+Decided by default, for the product owner to overrule:
+- **The selection is the preview's** (`selectDepreciable`, T57e), shared by
+  the plan, each batch's re-check under its assets' locks (an asset no
+  longer selected is skipped, counted and takes no `seq`) and the preview,
+  and so is the difference (planned through the period less booked), so a
+  run posts what its preview showed while nothing changed between.
+- **Lines.** The expense per depreciation account, cost center and profit
+  center, the credit per accumulated depreciation account and profit
+  center (§7), with a key's debits and credits on separate lines: an asset
+  whose depreciation is posted back (negative, after an acquisition's
+  reversal) is a credit of expense and a debit of accumulated depreciation
+  beside the others' lines. Netting them could leave a line at zero in
+  local currency that keeps a group amount (each asset's translation
+  rounded on its own), which the ledger refuses (`ledger.zero_amount`). The
+  preview shows the same lines (`runLines`); its description says so. Each
+  line keeps its local amount and the sum of its assets' group amounts
+  (`PostingLine.LC`, `GC`), and the cost center goes on the expense line
+  alone, the profit center on both, as §8's assignment gives them; the
+  ledger derives and checks them at posting as always (ADR-0050 §5).
+- **A batch posts what changed and books every asset it processes**: an
+  asset whose difference is zero gets no movement but takes its `seq` and
+  is booked through the period (so its terms are fixed in that ledger,
+  decided by default 8), and a batch whose assets have no difference posts
+  no entry (the batch shows none). A run whose assets all had nothing to
+  post is `posted` with an amount of zero.
+- **Cancelling a run's Operation stops the run at its next step**
+  (review round 2 replaced round 1's "carried to its end", under which
+  `:cancel` answered `cancelled` while the run went on posting). The plan,
+  each batch and the finish read the Operation after the run's lock
+  (`assets.Runs.Cancelled`, `operations.IsCancelled`). The plan and each
+  batch read it without its row lock (review round 3: under the lock, a
+  `:cancel` during a long plan or a 500-asset batch met the 5 s lock
+  timeout and answered 409 `request.in_progress`), so a `:cancel` during
+  them returns at once and takes effect at the next step; their closing
+  progress report leaves a cancelled Operation alone, and the step under
+  way commits as a whole. The finish, which succeeds the Operation, and
+  the fail read it under the lock, so a `:cancel` cannot slip in between
+  the read and the finish. Once it is cancelled the next step refuses
+  with 409 `assets.run_cancelled`, a business problem, and
+  the workflow's fail path sets the run `failed` with it, freeing
+  `depreciation_run_one_at_a_time`. Batches already posted stay posted and
+  a new run of the period posts what is left; the Operation stays
+  `cancelled` (the fail leaves a cancelled Operation alone rather than
+  answering `platform.operation_finished`). The engine's cancellation,
+  which `:cancel` also sends, does not cut a step off: the activities run
+  on a context it does not reach, so a batch commits as a whole and the
+  failing step still runs. The dispatcher still starts a run whose
+  Operation was cancelled before any workflow took it
+  (`operations.QueuedOf`), and the in-process runner still takes up a
+  `queued` or `running` run with a cancelled Operation
+  (`operations.TenantsOf`, then `UnfinishedDepreciationRuns`): their first
+  step fails it, so it does not hold its company and ledger.
+- **Retries are bounded** as the other workflows' (ADR-0012: five
+  attempts, backoff from a second to a minute; a business problem is not
+  retried). An error of the machinery that outlasts them fails the run and
+  its Operation with `platform.internal` and fails the workflow with the
+  error, for the operators; a run whose fail itself fails five times stays
+  `running`, its workflow failed, as a release does. The in-process runner
+  tries a failing step again every round; cancelling the Operation ends
+  such a run at its next step.
+- **Who a run acts as**: the person who started it (the Operation's
+  requester, as a migration run, `workflows.requester`), so its entries,
+  movements and audit records name that person.
+- **Order and conflicts** (§7): the start refuses a period before the
+  latest posted run's in the ledger (409 `assets.run_out_of_order`; a
+  failed run does not count, so its period may be run again) and a run of
+  the company and ledger queued or running (409 `assets.run_in_progress`,
+  whose detail names the run by its path; a problem response carries no
+  `Location`, so the path is in the detail). The period must be open in the
+  run's ledger alone, checked at the start and again by each batch's
+  posting; a period closed between them fails the run with
+  `ledger.period_not_open`, its posted batches staying posted, and the next
+  run catches up (tested: July closed after its plan, August's run posting
+  July's and August's depreciation).
+- **A batch's entry** has the header text "Depreciation YYYY/MM, batch n",
+  the run as its source document and document type AF; the run's posting
+  date is the period's last day, recorded on the run (`posting_date`).
+- **The run's representation** shows its batches with their entries and
+  document numbers, its counts once known and its problem (code and
+  detail) once failed; a failed run shows what its posted batches posted
+  (amount, assets posted and skipped), as DepreciationRunCompleted does,
+  from one helper (review round 1); the database keeps a run's own totals
+  for a posted run alone. The batch size is 500 (decided by default 12),
+  a field of the endpoints (`BatchSize`) that tests set lower.
+
+**Fix forward (batch 50, from ci-local).** An asset's terms and an
+acquisition's entries are read from their tables in no order, and an update
+of a row (a PATCH of the terms, a reversal of the entries) can change the
+order they come back in: batch 50's race gate saw `TestUpdateAsset` read
+2L's terms first in the change's audit record. Every list per ledger an
+audit record or event carries (an asset change's `terms`, the `ledgers` of
+AssetMovementPosted and AssetMovementReversed and their audit records) is
+now in the order the API shows terms and entries in, the leading ledger
+first and then by code, from the ledger port's list (`inLedgerOrder`);
+api/asyncapi.yaml says so for the two events. Decided by default: the order
+is taken from the port rather than the database, since the ledgers' codes
+are the ledger context's (ADR-0057 §10); the cost is one read of the
+tenant's ledgers per recorded change.

@@ -54,7 +54,7 @@ func (e *Endpoints) reverseAcquisition(ctx context.Context, id uuid.UUID, ifMatc
 	if err != nil {
 		return Acquisition{}, err
 	}
-	return out, recordReversal(ctx, tx, out)
+	return out, e.recordReversal(ctx, tx, out)
 }
 
 // lockAcquisition reads the acquisition (404 for one of a company the
@@ -246,8 +246,8 @@ func writeReversal(ctx context.Context, tx pgx.Tx, p reqctx.Principal, q Acquisi
 // AssetMovementReversed, with the asset's status and version after it and
 // per ledger the change of cost it made, its reversal entry and the entry
 // it reversed.
-func recordReversal(ctx context.Context, tx pgx.Tx, q Acquisition) error {
-	asset, ledgers, err := eventLedgers(ctx, tx, q, -1, func(en DocumentEntry) map[string]any {
+func (e *Endpoints) recordReversal(ctx context.Context, tx pgx.Tx, q Acquisition) error {
+	asset, ledgers, err := e.eventLedgers(ctx, tx, q, -1, func(en DocumentEntry) map[string]any {
 		r := en.Reversal // set for every entry by the reversal
 		return map[string]any{"journal_entry_id": r.EntryID, "fiscal_year": r.FiscalYear, "document_number": r.DocumentNumber, "reversed_entry_id": en.EntryID}
 	})

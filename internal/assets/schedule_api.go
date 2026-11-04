@@ -92,7 +92,8 @@ func scheduleOf(v docView, a Asset, co Company, l LedgerRef, d *depreciable, per
 var movementSort = pagination.Sort{Default: "seq", Fields: []pagination.Field{{Name: "seq", Column: "seq", Type: "integer"}}}
 
 // movementRow is a movement as the list shows it: with its entry's
-// document number (an acquisition's, retirement's or transfer's entry)
+// document number (an acquisition's, retirement's or transfer's entry, or
+// a depreciation run's batch's)
 // and the movement reversing it.
 type movementRow struct {
 	ID, LedgerID                                                 uuid.UUID
@@ -112,16 +113,20 @@ type movementRow struct {
 }
 
 // movementSelect reads movements with the document number of their
-// entry, kept on the document's entry per ledger (or on its reversal),
-// and the movement reversing each; the keyset pages on its seq and id.
+// entry, kept on the document's entry per ledger (or on its reversal), or
+// for a depreciation run's on its batch's (T57f), and the movement
+// reversing each; the keyset pages on its seq and id.
 const movementSelect = `SELECT * FROM (SELECT m.id, m.ledger_id, m.seq, m.kind, m.value_date, m.posting_date, m.fiscal_year, m.fiscal_period, m.cost,
 		m.accumulated, m.cost_gc, m.accumulated_gc, m.residual, m.proceeds, trim_scale(m.share)::text AS share, m.document_kind, m.document_id,
 		m.journal_entry_year, m.journal_entry_id,
-		CASE WHEN de.journal_entry_id = m.journal_entry_id THEN de.document_number ELSE de.reversal_document_number END AS document_number,
+		coalesce(b.document_number, CASE WHEN de.journal_entry_id = m.journal_entry_id THEN de.document_number ELSE de.reversal_document_number END)
+			AS document_number,
 		m.reverses_id, r.id AS reversed_by_id, m.asset_id
 	FROM assets.movement m
 	LEFT JOIN assets.document_entry de ON de.tenant_id = m.tenant_id AND de.document_kind = m.document_kind AND de.document_id = m.document_id
 		AND de.ledger_id = m.ledger_id AND m.journal_entry_id IN (de.journal_entry_id, de.reversal_entry_id)
+	LEFT JOIN assets.depreciation_batch b ON b.tenant_id = m.tenant_id AND m.document_kind = 'depreciation_run' AND b.run_id = m.document_id
+		AND b.journal_entry_id = m.journal_entry_id
 	LEFT JOIN assets.movement r ON r.tenant_id = m.tenant_id AND r.reverses_id = m.id) mv`
 
 // ListAssetMovements implements GET /v1/assets/{id}/movements (ADR-0057
@@ -179,8 +184,13 @@ func (v docView) movementAPI(m movementRow, lc, gc string) gen.AssetMovement {
 	if m.EntryYear != nil {
 		out.JournalEntryFiscalYear = gen.NewOptInt32(int32(*m.EntryYear))
 	}
-	if i := slices.IndexFunc(v.ledgers, func(l LedgerRef) bool { return l.ID == m.LedgerID }); i >= 0 {
-		out.LedgerCode, out.LedgerName = v.ledgers[i].Code, v.ledgers[i].Name
-	}
+	v.nameLedger(m.LedgerID, &out.LedgerCode, &out.LedgerName)
 	return out
+}
+
+// nameLedger sets code and name to a ledger's, when the view has it.
+func (v docView) nameLedger(id uuid.UUID, code, name *string) {
+	if i := slices.IndexFunc(v.ledgers, func(l LedgerRef) bool { return l.ID == id }); i >= 0 {
+		*code, *name = v.ledgers[i].Code, v.ledgers[i].Name
+	}
 }

@@ -136,10 +136,7 @@ func partsShares(d *rules, amount money.Minor, parts []part) ([][]Share, error) 
 	if err != nil {
 		return nil, err
 	}
-	direction := config.DirectionOutflow
-	if amount > 0 {
-		direction = config.DirectionInflow
-	}
+	direction := directionOf(amount)
 	out := make([][]Share, len(parts))
 	for i, p := range parts {
 		if out[i], err = partShares(d, p, direction); err != nil {

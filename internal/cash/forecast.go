@@ -89,17 +89,24 @@ const (
 // Paying is what a payment of a run not yet released pays (ADR-0051 §4,
 // T53e3): its supplier's planning group in the company, and what it pays
 // of each open item it settles with the item's offsetting lines; a down
-// payment request's payment settles none and is classified as a whole.
+// payment request's payment settles none and is classified as a whole;
+// Request is the request it pays (nil for none), by which the variance
+// knows it (T53f3).
 type Paying struct {
 	PlanningGroup string
 	Items         []Paid
+	Request       *uuid.UUID
 }
 
 // Paid is an open item a payment settles: what the payment pays of it
-// (negative for a credit memo it nets) and its offsetting lines.
+// (negative for a credit memo it nets), its offsetting lines, its journal
+// entry, and the supplier invoice that entry was posted for (nil for
+// none): the documents the variance matches a payment to (T53f3).
 type Paid struct {
-	Amount money.Minor
-	Lines  []DocumentLine
+	Amount  money.Minor
+	Lines   []DocumentLine
+	Entry   uuid.UUID
+	Invoice *uuid.UUID
 }
 
 // Sources and certainties of the forecast's flows (ADR-0051 §4).

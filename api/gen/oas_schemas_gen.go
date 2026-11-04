@@ -4890,13 +4890,15 @@ type AssetMovement struct {
 	// The kind of document it belongs to. Open enumeration: clients must accept and preserve values not
 	// listed here; values may be added within /v1.
 	DocumentKind string `json:"document_kind"`
-	// The document (an acquisition: `GET /v1/asset-acquisitions/{id}`).
+	// The document (an acquisition: `GET /v1/asset-acquisitions/{id}`; a depreciation run:
+	// `GET /v1/depreciation-runs/{id}`).
 	DocumentID uuid.UUID `json:"document_id"`
 	// That ledger's journal entry (`GET /v1/journal-entries/{id}`); absent for a catch-up of zero.
 	JournalEntryID OptUUID `json:"journal_entry_id"`
 	// The journal entry's fiscal year.
 	JournalEntryFiscalYear OptInt32 `json:"journal_entry_fiscal_year"`
-	// The journal entry's document number, for an acquisition's, retirement's or transfer's entry.
+	// The journal entry's document number: an acquisition's, retirement's or transfer's entry, or a
+	// depreciation run's batch entry.
 	DocumentNumber OptString `json:"document_number"`
 	// For a reversal: the movement it reverses.
 	ReversesID OptUUID `json:"reverses_id"`
@@ -9894,6 +9896,1030 @@ type CaptureSupplierInvoiceUnprocessableEntity Problem
 
 func (*CaptureSupplierInvoiceUnprocessableEntity) captureSupplierInvoiceRes() {}
 
+// A bank statement line as the cash actuals classify it (ADR-0051 §4, §11): its value date, house
+// bank, amount and shares by liquidity item, what classified it, and, for a caller who may read them
+// in their own context, its statement, the payments it was matched to and their suppliers.
+// Ref: #/components/schemas/CashActualLine
+type CashActualLine struct {
+	// The day the bank valued it.
+	ValueDate time.Time `json:"value_date"`
+	// The house bank whose statement it is on.
+	HouseBankID uuid.UUID `json:"house_bank_id"`
+	// The house bank's code.
+	HouseBankCode string                     `json:"house_bank_code"`
+	Statement     OptCashActualStatementLine `json:"statement"`
+	// The line's status in reconciliation (ADR-0047). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Status string          `json:"status"`
+	Match  CashActualMatch `json:"match"`
+	// The transaction code of the posting rule it was matched to; present exactly when `match` is
+	// `posting_rule`.
+	PostingRule OptString `json:"posting_rule"`
+	// True when it has no decided match: its direction's default classifies it until reconciliation
+	// decides it.
+	Unclassified bool  `json:"unclassified"`
+	Amount       Money `json:"amount"`
+	Share        Money `json:"share"`
+	// Its amount by liquidity item, adding up to it, in the order the documents behind it first name the
+	// items.
+	Shares []CashActualShare `json:"shares"`
+	// How many payments it was matched to, those not shown included.
+	PaymentCount int32 `json:"payment_count"`
+	// The payments it was matched to (`getPaymentRun`), for a caller who may use `payments.run.read`; else
+	// empty.
+	Payments []CashActualPayment `json:"payments"`
+	// The suppliers those payments paid, each once, for a caller who may use `partner.supplier.read`; else
+	// empty.
+	Suppliers []PartnerName `json:"suppliers"`
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *CashActualLine) GetValueDate() time.Time {
+	return s.ValueDate
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *CashActualLine) GetHouseBankID() uuid.UUID {
+	return s.HouseBankID
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *CashActualLine) GetHouseBankCode() string {
+	return s.HouseBankCode
+}
+
+// GetStatement returns the value of Statement.
+func (s *CashActualLine) GetStatement() OptCashActualStatementLine {
+	return s.Statement
+}
+
+// GetStatus returns the value of Status.
+func (s *CashActualLine) GetStatus() string {
+	return s.Status
+}
+
+// GetMatch returns the value of Match.
+func (s *CashActualLine) GetMatch() CashActualMatch {
+	return s.Match
+}
+
+// GetPostingRule returns the value of PostingRule.
+func (s *CashActualLine) GetPostingRule() OptString {
+	return s.PostingRule
+}
+
+// GetUnclassified returns the value of Unclassified.
+func (s *CashActualLine) GetUnclassified() bool {
+	return s.Unclassified
+}
+
+// GetAmount returns the value of Amount.
+func (s *CashActualLine) GetAmount() Money {
+	return s.Amount
+}
+
+// GetShare returns the value of Share.
+func (s *CashActualLine) GetShare() Money {
+	return s.Share
+}
+
+// GetShares returns the value of Shares.
+func (s *CashActualLine) GetShares() []CashActualShare {
+	return s.Shares
+}
+
+// GetPaymentCount returns the value of PaymentCount.
+func (s *CashActualLine) GetPaymentCount() int32 {
+	return s.PaymentCount
+}
+
+// GetPayments returns the value of Payments.
+func (s *CashActualLine) GetPayments() []CashActualPayment {
+	return s.Payments
+}
+
+// GetSuppliers returns the value of Suppliers.
+func (s *CashActualLine) GetSuppliers() []PartnerName {
+	return s.Suppliers
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *CashActualLine) SetValueDate(val time.Time) {
+	s.ValueDate = val
+}
+
+// SetHouseBankID sets the value of HouseBankID.
+func (s *CashActualLine) SetHouseBankID(val uuid.UUID) {
+	s.HouseBankID = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *CashActualLine) SetHouseBankCode(val string) {
+	s.HouseBankCode = val
+}
+
+// SetStatement sets the value of Statement.
+func (s *CashActualLine) SetStatement(val OptCashActualStatementLine) {
+	s.Statement = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CashActualLine) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetMatch sets the value of Match.
+func (s *CashActualLine) SetMatch(val CashActualMatch) {
+	s.Match = val
+}
+
+// SetPostingRule sets the value of PostingRule.
+func (s *CashActualLine) SetPostingRule(val OptString) {
+	s.PostingRule = val
+}
+
+// SetUnclassified sets the value of Unclassified.
+func (s *CashActualLine) SetUnclassified(val bool) {
+	s.Unclassified = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *CashActualLine) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetShare sets the value of Share.
+func (s *CashActualLine) SetShare(val Money) {
+	s.Share = val
+}
+
+// SetShares sets the value of Shares.
+func (s *CashActualLine) SetShares(val []CashActualShare) {
+	s.Shares = val
+}
+
+// SetPaymentCount sets the value of PaymentCount.
+func (s *CashActualLine) SetPaymentCount(val int32) {
+	s.PaymentCount = val
+}
+
+// SetPayments sets the value of Payments.
+func (s *CashActualLine) SetPayments(val []CashActualPayment) {
+	s.Payments = val
+}
+
+// SetSuppliers sets the value of Suppliers.
+func (s *CashActualLine) SetSuppliers(val []PartnerName) {
+	s.Suppliers = val
+}
+
+// A page of the bank statement lines behind a legal entity's cash actuals in one currency (ADR-0051
+// §11, T53f2), with what the selected lines of every page add up to.
+// Ref: #/components/schemas/CashActualLinePage
+type CashActualLinePage struct {
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// The currency (ISO 4217).
+	Currency string `json:"currency"`
+	// The first value date.
+	From time.Time `json:"from"`
+	// The last value date.
+	To time.Time `json:"to"`
+	// The house bank asked for; absent when none was.
+	HouseBankID OptUUID `json:"house_bank_id"`
+	// The liquidity item asked for, its descendants included; absent when none was.
+	LiquidityItem OptString `json:"liquidity_item"`
+	// Whether only the lines with no decided match are listed.
+	Unclassified bool  `json:"unclassified"`
+	Total        Money `json:"total"`
+	// How many lines the filters select, over every page.
+	Count int32 `json:"count"`
+	// The lines on this page, by value date.
+	Items []CashActualLine `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CashActualLinePage) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CashActualLinePage) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CashActualLinePage) GetCurrency() string {
+	return s.Currency
+}
+
+// GetFrom returns the value of From.
+func (s *CashActualLinePage) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *CashActualLinePage) GetTo() time.Time {
+	return s.To
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *CashActualLinePage) GetHouseBankID() OptUUID {
+	return s.HouseBankID
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *CashActualLinePage) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetUnclassified returns the value of Unclassified.
+func (s *CashActualLinePage) GetUnclassified() bool {
+	return s.Unclassified
+}
+
+// GetTotal returns the value of Total.
+func (s *CashActualLinePage) GetTotal() Money {
+	return s.Total
+}
+
+// GetCount returns the value of Count.
+func (s *CashActualLinePage) GetCount() int32 {
+	return s.Count
+}
+
+// GetItems returns the value of Items.
+func (s *CashActualLinePage) GetItems() []CashActualLine {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CashActualLinePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CashActualLinePage) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CashActualLinePage) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CashActualLinePage) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetFrom sets the value of From.
+func (s *CashActualLinePage) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *CashActualLinePage) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetHouseBankID sets the value of HouseBankID.
+func (s *CashActualLinePage) SetHouseBankID(val OptUUID) {
+	s.HouseBankID = val
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *CashActualLinePage) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetUnclassified sets the value of Unclassified.
+func (s *CashActualLinePage) SetUnclassified(val bool) {
+	s.Unclassified = val
+}
+
+// SetTotal sets the value of Total.
+func (s *CashActualLinePage) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetCount sets the value of Count.
+func (s *CashActualLinePage) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetItems sets the value of Items.
+func (s *CashActualLinePage) SetItems(val []CashActualLine) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CashActualLinePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CashActualLinePage) listCashActualLinesRes() {}
+
+type CashActualMatch string
+
+// A payment a statement line was matched to, with its payment run, what it paid, signed as the line
+// (negative: money out), and the supplier it paid, given only to a caller who may use
+// `partner.supplier.read`.
+// Ref: #/components/schemas/CashActualPayment
+type CashActualPayment struct {
+	// The payment.
+	PaymentID uuid.UUID `json:"payment_id"`
+	// Its payment run.
+	PaymentRunID uuid.UUID `json:"payment_run_id"`
+	// The run's document number.
+	PaymentRunNumber string         `json:"payment_run_number"`
+	Amount           Money          `json:"amount"`
+	Supplier         OptPartnerName `json:"supplier"`
+}
+
+// GetPaymentID returns the value of PaymentID.
+func (s *CashActualPayment) GetPaymentID() uuid.UUID {
+	return s.PaymentID
+}
+
+// GetPaymentRunID returns the value of PaymentRunID.
+func (s *CashActualPayment) GetPaymentRunID() uuid.UUID {
+	return s.PaymentRunID
+}
+
+// GetPaymentRunNumber returns the value of PaymentRunNumber.
+func (s *CashActualPayment) GetPaymentRunNumber() string {
+	return s.PaymentRunNumber
+}
+
+// GetAmount returns the value of Amount.
+func (s *CashActualPayment) GetAmount() Money {
+	return s.Amount
+}
+
+// GetSupplier returns the value of Supplier.
+func (s *CashActualPayment) GetSupplier() OptPartnerName {
+	return s.Supplier
+}
+
+// SetPaymentID sets the value of PaymentID.
+func (s *CashActualPayment) SetPaymentID(val uuid.UUID) {
+	s.PaymentID = val
+}
+
+// SetPaymentRunID sets the value of PaymentRunID.
+func (s *CashActualPayment) SetPaymentRunID(val uuid.UUID) {
+	s.PaymentRunID = val
+}
+
+// SetPaymentRunNumber sets the value of PaymentRunNumber.
+func (s *CashActualPayment) SetPaymentRunNumber(val string) {
+	s.PaymentRunNumber = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *CashActualPayment) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetSupplier sets the value of Supplier.
+func (s *CashActualPayment) SetSupplier(val OptPartnerName) {
+	s.Supplier = val
+}
+
+// The part of a statement line's amount a liquidity item has.
+// Ref: #/components/schemas/CashActualShare
+type CashActualShare struct {
+	// The liquidity item's code; absent for a part no derivation rule assigns and no default covers.
+	LiquidityItem OptString `json:"liquidity_item"`
+	Amount        Money     `json:"amount"`
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *CashActualShare) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetAmount returns the value of Amount.
+func (s *CashActualShare) GetAmount() Money {
+	return s.Amount
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *CashActualShare) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *CashActualShare) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// The bank statement and line (`getBankStatement`), for a caller who may use
+// `payments.statement.read`: the statement's reference and the line's at the bank tell the line
+// without reading the statement.
+// Ref: #/components/schemas/CashActualStatementLine
+type CashActualStatementLine struct {
+	// The bank statement.
+	StatementID uuid.UUID `json:"statement_id"`
+	// The line's number in the statement.
+	LineNo int32 `json:"line_no"`
+	// The statement's reference from the bank (camt `Stmt/Id`, MT940 `:20:`).
+	StatementRef string `json:"statement_ref"`
+	// The bank's reference of the line, as the statement gives it; empty when it gives none.
+	BankReference string `json:"bank_reference"`
+}
+
+// GetStatementID returns the value of StatementID.
+func (s *CashActualStatementLine) GetStatementID() uuid.UUID {
+	return s.StatementID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *CashActualStatementLine) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetStatementRef returns the value of StatementRef.
+func (s *CashActualStatementLine) GetStatementRef() string {
+	return s.StatementRef
+}
+
+// GetBankReference returns the value of BankReference.
+func (s *CashActualStatementLine) GetBankReference() string {
+	return s.BankReference
+}
+
+// SetStatementID sets the value of StatementID.
+func (s *CashActualStatementLine) SetStatementID(val uuid.UUID) {
+	s.StatementID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *CashActualStatementLine) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetStatementRef sets the value of StatementRef.
+func (s *CashActualStatementLine) SetStatementRef(val string) {
+	s.StatementRef = val
+}
+
+// SetBankReference sets the value of BankReference.
+func (s *CashActualStatementLine) SetBankReference(val string) {
+	s.BankReference = val
+}
+
+// A legal entity's actual cash flows (ADR-0051 §11, T53f2): its bank statement lines by value date,
+// per currency, house bank, liquidity item and bucket. Amounts are signed: money into the bank
+// positive, a payment out negative.
+// Ref: #/components/schemas/CashActuals
+type CashActuals struct {
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// The company's date when the actuals were read, in `time_zone`.
+	ReadDate time.Time `json:"read_date"`
+	// The IANA time zone the read date is in.
+	TimeZone string `json:"time_zone"`
+	// The first value date.
+	From time.Time `json:"from"`
+	// The last value date: the last bucket's end.
+	To time.Time `json:"to"`
+	// The buckets' length. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Grain string `json:"grain"`
+	// The columns: periods of `grain` from `from`, the last ending on `to`.
+	Buckets []LiquidityForecastBucket `json:"buckets"`
+	// Per currency of a line or of an active house bank, by currency code.
+	Currencies []CashActualsCurrency `json:"currencies"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CashActuals) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CashActuals) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *CashActuals) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *CashActuals) GetTimeZone() string {
+	return s.TimeZone
+}
+
+// GetFrom returns the value of From.
+func (s *CashActuals) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *CashActuals) GetTo() time.Time {
+	return s.To
+}
+
+// GetGrain returns the value of Grain.
+func (s *CashActuals) GetGrain() string {
+	return s.Grain
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *CashActuals) GetBuckets() []LiquidityForecastBucket {
+	return s.Buckets
+}
+
+// GetCurrencies returns the value of Currencies.
+func (s *CashActuals) GetCurrencies() []CashActualsCurrency {
+	return s.Currencies
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CashActuals) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CashActuals) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *CashActuals) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *CashActuals) SetTimeZone(val string) {
+	s.TimeZone = val
+}
+
+// SetFrom sets the value of From.
+func (s *CashActuals) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *CashActuals) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetGrain sets the value of Grain.
+func (s *CashActuals) SetGrain(val string) {
+	s.Grain = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *CashActuals) SetBuckets(val []LiquidityForecastBucket) {
+	s.Buckets = val
+}
+
+// SetCurrencies sets the value of Currencies.
+func (s *CashActuals) SetCurrencies(val []CashActualsCurrency) {
+	s.Currencies = val
+}
+
+func (*CashActuals) getCashActualsRes() {}
+
+// A house bank's actual flows per bucket and over the range.
+// Ref: #/components/schemas/CashActualsBank
+type CashActualsBank struct {
+	// The house bank.
+	HouseBankID uuid.UUID `json:"house_bank_id"`
+	// The house bank's code.
+	HouseBankCode string `json:"house_bank_code"`
+	// Whether the house bank is active.
+	Active bool `json:"active"`
+	// Its lines' total per bucket, in the buckets' order.
+	Buckets []Money `json:"buckets"`
+	Total   Money   `json:"total"`
+	// How many statement lines.
+	Count int32 `json:"count"`
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *CashActualsBank) GetHouseBankID() uuid.UUID {
+	return s.HouseBankID
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *CashActualsBank) GetHouseBankCode() string {
+	return s.HouseBankCode
+}
+
+// GetActive returns the value of Active.
+func (s *CashActualsBank) GetActive() bool {
+	return s.Active
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *CashActualsBank) GetBuckets() []Money {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *CashActualsBank) GetTotal() Money {
+	return s.Total
+}
+
+// GetCount returns the value of Count.
+func (s *CashActualsBank) GetCount() int32 {
+	return s.Count
+}
+
+// SetHouseBankID sets the value of HouseBankID.
+func (s *CashActualsBank) SetHouseBankID(val uuid.UUID) {
+	s.HouseBankID = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *CashActualsBank) SetHouseBankCode(val string) {
+	s.HouseBankCode = val
+}
+
+// SetActive sets the value of Active.
+func (s *CashActualsBank) SetActive(val bool) {
+	s.Active = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *CashActualsBank) SetBuckets(val []Money) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *CashActualsBank) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetCount sets the value of Count.
+func (s *CashActualsBank) SetCount(val int32) {
+	s.Count = val
+}
+
+// A bucket's actual flows in one currency: money in, money out, their total, how many lines, and what
+// of it has no decided match.
+// Ref: #/components/schemas/CashActualsBucket
+type CashActualsBucket struct {
+	// The bucket's first day.
+	Start   time.Time `json:"start"`
+	Inflow  Money     `json:"inflow"`
+	Outflow Money     `json:"outflow"`
+	Total   Money     `json:"total"`
+	// How many statement lines.
+	Count        int32                   `json:"count"`
+	Unclassified CashActualsUnclassified `json:"unclassified"`
+}
+
+// GetStart returns the value of Start.
+func (s *CashActualsBucket) GetStart() time.Time {
+	return s.Start
+}
+
+// GetInflow returns the value of Inflow.
+func (s *CashActualsBucket) GetInflow() Money {
+	return s.Inflow
+}
+
+// GetOutflow returns the value of Outflow.
+func (s *CashActualsBucket) GetOutflow() Money {
+	return s.Outflow
+}
+
+// GetTotal returns the value of Total.
+func (s *CashActualsBucket) GetTotal() Money {
+	return s.Total
+}
+
+// GetCount returns the value of Count.
+func (s *CashActualsBucket) GetCount() int32 {
+	return s.Count
+}
+
+// GetUnclassified returns the value of Unclassified.
+func (s *CashActualsBucket) GetUnclassified() CashActualsUnclassified {
+	return s.Unclassified
+}
+
+// SetStart sets the value of Start.
+func (s *CashActualsBucket) SetStart(val time.Time) {
+	s.Start = val
+}
+
+// SetInflow sets the value of Inflow.
+func (s *CashActualsBucket) SetInflow(val Money) {
+	s.Inflow = val
+}
+
+// SetOutflow sets the value of Outflow.
+func (s *CashActualsBucket) SetOutflow(val Money) {
+	s.Outflow = val
+}
+
+// SetTotal sets the value of Total.
+func (s *CashActualsBucket) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetCount sets the value of Count.
+func (s *CashActualsBucket) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetUnclassified sets the value of Unclassified.
+func (s *CashActualsBucket) SetUnclassified(val CashActualsUnclassified) {
+	s.Unclassified = val
+}
+
+// The actual flows of one currency: per bucket, in the buckets' order, and over the range; per house
+// bank; and by liquidity item and its hierarchy.
+// Ref: #/components/schemas/CashActualsCurrency
+type CashActualsCurrency struct {
+	// The currency (ISO 4217).
+	Currency string `json:"currency"`
+	// One per bucket, in the same order.
+	Buckets []CashActualsBucket `json:"buckets"`
+	Inflow  Money               `json:"inflow"`
+	Outflow Money               `json:"outflow"`
+	Total   Money               `json:"total"`
+	// How many statement lines.
+	Count        int32                   `json:"count"`
+	Unclassified CashActualsUnclassified `json:"unclassified"`
+	// Per house bank of the currency: every active one by code, with lines or not, then each one no longer
+	// active that has lines, in the order of its first line.
+	Banks []CashActualsBank `json:"banks"`
+	// The rows by liquidity item, depth first: each item followed by its children, siblings by code, an
+	// item listed when it or a descendant has a share; the row of what no rule assigns and no default
+	// covers (without `liquidity_item`) last. The top rows (`level` 0) add up to each bucket's `total` and
+	// the currency's.
+	Items []CashActualsItem `json:"items"`
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CashActualsCurrency) GetCurrency() string {
+	return s.Currency
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *CashActualsCurrency) GetBuckets() []CashActualsBucket {
+	return s.Buckets
+}
+
+// GetInflow returns the value of Inflow.
+func (s *CashActualsCurrency) GetInflow() Money {
+	return s.Inflow
+}
+
+// GetOutflow returns the value of Outflow.
+func (s *CashActualsCurrency) GetOutflow() Money {
+	return s.Outflow
+}
+
+// GetTotal returns the value of Total.
+func (s *CashActualsCurrency) GetTotal() Money {
+	return s.Total
+}
+
+// GetCount returns the value of Count.
+func (s *CashActualsCurrency) GetCount() int32 {
+	return s.Count
+}
+
+// GetUnclassified returns the value of Unclassified.
+func (s *CashActualsCurrency) GetUnclassified() CashActualsUnclassified {
+	return s.Unclassified
+}
+
+// GetBanks returns the value of Banks.
+func (s *CashActualsCurrency) GetBanks() []CashActualsBank {
+	return s.Banks
+}
+
+// GetItems returns the value of Items.
+func (s *CashActualsCurrency) GetItems() []CashActualsItem {
+	return s.Items
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CashActualsCurrency) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *CashActualsCurrency) SetBuckets(val []CashActualsBucket) {
+	s.Buckets = val
+}
+
+// SetInflow sets the value of Inflow.
+func (s *CashActualsCurrency) SetInflow(val Money) {
+	s.Inflow = val
+}
+
+// SetOutflow sets the value of Outflow.
+func (s *CashActualsCurrency) SetOutflow(val Money) {
+	s.Outflow = val
+}
+
+// SetTotal sets the value of Total.
+func (s *CashActualsCurrency) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetCount sets the value of Count.
+func (s *CashActualsCurrency) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetUnclassified sets the value of Unclassified.
+func (s *CashActualsCurrency) SetUnclassified(val CashActualsUnclassified) {
+	s.Unclassified = val
+}
+
+// SetBanks sets the value of Banks.
+func (s *CashActualsCurrency) SetBanks(val []CashActualsBank) {
+	s.Banks = val
+}
+
+// SetItems sets the value of Items.
+func (s *CashActualsCurrency) SetItems(val []CashActualsItem) {
+	s.Items = val
+}
+
+// A row of a currency's actuals by liquidity item (ADR-0051 §4, §11): the shares of the lines its
+// item classifies, with its descendants', per bucket and over the range, and the item's own shares by
+// what classified them.
+// Ref: #/components/schemas/CashActualsItem
+type CashActualsItem struct {
+	// The liquidity item's code (`cash.liquidity_items`); absent on the row of the shares no derivation
+	// rule assigns and no default covers.
+	LiquidityItem OptString `json:"liquidity_item"`
+	// The liquidity item's name; absent with `liquidity_item`.
+	Name OptString `json:"name"`
+	// The code of the item's parent in the hierarchy; absent for a top item and the row without
+	// `liquidity_item`.
+	Parent OptString `json:"parent"`
+	// The item's depth in the hierarchy: 0 for a top item (and the row without `liquidity_item`), its
+	// parent's plus one below.
+	Level int32 `json:"level"`
+	// The item's and its descendants' shares per bucket, in the buckets' order.
+	Buckets []Money `json:"buckets"`
+	Total   Money   `json:"total"`
+	// The item's own shares (not its descendants') by what classified them, sorted by it; empty for an
+	// item listed for its descendants alone.
+	Matches []CashActualsItemMatch `json:"matches"`
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *CashActualsItem) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetName returns the value of Name.
+func (s *CashActualsItem) GetName() OptString {
+	return s.Name
+}
+
+// GetParent returns the value of Parent.
+func (s *CashActualsItem) GetParent() OptString {
+	return s.Parent
+}
+
+// GetLevel returns the value of Level.
+func (s *CashActualsItem) GetLevel() int32 {
+	return s.Level
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *CashActualsItem) GetBuckets() []Money {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *CashActualsItem) GetTotal() Money {
+	return s.Total
+}
+
+// GetMatches returns the value of Matches.
+func (s *CashActualsItem) GetMatches() []CashActualsItemMatch {
+	return s.Matches
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *CashActualsItem) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetName sets the value of Name.
+func (s *CashActualsItem) SetName(val OptString) {
+	s.Name = val
+}
+
+// SetParent sets the value of Parent.
+func (s *CashActualsItem) SetParent(val OptString) {
+	s.Parent = val
+}
+
+// SetLevel sets the value of Level.
+func (s *CashActualsItem) SetLevel(val int32) {
+	s.Level = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *CashActualsItem) SetBuckets(val []Money) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *CashActualsItem) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetMatches sets the value of Matches.
+func (s *CashActualsItem) SetMatches(val []CashActualsItemMatch) {
+	s.Matches = val
+}
+
+// A liquidity item's own shares of the lines one kind of match classified, per bucket and over the
+// range.
+// Ref: #/components/schemas/CashActualsItemMatch
+type CashActualsItemMatch struct {
+	Match CashActualMatch `json:"match"`
+	// The shares per bucket, in the buckets' order.
+	Buckets []Money `json:"buckets"`
+	Total   Money   `json:"total"`
+}
+
+// GetMatch returns the value of Match.
+func (s *CashActualsItemMatch) GetMatch() CashActualMatch {
+	return s.Match
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *CashActualsItemMatch) GetBuckets() []Money {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *CashActualsItemMatch) GetTotal() Money {
+	return s.Total
+}
+
+// SetMatch sets the value of Match.
+func (s *CashActualsItemMatch) SetMatch(val CashActualMatch) {
+	s.Match = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *CashActualsItemMatch) SetBuckets(val []Money) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *CashActualsItemMatch) SetTotal(val Money) {
+	s.Total = val
+}
+
+// The statement lines with no decided match (not matched yet, or only proposed): classified by their
+// direction's default liquidity item, and counted here until reconciliation decides them (ADR-0051
+// §11).
+// Ref: #/components/schemas/CashActualsUnclassified
+type CashActualsUnclassified struct {
+	Amount Money `json:"amount"`
+	// How many lines.
+	Count int32 `json:"count"`
+}
+
+// GetAmount returns the value of Amount.
+func (s *CashActualsUnclassified) GetAmount() Money {
+	return s.Amount
+}
+
+// GetCount returns the value of Count.
+func (s *CashActualsUnclassified) GetCount() int32 {
+	return s.Count
+}
+
+// SetAmount sets the value of Amount.
+func (s *CashActualsUnclassified) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetCount sets the value of Count.
+func (s *CashActualsUnclassified) SetCount(val int32) {
+	s.Count = val
+}
+
 // A cash discount for payment by a date.
 // Ref: #/components/schemas/CashDiscountTier
 type CashDiscountTier struct {
@@ -12759,6 +13785,12 @@ type CloseCalendarClose struct {
 	// Period close status. Open enumeration: clients must accept and preserve values not listed here;
 	// values may be added within /v1.
 	Status string `json:"status"`
+	// When it was signed off (`:signOff`, T64d); absent while it is open.
+	SignedOffAt OptDateTime `json:"signed_off_at"`
+	// Who signed it off; absent while it is open.
+	SignedOffBy OptUUID `json:"signed_off_by"`
+	// Their name; absent while it is open.
+	SignedOffByName OptString `json:"signed_off_by_name"`
 	// Its tasks.
 	TasksTotal int32 `json:"tasks_total"`
 	// Its tasks done.
@@ -12775,6 +13807,21 @@ func (s *CloseCalendarClose) GetID() uuid.UUID {
 // GetStatus returns the value of Status.
 func (s *CloseCalendarClose) GetStatus() string {
 	return s.Status
+}
+
+// GetSignedOffAt returns the value of SignedOffAt.
+func (s *CloseCalendarClose) GetSignedOffAt() OptDateTime {
+	return s.SignedOffAt
+}
+
+// GetSignedOffBy returns the value of SignedOffBy.
+func (s *CloseCalendarClose) GetSignedOffBy() OptUUID {
+	return s.SignedOffBy
+}
+
+// GetSignedOffByName returns the value of SignedOffByName.
+func (s *CloseCalendarClose) GetSignedOffByName() OptString {
+	return s.SignedOffByName
 }
 
 // GetTasksTotal returns the value of TasksTotal.
@@ -12800,6 +13847,21 @@ func (s *CloseCalendarClose) SetID(val uuid.UUID) {
 // SetStatus sets the value of Status.
 func (s *CloseCalendarClose) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetSignedOffAt sets the value of SignedOffAt.
+func (s *CloseCalendarClose) SetSignedOffAt(val OptDateTime) {
+	s.SignedOffAt = val
+}
+
+// SetSignedOffBy sets the value of SignedOffBy.
+func (s *CloseCalendarClose) SetSignedOffBy(val OptUUID) {
+	s.SignedOffBy = val
+}
+
+// SetSignedOffByName sets the value of SignedOffByName.
+func (s *CloseCalendarClose) SetSignedOffByName(val OptString) {
+	s.SignedOffByName = val
 }
 
 // SetTasksTotal sets the value of TasksTotal.
@@ -14511,6 +15573,7 @@ func (*ConflictHeaders) getAnalyticsModelRes()                {}
 func (*ConflictHeaders) getBankFileContentRes()               {}
 func (*ConflictHeaders) getCloseCalendarRes()                 {}
 func (*ConflictHeaders) getLegalEntityTodayRes()              {}
+func (*ConflictHeaders) getLiquidityForecastVarianceRes()     {}
 func (*ConflictHeaders) getPeriodCloseRes()                   {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()         {}
 func (*ConflictHeaders) getTaxReturnDraftRes()                {}
@@ -14518,6 +15581,7 @@ func (*ConflictHeaders) grantRolePermissionRes()              {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()              {}
 func (*ConflictHeaders) importBankStatementsRes()             {}
 func (*ConflictHeaders) listCloseTasksRes()                   {}
+func (*ConflictHeaders) listPeriodCloseVariancesRes()         {}
 func (*ConflictHeaders) listPeriodClosesRes()                 {}
 func (*ConflictHeaders) listTaxPeriodsRes()                   {}
 func (*ConflictHeaders) listTaxReturnDraftItemsRes()          {}
@@ -14579,8 +15643,10 @@ func (*ConflictHeaders) reverseJournalEntryRes()              {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()           {}
 func (*ConflictHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*ConflictHeaders) runAnalyticsQueryRes()                {}
+func (*ConflictHeaders) signOffPeriodCloseRes()               {}
 func (*ConflictHeaders) simulateChangeRequestRes()            {}
 func (*ConflictHeaders) startAgentSessionRes()                {}
+func (*ConflictHeaders) startDepreciationRunRes()             {}
 func (*ConflictHeaders) startMigrationRunRes()                {}
 func (*ConflictHeaders) submitChangeRequestRes()              {}
 func (*ConflictHeaders) submitPaymentRunRes()                 {}
@@ -18520,7 +19586,8 @@ type DepreciationPreviewTotals struct {
 	Difference Money `json:"difference"`
 	// The lines a run would post, the expense lines by depreciation account, cost center and profit
 	// center, then the credit lines by accumulated depreciation account and profit center, by account
-	// number; a line summing to zero is left out.
+	// number, each with its debits and its credits on separate lines (an asset's negative difference,
+	// depreciation posted back, is a credit of expense and a debit of accumulated depreciation).
 	Lines []DepreciationPreviewLine `json:"lines"`
 }
 
@@ -18573,6 +19640,488 @@ func (s *DepreciationPreviewTotals) SetDifference(val Money) {
 func (s *DepreciationPreviewTotals) SetLines(val []DepreciationPreviewLine) {
 	s.Lines = val
 }
+
+// A depreciation run (ADR-0057 §7): what it posted in its ledger for its period, in the company's
+// local currency, and its batches.
+// Ref: #/components/schemas/DepreciationRun
+type DepreciationRun struct {
+	// The run.
+	ID uuid.UUID `json:"id"`
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The regular period.
+	Period int32 `json:"period"`
+	// The period's last day, its entries' posting date.
+	PostingDate time.Time `json:"posting_date"`
+	// The company's local currency, every amount's.
+	Currency string `json:"currency"`
+	// Queued until its workflow plans it, running while its batches post, then posted or failed. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Status string `json:"status"`
+	// Its Operation (`GET /v1/operations/{id}`).
+	OperationID uuid.UUID `json:"operation_id"`
+	// The assets it selected, once planned.
+	AssetsPlanned OptInt32 `json:"assets_planned"`
+	// The assets it posted a difference for, once posted; for a running or failed run, what its posted
+	// batches posted so far.
+	AssetsPosted OptInt32 `json:"assets_posted"`
+	// The assets its batches skipped under their locks (retired, cancelled, booked through a later period
+	// or moved to centers valid after the period since the plan), once posted; for a running or failed
+	// run, its posted batches' so far.
+	AssetsSkipped OptInt32 `json:"assets_skipped"`
+	// The depreciation it posted, once posted; for a running or failed run, what its posted batches posted
+	// so far, which stays posted. Negative where depreciation was posted back (after an acquisition's
+	// reversal) more than posted.
+	Amount OptMoney                `json:"amount"`
+	Error  OptDepreciationRunError `json:"error"`
+	// Its batches in order, once planned.
+	Batches []DepreciationRunBatch `json:"batches"`
+	// The run's version (ETag).
+	Version int32 `json:"version"`
+	// When it was started.
+	CreatedAt time.Time `json:"created_at"`
+	// Who started it.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// When it last changed.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *DepreciationRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *DepreciationRun) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *DepreciationRun) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *DepreciationRun) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *DepreciationRun) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *DepreciationRun) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DepreciationRun) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *DepreciationRun) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *DepreciationRun) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *DepreciationRun) GetCurrency() string {
+	return s.Currency
+}
+
+// GetStatus returns the value of Status.
+func (s *DepreciationRun) GetStatus() string {
+	return s.Status
+}
+
+// GetOperationID returns the value of OperationID.
+func (s *DepreciationRun) GetOperationID() uuid.UUID {
+	return s.OperationID
+}
+
+// GetAssetsPlanned returns the value of AssetsPlanned.
+func (s *DepreciationRun) GetAssetsPlanned() OptInt32 {
+	return s.AssetsPlanned
+}
+
+// GetAssetsPosted returns the value of AssetsPosted.
+func (s *DepreciationRun) GetAssetsPosted() OptInt32 {
+	return s.AssetsPosted
+}
+
+// GetAssetsSkipped returns the value of AssetsSkipped.
+func (s *DepreciationRun) GetAssetsSkipped() OptInt32 {
+	return s.AssetsSkipped
+}
+
+// GetAmount returns the value of Amount.
+func (s *DepreciationRun) GetAmount() OptMoney {
+	return s.Amount
+}
+
+// GetError returns the value of Error.
+func (s *DepreciationRun) GetError() OptDepreciationRunError {
+	return s.Error
+}
+
+// GetBatches returns the value of Batches.
+func (s *DepreciationRun) GetBatches() []DepreciationRunBatch {
+	return s.Batches
+}
+
+// GetVersion returns the value of Version.
+func (s *DepreciationRun) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *DepreciationRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *DepreciationRun) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *DepreciationRun) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *DepreciationRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *DepreciationRun) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *DepreciationRun) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *DepreciationRun) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *DepreciationRun) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *DepreciationRun) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DepreciationRun) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *DepreciationRun) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *DepreciationRun) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *DepreciationRun) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetStatus sets the value of Status.
+func (s *DepreciationRun) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetOperationID sets the value of OperationID.
+func (s *DepreciationRun) SetOperationID(val uuid.UUID) {
+	s.OperationID = val
+}
+
+// SetAssetsPlanned sets the value of AssetsPlanned.
+func (s *DepreciationRun) SetAssetsPlanned(val OptInt32) {
+	s.AssetsPlanned = val
+}
+
+// SetAssetsPosted sets the value of AssetsPosted.
+func (s *DepreciationRun) SetAssetsPosted(val OptInt32) {
+	s.AssetsPosted = val
+}
+
+// SetAssetsSkipped sets the value of AssetsSkipped.
+func (s *DepreciationRun) SetAssetsSkipped(val OptInt32) {
+	s.AssetsSkipped = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *DepreciationRun) SetAmount(val OptMoney) {
+	s.Amount = val
+}
+
+// SetError sets the value of Error.
+func (s *DepreciationRun) SetError(val OptDepreciationRunError) {
+	s.Error = val
+}
+
+// SetBatches sets the value of Batches.
+func (s *DepreciationRun) SetBatches(val []DepreciationRunBatch) {
+	s.Batches = val
+}
+
+// SetVersion sets the value of Version.
+func (s *DepreciationRun) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *DepreciationRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *DepreciationRun) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *DepreciationRun) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// A batch of a depreciation run: at most 500 assets posted as one journal entry in the run's ledger
+// (none when no asset of it had a difference).
+// Ref: #/components/schemas/DepreciationRunBatch
+type DepreciationRunBatch struct {
+	// The batch's number in the run, from 1.
+	BatchNo int32 `json:"batch_no"`
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Status string `json:"status"`
+	// The assets the run planned in it.
+	Assets int32 `json:"assets"`
+	// The assets it posted a difference for, once posted.
+	AssetsPosted OptInt32 `json:"assets_posted"`
+	// The assets it skipped under their locks, once posted.
+	AssetsSkipped OptInt32 `json:"assets_skipped"`
+	// The depreciation it posted, once posted; negative where depreciation was posted back more than
+	// posted.
+	Amount OptMoney `json:"amount"`
+	// Its journal entry (`GET /v1/journal-entries/{id}`), once posted with a difference.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The entry's fiscal year.
+	JournalEntryFiscalYear OptInt32 `json:"journal_entry_fiscal_year"`
+	// The entry's document number.
+	DocumentNumber OptString `json:"document_number"`
+}
+
+// GetBatchNo returns the value of BatchNo.
+func (s *DepreciationRunBatch) GetBatchNo() int32 {
+	return s.BatchNo
+}
+
+// GetStatus returns the value of Status.
+func (s *DepreciationRunBatch) GetStatus() string {
+	return s.Status
+}
+
+// GetAssets returns the value of Assets.
+func (s *DepreciationRunBatch) GetAssets() int32 {
+	return s.Assets
+}
+
+// GetAssetsPosted returns the value of AssetsPosted.
+func (s *DepreciationRunBatch) GetAssetsPosted() OptInt32 {
+	return s.AssetsPosted
+}
+
+// GetAssetsSkipped returns the value of AssetsSkipped.
+func (s *DepreciationRunBatch) GetAssetsSkipped() OptInt32 {
+	return s.AssetsSkipped
+}
+
+// GetAmount returns the value of Amount.
+func (s *DepreciationRunBatch) GetAmount() OptMoney {
+	return s.Amount
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DepreciationRunBatch) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryFiscalYear returns the value of JournalEntryFiscalYear.
+func (s *DepreciationRunBatch) GetJournalEntryFiscalYear() OptInt32 {
+	return s.JournalEntryFiscalYear
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *DepreciationRunBatch) GetDocumentNumber() OptString {
+	return s.DocumentNumber
+}
+
+// SetBatchNo sets the value of BatchNo.
+func (s *DepreciationRunBatch) SetBatchNo(val int32) {
+	s.BatchNo = val
+}
+
+// SetStatus sets the value of Status.
+func (s *DepreciationRunBatch) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetAssets sets the value of Assets.
+func (s *DepreciationRunBatch) SetAssets(val int32) {
+	s.Assets = val
+}
+
+// SetAssetsPosted sets the value of AssetsPosted.
+func (s *DepreciationRunBatch) SetAssetsPosted(val OptInt32) {
+	s.AssetsPosted = val
+}
+
+// SetAssetsSkipped sets the value of AssetsSkipped.
+func (s *DepreciationRunBatch) SetAssetsSkipped(val OptInt32) {
+	s.AssetsSkipped = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *DepreciationRunBatch) SetAmount(val OptMoney) {
+	s.Amount = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DepreciationRunBatch) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryFiscalYear sets the value of JournalEntryFiscalYear.
+func (s *DepreciationRunBatch) SetJournalEntryFiscalYear(val OptInt32) {
+	s.JournalEntryFiscalYear = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *DepreciationRunBatch) SetDocumentNumber(val OptString) {
+	s.DocumentNumber = val
+}
+
+// The problem that failed a run: its code and detail, as the Operation's error gives them;
+// `assets.run_cancelled` when its Operation was cancelled, which stays `cancelled` without an error,
+// and `platform.internal` when a step's error outlasted its retries.
+// Ref: #/components/schemas/DepreciationRunError
+type DepreciationRunError struct {
+	// The problem's code, such as `ledger.period_not_open`.
+	Code string `json:"code"`
+	// The problem's detail.
+	Detail string `json:"detail"`
+}
+
+// GetCode returns the value of Code.
+func (s *DepreciationRunError) GetCode() string {
+	return s.Code
+}
+
+// GetDetail returns the value of Detail.
+func (s *DepreciationRunError) GetDetail() string {
+	return s.Detail
+}
+
+// SetCode sets the value of Code.
+func (s *DepreciationRunError) SetCode(val string) {
+	s.Code = val
+}
+
+// SetDetail sets the value of Detail.
+func (s *DepreciationRunError) SetDetail(val string) {
+	s.Detail = val
+}
+
+// DepreciationRunHeaders wraps DepreciationRun with response headers.
+type DepreciationRunHeaders struct {
+	ETag     OptString
+	Response DepreciationRun
+}
+
+// GetETag returns the value of ETag.
+func (s *DepreciationRunHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *DepreciationRunHeaders) GetResponse() DepreciationRun {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *DepreciationRunHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *DepreciationRunHeaders) SetResponse(val DepreciationRun) {
+	s.Response = val
+}
+
+func (*DepreciationRunHeaders) getDepreciationRunRes() {}
+
+// One page of depreciation runs.
+// Ref: #/components/schemas/DepreciationRunPage
+type DepreciationRunPage struct {
+	// The runs on this page.
+	Items []DepreciationRun `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *DepreciationRunPage) GetItems() []DepreciationRun {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *DepreciationRunPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *DepreciationRunPage) SetItems(val []DepreciationRun) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *DepreciationRunPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*DepreciationRunPage) listDepreciationRunsRes() {}
 
 // What a depreciation run would post (ADR-0057 §7): one page of the assets it selects and the totals
 // of all of them, in the company's local currency.
@@ -18813,6 +20362,59 @@ func (s *DepreciationRunPreviewRequest) SetFiscalYear(val int32) {
 
 // SetPeriod sets the value of Period.
 func (s *DepreciationRunPreviewRequest) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// The depreciation run to start: a company, a ledger and a regular period.
+// Ref: #/components/schemas/DepreciationRunStart
+type DepreciationRunStart struct {
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The ledger (one depreciation area); default the leading ledger.
+	LedgerID OptUUID `json:"ledger_id"`
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period; a regular one (1-12).
+	Period int32 `json:"period"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *DepreciationRunStart) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *DepreciationRunStart) GetLedgerID() OptUUID {
+	return s.LedgerID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DepreciationRunStart) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *DepreciationRunStart) GetPeriod() int32 {
+	return s.Period
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *DepreciationRunStart) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *DepreciationRunStart) SetLedgerID(val OptUUID) {
+	s.LedgerID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DepreciationRunStart) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *DepreciationRunStart) SetPeriod(val int32) {
 	s.Period = val
 }
 
@@ -20962,6 +22564,61 @@ func (s *Extensions) init() Extensions {
 	return m
 }
 
+// A check task whose check failed when a sign-off ran it again (`closing.checks_failing`), with what
+// it found; nothing was recorded on the task.
+// Ref: #/components/schemas/FailingCheck
+type FailingCheck struct {
+	// The task's code.
+	TaskCode string `json:"task_code"`
+	// The task's name.
+	TaskName string `json:"task_name"`
+	// The check. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Check string `json:"check"`
+	// What it found, in one sentence; `:check` on the task records it whole.
+	Summary string `json:"summary"`
+}
+
+// GetTaskCode returns the value of TaskCode.
+func (s *FailingCheck) GetTaskCode() string {
+	return s.TaskCode
+}
+
+// GetTaskName returns the value of TaskName.
+func (s *FailingCheck) GetTaskName() string {
+	return s.TaskName
+}
+
+// GetCheck returns the value of Check.
+func (s *FailingCheck) GetCheck() string {
+	return s.Check
+}
+
+// GetSummary returns the value of Summary.
+func (s *FailingCheck) GetSummary() string {
+	return s.Summary
+}
+
+// SetTaskCode sets the value of TaskCode.
+func (s *FailingCheck) SetTaskCode(val string) {
+	s.TaskCode = val
+}
+
+// SetTaskName sets the value of TaskName.
+func (s *FailingCheck) SetTaskName(val string) {
+	s.TaskName = val
+}
+
+// SetCheck sets the value of Check.
+func (s *FailingCheck) SetCheck(val string) {
+	s.Check = val
+}
+
+// SetSummary sets the value of Summary.
+func (s *FailingCheck) SetSummary(val string) {
+	s.Summary = val
+}
+
 // One field-level validation error.
 // Ref: #/components/schemas/FieldError
 type FieldError struct {
@@ -21664,6 +23321,22 @@ func (s *GetBusinessPartnerOKHeaders) SetResponse(val BusinessPartner) {
 
 func (*GetBusinessPartnerOKHeaders) getBusinessPartnerRes() {}
 
+type GetCashActualsBadRequest Problem
+
+func (*GetCashActualsBadRequest) getCashActualsRes() {}
+
+type GetCashActualsForbidden Problem
+
+func (*GetCashActualsForbidden) getCashActualsRes() {}
+
+type GetCashActualsNotFound Problem
+
+func (*GetCashActualsNotFound) getCashActualsRes() {}
+
+type GetCashActualsUnprocessableEntity Problem
+
+func (*GetCashActualsUnprocessableEntity) getCashActualsRes() {}
+
 type GetCashPositionBadRequest Problem
 
 func (*GetCashPositionBadRequest) getCashPositionRes() {}
@@ -21971,6 +23644,18 @@ func (*GetCurrentPrincipalBadRequest) getCurrentPrincipalRes() {}
 type GetCurrentPrincipalForbidden Problem
 
 func (*GetCurrentPrincipalForbidden) getCurrentPrincipalRes() {}
+
+type GetDepreciationRunBadRequest Problem
+
+func (*GetDepreciationRunBadRequest) getDepreciationRunRes() {}
+
+type GetDepreciationRunForbidden Problem
+
+func (*GetDepreciationRunForbidden) getDepreciationRunRes() {}
+
+type GetDepreciationRunNotFound Problem
+
+func (*GetDepreciationRunNotFound) getDepreciationRunRes() {}
 
 type GetDownPaymentRequestBadRequest Problem
 
@@ -22287,6 +23972,22 @@ func (*GetLiquidityForecastNotFound) getLiquidityForecastRes() {}
 type GetLiquidityForecastUnprocessableEntity Problem
 
 func (*GetLiquidityForecastUnprocessableEntity) getLiquidityForecastRes() {}
+
+type GetLiquidityForecastVarianceBadRequest Problem
+
+func (*GetLiquidityForecastVarianceBadRequest) getLiquidityForecastVarianceRes() {}
+
+type GetLiquidityForecastVarianceForbidden Problem
+
+func (*GetLiquidityForecastVarianceForbidden) getLiquidityForecastVarianceRes() {}
+
+type GetLiquidityForecastVarianceNotFound Problem
+
+func (*GetLiquidityForecastVarianceNotFound) getLiquidityForecastVarianceRes() {}
+
+type GetLiquidityForecastVarianceUnprocessableEntity Problem
+
+func (*GetLiquidityForecastVarianceUnprocessableEntity) getLiquidityForecastVarianceRes() {}
 
 type GetMatchResultBadRequest Problem
 
@@ -29005,6 +30706,631 @@ func (s *LiquidityForecastOpening) SetGap(val bool) {
 	s.Gap = val
 }
 
+// A legal entity's forecast variance over a period (ADR-0051 §11, T53f3): the forecast of a snapshot
+// against the bank statements' actuals, per currency, liquidity item and bucket, attributed within the
+// days the snapshot keeps per document. Amounts are signed as the flows: money into the bank positive,
+// a payment out negative; the variance is the actual less the forecast.
+// Ref: #/components/schemas/LiquidityForecastVariance
+type LiquidityForecastVariance struct {
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// The company's date when the variance was read, in `time_zone`.
+	ReadDate time.Time `json:"read_date"`
+	// The IANA time zone the read date is in.
+	TimeZone string `json:"time_zone"`
+	// The period's first day.
+	From time.Time `json:"from"`
+	// The period's last day.
+	To time.Time `json:"to"`
+	// How many days before `from` the snapshot was taken.
+	Lag int32 `json:"lag"`
+	// The buckets' length. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Grain    string                            `json:"grain"`
+	Snapshot LiquidityForecastVarianceSnapshot `json:"snapshot"`
+	// The attributed columns: periods of `grain` from `from`, the last ending on `to` or on the snapshot's
+	// `document_level_until`, whichever is first.
+	Buckets []LiquidityForecastBucket          `json:"buckets"`
+	Beyond  OptLiquidityForecastVariancePeriod `json:"beyond"`
+	// Per currency of a flow forecast or paid in the days compared, by currency code.
+	Currencies []LiquidityForecastVarianceCurrency `json:"currencies"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *LiquidityForecastVariance) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *LiquidityForecastVariance) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *LiquidityForecastVariance) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *LiquidityForecastVariance) GetTimeZone() string {
+	return s.TimeZone
+}
+
+// GetFrom returns the value of From.
+func (s *LiquidityForecastVariance) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *LiquidityForecastVariance) GetTo() time.Time {
+	return s.To
+}
+
+// GetLag returns the value of Lag.
+func (s *LiquidityForecastVariance) GetLag() int32 {
+	return s.Lag
+}
+
+// GetGrain returns the value of Grain.
+func (s *LiquidityForecastVariance) GetGrain() string {
+	return s.Grain
+}
+
+// GetSnapshot returns the value of Snapshot.
+func (s *LiquidityForecastVariance) GetSnapshot() LiquidityForecastVarianceSnapshot {
+	return s.Snapshot
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *LiquidityForecastVariance) GetBuckets() []LiquidityForecastBucket {
+	return s.Buckets
+}
+
+// GetBeyond returns the value of Beyond.
+func (s *LiquidityForecastVariance) GetBeyond() OptLiquidityForecastVariancePeriod {
+	return s.Beyond
+}
+
+// GetCurrencies returns the value of Currencies.
+func (s *LiquidityForecastVariance) GetCurrencies() []LiquidityForecastVarianceCurrency {
+	return s.Currencies
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *LiquidityForecastVariance) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *LiquidityForecastVariance) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *LiquidityForecastVariance) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *LiquidityForecastVariance) SetTimeZone(val string) {
+	s.TimeZone = val
+}
+
+// SetFrom sets the value of From.
+func (s *LiquidityForecastVariance) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *LiquidityForecastVariance) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetLag sets the value of Lag.
+func (s *LiquidityForecastVariance) SetLag(val int32) {
+	s.Lag = val
+}
+
+// SetGrain sets the value of Grain.
+func (s *LiquidityForecastVariance) SetGrain(val string) {
+	s.Grain = val
+}
+
+// SetSnapshot sets the value of Snapshot.
+func (s *LiquidityForecastVariance) SetSnapshot(val LiquidityForecastVarianceSnapshot) {
+	s.Snapshot = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *LiquidityForecastVariance) SetBuckets(val []LiquidityForecastBucket) {
+	s.Buckets = val
+}
+
+// SetBeyond sets the value of Beyond.
+func (s *LiquidityForecastVariance) SetBeyond(val OptLiquidityForecastVariancePeriod) {
+	s.Beyond = val
+}
+
+// SetCurrencies sets the value of Currencies.
+func (s *LiquidityForecastVariance) SetCurrencies(val []LiquidityForecastVarianceCurrency) {
+	s.Currencies = val
+}
+
+func (*LiquidityForecastVariance) getLiquidityForecastVarianceRes() {}
+
+// The variance by its cause (ADR-0051 §11); the five add up to the variance: `timing`, documents
+// forecast in one bucket and paid in another (a run moved, a discount not taken); `amount`, documents
+// paid in the bucket they were forecast in at another amount (a discount, a partial payment, a bank
+// charge); `new`, statement lines paying nothing the snapshot forecast (an invoice posted after it, an
+// unforecast receipt); `missing`, documents forecast and not paid (blocked later, a memo record not
+// realised); `unclassified`, statement lines with no decided match that pay nothing the snapshot
+// forecast.
+// Ref: #/components/schemas/LiquidityForecastVarianceAttribution
+type LiquidityForecastVarianceAttribution struct {
+	Timing       Money `json:"timing"`
+	Amount       Money `json:"amount"`
+	New          Money `json:"new"`
+	Missing      Money `json:"missing"`
+	Unclassified Money `json:"unclassified"`
+}
+
+// GetTiming returns the value of Timing.
+func (s *LiquidityForecastVarianceAttribution) GetTiming() Money {
+	return s.Timing
+}
+
+// GetAmount returns the value of Amount.
+func (s *LiquidityForecastVarianceAttribution) GetAmount() Money {
+	return s.Amount
+}
+
+// GetNew returns the value of New.
+func (s *LiquidityForecastVarianceAttribution) GetNew() Money {
+	return s.New
+}
+
+// GetMissing returns the value of Missing.
+func (s *LiquidityForecastVarianceAttribution) GetMissing() Money {
+	return s.Missing
+}
+
+// GetUnclassified returns the value of Unclassified.
+func (s *LiquidityForecastVarianceAttribution) GetUnclassified() Money {
+	return s.Unclassified
+}
+
+// SetTiming sets the value of Timing.
+func (s *LiquidityForecastVarianceAttribution) SetTiming(val Money) {
+	s.Timing = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *LiquidityForecastVarianceAttribution) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetNew sets the value of New.
+func (s *LiquidityForecastVarianceAttribution) SetNew(val Money) {
+	s.New = val
+}
+
+// SetMissing sets the value of Missing.
+func (s *LiquidityForecastVarianceAttribution) SetMissing(val Money) {
+	s.Missing = val
+}
+
+// SetUnclassified sets the value of Unclassified.
+func (s *LiquidityForecastVarianceAttribution) SetUnclassified(val Money) {
+	s.Unclassified = val
+}
+
+// A bucket's figures, or the buckets' together, with the variance attributed.
+// Ref: #/components/schemas/LiquidityForecastVarianceCell
+type LiquidityForecastVarianceCell struct {
+	Forecast Money `json:"forecast"`
+	Actual   Money `json:"actual"`
+	Variance Money `json:"variance"`
+	// The variance's size in percent of the forecast's size (absolute), two decimals, rounded half away
+	// from zero; absent when the forecast is zero.
+	VariancePercent OptDecimal                           `json:"variance_percent"`
+	Attribution     LiquidityForecastVarianceAttribution `json:"attribution"`
+}
+
+// GetForecast returns the value of Forecast.
+func (s *LiquidityForecastVarianceCell) GetForecast() Money {
+	return s.Forecast
+}
+
+// GetActual returns the value of Actual.
+func (s *LiquidityForecastVarianceCell) GetActual() Money {
+	return s.Actual
+}
+
+// GetVariance returns the value of Variance.
+func (s *LiquidityForecastVarianceCell) GetVariance() Money {
+	return s.Variance
+}
+
+// GetVariancePercent returns the value of VariancePercent.
+func (s *LiquidityForecastVarianceCell) GetVariancePercent() OptDecimal {
+	return s.VariancePercent
+}
+
+// GetAttribution returns the value of Attribution.
+func (s *LiquidityForecastVarianceCell) GetAttribution() LiquidityForecastVarianceAttribution {
+	return s.Attribution
+}
+
+// SetForecast sets the value of Forecast.
+func (s *LiquidityForecastVarianceCell) SetForecast(val Money) {
+	s.Forecast = val
+}
+
+// SetActual sets the value of Actual.
+func (s *LiquidityForecastVarianceCell) SetActual(val Money) {
+	s.Actual = val
+}
+
+// SetVariance sets the value of Variance.
+func (s *LiquidityForecastVarianceCell) SetVariance(val Money) {
+	s.Variance = val
+}
+
+// SetVariancePercent sets the value of VariancePercent.
+func (s *LiquidityForecastVarianceCell) SetVariancePercent(val OptDecimal) {
+	s.VariancePercent = val
+}
+
+// SetAttribution sets the value of Attribution.
+func (s *LiquidityForecastVarianceCell) SetAttribution(val LiquidityForecastVarianceAttribution) {
+	s.Attribution = val
+}
+
+// The variance of one currency: per bucket, in the buckets' order, over them, beyond them, and by
+// liquidity item and its hierarchy.
+// Ref: #/components/schemas/LiquidityForecastVarianceCurrency
+type LiquidityForecastVarianceCurrency struct {
+	// The currency (ISO 4217).
+	Currency string `json:"currency"`
+	// One per bucket, in the same order.
+	Buckets []LiquidityForecastVarianceCell     `json:"buckets"`
+	Total   LiquidityForecastVarianceCell       `json:"total"`
+	Beyond  OptLiquidityForecastVarianceFigures `json:"beyond"`
+	// The rows by liquidity item, depth first: each item followed by its children, siblings by code, an
+	// item listed when it or a descendant has a forecast or actual share; the row of what no rule assigns
+	// and no default covers (without `liquidity_item`) last. The top rows (`level` 0) add up to the
+	// currency's figures. A snapshot's items are those of the configuration it was taken with
+	// (`config_version`); the hierarchy and names are today's, an item no longer configured a top row
+	// without a name.
+	Items []LiquidityForecastVarianceItem `json:"items"`
+}
+
+// GetCurrency returns the value of Currency.
+func (s *LiquidityForecastVarianceCurrency) GetCurrency() string {
+	return s.Currency
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *LiquidityForecastVarianceCurrency) GetBuckets() []LiquidityForecastVarianceCell {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *LiquidityForecastVarianceCurrency) GetTotal() LiquidityForecastVarianceCell {
+	return s.Total
+}
+
+// GetBeyond returns the value of Beyond.
+func (s *LiquidityForecastVarianceCurrency) GetBeyond() OptLiquidityForecastVarianceFigures {
+	return s.Beyond
+}
+
+// GetItems returns the value of Items.
+func (s *LiquidityForecastVarianceCurrency) GetItems() []LiquidityForecastVarianceItem {
+	return s.Items
+}
+
+// SetCurrency sets the value of Currency.
+func (s *LiquidityForecastVarianceCurrency) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *LiquidityForecastVarianceCurrency) SetBuckets(val []LiquidityForecastVarianceCell) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *LiquidityForecastVarianceCurrency) SetTotal(val LiquidityForecastVarianceCell) {
+	s.Total = val
+}
+
+// SetBeyond sets the value of Beyond.
+func (s *LiquidityForecastVarianceCurrency) SetBeyond(val OptLiquidityForecastVarianceFigures) {
+	s.Beyond = val
+}
+
+// SetItems sets the value of Items.
+func (s *LiquidityForecastVarianceCurrency) SetItems(val []LiquidityForecastVarianceItem) {
+	s.Items = val
+}
+
+// What was forecast and what was actual over some days, and the variance (the actual less the
+// forecast); present beyond the document level only when the variance has `beyond`.
+// Ref: #/components/schemas/LiquidityForecastVarianceFigures
+type LiquidityForecastVarianceFigures struct {
+	Forecast Money `json:"forecast"`
+	Actual   Money `json:"actual"`
+	Variance Money `json:"variance"`
+	// The variance's size in percent of the forecast's size (absolute), two decimals, rounded half away
+	// from zero; absent when the forecast is zero.
+	VariancePercent OptDecimal `json:"variance_percent"`
+}
+
+// GetForecast returns the value of Forecast.
+func (s *LiquidityForecastVarianceFigures) GetForecast() Money {
+	return s.Forecast
+}
+
+// GetActual returns the value of Actual.
+func (s *LiquidityForecastVarianceFigures) GetActual() Money {
+	return s.Actual
+}
+
+// GetVariance returns the value of Variance.
+func (s *LiquidityForecastVarianceFigures) GetVariance() Money {
+	return s.Variance
+}
+
+// GetVariancePercent returns the value of VariancePercent.
+func (s *LiquidityForecastVarianceFigures) GetVariancePercent() OptDecimal {
+	return s.VariancePercent
+}
+
+// SetForecast sets the value of Forecast.
+func (s *LiquidityForecastVarianceFigures) SetForecast(val Money) {
+	s.Forecast = val
+}
+
+// SetActual sets the value of Actual.
+func (s *LiquidityForecastVarianceFigures) SetActual(val Money) {
+	s.Actual = val
+}
+
+// SetVariance sets the value of Variance.
+func (s *LiquidityForecastVarianceFigures) SetVariance(val Money) {
+	s.Variance = val
+}
+
+// SetVariancePercent sets the value of VariancePercent.
+func (s *LiquidityForecastVarianceFigures) SetVariancePercent(val OptDecimal) {
+	s.VariancePercent = val
+}
+
+// A row of a currency's variance by liquidity item: the item's and its descendants' figures per
+// bucket, over the buckets and beyond them.
+// Ref: #/components/schemas/LiquidityForecastVarianceItem
+type LiquidityForecastVarianceItem struct {
+	// The liquidity item's code (`cash.liquidity_items`); absent on the row of the shares no derivation
+	// rule assigns and no default covers.
+	LiquidityItem OptString `json:"liquidity_item"`
+	// The liquidity item's name; absent without `liquidity_item`, or for an item no longer configured.
+	Name OptString `json:"name"`
+	// The code of the item's parent in the hierarchy; absent for a top item.
+	Parent OptString `json:"parent"`
+	// The item's depth in the hierarchy: 0 for a top item (and the row without `liquidity_item`), its
+	// parent's plus one below.
+	Level int32 `json:"level"`
+	// One per bucket, in the buckets' order.
+	Buckets []LiquidityForecastVarianceCell     `json:"buckets"`
+	Total   LiquidityForecastVarianceCell       `json:"total"`
+	Beyond  OptLiquidityForecastVarianceFigures `json:"beyond"`
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *LiquidityForecastVarianceItem) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetName returns the value of Name.
+func (s *LiquidityForecastVarianceItem) GetName() OptString {
+	return s.Name
+}
+
+// GetParent returns the value of Parent.
+func (s *LiquidityForecastVarianceItem) GetParent() OptString {
+	return s.Parent
+}
+
+// GetLevel returns the value of Level.
+func (s *LiquidityForecastVarianceItem) GetLevel() int32 {
+	return s.Level
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *LiquidityForecastVarianceItem) GetBuckets() []LiquidityForecastVarianceCell {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *LiquidityForecastVarianceItem) GetTotal() LiquidityForecastVarianceCell {
+	return s.Total
+}
+
+// GetBeyond returns the value of Beyond.
+func (s *LiquidityForecastVarianceItem) GetBeyond() OptLiquidityForecastVarianceFigures {
+	return s.Beyond
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *LiquidityForecastVarianceItem) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetName sets the value of Name.
+func (s *LiquidityForecastVarianceItem) SetName(val OptString) {
+	s.Name = val
+}
+
+// SetParent sets the value of Parent.
+func (s *LiquidityForecastVarianceItem) SetParent(val OptString) {
+	s.Parent = val
+}
+
+// SetLevel sets the value of Level.
+func (s *LiquidityForecastVarianceItem) SetLevel(val int32) {
+	s.Level = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *LiquidityForecastVarianceItem) SetBuckets(val []LiquidityForecastVarianceCell) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *LiquidityForecastVarianceItem) SetTotal(val LiquidityForecastVarianceCell) {
+	s.Total = val
+}
+
+// SetBeyond sets the value of Beyond.
+func (s *LiquidityForecastVarianceItem) SetBeyond(val OptLiquidityForecastVarianceFigures) {
+	s.Beyond = val
+}
+
+// The days after the snapshot's document level compared per liquidity item only, without attribution;
+// absent when the period has none that can be compared.
+// Ref: #/components/schemas/LiquidityForecastVariancePeriod
+type LiquidityForecastVariancePeriod struct {
+	// The first day: the day after `document_level_until`.
+	From time.Time `json:"from"`
+	// The last day: `to`, or the day before a snapshot bucket that ends after it.
+	To time.Time `json:"to"`
+}
+
+// GetFrom returns the value of From.
+func (s *LiquidityForecastVariancePeriod) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *LiquidityForecastVariancePeriod) GetTo() time.Time {
+	return s.To
+}
+
+// SetFrom sets the value of From.
+func (s *LiquidityForecastVariancePeriod) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *LiquidityForecastVariancePeriod) SetTo(val time.Time) {
+	s.To = val
+}
+
+// The snapshot a variance compares against (`getCashSnapshot`).
+// Ref: #/components/schemas/LiquidityForecastVarianceSnapshot
+type LiquidityForecastVarianceSnapshot struct {
+	// The snapshot.
+	ID uuid.UUID `json:"id"`
+	// `daily` or `on_demand`. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Kind string `json:"kind"`
+	// The name an on-demand snapshot was taken under; absent for a daily one.
+	Name OptString `json:"name"`
+	// The company's date it was taken on, `lag` days before `from`.
+	SnapshotDate time.Time `json:"snapshot_date"`
+	// When it was taken.
+	TakenAt time.Time `json:"taken_at"`
+	// The last day it forecast.
+	HorizonEnd time.Time `json:"horizon_end"`
+	// The last day it kept per document: the variance is attributed up to it.
+	DocumentLevelUntil time.Time `json:"document_level_until"`
+	// The configuration version whose derivation classified its flows.
+	ConfigVersion int32 `json:"config_version"`
+}
+
+// GetID returns the value of ID.
+func (s *LiquidityForecastVarianceSnapshot) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetKind returns the value of Kind.
+func (s *LiquidityForecastVarianceSnapshot) GetKind() string {
+	return s.Kind
+}
+
+// GetName returns the value of Name.
+func (s *LiquidityForecastVarianceSnapshot) GetName() OptString {
+	return s.Name
+}
+
+// GetSnapshotDate returns the value of SnapshotDate.
+func (s *LiquidityForecastVarianceSnapshot) GetSnapshotDate() time.Time {
+	return s.SnapshotDate
+}
+
+// GetTakenAt returns the value of TakenAt.
+func (s *LiquidityForecastVarianceSnapshot) GetTakenAt() time.Time {
+	return s.TakenAt
+}
+
+// GetHorizonEnd returns the value of HorizonEnd.
+func (s *LiquidityForecastVarianceSnapshot) GetHorizonEnd() time.Time {
+	return s.HorizonEnd
+}
+
+// GetDocumentLevelUntil returns the value of DocumentLevelUntil.
+func (s *LiquidityForecastVarianceSnapshot) GetDocumentLevelUntil() time.Time {
+	return s.DocumentLevelUntil
+}
+
+// GetConfigVersion returns the value of ConfigVersion.
+func (s *LiquidityForecastVarianceSnapshot) GetConfigVersion() int32 {
+	return s.ConfigVersion
+}
+
+// SetID sets the value of ID.
+func (s *LiquidityForecastVarianceSnapshot) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetKind sets the value of Kind.
+func (s *LiquidityForecastVarianceSnapshot) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetName sets the value of Name.
+func (s *LiquidityForecastVarianceSnapshot) SetName(val OptString) {
+	s.Name = val
+}
+
+// SetSnapshotDate sets the value of SnapshotDate.
+func (s *LiquidityForecastVarianceSnapshot) SetSnapshotDate(val time.Time) {
+	s.SnapshotDate = val
+}
+
+// SetTakenAt sets the value of TakenAt.
+func (s *LiquidityForecastVarianceSnapshot) SetTakenAt(val time.Time) {
+	s.TakenAt = val
+}
+
+// SetHorizonEnd sets the value of HorizonEnd.
+func (s *LiquidityForecastVarianceSnapshot) SetHorizonEnd(val time.Time) {
+	s.HorizonEnd = val
+}
+
+// SetDocumentLevelUntil sets the value of DocumentLevelUntil.
+func (s *LiquidityForecastVarianceSnapshot) SetDocumentLevelUntil(val time.Time) {
+	s.DocumentLevelUntil = val
+}
+
+// SetConfigVersion sets the value of ConfigVersion.
+func (s *LiquidityForecastVarianceSnapshot) SetConfigVersion(val int32) {
+	s.ConfigVersion = val
+}
+
 type ListAccountsBadRequest Problem
 
 func (*ListAccountsBadRequest) listAccountsRes() {}
@@ -29161,6 +31487,22 @@ type ListBusinessPartnersForbidden Problem
 
 func (*ListBusinessPartnersForbidden) listBusinessPartnersRes() {}
 
+type ListCashActualLinesBadRequest Problem
+
+func (*ListCashActualLinesBadRequest) listCashActualLinesRes() {}
+
+type ListCashActualLinesForbidden Problem
+
+func (*ListCashActualLinesForbidden) listCashActualLinesRes() {}
+
+type ListCashActualLinesNotFound Problem
+
+func (*ListCashActualLinesNotFound) listCashActualLinesRes() {}
+
+type ListCashActualLinesUnprocessableEntity Problem
+
+func (*ListCashActualLinesUnprocessableEntity) listCashActualLinesRes() {}
+
 type ListCashSnapshotFlowsBadRequest Problem
 
 func (*ListCashSnapshotFlowsBadRequest) listCashSnapshotFlowsRes() {}
@@ -29292,6 +31634,14 @@ func (*ListCountryPacksBadRequest) listCountryPacksRes() {}
 type ListCountryPacksForbidden Problem
 
 func (*ListCountryPacksForbidden) listCountryPacksRes() {}
+
+type ListDepreciationRunsBadRequest Problem
+
+func (*ListDepreciationRunsBadRequest) listDepreciationRunsRes() {}
+
+type ListDepreciationRunsForbidden Problem
+
+func (*ListDepreciationRunsForbidden) listDepreciationRunsRes() {}
 
 type ListDownPaymentRequestsBadRequest Problem
 
@@ -29540,6 +31890,22 @@ func (*ListPaymentsForbidden) listPaymentsRes() {}
 type ListPaymentsNotFound Problem
 
 func (*ListPaymentsNotFound) listPaymentsRes() {}
+
+type ListPeriodCloseVariancesBadRequest Problem
+
+func (*ListPeriodCloseVariancesBadRequest) listPeriodCloseVariancesRes() {}
+
+type ListPeriodCloseVariancesForbidden Problem
+
+func (*ListPeriodCloseVariancesForbidden) listPeriodCloseVariancesRes() {}
+
+type ListPeriodCloseVariancesNotFound Problem
+
+func (*ListPeriodCloseVariancesNotFound) listPeriodCloseVariancesRes() {}
+
+type ListPeriodCloseVariancesUnprocessableEntity Problem
+
+func (*ListPeriodCloseVariancesUnprocessableEntity) listPeriodCloseVariancesRes() {}
 
 type ListPeriodClosesBadRequest Problem
 
@@ -33760,6 +36126,7 @@ func (*OperationHeaders) proposePaymentRunRes()      {}
 func (*OperationHeaders) reconcileMigrationRunRes()  {}
 func (*OperationHeaders) releasePaymentRunRes()      {}
 func (*OperationHeaders) simulateChangeRequestRes()  {}
+func (*OperationHeaders) startDepreciationRunRes()   {}
 func (*OperationHeaders) startMigrationRunRes()      {}
 func (*OperationHeaders) transmitBankFileRes()       {}
 func (*OperationHeaders) verifyAuditChainRes()       {}
@@ -34447,6 +36814,52 @@ func (o OptCalculatedTax) Or(d CalculatedTax) CalculatedTax {
 	return d
 }
 
+// NewOptCashActualStatementLine returns new OptCashActualStatementLine with value set to v.
+func NewOptCashActualStatementLine(v CashActualStatementLine) OptCashActualStatementLine {
+	return OptCashActualStatementLine{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptCashActualStatementLine is optional CashActualStatementLine.
+type OptCashActualStatementLine struct {
+	Value CashActualStatementLine
+	Set   bool
+}
+
+// IsSet returns true if OptCashActualStatementLine was set.
+func (o OptCashActualStatementLine) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptCashActualStatementLine) Reset() {
+	var v CashActualStatementLine
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptCashActualStatementLine) SetTo(v CashActualStatementLine) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptCashActualStatementLine) Get() (v CashActualStatementLine, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptCashActualStatementLine) Or(d CashActualStatementLine) CashActualStatementLine {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptCashPositionBookBalance returns new OptCashPositionBookBalance with value set to v.
 func NewOptCashPositionBookBalance(v CashPositionBookBalance) OptCashPositionBookBalance {
 	return OptCashPositionBookBalance{
@@ -34993,6 +37406,52 @@ func (o OptDecisionInput) Get() (v DecisionInput, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptDecisionInput) Or(d DecisionInput) DecisionInput {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptDepreciationRunError returns new OptDepreciationRunError with value set to v.
+func NewOptDepreciationRunError(v DepreciationRunError) OptDepreciationRunError {
+	return OptDepreciationRunError{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptDepreciationRunError is optional DepreciationRunError.
+type OptDepreciationRunError struct {
+	Value DepreciationRunError
+	Set   bool
+}
+
+// IsSet returns true if OptDepreciationRunError was set.
+func (o OptDepreciationRunError) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptDepreciationRunError) Reset() {
+	var v DepreciationRunError
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptDepreciationRunError) SetTo(v DepreciationRunError) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptDepreciationRunError) Get() (v DepreciationRunError, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptDepreciationRunError) Or(d DepreciationRunError) DepreciationRunError {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -35637,6 +38096,98 @@ func (o OptLiquidityForecastConverted) Get() (v LiquidityForecastConverted, ok b
 
 // Or returns value if set, or given parameter if does not.
 func (o OptLiquidityForecastConverted) Or(d LiquidityForecastConverted) LiquidityForecastConverted {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptLiquidityForecastVarianceFigures returns new OptLiquidityForecastVarianceFigures with value set to v.
+func NewOptLiquidityForecastVarianceFigures(v LiquidityForecastVarianceFigures) OptLiquidityForecastVarianceFigures {
+	return OptLiquidityForecastVarianceFigures{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptLiquidityForecastVarianceFigures is optional LiquidityForecastVarianceFigures.
+type OptLiquidityForecastVarianceFigures struct {
+	Value LiquidityForecastVarianceFigures
+	Set   bool
+}
+
+// IsSet returns true if OptLiquidityForecastVarianceFigures was set.
+func (o OptLiquidityForecastVarianceFigures) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptLiquidityForecastVarianceFigures) Reset() {
+	var v LiquidityForecastVarianceFigures
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptLiquidityForecastVarianceFigures) SetTo(v LiquidityForecastVarianceFigures) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptLiquidityForecastVarianceFigures) Get() (v LiquidityForecastVarianceFigures, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptLiquidityForecastVarianceFigures) Or(d LiquidityForecastVarianceFigures) LiquidityForecastVarianceFigures {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptLiquidityForecastVariancePeriod returns new OptLiquidityForecastVariancePeriod with value set to v.
+func NewOptLiquidityForecastVariancePeriod(v LiquidityForecastVariancePeriod) OptLiquidityForecastVariancePeriod {
+	return OptLiquidityForecastVariancePeriod{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptLiquidityForecastVariancePeriod is optional LiquidityForecastVariancePeriod.
+type OptLiquidityForecastVariancePeriod struct {
+	Value LiquidityForecastVariancePeriod
+	Set   bool
+}
+
+// IsSet returns true if OptLiquidityForecastVariancePeriod was set.
+func (o OptLiquidityForecastVariancePeriod) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptLiquidityForecastVariancePeriod) Reset() {
+	var v LiquidityForecastVariancePeriod
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptLiquidityForecastVariancePeriod) SetTo(v LiquidityForecastVariancePeriod) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptLiquidityForecastVariancePeriod) Get() (v LiquidityForecastVariancePeriod, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptLiquidityForecastVariancePeriod) Or(d LiquidityForecastVariancePeriod) LiquidityForecastVariancePeriod {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -36711,6 +39262,52 @@ func (o OptPaymentRunReleaseApproval) Get() (v PaymentRunReleaseApproval, ok boo
 
 // Or returns value if set, or given parameter if does not.
 func (o OptPaymentRunReleaseApproval) Or(d PaymentRunReleaseApproval) PaymentRunReleaseApproval {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptPeriodCloseSignOffInput returns new OptPeriodCloseSignOffInput with value set to v.
+func NewOptPeriodCloseSignOffInput(v PeriodCloseSignOffInput) OptPeriodCloseSignOffInput {
+	return OptPeriodCloseSignOffInput{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptPeriodCloseSignOffInput is optional PeriodCloseSignOffInput.
+type OptPeriodCloseSignOffInput struct {
+	Value PeriodCloseSignOffInput
+	Set   bool
+}
+
+// IsSet returns true if OptPeriodCloseSignOffInput was set.
+func (o OptPeriodCloseSignOffInput) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptPeriodCloseSignOffInput) Reset() {
+	var v PeriodCloseSignOffInput
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptPeriodCloseSignOffInput) SetTo(v PeriodCloseSignOffInput) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptPeriodCloseSignOffInput) Get() (v PeriodCloseSignOffInput, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptPeriodCloseSignOffInput) Or(d PeriodCloseSignOffInput) PeriodCloseSignOffInput {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -40036,9 +42633,16 @@ type PeriodClose struct {
 	PeriodEnd time.Time `json:"period_end"`
 	// The configuration version whose close template the checklist was copied from.
 	ConfigVersion int32 `json:"config_version"`
-	// `open` until it is signed off. Open enumeration: clients must accept and preserve values not listed
-	// here; values may be added within /v1.
+	// `open` until it is signed off, and again after a covered period was unlocked and the close written
+	// to (ADR-0058 §7). Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
 	Status string `json:"status"`
+	// When it was signed off (`:signOff`, T64d); absent while it is open.
+	SignedOffAt OptDateTime `json:"signed_off_at"`
+	// Who signed it off; absent while it is open.
+	SignedOffBy OptUUID `json:"signed_off_by"`
+	// Their name; absent while it is open.
+	SignedOffByName OptString `json:"signed_off_by_name"`
 	// The company's date at the read in its time zone, on which `overdue` is judged.
 	ReadDate time.Time `json:"read_date"`
 	// The IANA time zone `read_date` is the company's date in (UTC when its company sets none).
@@ -40055,6 +42659,9 @@ type PeriodClose struct {
 	Ledgers []CloseLedger `json:"ledgers"`
 	// Its tasks, in the template's order.
 	Tasks []CloseTask `json:"tasks"`
+	// Its sign-offs, oldest first (T64d): one per `:signOff`, a second after a covered period was unlocked
+	// and the close signed off again; empty until it is signed off.
+	SignOffs []PeriodCloseSignOff `json:"sign_offs"`
 	// Optimistic-lock version, the ETag; moved by every change to the close or its tasks.
 	Version int32 `json:"version"`
 	// Creation time.
@@ -40112,6 +42719,21 @@ func (s *PeriodClose) GetStatus() string {
 	return s.Status
 }
 
+// GetSignedOffAt returns the value of SignedOffAt.
+func (s *PeriodClose) GetSignedOffAt() OptDateTime {
+	return s.SignedOffAt
+}
+
+// GetSignedOffBy returns the value of SignedOffBy.
+func (s *PeriodClose) GetSignedOffBy() OptUUID {
+	return s.SignedOffBy
+}
+
+// GetSignedOffByName returns the value of SignedOffByName.
+func (s *PeriodClose) GetSignedOffByName() OptString {
+	return s.SignedOffByName
+}
+
 // GetReadDate returns the value of ReadDate.
 func (s *PeriodClose) GetReadDate() time.Time {
 	return s.ReadDate
@@ -40150,6 +42772,11 @@ func (s *PeriodClose) GetLedgers() []CloseLedger {
 // GetTasks returns the value of Tasks.
 func (s *PeriodClose) GetTasks() []CloseTask {
 	return s.Tasks
+}
+
+// GetSignOffs returns the value of SignOffs.
+func (s *PeriodClose) GetSignOffs() []PeriodCloseSignOff {
+	return s.SignOffs
 }
 
 // GetVersion returns the value of Version.
@@ -40222,6 +42849,21 @@ func (s *PeriodClose) SetStatus(val string) {
 	s.Status = val
 }
 
+// SetSignedOffAt sets the value of SignedOffAt.
+func (s *PeriodClose) SetSignedOffAt(val OptDateTime) {
+	s.SignedOffAt = val
+}
+
+// SetSignedOffBy sets the value of SignedOffBy.
+func (s *PeriodClose) SetSignedOffBy(val OptUUID) {
+	s.SignedOffBy = val
+}
+
+// SetSignedOffByName sets the value of SignedOffByName.
+func (s *PeriodClose) SetSignedOffByName(val OptString) {
+	s.SignedOffByName = val
+}
+
 // SetReadDate sets the value of ReadDate.
 func (s *PeriodClose) SetReadDate(val time.Time) {
 	s.ReadDate = val
@@ -40260,6 +42902,11 @@ func (s *PeriodClose) SetLedgers(val []CloseLedger) {
 // SetTasks sets the value of Tasks.
 func (s *PeriodClose) SetTasks(val []CloseTask) {
 	s.Tasks = val
+}
+
+// SetSignOffs sets the value of SignOffs.
+func (s *PeriodClose) SetSignOffs(val []PeriodCloseSignOff) {
+	s.SignOffs = val
 }
 
 // SetVersion sets the value of Version.
@@ -40413,6 +43060,12 @@ type PeriodCloseItem struct {
 	// Period close status. Open enumeration: clients must accept and preserve values not listed here;
 	// values may be added within /v1.
 	Status string `json:"status"`
+	// When it was signed off (`:signOff`, T64d); absent while it is open.
+	SignedOffAt OptDateTime `json:"signed_off_at"`
+	// Who signed it off; absent while it is open.
+	SignedOffBy OptUUID `json:"signed_off_by"`
+	// Their name; absent while it is open.
+	SignedOffByName OptString `json:"signed_off_by_name"`
 	// The company's date at the read in its time zone, on which overdue tasks are judged.
 	ReadDate time.Time `json:"read_date"`
 	// The IANA time zone `read_date` is the company's date in.
@@ -40480,6 +43133,21 @@ func (s *PeriodCloseItem) GetConfigVersion() int32 {
 // GetStatus returns the value of Status.
 func (s *PeriodCloseItem) GetStatus() string {
 	return s.Status
+}
+
+// GetSignedOffAt returns the value of SignedOffAt.
+func (s *PeriodCloseItem) GetSignedOffAt() OptDateTime {
+	return s.SignedOffAt
+}
+
+// GetSignedOffBy returns the value of SignedOffBy.
+func (s *PeriodCloseItem) GetSignedOffBy() OptUUID {
+	return s.SignedOffBy
+}
+
+// GetSignedOffByName returns the value of SignedOffByName.
+func (s *PeriodCloseItem) GetSignedOffByName() OptString {
+	return s.SignedOffByName
 }
 
 // GetReadDate returns the value of ReadDate.
@@ -40582,6 +43250,21 @@ func (s *PeriodCloseItem) SetStatus(val string) {
 	s.Status = val
 }
 
+// SetSignedOffAt sets the value of SignedOffAt.
+func (s *PeriodCloseItem) SetSignedOffAt(val OptDateTime) {
+	s.SignedOffAt = val
+}
+
+// SetSignedOffBy sets the value of SignedOffBy.
+func (s *PeriodCloseItem) SetSignedOffBy(val OptUUID) {
+	s.SignedOffBy = val
+}
+
+// SetSignedOffByName sets the value of SignedOffByName.
+func (s *PeriodCloseItem) SetSignedOffByName(val OptString) {
+	s.SignedOffByName = val
+}
+
 // SetReadDate sets the value of ReadDate.
 func (s *PeriodCloseItem) SetReadDate(val time.Time) {
 	s.ReadDate = val
@@ -40667,6 +43350,738 @@ func (s *PeriodClosePage) SetNextPageToken(val OptString) {
 }
 
 func (*PeriodClosePage) listPeriodClosesRes() {}
+
+// A sign-off of a period close (ADR-0058 §7, T64d): who signed it off, when, and per covered ledger
+// its period and whether this sign-off locked it. Recorded once, never changed; a close signed off
+// again after an unlock has a second.
+// Ref: #/components/schemas/PeriodCloseSignOff
+type PeriodCloseSignOff struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The period close (`GET /v1/period-closes/{id}`).
+	CloseID uuid.UUID `json:"close_id"`
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// Fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// Regular period.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The person who signed it off.
+	SignedBy uuid.UUID `json:"signed_by"`
+	// Their name.
+	SignedByName string `json:"signed_by_name"`
+	// When.
+	SignedAt time.Time `json:"signed_at"`
+	// The note given with it; absent without one.
+	Note OptString `json:"note"`
+	// The covered ledgers, the leading one first, then by code: the order their periods were locked in.
+	Ledgers []PeriodCloseSignOffLedger `json:"ledgers"`
+}
+
+// GetID returns the value of ID.
+func (s *PeriodCloseSignOff) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCloseID returns the value of CloseID.
+func (s *PeriodCloseSignOff) GetCloseID() uuid.UUID {
+	return s.CloseID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *PeriodCloseSignOff) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *PeriodCloseSignOff) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *PeriodCloseSignOff) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *PeriodCloseSignOff) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *PeriodCloseSignOff) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetSignedBy returns the value of SignedBy.
+func (s *PeriodCloseSignOff) GetSignedBy() uuid.UUID {
+	return s.SignedBy
+}
+
+// GetSignedByName returns the value of SignedByName.
+func (s *PeriodCloseSignOff) GetSignedByName() string {
+	return s.SignedByName
+}
+
+// GetSignedAt returns the value of SignedAt.
+func (s *PeriodCloseSignOff) GetSignedAt() time.Time {
+	return s.SignedAt
+}
+
+// GetNote returns the value of Note.
+func (s *PeriodCloseSignOff) GetNote() OptString {
+	return s.Note
+}
+
+// GetLedgers returns the value of Ledgers.
+func (s *PeriodCloseSignOff) GetLedgers() []PeriodCloseSignOffLedger {
+	return s.Ledgers
+}
+
+// SetID sets the value of ID.
+func (s *PeriodCloseSignOff) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCloseID sets the value of CloseID.
+func (s *PeriodCloseSignOff) SetCloseID(val uuid.UUID) {
+	s.CloseID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *PeriodCloseSignOff) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *PeriodCloseSignOff) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *PeriodCloseSignOff) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *PeriodCloseSignOff) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *PeriodCloseSignOff) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetSignedBy sets the value of SignedBy.
+func (s *PeriodCloseSignOff) SetSignedBy(val uuid.UUID) {
+	s.SignedBy = val
+}
+
+// SetSignedByName sets the value of SignedByName.
+func (s *PeriodCloseSignOff) SetSignedByName(val string) {
+	s.SignedByName = val
+}
+
+// SetSignedAt sets the value of SignedAt.
+func (s *PeriodCloseSignOff) SetSignedAt(val time.Time) {
+	s.SignedAt = val
+}
+
+// SetNote sets the value of Note.
+func (s *PeriodCloseSignOff) SetNote(val OptString) {
+	s.Note = val
+}
+
+// SetLedgers sets the value of Ledgers.
+func (s *PeriodCloseSignOff) SetLedgers(val []PeriodCloseSignOffLedger) {
+	s.Ledgers = val
+}
+
+// PeriodCloseSignOffHeaders wraps PeriodCloseSignOff with response headers.
+type PeriodCloseSignOffHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           PeriodCloseSignOff
+}
+
+// GetETag returns the value of ETag.
+func (s *PeriodCloseSignOffHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PeriodCloseSignOffHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *PeriodCloseSignOffHeaders) GetResponse() PeriodCloseSignOff {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *PeriodCloseSignOffHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PeriodCloseSignOffHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PeriodCloseSignOffHeaders) SetResponse(val PeriodCloseSignOff) {
+	s.Response = val
+}
+
+func (*PeriodCloseSignOffHeaders) signOffPeriodCloseRes() {}
+
+// A period close's sign-off.
+// Ref: #/components/schemas/PeriodCloseSignOffInput
+type PeriodCloseSignOffInput struct {
+	// What the signer wants kept with the sign-off; kept on it and in the audit trail.
+	Note OptString `json:"note"`
+}
+
+// GetNote returns the value of Note.
+func (s *PeriodCloseSignOffInput) GetNote() OptString {
+	return s.Note
+}
+
+// SetNote sets the value of Note.
+func (s *PeriodCloseSignOffInput) SetNote(val OptString) {
+	s.Note = val
+}
+
+// A covered ledger as a sign-off found it: its period, and whether this sign-off locked it.
+// Ref: #/components/schemas/PeriodCloseSignOffLedger
+type PeriodCloseSignOffLedger struct {
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code, as it was at the sign-off.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name, as it was at the sign-off.
+	LedgerName string `json:"ledger_name"`
+	// Whether it is the leading ledger.
+	IsLeading bool `json:"is_leading"`
+	// The ledger's posting period of the close (`GET /v1/fiscal-periods/{id}`).
+	FiscalPeriodID uuid.UUID `json:"fiscal_period_id"`
+	// Whether this sign-off locked the period: false when it was locked already.
+	Locked bool `json:"locked"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *PeriodCloseSignOffLedger) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *PeriodCloseSignOffLedger) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *PeriodCloseSignOffLedger) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetIsLeading returns the value of IsLeading.
+func (s *PeriodCloseSignOffLedger) GetIsLeading() bool {
+	return s.IsLeading
+}
+
+// GetFiscalPeriodID returns the value of FiscalPeriodID.
+func (s *PeriodCloseSignOffLedger) GetFiscalPeriodID() uuid.UUID {
+	return s.FiscalPeriodID
+}
+
+// GetLocked returns the value of Locked.
+func (s *PeriodCloseSignOffLedger) GetLocked() bool {
+	return s.Locked
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *PeriodCloseSignOffLedger) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *PeriodCloseSignOffLedger) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *PeriodCloseSignOffLedger) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetIsLeading sets the value of IsLeading.
+func (s *PeriodCloseSignOffLedger) SetIsLeading(val bool) {
+	s.IsLeading = val
+}
+
+// SetFiscalPeriodID sets the value of FiscalPeriodID.
+func (s *PeriodCloseSignOffLedger) SetFiscalPeriodID(val uuid.UUID) {
+	s.FiscalPeriodID = val
+}
+
+// SetLocked sets the value of Locked.
+func (s *PeriodCloseSignOffLedger) SetLocked(val bool) {
+	s.Locked = val
+}
+
+// A row of a variance report: a profit and loss account's actual of the period, its comparison and
+// their variance, in the legal entity's local currency, debit positive.
+// Ref: #/components/schemas/PeriodCloseVariance
+type PeriodCloseVariance struct {
+	// The account.
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name.
+	AccountName string `json:"account_name"`
+	// The account's net movement in the close's period in the leading ledger.
+	Actual Money `json:"actual"`
+	// What the basis compares it against: a prior period's net movement, or the plan.
+	Comparison Money `json:"comparison"`
+	// The actual less the comparison.
+	Variance Money `json:"variance"`
+	// The variance in percent of the comparison's absolute value, two places, rounded half away from zero;
+	// absent when the comparison is zero.
+	VariancePercent OptDecimal `json:"variance_percent"`
+	// Whether the variance reaches the company's thresholds, so that it needs a comment before the close
+	// is signed off.
+	RequiresComment bool `json:"requires_comment"`
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *PeriodCloseVariance) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *PeriodCloseVariance) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *PeriodCloseVariance) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetActual returns the value of Actual.
+func (s *PeriodCloseVariance) GetActual() Money {
+	return s.Actual
+}
+
+// GetComparison returns the value of Comparison.
+func (s *PeriodCloseVariance) GetComparison() Money {
+	return s.Comparison
+}
+
+// GetVariance returns the value of Variance.
+func (s *PeriodCloseVariance) GetVariance() Money {
+	return s.Variance
+}
+
+// GetVariancePercent returns the value of VariancePercent.
+func (s *PeriodCloseVariance) GetVariancePercent() OptDecimal {
+	return s.VariancePercent
+}
+
+// GetRequiresComment returns the value of RequiresComment.
+func (s *PeriodCloseVariance) GetRequiresComment() bool {
+	return s.RequiresComment
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *PeriodCloseVariance) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *PeriodCloseVariance) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *PeriodCloseVariance) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetActual sets the value of Actual.
+func (s *PeriodCloseVariance) SetActual(val Money) {
+	s.Actual = val
+}
+
+// SetComparison sets the value of Comparison.
+func (s *PeriodCloseVariance) SetComparison(val Money) {
+	s.Comparison = val
+}
+
+// SetVariance sets the value of Variance.
+func (s *PeriodCloseVariance) SetVariance(val Money) {
+	s.Variance = val
+}
+
+// SetVariancePercent sets the value of VariancePercent.
+func (s *PeriodCloseVariance) SetVariancePercent(val OptDecimal) {
+	s.VariancePercent = val
+}
+
+// SetRequiresComment sets the value of RequiresComment.
+func (s *PeriodCloseVariance) SetRequiresComment(val bool) {
+	s.RequiresComment = val
+}
+
+// One page of a period close's variance report against one basis (ADR-0058 §9), with what it compares
+// and its totals over the whole report.
+// Ref: #/components/schemas/PeriodCloseVariancePage
+type PeriodCloseVariancePage struct {
+	// The period close.
+	CloseID uuid.UUID `json:"close_id"`
+	// The close's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// The legal entity's name.
+	CompanyName string `json:"company_name"`
+	// The close's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The close's period.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The leading ledger, whose figures the report reads.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The leading ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The leading ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// The legal entity's local currency, every amount's.
+	Currency string `json:"currency"`
+	// What the period is compared against. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Basis string `json:"basis"`
+	// The fiscal year compared against: the previous one for `prior_year` (and for `prior_period` of
+	// period 1), the close's for the others.
+	ComparisonFiscalYear int32 `json:"comparison_fiscal_year"`
+	// The period compared against: the previous regular period for `prior_period`, the close's own for
+	// `prior_year` and `plan`.
+	ComparisonFiscalPeriod int32 `json:"comparison_fiscal_period"`
+	// The plan category compared against; present for `plan` only.
+	PlanCategoryID OptUUID `json:"plan_category_id"`
+	// The plan category's code; present for `plan` only.
+	PlanCategoryCode OptString `json:"plan_category_code"`
+	// The plan category's name; present for `plan` only.
+	PlanCategoryName OptString `json:"plan_category_name"`
+	// Which of the category's plan lines are summed, those on cost centers or those on profit centers;
+	// present for `plan` only. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	PlanCenters OptString `json:"plan_centers"`
+	// The company's amount threshold: a variance of at least this much, either way, requires a comment.
+	ThresholdAmount Money `json:"threshold_amount"`
+	// The company's percent threshold, if it configures one: a row with a percent requires a comment only
+	// when the percent, either way, is at least this much.
+	ThresholdPercent OptDecimal                `json:"threshold_percent"`
+	Totals           PeriodCloseVarianceTotals `json:"totals"`
+	// The rows on this page, by account number.
+	Items []PeriodCloseVariance `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetCloseID returns the value of CloseID.
+func (s *PeriodCloseVariancePage) GetCloseID() uuid.UUID {
+	return s.CloseID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *PeriodCloseVariancePage) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *PeriodCloseVariancePage) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *PeriodCloseVariancePage) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *PeriodCloseVariancePage) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *PeriodCloseVariancePage) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *PeriodCloseVariancePage) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *PeriodCloseVariancePage) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *PeriodCloseVariancePage) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetCurrency returns the value of Currency.
+func (s *PeriodCloseVariancePage) GetCurrency() string {
+	return s.Currency
+}
+
+// GetBasis returns the value of Basis.
+func (s *PeriodCloseVariancePage) GetBasis() string {
+	return s.Basis
+}
+
+// GetComparisonFiscalYear returns the value of ComparisonFiscalYear.
+func (s *PeriodCloseVariancePage) GetComparisonFiscalYear() int32 {
+	return s.ComparisonFiscalYear
+}
+
+// GetComparisonFiscalPeriod returns the value of ComparisonFiscalPeriod.
+func (s *PeriodCloseVariancePage) GetComparisonFiscalPeriod() int32 {
+	return s.ComparisonFiscalPeriod
+}
+
+// GetPlanCategoryID returns the value of PlanCategoryID.
+func (s *PeriodCloseVariancePage) GetPlanCategoryID() OptUUID {
+	return s.PlanCategoryID
+}
+
+// GetPlanCategoryCode returns the value of PlanCategoryCode.
+func (s *PeriodCloseVariancePage) GetPlanCategoryCode() OptString {
+	return s.PlanCategoryCode
+}
+
+// GetPlanCategoryName returns the value of PlanCategoryName.
+func (s *PeriodCloseVariancePage) GetPlanCategoryName() OptString {
+	return s.PlanCategoryName
+}
+
+// GetPlanCenters returns the value of PlanCenters.
+func (s *PeriodCloseVariancePage) GetPlanCenters() OptString {
+	return s.PlanCenters
+}
+
+// GetThresholdAmount returns the value of ThresholdAmount.
+func (s *PeriodCloseVariancePage) GetThresholdAmount() Money {
+	return s.ThresholdAmount
+}
+
+// GetThresholdPercent returns the value of ThresholdPercent.
+func (s *PeriodCloseVariancePage) GetThresholdPercent() OptDecimal {
+	return s.ThresholdPercent
+}
+
+// GetTotals returns the value of Totals.
+func (s *PeriodCloseVariancePage) GetTotals() PeriodCloseVarianceTotals {
+	return s.Totals
+}
+
+// GetItems returns the value of Items.
+func (s *PeriodCloseVariancePage) GetItems() []PeriodCloseVariance {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *PeriodCloseVariancePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetCloseID sets the value of CloseID.
+func (s *PeriodCloseVariancePage) SetCloseID(val uuid.UUID) {
+	s.CloseID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *PeriodCloseVariancePage) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *PeriodCloseVariancePage) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *PeriodCloseVariancePage) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *PeriodCloseVariancePage) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *PeriodCloseVariancePage) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *PeriodCloseVariancePage) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *PeriodCloseVariancePage) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *PeriodCloseVariancePage) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *PeriodCloseVariancePage) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetBasis sets the value of Basis.
+func (s *PeriodCloseVariancePage) SetBasis(val string) {
+	s.Basis = val
+}
+
+// SetComparisonFiscalYear sets the value of ComparisonFiscalYear.
+func (s *PeriodCloseVariancePage) SetComparisonFiscalYear(val int32) {
+	s.ComparisonFiscalYear = val
+}
+
+// SetComparisonFiscalPeriod sets the value of ComparisonFiscalPeriod.
+func (s *PeriodCloseVariancePage) SetComparisonFiscalPeriod(val int32) {
+	s.ComparisonFiscalPeriod = val
+}
+
+// SetPlanCategoryID sets the value of PlanCategoryID.
+func (s *PeriodCloseVariancePage) SetPlanCategoryID(val OptUUID) {
+	s.PlanCategoryID = val
+}
+
+// SetPlanCategoryCode sets the value of PlanCategoryCode.
+func (s *PeriodCloseVariancePage) SetPlanCategoryCode(val OptString) {
+	s.PlanCategoryCode = val
+}
+
+// SetPlanCategoryName sets the value of PlanCategoryName.
+func (s *PeriodCloseVariancePage) SetPlanCategoryName(val OptString) {
+	s.PlanCategoryName = val
+}
+
+// SetPlanCenters sets the value of PlanCenters.
+func (s *PeriodCloseVariancePage) SetPlanCenters(val OptString) {
+	s.PlanCenters = val
+}
+
+// SetThresholdAmount sets the value of ThresholdAmount.
+func (s *PeriodCloseVariancePage) SetThresholdAmount(val Money) {
+	s.ThresholdAmount = val
+}
+
+// SetThresholdPercent sets the value of ThresholdPercent.
+func (s *PeriodCloseVariancePage) SetThresholdPercent(val OptDecimal) {
+	s.ThresholdPercent = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *PeriodCloseVariancePage) SetTotals(val PeriodCloseVarianceTotals) {
+	s.Totals = val
+}
+
+// SetItems sets the value of Items.
+func (s *PeriodCloseVariancePage) SetItems(val []PeriodCloseVariance) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *PeriodCloseVariancePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*PeriodCloseVariancePage) listPeriodCloseVariancesRes() {}
+
+// A variance report's totals: every row of the report summed, whatever the filter and on every page
+// alike. The actuals summed are the period's profit and loss in the trial balance, debit positive (a
+// loss positive, a profit negative).
+// Ref: #/components/schemas/PeriodCloseVarianceTotals
+type PeriodCloseVarianceTotals struct {
+	// The rows' actuals summed.
+	Actual Money `json:"actual"`
+	// The rows' comparisons summed.
+	Comparison Money `json:"comparison"`
+	// The rows' variances summed: the actual less the comparison.
+	Variance Money `json:"variance"`
+	// How many rows the report has.
+	Rows int32 `json:"rows"`
+	// How many of them require a comment.
+	RowsRequiringComment int32 `json:"rows_requiring_comment"`
+}
+
+// GetActual returns the value of Actual.
+func (s *PeriodCloseVarianceTotals) GetActual() Money {
+	return s.Actual
+}
+
+// GetComparison returns the value of Comparison.
+func (s *PeriodCloseVarianceTotals) GetComparison() Money {
+	return s.Comparison
+}
+
+// GetVariance returns the value of Variance.
+func (s *PeriodCloseVarianceTotals) GetVariance() Money {
+	return s.Variance
+}
+
+// GetRows returns the value of Rows.
+func (s *PeriodCloseVarianceTotals) GetRows() int32 {
+	return s.Rows
+}
+
+// GetRowsRequiringComment returns the value of RowsRequiringComment.
+func (s *PeriodCloseVarianceTotals) GetRowsRequiringComment() int32 {
+	return s.RowsRequiringComment
+}
+
+// SetActual sets the value of Actual.
+func (s *PeriodCloseVarianceTotals) SetActual(val Money) {
+	s.Actual = val
+}
+
+// SetComparison sets the value of Comparison.
+func (s *PeriodCloseVarianceTotals) SetComparison(val Money) {
+	s.Comparison = val
+}
+
+// SetVariance sets the value of Variance.
+func (s *PeriodCloseVarianceTotals) SetVariance(val Money) {
+	s.Variance = val
+}
+
+// SetRows sets the value of Rows.
+func (s *PeriodCloseVarianceTotals) SetRows(val int32) {
+	s.Rows = val
+}
+
+// SetRowsRequiringComment sets the value of RowsRequiringComment.
+func (s *PeriodCloseVarianceTotals) SetRowsRequiringComment(val int32) {
+	s.RowsRequiringComment = val
+}
 
 type PingWebhookSubscriptionBadRequest Problem
 
@@ -42124,6 +45539,9 @@ type Problem struct {
 	// finds that the clean match, or the match its exception was approved on, did not show (ADR-0052,
 	// decision D3).
 	MatchIssues []MatchIssue `json:"match_issues"`
+	// With `closing.checks_failing` only: each check task whose check failed when the sign-off ran it
+	// again, with what it found (ADR-0058 §7).
+	FailingChecks []FailingCheck `json:"failing_checks"`
 }
 
 // GetType returns the value of Type.
@@ -42176,6 +45594,11 @@ func (s *Problem) GetMatchIssues() []MatchIssue {
 	return s.MatchIssues
 }
 
+// GetFailingChecks returns the value of FailingChecks.
+func (s *Problem) GetFailingChecks() []FailingCheck {
+	return s.FailingChecks
+}
+
 // SetType sets the value of Type.
 func (s *Problem) SetType(val string) {
 	s.Type = val
@@ -42224,6 +45647,11 @@ func (s *Problem) SetCalculatedTax(val OptCalculatedTax) {
 // SetMatchIssues sets the value of MatchIssues.
 func (s *Problem) SetMatchIssues(val []MatchIssue) {
 	s.MatchIssues = val
+}
+
+// SetFailingChecks sets the value of FailingChecks.
+func (s *Problem) SetFailingChecks(val []FailingCheck) {
+	s.FailingChecks = val
 }
 
 // Merged schema.
@@ -49008,8 +52436,10 @@ func (*ServiceUnavailableHeaders) reverseJournalEntryRes()              {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()           {}
 func (*ServiceUnavailableHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*ServiceUnavailableHeaders) runAnalyticsQueryRes()                {}
+func (*ServiceUnavailableHeaders) signOffPeriodCloseRes()               {}
 func (*ServiceUnavailableHeaders) simulateChangeRequestRes()            {}
 func (*ServiceUnavailableHeaders) startAgentSessionRes()                {}
+func (*ServiceUnavailableHeaders) startDepreciationRunRes()             {}
 func (*ServiceUnavailableHeaders) startMigrationRunRes()                {}
 func (*ServiceUnavailableHeaders) submitChangeRequestRes()              {}
 func (*ServiceUnavailableHeaders) submitPaymentRunRes()                 {}
@@ -49105,6 +52535,30 @@ func (s *SessionEndHeaders) SetResponse(val SessionEnd) {
 }
 
 func (*SessionEndHeaders) endCurrentSessionRes() {}
+
+type SignOffPeriodCloseBadRequest Problem
+
+func (*SignOffPeriodCloseBadRequest) signOffPeriodCloseRes() {}
+
+type SignOffPeriodCloseForbidden Problem
+
+func (*SignOffPeriodCloseForbidden) signOffPeriodCloseRes() {}
+
+type SignOffPeriodCloseNotFound Problem
+
+func (*SignOffPeriodCloseNotFound) signOffPeriodCloseRes() {}
+
+type SignOffPeriodClosePreconditionFailed Problem
+
+func (*SignOffPeriodClosePreconditionFailed) signOffPeriodCloseRes() {}
+
+type SignOffPeriodClosePreconditionRequired Problem
+
+func (*SignOffPeriodClosePreconditionRequired) signOffPeriodCloseRes() {}
+
+type SignOffPeriodCloseUnprocessableEntity Problem
+
+func (*SignOffPeriodCloseUnprocessableEntity) signOffPeriodCloseRes() {}
 
 type SimulateChangeRequestBadRequest Problem
 
@@ -49430,6 +52884,26 @@ func (*StartAgentSessionPreconditionRequired) startAgentSessionRes() {}
 type StartAgentSessionUnprocessableEntity Problem
 
 func (*StartAgentSessionUnprocessableEntity) startAgentSessionRes() {}
+
+type StartDepreciationRunBadRequest Problem
+
+func (*StartDepreciationRunBadRequest) startDepreciationRunRes() {}
+
+type StartDepreciationRunForbidden Problem
+
+func (*StartDepreciationRunForbidden) startDepreciationRunRes() {}
+
+type StartDepreciationRunNotFound Problem
+
+func (*StartDepreciationRunNotFound) startDepreciationRunRes() {}
+
+type StartDepreciationRunPreconditionRequired Problem
+
+func (*StartDepreciationRunPreconditionRequired) startDepreciationRunRes() {}
+
+type StartDepreciationRunUnprocessableEntity Problem
+
+func (*StartDepreciationRunUnprocessableEntity) startDepreciationRunRes() {}
 
 type StartMigrationRunBadRequest Problem
 
@@ -53267,6 +56741,7 @@ func (*TooManyRequestsHeaders) getBankStatementFileRes()             {}
 func (*TooManyRequestsHeaders) getBankStatementRes()                 {}
 func (*TooManyRequestsHeaders) getBankStatementRulesRes()            {}
 func (*TooManyRequestsHeaders) getBusinessPartnerRes()               {}
+func (*TooManyRequestsHeaders) getCashActualsRes()                   {}
 func (*TooManyRequestsHeaders) getCashPositionRes()                  {}
 func (*TooManyRequestsHeaders) getCashSnapshotRes()                  {}
 func (*TooManyRequestsHeaders) getCenterChangeRes()                  {}
@@ -53279,6 +56754,7 @@ func (*TooManyRequestsHeaders) getConnectorRes()                     {}
 func (*TooManyRequestsHeaders) getContractRes()                      {}
 func (*TooManyRequestsHeaders) getCostCenterRes()                    {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()              {}
+func (*TooManyRequestsHeaders) getDepreciationRunRes()               {}
 func (*TooManyRequestsHeaders) getDownPaymentRequestRes()            {}
 func (*TooManyRequestsHeaders) getEntryTemplateRes()                 {}
 func (*TooManyRequestsHeaders) getExchangeRateRes()                  {}
@@ -53291,6 +56767,7 @@ func (*TooManyRequestsHeaders) getJournalEntryRes()                  {}
 func (*TooManyRequestsHeaders) getLegalEntityRes()                   {}
 func (*TooManyRequestsHeaders) getLegalEntityTodayRes()              {}
 func (*TooManyRequestsHeaders) getLiquidityForecastRes()             {}
+func (*TooManyRequestsHeaders) getLiquidityForecastVarianceRes()     {}
 func (*TooManyRequestsHeaders) getMatchResultRes()                   {}
 func (*TooManyRequestsHeaders) getMemoRecordRes()                    {}
 func (*TooManyRequestsHeaders) getMigrationRunRes()                  {}
@@ -53344,6 +56821,7 @@ func (*TooManyRequestsHeaders) listBankStatementMatchesRes()         {}
 func (*TooManyRequestsHeaders) listBankStatementPaymentsRes()        {}
 func (*TooManyRequestsHeaders) listBankStatementsRes()               {}
 func (*TooManyRequestsHeaders) listBusinessPartnersRes()             {}
+func (*TooManyRequestsHeaders) listCashActualLinesRes()              {}
 func (*TooManyRequestsHeaders) listCashSnapshotFlowsRes()            {}
 func (*TooManyRequestsHeaders) listCashSnapshotsRes()                {}
 func (*TooManyRequestsHeaders) listCenterChangesRes()                {}
@@ -53359,6 +56837,7 @@ func (*TooManyRequestsHeaders) listCostCenterPathsRes()              {}
 func (*TooManyRequestsHeaders) listCostCenterPlanActualRes()         {}
 func (*TooManyRequestsHeaders) listCostCentersRes()                  {}
 func (*TooManyRequestsHeaders) listCountryPacksRes()                 {}
+func (*TooManyRequestsHeaders) listDepreciationRunsRes()             {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()          {}
 func (*TooManyRequestsHeaders) listEntryTemplatesRes()               {}
 func (*TooManyRequestsHeaders) listExchangeRatesRes()                {}
@@ -53387,6 +56866,7 @@ func (*TooManyRequestsHeaders) listPartnerChangesRes()               {}
 func (*TooManyRequestsHeaders) listPaymentExclusionsRes()            {}
 func (*TooManyRequestsHeaders) listPaymentRunsRes()                  {}
 func (*TooManyRequestsHeaders) listPaymentsRes()                     {}
+func (*TooManyRequestsHeaders) listPeriodCloseVariancesRes()         {}
 func (*TooManyRequestsHeaders) listPeriodClosesRes()                 {}
 func (*TooManyRequestsHeaders) listPlanCategoriesRes()               {}
 func (*TooManyRequestsHeaders) listPlanLinesRes()                    {}
@@ -53472,8 +56952,10 @@ func (*TooManyRequestsHeaders) reverseJournalEntryRes()              {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()           {}
 func (*TooManyRequestsHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*TooManyRequestsHeaders) runAnalyticsQueryRes()                {}
+func (*TooManyRequestsHeaders) signOffPeriodCloseRes()               {}
 func (*TooManyRequestsHeaders) simulateChangeRequestRes()            {}
 func (*TooManyRequestsHeaders) startAgentSessionRes()                {}
+func (*TooManyRequestsHeaders) startDepreciationRunRes()             {}
 func (*TooManyRequestsHeaders) startMigrationRunRes()                {}
 func (*TooManyRequestsHeaders) submitChangeRequestRes()              {}
 func (*TooManyRequestsHeaders) submitPaymentRunRes()                 {}
@@ -53660,6 +57142,7 @@ func (*UnauthorizedHeaders) getBankStatementFileRes()             {}
 func (*UnauthorizedHeaders) getBankStatementRes()                 {}
 func (*UnauthorizedHeaders) getBankStatementRulesRes()            {}
 func (*UnauthorizedHeaders) getBusinessPartnerRes()               {}
+func (*UnauthorizedHeaders) getCashActualsRes()                   {}
 func (*UnauthorizedHeaders) getCashPositionRes()                  {}
 func (*UnauthorizedHeaders) getCashSnapshotRes()                  {}
 func (*UnauthorizedHeaders) getCenterChangeRes()                  {}
@@ -53672,6 +57155,7 @@ func (*UnauthorizedHeaders) getConnectorRes()                     {}
 func (*UnauthorizedHeaders) getContractRes()                      {}
 func (*UnauthorizedHeaders) getCostCenterRes()                    {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()              {}
+func (*UnauthorizedHeaders) getDepreciationRunRes()               {}
 func (*UnauthorizedHeaders) getDownPaymentRequestRes()            {}
 func (*UnauthorizedHeaders) getEntryTemplateRes()                 {}
 func (*UnauthorizedHeaders) getExchangeRateRes()                  {}
@@ -53684,6 +57168,7 @@ func (*UnauthorizedHeaders) getJournalEntryRes()                  {}
 func (*UnauthorizedHeaders) getLegalEntityRes()                   {}
 func (*UnauthorizedHeaders) getLegalEntityTodayRes()              {}
 func (*UnauthorizedHeaders) getLiquidityForecastRes()             {}
+func (*UnauthorizedHeaders) getLiquidityForecastVarianceRes()     {}
 func (*UnauthorizedHeaders) getMatchResultRes()                   {}
 func (*UnauthorizedHeaders) getMemoRecordRes()                    {}
 func (*UnauthorizedHeaders) getMigrationRunRes()                  {}
@@ -53737,6 +57222,7 @@ func (*UnauthorizedHeaders) listBankStatementMatchesRes()         {}
 func (*UnauthorizedHeaders) listBankStatementPaymentsRes()        {}
 func (*UnauthorizedHeaders) listBankStatementsRes()               {}
 func (*UnauthorizedHeaders) listBusinessPartnersRes()             {}
+func (*UnauthorizedHeaders) listCashActualLinesRes()              {}
 func (*UnauthorizedHeaders) listCashSnapshotFlowsRes()            {}
 func (*UnauthorizedHeaders) listCashSnapshotsRes()                {}
 func (*UnauthorizedHeaders) listCenterChangesRes()                {}
@@ -53752,6 +57238,7 @@ func (*UnauthorizedHeaders) listCostCenterPathsRes()              {}
 func (*UnauthorizedHeaders) listCostCenterPlanActualRes()         {}
 func (*UnauthorizedHeaders) listCostCentersRes()                  {}
 func (*UnauthorizedHeaders) listCountryPacksRes()                 {}
+func (*UnauthorizedHeaders) listDepreciationRunsRes()             {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()          {}
 func (*UnauthorizedHeaders) listEntryTemplatesRes()               {}
 func (*UnauthorizedHeaders) listExchangeRatesRes()                {}
@@ -53780,6 +57267,7 @@ func (*UnauthorizedHeaders) listPartnerChangesRes()               {}
 func (*UnauthorizedHeaders) listPaymentExclusionsRes()            {}
 func (*UnauthorizedHeaders) listPaymentRunsRes()                  {}
 func (*UnauthorizedHeaders) listPaymentsRes()                     {}
+func (*UnauthorizedHeaders) listPeriodCloseVariancesRes()         {}
 func (*UnauthorizedHeaders) listPeriodClosesRes()                 {}
 func (*UnauthorizedHeaders) listPlanCategoriesRes()               {}
 func (*UnauthorizedHeaders) listPlanLinesRes()                    {}
@@ -53865,8 +57353,10 @@ func (*UnauthorizedHeaders) reverseJournalEntryRes()              {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()           {}
 func (*UnauthorizedHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*UnauthorizedHeaders) runAnalyticsQueryRes()                {}
+func (*UnauthorizedHeaders) signOffPeriodCloseRes()               {}
 func (*UnauthorizedHeaders) simulateChangeRequestRes()            {}
 func (*UnauthorizedHeaders) startAgentSessionRes()                {}
+func (*UnauthorizedHeaders) startDepreciationRunRes()             {}
 func (*UnauthorizedHeaders) startMigrationRunRes()                {}
 func (*UnauthorizedHeaders) submitChangeRequestRes()              {}
 func (*UnauthorizedHeaders) submitPaymentRunRes()                 {}

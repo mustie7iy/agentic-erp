@@ -1163,10 +1163,31 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Depreciation run: ledger Posting.LedgerID (ledger-specific postings for contexts); depreciation_run, depreciation_batch; POST/GET /v1/depreciation-runs (202 Operation), started by the workflows dispatcher from its queued assets.depreciate operation; booked_through per asset and ledger, never lowered by a run or catch-up (only a catch-up's reversal returns it, T57g, T57h); an asset with an assignment row valid from after the period's last day passed over; the selection re-checked under each asset's lock in the batch (assets_skipped, no seq taken); group amounts per asset and line; lines on each asset's latest assignment, a seq for each asset a batch processes; workflow DepreciationRun through the workflows.Depreciation port with PlanDepreciationRun, PostDepreciationBatch, FinishDepreciationRun, FailDepreciationRun (run-twice test each, replay test), in process without an engine; one run at a time, order, special periods, a locked period failing the run and the next catching up; DepreciationRunCompleted; the 01 §1.3 budget for 100,000 assets; walkthrough: the period's run posted in the leading ledger, a repeat run posting nothing",
-        "r": "ADR-0057 · T57f",
+        "s": "D",
+        "t": "Depreciation run: ledger Posting.LedgerID (ledger-specific postings for contexts); depreciation_run, depreciation_batch; POST/GET /v1/depreciation-runs (202 Operation), started by the workflows dispatcher from its queued assets.depreciate operation; booked_through per asset and ledger, never lowered by a run or catch-up (only a catch-up's reversal returns it, T57g, T57h); an asset with an assignment row valid from after the period's last day passed over; the selection re-checked under each asset's lock in the batch (assets_skipped, no seq taken); group amounts per asset and line; lines on each asset's latest assignment, a seq for each asset a batch processes; workflow DepreciationRun through the workflows.Depreciation port with PlanDepreciationRun, PostDepreciationBatch, FinishDepreciationRun, FailDepreciationRun (run-twice test each, replay test), in process without an engine; one run at a time, order, special periods, a locked period failing the run and the next catching up; DepreciationRunCompleted; walkthrough: the period's run posted in the leading ledger, a repeat run posting nothing; the 01 §1.3 budget split to T57f2",
+        "r": "migration 000200 (assets.depreciation_run, assets.depreciation_batch; depreciation_run_transition, depreciation_run_fixed, depreciation_run_one_at_a_time, depreciation_batch_transition; assets.depreciation.run) · ledger Posting.LedgerID, AssetReads.PeriodOpen, AssetReads.GroupAmounts · internal/assets (run.go, runwork.go; ports Ledger.PeriodOpen, Ledger.GroupAmounts, Runs.Report, Runs.Cancelled, Posting.LedgerID, PostingLine.CostCenterID) · internal/workflows (depreciation.go: DepreciationRun, Depreciations, Depreciator, port Depreciation; dispatcher kind assets.depreciate) · operations.QueuedOf, TenantsOf, IsCancelled; a cancelled Operation failing the run at its next step (assets.run_cancelled), retries bounded at five · POST/GET /v1/depreciation-runs, GET /v1/depreciation-runs/{id}; DepreciationRunCompleted · TestDepreciationRun, TestDepreciationRunSkipsAndCatchesUp, TestListDepreciationRuns, TestDepreciationRunSteps, TestDepreciationRunDatabaseFailures, TestDepreciationRunPortsFail, TestDepreciationRunCancelDuringAStep, TestRunInProgressConstraint, TestRunLedgerReads, TestLedgerSpecificPosting, TestDepreciationRunRules, TestDepreciationRunWorkflow, TestDepreciationRunCancelled, TestDepreciationRunInterrupted, TestDepreciationActivitiesRunTwice, TestDispatchDepreciation, TestDepreciator, TestDepreciationRunReplay, TestDepreciateKind · walkthrough step_depreciation_run (step 29) · ADR-0057 (as built, T57f) · 03-data-model §3.21 · T57f",
         "src": "adr:ADR-0057",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Depreciation run and preview budgets: the 01 §1.3 budget of a run over 100,000 assets of one company and ledger (async, p95 120 s, p99 240 s) in the performance suite, and the preview's read at that scale (T57e as built: every page reads all the selected assets)",
+        "r": "ADR-0057 · T57f2",
+        "src": "split:T57f · adr:ADR-0057",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Long-running jobs and a deactivated requester (pre-existing security finding on T57f): identity.Actors.Actor does not check that the principal is still active, so migration runs and depreciation runs keep acting, and posting, as a requester deactivated after the start; should they refuse such a requester and fail the run, as ADR-0056's recurrer checks Active?",
+        "r": "internal/identity/directory.go Actors.Actor · internal/workflows requester (migrate.go) · ADR-0012 · ADR-0056 · ADR-0057 §7",
+        "src": "review:T57f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A retryable 409 stored under the Idempotency-Key (pre-existing finding on T57f, review round 3): the unit of work stores every 409 as a business outcome, including request.in_progress, which a lock timeout answers with Retry-After, so a client retrying with the same key, as Retry-After invites, gets the stale 409 replayed forever instead of the retry running; should a retryable answer (request.in_progress, and any other carrying Retry-After) leave the key unstored, as the rejections of the request itself do?",
+        "r": "internal/platform/uow/uow.go (businessOutcome, finish) · ADR-0046 · 04-api-design §4.7 (idempotency)",
+        "src": "review:T57f",
         "c": []
        },
        {
@@ -1432,16 +1453,16 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Cash actuals: GET /v1/cash-actuals, the posted and unposted bank statement lines by value date per house bank and currency, classified by their matches (the payments' supplier items with their split, the posting rule's item, an unmatched line its direction's default shown unclassified), by liquidity item and bucket (ADR-0051 §4, §11)",
-        "r": "T53f2",
+        "r": "GET /v1/cash-actuals (getCashActuals: CashActuals, CashActualsCurrency, CashActualsBank, CashActualsItem, CashActualMatch) · GET /v1/cash-actual-lines (listCashActualLines: CashActualLinePage, CashActualLine; statement, payments and suppliers shown by authz.MayUse) · cash.Endpoints.Actuals, ActualLines, readActuals, actualShares, actualBuckets · cash.Payments.Actuals (internal/app cashPayments, cashMatches) · payments.CashPosition.Actuals, CashActualLine, CashMatch* · no migration · TestCashActuals, TestCashActualsUnclassified, TestCashActualLines, TestCashActualLinesGated, TestCashActualLinesTwoPayments, TestCashActualsRefusals, TestCashActualsTooLarge, TestCashActualsOutOfRange, TestCashActualsFailures · walkthrough step 27 · ADR-0051 (as built, T53f2) · 03-data-model §3.18 · 04-api-design §4.7 · T53f2",
         "src": "split:T53f · adr:ADR-0051",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Forecast variance: GET /v1/liquidity-forecast-variance for a period against the snapshot taken lag days before its start (default 7; 0, 7 and 30), per liquidity item, currency and bucket with forecast, actual, variance and absolute percentage; within the 31 days kept per document attributed to timing, amount, new, missing and unclassified, per item only beyond (ADR-0051 §11)",
-        "r": "T53f3",
+        "r": "GET /v1/liquidity-forecast-variance (getLiquidityForecastVariance: LiquidityForecastVariance, LiquidityForecastVarianceCurrency, LiquidityForecastVarianceItem, LiquidityForecastVarianceCell, LiquidityForecastVarianceAttribution; 409 cash.snapshot_not_taken) · cash.Endpoints.Variance, snapshotOn, keptLines, memoMatches, newMatching, beyondOf, actual.pieces · payments.CashPaying.Request, CashPaid.Entry, CashPaid.Invoice, Owed.Sources · ledger.OpenItems.Sources · money.AbsPercentOf (beside T64h's money.PercentOf, which controlling's plan against actual uses) · no migration · TestForecastVariance, TestForecastVarianceLags, TestForecastVarianceEarly, TestForecastVarianceNettedPayment, TestForecastVarianceRefusals, TestForecastVarianceTooLarge, TestForecastVarianceFailures, money.TestPercentOfSigns · walkthrough step 28 · ADR-0051 (as built, T53f3) · 03-data-model §3.18 · 04-api-design §4.7 · T53f3",
         "src": "split:T53f · adr:ADR-0051",
         "c": []
        },
@@ -1574,10 +1595,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Sign-off locks the period through T32: :sign-off (people only, closing.close.sign_off, ledger.period.lock and ledger.entry.read; 03's entry-lock paragraph updated) refused while a manual task is open (closing.tasks_open), a check fails when re-run (closing.checks_failing, nothing kept), or a covered period is open (closing.period_not_closed); ledger.LockPeriod per covered closed period in the postings' lock order (leading ledger first, then by code; a concurrency test); the sign_off row; PeriodCloseSignedOff; a signed-off close reopened by its first write after an unlock and signed off again (test); closing.close_signed_off; walkthrough, at the end of step_close: sign-off refused while the period is open, the period closed and signed off, a manual entry dated in it refused with ledger.period_not_open",
         "r": "ADR-0058 · T64d",
         "src": "adr:ADR-0058",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Every period lock in one order (pre-existing finding on T64d): a migrated clearing's clearingPeriods locked its posting group's periods FOR SHARE in the scan's order of journal_entry, and the controlling switch locked a company's periods FOR UPDATE with no ORDER BY, each able to deadlock (40P01) with a sign-off or a posting; both now lock by fiscal year and period, the leading ledger first, then by code (concurrency tests on three ledgers whose ids and codes sort differently; 03's entry-lock paragraph)",
+        "r": "internal/ledger/migration.go clearingPeriods · internal/ledger/controlling.go checkSwitches · ADR-0058 As built (review:T64d)",
+        "src": "review:T64d",
         "c": []
        },
        {
@@ -1602,7 +1630,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The variance report: companies[].close.variance (bases prior_period, prior_year, plan; threshold amount and percent; plan category and centers; tier 2); GET /v1/period-closes/{id}/variances per profit and loss account of the leading ledger in local currency (actual, comparison, variance, exact percent, requires_comment, filters, paging by account number, totals over the report); closing.Plans over controlling; closing.basis_not_configured; walkthrough: the variances against the prior period, the flagged rows, the totals equal to the period's profit and loss",
         "r": "ADR-0058 · T64h",
         "src": "adr:ADR-0058",
@@ -1610,7 +1638,7 @@
        },
        {
         "s": "T",
-        "t": "Variance comments: variance_comment and variance_citation; POST /v1/variance-comment-proposals (agents, in session, citations checked: closing.citation_invalid), POST /v1/variance-comments (people), :accept with optional edited text, :reject, superseded, stale when the figures change; check variances_explained; VarianceCommentChanged; closing.variance.propose|comment, ledger.entry.read also; walkthrough: the agent principal proposes a comment citing the entry behind a flagged row, Carla accepts it, the check passes, a citation on another account refused",
+        "t": "Variance comments: variance_comment and variance_citation; POST /v1/variance-comment-proposals (agents, in session, citations checked: closing.citation_invalid), POST /v1/variance-comments (people), :accept with optional edited text, :reject, superseded, stale when the figures change; check variances_explained; VarianceCommentChanged; closing.variance.propose|comment, ledger.entry.read also; walkthrough: the agent principal proposes a comment citing the entry behind a flagged row, Carla accepts it, the check passes, a citation on another account refused; the variance report's row comments (the accepted one with stale, the count proposed), its unexplained filter and its rows explained total (ADR-0058 §9, deferred from T64h, which has no comments to read)",
         "r": "ADR-0058 · T64i",
         "src": "adr:ADR-0058",
         "c": []

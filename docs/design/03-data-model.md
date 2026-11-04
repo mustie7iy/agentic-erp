@@ -371,7 +371,8 @@ names the company's weekend (`calendars[company].weekend`, T64a, ADR-0058
 Saturday and Sunday. A business day is neither a weekend day nor a holiday
 (`config.Config.BusinessDay`), the one rule the cash position and the close
 calendar count days by. The `close` section is the close template
-(`close.tasks`, T64a; §3.22).
+(`close.tasks`, T64a; §3.22); a company's `close.variance` its variance
+report's settings (T64h; §3.22).
 `POST /v1/country-pack-applications` (T62d) stores the draft as a change
 request in status `draft` on the active version, with the merge's notes in
 `change_request.notes` (an array of path and message, `[]` for requests
@@ -2362,6 +2363,39 @@ after the entry buckets `loadItems` takes, and the clearing trigger reads it
 `FOR SHARE` again, so a close waits for a migrated clearing as it does for a
 posting, in the same order.
 
+A period close's sign-off (T64d, ADR-0058 §5, §7) is the one lock of
+several periods: under its close's row lock (`closing.period_close`
+`FOR UPDATE`, which no posting takes) it locks each covered ledger's
+closed period through `LockPeriod`, one `FOR UPDATE` at a time, the
+leading ledger's first, then by ledger code. A posting to several ledgers
+takes their periods `FOR SHARE` in that same order: `postingPeriod`'s
+ledgers come from a subquery ordered leading first, then by code, which
+its `ORDER BY` keeps from being pulled up, so the lateral lock runs in that
+order whatever the order of the ledgers' rows or ids (before T64d it ran in
+the rows' order, and a posting and a sign-off on a company whose ledgers
+were created out of code order deadlocked; `TestSignOffAndPostingLockInOneOrder`).
+A single posting (one `postingPeriod` call) therefore waits for the first
+period the sign-off holds while holding none the sign-off needs next, then
+reads the committed `locked` status and is refused. Every statement that
+locks the `period_status` rows of several ledgers or periods takes them in
+that one order, extended: by legal entity, fiscal year and period, then the
+leading ledger first, then by ledger code, sorted in the statement (an
+`ORDER BY` under the lock, or a lateral over an ordered subquery), never
+in the order a scan finds the rows. A migrated clearing's
+`clearingPeriods` locks its entry's and its copies' periods so (before,
+it followed the scan of `journal_entry`, and a clearing whose entry's row
+the heap stored behind its copies' deadlocked with a sign-off;
+`TestMigratedClearingAndSignOffLockInOneOrder`), as does the controlling
+switch's lock of a company's periods from the current year on (before, it
+had no `ORDER BY` and deadlocked with a posting on a company whose
+ledgers' rows sort out of code order;
+`TestControllingSwitchAndPostingLockInOneOrder`); a filed tax return locks
+the leading ledger's periods by legal entity, year and period through
+`LockPeriod`. A transaction that takes period locks over several
+statements (the migration load) is not covered by this. No write takes a
+period lock before a close's lock, so close-then-period never crosses
+either.
+
 A transaction that would otherwise lock in several
 steps or after posting, the migration load (it posts every document, then
 clears one SAP clearing at a time), takes all 64 buckets shared first
@@ -2808,6 +2842,27 @@ grants `erp_worker` those two columns), and asks each, in its own scope,
 which companies are due. Migration 000198 seeds `cash.snapshot.take`;
 reading a snapshot is `cash.forecast.read`.
 
+T53f2 reads the actuals, storing nothing: the legal entity's
+`payments.bank_statement_line`s by `value_date`, their statements' house
+bank and currency (`payments.bank_statement`), and each line's live
+`payments.statement_match` that is `matched` or `excluded` with its
+`statement_match_target`s (payments, a posting rule's transaction code,
+or the incoming payments clearing account), through the payments
+context's port; a matched payment's settled items as T53e3 reads a run's
+payment's. No migration; reading the actuals is `cash.forecast.read`.
+
+T53f3 compares a snapshot with the actuals, storing nothing: the
+`cash.snapshot` of the legal entity and date (`daily` first, else the
+last `on_demand`) and its `cash.snapshot_flow`s but `payable_blocked`;
+the actuals' lines as T53f2 reads them, each matched payment's settled
+items with their `ledger.journal_entry` and that entry's
+`source_document_id` when `payables` posted it (the supplier invoice), a
+down payment payment's `payments.payment.down_payment_request_id`; and
+the `cash.memo_record`s the snapshot names (whether each is a series) or
+a line realised (`realised_statement_id`, `realised_line_no`, an
+override's `recurrence_of` and `occurrence_date`). No migration; reading
+the variance is `cash.forecast.read`.
+
 ## 3.19 Controlling (`controlling`)
 
 Plan values and plan against actual (ADR-0050 §2, §8, decision P5; T56g).
@@ -2935,8 +2990,9 @@ by `ledger.tax_item_reported_in`, built concurrently by migration 000180).
 ## 3.21 Asset accounting (`assets`)
 
 The asset master (ADR-0057 §5, §7, §8, T57b), its acquisitions and
-their reversals (§6, T57c, T57d) and its depreciation schedule, read from
-them (§7, T57e, no table of its own), owned by the assets context
+their reversals (§6, T57c, T57d), its depreciation schedule, read from
+them (§7, T57e, no table of its own), and the depreciation runs that post
+it (§7, T57f, migration 000200), owned by the assets context
 (`internal/assets`, a leaf). Migration 000191 creates the schema, its
 outbox (`assets.outbox`, AssetChanged) and the permission
 `assets.asset.change` (`assets.asset.read` came with T57a). The classes and
@@ -2952,6 +3008,8 @@ erDiagram
   asset ||--o{ movement : "per ledger and effect"
   acquisition }o--|| clearing_use : "takes from a line"
   acquisition ||--|{ document_entry : "one per ledger"
+  depreciation_run ||--o{ depreciation_batch : "500 assets each"
+  depreciation_batch ||--o{ movement : "a depreciation movement per asset"
   asset { uuid id PK
     uuid legal_entity_id "tenancy context"
     text asset_number "unique in the company"
@@ -3001,6 +3059,21 @@ erDiagram
     text part PK "main | catch_up"
     uuid journal_entry_id "ledger context"
     uuid reversal_entry_id "ledger context (T57d)" }
+  depreciation_run { uuid id PK
+    uuid legal_entity_id "tenancy context"
+    uuid ledger_id "ledger context"
+    smallint fiscal_year
+    smallint fiscal_period "regular, 1-12"
+    text status "queued | running | posted | failed"
+    uuid operation_id "platform.operation"
+    bigint amount "local currency, once posted"
+    jsonb error "once failed" }
+  depreciation_batch { uuid run_id PK
+    int batch_no PK
+    uuid_array asset_ids "1-500"
+    text status "pending | posted"
+    uuid journal_entry_id "ledger context, once posted"
+    text document_number }
 ```
 
 | Table | Purpose |
@@ -3012,6 +3085,8 @@ erDiagram
 | `assets.clearing_use` | What acquisitions used of a capitalised line, keyed by the line: its amounts in its currency, local and group currency, and what is used of each, which stays between zero and the line's amount (the mirror for a credit line, `clearing_use_within_line`); the line's amounts never change (`clearing_use_line_fixed`). Read FOR UPDATE by every acquisition from the line, and given back by its reversal. A reversal's line names the line it reverses (`reverses_entry_year`, `reverses_entry_id`, both or neither, `clearing_use_reverses`; T57d), which never changes, so an asset's take-off through it is bounded by what it holds from that line |
 | `assets.movement` | The subledger (ADR-0057 §5): one append-only row per asset, ledger and effect (`acquisition`, `depreciation`, `retirement`, `transfer_out`, `transfer_in`) with the signed change of cost and accumulated depreciation in local and group currency, of residual value (negative when a retirement or transfer out took it, positive when a transfer in brought it, T57e), proceeds and share, its document and journal entry. The depreciation schedule and a run's preview (T57e) are computed from these rows and `asset_terms` at the read, never stored (ADR-0057 §7), and `GET /v1/assets/{id}/movements` lists them. A reversal row has its original's kind, asset and ledger and exactly the negated amounts (`movement_reversal`), each original is reversed at most once (`movement_reversed_once`), and depreciation changes accumulated depreciation alone (`movement_depreciation`) |
 | `assets.document_entry` | The journal entry of each assets document per ledger and part (`main`, or a center transfer's `catch_up`), with its document number; the reversal records its reversal entry and that entry's number once (`document_entry_reversal`, `document_entry_reversal_number`, `document_entry_reversed_once`; T57d), the only update granted |
+| `assets.depreciation_run` | A depreciation run (T57f, migration 000200; ADR-0057 §7) of a company, ledger and regular period (`depreciation_run_fiscal_period_check`), dated the period's last day, with its Operation. It starts `queued` and moves queued -> running -> posted, or to failed from queued or running; posted and failed are final (`depreciation_run_transition`), and what it runs never changes, nor its plan once running nor its outcome once ended (`depreciation_run_fixed`). It is planned (`assets_planned`) once running (`depreciation_run_planned`), has its totals (`amount`, `assets_posted`, `assets_skipped`) exactly when posted (`depreciation_run_totals`) and its problem exactly when failed (`depreciation_run_error`). One run of a company and ledger is queued or running at a time (`depreciation_run_one_at_a_time`, a partial unique index; 409 `assets.run_in_progress`) |
+| `assets.depreciation_batch` | A run's batch of 1-500 assets by asset number (`depreciation_batch_asset_ids_check`), `pending` until posted once in one transaction (`depreciation_batch_transition`, which keeps its assets), with its totals exactly when posted (`depreciation_batch_posted`) and its journal entry and document number only then, all or none (`depreciation_batch_entry`; none when no asset of it had a difference). A run's depreciation movements (`document_kind` `depreciation_run`) carry the batch's entry, whose document number the movements list reads from here |
 
 ## 3.22 Financial close (`closing`)
 
@@ -3096,3 +3171,33 @@ open; reopening it keeps the result. The checks read the ledger through
 its port (`ledger.CloseChecks`): parked entries of the company by posting
 date in the leading ledger's period (`ledger.parked_entry`) and posted
 revaluation runs per ledger and key date (`ledger.revaluation_run`).
+
+A close's sign-offs (T64d, migration 000199):
+
+```
+closing.sign_off      (tenant_id, id, close_id, signed_by, signed_at, note, locked jsonb)
+                      PK (tenant_id, id); FK (tenant_id, close_id) -> period_close
+```
+
+`:signOff` writes one row per sign-off: who signed off, when, the note
+(1-2,000 characters, optional) and `locked`, a list of 1-20 covered
+ledgers (`sign_off_locked`), each with its code and name as they were then,
+its period (`ledger.period_status`) and whether this sign-off locked it.
+A row is never updated or deleted (`platform.forbid_mutation`, no grant
+beyond `SELECT` and `INSERT`). The close is `signed_off` after it; while it
+is, its latest row is the close's signer. A covered period unlocked later
+(T32) lets the close's next write set it `open` again, and a close signed
+off again has a second row. Read by close, oldest first
+(`sign_off_by_close`). Schema tests: `db/closing_test.go`
+(`TestCloseSignOffRules`).
+
+The variance report (T64h) stores nothing. A company's settings are
+configuration (`companies[].close.variance`: bases, amount and percent
+thresholds, the plan category and its kind of center; tier 2), and
+`GET /v1/period-closes/{id}/variances` reads, per profit and loss account
+(`ledger.gl_account.is_balance_sheet` false), the leading ledger's local
+net of the close's period and of the comparison period from the trial
+balance's rows (`ledger.period_balance` and the entries still queued,
+through `ledger.CloseAccounts`), or the plan category's current lines of
+the period (`controlling.plan_line`, `replaced_by_batch_id IS NULL`, on cost
+centers or on profit centers, through `controlling.Plans`).

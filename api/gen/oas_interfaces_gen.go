@@ -389,6 +389,10 @@ type GetBusinessPartnerRes interface {
 	getBusinessPartnerRes()
 }
 
+type GetCashActualsRes interface {
+	getCashActualsRes()
+}
+
 type GetCashPositionRes interface {
 	getCashPositionRes()
 }
@@ -437,6 +441,10 @@ type GetCurrentPrincipalRes interface {
 	getCurrentPrincipalRes()
 }
 
+type GetDepreciationRunRes interface {
+	getDepreciationRunRes()
+}
+
 type GetDownPaymentRequestRes interface {
 	getDownPaymentRequestRes()
 }
@@ -483,6 +491,10 @@ type GetLegalEntityTodayRes interface {
 
 type GetLiquidityForecastRes interface {
 	getLiquidityForecastRes()
+}
+
+type GetLiquidityForecastVarianceRes interface {
+	getLiquidityForecastVarianceRes()
 }
 
 type GetMatchResultRes interface {
@@ -697,6 +709,10 @@ type ListBusinessPartnersRes interface {
 	listBusinessPartnersRes()
 }
 
+type ListCashActualLinesRes interface {
+	listCashActualLinesRes()
+}
+
 type ListCashSnapshotFlowsRes interface {
 	listCashSnapshotFlowsRes()
 }
@@ -755,6 +771,10 @@ type ListCostCentersRes interface {
 
 type ListCountryPacksRes interface {
 	listCountryPacksRes()
+}
+
+type ListDepreciationRunsRes interface {
+	listDepreciationRunsRes()
 }
 
 type ListDownPaymentRequestsRes interface {
@@ -867,6 +887,10 @@ type ListPaymentRunsRes interface {
 
 type ListPaymentsRes interface {
 	listPaymentsRes()
+}
+
+type ListPeriodCloseVariancesRes interface {
+	listPeriodCloseVariancesRes()
 }
 
 type ListPeriodClosesRes interface {
@@ -1209,12 +1233,20 @@ type RunAnalyticsQueryRes interface {
 	runAnalyticsQueryRes()
 }
 
+type SignOffPeriodCloseRes interface {
+	signOffPeriodCloseRes()
+}
+
 type SimulateChangeRequestRes interface {
 	simulateChangeRequestRes()
 }
 
 type StartAgentSessionRes interface {
 	startAgentSessionRes()
+}
+
+type StartDepreciationRunRes interface {
+	startDepreciationRunRes()
 }
 
 type StartMigrationRunRes interface {

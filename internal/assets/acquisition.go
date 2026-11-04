@@ -105,7 +105,7 @@ func (e *Endpoints) postAcquisition(ctx context.Context, in NewAcquisition) (Acq
 	if err != nil {
 		return Acquisition{}, err
 	}
-	return acq, recordAcquisition(ctx, tx, acq)
+	return acq, e.recordAcquisition(ctx, tx, acq)
 }
 
 // prepareAcquisition reads and checks what the acquisition is posted from.
