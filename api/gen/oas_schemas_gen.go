@@ -40944,11 +40944,10 @@ type PurchaseOrderItem struct {
 	// Contract item the price comes from.
 	ContractItemNo OptInt32 `json:"contract_item_no"`
 	// The day the item is expected to be delivered (SAP's delivery date, EKET-EINDT; ADR-0051 §5, T53g).
-	// Optional. An item of an order created from a requisition, or of a draft changed while it names one,
-	// that gives none takes the requisition's `needed_by`. An order change's item that gives none keeps
-	// the item's date; an item it adds takes the requisition's `needed_by`. The liquidity forecast
-	// (`getLiquidityForecast`, source `purchase_order`) expects the item's open value invoiced on this
-	// day, else on the order date plus the company's `cash.order_lead_days`.
+	// Optional. An item that gives none takes the `needed_by` of the requisition its order was created
+	// from, if it has one; in an order change, an item the order has keeps its own date first. The
+	// liquidity forecast (`getLiquidityForecast`, source `purchase_order`) expects the item's open value
+	// invoiced on this day, else on the order date plus the company's `cash.order_lead_days`.
 	DeliveryDate OptDate `json:"delivery_date"`
 	// Derived: quantity received so far (101 receipts minus 102 reversals).
 	ReceivedQuantity OptQuantity `json:"received_quantity"`

@@ -468,15 +468,25 @@ As built (T53g, the purchase orders, decision P7; decided by default where
   the item's price per price unit (`money.Scale`, half away from zero).
   Received and not invoiced stays in (§5). Released orders only: draft,
   pending, closed and cancelled ones add nothing.
+- **Down payments on an order** (review round 1). A down payment request
+  names its order (`purchase_order_id`), and the order's invoice is
+  cleared against it (ADR-0037): while one is open it is forecast as
+  `down_payment`, and once paid the cash is out, so the order's documents
+  are reduced by the order's requests `open` or `paid` (not `cleared` nor
+  `cancelled`, tax included, in the order's currency), the earliest first
+  and none below nothing; a document they cover in full is left out
+  (`orderAdvances`). Without this the order would be forecast twice.
 - **The tax** (§5: "T61's engine port once it is there"; it is, ADR-0049).
   The tax the supplier would charge on the open values, calculated as an
   invoice's is (`codesDocument`, `tax.Calculate`, `chargedSum`: every
   component but the self-assessed ones, which the supplier does not
   charge) on the read date with the company's tax settings, each code
-  read once per forecast. A code that cannot be calculated then (not an
+  read once per forecast and calculated on its own (the calculator rounds
+  each code apart anyway). A code that cannot be calculated then (not an
   input code of the legal entity, no rate, amounts out of range) adds no
   tax rather than refuse the forecast, as a read's calculated figures leave
-  them out (`readCharged`, shared with `readFigures`). Nothing new is
+  them out (`readCharged`, shared with `readFigures`); the other codes of
+  the document keep theirs (review round 1). Nothing new is
   stated about tax: the rates are the configuration's.
 - **Dates and amount.** An order's items expected on one day are one
   document (the drill-down's `purchase_order`, the order's number): their
@@ -521,7 +531,8 @@ As built (T53g, the purchase orders, decision P7; decided by default where
   `PurchaseOrderReleased` does not carry it; neither was asked for.
 - **Evidence.** `cash.TestLiquidityForecastOrders` (Maple Inc: an item
   taxed at 19% net of posted and parked quantities and a cancelled invoice
-  ignored, in its discount tier from its delivery date; two items without
+  ignored, less the order's open down payment request (a cancelled one
+  not), in its discount tier from its delivery date; two items without
   a date by the lead days in one document, one of a code Maple does not
   have, one credited beyond what is invoiced; an order of a term not
   configured by its supplier's net days; an item invoiced beyond its
@@ -531,7 +542,8 @@ As built (T53g, the purchase orders, decision P7; decided by default where
   `TestLiquidityForecastOrdersFailures` (every database failure),
   `TestForecastVarianceOrder` (an order paid 50.00 less through its
   invoice: `amount`), `payables.TestOpenValue`, `TestWithTax`,
-  `TestOpenOrderTax`, `procurement.TestOrderDeliveryDates`; the
+  `TestOpenOrderTax` (a code not calculable beside one that is),
+  `TestOpenOrderAdvance`, `procurement.TestOrderDeliveryDates`; the
   walkthrough's step 27: Ben orders desks with HST for a delivery date,
   Tom drills the order's flow down to it on the last payment day before
   NT30's due date, and Rita sees the flow without the order.

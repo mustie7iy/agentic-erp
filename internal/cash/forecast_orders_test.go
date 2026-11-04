@@ -80,7 +80,9 @@ func (e forecastEnv) invoiced(t *testing.T, supplier, order uuid.UUID, item int,
 //     on capital expenditure (510000) with V1 (19%), delivered 24 April,
 //     of which 4 EA are posted, 2 parked (an invoice_unposted flow of its
 //     own) and 3 on a cancelled invoice: 4 EA open, 476.00 with its tax,
-//     2% until Thursday 14 May, so 466.48 then; item 2, 5 EA at 20.00
+//     less the order's open down payment request of 100.00 (its own
+//     down_payment flow; a cancelled one of 999.00 not), 2% until Thursday
+//     14 May, so 368.48 then; item 2, 5 EA at 20.00
 //     (520000) and item 4, 2 EA at 10.00 with a code Maple does not have,
 //     credited 1 EA by a credit memo of nothing invoiced, both without a
 //     delivery date, so invoiced 30 days after the order, Friday 1 May:
@@ -110,6 +112,13 @@ func (e forecastEnv) ordersScenario(t *testing.T) map[string]uuid.UUID {
 	e.invoiced(t, a, docs["PO-A"], 4, "credit_memo", "posted", "1")
 	e.exec(t, `INSERT INTO payables.migrated_invoice_item (tenant_id, migrated_invoice_id, item_no, reference, kind, purchase_order_id, po_item_no, quantity,
 			created_by) VALUES ($1, gen_random_uuid(), 1, 'SAP-1', 'invoice', $2, 3, 3, $3)`, e.Tenant.ID, docs["PO-A"], e.Tenant.Human.ID)
+	for status, amount := range map[string]int64{"open": 10000, "cancelled": 99900} {
+		r := e.request(t, a, amount, "2026-04-22")
+		e.exec(t, `SET session_replication_role = replica`)
+		e.exec(t, `UPDATE payables.down_payment_request SET purchase_order_id = $2, status = $3,
+			cancel_reason = CASE WHEN $3 = 'cancelled' THEN 'no longer needed' END WHERE id = $1`, r, docs["PO-A"], status)
+		e.exec(t, `RESET session_replication_role`)
+	}
 	docs["PO-B"] = e.purchaseOrder(t, a, "PO-B", "NOPE", "2026-04-10", "released",
 		orderLine{"1", 5000, "520000", "", "2026-04-10"}, orderLine{"1", 500, "520000", "", "2026-04-10"})
 	e.invoiced(t, a, docs["PO-B"], 2, "invoice", "posted", "2")
@@ -140,13 +149,13 @@ func TestLiquidityForecastOrders(t *testing.T) {
 	}
 	want(t, "order flows", orders, []string{
 		"2026-05-07 purchase_order/planned counted=true -50.00 CAD share -50.00: BP90000071; purchase_order PO-B true -50.00 (1)",
-		"2026-05-14 purchase_order/planned counted=true -466.48 CAD share -466.48: BP90000071; purchase_order PO-A true -466.48 (1)",
+		"2026-05-14 purchase_order/planned counted=true -368.48 CAD share -368.48: BP90000071; purchase_order PO-A true -368.48 (1)",
 		"2026-05-21 purchase_order/planned counted=true -117.60 CAD share -117.60: BP90000071; purchase_order PO-A true -117.60 (1)",
 		"2026-05-31 payable_blocked/planned counted=true -70.00 CAD share -70.00: BP90000002; purchase_order PO-C true -70.00 (1)",
 	})
 	_, capex := e.drill(t, "&currency=CAD&liquidity_item=CAPEX", 50)
 	want(t, "capital expenditure, the item's account with its tax", capex, []string{
-		"2026-05-14 purchase_order/planned counted=true -466.48 CAD share -466.48: BP90000071; purchase_order PO-A true -466.48 (1)",
+		"2026-05-14 purchase_order/planned counted=true -368.48 CAD share -368.48: BP90000071; purchase_order PO-A true -368.48 (1)",
 	})
 	f := e.forecastOf(t, "")
 	cad := f["currencies"].([]any)[0].(map[string]any)
@@ -176,7 +185,7 @@ func TestLiquidityForecastOrders(t *testing.T) {
 		}
 		want(t, "the snapshot's order lines", lines, []string{
 			"2026-05-07 OP_SUPPLIERS -50.00 CAD purchase_order PO-B",
-			"2026-05-14 CAPEX -466.48 CAD purchase_order PO-A",
+			"2026-05-14 CAPEX -368.48 CAD purchase_order PO-A",
 			"2026-05-18 OP_SUPPLIERS -117.60 CAD per bucket to 2026-05-21",
 		})
 	})

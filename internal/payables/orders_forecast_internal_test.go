@@ -3,6 +3,7 @@ package payables
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -94,40 +95,93 @@ func (c *codes) TaxCode(context.Context, uuid.UUID, string, time.Time) (ledger.T
 	return c.code, c.ok, c.err
 }
 
-// TestOpenOrderTax: an order's tax is calculated as an invoice's, each
-// code asked for once per read; a code that is not an input code adds
-// none; a failing ledger, or a document the calculator refuses, fails the
-// read; an item whose quantity is not a decimal fails it before.
+// TestOpenOrderTax: an order's tax is calculated per code as an
+// invoice's, each code asked for once per read; a code that is not an
+// input code adds no tax and leaves the other codes' alone; a failing
+// ledger, or a document the calculator refuses, fails the read.
 func TestOpenOrderTax(t *testing.T) {
-	ctx, v1 := context.Background(), "V1"
+	ctx, v1, q9 := context.Background(), "V1", "Q9"
 	input := ledger.TaxCode{Code: "V1", Direction: config.TaxInput, Kind: "standard",
 		Components: []ledger.TaxComponent{{Key: "vat", AccountKey: tax.KeyInput, RecoverablePct: "100", RatePct: "19"}}}
 	v := Invoice{Currency: "EUR", Exponent: 2, Items: []Item{{Amount: 10000, TaxCode: &v1}, {Amount: 5000, TaxCode: &v1}}}
 	reader := func(c *codes, rounding string) openReader {
 		return openReader{e: &Endpoints{Accounts: &taxCodes{Accounts: c, codes: map[string]cachedCode{}}}, settings: config.TaxSettings{Rounding: rounding}}
 	}
-	c := &codes{code: input, ok: true}
-	r := reader(c, "")
-	for range 2 {
-		if got, err := r.gross(ctx, v); err != nil || got != 17850 {
-			t.Errorf("with 19%%: got %d, %v, want 17850", got, err)
+	t.Run("each code asked for once", func(t *testing.T) {
+		c := &codes{code: input, ok: true}
+		r := reader(c, "")
+		for range 2 {
+			got, err := r.gross(ctx, v)
+			if err != nil {
+				t.Fatalf("error: got %v, want none", err)
+			}
+			if got != 17850 {
+				t.Errorf("with 19%%: got %d, want 17850", got)
+			}
 		}
-	}
-	if c.asked != 1 {
-		t.Errorf("the code asked for: got %d times, want once", c.asked)
-	}
-	if got, err := reader(&codes{}, "").gross(ctx, v); err != nil || got != 15000 {
-		t.Errorf("a code that is no input code: got %d, %v, want 15000", got, err)
-	}
-	broken := errors.New("broken")
-	if _, err := reader(&codes{err: broken}, "").gross(ctx, v); !errors.Is(err, broken) {
-		t.Errorf("a failing ledger: got %v, want it wrapped", err)
-	}
-	if _, err := reader(&codes{code: input, ok: true}, "bankers").gross(ctx, v); !errors.Is(err, tax.ErrInvalid) {
-		t.Errorf("a document the calculator refuses: got %v, want tax.ErrInvalid", err)
+		if c.asked != 1 {
+			t.Errorf("the code asked for: got %d times, want once", c.asked)
+		}
+	})
+	t.Run("a code that is no input code beside one that is", func(t *testing.T) {
+		mixed := Invoice{Currency: "EUR", Exponent: 2, Items: []Item{{Amount: 10000, TaxCode: &v1}, {Amount: 1000, TaxCode: &q9}, {Amount: 500}}}
+		r := reader(&codes{code: input, ok: true}, "")
+		r.e.Accounts.(*taxCodes).codes["Q9"] = cachedCode{}
+		got, err := r.gross(ctx, mixed)
+		if err != nil {
+			t.Fatalf("error: got %v, want none", err)
+		}
+		if got != 13400 {
+			t.Errorf("gross: got %d, want 13400 (V1's tax alone)", got)
+		}
+	})
+	t.Run("a failing ledger", func(t *testing.T) {
+		broken := errors.New("broken")
+		if _, err := reader(&codes{err: broken}, "").gross(ctx, v); !errors.Is(err, broken) {
+			t.Errorf("error: got %v, want it wrapped", err)
+		}
+	})
+	t.Run("a document the calculator refuses", func(t *testing.T) {
+		if _, err := reader(&codes{code: input, ok: true}, "bankers").gross(ctx, v); !errors.Is(err, tax.ErrInvalid) {
+			t.Errorf("error: got %v, want tax.ErrInvalid", err)
+		}
+	})
+}
+
+// TestOpenOrderAdvance: the down payments on an order not yet cleared are
+// taken from its earliest documents first, a document they cover in full
+// left out; an item whose quantity is not a decimal fails the read.
+func TestOpenOrderAdvance(t *testing.T) {
+	ctx := context.Background()
+	day := func(d int) *time.Time { t := time.Date(2026, 5, d, 0, 0, 0, 0, time.UTC); return &t }
+	o := procurement.Order{PaymentTermCode: "NT30", Items: []procurement.OrderItem{{ItemNo: 1, Quantity: "1", UnitPrice: 30000, PriceUnit: 1, DeliveryDate: day(1)},
+		{ItemNo: 2, Quantity: "1", UnitPrice: 50000, PriceUnit: 1, DeliveryDate: day(8)}}}
+	r := openReader{terms: map[string]*ledger.ItemTerms{"NT30": nil}}
+	for name, c := range map[string]struct {
+		advance money.Minor
+		want    string
+	}{
+		"none":                 {0, "[2026-05-01 -30000 2026-05-08 -50000]"},
+		"part of the first":    {10000, "[2026-05-01 -20000 2026-05-08 -50000]"},
+		"the first and beyond": {40000, "[2026-05-08 -40000]"},
+		"all of it and more":   {90000, "[]"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			items, err := r.order(ctx, o, nil, c.advance)
+			if err != nil {
+				t.Fatalf("error: got %v, want none", err)
+			}
+			var got []string
+			for _, it := range items {
+				got = append(got, it.DocumentDate.Format(time.DateOnly), fmt.Sprint(int64(it.Amount)))
+			}
+			if s := fmt.Sprint(got); s != c.want {
+				t.Errorf("documents: got %s, want %s", s, c.want)
+			}
+		})
 	}
 	bad := procurement.Order{Items: []procurement.OrderItem{{ItemNo: 1, Quantity: "x", PriceUnit: 1}}}
-	if _, err := r.order(ctx, bad, nil); err == nil {
+	if _, err := r.order(ctx, bad, nil, 0); err == nil {
 		t.Error("an item whose quantity is not a decimal: got no error, want one")
 	}
 }

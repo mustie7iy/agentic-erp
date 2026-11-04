@@ -33,11 +33,13 @@ import (
 // posted, parked and held documents invoice, net of credit memos, with
 // what the source system invoiced before migration, never less than none
 // nor more than ordered, at the item's price per price unit) plus the tax
-// the supplier would charge on them, by their codes on the read date as an
+// the supplier would charge on them, per code on the read date as an
 // invoice's tax is calculated (codesDocument, tax.Calculate); a code that
 // cannot be calculated then (not an input code of the legal entity, no
 // rate, amounts out of range) adds no tax rather than refuse the
-// forecast. The day is the item's delivery date, else the order date plus
+// forecast. The order's down payments not yet cleared (open, forecast as
+// down_payment; paid, out already) are taken off its earliest documents,
+// since its invoice is cleared against them. The day is the item's delivery date, else the order date plus
 // the company's cash.order_lead_days; the order's payment terms count from
 // it (a term not configured: none, so its supplier's net days, as an
 // unposted invoice's). Its lines are its items' accounts and open values
@@ -60,17 +62,44 @@ func (e *Endpoints) OpenOrders(ctx context.Context, legalEntity uuid.UUID, on ti
 	if err != nil {
 		return nil, fmt.Errorf("payables: open purchase orders of %s: %w", legalEntity, err)
 	}
+	advances, err := orderAdvances(ctx, tx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("payables: open purchase orders of %s: %w", legalEntity, err)
+	}
 	r, err := e.openReader(ctx, legalEntity, on)
 	if err != nil {
 		return nil, err
 	}
 	var out []ledger.PayableItem
 	for _, o := range orders {
-		items, err := r.order(ctx, o, invoiced[o.ID])
+		items, err := r.order(ctx, o, invoiced[o.ID], advances[orderCurrency{o.ID, o.Currency}])
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, items...)
+	}
+	return out, nil
+}
+
+// orderCurrency is an order and a currency its down payments are in.
+type orderCurrency struct {
+	order    uuid.UUID
+	currency string
+}
+
+// orderAdvances are the down payments requested on the orders and not yet
+// cleared against an invoice (open: forecast as down_payment; paid: the
+// cash went out, and the order's invoice is cleared against it), tax
+// included, by order and currency: what of an order's open value its
+// invoice will not pay again.
+func orderAdvances(ctx context.Context, tx pgx.Tx, orders []uuid.UUID) (map[orderCurrency]money.Minor, error) {
+	rows, _ := tx.Query(ctx, `SELECT purchase_order_id, currency, sum(amount)::bigint FROM payables.down_payment_request
+		WHERE purchase_order_id = ANY($1) AND status IN ('open', 'paid') GROUP BY 1, 2`, orders)
+	out := map[orderCurrency]money.Minor{}
+	var k orderCurrency
+	var amount money.Minor
+	if _, err := pgx.ForEachRow(rows, []any{&k.order, &k.currency, &amount}, func() error { out[k] = amount; return nil }); err != nil {
+		return nil, fmt.Errorf("down payments of %d orders: %w", len(orders), err)
 	}
 	return out, nil
 }
@@ -130,14 +159,52 @@ func (c *taxCodes) TaxCode(ctx context.Context, legalEntity uuid.UUID, code stri
 }
 
 // order is an order's open value as the items invoicing it would give, one
-// per day its items' invoices are expected, earliest first.
-func (r openReader) order(ctx context.Context, o procurement.Order, invoiced map[int32]string) ([]ledger.PayableItem, error) {
+// per day its items' invoices are expected, earliest first, less the down
+// payments on it not yet cleared (advance), taken from the earliest first
+// and none left below nothing.
+func (r openReader) order(ctx context.Context, o procurement.Order, invoiced map[int32]string, advance money.Minor) ([]ledger.PayableItem, error) {
+	byDay, days, err := r.byDay(o, invoiced)
+	if err != nil || len(days) == 0 {
+		return nil, err
+	}
+	terms, err := r.term(ctx, o.PaymentTermCode)
+	if err != nil {
+		return nil, err
+	}
+	var out []ledger.PayableItem
+	for _, day := range days {
+		v := byDay[day]
+		gross, err := r.gross(ctx, *v)
+		if err != nil {
+			return nil, err
+		}
+		taken := min(gross, advance)
+		gross, advance = gross-taken, advance-taken
+		if gross <= 0 {
+			continue
+		}
+		it := ledger.PayableItem{PartnerID: o.SupplierID, DocumentDate: day, Currency: o.Currency, Amount: -gross, Lines: itemLines(*v),
+			Document: o.ID, Number: o.DocumentNumber}
+		if terms != nil {
+			t := *terms
+			t.BaselineDate = day
+			it.Terms = &t
+		}
+		out = append(out, it)
+	}
+	return out, nil
+}
+
+// byDay are the order's open items grouped by the day their invoice is
+// expected, as the documents invoicing them, and those days, earliest
+// first.
+func (r openReader) byDay(o procurement.Order, invoiced map[int32]string) (map[time.Time]*Invoice, []time.Time, error) {
 	byDay := map[time.Time]*Invoice{}
 	var days []time.Time
 	for _, it := range o.Items {
 		open, err := openValue(it, invoiced[it.ItemNo])
 		if err != nil {
-			return nil, fmt.Errorf("payables: open value of item %d of purchase order %s: %w", it.ItemNo, o.ID, err)
+			return nil, nil, fmt.Errorf("payables: open value of item %d of purchase order %s: %w", it.ItemNo, o.ID, err)
 		}
 		if open == 0 {
 			continue
@@ -148,37 +215,15 @@ func (r openReader) order(ctx context.Context, o procurement.Order, invoiced map
 		}
 		v := byDay[day]
 		if v == nil {
-			v = &Invoice{ID: o.ID, LegalEntityID: o.LegalEntityID, Currency: o.Currency}
+			v = &Invoice{ID: o.ID, Kind: KindInvoice, LegalEntityID: o.LegalEntityID, Currency: o.Currency}
 			byDay[day] = v
 			days = append(days, day)
 		}
 		account := it.AccountID
 		v.Items = append(v.Items, Item{Amount: open, AccountID: &account, TaxCode: it.TaxCode})
 	}
-	if len(days) == 0 {
-		return nil, nil
-	}
 	slices.SortFunc(days, func(a, b time.Time) int { return a.Compare(b) })
-	terms, err := r.term(ctx, o.PaymentTermCode)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]ledger.PayableItem, len(days))
-	for i, day := range days {
-		v := byDay[day]
-		gross, err := r.gross(ctx, *v)
-		if err != nil {
-			return nil, err
-		}
-		out[i] = ledger.PayableItem{PartnerID: o.SupplierID, DocumentDate: day, Currency: o.Currency, Amount: -gross, Lines: itemLines(*v),
-			Document: o.ID, Number: o.DocumentNumber}
-		if terms != nil {
-			t := *terms
-			t.BaselineDate = day
-			out[i].Terms = &t
-		}
-	}
-	return out, nil
+	return byDay, days, nil
 }
 
 // openValue is what of an order item is not invoiced yet: its price per
@@ -228,33 +273,53 @@ func (r openReader) term(ctx context.Context, code string) (*ledger.ItemTerms, e
 }
 
 // gross is the open items' value plus the tax the supplier would charge on
-// them on the read date, the value alone when it cannot be calculated
-// (readCharged) or the sum is out of range.
+// them on the read date, calculated per tax code as an invoice's is
+// (codesDocument, tax.Calculate, which rounds each code's tax on its own):
+// a code that cannot be calculated then (not an input code of the legal
+// entity, no rate, amounts out of range: readCharged) adds no tax, the
+// other codes theirs; the value alone when the sum is out of range.
 func (r openReader) gross(ctx context.Context, v Invoice) (money.Minor, error) {
 	amounts := make([]money.Minor, len(v.Items))
+	byCode := map[string][]Item{}
+	var codes []string
 	for i, it := range v.Items {
 		amounts[i] = it.Amount
+		if it.TaxCode == nil {
+			continue
+		}
+		if _, ok := byCode[*it.TaxCode]; !ok {
+			codes = append(codes, *it.TaxCode)
+		}
+		byCode[*it.TaxCode] = append(byCode[*it.TaxCode], it)
 	}
 	// Each item's open value is at most its ordered value, and the order's
 	// total of those is in range (procurement's checkTotal).
-	net, _ := money.Sum(amounts...)
-	coded := codedItems(v)
-	if len(coded) == 0 {
-		return net, nil
+	gross, _ := money.Sum(amounts...)
+	for _, code := range codes {
+		one := v
+		one.Items = byCode[code]
+		charged, ok, err := r.codeTax(ctx, one)
+		if err != nil {
+			return 0, fmt.Errorf("payables: tax %s of purchase order %s: %w", code, v.ID, err)
+		}
+		gross = withTax(gross, charged, ok)
+	}
+	return gross, nil
+}
+
+// codeTax is the tax the supplier charges on the items of one tax code on
+// the read date; ok = false when it cannot be calculated then.
+func (r openReader) codeTax(ctx context.Context, v Invoice) (money.Minor, bool, error) {
+	coded := make([]int, len(v.Items))
+	for i := range coded {
+		coded[i] = i
 	}
 	doc, unknown, err := r.e.codesDocument(ctx, v, r.on, coded, r.settings)
-	if err != nil {
-		return 0, fmt.Errorf("payables: tax of purchase order %s: %w", v.ID, err)
-	}
-	if unknown >= 0 {
-		return net, nil
+	if err != nil || unknown >= 0 {
+		return 0, false, err
 	}
 	res, err := tax.Calculate(doc)
-	charged, ok, err := readCharged(res.Items, err)
-	if err != nil {
-		return 0, fmt.Errorf("payables: tax of purchase order %s: %w", v.ID, err)
-	}
-	return withTax(net, charged, ok), nil
+	return readCharged(res.Items, err)
 }
 
 // withTax is the value plus the tax when there is one, the value alone

@@ -1140,63 +1140,65 @@ type Handler interface {
 	// T53g), the open value of the released purchase orders: each item's ordered quantity less what its
 	// supplier documents posted, parked or on hold invoice (net of credit memos, with what the source
 	// system invoiced before migration), at its price, plus the tax its tax code gives on the read date
-	// (the tax the supplier charges, as an invoice's is calculated; a code that cannot be calculated then
-	// adds none); its invoice is expected on the item's `delivery_date`, else the order date plus the
-	// company's `cash.order_lead_days` (default 30), and paid by the order's payment terms from that day
-	// (a term not configured: its supplier's net days) by the same rule as `payable`, an order's items
-	// expected on one day being one document; closed, cancelled, draft or fully invoiced orders add
-	// nothing; netted per supplier and currency among themselves. A supplier blocked for payment or
-	// posting, inactive, or not set up in the company is paid by no run: its items, unposted invoices,
-	// requests and open orders are `payable_blocked` (each keeping its own certainty), on their net due
-	// date (a request's due date; an overdue one on the read date), at what they owe then, netted as a run
-	// would, apart from the totals: listed in each bucket's flows and summed per currency in `blocked`,
-	// but counted in the buckets' `total`s, the currency's `total` and `beyond` only with
-	// `include_blocked=true`. Amounts are signed: a payment out is negative. Each currency gives its flows
-	// per bucket by source, certainty and lateness with the bucket's total, the total over the horizon,
-	// and what is expected after the last bucket (`beyond`, in no bucket). Each currency also gives its
-	// rows by liquidity item and its hierarchy (`items`, T53e3; ADR-0051 §4, §9): every flow is split
-	// over the liquidity items (`cash.liquidity_items`) its documents derive by the configuration's
-	// `cash.derivation`: a supplier payment over the documents it pays, each at what the payment pays of
-	// it, and each document over its offsetting lines (a posted item's expense, asset and tax lines, an
-	// unposted invoice's items; never the supplier's line nor a withholding tax withheld at invoice), in
-	// proportion to their signed amounts, a line taking the item of the first account rule covering its
-	// account, else its supplier's planning group's, else the default of the flow's direction; a tax line
-	// follows the base lines of its tax code in proportion to their amounts, and a self-assessed pair
-	// (`self_output`/`self_input` of a reverse charge or import code), which moves no cash, is left out
-	// before the split. A down payment request, and a run's payment of one, has no lines and takes its
-	// supplier's planning group's item or the default. Each split rounds once to minor units by largest
-	// remainder (ties to the item named first), so an item's shares add up to the flow. Each row gives the
-	// item's code, name, parent and level, its flows and its descendants' per bucket (`buckets`, in the
-	// forecast's buckets' order), over the horizon (`total`) and after the last bucket (`beyond`), counted
-	// as the buckets' totals count them, so the top rows add up to each bucket's `total`, and the item's
-	// own flows by source and certainty; a row without `liquidity_item` holds what no rule assigns and no
-	// default covers. `min_certainty` cuts the less certain flows (actual, confirmed, expected, planned;
-	// default planned, every flow). T53e4 adds two sources, the opening position, one grain over a range,
-	// conversion and drill-down. `in_transit` (`confirmed`): the payments released from the company's
-	// active house banks whose line on the bank's clearing account is still open and that no statement
-	// line up to the bank's opening statement matches, as in the cash position (`getCashPosition`), on
-	// their run date plus the bank's value days moved to the next working day, `late` before the read
-	// date. `memo`: the `active` memo records of the legal entity, with or without a house bank, at their
-	// own certainty and liquidity item, each on its value date moved to the next working day (`late`
-	// before the read date) and not after it expires; a series' occurrences up to the last bucket's end,
-	// each once (an override replacing its occurrence), a one-off record also after the last bucket
-	// (`beyond`). Each currency gives its `opening`, the cash position's opening of the read date: the sum
-	// of its active house banks' latest statement closing balances before the read date (zero without a
-	// bank; a currency with a bank and no flow is listed too), and each bucket its `closing`, the opening
-	// plus the bucket's `total` and those of every bucket before it. `grain` with `to` asks for one grain
-	// over a range instead of the company's buckets: periods of the grain from the read date up to the one
-	// holding `to`, at most 92 days, 104 weeks or 36 months (the configuration's limits); one without the
-	// other, a `to` before the read date or more periods are 422. `display_currency` adds `converted`
-	// (ADR-0051 §10): each currency's opening, buckets' totals and `beyond` converted into it at one rate
-	// for every bucket, the latest of the company's `cash.rate_type` valid on the read date (default
-	// `planning`; with no planning rate, `average`), each amount rounded once to the display currency's
-	// minor unit, half away from zero, then summed over the currencies; the converted `closing` is the
-	// converted opening plus the converted totals so far, so it adds up as the currencies' own do. A rate
-	// valid from more than `cash.rate_max_age_days` (default 7) before the read date is used and marked
-	// `stale`; a currency without a rate is left out of the converted figures and listed in
-	// `incomplete_currencies` (its own figures stand), never counted as zero. A display currency the
-	// reference data does not know is 422 `cash.unknown_currency`. The flows and documents behind a bucket
-	// and liquidity item are `listLiquidityForecastFlows`. A legal entity the caller cannot act in is 404.
+	// (the tax the supplier charges, as an invoice's is calculated, per code; a code that cannot be
+	// calculated then adds none), less the order's down payment requests not yet cleared (open ones are
+	// `down_payment` flows of their own), taken from its earliest invoices first; its invoice is expected
+	// on the item's `delivery_date`, else the order date plus the company's `cash.order_lead_days`
+	// (default 30), and paid by the order's payment terms from that day (a term not configured: its
+	// supplier's net days) by the same rule as `payable`, an order's items expected on one day being one
+	// document; closed, cancelled, draft or fully invoiced orders add nothing; netted per supplier and
+	// currency among themselves. A supplier blocked for payment or posting, inactive, or not set up in the
+	// company is paid by no run: its items, unposted invoices, requests and open orders are
+	// `payable_blocked` (each keeping its own certainty), on their net due date (a request's due date; an
+	// overdue one on the read date), at what they owe then, netted as a run would, apart from the totals:
+	// listed in each bucket's flows and summed per currency in `blocked`, but counted in the buckets'
+	// `total`s, the currency's `total` and `beyond` only with `include_blocked=true`. Amounts are signed:
+	// a payment out is negative. Each currency gives its flows per bucket by source, certainty and
+	// lateness with the bucket's total, the total over the horizon, and what is expected after the last
+	// bucket (`beyond`, in no bucket). Each currency also gives its rows by liquidity item and its
+	// hierarchy (`items`, T53e3; ADR-0051 §4, §9): every flow is split over the liquidity items
+	// (`cash.liquidity_items`) its documents derive by the configuration's `cash.derivation`: a supplier
+	// payment over the documents it pays, each at what the payment pays of it, and each document over its
+	// offsetting lines (a posted item's expense, asset and tax lines, an unposted invoice's items; never
+	// the supplier's line nor a withholding tax withheld at invoice), in proportion to their signed
+	// amounts, a line taking the item of the first account rule covering its account, else its supplier's
+	// planning group's, else the default of the flow's direction; a tax line follows the base lines of its
+	// tax code in proportion to their amounts, and a self-assessed pair (`self_output`/`self_input` of a
+	// reverse charge or import code), which moves no cash, is left out before the split. A down payment
+	// request, and a run's payment of one, has no lines and takes its supplier's planning group's item or
+	// the default. Each split rounds once to minor units by largest remainder (ties to the item named
+	// first), so an item's shares add up to the flow. Each row gives the item's code, name, parent and
+	// level, its flows and its descendants' per bucket (`buckets`, in the forecast's buckets' order), over
+	// the horizon (`total`) and after the last bucket (`beyond`), counted as the buckets' totals count
+	// them, so the top rows add up to each bucket's `total`, and the item's own flows by source and
+	// certainty; a row without `liquidity_item` holds what no rule assigns and no default covers.
+	// `min_certainty` cuts the less certain flows (actual, confirmed, expected, planned; default planned,
+	// every flow). T53e4 adds two sources, the opening position, one grain over a range, conversion and
+	// drill-down. `in_transit` (`confirmed`): the payments released from the company's active house banks
+	// whose line on the bank's clearing account is still open and that no statement line up to the bank's
+	// opening statement matches, as in the cash position (`getCashPosition`), on their run date plus the
+	// bank's value days moved to the next working day, `late` before the read date. `memo`: the `active`
+	// memo records of the legal entity, with or without a house bank, at their own certainty and liquidity
+	// item, each on its value date moved to the next working day (`late` before the read date) and not
+	// after it expires; a series' occurrences up to the last bucket's end, each once (an override
+	// replacing its occurrence), a one-off record also after the last bucket (`beyond`). Each currency
+	// gives its `opening`, the cash position's opening of the read date: the sum of its active house
+	// banks' latest statement closing balances before the read date (zero without a bank; a currency with
+	// a bank and no flow is listed too), and each bucket its `closing`, the opening plus the bucket's
+	// `total` and those of every bucket before it. `grain` with `to` asks for one grain over a range
+	// instead of the company's buckets: periods of the grain from the read date up to the one holding
+	// `to`, at most 92 days, 104 weeks or 36 months (the configuration's limits); one without the other, a
+	// `to` before the read date or more periods are 422. `display_currency` adds `converted` (ADR-0051
+	// §10): each currency's opening, buckets' totals and `beyond` converted into it at one rate for every
+	// bucket, the latest of the company's `cash.rate_type` valid on the read date (default `planning`;
+	// with no planning rate, `average`), each amount rounded once to the display currency's minor unit,
+	// half away from zero, then summed over the currencies; the converted `closing` is the converted
+	// opening plus the converted totals so far, so it adds up as the currencies' own do. A rate valid from
+	// more than `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`; a
+	// currency without a rate is left out of the converted figures and listed in `incomplete_currencies`
+	// (its own figures stand), never counted as zero. A display currency the reference data does not know
+	// is 422 `cash.unknown_currency`. The flows and documents behind a bucket and liquidity item are
+	// `listLiquidityForecastFlows`. A legal entity the caller cannot act in is 404.
 	//
 	// GET /v1/liquidity-forecast
 	GetLiquidityForecast(ctx context.Context, params GetLiquidityForecastParams) (GetLiquidityForecastRes, error)
