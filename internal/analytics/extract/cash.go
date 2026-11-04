@@ -52,7 +52,9 @@ type CashActuals interface {
 
 // ExtractActor is the principal the run asks the cash context as, in every
 // tenant: a system actor, never a token holder.
-var ExtractActor = uuid.NewSHA1(uuid.NameSpaceURL, []byte("urn:agentic-erp:analytics-extract"))
+func ExtractActor() uuid.UUID {
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("urn:agentic-erp:analytics-extract"))
+}
 
 // cashActual is a row of dataset cash_actuals v1
 // (analytics/datasets/v1/cash_actuals.yaml).
@@ -92,7 +94,7 @@ func (r *run) cashActuals(ctx context.Context, tx pgx.Tx) error {
 	if err != nil {
 		return fmt.Errorf("%s: companies: %w", cashActualsDataset, err)
 	}
-	ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), reqctx.Principal{ID: ExtractActor, Kind: reqctx.KindSystem, TenantID: r.tenant})
+	ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), reqctx.Principal{ID: ExtractActor(), Kind: reqctx.KindSystem, TenantID: r.tenant})
 	var all []cashActual
 	for _, co := range companies {
 		shares, err := r.x.Cash.ExtractActualShares(ctx, co.ID)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // The actuals as the analytical store holds them (ADR-0044, ADR-0051 §6,
@@ -54,6 +55,9 @@ var (
 // cash.forecast.read. A legal entity the caller cannot act in is not
 // found.
 func (e *Endpoints) ActualShares(ctx context.Context, legalEntity uuid.UUID) ([]ActualShare, error) {
+	if _, _, err := reqctx.Request(ctx); err != nil {
+		return nil, err
+	}
 	co, err := e.company(ctx, legalEntity)
 	if err != nil {
 		return nil, err

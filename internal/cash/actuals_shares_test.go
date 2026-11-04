@@ -102,16 +102,10 @@ func TestActualSharesFailures(t *testing.T) {
 		_, err := endpoints(nil).ExtractActualShares(ctx, e.le)
 		return err
 	}
-	// The caller's company access is read first (authz), the extract's
-	// legal entity from the directory.
-	for name, c := range map[string]struct {
-		read    func(ctx context.Context) error
-		outside string
-	}{"as the caller": {caller, "authz: no transaction and principal"}, "as the extract": {extract, reqctx.ErrOutsideRequest.Error()}} {
+	for name, read := range map[string]func(ctx context.Context) error{"as the caller": caller, "as the extract": extract} {
 		t.Run(name, func(t *testing.T) {
-			read := c.read
-			if err := read(context.Background()); err == nil || !strings.Contains(err.Error(), c.outside) {
-				t.Errorf("outside a unit of work: got %v, want %q", err, c.outside)
+			if err := read(context.Background()); !errors.Is(err, reqctx.ErrOutsideRequest) {
+				t.Errorf("outside a unit of work: got %v, want reqctx.ErrOutsideRequest", err)
 			}
 			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, read)
 		})

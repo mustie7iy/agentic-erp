@@ -207,6 +207,9 @@ func actualBuckets(from, to time.Time, grain string) ([]Bucket, error) {
 // is from from to to and classifies each by the active derivation; a
 // legal entity the caller cannot act in is not found.
 func (e *Endpoints) readActuals(ctx context.Context, legalEntity uuid.UUID, from, to time.Time) (actualsRead, error) {
+	if _, _, err := reqctx.Request(ctx); err != nil {
+		return actualsRead{}, err
+	}
 	co, err := e.company(ctx, legalEntity)
 	if err != nil {
 		return actualsRead{}, err

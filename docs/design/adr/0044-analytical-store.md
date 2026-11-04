@@ -686,6 +686,16 @@ ADR or existing behaviour:
   lines matched, excluded or posted) and `config` (derivation rules, house
   banks) mark a tenant due; `cash`'s own events (memo records, snapshots,
   comments) change no dataset yet.
+- *Held whole, at pilot scale.* The run holds the tenant's shares of
+  every value date in memory before writing them, and the database path
+  classifies a legal entity's whole history on each query, as
+  `getCashActuals` classifies a range: a pilot's statements are a few
+  thousand lines a year. A tenant whose history outgrows that is the
+  trigger for reading the shares by month (the extract) or by the query's
+  value dates (the database path).
+- *Simulated by currency.* A metric change's simulation breaks `actual`
+  down by company, currency and fiscal year, so one company's currencies
+  are values of their own.
 - *Errors.* Actuals whose classification goes out of the range of an
   amount stop the run and refuse the query, `runAnalyticsQuery` answering
   422 `cash.amount_too_large`, as `getCashActuals` does.

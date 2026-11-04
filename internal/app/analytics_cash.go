@@ -21,6 +21,8 @@ type AnalyticsCash struct{ e *cash.Endpoints }
 // NewAnalyticsCash is the cash actuals of the cash context as cfg wires it.
 func NewAnalyticsCash(cfg Config) AnalyticsCash { return AnalyticsCash{e: Cash(cfg)} }
 
+// ActualShares implements analytics.CashActuals: the semantic layer's
+// database path, as the caller.
 func (c AnalyticsCash) ActualShares(ctx context.Context, legalEntity uuid.UUID) ([]analytics.CashShare, error) {
 	shares, err := c.e.ActualShares(ctx, legalEntity)
 	out := make([]analytics.CashShare, len(shares))
@@ -30,6 +32,8 @@ func (c AnalyticsCash) ActualShares(ctx context.Context, legalEntity uuid.UUID) 
 	return out, err
 }
 
+// ExtractActualShares implements extract.CashActuals: the store's extract,
+// in its run.
 func (c AnalyticsCash) ExtractActualShares(ctx context.Context, legalEntity uuid.UUID) ([]extract.CashShare, error) {
 	shares, err := c.e.ExtractActualShares(ctx, legalEntity)
 	out := make([]extract.CashShare, len(shares))
