@@ -10,7 +10,9 @@ cd "$(dirname "$0")/../temporal"
 GOLANGCI="${GOLANGCI:-go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0}"
 : "${DATABASE_URL:?DATABASE_URL: the test PostgreSQL (make db-up)}"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# shellcheck source=scripts/lib/on-exit.sh
+. ../scripts/lib/on-exit.sh
+on_exit 'rm -rf "$work"'
 
 go vet ./...
 $GOLANGCI run --allow-parallel-runners --config ../.golangci.yml ./...
@@ -22,3 +24,4 @@ if [ "$total" != "100.0%" ]; then
   exit 1
 fi
 echo "temporal-checks: vet, lint and tests pass; statement coverage $total"
+finished

@@ -27,7 +27,9 @@ export CRANE="${CRANE:-crane}" SYFT="${SYFT:-syft}" COSIGN="${COSIGN:-cosign}"
 work="$(mktemp -d)"
 # shellcheck source=scripts/lib/registry.sh
 . "$root/scripts/lib/registry.sh"
-trap 'stop_registry; rm -rf "$work"' EXIT
+# shellcheck source=scripts/lib/on-exit.sh
+. "$root/scripts/lib/on-exit.sh"
+on_exit 'stop_registry; rm -rf "$work"'
 cd "$work"
 start_registry "$work"
 export REGISTRY="$registry" INSECURE=true
@@ -201,3 +203,4 @@ echo '{"buildDefinition":' >out/provenance/erp-broken.json
 if ERP_COSIGN_KEY=keys/cosign.key PROVENANCE=build-a.json "$root/scripts/sign-images.sh" out >broken.log 2>&1; then fail "a broken copy provenance was signed past"; fi
 grep -q "no single readable copy" broken.log || { cat broken.log >&2; fail "a broken copy provenance failed without the reason"; }
 echo "test-mirror-images: another digest, copy and build in one, a build at two commits or whose checkout state jq fails to read, two copies of one digest and an unreadable copy are refused"
+finished

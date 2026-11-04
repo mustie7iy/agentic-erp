@@ -1273,6 +1273,88 @@ companies (all in the tenant, under RLS). A registration change is financial
     period's return reports 1031 (10.00), and the latest period's then
     reports 1039 alone (50.00).
 
+- **As built (T61j, migrations 000214-000215): the GST/HST return.**
+  Decided by default from this section, §9, P4, P7 and the sign-off
+  precedent of T62g/T62h, each listed for the product owner to overrule.
+  - **The lines.** Canada pack 2026.6 is 2026.5 plus `returns.yaml`, the
+    return type `GST34` (a registration's `return_type`), its 18 lines in
+    one list whose order is the key: a draft shows them in it and a
+    stored return keeps it (`tax_return_box.box_no`); each box's `code`
+    is the line's number (`101`, `113a`). What a line means is the
+    Context's record of the CRA's instructions (lines 101-111, 205, 405,
+    114 refund, 115 owing; 105 = 103 + 104, 108 = 106 + 107, 109 = 105 -
+    108), whose page is now the pack's first source, as the Context cites
+    it (not fetched again). The Context names 112, 113A, 113B and 113C
+    a paper return's subtotals without their sums: their sums (110 + 111,
+    109 - 112, 205 + 405, 113A + 113B) and 114 and 115 as 113C's negative
+    and positive part are written from memory, and their labels say so,
+    pending the tax specialist. 205 and 405 come before 113B, which reads
+    them (an expression reads earlier lines only). 114 and 115 are the
+    first lines that are not linear, so an expression box's derived
+    figures are now differences of evaluations (review round 1): its
+    earlier-period part is its value less its value without the earlier
+    periods' items, and an amendment's own figure is its corrected
+    figure less the amended return's; for linear boxes both are what
+    T61h and T61i computed. `TestGST34Golden`: the second quarter owes
+    120.00, of which -10.00 from a late ITC, 114 0.00 with no earlier
+    part; an amendment reversing an import and an instalment turns the
+    first quarter's refund of 783.00 into 167.00 owing, its 114 -783.00
+    and 115 167.00.
+  - **The mapping.** GST and HST are the components keyed `gst` and `hst`,
+    as the pack's codes key them, so QST and the provincial sales taxes
+    are on no line (and are not claimed by this registration's return:
+    §11 As built, T61i). 101 sums the base of output items of kinds
+    standard, zero and exempt; 103 the output tax of standard ones; 106
+    the part recovered of input items (`input`, and a self-assessed
+    claim's `self_input`, as §9 has for 405) of kinds standard,
+    reverse_charge and import. A self-assessed tax keys its owed part
+    (`self_output`) after its line: `gst_405`, `hst_405` (405) and
+    `gst_205`, `hst_205` (205). Out-of-scope supplies are on no line, and
+    revenue posted without a GST/HST code is not in 101.
+  - **Adjustments** (the last bullet above) are a code kind of their own,
+    `adjustment` (config, the calculator, `ledger.tax_code_definition`
+    and `ledger.tax_item` by 000214, widened NOT VALID and validated by
+    000215; the contract's item `kind` gains the value): tax alone, its
+    rates 0, its tax what the manual entry posts on the component's
+    account (an entry of tax lines and no base, as §7 As built already
+    posts). An output code increases the net tax (104), an input code
+    decreases it (107), and input codes keyed `instalment` and `rebate`
+    are 110 and 111. The capture never proposes one for a printed 0%
+    (`payables.proposeCode`): it is no document's code.
+  - **Not signed off.** 2026.6 carries no `sign_off` (production refuses
+    to apply it, 409 `config.pack_not_signed_off`; 2026.5 stays the
+    signed-off version): the specialist confirms the lines, the sums from
+    memory and the mapping, listed in `packs/ca/TAX-PENDING-T61j.md`,
+    which `TestCanadaPackGST34` holds the pack to; the sign-off is a later
+    version, its own tracker leaf (split from T61j), as T62h was.
+  - **The FPZ-500 is not built.** P4 (b) includes it only if the pilot
+    company is registered in Quebec, which the pilot has not said, and
+    the Context records none of its lines (Unsure list): nothing is
+    written from memory; its own tracker leaf waits for the specialist's
+    line list and the pilot's registrations.
+  - **Golden test** (`TestGST34Golden`, taxfiling): a worked quarter of
+    Maple Inc on the released pack, through the API against PostgreSQL:
+    sales with HST, GST, zero-rated, exempt, out of scope and in Quebec,
+    a credit note, a sale posted twice and reversed, supplier invoices
+    with GST, HST, QST, BC PST, imported services (405, 60% claimed) and
+    real property (205) self-assessed, the CBSA's GST on an import, an
+    adjustment each way, an instalment and a rebate: 101 4,400.00, 103
+    260.00, 106 943.00, 109 -698.00, 113C -783.00, a refund of 783.00;
+    prepared, the lines keep their order and the QST, PST and
+    out-of-scope items stay unclaimed; the next quarter owes 120.00 with
+    a late ITC shown apart.
+  - **Walkthrough.** A released pack now defines the return, so the
+    walkthrough applies the latest released Canada pack (2026.6) and its
+    illustrative `scripts/walkthrough/returns.yaml` and unreleased copy
+    are gone (`ERP_PACKS_DIR` stays for demonstrations and tests). Step 11
+    computes, prepares and files the GST34's lines, with an adjustment
+    (107) and an instalment (110) Carla enters for the latest period.
+  - **Rolling upgrade (06 §6.4).** 000214 widens the checks and the
+    previous release never writes the kind (its configuration refuses
+    it), so it runs ahead of the code; an adjustment code is configured
+    once the rollout is complete, as an instance of the previous release
+    validating that document would refuse it.
+
 ### 12. Audit
 Every change of a registration, code or rate is a configuration change request
 (audit, approvals, simulation); every tax item is written with its entry (the
@@ -1345,7 +1427,7 @@ coverage 100%, reviewer) like every step.
 | T61h (done) | **The return engine** | `returns.yaml` in the pack schema (boxes as item selections or CEL expressions over boxes), validated and hashed with the pack; a draft return for a registration and period computed from unreported items, with prior-period items shown apart; every box drills to items; `GET /v1/tax-returns:compute` (contract first, `tax.return.read`; built as `GET /v1/tax-registrations/{id}/draft-return`, §11 As built) |
 | T61i (done) | **Return lifecycle** | `tax.tax_return` with snapshot (box values, item ids, hash, pack version); prepare (needs closed periods; sets `reported_in` under a registration lock, once), approve (another person, approvals context), file (a person records the confirmation; locks the periods via T32), withdraw, amendment; human-only transitions; audit and outbox events; run-twice tests for any worker; immutability trigger on filed snapshots |
 | T61o (done) | **Chosen tax dates held to open returns** (P6; product owner 2026-11-01) | A manual entry with tax, and a supplier invoice whose tax date a person set, dated in a period whose return is prepared, approved or filed is refused with 409 `ledger.tax_date_in_return` naming the period, return and status; dates the document decides are not held, so late items reach the amendment; a post racing a prepare serializes on the registration; walkthrough step 11 |
-| T61j | **GST/HST return for Canada** | The GST34 lines in the Canada pack's `returns.yaml` (101-115 incl. 205 and 405), golden tests from a worked set of invoices, entries and adjustments, signed off by the tax specialist; the FPZ-500 (GST/HST + QST) if P4 includes it |
+| T61j (done, not signed off) | **GST/HST return for Canada** | The GST34 lines in the Canada pack's `returns.yaml` (101-115 incl. 205 and 405), golden tests from a worked set of invoices, entries and adjustments, signed off by the tax specialist; the FPZ-500 (GST/HST + QST) if P4 includes it |
 | T61k | **VAT 201 for the UAE** | Boxes 1a-14 in the UAE pack (with T62f), emirate by the registration's fixed establishment, Box 6/7 from import entries, golden tests, specialist sign-off; checked against the EmaraTax form labels |
 | T61l | **Tax agent** | Prepares draft returns, explains variances against the last period and the tax accounts, proposes adjustment entries (parked) and code corrections; evaluation suite (ADR-0039); never transitions a return |
 | T61m | **Engine connector port** (deferred unless P1 says otherwise) | Quote stored on parked documents, posting uses the stored quote, commit through the outbox; a fake engine in tests; provider recorded in this ADR when chosen |
@@ -1465,7 +1547,9 @@ confirm or for the tax specialist stand confirmed.
   Executive Regulation's Art. 51, 53 and 59 texts, the UAE documentary tier
   (`pending_sign_off`, §6 As built), UAE rounding, and the FTA's side of
   the amended return. For Canada, the GST34 lines (T61j) and the FPZ-500
-  lines (P4) are signed off with the step that writes them.
+  lines (P4) are signed off with the step that writes them. (T61j wrote
+  the GST34's lines in Canada 2026.6, unsigned; what the specialist
+  confirms is in `packs/ca/TAX-PENDING-T61j.md`, §11 As built, T61j.)
 - **Still open (questions the approval of what exists does not answer):**
   the registration number formats (§10 As built, its own tracker leaf); the
   authorities' due dates (§10, not built), the Context's "one month after

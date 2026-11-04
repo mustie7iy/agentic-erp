@@ -59984,8 +59984,9 @@ type TaxReturnBox struct {
 	Kind string `json:"kind"`
 	// The box's value, prior-period items included.
 	Amount Money `json:"amount"`
-	// The part of `amount` from prior-period items; of an expression box, its expression over the earlier
-	// boxes' prior-period parts.
+	// The part of `amount` from prior-period items; of an expression box, its value less its value without
+	// those items (the expression over the earlier boxes' parts when it is linear; not for a line's
+	// positive or negative part, such as a balance owing).
 	PriorPeriodAmount Money `json:"prior_period_amount"`
 	// The items a selection box sums; absent for an expression box.
 	ItemCount OptInt64 `json:"item_count"`
@@ -60921,7 +60922,9 @@ type TaxReturnSnapshotBox struct {
 	// earlier boxes. Open enumeration: clients must accept and preserve values not listed here; values may
 	// be added within /v1.
 	Kind string `json:"kind"`
-	// The box's value from this return's items, prior-period items included: an amendment's correction.
+	// The box's value from this return's items, prior-period items included: an amendment's correction,
+	// which of an expression box is its `corrected_amount` less the amended return's (so a refund turned
+	// into a balance owing shows the refund's fall and the balance's rise).
 	Amount Money `json:"amount"`
 	// The part of `amount` from prior-period items.
 	PriorPeriodAmount Money `json:"prior_period_amount"`

@@ -16,6 +16,7 @@ defaults:
   sales: revenue
   spend: purchase_order_value
   profit: operating_profit
+  forecast: forecast_lag_7
 
 dimensions:
   - {name: company, label: Company code}
@@ -36,6 +37,10 @@ dimensions:
   - {name: match, label: Classified by, description: "What classified a bank statement line: payment, posting_rule, incoming, excluded, or unmatched (no decided match yet, its direction's default item)"}
   - {name: liquidity_item, label: Liquidity item, description: "The liquidity item's code; empty for a share of no item"}
   - {name: liquidity_item_name, label: Liquidity item name}
+  - {name: source, label: Forecast source, description: "Where a forecast flow came from: in_transit, payment_run, memo, payable, payable_blocked (a supplier blocked for payment), invoice_unposted, down_payment or purchase_order (ADR-0051 §4)"}
+  - {name: certainty, label: Certainty, description: "How certain a forecast flow was: actual, confirmed, expected or planned"}
+  - {name: lag_days, label: Lag in days, description: "The days from a snapshot's date to the value date it forecast"}
+  - {name: blocked, label: Blocked supplier, description: "Whether a forecast flow was owed to a supplier blocked for payment (source payable_blocked), which the forecast's totals leave out"}
 
 metrics:
   - name: revenue
@@ -141,3 +146,36 @@ metrics:
     aggregate: sum
     sign: 1
     dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, house_bank, match, liquidity_item, liquidity_item_name]
+
+  - name: forecast_lag_0
+    label: Forecast on the day
+    description: What the liquidity forecast expected to move on each value date, read from the company's snapshot taken on the value date itself (its daily snapshot, else the last taken on demand that day), in each flow's own currency, every certainty counted and what blocked suppliers were owed left out, as the forecast's totals; money in is positive, money out negative. Each day's figure is of the snapshot taken that day, so a week or a month adds days forecast by different snapshots, unlike the variance report, which compares one snapshot over its period.
+    synonyms: [same-day forecast, forecast lag 0]
+    type: money
+    source: cash_snapshots
+    aggregate: sum
+    sign: 1
+    filter: {lag_days: ["0"], blocked: ["false"]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, house_bank, source, certainty, liquidity_item, liquidity_item_name]
+
+  - name: forecast_lag_7
+    label: Forecast a week ahead
+    description: What the liquidity forecast expected to move on each value date, read from the company's snapshot taken seven days before the value date (its daily snapshot, else the last taken on demand that day), in each flow's own currency, every certainty counted and what blocked suppliers were owed left out, as the forecast's totals; money in is positive, money out negative. Each day's figure is of the snapshot seven days before, so a week or a month adds days forecast by different snapshots, unlike the variance report, which compares one snapshot over its period.
+    synonyms: [cash forecast, forecast a week ahead, forecast lag 7]
+    type: money
+    source: cash_snapshots
+    aggregate: sum
+    sign: 1
+    filter: {lag_days: ["7"], blocked: ["false"]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, house_bank, source, certainty, liquidity_item, liquidity_item_name]
+
+  - name: forecast_lag_30
+    label: Forecast a month ahead
+    description: What the liquidity forecast expected to move on each value date, read from the company's snapshot taken 30 days before the value date (its daily snapshot, else the last taken on demand that day), in each flow's own currency, every certainty counted and what blocked suppliers were owed left out, as the forecast's totals; money in is positive, money out negative. Each day's figure is of the snapshot 30 days before, so a week or a month adds days forecast by different snapshots, unlike the variance report, which compares one snapshot over its period.
+    synonyms: [forecast a month ahead, forecast lag 30]
+    type: money
+    source: cash_snapshots
+    aggregate: sum
+    sign: 1
+    filter: {lag_days: ["30"], blocked: ["false"]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, value_date, house_bank, source, certainty, liquidity_item, liquidity_item_name]

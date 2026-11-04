@@ -5,7 +5,9 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# shellcheck source=scripts/lib/on-exit.sh
+. "$root/scripts/lib/on-exit.sh"
+on_exit 'rm -rf "$work"'
 failed=0
 
 # A stand-in for gh: the last green commit on main is FAKE_GREEN, given
@@ -191,4 +193,5 @@ if (cd "$repo" && EVENT=pull_request BASE="$base" HEAD=deadbeefdeadbeefdeadbeefd
 else
   echo "ok   a comparison git cannot make fails the script"
 fi
+finished
 exit "$failed"

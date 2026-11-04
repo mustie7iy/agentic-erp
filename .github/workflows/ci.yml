@@ -67,12 +67,15 @@ jobs:
           range="${BASE:-$BEFORE}..HEAD"
           if [ -z "${BASE}${BEFORE}" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then range="HEAD~1..HEAD"; fi
           gitleaks git --redact --no-banner --log-opts="--no-merges $range" .
-      - name: The skip rules' own tests, and each-module.sh's
+      - name: The skip rules' own tests, each-module.sh's and on-exit.sh's
         # Seconds: the decision below is only as good as these. The second
-        # holds that the static checks reach every Go module (06 §6.5).
+        # holds that the static checks reach every Go module (06 §6.5); the
+        # third that a script stopped by an unbound variable never exits 0
+        # (scripts/lib/on-exit.sh).
         run: |
           ./scripts/test-ci-changes.sh
           ./scripts/test-each-module.sh
+          ./scripts/test-on-exit.sh
       - name: Does the suite have to run?
         id: decide
         env:

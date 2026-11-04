@@ -198,7 +198,7 @@ func (e *Endpoints) claim(ctx context.Context, s *returnScope, pr *prepared) err
 	if err != nil {
 		return err
 	}
-	corrected, err := s.corrected(ctx, pr.amended, all)
+	corrected, all, err := s.corrected(ctx, pr.amended, all)
 	if err != nil {
 		return err
 	}
@@ -219,13 +219,18 @@ func (e *Endpoints) claim(ctx context.Context, s *returnScope, pr *prepared) err
 	return nil
 }
 
-// corrected is every box's figure for the period after the return: an
-// original's own values; an amendment's selection boxes the amended
-// return's corrected figures plus its own, its expression boxes computed
-// from those.
-func (s *returnScope) corrected(ctx context.Context, amended *Return, all map[string]money.Minor) (map[string]money.Minor, error) {
+// corrected is every box's figure for the period after the return, and
+// the return's own figures: an original's own values for both; an
+// amendment's selection boxes the amended return's corrected figures plus
+// its own, its expression boxes computed from those, and its own figure
+// of an expression box its corrected figure less the amended return's.
+// That is the expression over its own items' sums only when it is linear;
+// a refund or balance owing (a line's negative or positive part, GST34's
+// 114 and 115) is not, so a correction turning a refund into a balance
+// owing gives the refund's fall and the balance's rise.
+func (s *returnScope) corrected(ctx context.Context, amended *Return, all map[string]money.Minor) (corrected, own map[string]money.Minor, err error) {
 	if amended == nil {
-		return all, nil
+		return all, all, nil
 	}
 	before := map[string]money.Minor{}
 	for _, b := range amended.Boxes {
@@ -238,15 +243,26 @@ func (s *returnScope) corrected(ctx context.Context, amended *Return, all map[st
 		}
 		v, err := money.Sum(before[b.Code], all[b.Code])
 		if err != nil {
-			return nil, fmt.Errorf("taxfiling: amendment of %s box %s: %w", amended.ID, b.Code, err)
+			return nil, nil, fmt.Errorf("taxfiling: amendment of %s box %s: %w", amended.ID, b.Code, err)
 		}
 		sel[b.Code] = v
 	}
-	out, err := s.def.Evaluate(ctx, sel)
-	if err != nil {
-		return nil, fmt.Errorf("taxfiling: amendment of %s: %w", amended.ID, err)
+	corrected, err = s.def.Evaluate(ctx, sel)
+	var diff map[string]money.Minor
+	if err == nil {
+		diff, err = difference(corrected, before)
 	}
-	return out, nil
+	if err != nil {
+		return nil, nil, fmt.Errorf("taxfiling: amendment of %s: %w", amended.ID, err)
+	}
+	own = make(map[string]money.Minor, len(all))
+	for _, b := range s.def.Boxes {
+		own[b.Code] = all[b.Code]
+		if b.Select == nil {
+			own[b.Code] = diff[b.Code]
+		}
+	}
+	return corrected, own, nil
 }
 
 // itemsHash is the SHA-256, in hex, of the claimed items' keys and local

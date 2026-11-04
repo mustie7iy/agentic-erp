@@ -226,6 +226,8 @@ func TestRefusals(t *testing.T) {
 		{"rate not a decimal", tax.Document{}, tax.ErrInvalidCode, bad(one(vat(undated("5%"))))},
 		{"zero code with a rate", tax.Document{}, tax.ErrInvalidCode,
 			bad(tax.Code{Code: "X", Kind: "zero", Components: []tax.Component{vat(undated("5"))}})},
+		{"adjustment code with a rate", tax.Document{}, tax.ErrInvalidCode,
+			bad(tax.Code{Code: "X", Kind: tax.KindAdjustment, Components: []tax.Component{vat(undated("5"))}})},
 		{"recoverable above 100", tax.Document{}, tax.ErrInvalidCode, bad(one(comp("vat", "", tax.KeyInput, "100.5", undated("5"))))},
 		{"recoverable missing", tax.Document{}, tax.ErrInvalidCode, bad(one(comp("vat", "", tax.KeyInput, "", undated("5"))))},
 		{"self_output alone", tax.Document{}, tax.ErrInvalidCode, bad(one(comp("o", "", tax.KeySelfOutput, "100", undated("5"))))},

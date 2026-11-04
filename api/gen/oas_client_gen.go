@@ -1123,7 +1123,9 @@ type Invoker interface {
 	// class. `class` keeps one class's rows. `totals` sums every row the filters select, on every page.
 	// `ledger_id` defaults to the leading ledger; one the company does not keep is 422
 	// `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page
-	// token is issued only by asset. A legal entity the caller cannot act in is 404. Reads only.
+	// token is issued only by asset. Read from one database state (a repeatable-read snapshot), so
+	// `totals` and the page agree whatever posts meanwhile. A legal entity the caller cannot act in is
+	// 404. Reads only.
 	//
 	// GET /v1/asset-history-sheet
 	GetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (GetAssetHistorySheetRes, error)
@@ -3179,7 +3181,8 @@ type Invoker interface {
 	// `ledger.no_fiscal_period`. Whether the period is open and runs' order are the run's checks. An asset
 	// of a class the active configuration no longer gives the company fails the preview (422
 	// `assets.class_unknown`, `assets.class_not_in_company`), as it would fail the run. A legal entity the
-	// caller cannot act in is 404. Reads only; every agent autonomy level may call it.
+	// caller cannot act in is 404. Read from one database state (a repeatable-read snapshot), so `totals`
+	// and the page agree whatever posts meanwhile. Reads only; every agent autonomy level may call it.
 	//
 	// POST /v1/depreciation-runs/preview
 	PreviewDepreciationRun(ctx context.Context, request *DepreciationRunPreviewRequest, params PreviewDepreciationRunParams) (PreviewDepreciationRunRes, error)
@@ -3707,12 +3710,16 @@ type Invoker interface {
 	// read is 403 as that read is, and the store answers only a caller who holds the permissions of those
 	// reads; the cash actuals (metric `actual`, ADR-0051 §11) are read as `getCashActuals` classifies
 	// them, with `cash.forecast.read`, and name no supplier, so a query of them alone needs no
-	// `partner.supplier.read`; actuals adding up to more than an amount can hold are 422
-	// `cash.amount_too_large`. A tenant without a configuration is 409 `config.not_bootstrapped`. A query
-	// the semantic layer refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two
-	// currencies summed) is 422 `analytics.invalid_query`; too many queries answering at once on the
-	// server is 503 `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may
-	// run it.
+	// `partner.supplier.read`; so are the forecast's metrics (`forecast_lag_0`, `forecast_lag_7`,
+	// `forecast_lag_30`, ADR-0051 §6), each value date's flows as the company's snapshot taken that many
+	// days before it kept them (its daily snapshot, else the last taken on demand that day; at document
+	// level, blocked suppliers' flows left out), so a week or a month adds days of different snapshots,
+	// unlike `getLiquidityForecastVariance`, which compares one snapshot over its period; actuals adding
+	// up to more than an amount can hold are 422 `cash.amount_too_large`. A tenant without a configuration
+	// is 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or
+	// dimension, a filter it cannot apply, amounts of two currencies summed) is 422
+	// `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy`
+	// with `Retry-After`. Changes nothing: agents of any autonomy level may run it.
 	//
 	// POST /v1/analytics-queries
 	RunAnalyticsQuery(ctx context.Context, request *AnalyticsQuery, params RunAnalyticsQueryParams) (RunAnalyticsQueryRes, error)
@@ -18370,7 +18377,9 @@ func (c *Client) sendGetAssetAcquisition(ctx context.Context, params GetAssetAcq
 // class. `class` keeps one class's rows. `totals` sums every row the filters select, on every page.
 // `ledger_id` defaults to the leading ledger; one the company does not keep is 422
 // `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page
-// token is issued only by asset. A legal entity the caller cannot act in is 404. Reads only.
+// token is issued only by asset. Read from one database state (a repeatable-read snapshot), so
+// `totals` and the page agree whatever posts meanwhile. A legal entity the caller cannot act in is
+// 404. Reads only.
 //
 // GET /v1/asset-history-sheet
 func (c *Client) GetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (GetAssetHistorySheetRes, error) {
@@ -56297,7 +56306,8 @@ func (c *Client) sendPrepareTaxReturn(ctx context.Context, request *TaxReturnPre
 // `ledger.no_fiscal_period`. Whether the period is open and runs' order are the run's checks. An asset
 // of a class the active configuration no longer gives the company fails the preview (422
 // `assets.class_unknown`, `assets.class_not_in_company`), as it would fail the run. A legal entity the
-// caller cannot act in is 404. Reads only; every agent autonomy level may call it.
+// caller cannot act in is 404. Read from one database state (a repeatable-read snapshot), so `totals`
+// and the page agree whatever posts meanwhile. Reads only; every agent autonomy level may call it.
 //
 // POST /v1/depreciation-runs/preview
 func (c *Client) PreviewDepreciationRun(ctx context.Context, request *DepreciationRunPreviewRequest, params PreviewDepreciationRunParams) (PreviewDepreciationRunRes, error) {
@@ -62655,12 +62665,16 @@ func (c *Client) sendRotateWebhookSubscriptionSecret(ctx context.Context, params
 // read is 403 as that read is, and the store answers only a caller who holds the permissions of those
 // reads; the cash actuals (metric `actual`, ADR-0051 §11) are read as `getCashActuals` classifies
 // them, with `cash.forecast.read`, and name no supplier, so a query of them alone needs no
-// `partner.supplier.read`; actuals adding up to more than an amount can hold are 422
-// `cash.amount_too_large`. A tenant without a configuration is 409 `config.not_bootstrapped`. A query
-// the semantic layer refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two
-// currencies summed) is 422 `analytics.invalid_query`; too many queries answering at once on the
-// server is 503 `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may
-// run it.
+// `partner.supplier.read`; so are the forecast's metrics (`forecast_lag_0`, `forecast_lag_7`,
+// `forecast_lag_30`, ADR-0051 §6), each value date's flows as the company's snapshot taken that many
+// days before it kept them (its daily snapshot, else the last taken on demand that day; at document
+// level, blocked suppliers' flows left out), so a week or a month adds days of different snapshots,
+// unlike `getLiquidityForecastVariance`, which compares one snapshot over its period; actuals adding
+// up to more than an amount can hold are 422 `cash.amount_too_large`. A tenant without a configuration
+// is 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or
+// dimension, a filter it cannot apply, amounts of two currencies summed) is 422
+// `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy`
+// with `Retry-After`. Changes nothing: agents of any autonomy level may run it.
 //
 // POST /v1/analytics-queries
 func (c *Client) RunAnalyticsQuery(ctx context.Context, request *AnalyticsQuery, params RunAnalyticsQueryParams) (RunAnalyticsQueryRes, error) {

@@ -209,7 +209,8 @@ func TestAssetHistorySheet(t *testing.T) {
 
 // totalsDiffer counts the tenant's asset year totals and class year totals
 // that differ from the sums of the movements they total (ADR-0057 §5),
-// either way.
+// either way, and the terms whose depreciation booked differs from minus
+// the sum of their asset's depreciation movements in their ledger (T57f3).
 func totalsDiffer(t *testing.T, tenant uuid.UUID) int {
 	t.Helper()
 	var differences int
@@ -226,7 +227,9 @@ func totalsDiffer(t *testing.T, tenant uuid.UUID) int {
 			transferred_cost::numeric AS t, depreciation::numeric AS d, retired_accumulated::numeric AS ra, transferred_accumulated::numeric AS ta
 			FROM assets.class_year_total WHERE tenant_id = $1)
 		SELECT (SELECT count(*) FROM ((SELECT * FROM m EXCEPT SELECT * FROM y) UNION ALL (SELECT * FROM y EXCEPT SELECT * FROM m)) a)
-			+ (SELECT count(*) FROM ((SELECT * FROM c EXCEPT SELECT * FROM k) UNION ALL (SELECT * FROM k EXCEPT SELECT * FROM c)) b)`,
+			+ (SELECT count(*) FROM ((SELECT * FROM c EXCEPT SELECT * FROM k) UNION ALL (SELECT * FROM k EXCEPT SELECT * FROM c)) b)
+			+ (SELECT count(*) FROM assets.asset_terms t WHERE t.tenant_id = $1 AND t.booked_depreciation <> -(SELECT coalesce(sum(d.accumulated), 0)
+				FROM assets.movement d WHERE d.tenant_id = t.tenant_id AND d.asset_id = t.asset_id AND d.ledger_id = t.ledger_id AND d.kind = 'depreciation'))`,
 		[]any{tenant}, &differences)
 	return differences
 }

@@ -24,7 +24,9 @@ cleanup() {
   docker network rm "$PREFIX" >/dev/null 2>&1 || true
   rm -rf "$dir"
 }
-trap cleanup EXIT
+# shellcheck source=scripts/lib/on-exit.sh
+. scripts/lib/on-exit.sh
+on_exit cleanup
 
 ready() { # container port
   for _ in $(seq 1 120); do
@@ -84,3 +86,4 @@ ERP_FAILOVER_PGBOUNCER_INI="$dir/pgbouncer.ini" \
 ERP_FAILOVER_REPLICA_HOST="$PREFIX-replica" \
 ERP_FAILOVER_PRIMARY_CONTAINER="$PREFIX-primary" \
   go test -count=1 -v -timeout 10m ./internal/nfr -run '^TestResilienceDatabaseFailover$'
+finished

@@ -186,12 +186,13 @@ func newApp(t *testing.T, pool *database.Pool, also ...*authntest.Issuer) *app {
 	})
 	isolation := func(w http.ResponseWriter, r *http.Request) {
 		tx, _ := reqctx.TxFrom(r.Context()) // the unit of work always sets it before the handler runs
-		var level string
-		a.check(tx.QueryRow(r.Context(), `SHOW transaction_isolation`).Scan(&level))
+		var level, readOnly string
+		a.check(tx.QueryRow(r.Context(), `SELECT current_setting('transaction_isolation'), current_setting('transaction_read_only')`).Scan(&level, &readOnly))
 		w.Header().Set("Content-Type", "application/json")
-		a.check(json.NewEncoder(w).Encode(level))
+		a.check(json.NewEncoder(w).Encode(level + ", read only " + readOnly))
 	}
 	mux.HandleFunc("GET /isolation", isolation)
+	mux.HandleFunc("POST /isolation", isolation)
 	mux.HandleFunc("GET /snapshot", isolation)
 	mux.HandleFunc("POST /snapshot", isolation)
 	mux.HandleFunc("GET /missing", func(w http.ResponseWriter, r *http.Request) {
@@ -455,9 +456,10 @@ func TestSafeRequests(t *testing.T) {
 	}
 }
 
-// TestSnapshotRequests: a safe request the Snapshot hook marks reads at
-// REPEATABLE READ, any other request at READ COMMITTED; an unsafe request
-// is never marked, whatever the hook says.
+// TestSnapshotRequests: a request the Snapshot hook marks reads at
+// REPEATABLE READ, any other request at READ COMMITTED; a marked unsafe
+// request (a read the contract carries in a POST, x-autonomy: read) stays
+// read-write, as its idempotency record is written in it.
 func TestSnapshotRequests(t *testing.T) {
 	a := newApp(t, pgtest.Pool(t))
 	a.mw.Snapshot = func(r *http.Request) bool { return r.URL.Path == "/snapshot" }
@@ -465,9 +467,10 @@ func TestSnapshotRequests(t *testing.T) {
 	for _, c := range []struct {
 		name, method, path, want string
 	}{
-		{"marked", "GET", "/snapshot", "repeatable read"},
-		{"not marked", "GET", "/isolation", "read committed"},
-		{"unsafe", "POST", "/snapshot", "read committed"},
+		{"marked", "GET", "/snapshot", "repeatable read, read only on"},
+		{"not marked", "GET", "/isolation", "read committed, read only on"},
+		{"unsafe marked", "POST", "/snapshot", "repeatable read, read only off"},
+		{"unsafe not marked", "POST", "/isolation", "read committed, read only off"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			r := a.in(t).do(call{method: c.method, path: c.path, key: "snapshot-" + uuid.NewString(), tenant: ten.ID, subject: ten.Human.Subject})

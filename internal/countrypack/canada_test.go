@@ -245,8 +245,7 @@ func TestCanadaPack2026_4(t *testing.T) {
 // Canada 2026.5 is 2026.4 signed off (T62h): every file but pack.yaml is
 // 2026.4's byte for byte, and the manifest differs only in its version
 // and the sign-off (its header comment aside), the tax
-// specialist's as the product owner reported it on 2026-11-02. It is the
-// latest Canada pack.
+// specialist's as the product owner reported it on 2026-11-02.
 func TestCanadaPack2026_5(t *testing.T) {
 	lib, err := LoadAll(packs.FS)
 	if err != nil {
@@ -267,9 +266,6 @@ func TestCanadaPack2026_5(t *testing.T) {
 	if !reflect.DeepEqual(&unsigned, prev) {
 		t.Error("2026.5 without its version and sign-off: got other than 2026.4, want it unchanged")
 	}
-	if got := lib.Latest("CA"); got != ca {
-		t.Errorf("Latest(CA): got %s, want ca/2026.5", got.Dir())
-	}
 	files, err := fs.ReadDir(packs.FS, "ca/2026.5")
 	if err != nil {
 		t.Fatalf("ReadDir(ca/2026.5): %v", err)
@@ -288,5 +284,111 @@ func TestCanadaPack2026_5(t *testing.T) {
 				t.Error("got other bytes than 2026.4's, want the same file")
 			}
 		})
+	}
+}
+
+// Canada 2026.6 is 2026.5 plus the GST/HST return (T61j): every file but
+// pack.yaml is 2026.5's byte for byte and returns.yaml is new; the
+// manifest is 2026.5's but for its version, the source of the return's
+// lines and no sign-off (its header comment aside), as the tax specialist
+// has not confirmed the return. It is the latest Canada pack and defines
+// the return type GST34.
+func TestCanadaPack2026_6(t *testing.T) {
+	lib, err := LoadAll(packs.FS)
+	if err != nil {
+		t.Fatalf("LoadAll(packs.FS): %v", err)
+	}
+	prev, ca := lib.Get("CA", "2026.5"), lib.Get("CA", "2026.6")
+	if prev == nil || ca == nil {
+		t.Fatalf("Get(CA, 2026.5) and Get(CA, 2026.6): got %v and %v, want both", prev, ca)
+	}
+	if ca.SignedOff() {
+		t.Error("SignedOff: got true, want false until the tax specialist confirms the return")
+	}
+	if got := lib.Latest("CA"); got != ca {
+		t.Errorf("Latest(CA): got %s, want ca/2026.6", got.Dir())
+	}
+	if ca.Return("GST34") == nil || len(prev.Returns.Returns) != 0 {
+		t.Errorf("returns: got %d in 2026.5 and GST34 %v in 2026.6, want none and the return", len(prev.Returns.Returns), ca.Return("GST34") != nil)
+	}
+	if got, want := ca.Manifest.Sources[0].URL, gst34Source; got != want {
+		t.Errorf("the first source: got %s, want %s", got, want)
+	}
+	same := *ca
+	same.Manifest.Version, same.Manifest.SignOff, same.Manifest.Sources = prev.Manifest.Version, prev.Manifest.SignOff, ca.Manifest.Sources[1:]
+	same.Returns = prev.Returns
+	if !reflect.DeepEqual(&same, prev) {
+		t.Error("2026.6 without its version, sign-off, the return and its source: got other than 2026.5, want it unchanged")
+	}
+	files, err := fs.ReadDir(packs.FS, "ca/2026.6")
+	if err != nil {
+		t.Fatalf("ReadDir(ca/2026.6): %v", err)
+	}
+	for _, f := range files {
+		if f.Name() == "pack.yaml" || f.Name() == "returns.yaml" {
+			continue
+		}
+		t.Run(f.Name(), func(t *testing.T) {
+			was, errWas := fs.ReadFile(packs.FS, "ca/2026.5/"+f.Name())
+			is, errIs := fs.ReadFile(packs.FS, "ca/2026.6/"+f.Name())
+			if errWas != nil || errIs != nil {
+				t.Fatalf("read: got %v and %v, want the file in both versions", errWas, errIs)
+			}
+			if string(was) != string(is) {
+				t.Error("got other bytes than 2026.5's, want the same file")
+			}
+		})
+	}
+}
+
+// gst34Source is the CRA's instructions for the GST/HST return, which
+// ADR-0049 records the lines from.
+const gst34Source = "https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/calculate-prepare-report/instructions-preparing-return.html"
+
+var pendingLine = regexp.MustCompile(`^\| ([0-9]{3}[A-C]?) \| ([0-9a-z]+) \| ([^|]+) \| (ADR-0049|memory) \|$`)
+
+// TestCanadaPackGST34: the GST34 of Canada 2026.6 has the lines of
+// packs/ca/TAX-PENDING-T61j.md in its order, each box coded as the table
+// codes it; a line whose sum is from memory says so in its label and is an
+// expression, and the file cites the source the manifest lists.
+func TestCanadaPackGST34(t *testing.T) {
+	lib, err := LoadAll(packs.FS)
+	if err != nil {
+		t.Fatalf("LoadAll(packs.FS): %v", err)
+	}
+	ca := lib.Get("CA", "2026.6")
+	if ca == nil || ca.Return("GST34") == nil {
+		t.Fatal("Get(CA, 2026.6).Return(GST34): got none, want the GST/HST return")
+	}
+	def := ca.Return("GST34")
+	b, err := fs.ReadFile(packs.FS, "ca/TAX-PENDING-T61j.md")
+	if err != nil {
+		t.Fatalf("read the pending file: %v", err)
+	}
+	var rows [][]string
+	for _, line := range strings.Split(string(b), "\n") {
+		if m := pendingLine.FindStringSubmatch(line); m != nil {
+			rows = append(rows, m)
+		} else if strings.HasPrefix(line, "| ") && !strings.HasPrefix(line, "| Line ") {
+			t.Errorf("a table row the test cannot read: %q", line)
+		}
+	}
+	if len(rows) != len(def.Boxes) {
+		t.Fatalf("lines: got %d in the file and %d in the pack, want the same", len(rows), len(def.Boxes))
+	}
+	for i, r := range rows {
+		box := def.Boxes[i]
+		t.Run(r[1], func(t *testing.T) {
+			if box.Code != r[2] || !strings.EqualFold(r[1], r[2]) {
+				t.Errorf("box %d: got %s, want %s (line %s)", i, box.Code, r[2], r[1])
+			}
+			memory := strings.Contains(box.Label, "from memory, pending the tax specialist")
+			if memory != (r[4] == "memory") || (memory && box.Select != nil) {
+				t.Errorf("label %q and expression %v: got the basis %s, want a memory line marked in its label and computed from others", box.Label, box.Select == nil, r[4])
+			}
+		})
+	}
+	if !strings.Contains(string(b), gst34Source) {
+		t.Errorf("the pending file: got no link to %s, want the source", gst34Source)
 	}
 }

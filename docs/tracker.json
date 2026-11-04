@@ -1178,6 +1178,20 @@
        },
        {
         "s": "D",
+        "t": "The depreciation run's preview within the report class's p95 of 1 s over 100,000 assets, every page, its contract unchanged (T57f2 met only the p99; the p95 stands, coordinator 2026-11-04): the depreciation booked per asset and ledger kept on its terms by every posting, the moves read from a covering index, the selection planned by hash with the assets ranked by number; the preview's 01 §1.3 row",
+        "r": "migrations 000211 (asset_terms.booked_depreciation, backfilled), 000212 (movement_moves_covering, concurrently), 000213 (drops movement_moves_by_asset) · internal/assets (keepBooked in keepTotals; readMoves beside the schedule's readMovements, ids as pgtype.UUID; selectDepreciable: booked from the terms, the latest assignments by DISTINCT ON with the tenant, the rank by number, the columns every difference needs; pageNames; PlannedThrough; Terms.depreciated; grouped) · TestDepreciationRunBudget at the report class's p95 · TestAssetTermsBookedBackfilled · totalsDiffer counts the kept amounts · TestDepreciationActivitiesRunTwice compares them · 01 §1.3 · 03-data-model §3.21 · ADR-0057 (as built, T57f3) · T57f3",
+        "src": "review:T57f",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "The depreciation run's preview and the asset history sheet read in one snapshot (review finding on T57f3, a step of T57f's): the preview's selection with the depreciation booked, its moves and its page's names, and the sheet's totals and its page by asset, are separate statements, so a posting committed between them could leave one response's totals disagreeing with its own figures; both are marked x-snapshot, which now allows a read carried in a POST (x-autonomy: read)",
+        "r": "api/openapi.yaml (previewDepreciationRun, getAssetHistorySheet: x-snapshot) · api/spec.go (x-snapshot on GET or x-autonomy: read) · uow.Middleware.scope (a marked POST at REPEATABLE READ, read-write) · app.Config.Begin, httpapi.Pipeline.Begin (tests) · TestPreviewInOneSnapshot, TestAssetHistorySheetInOneSnapshot, TestSnapshotOperations, TestSnapshotRequests · 04-api-design §4.7 · ADR-0051 (one snapshot, as built) · ADR-0057 (as built, the preview's snapshot)",
+        "src": "review:T57f",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "Long-running jobs refuse a deactivated requester (pre-existing security finding on T57f; PO decision 2026-11-03: deactivated requesters are refused): every step that does deferred work as its requester (a migration run, a payment proposal and release, a simulation, a depreciation run's plan, batches and finish; workflow and in-process runners alike) first calls identity.Actors.MayAct, which refuses a requester blocked or deprovisioned since the start with 403 identity.principal_blocked, not retried; the job fails through its existing problem path, audited and recorded as the requester, its earlier postings kept and its slot freed (a migration run back to queued, a release left releasing for :release)",
         "r": "internal/identity/directory.go Actors.MayAct · internal/workflows (working, Depreciations.acting) · integration prepareAs · payments mayAct · configuration simulation · ADR-0012 As built · ADR-0057 As built · 04 §4.8",
         "src": "review:T57f · po:2026-11-03",
@@ -1454,6 +1468,13 @@
        },
        {
         "s": "D",
+        "t": "Group liquidity forecast reads the clock once (review round 1 nits on T53e5): every company's read date and the group's buckets were dates at separate readings, so a read across midnight started the buckets on one day and read a company on the next; and the directory adapter's legal entities answer nothing with an error",
+        "r": "cash.Endpoints.GroupForecast, members, groupOf, addCompany, readForecastOf (instant now passed in) · internal/app cashCompanies.Entities · TestGroupLiquidityForecastOneReading · ADR-0051 (as built, T53e5) · T53e5",
+        "src": "review:T53e5",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "Snapshots of the liquidity forecast: TakeCashSnapshot workflow per company and day after its snapshot_time (run-twice test, document level within 31 days, per bucket beyond), on-demand snapshots, retention of 25 months, a snapshot read with its lines (split: the actuals, the variance and its comments are T53f2-T53f4)",
         "r": "POST/GET /v1/cash-snapshots, GET /v1/cash-snapshots/{id}, GET /v1/cash-snapshots/{id}/flows (CashSnapshot, CashSnapshotFlowPage) · CashSnapshotTaken event · migration 000198 (cash.snapshot, cash.snapshot_flow, cash.snapshot.take) · cash.Endpoints.TakeSnapshot, TakeDailySnapshot, PruneSnapshots, DueSnapshots, SnapshotTenants, Snapshot, Snapshots, SnapshotLines · uow.Consistent · workflows.TakeCashSnapshot, Snapshots, Snapshotter, Dispatcher.Snapshots · TestCashSnapshotRules, TestCashSnapshotPrivileges, TestCashSnapshot*, TestConsistentRead, TestTakeCashSnapshot, TestTakeSnapshotTwice, TestDispatchSnapshots, TestSnapshotter · walkthrough step 26 · ADR-0051 (as built, T53f) · 03-data-model §3.18 · T53f",
         "src": "baseline",
@@ -1523,10 +1544,17 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Analytics, the forecast: dataset cash_snapshots (contract file, one row per line at document level of each company's snapshot of each date, the daily one else the last taken on demand, with lag_days = value_date - snapshot_date; read by the cash context through the actuals' ports, extracted in the tenant's run; the relay marks a tenant due for the cash context's events), semantic dimensions source and certainty, metrics forecast_lag_0, forecast_lag_7 and forecast_lag_30 (one lag each, blocked suppliers' flows left out); no partner.supplier.read; parity, isolation and tamper tests",
+        "r": "analytics/datasets/v1/cash_snapshots.yaml · semantic.yaml forecast_lag_0/7/30, source, certainty, lag_days, blocked · cash.ForecastShares, ExtractForecastShares, snapshotPreferred, asCaller, asExtract · analytics.Cash, ForecastShare · extract.Cash, ForecastShare, cashForecast, cashOf · app.AnalyticsCash · extract changing cash · runAnalyticsQuery description · TestForecastShares, TestForecastSharesFailures, TestCashForecast, TestCashForecastFailures, TestMarksTheCashChanged, TestSourceReadsCashForecast, TestSourceForecastErrors, TestParity (forecast, permissions, isolation) · walkthrough step 38 · ADR-0044 (As built T53j2) · ADR-0051 §6 (As built T53j2) · 03-data-model §3.18 · T53j2",
+        "src": "split:T53j · po:2026-11-04 · adr:ADR-0051",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Analytics, the forecast: dataset cash_snapshots (contract file, extraction in the tenant's run; the relay marks a tenant due for the cash context's snapshot events), semantic dimensions source and certainty, metrics forecast, variance and accuracy; isolation tests passing; waits for the product owner on how accuracy is computed and how the forecast's lag is represented",
-        "r": "T53j",
-        "src": "baseline",
+        "t": "Analytics, the forecast's variance and accuracy: metrics variance (actual less forecast) and accuracy at each of the lags 0, 7 and 30 over the cash_actuals and cash_snapshots datasets; accuracy = 100 - WAPE, WAPE = sum of |actual - forecast| / sum of |forecast| over item x currency x day cells (for one cell, 100 less the variance report's variance_percent), rounded as money.AbsPercentOf (product owner 2026-11-04); how the per-cell absolute value is built in the semantic layer (a new aggregate kind or a dataset at cell grain) decided by default in ADR-0044's As built, one mechanism; parity, isolation and tamper tests; a walkthrough step through runAnalyticsQuery",
+        "r": "T53j · T53j3",
+        "src": "adr:ADR-0051 · po:2026-11-04",
         "c": []
        },
        {
@@ -2087,10 +2115,26 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "GST/HST return for Canada: the GST34 lines in the Canada pack, plus the FPZ-500 (GST/HST and QST) for a Quebec registrant (P4); golden tests, tax specialist sign-off",
-        "r": "T61j",
+        "s": "D",
+        "t": "GST/HST return for Canada: the GST34 lines in the Canada pack (2026.6, returns.yaml: 101-115 incl. 205 and 405, in one list whose order the stored return keeps), the tax codes of kind adjustment for 104, 107, 110 and 111, golden tests from a worked quarter of invoices, entries, adjustments and a reversal; not signed off (the sign-off and the FPZ-500 are leaves of their own, split from T61j)",
+        "r": "packs/ca/2026.6 · packs/released.sha256 · packs/ca/TAX-PENDING-T61j.md · TestCanadaPack2026_6 · TestCanadaPackGST34 · config.TaxAdjustment · db/migrations/000214-000215 · payables.proposeCode · TestGST34Golden · ADR-0049 §11 As built (T61j) · ADR-0048 · walkthrough step 11 · T61j",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0049",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "GST/HST return signed off by the tax specialist before the pilot: a new Canada pack version with sign_off (a released version never changes), after the specialist confirms 2026.6's GST34 lines, the sums of 112, 113A, 113B, 113C, 114 and 115 written from memory, and how the tenant's codes map to the lines (packs/ca/TAX-PENDING-T61j.md)",
+        "r": "after T61j · ADR-0049 §11 As built (T61j) · ADR-0048",
+        "src": "split:T61j · adr:ADR-0049",
+        "pilot": "po:2026-10-31 · adr:ADR-0048",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "FPZ-500 (GST/HST and QST) for a Quebec registrant (P4 (b)): the return's lines in the Canada pack once the tax specialist states them from Revenu Québec's form (ADR-0049 records none) and the pilot says whether its company is registered in Quebec; golden tests, sign-off",
+        "r": "after T61j · ADR-0049 P4, Unsure list, §11 As built (T61j)",
+        "src": "split:T61j · adr:ADR-0049",
         "pilot": "po:2026-10-31 · adr:ADR-0049",
         "c": []
        },
@@ -9696,6 +9740,20 @@
       "t": "The browser tests' company choice (choose) waits for htmx to settle, not for the swapped content alone (the lines added or left out already wait for the autofocus htmx gives in the same settle step): htmx puts the content in at once but processes it (its hx- attributes' listeners, its autofocus) only as the swap settles, 20 ms or more later, so an amount typed in that window sent no request and TestEntryFormJobsInTheBrowser's running totals stayed at zero under the whole tree's race run (batch 52 ci-local); choose returns only once no element is htmx-request, htmx-swapping, htmx-settling or htmx-added (htmxSettled), and the test passes with the settle delay raised to 3 s, where it failed without the wait",
       "r": "internal/web/e2e e2e_test.go htmxSettled · entry_test.go choose · TestEntryFormJobsInTheBrowser",
       "src": "review:batch52",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "The design documents' tables and the data model checked by go test ./docs (batch 53's integration dropped five rows of 03 §3.21's table in a merge resolution and left prose and a blank line in it, seen only by the reviewer): every table in docs/design and its ADRs has a header, a delimiter row and rows of the header's width, with no text line inside it, no rows cut off from their header and no table split in two by blank lines alone; every table db/migrations leaves standing (CREATE TABLE net of DROP and RENAME) is named in 03-data-model.md, qualified anywhere or bare in its schema's section; the tables found unnamed (config.active_version, config.regression_suite, config.regression_case, and the analytics schema's four, now §3.23) and three malformed ADR tables (0050, 0057, 0058) fixed",
+      "r": "docs/tables_test.go TestDesignTablesWellFormed · TestDataModelNamesEveryTable · TestTableProblemsBatch53 · docs/design/03-data-model.md §3.5, §3.23",
+      "src": "review:batch53",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A walkthrough or gate script stopped by an unbound variable exits non-zero: macOS's bash 3.2 ran the EXIT trap with status 0 after an expansion error under set -u, so make walkthrough exited 0 after stopping on CA_PACK; the scripts clean up through scripts/lib/on-exit.sh (on_exit, finished), which turns a status-0 exit before finished into 1, and the walkthrough also stops on a check failed in a command substitution and on a step that did not pass or skip exactly once, and says none failed only when every step of the story ran (WALKTHROUGH_UNTIL runs say how many did)",
+      "r": "scripts/lib/on-exit.sh · scripts/test-on-exit.sh · scripts/walkthrough.sh ran, summary · cmd/erp TestWalkthroughExitStatus · the 19 scripts with a cleanup trap · 06 §6.5",
+      "src": "review:T61j",
       "c": []
      }
     ]

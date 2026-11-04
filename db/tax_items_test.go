@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -637,4 +638,53 @@ func TestLineJurisdictionRules(t *testing.T) {
 		}
 		return err
 	})
+}
+
+// TestTaxAdjustmentKind: a code of kind adjustment (ADR-0049 §11, T61j,
+// migrations 000214-000215) is tax alone: an entry of its tax line has its
+// item of that kind, with no base; a kind the list does not hold is
+// refused on the item (TestTaxCodeSchema refuses it on the code).
+func TestTaxAdjustmentKind(t *testing.T) {
+	need(t)
+	s := newTaxScene(t)
+	var kind string
+	var base, tax int64
+	mustApp(t, s.tenant, func(tx pgx.Tx) error {
+		je, err := s.header(tx, true)
+		if err == nil {
+			err = all(tx,
+				step(`INSERT INTO ledger.tax_code_definition (tenant_id, legal_entity_id, code, description, direction, kind, created_by, updated_by)
+					VALUES ($1, $2, 'A7', 'Adjustment decreasing net tax', 'input', 'adjustment', $3, $3)`, s.tenant, s.entity, s.actor),
+				step(`INSERT INTO ledger.tax_component (tenant_id, legal_entity_id, code, component, account_key, recoverable_pct, account_id, created_by, updated_by)
+					VALUES ($1, $2, 'A7', 'gst', 'input', 100, $3, $4, $4)`, s.tenant, s.entity, s.tax, s.actor),
+				step(`INSERT INTO ledger.tax_rate (tenant_id, id, legal_entity_id, code, component, valid_from, rate_pct, created_by)
+					VALUES ($1, gen_random_uuid(), $2, 'A7', 'gst', '2026-01-01', 0, $3)`, s.tenant, s.entity, s.actor))
+		}
+		if err == nil {
+			err = s.taxLine(tx, je, 1, s.bank, -2500, "")
+		}
+		if err == nil {
+			err = s.taxLine(tx, je, 2, s.tax, 2500, "A7")
+		}
+		if err == nil {
+			err = exec(tx, `SELECT ledger.write_tax_items($1, 2026::smallint, $2, '2026-03-10'::date, false)`, s.tenant, je)
+		}
+		if err == nil {
+			err = tx.QueryRow(context.Background(), `SELECT kind, base_tc, tax_tc FROM ledger.tax_item WHERE journal_entry_id = $1`, je).Scan(&kind, &base, &tax)
+		}
+		return err
+	})
+	if got := fmt.Sprintf("%s %d %d", kind, base, tax); got != "adjustment 0 2500" {
+		t.Errorf("the adjustment's item: got %s, want adjustment 0 2500", got)
+	}
+	failsOn(t, asApp(t, s.tenant, func(tx pgx.Tx) error {
+		je, err := s.taxedEntry(tx, false)
+		if err == nil {
+			err = exec(tx, `INSERT INTO ledger.tax_item (tenant_id, fiscal_year, journal_entry_id, item_no, legal_entity_id, code, component, direction,
+				kind, account_key, account_id, tax_date, tax_rate_id, rate_pct, recoverable_pct, base_tc, tax_tc, recoverable_tc, base_lc, tax_lc, recoverable_lc)
+				VALUES ($1, 2026, $2, 1, $3, 'I5', 'gst', 'input', 'luxury', 'input', $4, '2026-03-10', $5, 5, 100, 10000, 500, 500, 9000, 450, 450)`,
+				s.tenant, je, s.entity, s.tax, s.gst2026)
+		}
+		return err
+	}), "tax_item_kind_check")
 }

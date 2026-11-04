@@ -76,8 +76,15 @@ type member struct {
 // GroupForecast computes the liquidity forecast across the legal entities
 // the caller may act in. One outside its access is never read, so nothing
 // of it reaches the answer; with none, the forecast is empty from today's
-// date in UTC.
+// date in UTC. The clock is read once: every company's read date and the
+// group's buckets are dates at the same instant, so a read across midnight
+// never starts the buckets on one day and reads a company on the next.
+// The configuration document is read again for each company
+// (readForecastOf): it is the same document only because the operation
+// reads one database state (x-snapshot, REPEATABLE READ), which a caller
+// on a READ COMMITTED path must keep.
 func (e *Endpoints) GroupForecast(ctx context.Context, q GroupForecastQuery) (GroupForecast, error) {
+	now := clock.Now(e.Now)
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return GroupForecast{}, err
@@ -90,17 +97,17 @@ func (e *Endpoints) GroupForecast(ctx context.Context, q GroupForecastQuery) (Gr
 	if err != nil {
 		return GroupForecast{}, fmt.Errorf("cash: configuration: %w", err)
 	}
-	members, err := e.members(ctx, doc)
+	members, err := e.members(ctx, doc, now)
 	if err != nil {
 		return GroupForecast{}, err
 	}
-	g, err := e.groupOf(ctx, tx, doc, members, q)
+	g, err := e.groupOf(ctx, tx, doc, members, q, now)
 	if err != nil {
 		return GroupForecast{}, err
 	}
 	g.forecast.MinCertainty = cut
 	for _, m := range members {
-		if err := e.addCompany(ctx, tx, &g, m, q); err != nil {
+		if err := e.addCompany(ctx, tx, &g, m, q, now); err != nil {
 			return GroupForecast{}, err
 		}
 	}
@@ -108,8 +115,8 @@ func (e *Endpoints) GroupForecast(ctx context.Context, q GroupForecastQuery) (Gr
 }
 
 // members are the legal entities the caller may act in, by company code,
-// each with its read date.
-func (e *Endpoints) members(ctx context.Context, doc *config.Config) ([]member, error) {
+// each with its read date at instant now.
+func (e *Endpoints) members(ctx context.Context, doc *config.Config, now time.Time) ([]member, error) {
 	access, err := authz.Companies(ctx)
 	if err != nil {
 		return nil, err
@@ -123,11 +130,11 @@ func (e *Endpoints) members(ctx context.Context, doc *config.Config) ([]member, 
 		if !access.Allows(le.ID) {
 			continue
 		}
-		read, _, err := e.readDate(doc, le.Code)
+		d, err := companyDay(doc, le.Code, now)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, member{Entity: le, read: read})
+		out = append(out, member{Entity: le, read: d.Date})
 	}
 	slices.SortFunc(out, func(a, b member) int { return cmp.Compare(a.Code, b.Code) })
 	return out, nil
@@ -142,11 +149,11 @@ type group struct {
 }
 
 // groupOf is the empty group forecast: in the group currency, its buckets
-// from the earliest of the members' read dates (today in UTC without a
-// member), the default buckets or one grain over a range. A company's
+// from the earliest of the members' read dates (now's date in UTC without
+// a member), the default buckets or one grain over a range. A company's
 // flows are never before its read date, so none is before the first
 // bucket.
-func (e *Endpoints) groupOf(ctx context.Context, tx pgx.Tx, doc *config.Config, members []member, q GroupForecastQuery) (group, error) {
+func (e *Endpoints) groupOf(ctx context.Context, tx pgx.Tx, doc *config.Config, members []member, q GroupForecastQuery, now time.Time) (group, error) {
 	code, err := e.LegalEntities.GroupCurrency(ctx)
 	if err != nil {
 		return group{}, fmt.Errorf("cash: group currency: %w", err)
@@ -156,7 +163,7 @@ func (e *Endpoints) groupOf(ctx context.Context, tx pgx.Tx, doc *config.Config, 
 	if err != nil {
 		return group{}, err
 	}
-	start := clock.Day(clock.Now(e.Now))
+	start := clock.Day(now)
 	if len(members) > 0 {
 		start = slices.MinFunc(members, func(a, b member) int { return a.read.Compare(b.read) }).read
 	}
@@ -169,13 +176,14 @@ func (e *Endpoints) groupOf(ctx context.Context, tx pgx.Tx, doc *config.Config, 
 			Totals: make([]money.Minor, len(bs)), Closing: make([]money.Minor, len(bs))}}}, nil
 }
 
-// addCompany reads the member's forecast as its own forecast reads it, in
-// the group's buckets, converts it into the group currency as its own
-// forecast converts it, and adds both to the group.
-func (e *Endpoints) addCompany(ctx context.Context, tx pgx.Tx, g *group, m member, q GroupForecastQuery) error {
+// addCompany reads the member's forecast as its own forecast reads it, at
+// the group's instant now, in the group's buckets, converts it into the
+// group currency as its own forecast converts it, and adds both to the
+// group.
+func (e *Endpoints) addCompany(ctx context.Context, tx pgx.Tx, g *group, m member, q GroupForecastQuery, now time.Time) error {
 	bs := g.forecast.Buckets
 	last := bs[len(bs)-1].End
-	fr, err := e.readForecastOf(ctx, tx, m.Company, m.ID, q.MinCertainty, func(reader) (time.Time, error) { return last, nil })
+	fr, err := e.readForecastOf(ctx, tx, m.Company, m.ID, q.MinCertainty, now, func(reader) (time.Time, error) { return last, nil })
 	if err != nil {
 		return err
 	}

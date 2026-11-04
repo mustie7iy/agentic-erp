@@ -28,7 +28,9 @@ COSIGN="${COSIGN:-go run github.com/sigstore/cosign/v3/cmd/cosign@v3.1.1}"
 key="${ERP_COSIGN_KEY:?ERP_COSIGN_KEY: the signing key (awskms:///arn:... or a cosign key file)}"
 config="$(dirname "$0")/../release/signing-config.json"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# shellcheck source=lib/on-exit.sh
+. "$(dirname "$0")/lib/on-exit.sh"
+on_exit 'rm -rf "$work"'
 provenance="$work/build.json"
 if [ -n "${PROVENANCE:-}" ]; then
   cp "$PROVENANCE" "$provenance"
@@ -104,3 +106,4 @@ if [ "$signed" -eq 0 ]; then
   exit 1
 fi
 echo "sign-images: $signed images signed, each with its SBOM and its provenance attested ($copies of them copies of upstream images)"
+finished

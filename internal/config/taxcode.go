@@ -23,7 +23,7 @@ type TaxCode struct {
 	// Direction is TaxInput (also when empty) or TaxOutput.
 	Direction string `yaml:"direction,omitempty" json:"direction,omitempty"`
 	// Kind is TaxStandard (also when empty), zero, exempt, out_of_scope,
-	// reverse_charge or import.
+	// reverse_charge, import or adjustment.
 	Kind string `yaml:"kind,omitempty" json:"kind,omitempty"`
 	// Category is the UN/CEFACT 5305 tax category an e-invoice carries
 	// (S, Z, E, AE, O, ...; T65), none when empty.
@@ -75,6 +75,11 @@ const (
 	TaxOutOfScope    = "out_of_scope"
 	TaxReverseCharge = "reverse_charge"
 	TaxImport        = "import"
+	// TaxAdjustment is a code of tax alone (ADR-0049 §11): an adjustment,
+	// instalment or rebate a person enters as a manual entry's tax line,
+	// which a return's box selects by this kind. It charges nothing: its
+	// rates are 0, and its tax is what the entry posts.
+	TaxAdjustment = "adjustment"
 
 	KeyInput         = "input"
 	KeyOutput        = "output"
@@ -90,7 +95,7 @@ var (
 	taxCodeRe      = regexp.MustCompile(`^[A-Z0-9]{1,4}$`)
 	componentRe    = regexp.MustCompile(`^[a-z][a-z0-9_]{0,19}$`)
 	jurisdictionRe = regexp.MustCompile(`^[A-Z]{2}(-[A-Z0-9]{1,3})?$`)
-	taxKinds       = []string{TaxStandard, TaxZero, TaxExempt, TaxOutOfScope, TaxReverseCharge, TaxImport}
+	taxKinds       = []string{TaxStandard, TaxZero, TaxExempt, TaxOutOfScope, TaxReverseCharge, TaxImport, TaxAdjustment}
 	// The UN/CEFACT 5305 categories EN 16931 and PINT use.
 	taxCategories = []string{"S", "Z", "E", "AE", "K", "G", "O", "L", "M", "B"}
 )
@@ -221,12 +226,12 @@ func (v *validator) singleRate(tp string, t TaxCode, account func(string) string
 	if msg := account(t.Account); msg != "" {
 		v.err(tp+".account", "%s", msg)
 	}
-	switch t.KindOrStandard() {
-	case TaxReverseCharge:
+	switch kind := t.KindOrStandard(); {
+	case kind == TaxReverseCharge:
 		v.err(tp+".components", "a reverse_charge code needs self_output and self_input components")
-	case TaxZero, TaxExempt, TaxOutOfScope:
+	case rateless(kind):
 		if r, err := money.ParseDecimal(t.RatePercent, 3); err == nil && r != 0 {
-			v.err(tp+".rate_percent", "a %s code has a rate of 0", t.KindOrStandard())
+			v.err(tp+".rate_percent", "a %s code has a rate of 0", kind)
 		}
 	}
 }
@@ -290,6 +295,13 @@ func (v *validator) component(cp, kind string, c TaxComponent, account func(stri
 	v.rates(cp+".rates", kind, c.Rates)
 }
 
+// rateless reports whether a code of the kind charges no tax: its rates
+// are 0. A zero-rated, exempt or out-of-scope base is recorded for the
+// return; an adjustment's tax is what the entry posts.
+func rateless(kind string) bool {
+	return slices.Contains([]string{TaxZero, TaxExempt, TaxOutOfScope, TaxAdjustment}, kind)
+}
+
 // period is the dates a rate is in force.
 type period struct {
 	from, to time.Time
@@ -316,14 +328,14 @@ func (v *validator) rates(p, kind string, rates []TaxRate) {
 	}
 }
 
-// rate checks one rate, 0 to below 100% with up to three decimals (0 on a zero,
-// exempt or out-of-scope code) and its dates, and returns its period when
+// rate checks one rate, 0 to below 100% with up to three decimals (0 on a
+// rateless code) and its dates, and returns its period when
 // the dates read.
 func (v *validator) rate(rp, kind string, r TaxRate) (period, bool) {
 	switch m, err := money.ParseDecimal(r.RatePercent, 3); {
 	case err != nil || m < 0 || m >= 100_000: // the ledger keeps rates below 100% (ledger.tax_rate)
 		v.err(rp+".rate_percent", "rate %q must be a percentage from 0 to below 100 with at most three decimals", r.RatePercent)
-	case m != 0 && (kind == TaxZero || kind == TaxExempt || kind == TaxOutOfScope):
+	case m != 0 && rateless(kind):
 		v.err(rp+".rate_percent", "a %s code has a rate of 0", kind)
 	}
 	from, ok := v.date(rp+".valid_from", r.ValidFrom)

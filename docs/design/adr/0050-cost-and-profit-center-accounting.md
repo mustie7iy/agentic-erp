@@ -1084,12 +1084,14 @@ are created by controllers rather than architects, and SAP treats them as
 master data with change documents, not customizing. Changes are
 **master-data change requests** in the ledger (`ledger.center_change`:
 kind, payload, status, workflow request, as `partner.partner_change`):
+
 | Change | Approval |
 |---|---|
 | Texts, description, person responsible, alternative hierarchy membership (T56b: approved like every tree change, see §3 as built; PO to confirm); creating a segment or changing its texts (T56a: a segment changes nothing until a profit center names it) | none (audited) |
 | Create a cost or profit center; new validity period (profit center reassignment, category); extend or end validity; standard hierarchy move; profit center company assignment; a profit center's segment; set or clear a lock | one approver with `ledger.cost_center.approve` (controller, `approvals.DefaultCenterChangeRole`), not the requester, never an agent (T56a: `center_change` approval requests) |
 | Segment of a posted profit center; company of a cost center; delete | refused (reorganisation or a new center) |
 | Categories, `cost_element`, default assignments, PCA activation | configuration change request, tier 3 or 4 (§4; a category's name tier 1, cost and profit center accounting tier 4, as built in T56c) |
+
 Every change writes an audit record (ADR-0011: `ledger.cost_center.request`
 when asked for, `ledger.cost_center.create|redate|lock|move|reject` when
 decided, `ledger.cost_center.texts` (which texts, not their values); the same for

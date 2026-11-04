@@ -10,7 +10,9 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# shellcheck source=scripts/lib/on-exit.sh
+. "$root/scripts/lib/on-exit.sh"
+on_exit 'rm -rf "$work"'
 failed=0
 mkdir -p "$work/bin" "$work/repo/scripts" "$work/repo/deploy/environments"
 cp "$root/scripts/restore-drill.sh" "$work/repo/scripts/"
@@ -231,4 +233,5 @@ case_ unknown-provider 1 "" "" RESTORE_PROVIDER=gcp
 case_ local-dr-copies 1 "" "" RESTORE_PROVIDER=local RESTORE_KIND=dr-copies
 case_ aws-without-cluster 1 "" "" RESTORE_PROVIDER=aws DRILL_TENANT=x
 case_ aws-dr-copies-without-task 1 "" "" RESTORE_PROVIDER=aws RESTORE_KIND=dr-copies RESTORE_CLUSTER=erp-stg1 DRILL_TENANT=x RESTORE_DR_CA=/x
+finished
 exit "$failed"

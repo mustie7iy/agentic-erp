@@ -37,7 +37,9 @@ cleanup() {
   stop_registry
   if [ -n "${KEEP:-}" ]; then echo "admission-checks: kept $work" >&2; else rm -rf "$work"; fi
 }
-trap cleanup EXIT
+# shellcheck source=scripts/lib/on-exit.sh
+. "$root/scripts/lib/on-exit.sh"
+on_exit cleanup
 cd "$work"
 start_registry "$work"
 
@@ -294,3 +296,4 @@ print("\n---\n".join(json.dumps(d) for d in docs))
 apply global.json --resource global.yaml --registry
 expect global.json erp-router:admitted erp-router-tls:admitted erp-web:admitted erp-directory-setup:admitted
 echo "admission-checks: the erp-global chart's router, its certificate, the web workspace and the directory's setup hook are admitted"
+finished

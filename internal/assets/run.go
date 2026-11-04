@@ -222,16 +222,9 @@ func readBatches(ctx context.Context, tx pgx.Tx, runs []uuid.UUID) (map[uuid.UUI
 	rows, _ := tx.Query(ctx, `SELECT run_id, batch_no, cardinality(asset_ids), status, amount, assets_posted, assets_skipped, journal_entry_year,
 			journal_entry_id, document_number
 		FROM assets.depreciation_batch WHERE run_id = ANY($1) ORDER BY run_id, batch_no`, runs)
-	out := map[uuid.UUID][]Batch{}
-	var run uuid.UUID
-	var b Batch
-	_, err := pgx.ForEachRow(rows, []any{&run, &b.No, &b.Assets, &b.Status, &b.Amount, &b.Posted, &b.Skipped, &b.EntryYear, &b.EntryID, &b.DocumentNumber},
-		func() error {
-			out[run] = append(out[run], b)
-			b = Batch{} // the next row's pointers are scanned into a new value
-			return nil
-		})
-	return out, errs.Wrapf(err, "assets: batches of %d depreciation runs", len(runs))
+	return grouped(rows, fmt.Sprintf("batches of %d depreciation runs", len(runs)), func(run *uuid.UUID, b *Batch) []any {
+		return []any{run, &b.No, &b.Assets, &b.Status, &b.Amount, &b.Posted, &b.Skipped, &b.EntryYear, &b.EntryID, &b.DocumentNumber}
+	})
 }
 
 // GetDepreciationRun implements GET /v1/depreciation-runs/{id}.

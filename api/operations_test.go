@@ -84,6 +84,8 @@ func TestOperationsRejectsBadContracts(t *testing.T) {
 		"bad autonomy":   "paths:\n  /v1/x:\n    post:\n      operationId: x\n      x-permission: a.b.c\n      x-autonomy: decide\n",
 		"bad class":      "paths:\n  /v1/x:\n    get:\n      operationId: x\n      x-permission: a.b.c\n      x-slo-class: read\n",
 		"snapshot write": "paths:\n  /v1/x:\n    post:\n      operationId: x\n      x-permission: a.b.c\n      x-snapshot: true\n",
+		"snapshot proposal": "paths:\n  /v1/x:\n    post:\n      operationId: x\n      x-permission: a.b.c\n      x-autonomy: propose\n" +
+			"      x-snapshot: true\n",
 		"both permissions": "paths:\n  /v1/x/{entity}:\n    get:\n      operationId: getX\n      x-permission: a.b.c\n" +
 			"      x-entity-permissions:\n        e: a.b.read\n",
 		"also by entity": "paths:\n  /v1/x/{entity}:\n    get:\n      operationId: getX\n" +
@@ -119,19 +121,30 @@ func TestOperationsRejectsBadContracts(t *testing.T) {
 	}
 }
 
-// TestSnapshotOperations: x-snapshot marks the GETs that read as of one
-// database state; the cash position is one, other reads are not.
+// TestSnapshotOperations: x-snapshot marks the GETs and the reads
+// carried in a POST (x-autonomy: read) that read as of one database
+// state: the cash position, the asset history sheet and a depreciation
+// run's preview are some, other reads are not.
 func TestSnapshotOperations(t *testing.T) {
 	ops, err := Operations()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for id, want := range map[string]bool{"getCashPosition": true, "getBankReconciliation": false, "listBalances": false} {
+	for id, want := range map[string]bool{"getCashPosition": true, "getAssetHistorySheet": true, "previewDepreciationRun": true,
+		"getBankReconciliation": false, "listBalances": false} {
 		t.Run(id, func(t *testing.T) {
 			if got := ops[id].Snapshot; got != want {
 				t.Errorf("snapshot: got %v, want %v", got, want)
 			}
 		})
+	}
+	read, err := parseOperations([]byte("paths:\n  /v1/x:\n    post:\n      operationId: x\n      x-permission: a.b.c\n      x-autonomy: read\n"+
+		"      x-snapshot: true\n"), true)
+	if err != nil {
+		t.Fatalf("a read in a POST marked x-snapshot: %v", err)
+	}
+	if !read["x"].Snapshot {
+		t.Error("a read in a POST: got no snapshot, want one")
 	}
 }
 

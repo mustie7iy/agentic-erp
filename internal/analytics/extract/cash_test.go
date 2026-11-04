@@ -170,3 +170,7 @@ type failingCash struct{}
 func (failingCash) ExtractActualShares(context.Context, uuid.UUID) ([]extract.CashShare, error) {
 	return nil, errCash
 }
+
+func (failingCash) ExtractForecastShares(context.Context, uuid.UUID) ([]extract.ForecastShare, error) {
+	return nil, errCash
+}

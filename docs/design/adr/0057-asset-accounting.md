@@ -1212,7 +1212,7 @@ a day each. The asset accountant is the named user throughout.
 | T57e | **Depreciation schedule and preview** | The schedule walk of §7 (straight-line; declining balance with the switch), pure Go with table tests per method, rounding, late acquisitions, partial retirement shares applied by their recorded amounts, an acquisition valued before a retirement posted earlier, a transfer in's residual value, end of life, the clamp d_k = max(0, …) when rounding leaves B_k − R_k below zero, planned − booked for a run and for a catch-up (negative when the period's own run is posted); among them two retirements in one period (cost 1200, 12 periods straight-line, runs January to March: 50 % sold valued March, catch-up −100, then the rest scrapped valued March, catch-up 0, loss 500); `GET /v1/assets/{id}/schedule`; `GET /v1/assets/{id}/movements` (ledger, year, kind; assigned at batch 47's integration); `POST /v1/depreciation-runs/preview` with totals per account and center. Walkthrough: the preview for the asset's first period shows the expected amount in each ledger |
 | T57f | **Depreciation run** | `Posting.LedgerID` in the ledger; `depreciation_run`, `depreciation_batch`; `POST/GET /v1/depreciation-runs` (202 `Operation`); workflow `DepreciationRun` with `PlanDepreciationRun`, `PostDepreciationBatch`, `FinishDepreciationRun`, `FailDepreciationRun` (run-twice test each, replay test), started by the workflows dispatcher from its queued `assets.depreciate` operation (or in process without an engine); `booked_through` and the selection of §7 (an asset with an assignment row valid from after the period's last day passed over), re-checked under each asset's lock in the batch (`assets_skipped`, no `seq` taken); group amounts per asset and line (`PostingLine.GC`); each asset's lines on its latest assignment's centers (the profit center derived from the cost center) and a `seq` for each asset a batch processes; one run at a time, order, special periods, a locked period failing the run and the next run catching up; `DepreciationRunCompleted`; the 01 §1.3 budget for 100,000 assets in the performance suite. Walkthrough: the period's run posts one entry per batch in the leading ledger; a repeat run posts nothing |
 | T57g | **Retirements** | `assets.retirement`; sale and scrapping, full and partial, catch-up through the period before the posting period (negative after that period's run), the share of the asset's balances in `seq` order, gain (profit center only) and loss (cost and profit center) per ledger, residual share, group amounts by §8's three rules (the accounts at zero in group currency after a full retirement; a test where the catch-up reverses the period's run at another rate, leaving accumulated depreciation zero locally and not in group currency, and a partial retirement takes all of that group amount); `retired` derived from the balances (§5); `:reverse`, refused with `assets.later_movements` once a run or any other posting followed (test), returning `booked_through` to its value before the catch-up (test: the next run of the period before posts it); tests: a retirement reversed on a given date later than its posting date, every ledger's reversal entries dated on that date, and a reversal dated before the retirement's posting date refused with `assets.reversal_before_original`; refusals tested: a retirement valued in the previous period (`assets.value_date_outside_period`), one after the asset has an acquisition valued in a later period (`assets.later_value_date`), `assets.share_exceeds`, `assets.share_of_zero_cost`, `assets.asset_retired`, `assets.value_date_before_capitalisation`; an asset whose cost a credit memo brought to zero retired by a full retirement with zero cost; `assets.later_value_date` for an asset booked through a later period by a run that posted nothing for it. Walkthrough: half an asset is sold with proceeds, the gain posted, the rest scrapped; the asset is retired; a retirement valued in the previous period is refused with `assets.value_date_outside_period` |
-| T57h | **Transfers** | `assets.transfer`; `center` (valued on the posting period's first day; per ledger a catch-up through the period before on the previous row's centers, `booked_through` raised to it, as for a retirement; a new cost center's profit center derived, `ledger.profit_center_mismatch` for another; a profit center change reposting all booked balances after the catch-up at local and group amounts, no movement but the catch-up's; later postings on the latest assignment's centers; a test with March open: a transfer valued 1 April posts March's depreciation on the old centers in an entry dated 31 March, then the March run posts nothing for the asset (passed over), an acquisition dated in March is refused with `assets.posting_before_center_transfer` (an acquisition reversal dated in March with `assets.reversal_before_original`, or `assets.later_movements` for one posted before the transfer), and the April run posts the asset's April depreciation on the new centers; with March closed the catch-up is posted in April on the old centers; two `center` transfers valued 1 April in one period with an acquisition valued in February capitalised between them, the second transfer's catch-up (the February acquisition's February and March depreciation) posted in its April entry on the first transfer's centers, not dated 31 March; the transfer's reversal reverses the catch-up, returns `booked_through`, and its restoring row takes the previous row's `valid_from`, so a March run and a March-dated acquisition are accepted again; a transfer whose catch-up was dated 31 March, reversed after March closed: the catch-up's reversal is posted in April on the old centers and `booked_through` comes back) and `asset` (share, residual value carried to the receiver, receiver activation, sender retired by a full transfer, reclassification across classes; the receiver checked: `assets.later_value_date` for a receiver with a movement valued or a run booked in a later period, `assets.posting_before_center_transfer` for a posting date before the receiver's latest assignment row; a reversed invoice's reversal line refused onto the receiver of cost from the reversed line with `assets.source_reversed`); `:reverse` for both kinds, refused with `assets.later_movements` once anything followed on the sender or receiver, with both assets' status, and refused with `assets.reversal_before_original` for an `asset` transfer's reversal and a `center` transfer's `main` part dated before the transfer's posting date (tests); the transfer problems of §8, `assets.value_date_outside_period`, `assets.later_value_date` and `assets.value_date_before_capitalisation`. Walkthrough: an asset moves to a cost center of another profit center from this period, its balances reposted; part of it moves to another asset of another class |; a test of a `center` transfer's `main` part reversed on a later date, its lines on the restoring row's centers (review round 10)
+| T57h | **Transfers** | `assets.transfer`; `center` (valued on the posting period's first day; per ledger a catch-up through the period before on the previous row's centers, `booked_through` raised to it, as for a retirement; a new cost center's profit center derived, `ledger.profit_center_mismatch` for another; a profit center change reposting all booked balances after the catch-up at local and group amounts, no movement but the catch-up's; later postings on the latest assignment's centers; a test with March open: a transfer valued 1 April posts March's depreciation on the old centers in an entry dated 31 March, then the March run posts nothing for the asset (passed over), an acquisition dated in March is refused with `assets.posting_before_center_transfer` (an acquisition reversal dated in March with `assets.reversal_before_original`, or `assets.later_movements` for one posted before the transfer), and the April run posts the asset's April depreciation on the new centers; with March closed the catch-up is posted in April on the old centers; two `center` transfers valued 1 April in one period with an acquisition valued in February capitalised between them, the second transfer's catch-up (the February acquisition's February and March depreciation) posted in its April entry on the first transfer's centers, not dated 31 March; the transfer's reversal reverses the catch-up, returns `booked_through`, and its restoring row takes the previous row's `valid_from`, so a March run and a March-dated acquisition are accepted again; a transfer whose catch-up was dated 31 March, reversed after March closed: the catch-up's reversal is posted in April on the old centers and `booked_through` comes back) and `asset` (share, residual value carried to the receiver, receiver activation, sender retired by a full transfer, reclassification across classes; the receiver checked: `assets.later_value_date` for a receiver with a movement valued or a run booked in a later period, `assets.posting_before_center_transfer` for a posting date before the receiver's latest assignment row; a reversed invoice's reversal line refused onto the receiver of cost from the reversed line with `assets.source_reversed`); `:reverse` for both kinds, refused with `assets.later_movements` once anything followed on the sender or receiver, with both assets' status, and refused with `assets.reversal_before_original` for an `asset` transfer's reversal and a `center` transfer's `main` part dated before the transfer's posting date (tests); the transfer problems of §8, `assets.value_date_outside_period`, `assets.later_value_date` and `assets.value_date_before_capitalisation`; a test of a `center` transfer's `main` part reversed on a later date, its lines on the restoring row's centers (review round 10). Walkthrough: an asset moves to a cost center of another profit center from this period, its balances reposted; part of it moves to another asset of another class |
 | T57i | **Asset history sheet** | `year_total` and `class_year_total` maintained with every movement (backfilled from the movements, schema test of their sums); `GET /v1/asset-history-sheet` by class and by asset with every column and the totals; the test that closing values equal the asset accounts' ledger balances; the budget of §9. Walkthrough: the year's sheet shows the acquisitions, depreciation, retirement and transfers of the steps before, its totals matching the trial balance's asset accounts |
 
 Each slice updates 02 §2.2 (T57b adds the context's row), 03 (a §3.x for
@@ -1418,7 +1418,7 @@ tracker item only when one does (07 §7.5).
   specialist.
 
 ## As built
-(Filled in by the slices T57a-T57i and T57f2.)
+(Filled in by the slices T57a-T57i, T57f2 and T57f3.)
 
 **T57a (classes and asset accounts; asset reconciliation enforced).**
 Built as §3: `asset_classes` (code, name, terms per ledger),
@@ -2343,9 +2343,136 @@ Decided by default, for the product owner to overrule:
 - **Booked from the totals** (above) relies on T57i's rule that every
   posting adds its movements to the year totals in its own transaction;
   each caller reads before its own posting writes.
-- **Question for the product owner (open):** at 100,000 assets the
+- **Question for the product owner (settled by the coordinator: the p95
+  stands; met by T57f3, below):** at 100,000 assets the
   preview takes about 1.5 s a page against the report class's 1 s.
   Meeting 1 s needs a design change rather than a query fix: keep the
   booked amount per asset and ledger on its terms row (written by every
   depreciation movement's posting), or give the totals once rather than
   on every page. Until then the budget test holds the p99.
+
+**T57f3 (the preview within the report class's p95).** T57f2's open
+question is settled by the coordinator: the report class's p95 of 1 s
+stands (ADR-0043), so the preview is made to meet it with its contract
+unchanged (the totals, "the same on every page", stay on every page, as
+T57e built them). Profiled as T57f2 was, with `EXPLAIN (ANALYZE, BUFFERS)`
+under the application's role and a CPU profile of the preview's reads, on
+the same 100,001 assets: with T57f2's code a page spent 0.57 s to 0.61 s
+in the selection, 0.65 s to 0.72 s reading the moves and the booked
+totals, and about 0.3 s more receiving and walking some 300,000 rows,
+the Go code's own CPU small beside the waits (load 8 to 35). The causes
+and their fixes, the behaviour unchanged (every existing test passes as
+before):
+- **The booked total read 580,000 totals rows a page** (0.15 s to 0.2 s,
+  and 100,000 rows more to receive). The depreciation booked per asset and
+  ledger is now kept on its terms, `asset_terms.booked_depreciation`
+  (migration 000211: added, then backfilled from the movements under a
+  SHARE lock on them, as 000207), by every posting that writes movements:
+  `keepTotals`, which each of them calls in its own transaction (an
+  acquisition and its reversal, a run's batch, a retirement and its
+  reversal, a transfer of either kind and its reversal), ends with
+  `keepBooked`, which locks the assets' terms rows in key order (tenant,
+  asset, ledger) and adds the depreciation of each asset's latest posting
+  in each ledger. No other writer of movements exists (no data migration
+  loads assets). The selection reads it with the terms it already joins,
+  and a catch-up with the asset's terms (`Terms.depreciated`).
+  `totalsDiffer`, which `TestAssetHistorySheet` and
+  `TestYearTotalsInKeyOrder` run after every kind of posting, also counts
+  terms whose kept amount differs from minus the sum of their asset's
+  depreciation movements in the ledger; `TestAssetTermsBookedBackfilled`
+  is the backfill's schema test; the run-twice test of the run's
+  activities compares the kept amounts too.
+- **The moves were read from the table.** 000208's partial index found an
+  asset's movements other than depreciation, but each was then read from
+  the table, where they lie among some 5.8 million depreciation rows
+  (90,000 pages a page, 0.45 s). The covering index
+  `movement_moves_covering` (migration 000212, built concurrently: the
+  same key and predicate, with the value date, cost, accumulated
+  depreciation and residual value included) serves them from the index
+  alone, the movements being insert-only and so all-visible once
+  vacuumed (0.45 s to some 0.03 s); 000213 drops 000208's index, which
+  nothing reads any more. The schedule, which shows what is booked by
+  period, still reads every movement of its one asset (`readMovements`);
+  the others read the moves alone (`readMoves`). The 100,000 ids are sent
+  as `pgtype.UUID`, which pgx writes as bytes (a `uuid.UUID` goes through
+  its `driver.Valuer` as text, some 50 ms a preview).
+- **The selection's plan.** T57f2's `DISTINCT ON` of the latest
+  assignments, without the tenant, was estimated at 83 rows of 100,000
+  (the tenant the join implies is applied after it), so the terms were
+  probed per asset; with the tenant among its columns the condition is
+  pushed into it, the assignments are read in their key's order and the
+  tables are hashed. The order by asset number sorted 100,000 wide rows
+  on disk (0.1 s); the assets now carry their rank by number, read in the
+  order of the number's index, and are sorted by it in Go (the number is
+  unique in a company, so the order is the same). Only the columns every
+  asset's difference needs are read; the page's numbers and descriptions
+  are read for its assets alone (`pageNames`).
+- **The walk kept every step.** Summing planned(P) through `Walk` kept
+  each asset's steps, some 270 MB a preview; `PlannedThrough` sums them as
+  it walks, and moves already in order are not copied.
+- **A batch's booked update** (found by the run's budget, 20 s to 38 s
+  with the first `keepBooked`): a locking CTE joined to the update was
+  estimated at one row and compared every pair (0.2 s a batch); the lock
+  is a statement of its own (15 ms a batch).
+Measured on the development machine as T57f2 was, beside the other lanes'
+suites, `ERP_BUDGET_SCALE=1`: at load 16 to 25, preview first page median
+0.65 s to 0.67 s, worst of ten 0.82 s to 0.85 s; next page median 0.66 s
+to 0.68 s, worst 0.67 s to 0.78 s; run 20.3 s to 26.8 s (budget 120 s).
+At `ERP_BUDGET_SCALE=2` (load 10 to 23): first page median 0.67 s to
+0.77 s, worst 0.67 s to 0.94 s; next page median 0.68 s to 0.81 s, worst
+0.68 s to 0.92 s; run 25 s to 41 s (budget 240 s). With the load above
+about 25 on the ten cores a single read of ten can pass 1 s (1.23 s to
+1.31 s seen), which the scale-2 budget of ci-local's gate (2 s) absorbs.
+The budget test now holds the report class's p95 on every page it reads
+(the worst of ten reads, as `TestAssetHistorySheetBudget` takes it), and
+01 §1.3 gains the preview's row (p95 1 s, p99 3 s). Decided by default,
+for the product owner to overrule:
+- **The kept amount is positive**, the depreciation booked as a debit of
+  expense, as the preview shows it and `depreciable.booked` holds it; the
+  year totals keep the credit, negative. Keeping it moves the terms'
+  `version`, as every update of the terms does (their optimistic lock);
+  the asset's own version moves with every posting already.
+- **The budget test vacuums its seeded tables**, as autovacuum does an
+  insert-only table once a fifth of it is new; until then the moves on
+  the newest pages are read from the table, a few per asset at most.
+- **Tracker.** A leaf "The depreciation run's preview within the report
+  class's p95" (T57f3, `review:T57f`), done with T57f3.
+
+**The preview and the history sheet in one snapshot (review of T57f3).**
+The preview reads its selection with the depreciation booked (kept on the
+terms), then the selected assets' moves, then its page's names, each a
+statement of its own; the history sheet by asset sums the classes' totals
+and then reads its page. At READ COMMITTED a posting committed between
+them, a sale's catch-up and moves say, left one response disagreeing with
+itself: the moves after the sale against the depreciation booked before
+its catch-up (June's preview of a half-sold mill: 5.00 planned against
+10.00 booked, a difference of -5.00, of a state that never was), or rows
+after a scrapping beside totals before it. Both operations are now
+marked `x-snapshot: true`, the mechanism the cash position uses (ADR-0051
+§6, 04 §4.7), so the unit of work runs them at REPEATABLE READ and every
+statement reads the state of the first (`TestPreviewInOneSnapshot`,
+`TestAssetHistorySheetInOneSnapshot`: the posting committed between the
+statements through `app.Config.Begin`, a request transaction that runs it
+before the statement named; both fail with the mark removed). Decided by
+default, for the product owner to overrule:
+- **The mark on a read carried in a POST.** The contract allowed
+  `x-snapshot` on a `GET` alone; the preview is a `POST` for its body.
+  The mark is now allowed on an operation marked `x-autonomy: read` too,
+  which changes no business data (`api/spec.go`; any other `POST` is
+  still refused), and the unit of work honours it whatever the method
+  (`uow.Middleware.scope`). Such a request stays read-write, as its
+  idempotency record is written in it; at REPEATABLE READ only a
+  concurrent request of the same key can then fail to serialise (503,
+  retried with the key). A separate read-only transaction was rejected,
+  as ADR-0051 rejected it: a second connection per request.
+- **What else was checked** (the reads T57f2, T57f3 and T57i added): the
+  sheet by class is one statement; a run's plan only lists the assets,
+  each batch re-reading its own under their locks; a retirement's and a
+  transfer's catch-up read their asset's terms and moves holding it
+  `FOR UPDATE`, which every posting of the asset takes. The schedule
+  (`GET /v1/assets/{id}/schedule`, T57e) reads the asset's terms and then
+  its movements, its figures all from the one movements read, and is
+  left as built.
+- **Tracker.** A leaf "The depreciation run's preview and the asset
+  history sheet read in one snapshot" (`review:T57f`, the review of
+  T57f3, which is T57f's), done with this step.
