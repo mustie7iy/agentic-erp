@@ -943,7 +943,11 @@ func RecordableRate(r *big.Rat) bool {
 	return shown.Sign() > 0 && shown.Cmp(maxRate) < 0
 }
 
-var errTooLarge = problem.Unprocessable("ledger.amount_too_large", "A converted amount is too large to post.")
+// errTooLarge refuses an amount whose conversion is out of the range of a
+// posted amount (money.ErrOverflow).
+func errTooLarge() *problem.Problem {
+	return problem.Unprocessable("ledger.amount_too_large", "A converted amount is too large to post.")
+}
 
 // errTotalTooLarge refuses amounts whose total is out of the range of a
 // posted amount (money.ErrOverflow): checked here, it is a refusal of the
@@ -975,7 +979,7 @@ func convertErr(err error) error {
 	case err == nil:
 		return nil
 	case errors.Is(err, money.ErrOverflow):
-		return errTooLarge
+		return errTooLarge()
 	}
 	return fmt.Errorf("ledger: convert: %w", err)
 }

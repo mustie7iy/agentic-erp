@@ -263,7 +263,9 @@ type CurrencyRate struct {
 
 // errTooLarge refuses a position whose sums are out of the range of an
 // amount.
-var errTooLarge = problem.Unprocessable("cash.amount_too_large", "The amounts of the cash position add up to more than an amount can hold.")
+func errTooLarge() *problem.Problem {
+	return problem.Unprocessable("cash.amount_too_large", "The amounts of the cash position add up to more than an amount can hold.")
+}
 
 // Position computes the legal entity's cash position. A legal entity the
 // caller cannot act in is not found, as one that does not exist.
@@ -315,7 +317,7 @@ func (e *Endpoints) Position(ctx context.Context, q Query) (Position, error) {
 		return Position{}, err
 	}
 	if r.sums.overflow {
-		return Position{}, errTooLarge
+		return Position{}, errTooLarge()
 	}
 	return p, nil
 }

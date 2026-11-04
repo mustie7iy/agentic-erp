@@ -1453,6 +1453,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "No shared problem values (pre-existing finding on T53f4): six refusals (ledger, cash position, forecast, actuals and variance amount_too_large, payables tax too large) were package-level *problem.Problem values that problem.Write stamped with the first refused request's instance and trace id and WithCause gave its cause, a data race that sent them to every later refusal, of any tenant; each is now a function returning a new problem, Write and WithCause work on a copy, and internal/layout's TestNoSharedProblems refuses a package-level variable holding a problem",
+        "r": "internal/platform/problem Write, WithCause, package doc · TestWriteSharedProblem, TestWithCauseCopies (-race) · internal/layout TestNoSharedProblems · internal/ledger journal.go errTooLarge · internal/cash errTooLarge, errForecastTooLarge, errActualsTooLarge, errVarianceTooLarge · internal/payables tax.go errTaxTooLarge (review:T53f4)",
+        "src": "review:T53f4",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "Forecast from procurement (P7): optional delivery_date on order items (contract first, additive, copied from requisitions' need date), open value net of invoiced quantity plus tax, expected dates from delivery or lead days and the order's terms; no requisitions; ADR-0034 note",
         "r": "T53g",

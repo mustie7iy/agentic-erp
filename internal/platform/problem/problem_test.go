@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 
@@ -258,5 +259,77 @@ func TestWrite(t *testing.T) {
 	}
 	if got := rec.Header().Get("Retry-After"); got != "" {
 		t.Errorf("Retry-After: got %q, want none", got)
+	}
+}
+
+// TestWriteSharedProblem: two requests refused at once with the same
+// problem value (as the package-level refusals of review:T53f4 were) each
+// get their own instance and trace id, and the value is left as it was;
+// run with -race, a stamp on the shared value is a data race. The cause's
+// copy is TestWithCauseCopies'.
+func TestWriteSharedProblem(t *testing.T) {
+	shared := Unprocessable("cash.amount_too_large", "The amounts add up to more than an amount can hold.")
+	requests := map[string]string{"/v1/tenant-a/position": "trace-a", "/v1/tenant-b/position": "trace-b"}
+	type response struct {
+		path string
+		body map[string]any
+	}
+	responses := make(chan response, len(requests))
+	var wg sync.WaitGroup
+	for path, trace := range requests {
+		wg.Go(func() {
+			rec := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, path, nil)
+			Write(rec, r.WithContext(reqctx.WithTraceID(r.Context(), trace)), shared)
+			var got map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Errorf("decode %s: %v", rec.Body, err)
+			}
+			responses <- response{path, got}
+		})
+	}
+	wg.Wait()
+	close(responses)
+	for got := range responses {
+		if got.body["instance"] != got.path {
+			t.Errorf("%s: instance got %v, want %s", got.path, got.body["instance"], got.path)
+		}
+		if got.body["trace_id"] != requests[got.path] {
+			t.Errorf("%s: trace id got %v, want %s", got.path, got.body["trace_id"], requests[got.path])
+		}
+	}
+	if shared.Instance != "" {
+		t.Errorf("shared problem's instance: got %q, want none", shared.Instance)
+	}
+	if shared.TraceID != "" {
+		t.Errorf("shared problem's trace id: got %q, want none", shared.TraceID)
+	}
+}
+
+// TestWriteHeaderCopies: a header value the response changes after Write
+// is not the problem's own, which another request may send.
+func TestWriteHeaderCopies(t *testing.T) {
+	p := Unauthorized("token expired")
+	want := p.Header.Get("Www-Authenticate")
+	rec := httptest.NewRecorder()
+	Write(rec, nil, p)
+	rec.Header()["Www-Authenticate"][0] = `Basic realm="x"`
+	if got := p.Header.Get("Www-Authenticate"); got != want {
+		t.Errorf("the problem's Www-Authenticate: got %q, want %q", got, want)
+	}
+}
+
+// TestWithCauseCopies: WithCause leaves the problem it is called on as it
+// was, so a cause recorded for one request is not another's.
+func TestWithCauseCopies(t *testing.T) {
+	p := NotFound("x")
+	first, second := errors.New("first"), errors.New("second")
+	for want, got := range map[error]*Problem{first: p.WithCause(first), second: p.WithCause(second)} {
+		if !errors.Is(Cause(got), want) {
+			t.Errorf("cause: got %v, want %v", Cause(got), want)
+		}
+	}
+	if Cause(p) != nil {
+		t.Errorf("the original's cause: got %v, want none", Cause(p))
 	}
 }

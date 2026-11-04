@@ -157,7 +157,7 @@ func (e *Endpoints) Flows(ctx context.Context, q FlowsQuery) (FlowPage, error) {
 		}
 	}
 	if fr.r.sums.overflow {
-		return FlowPage{}, errForecastTooLarge
+		return FlowPage{}, errForecastTooLarge()
 	}
 	start, _ := slices.BinarySearchFunc(listed, c.After, func(k keyed, after string) int { return cmp.Compare(k.key, after) })
 	if start < len(listed) && listed[start].key == c.After {

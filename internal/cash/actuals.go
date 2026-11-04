@@ -148,7 +148,9 @@ type actualsRead struct {
 
 // errActualsTooLarge refuses actuals whose sums are out of the range of an
 // amount.
-var errActualsTooLarge = problem.Unprocessable("cash.amount_too_large", "The amounts of the cash actuals add up to more than an amount can hold.")
+func errActualsTooLarge() *problem.Problem {
+	return problem.Unprocessable("cash.amount_too_large", "The amounts of the cash actuals add up to more than an amount can hold.")
+}
 
 // Actuals computes the legal entity's actual cash flows. A legal entity
 // the caller cannot act in is not found; a grain not known, or a range
@@ -170,7 +172,7 @@ func (e *Endpoints) Actuals(ctx context.Context, q ActualsQuery) (Actuals, error
 		return Actuals{}, err
 	}
 	if ar.r.sums.overflow {
-		return Actuals{}, errActualsTooLarge
+		return Actuals{}, errActualsTooLarge()
 	}
 	return a, nil
 }

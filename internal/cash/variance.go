@@ -115,7 +115,9 @@ func errNoSnapshot(date time.Time) error {
 
 // errVarianceTooLarge refuses a variance whose sums are out of the range
 // of an amount.
-var errVarianceTooLarge = problem.Unprocessable("cash.amount_too_large", "The amounts of the forecast variance add up to more than an amount can hold.")
+func errVarianceTooLarge() *problem.Problem {
+	return problem.Unprocessable("cash.amount_too_large", "The amounts of the forecast variance add up to more than an amount can hold.")
+}
 
 // Variance computes the legal entity's forecast variance. A legal entity
 // the caller cannot act in is not found; a lag other than 0, 7 and 30, a
@@ -157,7 +159,7 @@ func (e *Endpoints) Variance(ctx context.Context, q VarianceQuery) (Variance, er
 		return Variance{}, err
 	}
 	if ar.r.sums.overflow {
-		return Variance{}, errVarianceTooLarge
+		return Variance{}, errVarianceTooLarge()
 	}
 	return v, nil
 }
