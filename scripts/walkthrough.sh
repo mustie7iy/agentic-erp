@@ -3539,8 +3539,9 @@ step_asset_transfer() {
   as carla
   say "The milling machine moves to the Toronto workshop (ADR-0057 §8, T57h). A center transfer takes effect from the"
   say "first day of its posting period: each ledger's depreciation is first caught up through the period before on the"
-  say "old centers (this period's run already charged the old ones, so it is posted back), and since the profit center"
-  say "changes, the machine's booked cost and accumulated depreciation move to the new profit center on the same accounts."
+  say "old centers (what this period's run already charged on them is posted back; step 29's run charged the lathe and"
+  say "the press, not the machine, so its catch-up is zero here), and since the profit center changes, the machine's"
+  say "booked cost and accumulated depreciation move to the new profit center on the same accounts."
   QUIET=1 api 200 '' listAssets -p "legal_entity_id=$LE" -p status=active
   mill=$(field '[.items[] | select(.description == "CNC milling machine") | .id][0]')
   values='"  asset \(.asset_number) \(.description) (\(.class_code)): \(.status) on \(.cost_center_code // "no cost center")/\(.profit_center_code // "-"); \([.values[] | "\(.ledger_code) cost \(.cost.amount), accumulated \(.accumulated.amount)"] | join("; "))"'
