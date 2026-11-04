@@ -4591,6 +4591,10 @@ type AssetDocumentEntry struct {
 	LedgerCode string `json:"ledger_code"`
 	// The ledger's name.
 	LedgerName string `json:"ledger_name"`
+	// `main`, or a center transfer's `catch_up`, its catch-up entry posted in the period before (ADR-0057
+	// §8). Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Part OptString `json:"part"`
 	// The entry's fiscal year.
 	FiscalYear int32 `json:"fiscal_year"`
 	// The journal entry (`GET /v1/journal-entries/{id}`).
@@ -4618,6 +4622,11 @@ func (s *AssetDocumentEntry) GetLedgerCode() string {
 // GetLedgerName returns the value of LedgerName.
 func (s *AssetDocumentEntry) GetLedgerName() string {
 	return s.LedgerName
+}
+
+// GetPart returns the value of Part.
+func (s *AssetDocumentEntry) GetPart() OptString {
+	return s.Part
 }
 
 // GetFiscalYear returns the value of FiscalYear.
@@ -4663,6 +4672,11 @@ func (s *AssetDocumentEntry) SetLedgerCode(val string) {
 // SetLedgerName sets the value of LedgerName.
 func (s *AssetDocumentEntry) SetLedgerName(val string) {
 	s.LedgerName = val
+}
+
+// SetPart sets the value of Part.
+func (s *AssetDocumentEntry) SetPart(val OptString) {
+	s.Part = val
 }
 
 // SetFiscalYear sets the value of FiscalYear.
@@ -4891,7 +4905,8 @@ type AssetMovement struct {
 	// listed here; values may be added within /v1.
 	DocumentKind string `json:"document_kind"`
 	// The document (an acquisition: `GET /v1/asset-acquisitions/{id}`; a retirement:
-	// `GET /v1/asset-retirements/{id}`; a depreciation run: `GET /v1/depreciation-runs/{id}`).
+	// `GET /v1/asset-retirements/{id}`; a transfer: `GET /v1/asset-transfers/{id}`; a depreciation run:
+	// `GET /v1/depreciation-runs/{id}`).
 	DocumentID uuid.UUID `json:"document_id"`
 	// That ledger's journal entry (`GET /v1/journal-entries/{id}`); absent for a catch-up of zero.
 	JournalEntryID OptUUID `json:"journal_entry_id"`
@@ -6599,6 +6614,904 @@ func (s *AssetTermsUpdate) SetResidualValue(val OptMoney) {
 // SetDepreciationStart sets the value of DepreciationStart.
 func (s *AssetTermsUpdate) SetDepreciationStart(val OptNilDate) {
 	s.DepreciationStart = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/AssetTransfer
+type AssetTransfer struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// `center` or `asset`. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Kind string `json:"kind"`
+	// The asset transferred.
+	AssetID uuid.UUID `json:"asset_id"`
+	// The asset's number in its company.
+	AssetNumber string `json:"asset_number"`
+	// The asset's description.
+	AssetDescription string `json:"asset_description"`
+	// An asset transfer's receiver.
+	ToAssetID OptUUID `json:"to_asset_id"`
+	// The receiver's number.
+	ToAssetNumber OptString `json:"to_asset_number"`
+	// The receiver's description.
+	ToAssetDescription OptString `json:"to_asset_description"`
+	// The receiver's class (another one: a reclassification).
+	ToClassCode OptString `json:"to_class_code"`
+	// The date the transfer took effect.
+	ValueDate time.Time `json:"value_date"`
+	// The posting date of its main entries.
+	PostingDate time.Time `json:"posting_date"`
+	// The posting date's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The posting date's regular period.
+	Period int32 `json:"period"`
+	// An asset transfer's: whether it took all of the asset's balances in every ledger.
+	Full OptBool `json:"full"`
+	// An asset transfer's share given as a percentage of cost, as a plain decimal.
+	SharePercent OptString `json:"share_percent"`
+	// An asset transfer's share given as a cost, in local currency.
+	ShareCost OptMoney `json:"share_cost"`
+	// A center transfer's previous centers.
+	From OptAssetTransferCenters `json:"from"`
+	// A center transfer's new centers.
+	To OptAssetTransferCenters `json:"to"`
+	// A center transfer's: whether it changed the profit center, moving the asset's balances to the new
+	// one.
+	ProfitCenterChange OptBool `json:"profit_center_change"`
+	// The transfer's text.
+	Text OptString `json:"text"`
+	// `posted`, or `reversed`. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+	// What it moved per ledger the company keeps, the leading ledger first and then by ledger code.
+	Ledgers []AssetTransferLedger `json:"ledgers"`
+	// Its journal entries per ledger (a center transfer's catch-up before its main entry; none in a ledger
+	// with nothing to post), each with its reversal once reversed.
+	Entries  []AssetDocumentEntry     `json:"entries"`
+	Reversal OptAssetTransferReversal `json:"reversal"`
+}
+
+// GetID returns the value of ID.
+func (s *AssetTransfer) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *AssetTransfer) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *AssetTransfer) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *AssetTransfer) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *AssetTransfer) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *AssetTransfer) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AssetTransfer) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *AssetTransfer) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetKind returns the value of Kind.
+func (s *AssetTransfer) GetKind() string {
+	return s.Kind
+}
+
+// GetAssetID returns the value of AssetID.
+func (s *AssetTransfer) GetAssetID() uuid.UUID {
+	return s.AssetID
+}
+
+// GetAssetNumber returns the value of AssetNumber.
+func (s *AssetTransfer) GetAssetNumber() string {
+	return s.AssetNumber
+}
+
+// GetAssetDescription returns the value of AssetDescription.
+func (s *AssetTransfer) GetAssetDescription() string {
+	return s.AssetDescription
+}
+
+// GetToAssetID returns the value of ToAssetID.
+func (s *AssetTransfer) GetToAssetID() OptUUID {
+	return s.ToAssetID
+}
+
+// GetToAssetNumber returns the value of ToAssetNumber.
+func (s *AssetTransfer) GetToAssetNumber() OptString {
+	return s.ToAssetNumber
+}
+
+// GetToAssetDescription returns the value of ToAssetDescription.
+func (s *AssetTransfer) GetToAssetDescription() OptString {
+	return s.ToAssetDescription
+}
+
+// GetToClassCode returns the value of ToClassCode.
+func (s *AssetTransfer) GetToClassCode() OptString {
+	return s.ToClassCode
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *AssetTransfer) GetValueDate() time.Time {
+	return s.ValueDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetTransfer) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetTransfer) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *AssetTransfer) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetFull returns the value of Full.
+func (s *AssetTransfer) GetFull() OptBool {
+	return s.Full
+}
+
+// GetSharePercent returns the value of SharePercent.
+func (s *AssetTransfer) GetSharePercent() OptString {
+	return s.SharePercent
+}
+
+// GetShareCost returns the value of ShareCost.
+func (s *AssetTransfer) GetShareCost() OptMoney {
+	return s.ShareCost
+}
+
+// GetFrom returns the value of From.
+func (s *AssetTransfer) GetFrom() OptAssetTransferCenters {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *AssetTransfer) GetTo() OptAssetTransferCenters {
+	return s.To
+}
+
+// GetProfitCenterChange returns the value of ProfitCenterChange.
+func (s *AssetTransfer) GetProfitCenterChange() OptBool {
+	return s.ProfitCenterChange
+}
+
+// GetText returns the value of Text.
+func (s *AssetTransfer) GetText() OptString {
+	return s.Text
+}
+
+// GetStatus returns the value of Status.
+func (s *AssetTransfer) GetStatus() string {
+	return s.Status
+}
+
+// GetLedgers returns the value of Ledgers.
+func (s *AssetTransfer) GetLedgers() []AssetTransferLedger {
+	return s.Ledgers
+}
+
+// GetEntries returns the value of Entries.
+func (s *AssetTransfer) GetEntries() []AssetDocumentEntry {
+	return s.Entries
+}
+
+// GetReversal returns the value of Reversal.
+func (s *AssetTransfer) GetReversal() OptAssetTransferReversal {
+	return s.Reversal
+}
+
+// SetID sets the value of ID.
+func (s *AssetTransfer) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *AssetTransfer) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *AssetTransfer) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *AssetTransfer) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *AssetTransfer) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *AssetTransfer) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AssetTransfer) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *AssetTransfer) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetKind sets the value of Kind.
+func (s *AssetTransfer) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetAssetID sets the value of AssetID.
+func (s *AssetTransfer) SetAssetID(val uuid.UUID) {
+	s.AssetID = val
+}
+
+// SetAssetNumber sets the value of AssetNumber.
+func (s *AssetTransfer) SetAssetNumber(val string) {
+	s.AssetNumber = val
+}
+
+// SetAssetDescription sets the value of AssetDescription.
+func (s *AssetTransfer) SetAssetDescription(val string) {
+	s.AssetDescription = val
+}
+
+// SetToAssetID sets the value of ToAssetID.
+func (s *AssetTransfer) SetToAssetID(val OptUUID) {
+	s.ToAssetID = val
+}
+
+// SetToAssetNumber sets the value of ToAssetNumber.
+func (s *AssetTransfer) SetToAssetNumber(val OptString) {
+	s.ToAssetNumber = val
+}
+
+// SetToAssetDescription sets the value of ToAssetDescription.
+func (s *AssetTransfer) SetToAssetDescription(val OptString) {
+	s.ToAssetDescription = val
+}
+
+// SetToClassCode sets the value of ToClassCode.
+func (s *AssetTransfer) SetToClassCode(val OptString) {
+	s.ToClassCode = val
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *AssetTransfer) SetValueDate(val time.Time) {
+	s.ValueDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetTransfer) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetTransfer) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *AssetTransfer) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetFull sets the value of Full.
+func (s *AssetTransfer) SetFull(val OptBool) {
+	s.Full = val
+}
+
+// SetSharePercent sets the value of SharePercent.
+func (s *AssetTransfer) SetSharePercent(val OptString) {
+	s.SharePercent = val
+}
+
+// SetShareCost sets the value of ShareCost.
+func (s *AssetTransfer) SetShareCost(val OptMoney) {
+	s.ShareCost = val
+}
+
+// SetFrom sets the value of From.
+func (s *AssetTransfer) SetFrom(val OptAssetTransferCenters) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *AssetTransfer) SetTo(val OptAssetTransferCenters) {
+	s.To = val
+}
+
+// SetProfitCenterChange sets the value of ProfitCenterChange.
+func (s *AssetTransfer) SetProfitCenterChange(val OptBool) {
+	s.ProfitCenterChange = val
+}
+
+// SetText sets the value of Text.
+func (s *AssetTransfer) SetText(val OptString) {
+	s.Text = val
+}
+
+// SetStatus sets the value of Status.
+func (s *AssetTransfer) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetLedgers sets the value of Ledgers.
+func (s *AssetTransfer) SetLedgers(val []AssetTransferLedger) {
+	s.Ledgers = val
+}
+
+// SetEntries sets the value of Entries.
+func (s *AssetTransfer) SetEntries(val []AssetDocumentEntry) {
+	s.Entries = val
+}
+
+// SetReversal sets the value of Reversal.
+func (s *AssetTransfer) SetReversal(val OptAssetTransferReversal) {
+	s.Reversal = val
+}
+
+// An asset's cost center (optional) and profit center, the codes and names only to a caller who may
+// read centers (`ledger.cost_center.read`).
+// Ref: #/components/schemas/AssetTransferCenters
+type AssetTransferCenters struct {
+	// The cost center.
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// The cost center's code.
+	CostCenterCode OptString `json:"cost_center_code"`
+	// The cost center's name.
+	CostCenterName OptString `json:"cost_center_name"`
+	// The profit center.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// The profit center's code.
+	ProfitCenterCode OptString `json:"profit_center_code"`
+	// The profit center's name.
+	ProfitCenterName OptString `json:"profit_center_name"`
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *AssetTransferCenters) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *AssetTransferCenters) GetCostCenterCode() OptString {
+	return s.CostCenterCode
+}
+
+// GetCostCenterName returns the value of CostCenterName.
+func (s *AssetTransferCenters) GetCostCenterName() OptString {
+	return s.CostCenterName
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *AssetTransferCenters) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetProfitCenterCode returns the value of ProfitCenterCode.
+func (s *AssetTransferCenters) GetProfitCenterCode() OptString {
+	return s.ProfitCenterCode
+}
+
+// GetProfitCenterName returns the value of ProfitCenterName.
+func (s *AssetTransferCenters) GetProfitCenterName() OptString {
+	return s.ProfitCenterName
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *AssetTransferCenters) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *AssetTransferCenters) SetCostCenterCode(val OptString) {
+	s.CostCenterCode = val
+}
+
+// SetCostCenterName sets the value of CostCenterName.
+func (s *AssetTransferCenters) SetCostCenterName(val OptString) {
+	s.CostCenterName = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *AssetTransferCenters) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetProfitCenterCode sets the value of ProfitCenterCode.
+func (s *AssetTransferCenters) SetProfitCenterCode(val OptString) {
+	s.ProfitCenterCode = val
+}
+
+// SetProfitCenterName sets the value of ProfitCenterName.
+func (s *AssetTransferCenters) SetProfitCenterName(val OptString) {
+	s.ProfitCenterName = val
+}
+
+// A transfer of an asset to other centers (`center`) or of a share of it to another asset of the same
+// company (`asset`), ADR-0057 §8.
+// Ref: #/components/schemas/AssetTransferCreate
+type AssetTransferCreate struct {
+	// The asset transferred.
+	AssetID uuid.UUID `json:"asset_id"`
+	// `center`, with `cost_center_id` or `profit_center_id`, or `asset`, with `to_asset_id`. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Kind string `json:"kind"`
+	// A center transfer's new cost center; required for an asset with a cost center. Its profit center on
+	// the value date is the asset's.
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// A center transfer's new profit center: for an asset without a cost center, or the one the new cost
+	// center derives (another is refused).
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// An asset transfer's receiver: another asset of the same company, planned or active.
+	ToAssetID OptUUID `json:"to_asset_id"`
+	// An asset transfer's share of the asset's cost, one of `percent` and `cost`; absent: all of it, a
+	// full transfer.
+	Share OptAssetRetirementShare `json:"share"`
+	// The date the transfer takes effect: a center transfer's is its posting period's first day (the
+	// default); an asset transfer's lies in its posting period on or before its posting date (default the
+	// posting date).
+	ValueDate OptDate `json:"value_date"`
+	// The transfer's posting date; default the company's date today.
+	PostingDate OptDate `json:"posting_date"`
+	// A text for the transfer and its entries.
+	Text OptString `json:"text"`
+}
+
+// GetAssetID returns the value of AssetID.
+func (s *AssetTransferCreate) GetAssetID() uuid.UUID {
+	return s.AssetID
+}
+
+// GetKind returns the value of Kind.
+func (s *AssetTransferCreate) GetKind() string {
+	return s.Kind
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *AssetTransferCreate) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *AssetTransferCreate) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetToAssetID returns the value of ToAssetID.
+func (s *AssetTransferCreate) GetToAssetID() OptUUID {
+	return s.ToAssetID
+}
+
+// GetShare returns the value of Share.
+func (s *AssetTransferCreate) GetShare() OptAssetRetirementShare {
+	return s.Share
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *AssetTransferCreate) GetValueDate() OptDate {
+	return s.ValueDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetTransferCreate) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetText returns the value of Text.
+func (s *AssetTransferCreate) GetText() OptString {
+	return s.Text
+}
+
+// SetAssetID sets the value of AssetID.
+func (s *AssetTransferCreate) SetAssetID(val uuid.UUID) {
+	s.AssetID = val
+}
+
+// SetKind sets the value of Kind.
+func (s *AssetTransferCreate) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *AssetTransferCreate) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *AssetTransferCreate) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetToAssetID sets the value of ToAssetID.
+func (s *AssetTransferCreate) SetToAssetID(val OptUUID) {
+	s.ToAssetID = val
+}
+
+// SetShare sets the value of Share.
+func (s *AssetTransferCreate) SetShare(val OptAssetRetirementShare) {
+	s.Share = val
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *AssetTransferCreate) SetValueDate(val OptDate) {
+	s.ValueDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetTransferCreate) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetText sets the value of Text.
+func (s *AssetTransferCreate) SetText(val OptString) {
+	s.Text = val
+}
+
+// AssetTransferHeaders wraps AssetTransfer with response headers.
+type AssetTransferHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           AssetTransfer
+}
+
+// GetETag returns the value of ETag.
+func (s *AssetTransferHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AssetTransferHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *AssetTransferHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *AssetTransferHeaders) GetResponse() AssetTransfer {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *AssetTransferHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AssetTransferHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *AssetTransferHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AssetTransferHeaders) SetResponse(val AssetTransfer) {
+	s.Response = val
+}
+
+func (*AssetTransferHeaders) createAssetTransferRes() {}
+
+// What a transfer moved in one ledger (ADR-0057 §8): its depreciation catch-up on the asset's
+// previous centers (or, for an asset transfer, the asset's), then the asset's balances moved to the
+// new profit center (a center transfer; zero without a profit center change) or the share taken to the
+// receiver (an asset transfer).
+// Ref: #/components/schemas/AssetTransferLedger
+type AssetTransferLedger struct {
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// An asset transfer's fraction of the asset's cost in this ledger, as a plain decimal (1: all of it).
+	Share OptString `json:"share"`
+	// The depreciation it caught up through the period before its posting period, an expense; negative
+	// when it posted the posting period's run back.
+	CatchUp Money `json:"catch_up"`
+	// The catch-up in group currency, at its posting date's rate.
+	CatchUpGc Money `json:"catch_up_gc"`
+	// Where the catch-up was posted: the last day of the period before (a center transfer's catch-up
+	// entry), or the transfer's posting date.
+	CatchUpPostingDate time.Time `json:"catch_up_posting_date"`
+	// The acquisition cost moved, in local currency.
+	Cost Money `json:"cost"`
+	// The acquisition cost moved, at its booked group amount.
+	CostGc Money `json:"cost_gc"`
+	// The accumulated depreciation moved, after the catch-up, negative as the credit it is.
+	Accumulated Money `json:"accumulated"`
+	// The accumulated depreciation moved, at its booked group amount.
+	AccumulatedGc Money `json:"accumulated_gc"`
+	// The residual value an asset transfer took to the receiver; zero for a center transfer.
+	Residual Money `json:"residual"`
+	// The book value moved: `cost` plus `accumulated`.
+	NetBookValue Money `json:"net_book_value"`
+	// The book value moved in group currency.
+	NetBookValueGc Money `json:"net_book_value_gc"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *AssetTransferLedger) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *AssetTransferLedger) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *AssetTransferLedger) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetShare returns the value of Share.
+func (s *AssetTransferLedger) GetShare() OptString {
+	return s.Share
+}
+
+// GetCatchUp returns the value of CatchUp.
+func (s *AssetTransferLedger) GetCatchUp() Money {
+	return s.CatchUp
+}
+
+// GetCatchUpGc returns the value of CatchUpGc.
+func (s *AssetTransferLedger) GetCatchUpGc() Money {
+	return s.CatchUpGc
+}
+
+// GetCatchUpPostingDate returns the value of CatchUpPostingDate.
+func (s *AssetTransferLedger) GetCatchUpPostingDate() time.Time {
+	return s.CatchUpPostingDate
+}
+
+// GetCost returns the value of Cost.
+func (s *AssetTransferLedger) GetCost() Money {
+	return s.Cost
+}
+
+// GetCostGc returns the value of CostGc.
+func (s *AssetTransferLedger) GetCostGc() Money {
+	return s.CostGc
+}
+
+// GetAccumulated returns the value of Accumulated.
+func (s *AssetTransferLedger) GetAccumulated() Money {
+	return s.Accumulated
+}
+
+// GetAccumulatedGc returns the value of AccumulatedGc.
+func (s *AssetTransferLedger) GetAccumulatedGc() Money {
+	return s.AccumulatedGc
+}
+
+// GetResidual returns the value of Residual.
+func (s *AssetTransferLedger) GetResidual() Money {
+	return s.Residual
+}
+
+// GetNetBookValue returns the value of NetBookValue.
+func (s *AssetTransferLedger) GetNetBookValue() Money {
+	return s.NetBookValue
+}
+
+// GetNetBookValueGc returns the value of NetBookValueGc.
+func (s *AssetTransferLedger) GetNetBookValueGc() Money {
+	return s.NetBookValueGc
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *AssetTransferLedger) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *AssetTransferLedger) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *AssetTransferLedger) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetShare sets the value of Share.
+func (s *AssetTransferLedger) SetShare(val OptString) {
+	s.Share = val
+}
+
+// SetCatchUp sets the value of CatchUp.
+func (s *AssetTransferLedger) SetCatchUp(val Money) {
+	s.CatchUp = val
+}
+
+// SetCatchUpGc sets the value of CatchUpGc.
+func (s *AssetTransferLedger) SetCatchUpGc(val Money) {
+	s.CatchUpGc = val
+}
+
+// SetCatchUpPostingDate sets the value of CatchUpPostingDate.
+func (s *AssetTransferLedger) SetCatchUpPostingDate(val time.Time) {
+	s.CatchUpPostingDate = val
+}
+
+// SetCost sets the value of Cost.
+func (s *AssetTransferLedger) SetCost(val Money) {
+	s.Cost = val
+}
+
+// SetCostGc sets the value of CostGc.
+func (s *AssetTransferLedger) SetCostGc(val Money) {
+	s.CostGc = val
+}
+
+// SetAccumulated sets the value of Accumulated.
+func (s *AssetTransferLedger) SetAccumulated(val Money) {
+	s.Accumulated = val
+}
+
+// SetAccumulatedGc sets the value of AccumulatedGc.
+func (s *AssetTransferLedger) SetAccumulatedGc(val Money) {
+	s.AccumulatedGc = val
+}
+
+// SetResidual sets the value of Residual.
+func (s *AssetTransferLedger) SetResidual(val Money) {
+	s.Residual = val
+}
+
+// SetNetBookValue sets the value of NetBookValue.
+func (s *AssetTransferLedger) SetNetBookValue(val Money) {
+	s.NetBookValue = val
+}
+
+// SetNetBookValueGc sets the value of NetBookValueGc.
+func (s *AssetTransferLedger) SetNetBookValueGc(val Money) {
+	s.NetBookValueGc = val
+}
+
+// One page of asset transfers.
+// Ref: #/components/schemas/AssetTransferPage
+type AssetTransferPage struct {
+	// The transfers on this page.
+	Items []AssetTransfer `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *AssetTransferPage) GetItems() []AssetTransfer {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AssetTransferPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *AssetTransferPage) SetItems(val []AssetTransfer) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AssetTransferPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*AssetTransferPage) listAssetTransfersRes() {}
+
+// The reversal of a transfer; its entries are shown beside the transfer's in `entries`.
+// Ref: #/components/schemas/AssetTransferReversal
+type AssetTransferReversal struct {
+	// The main entry's reversal date.
+	PostingDate time.Time `json:"posting_date"`
+	// Why it was reversed.
+	Reason string `json:"reason"`
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetTransferReversal) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetReason returns the value of Reason.
+func (s *AssetTransferReversal) GetReason() string {
+	return s.Reason
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetTransferReversal) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetReason sets the value of Reason.
+func (s *AssetTransferReversal) SetReason(val string) {
+	s.Reason = val
+}
+
+// The reversal of an asset transfer (ADR-0057 §8).
+// Ref: #/components/schemas/AssetTransferReverse
+type AssetTransferReverse struct {
+	// Why the transfer is reversed.
+	Reason string `json:"reason"`
+	// The main entry's reversal date; default the transfer's posting date. On or after it, in a period
+	// open in every ledger. A center transfer's catch-up entry keeps its own date while its period is
+	// open.
+	PostingDate OptDate `json:"posting_date"`
+}
+
+// GetReason returns the value of Reason.
+func (s *AssetTransferReverse) GetReason() string {
+	return s.Reason
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetTransferReverse) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// SetReason sets the value of Reason.
+func (s *AssetTransferReverse) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetTransferReverse) SetPostingDate(val OptDate) {
+	s.PostingDate = val
 }
 
 // Merge patch of an asset: its description, its depreciation start in every ledger, and its terms per
@@ -13414,6 +14327,7 @@ func (*ConflictHeaders) closePurchaseOrderRes()               {}
 func (*ConflictHeaders) createAssetAcquisitionRes()           {}
 func (*ConflictHeaders) createAssetRes()                      {}
 func (*ConflictHeaders) createAssetRetirementRes()            {}
+func (*ConflictHeaders) createAssetTransferRes()              {}
 func (*ConflictHeaders) createBusinessPartnerRes()            {}
 func (*ConflictHeaders) createChangeRequestRes()              {}
 func (*ConflictHeaders) createClearingRes()                   {}
@@ -13519,6 +14433,7 @@ func (*ConflictHeaders) resumeWebhookSubscriptionRes()        {}
 func (*ConflictHeaders) retireEntryTemplateRes()              {}
 func (*ConflictHeaders) reverseAssetAcquisitionRes()          {}
 func (*ConflictHeaders) reverseAssetRetirementRes()           {}
+func (*ConflictHeaders) reverseAssetTransferRes()             {}
 func (*ConflictHeaders) reverseGoodsReceiptRes()              {}
 func (*ConflictHeaders) reverseJournalEntryRes()              {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()           {}
@@ -16082,6 +16997,30 @@ func (*CreateAssetRetirementPreconditionRequired) createAssetRetirementRes() {}
 type CreateAssetRetirementUnprocessableEntity Problem
 
 func (*CreateAssetRetirementUnprocessableEntity) createAssetRetirementRes() {}
+
+type CreateAssetTransferBadRequest Problem
+
+func (*CreateAssetTransferBadRequest) createAssetTransferRes() {}
+
+type CreateAssetTransferForbidden Problem
+
+func (*CreateAssetTransferForbidden) createAssetTransferRes() {}
+
+type CreateAssetTransferNotFound Problem
+
+func (*CreateAssetTransferNotFound) createAssetTransferRes() {}
+
+type CreateAssetTransferPreconditionFailed Problem
+
+func (*CreateAssetTransferPreconditionFailed) createAssetTransferRes() {}
+
+type CreateAssetTransferPreconditionRequired Problem
+
+func (*CreateAssetTransferPreconditionRequired) createAssetTransferRes() {}
+
+type CreateAssetTransferUnprocessableEntity Problem
+
+func (*CreateAssetTransferUnprocessableEntity) createAssetTransferRes() {}
 
 type CreateAssetUnprocessableEntity Problem
 
@@ -21029,6 +21968,46 @@ func (*GetAssetScheduleNotFound) getAssetScheduleRes() {}
 type GetAssetScheduleUnprocessableEntity Problem
 
 func (*GetAssetScheduleUnprocessableEntity) getAssetScheduleRes() {}
+
+type GetAssetTransferBadRequest Problem
+
+func (*GetAssetTransferBadRequest) getAssetTransferRes() {}
+
+type GetAssetTransferForbidden Problem
+
+func (*GetAssetTransferForbidden) getAssetTransferRes() {}
+
+type GetAssetTransferNotFound Problem
+
+func (*GetAssetTransferNotFound) getAssetTransferRes() {}
+
+// GetAssetTransferOKHeaders wraps AssetTransfer with response headers.
+type GetAssetTransferOKHeaders struct {
+	ETag     OptString
+	Response AssetTransfer
+}
+
+// GetETag returns the value of ETag.
+func (s *GetAssetTransferOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetAssetTransferOKHeaders) GetResponse() AssetTransfer {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetAssetTransferOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetAssetTransferOKHeaders) SetResponse(val AssetTransfer) {
+	s.Response = val
+}
+
+func (*GetAssetTransferOKHeaders) getAssetTransferRes() {}
 
 type GetBankAccountBadRequest Problem
 
@@ -27792,6 +28771,14 @@ type ListAssetRetirementsForbidden Problem
 
 func (*ListAssetRetirementsForbidden) listAssetRetirementsRes() {}
 
+type ListAssetTransfersBadRequest Problem
+
+func (*ListAssetTransfersBadRequest) listAssetTransfersRes() {}
+
+type ListAssetTransfersForbidden Problem
+
+func (*ListAssetTransfersForbidden) listAssetTransfersRes() {}
+
 type ListAssetsBadRequest Problem
 
 func (*ListAssetsBadRequest) listAssetsRes() {}
@@ -33063,6 +34050,98 @@ func (o OptAssetSupplierInvoiceRef) Get() (v AssetSupplierInvoiceRef, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAssetSupplierInvoiceRef) Or(d AssetSupplierInvoiceRef) AssetSupplierInvoiceRef {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssetTransferCenters returns new OptAssetTransferCenters with value set to v.
+func NewOptAssetTransferCenters(v AssetTransferCenters) OptAssetTransferCenters {
+	return OptAssetTransferCenters{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetTransferCenters is optional AssetTransferCenters.
+type OptAssetTransferCenters struct {
+	Value AssetTransferCenters
+	Set   bool
+}
+
+// IsSet returns true if OptAssetTransferCenters was set.
+func (o OptAssetTransferCenters) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetTransferCenters) Reset() {
+	var v AssetTransferCenters
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetTransferCenters) SetTo(v AssetTransferCenters) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetTransferCenters) Get() (v AssetTransferCenters, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetTransferCenters) Or(d AssetTransferCenters) AssetTransferCenters {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssetTransferReversal returns new OptAssetTransferReversal with value set to v.
+func NewOptAssetTransferReversal(v AssetTransferReversal) OptAssetTransferReversal {
+	return OptAssetTransferReversal{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetTransferReversal is optional AssetTransferReversal.
+type OptAssetTransferReversal struct {
+	Value AssetTransferReversal
+	Set   bool
+}
+
+// IsSet returns true if OptAssetTransferReversal was set.
+func (o OptAssetTransferReversal) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetTransferReversal) Reset() {
+	var v AssetTransferReversal
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetTransferReversal) SetTo(v AssetTransferReversal) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetTransferReversal) Get() (v AssetTransferReversal, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetTransferReversal) Or(d AssetTransferReversal) AssetTransferReversal {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -45471,6 +46550,69 @@ type ReverseAssetRetirementUnprocessableEntity Problem
 
 func (*ReverseAssetRetirementUnprocessableEntity) reverseAssetRetirementRes() {}
 
+type ReverseAssetTransferBadRequest Problem
+
+func (*ReverseAssetTransferBadRequest) reverseAssetTransferRes() {}
+
+type ReverseAssetTransferForbidden Problem
+
+func (*ReverseAssetTransferForbidden) reverseAssetTransferRes() {}
+
+type ReverseAssetTransferNotFound Problem
+
+func (*ReverseAssetTransferNotFound) reverseAssetTransferRes() {}
+
+// ReverseAssetTransferOKHeaders wraps AssetTransfer with response headers.
+type ReverseAssetTransferOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           AssetTransfer
+}
+
+// GetETag returns the value of ETag.
+func (s *ReverseAssetTransferOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ReverseAssetTransferOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ReverseAssetTransferOKHeaders) GetResponse() AssetTransfer {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ReverseAssetTransferOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ReverseAssetTransferOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReverseAssetTransferOKHeaders) SetResponse(val AssetTransfer) {
+	s.Response = val
+}
+
+func (*ReverseAssetTransferOKHeaders) reverseAssetTransferRes() {}
+
+type ReverseAssetTransferPreconditionFailed Problem
+
+func (*ReverseAssetTransferPreconditionFailed) reverseAssetTransferRes() {}
+
+type ReverseAssetTransferPreconditionRequired Problem
+
+func (*ReverseAssetTransferPreconditionRequired) reverseAssetTransferRes() {}
+
+type ReverseAssetTransferUnprocessableEntity Problem
+
+func (*ReverseAssetTransferUnprocessableEntity) reverseAssetTransferRes() {}
+
 type ReverseGoodsReceiptBadRequest Problem
 
 func (*ReverseGoodsReceiptBadRequest) reverseGoodsReceiptRes() {}
@@ -46812,6 +47954,7 @@ func (*ServiceUnavailableHeaders) closePurchaseOrderRes()               {}
 func (*ServiceUnavailableHeaders) createAssetAcquisitionRes()           {}
 func (*ServiceUnavailableHeaders) createAssetRes()                      {}
 func (*ServiceUnavailableHeaders) createAssetRetirementRes()            {}
+func (*ServiceUnavailableHeaders) createAssetTransferRes()              {}
 func (*ServiceUnavailableHeaders) createBusinessPartnerRes()            {}
 func (*ServiceUnavailableHeaders) createChangeRequestRes()              {}
 func (*ServiceUnavailableHeaders) createClearingRes()                   {}
@@ -46911,6 +48054,7 @@ func (*ServiceUnavailableHeaders) resumeWebhookSubscriptionRes()        {}
 func (*ServiceUnavailableHeaders) retireEntryTemplateRes()              {}
 func (*ServiceUnavailableHeaders) reverseAssetAcquisitionRes()          {}
 func (*ServiceUnavailableHeaders) reverseAssetRetirementRes()           {}
+func (*ServiceUnavailableHeaders) reverseAssetTransferRes()             {}
 func (*ServiceUnavailableHeaders) reverseGoodsReceiptRes()              {}
 func (*ServiceUnavailableHeaders) reverseJournalEntryRes()              {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()           {}
@@ -51111,6 +52255,7 @@ func (*TooManyRequestsHeaders) closePurchaseOrderRes()               {}
 func (*TooManyRequestsHeaders) createAssetAcquisitionRes()           {}
 func (*TooManyRequestsHeaders) createAssetRes()                      {}
 func (*TooManyRequestsHeaders) createAssetRetirementRes()            {}
+func (*TooManyRequestsHeaders) createAssetTransferRes()              {}
 func (*TooManyRequestsHeaders) createBusinessPartnerRes()            {}
 func (*TooManyRequestsHeaders) createChangeRequestRes()              {}
 func (*TooManyRequestsHeaders) createClearingRes()                   {}
@@ -51165,6 +52310,7 @@ func (*TooManyRequestsHeaders) getAssetAcquisitionRes()              {}
 func (*TooManyRequestsHeaders) getAssetRes()                         {}
 func (*TooManyRequestsHeaders) getAssetRetirementRes()               {}
 func (*TooManyRequestsHeaders) getAssetScheduleRes()                 {}
+func (*TooManyRequestsHeaders) getAssetTransferRes()                 {}
 func (*TooManyRequestsHeaders) getBankAccountRes()                   {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()               {}
 func (*TooManyRequestsHeaders) getBankFileRes()                      {}
@@ -51240,6 +52386,7 @@ func (*TooManyRequestsHeaders) listAssetClassesRes()                 {}
 func (*TooManyRequestsHeaders) listAssetClearingItemsRes()           {}
 func (*TooManyRequestsHeaders) listAssetMovementsRes()               {}
 func (*TooManyRequestsHeaders) listAssetRetirementsRes()             {}
+func (*TooManyRequestsHeaders) listAssetTransfersRes()               {}
 func (*TooManyRequestsHeaders) listAssetsRes()                       {}
 func (*TooManyRequestsHeaders) listAuditEventsRes()                  {}
 func (*TooManyRequestsHeaders) listBalancesRes()                     {}
@@ -51368,6 +52515,7 @@ func (*TooManyRequestsHeaders) resumeWebhookSubscriptionRes()        {}
 func (*TooManyRequestsHeaders) retireEntryTemplateRes()              {}
 func (*TooManyRequestsHeaders) reverseAssetAcquisitionRes()          {}
 func (*TooManyRequestsHeaders) reverseAssetRetirementRes()           {}
+func (*TooManyRequestsHeaders) reverseAssetTransferRes()             {}
 func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()              {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()              {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()           {}
@@ -51497,6 +52645,7 @@ func (*UnauthorizedHeaders) closePurchaseOrderRes()               {}
 func (*UnauthorizedHeaders) createAssetAcquisitionRes()           {}
 func (*UnauthorizedHeaders) createAssetRes()                      {}
 func (*UnauthorizedHeaders) createAssetRetirementRes()            {}
+func (*UnauthorizedHeaders) createAssetTransferRes()              {}
 func (*UnauthorizedHeaders) createBusinessPartnerRes()            {}
 func (*UnauthorizedHeaders) createChangeRequestRes()              {}
 func (*UnauthorizedHeaders) createClearingRes()                   {}
@@ -51551,6 +52700,7 @@ func (*UnauthorizedHeaders) getAssetAcquisitionRes()              {}
 func (*UnauthorizedHeaders) getAssetRes()                         {}
 func (*UnauthorizedHeaders) getAssetRetirementRes()               {}
 func (*UnauthorizedHeaders) getAssetScheduleRes()                 {}
+func (*UnauthorizedHeaders) getAssetTransferRes()                 {}
 func (*UnauthorizedHeaders) getBankAccountRes()                   {}
 func (*UnauthorizedHeaders) getBankFileContentRes()               {}
 func (*UnauthorizedHeaders) getBankFileRes()                      {}
@@ -51626,6 +52776,7 @@ func (*UnauthorizedHeaders) listAssetClassesRes()                 {}
 func (*UnauthorizedHeaders) listAssetClearingItemsRes()           {}
 func (*UnauthorizedHeaders) listAssetMovementsRes()               {}
 func (*UnauthorizedHeaders) listAssetRetirementsRes()             {}
+func (*UnauthorizedHeaders) listAssetTransfersRes()               {}
 func (*UnauthorizedHeaders) listAssetsRes()                       {}
 func (*UnauthorizedHeaders) listAuditEventsRes()                  {}
 func (*UnauthorizedHeaders) listBalancesRes()                     {}
@@ -51754,6 +52905,7 @@ func (*UnauthorizedHeaders) resumeWebhookSubscriptionRes()        {}
 func (*UnauthorizedHeaders) retireEntryTemplateRes()              {}
 func (*UnauthorizedHeaders) reverseAssetAcquisitionRes()          {}
 func (*UnauthorizedHeaders) reverseAssetRetirementRes()           {}
+func (*UnauthorizedHeaders) reverseAssetTransferRes()             {}
 func (*UnauthorizedHeaders) reverseGoodsReceiptRes()              {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()              {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()           {}

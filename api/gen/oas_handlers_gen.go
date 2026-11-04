@@ -7208,6 +7208,248 @@ func (s *Server) handleCreateAssetRetirementRequest(args [0]string, argsEscaped 
 	}
 }
 
+// handleCreateAssetTransferRequest handles createAssetTransfer operation.
+//
+// Transfers an asset (ADR-0057 §8, T57h; SAP's transfer within a company code). `kind` `center` moves
+// the asset to another cost center (`cost_center_id`; its profit center is the cost center's on the
+// value date, a different `profit_center_id` given is 422 `ledger.profit_center_mismatch`) or, for an
+// asset without a cost center, to another profit center (`profit_center_id`); the centers are checked
+// as a posting on the class's depreciation account on the value date would check them (422
+// `ledger.cost_center_invalid`, `ledger.profit_center_invalid`, `assets.cost_center_required`), and
+// must differ from the asset's (422 `request.validation_failed`). It is valued on the first day of its
+// posting period (the default; another day of the period is 422 `assets.transfer_mid_period`, another
+// period 422 `assets.value_date_outside_period`). Per ledger the company keeps (the leading ledger
+// first, then by code) it first catches up the depreciation through the period before on the asset's
+// previous centers, as a retirement does (negative when the posting period's run already posted), and
+// books the asset through that period; the catch-up is an entry of its own (`part` `catch_up`) dated
+// that period's last day when that period is open in the ledger, the asset is not booked through the
+// transfer's period and its previous centers were already in force then; otherwise it is posted in the
+// transfer's entry, on the previous centers, which must still be valid then. When the profit center
+// changes, the transfer moves all the asset's booked cost and accumulated depreciation in each ledger,
+// after the catch-up, at their local and group amounts from the previous profit center to the new one
+// on the same accounts (`part` `main`). It writes no movement but the catch-up's; from then on every
+// posting for the asset takes the new centers, a depreciation run of an earlier period passes over the
+// asset and an acquisition is posted on or after the transfer's value date (409
+// `assets.posting_before_center_transfer`). `kind` `asset` moves a share of the asset's balances
+// (`share`, as for a retirement; default all of it) to another asset of the same company
+// (`to_asset_id`; another company's is 422 `assets.transfer_other_company`, the asset itself 422
+// `assets.transfer_same_asset`), possibly of another class (a reclassification): valued in its posting
+// period on or before its posting date (default the posting date, 422
+// `assets.value_date_outside_period`) and not before the asset's capitalisation date (422
+// `assets.value_date_before_capitalisation`), posted on or after the receiver's latest center
+// assignment (409 `assets.posting_before_center_transfer`), it catches up the asset's depreciation as
+// a retirement does, then per ledger posts one entry: Cr the asset's acquisition cost and Dr the
+// receiver's for the cost taken, Dr the asset's accumulated depreciation and Cr the receiver's for the
+// accumulated depreciation taken, each on its asset's profit center, at their booked group amounts;
+// the residual value taken goes to the receiver, which depreciates the net value received over its own
+// remaining life. A planned receiver becomes active with the transfer's value date as its
+// capitalisation date; a full transfer retires the asset. For either kind, the asset (and the
+// receiver) may have no movement or center assignment valued in a later period nor depreciation booked
+// through a later period in any ledger (409 `assets.later_value_date`); a planned asset is 422
+// `assets.asset_not_capitalised` for an asset transfer; a retired or cancelled asset or receiver 422
+// `assets.asset_retired` or `assets.asset_cancelled`; an asset without terms in a ledger its company
+// keeps 422 `assets.ledger_terms_missing`; an asset or receiver the caller cannot act in is 404. A
+// ledger with nothing to post gets no entry. Audited, and published as AssetMovementPosted (and
+// AssetChanged `retired` when a full transfer retires the asset). Human-only.
+//
+// POST /v1/asset-transfers
+func (s *Server) handleCreateAssetTransferRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createAssetTransfer"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/asset-transfers"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreateAssetTransferOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreateAssetTransferOperation,
+			ID:   "createAssetTransfer",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreateAssetTransferOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreateAssetTransferParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreateAssetTransferRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreateAssetTransferRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreateAssetTransferOperation,
+			OperationSummary: "Transfer an asset to other centers, or a share of it to another asset",
+			OperationID:      "createAssetTransfer",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *AssetTransferCreate
+			Params   = CreateAssetTransferParams
+			Response = CreateAssetTransferRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreateAssetTransferParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreateAssetTransfer(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreateAssetTransfer(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreateAssetTransferResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCreateBusinessPartnerRequest handles createBusinessPartner operation.
 //
 // Creates the partner in status `pending` together with a partner change of kind `create` (see
@@ -18177,6 +18419,194 @@ func (s *Server) handleGetAssetScheduleRequest(args [1]string, argsEscaped bool,
 	}
 
 	if err := encodeGetAssetScheduleResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetAssetTransferRequest handles getAssetTransfer operation.
+//
+// One transfer with its asset (and an asset transfer's receiver), what it moved per ledger and its
+// journal entries (ADR-0057 §8). One of a legal entity the caller cannot act in is not found.
+//
+// GET /v1/asset-transfers/{id}
+func (s *Server) handleGetAssetTransferRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAssetTransfer"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/asset-transfers/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetAssetTransferOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetAssetTransferOperation,
+			ID:   "getAssetTransfer",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetAssetTransferOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetAssetTransferParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetAssetTransferRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetAssetTransferOperation,
+			OperationSummary: "Get an asset transfer",
+			OperationID:      "getAssetTransfer",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetAssetTransferParams
+			Response = GetAssetTransferRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetAssetTransferParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetAssetTransfer(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetAssetTransfer(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetAssetTransferResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -32758,6 +33188,228 @@ func (s *Server) handleListAssetRetirementsRequest(args [0]string, argsEscaped b
 	}
 
 	if err := encodeListAssetRetirementsResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleListAssetTransfersRequest handles listAssetTransfers operation.
+//
+// The asset transfers of the legal entities the caller may act in (ADR-0057 §8, T57h), each with its
+// asset (and an asset transfer's receiver), what it moved per ledger and its journal entries. Filters:
+// company, asset (as sender or receiver), kind, posting dates and status. Sortable by: `posting_date`
+// (default), `created_at`.
+//
+// GET /v1/asset-transfers
+func (s *Server) handleListAssetTransfersRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listAssetTransfers"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/asset-transfers"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListAssetTransfersOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListAssetTransfersOperation,
+			ID:   "listAssetTransfers",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListAssetTransfersOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListAssetTransfersParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListAssetTransfersRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListAssetTransfersOperation,
+			OperationSummary: "List asset transfers",
+			OperationID:      "listAssetTransfers",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "legal_entity_id",
+					In:   "query",
+				}: params.LegalEntityID,
+				{
+					Name: "asset_id",
+					In:   "query",
+				}: params.AssetID,
+				{
+					Name: "kind",
+					In:   "query",
+				}: params.Kind,
+				{
+					Name: "posting_date_from",
+					In:   "query",
+				}: params.PostingDateFrom,
+				{
+					Name: "posting_date_to",
+					In:   "query",
+				}: params.PostingDateTo,
+				{
+					Name: "status",
+					In:   "query",
+				}: params.Status,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListAssetTransfersParams
+			Response = ListAssetTransfersRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListAssetTransfersParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListAssetTransfers(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListAssetTransfers(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListAssetTransfersResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -60023,6 +60675,234 @@ func (s *Server) handleReverseAssetRetirementRequest(args [1]string, argsEscaped
 	}
 }
 
+// handleReverseAssetTransferRequest handles reverseAssetTransfer operation.
+//
+// Reverses a posted transfer of either kind (ADR-0057 §8, T57h): each ledger's entries through the
+// ledger's reversal path, and the asset's (and the receiver's) movements negated; each entry's
+// reversal is shown beside it in `entries`. The main entry is reversed on `posting_date` (default the
+// transfer's posting date), never before the transfer's posting date (422
+// `assets.reversal_before_original`), in a period open in every ledger it posted in (409
+// `ledger.period_not_open`). A center transfer's catch-up entry, dated the last day of the period
+// before, is reversed on that day while that period is still open in its ledger, and otherwise on the
+// main entry's reversal date, on the same previous centers. The asset's depreciation booked-through
+// period in each ledger returns to what it was before the catch-up (so a run of the period before
+// posts that period's depreciation again), and a center transfer's reversal moves the balances back
+// and restores the previous centers from the day they were in force (the previous assignment's valid
+// from), so acquisitions dated then are accepted again. The asset's and the receiver's status are
+// derived again: a planned receiver becomes planned again, a retired asset active. Only the latest
+// posting of every asset it touches is reversed: once anything was posted on the asset, or an asset
+// transfer's receiver, after the transfer (a depreciation run, an acquisition, a reversal), whether
+// reversed or not, it is refused (409 `assets.later_movements`). One already reversed is 409
+// `assets.transfer_not_posted`. The If-Match is the transfer's ETag; a transfer the caller cannot act
+// in is 404. Audited, and published as AssetMovementReversed (and AssetChanged `reactivated` when the
+// asset was retired). Human-only.
+//
+// POST /v1/asset-transfers/{id}:reverse
+func (s *Server) handleReverseAssetTransferRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("reverseAssetTransfer"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/asset-transfers/{id}:reverse"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ReverseAssetTransferOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ReverseAssetTransferOperation,
+			ID:   "reverseAssetTransfer",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ReverseAssetTransferOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeReverseAssetTransferParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeReverseAssetTransferRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response ReverseAssetTransferRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ReverseAssetTransferOperation,
+			OperationSummary: "Reverse an asset transfer",
+			OperationID:      "reverseAssetTransfer",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *AssetTransferReverse
+			Params   = ReverseAssetTransferParams
+			Response = ReverseAssetTransferRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackReverseAssetTransferParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ReverseAssetTransfer(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ReverseAssetTransfer(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeReverseAssetTransferResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleReverseGoodsReceiptRequest handles reverseGoodsReceipt operation.
 //
 // Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
@@ -60254,9 +61134,10 @@ func (s *Server) handleReverseGoodsReceiptRequest(args [1]string, argsEscaped bo
 // `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. An assets document's entry
 // (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is
 // reversed with `POST /v1/asset-acquisitions/{id}:reverse`, a retirement with
-// `POST /v1/asset-retirements/{id}:reverse` (transfers with their own `:reverse`, a depreciation run's
-// entries never one by one). Entries of any other context are 409 `ledger.entry_owned_elsewhere` too:
-// no reversal path exists for them yet. Returns the new reversal entry. Human-only.
+// `POST /v1/asset-retirements/{id}:reverse`, a transfer with `POST /v1/asset-transfers/{id}:reverse`
+// (a depreciation run's entries never one by one). Entries of any other context are 409
+// `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal
+// entry. Human-only.
 //
 // POST /v1/journal-entries/{id}:reverse
 func (s *Server) handleReverseJournalEntryRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

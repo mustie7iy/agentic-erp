@@ -137,6 +137,10 @@ type CreateAssetRetirementRes interface {
 	createAssetRetirementRes()
 }
 
+type CreateAssetTransferRes interface {
+	createAssetTransferRes()
+}
+
 type CreateBusinessPartnerRes interface {
 	createBusinessPartnerRes()
 }
@@ -351,6 +355,10 @@ type GetAssetRetirementRes interface {
 
 type GetAssetScheduleRes interface {
 	getAssetScheduleRes()
+}
+
+type GetAssetTransferRes interface {
+	getAssetTransferRes()
 }
 
 type GetBankAccountRes interface {
@@ -651,6 +659,10 @@ type ListAssetMovementsRes interface {
 
 type ListAssetRetirementsRes interface {
 	listAssetRetirementsRes()
+}
+
+type ListAssetTransfersRes interface {
+	listAssetTransfersRes()
 }
 
 type ListAssetsRes interface {
@@ -1163,6 +1175,10 @@ type ReverseAssetAcquisitionRes interface {
 
 type ReverseAssetRetirementRes interface {
 	reverseAssetRetirementRes()
+}
+
+type ReverseAssetTransferRes interface {
+	reverseAssetTransferRes()
 }
 
 type ReverseGoodsReceiptRes interface {

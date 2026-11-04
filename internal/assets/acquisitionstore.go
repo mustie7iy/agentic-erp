@@ -55,14 +55,23 @@ type Reversal struct {
 	Reason      string
 }
 
-// DocumentEntry is one ledger's journal entry of an assets document, with
-// its reversal entry once reversed.
+// DocumentEntry is one ledger's journal entry of an assets document, its
+// main one or a center transfer's catch-up (Part), with its reversal entry
+// once reversed.
 type DocumentEntry struct {
 	LedgerID, EntryID uuid.UUID
+	Part              string
 	FiscalYear        int16
 	DocumentNumber    string
 	Reversal          *ReversalEntry
 }
+
+// Parts of a document's entries in a ledger (ADR-0057 §5): its main entry,
+// and a center transfer's catch-up posted in the period before.
+const (
+	partMain    = "main"
+	partCatchUp = "catch_up"
+)
 
 // clearingUse is what is used of a capitalised line (assets.clearing_use).
 type clearingUse struct {
@@ -188,16 +197,17 @@ func writeMovements(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.
 // derive sets the asset's last seq and derives its status and
 // capitalisation date (ADR-0057 §5): planned while it holds no posted
 // acquisition that adds cost (a reduction, from a credit line,
-// capitalises nothing), with the earliest one's value date otherwise;
-// retired when its cost is zero in every ledger and its latest movement
-// that reduced its cost or took a full share, a reversed one and its
-// reversal set aside, is a retirement or transfer out (decided by default
-// 21: a credit memo bringing the cost to zero leaves it active); active
-// otherwise. Transfers in join the rule with T57h.
+// capitalises nothing) and no posted asset transfer in, with the earliest
+// one's value date otherwise; retired when its cost is zero in every
+// ledger and its latest movement that reduced its cost or took a full
+// share, a reversed one and its reversal set aside, is a retirement or
+// transfer out (decided by default 21: a credit memo bringing the cost to
+// zero leaves it active); active otherwise.
 func derive(ctx context.Context, tx pgx.Tx, p reqctx.Principal, asset uuid.UUID, seq int32) error {
 	_, err := tx.Exec(ctx, `UPDATE assets.asset a SET last_seq = $2, capitalised_on = x.on,
 			status = CASE WHEN x.on IS NULL THEN 'planned' WHEN y.retired THEN 'retired' ELSE 'active' END, version = a.version + 1, updated_by = $3
-		FROM (SELECT min(value_date) AS on FROM assets.acquisition WHERE asset_id = $1 AND status = 'posted' AND amount > 0) x,
+		FROM (SELECT least((SELECT min(value_date) FROM assets.acquisition WHERE asset_id = $1 AND status = 'posted' AND amount > 0),
+				(SELECT min(value_date) FROM assets.transfer WHERE to_asset_id = $1 AND status = 'posted')) AS on) x,
 			(SELECT coalesce((SELECT bool_and(c = 0) FROM (SELECT sum(cost) AS c FROM assets.movement WHERE asset_id = $1 GROUP BY ledger_id) s), false)
 				AND coalesce((SELECT m.kind IN ('retirement', 'transfer_out') FROM assets.movement m
 					WHERE m.asset_id = $1 AND m.kind <> 'depreciation' AND m.reverses_id IS NULL AND (m.cost < 0 OR m.share = 1)
@@ -255,21 +265,23 @@ func readAcquisition(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Acquisition,
 	return q, err
 }
 
-// readEntries reads the main journal entries of documents of a kind, by
-// document, each with its reversal entry once reversed.
+// readEntries reads the journal entries of documents of a kind, by
+// document, each with its part (a center transfer's catch-up before its
+// main entry) and its reversal entry once reversed.
 func readEntries(ctx context.Context, tx pgx.Tx, kind string, ids []uuid.UUID) (map[uuid.UUID][]DocumentEntry, error) {
-	rows, _ := tx.Query(ctx, `SELECT document_id, ledger_id, journal_entry_year, journal_entry_id, document_number, reversal_entry_year, reversal_entry_id,
-			reversal_document_number
-		FROM assets.document_entry WHERE document_kind = $1 AND document_id = ANY($2) AND part = 'main'`, kind, ids)
+	rows, _ := tx.Query(ctx, `SELECT document_id, ledger_id, part, journal_entry_year, journal_entry_id, document_number, reversal_entry_year,
+			reversal_entry_id, reversal_document_number
+		FROM assets.document_entry WHERE document_kind = $1 AND document_id = ANY($2) ORDER BY part`, kind, ids)
 	out := map[uuid.UUID][]DocumentEntry{}
 	var doc uuid.UUID
 	var en DocumentEntry
 	var rev nullableReversal
-	_, err := pgx.ForEachRow(rows, []any{&doc, &en.LedgerID, &en.FiscalYear, &en.EntryID, &en.DocumentNumber, &rev.year, &rev.id, &rev.number}, func() error {
-		en.Reversal = rev.entry()
-		out[doc] = append(out[doc], en)
-		return nil
-	})
+	_, err := pgx.ForEachRow(rows, []any{&doc, &en.LedgerID, &en.Part, &en.FiscalYear, &en.EntryID, &en.DocumentNumber, &rev.year, &rev.id, &rev.number},
+		func() error {
+			en.Reversal = rev.entry()
+			out[doc] = append(out[doc], en)
+			return nil
+		})
 	return out, errs.Wrapf(err, "assets: entries of %d documents", len(ids))
 }
 

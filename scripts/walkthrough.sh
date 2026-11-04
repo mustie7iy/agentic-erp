@@ -2423,7 +2423,9 @@ ASSET_SETTINGS='
 .asset_classes = [{"code": "MACHINES", "name": "Machinery and equipment",
     "terms": [(.companies[] | select(.code == "@CC@") | .ledgers // ["0L"])[] |
       if . == "0L" then {"ledger": ., "method": "straight_line", "useful_life_months": 120}
-      else {"ledger": ., "method": "declining_balance", "useful_life_months": 120, "declining_factor": "2"} end]}]
+      else {"ledger": ., "method": "declining_balance", "useful_life_months": 120, "declining_factor": "2"} end]},
+  {"code": "TOOLS", "name": "Tools and fixtures",
+    "terms": [(.companies[] | select(.code == "@CC@") | .ledgers // ["0L"])[] | {"ledger": ., "method": "straight_line", "useful_life_months": 60}]}]
 | (.companies[] | select(.code == "@CC@")) |= (
     .chart_of_accounts += [
       {"number": "1600", "name": "Machinery", "type": "asset", "asset_reconciliation": true},
@@ -2433,8 +2435,8 @@ ASSET_SETTINGS='
       {"number": "4950", "name": "Gain on asset retirements", "type": "revenue"},
       {"number": "6250", "name": "Depreciation of machinery", "type": "expense"},
       {"number": "6950", "name": "Loss on asset retirements", "type": "expense"}]
-    | .asset_accounts = [{"class": "MACHINES", "acquisition_cost": "1600", "accumulated_depreciation": "1609", "depreciation": "6250",
-        "clearing": "1690", "gain": "4950", "loss": "6950", "sale_clearing": "1695"}])
+    | .asset_accounts = (["MACHINES", "TOOLS"] | map({"class": ., "acquisition_cost": "1600", "accumulated_depreciation": "1609", "depreciation": "6250",
+        "clearing": "1690", "gain": "4950", "loss": "6950", "sale_clearing": "1695"})))
 | .number_ranges += (["asset", "journal_aa", "journal_af"] | map({"company": "@CC@", "document_type": ., "fiscal_year": @YEAR@, "first": 1, "last": 999999}))'
 
 step_assets() {
@@ -2444,7 +2446,7 @@ step_assets() {
   say "years in the leading ledger and at twice the declining rate in 2L, with its accounts. The acquisition cost"
   say "and accumulated depreciation accounts are asset reconciliation accounts, which only the assets context"
   say "posts to, so their balances are the assets' values. The company numbers its assets and their entries"
-  say "(AA, AF) in this fiscal year's ranges."
+  say "(AA, AF) in this fiscal year's ranges. A second class, tools and fixtures over five years, shares the accounts."
   api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
   local base settings cr request
   base=$(field '.items[0].number')
@@ -2476,7 +2478,7 @@ step_assets() {
   api 200 '.items[] | "class \(.code) \(.name):", (.terms[] | "  \(.ledger_code) \(.ledger_name): \(.method), \(.useful_life_months) months\(if .declining_factor then ", factor \(.declining_factor)" else "" end)"),
     (.companies[] | "  company \(.company_code) \(.company_name): cost \(.accounts.acquisition_cost.number) \(.accounts.acquisition_cost.name), accumulated depreciation \(.accounts.accumulated_depreciation.number), depreciation \(.accounts.depreciation.number), clearing \(.accounts.clearing.number)")' \
     listAssetClasses -p "legal_entity_id=$LE"
-  expect "the classes of $CC" "$(field '[.items[] | .code] | join(" ")')" MACHINES
+  expect "the classes of $CC" "$(field '[.items[] | .code] | join(" ")')" "MACHINES TOOLS"
   expect "the class's cost account in $CC" "$(field '.items[0].companies[] | select(.company_code == "'"$CC"'") | "\(.accounts.acquisition_cost.number) \(.accounts.acquisition_cost.name)"')" \
     "1600 Machinery"
   expect "the leading ledger's terms" "$(field '.items[0].terms[] | select(.ledger_code == "0L") | "\(.method) \(.useful_life_months)"')" "straight_line 120"
@@ -2826,6 +2828,69 @@ step_asset_retirement() {
   passed
 }
 
+step_asset_transfer() {
+  heading "Step 26 — Asset transfers: the milling machine moved to a cost center of another profit center from this period, its balances reposted; a quarter of it moved to a tool of another class"
+  as sam
+  say "Maple opens a Toronto office. Sam sets up its profit center and cost center, which the controller approves."
+  local pc cc mill tool q start values cost
+  api 201 '"profit center \(.code) \(.name): \(.status)"' createProfitCenter \
+    -body "{\"code\": \"PC-TOR\", \"name\": \"Toronto office\", \"responsible\": \"Carla Controller\", \"legal_entity_ids\": [\"$LE\"], \"valid_from\": \"$YEAR-01-01\", \"reason\": \"The Toronto office\"}"
+  pc=$(field .id)
+  center_approved sam
+  api 201 '"cost center \(.code) \(.name): \(.status)"' createCostCenter \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"CC-2100\", \"name\": \"Toronto workshop\", \"responsible\": \"Carla Controller\", \"category\": \"ADMIN\", \"profit_center_id\": \"$pc\", \"valid_from\": \"$YEAR-01-01\", \"reason\": \"The Toronto workshop\"}"
+  cc=$(field .id)
+  center_approved sam
+  as carla
+  say "The milling machine moves to the Toronto workshop (ADR-0057 §8, T57h). A center transfer takes effect from the"
+  say "first day of its posting period: each ledger's depreciation is first caught up through the period before on the"
+  say "old centers (this period's run already charged the old ones, so it is posted back), and since the profit center"
+  say "changes, the machine's booked cost and accumulated depreciation move to the new profit center on the same accounts."
+  QUIET=1 api 200 '' listAssets -p "legal_entity_id=$LE" -p status=active
+  mill=$(field '[.items[] | select(.description == "CNC milling machine") | .id][0]')
+  values='"  asset \(.asset_number) \(.description) (\(.class_code)): \(.status) on \(.cost_center_code // "no cost center")/\(.profit_center_code // "-"); \([.values[] | "\(.ledger_code) cost \(.cost.amount), accumulated \(.accumulated.amount)"] | join("; "))"'
+  api 200 "$values" getAsset -p "id=$mill"
+  cost=$(field '[.values[] | "\(.ledger_code) \(.cost.amount)"] | join(", ")')
+  QUIET=1 api 200 '' getAssetSchedule -p "id=$mill" -p "fiscal_year=$YEAR"
+  start=$(field ".periods[] | select(.start_date <= \"$TODAY\" and .end_date >= \"$TODAY\") | .start_date")
+  if [ "$start" != "$TODAY" ]; then
+    say "A center transfer valued on another day of the period is refused:"
+    refused 422 assets.transfer_mid_period createAssetTransfer \
+      -body "{\"asset_id\": \"$mill\", \"kind\": \"center\", \"cost_center_id\": \"$cc\", \"value_date\": \"$TODAY\"}"
+  fi
+  api 201 '"transfer \(.kind) of asset \(.asset_number) from \(.value_date): \(.from.cost_center_code)/\(.from.profit_center_code) -> \(.to.cost_center_code)/\(.to.profit_center_code), profit center change \(.profit_center_change)",
+    (.ledgers[] | "  \(.ledger_code): catch-up \(.catch_up.amount) on \(.catch_up_posting_date), cost moved \(.cost.amount), accumulated moved \(.accumulated.amount) \(.cost.currency)"),
+    "  entries \([.entries[] | "\(.ledger_code) \(.part) \(.document_number)"] | join(", "))"' \
+    createAssetTransfer -body "{\"asset_id\": \"$mill\", \"kind\": \"center\", \"cost_center_id\": \"$cc\", \"text\": \"Milling machine to Toronto\"}"
+  q=$(field .id)
+  expect "the transfer's value date, the period's first day" "$(field .value_date)" "$start"
+  expect "the new centers" "$(field '"\(.to.cost_center_code) \(.to.profit_center_code) \(.profit_center_change)"')" "CC-2100 PC-TOR true"
+  expect "the cost moved, all of the machine's" "$(field '[.ledgers[] | "\(.ledger_code) \(.cost.amount)"] | join(", ")')" "$cost"
+  api 200 '"entry \(.document_number): \([.lines[] | "\(.account_id | acct) \(.amount.amount)"] | join(", "))"' \
+    getJournalEntry -p "id=$(field '.entries[] | select(.ledger_code == "0L" and .part == "main") | .journal_entry_id')"
+  api 200 "$values" getAsset -p "id=$mill"
+  expect "the machine's centers" "$(field '"\(.cost_center_code) \(.profit_center_code)"')" "CC-2100 PC-TOR"
+  say "A quarter of the machine, its tooling, becomes an asset of its own in the tools class (a reclassification):"
+  say "the share of its cost and accumulated depreciation, after the catch-up, moves to a new tool asset, which becomes"
+  say "active from the transfer's value date and depreciates what it received over its own life."
+  api 201 '"asset \(.company_code)/\(.asset_number) \(.description) (\(.class_code)): \(.status)"' createAsset \
+    -body "{\"legal_entity_id\": \"$LE\", \"class_code\": \"TOOLS\", \"description\": \"Milling tool set\", \"cost_center_id\": \"$cc\"}"
+  tool=$(field .id)
+  api 201 '"transfer \(.kind) of asset \(.asset_number) to \(.to_asset_number) \(.to_asset_description) (\(.to_class_code)), \(.share_percent) %",
+    (.ledgers[] | "  \(.ledger_code): catch-up \(.catch_up.amount), cost \(.cost.amount), accumulated \(.accumulated.amount) \(.cost.currency)")' \
+    createAssetTransfer -body "{\"asset_id\": \"$mill\", \"kind\": \"asset\", \"to_asset_id\": \"$tool\", \"share\": {\"percent\": \"25\"}, \"text\": \"Tooling split off the milling machine\"}"
+  expect "the receiver's class" "$(field .to_class_code)" TOOLS
+  api 200 "$values" getAsset -p "id=$tool"
+  expect "the tool, active from today" "$(field '"\(.status) \(.capitalised_on)"')" "active $TODAY"
+  api 200 "$values" getAsset -p "id=$mill"
+  api 200 '"the machine'"'"'s transfers: \([.items[] | "\(.kind) \(.status)"] | join(", "))"' listAssetTransfers -p "asset_id=$mill"
+  expect "the machine's transfers" "$(field '[.items[].kind] | sort | join(" ")')" "asset center"
+  say "The center transfer is no longer the machine's latest posting, so it is not reversed any more:"
+  QUIET=1 api 200 '' getAssetTransfer -p "id=$q"
+  refused 409 assets.later_movements reverseAssetTransfer -p "id=$q" -if-match "$ETAG" -body '{"reason": "Moved in error"}'
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -2847,7 +2912,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_asset_acquisitions step_asset_reversal step_asset_depreciation step_depreciation_run step_asset_retirement'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_asset_acquisitions step_asset_reversal step_asset_depreciation step_depreciation_run step_asset_retirement step_asset_transfer'
 
 main() {
   start

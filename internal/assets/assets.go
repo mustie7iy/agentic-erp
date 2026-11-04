@@ -63,6 +63,17 @@
 // balances in local and group currency and posts one ledger-specific
 // entry per ledger with the gain or loss; it is reversed while it is the
 // asset's latest posting, and a full one retires the asset.
+//
+// T57h builds transfers (ADR-0057 §8): a center transfer moves an asset to
+// another cost or profit center from the first day of its posting period,
+// catching up each ledger's depreciation through the period before on the
+// previous centers (in an entry of its own in that period while it is
+// open) and, for a profit center change, reposting the asset's booked
+// balances to the new profit center; an asset transfer moves a share of an
+// asset's balances to another asset of the same company, possibly of
+// another class. Both are reversed while they are the latest posting of
+// every asset they touch, a center transfer's reversal restoring the
+// previous centers from the day they were in force.
 package assets
 
 import (

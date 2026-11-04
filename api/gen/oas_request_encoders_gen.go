@@ -410,6 +410,20 @@ func encodeCreateAssetRetirementRequest(
 	return nil
 }
 
+func encodeCreateAssetTransferRequest(
+	req *AssetTransferCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateBusinessPartnerRequest(
 	req *BusinessPartnerCreate,
 	r *http.Request,
@@ -1633,6 +1647,20 @@ func encodeReverseAssetAcquisitionRequest(
 
 func encodeReverseAssetRetirementRequest(
 	req *AssetRetirementReverse,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeReverseAssetTransferRequest(
+	req *AssetTransferReverse,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
