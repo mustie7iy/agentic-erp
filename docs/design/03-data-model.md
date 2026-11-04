@@ -402,7 +402,8 @@ Saturday and Sunday. A business day is neither a weekend day nor a holiday
 (`config.Config.BusinessDay`), the one rule the cash position and the close
 calendar count days by. The `close` section is the close template
 (`close.tasks`, T64a; §3.22); a company's `close.variance` its variance
-report's settings (T64h; §3.22).
+report's settings (T64h; §3.22) and its `close.accrual_account` the
+liability its accruals are credited to (T64e, tier 3; §3.22).
 `POST /v1/country-pack-applications` (T62d) stores the draft as a change
 request in status `draft` on the active version, with the merge's notes in
 `change_request.notes` (an array of path and message, `[]` for requests
@@ -3361,6 +3362,51 @@ is, its latest row is the close's signer. A covered period unlocked later
 off again has a second row. Read by close, oldest first
 (`sign_off_by_close`). Schema tests: `db/closing_test.go`
 (`TestCloseSignOffRules`).
+
+Accrual proposals (T64e, migration 000216), with the closing outbox
+(`AccrualProposed`):
+
+```
+closing.accrual_proposal (tenant_id, id, close_id, session_id, agent_id, account_id, account_number, account_name,
+                          accrual_account_id, accrual_account_number, accrual_account_name,
+                          cost_center_id, cost_center_code, cost_center_name, profit_center_id, profit_center_code,
+                          profit_center_name, supplier_id, currency, amount, description, reason, parked_entry_id,
+                          posting_date, status proposed|rejected, decided_by, decided_at, decision_reason, version,
+                          created_*, updated_*)
+                          PK (tenant_id, id); FK (tenant_id, close_id) -> period_close; UNIQUE (tenant_id, parked_entry_id)
+closing.accrual_evidence (tenant_id, proposal_id, seq 1-10, kind supplier_invoice|purchase_order|journal_entry,
+                          document_id, document_number, fiscal_year, supplier_id)
+                          PK (tenant_id, proposal_id, seq); UNIQUE (tenant_id, proposal_id, kind, document_id)
+```
+
+A proposal is one expense of its close's period that the close agent
+proposed in its session: `amount` in minor units of the company's local
+`currency`, more than zero (`accrual_proposal_amount`), debited to the
+expense account and credited to the company's accrual account
+(`companies[].close.accrual_account`), each kept with its number and name
+as they were then, and the centers with their codes (never blank) and
+names exactly when given (`accrual_proposal_centers`,
+`accrual_proposal_cost_center_code`, `accrual_proposal_profit_center_code`).
+`parked_entry_id` is the journal entry the ledger parked for it as the
+agent (`ledger.parked_entry`), one per proposal
+(`accrual_proposal_parked_once`), dated `posting_date`, the period's last
+day. It starts `proposed` and moves only to `rejected` (T64f), with
+`decided_by`, `decided_at` and `decision_reason` set exactly then
+(`accrual_proposal_decided`); nothing else of it changes and it is never
+deleted (`closing.check_accrual_proposal`). Its evidence, 1-10 documents
+each once in the order given, is a supplier invoice or a purchase order
+with its supplier, or a journal entry with its fiscal year
+(`accrual_evidence_kind_keys`), each with its document number as cited,
+never updated or deleted (`platform.forbid_mutation`). Every write reads
+the close `FOR UPDATE` first; the duplicate rule (one proposal of a
+close per expense account, cost center and supplier that is not
+rejected) is the application's under that lock (`accrual_proposal_by_close`),
+since a proposal whose entry the ledger cancelled counts as rejected
+(T64f). The list pages by creation (`accrual_proposal_by_created`) and
+filters by session (`accrual_proposal_by_session`). The accounts, centers,
+supplier, documents, parked entry, session and principals are other
+contexts', by id, without foreign keys. Schema tests:
+`db/closing_test.go` (`TestAccrualProposalRules`).
 
 The variance report (T64h) stores nothing. A company's settings are
 configuration (`companies[].close.variance`: bases, amount and percent

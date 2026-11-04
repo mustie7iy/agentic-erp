@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
@@ -109,6 +110,79 @@ func TestCloseVarianceTier(t *testing.T) {
 				if d.Tier != TierOperational {
 					t.Errorf("Diff %s: got tier %v, want %v", d.Path, d.Tier, TierOperational)
 				}
+			}
+		})
+	}
+}
+
+// withAccruals is the fixture with company 1000's accruals credited to a
+// liability of its own, 219500 (ADR-0058 §3).
+func withAccruals(t *testing.T) *Config {
+	t.Helper()
+	c := fixture(t)
+	co := c.Company("1000")
+	co.ChartOfAccounts = append(co.ChartOfAccounts, Account{Number: "219500", Name: "Accrued liabilities", Type: Liability})
+	co.Close.AccrualAccount = "219500"
+	return c
+}
+
+// TestCloseAccrualAccount: a liability posted by hand is an accrual
+// account; an account the chart lacks, one of another type and every kind
+// of reconciliation account are refused on the field.
+func TestCloseAccrualAccount(t *testing.T) {
+	if fs := Validate(withAccruals(t), currency.Seeded()); HasErrors(fs) {
+		t.Fatalf("accruals configured: got %v, want no errors", fs)
+	}
+	const path = "companies[1000].close.accrual_account"
+	cases := []struct {
+		name   string
+		mutate func(co *Company)
+		want   string
+	}{
+		{"an account the chart lacks", func(co *Company) { co.Close.AccrualAccount = "299999" }, "not in the chart of accounts"},
+		{"an expense", func(co *Company) { co.Close.AccrualAccount = "510000" }, "is an expense account"},
+		{"an asset", func(co *Company) { co.Close.AccrualAccount = "100000" }, "is an asset account"},
+		{"the suppliers' reconciliation account", func(co *Company) { co.Close.AccrualAccount = "211000" }, "is a reconciliation account"},
+		{"an asset reconciliation account", func(co *Company) {
+			co.ChartOfAccounts = append(co.ChartOfAccounts, Account{Number: "219600", Name: "Assets", Type: Liability, AssetReconciliation: true})
+			co.Close.AccrualAccount = "219600"
+		}, "is a reconciliation account"},
+		{"the GR/IR account", func(co *Company) { co.AccountDetermination.GRIR = "219500" }, "is a reconciliation account"},
+		{"the down payments' account", func(co *Company) { co.AccountDetermination.DownPayment = "219500" }, "is a reconciliation account"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := withAccruals(t)
+			tc.mutate(c.Company("1000"))
+			var got []string
+			for _, f := range Validate(c, currency.Seeded()) {
+				if f.Path == path {
+					got = append(got, f.Message)
+				}
+			}
+			if len(got) != 1 || !strings.Contains(got[0], tc.want) {
+				t.Errorf("findings at %s: got %q, want one saying %q", path, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCloseAccrualAccountTier: the accrual account decides what accrual
+// proposals post: tier 3 (ADR-0058 §3), set for the first time or changed.
+func TestCloseAccrualAccountTier(t *testing.T) {
+	base := fixture(t)
+	base.Company("1000").ChartOfAccounts = withAccruals(t).Company("1000").ChartOfAccounts
+	set := withAccruals(t)
+	changed := withAccruals(t)
+	changed.Company("1000").Close.AccrualAccount = "211000"
+	for name, pair := range map[string][2]*Config{"set": {base, set}, "changed": {set, changed}} {
+		t.Run(name, func(t *testing.T) {
+			diffs, _ := Diff(pair[0], pair[1]) // Diff never fails
+			if len(diffs) != 1 {
+				t.Fatalf("Diff: got %v, want the accrual account alone", diffs)
+			}
+			if d := diffs[0]; d.Path != "companies[1000].close.accrual_account" || d.Tier != TierPostingRelated {
+				t.Errorf("Diff: got %s tier %v, want companies[1000].close.accrual_account tier %v", d.Path, d.Tier, TierPostingRelated)
 			}
 		})
 	}

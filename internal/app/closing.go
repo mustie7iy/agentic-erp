@@ -14,16 +14,22 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/payables"
+	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Closing is the financial close context as the API wires it (ADR-0058
 // §2): a leaf that reads the configuration, tenancy, ledger, identity,
-// controlling, agents and assets contexts through the adapters below, so
-// none of them imports it and it imports none of them.
+// controlling, agents, assets, payables, procurement and partner contexts
+// through the adapters below, so none of them imports it and it imports
+// none of them. It parks accrual proposals' entries through the ledger's
+// endpoints as the API wires them.
 func Closing(cfg Config) *closing.Endpoints {
-	return &closing.Endpoints{Settings: configuration.Settings{}, Companies: closingCompanies{}, Ledger: closingLedger{}, People: closingPeople{},
-		Plans: closingPlans{}, Sessions: agents.Sessions{}, Depreciation: closingDepreciation{}, Pages: cfg.Pages, Now: cfg.Now}
+	return &closing.Endpoints{Settings: configuration.Settings{}, Companies: closingCompanies{},
+		Ledger: closingLedger{parked: ledger.ParkedEntries{Endpoints: Ledger(cfg)}}, People: closingPeople{}, Plans: closingPlans{},
+		Sessions: agents.Sessions{}, Depreciation: closingDepreciation{}, Evidence: closingEvidence{}, Pages: cfg.Pages, Now: cfg.Now}
 }
 
 // closingCompanies gives the closing context a legal entity's code, name
@@ -38,8 +44,11 @@ func (closingCompanies) Company(ctx context.Context, id uuid.UUID) (closing.Comp
 // closingLedger gives the closing context the ledger's posting periods,
 // what a close's checks read (parked entries and revaluation runs), the
 // period lock a sign-off takes, the variance report's profit and loss and
-// the journal entries its comments cite.
-type closingLedger struct{}
+// the journal entries its comments cite, and an accrual proposal's
+// accounts, centers and parked entry.
+type closingLedger struct {
+	parked ledger.ParkedEntries
+}
 
 func (closingLedger) LeadingPeriods(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]closing.Period, error) {
 	ps, err := ledger.ClosePeriods{}.Leading(ctx, legalEntity, fiscalYear)
@@ -100,6 +109,37 @@ func (closingLedger) Cited(ctx context.Context, legalEntity, account uuid.UUID, 
 	return out, err
 }
 
+func (closingLedger) Accounts(ctx context.Context, legalEntity uuid.UUID, ids []uuid.UUID, numbers []string) ([]closing.Account, error) {
+	as, err := ledger.CloseAccounts{}.Accounts(ctx, legalEntity, ids, numbers)
+	out := make([]closing.Account, len(as))
+	for i, a := range as {
+		out[i] = closing.Account{ID: a.ID, Number: a.Number, Name: a.Name, BalanceSheet: a.BalanceSheet, Postable: a.Postable}
+	}
+	return out, err
+}
+
+// Centers names centers through the ledger's published names of cost and
+// profit centers (the assets context reads them too).
+func (closingLedger) Centers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]closing.Center, error) {
+	ns, err := ledger.AssetReads{}.CenterNames(ctx, ids)
+	out := make(map[uuid.UUID]closing.Center, len(ns))
+	for id, n := range ns {
+		out[id] = closing.Center{Code: n.Code, Name: n.Name}
+	}
+	return out, err
+}
+
+func (l closingLedger) Park(ctx context.Context, entry closing.ParkEntry) (uuid.UUID, error) {
+	in := ledger.NewEntry{LegalEntityID: entry.LegalEntityID, DocumentType: "SA", DocumentDate: entry.Date, PostingDate: entry.Date,
+		Currency: entry.Currency, HeaderText: &entry.HeaderText, Lines: make([]ledger.NewLine, len(entry.Lines))}
+	for i, line := range entry.Lines {
+		in.Lines[i] = ledger.NewLine{AccountID: line.AccountID, Amount: line.Amount, Currency: entry.Currency, CostCenterID: line.CostCenterID,
+			ProfitCenterID: line.ProfitCenterID, Text: &line.Text}
+	}
+	p, err := l.parked.Park(ctx, in)
+	return p.ID, err
+}
+
 func closingPeriod(p ledger.Period) closing.Period {
 	return closing.Period{ID: p.ID, Number: p.Period, StartDate: p.StartDate, EndDate: p.EndDate, Status: p.Status, Version: p.Version}
 }
@@ -137,4 +177,43 @@ type closingDepreciation struct{}
 func (closingDepreciation) Posted(ctx context.Context, legalEntity, ledgerID uuid.UUID, fiscalYear, period int16, end time.Time) (*uuid.UUID, int, error) {
 	d, err := assets.CloseChecks{}.Depreciation(ctx, legalEntity, ledgerID, fiscalYear, period, end)
 	return d.Run, d.Selected, err
+}
+
+// closingEvidence gives the closing context what an accrual proposal
+// rests on: supplier invoices (payables), purchase orders (procurement)
+// and the suppliers' numbers and names (partner).
+type closingEvidence struct{}
+
+func (closingEvidence) Invoices(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]closing.Document, error) {
+	ss, err := payables.Invoices{}.Sources(ctx, ids)
+	out := make(map[uuid.UUID]closing.Document, len(ss))
+	for id, s := range ss {
+		out[id] = closing.Document{LegalEntityID: s.LegalEntityID, Number: s.DocumentNumber, SupplierID: s.SupplierID, Counts: s.Status == payables.Posted}
+	}
+	return out, err
+}
+
+// Orders reads each order on its own: an accrual cites at most ten
+// documents.
+func (closingEvidence) Orders(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]closing.Document, error) {
+	out := make(map[uuid.UUID]closing.Document, len(ids))
+	for _, id := range ids {
+		o, ok, err := procurement.Orders{}.Order(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out[id] = closing.Document{LegalEntityID: o.LegalEntityID, Number: o.DocumentNumber, SupplierID: o.SupplierID, Counts: o.Status == procurement.Released}
+		}
+	}
+	return out, nil
+}
+
+func (closingEvidence) Suppliers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]closing.Supplier, error) {
+	ns, err := partner.Payees{}.Names(ctx, ids)
+	out := make(map[uuid.UUID]closing.Supplier, len(ns))
+	for id, n := range ns {
+		out[id] = closing.Supplier{Number: n.Number, Name: n.Name}
+	}
+	return out, err
 }

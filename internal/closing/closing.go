@@ -37,7 +37,13 @@
 // accepted one that is current. T64k adds the depreciation check (ADR-0058
 // §6): each covered ledger has a posted depreciation run of the period, or
 // nothing a run of it would select, read through the assets context's
-// port (ADR-0057 §7).
+// port (ADR-0057 §7). T64e lets the close agent propose accruals
+// (ADR-0058 §8): one expense of the close's period the ledger does not
+// show yet, resting on posted supplier invoices, released purchase orders
+// or posted journal entries (read through the payables, procurement and
+// ledger contexts' ports), parked through the ledger as the agent, debiting
+// the expense and crediting the company's accrual account on the period's
+// last day, for a person to post in the ledger.
 package closing
 
 import (
@@ -123,6 +129,41 @@ type ParkedEntry struct {
 	CreatedByKind         string
 }
 
+// Account is an account as an accrual proposal reads it: whether it is a
+// balance sheet account and whether it is postable by hand in the company
+// read for (active, set up and not blocked there, no reconciliation
+// account, not its GR/IR account).
+type Account struct {
+	ID           uuid.UUID
+	Number, Name string
+	BalanceSheet bool
+	Postable     bool
+}
+
+// Center is a cost or profit center by its code and name.
+type Center struct{ Code, Name string }
+
+// ParkLine is a line of an entry the closing context parks: an amount in
+// the entry's currency (a decimal string, debit positive), its centers and
+// its text.
+type ParkLine struct {
+	AccountID                    uuid.UUID
+	Amount                       string
+	CostCenterID, ProfitCenterID *uuid.UUID
+	Text                         string
+}
+
+// ParkEntry is a journal entry the closing context parks for a person to
+// post: dated (document and posting date) on Date, in Currency, its
+// header text naming what it was parked for.
+type ParkEntry struct {
+	LegalEntityID uuid.UUID
+	Date          time.Time
+	Currency      string
+	HeaderText    string
+	Lines         []ParkLine
+}
+
 // Ledger reads the ledger context: the leading ledger's regular periods
 // of a legal entity in a fiscal year, by period; the ledgers it keeps with
 // their period of a fiscal year and period, the leading one first, then by
@@ -132,10 +173,14 @@ type ParkedEntry struct {
 // is none; every profit and loss account of it with its net movement of a
 // fiscal year and period in the leading ledger, by account number; and
 // those of the ids that are its posted journal entries in the leading
-// ledger, each with the periods it has a line on the account in.
-// Each reads nothing of a legal entity the caller may not act in. Lock
-// locks a closed period as the period lock does (T32), refusing
-// one whose version is no longer the one read.
+// ledger, each with the periods it has a line on the account in; the
+// accounts among ids, and those set up in the legal entity among numbers,
+// by number. Each reads nothing of a legal entity the caller may not act
+// in. Centers names the cost and profit centers among ids; an id of
+// neither is absent. Lock locks a closed period as the period lock does
+// (T32), refusing one whose version is no longer the one read. Park parks
+// an entry as the request's principal, as parkJournalEntry does (its
+// checks and problems), and returns its id.
 type Ledger interface {
 	LeadingPeriods(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]Period, error)
 	PeriodsOf(ctx context.Context, legalEntity uuid.UUID, fiscalYear, period int16) ([]LedgerPeriod, error)
@@ -144,6 +189,32 @@ type Ledger interface {
 	Lock(ctx context.Context, period uuid.UUID, version int32) error
 	ProfitAndLoss(ctx context.Context, legalEntity uuid.UUID, fiscalYear, period int16) ([]AccountNet, error)
 	Cited(ctx context.Context, legalEntity, account uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]CitedEntry, error)
+	Accounts(ctx context.Context, legalEntity uuid.UUID, ids []uuid.UUID, numbers []string) ([]Account, error)
+	Centers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Center, error)
+	Park(ctx context.Context, entry ParkEntry) (uuid.UUID, error)
+}
+
+// Document is a supplier invoice or a purchase order as an accrual's
+// evidence: its legal entity, document number and supplier, and whether
+// it counts as evidence (an invoice posted, an order released).
+type Document struct {
+	LegalEntityID uuid.UUID
+	Number        string
+	SupplierID    uuid.UUID
+	Counts        bool
+}
+
+// Supplier is a business partner by its number and name.
+type Supplier struct{ Number, Name string }
+
+// Evidence reads what an accrual proposal rests on (payables, procurement
+// and partner contexts): the supplier invoices and the purchase orders
+// among ids, and the business partners among ids, by id; an id of none is
+// absent.
+type Evidence interface {
+	Invoices(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Document, error)
+	Orders(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Document, error)
+	Suppliers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Supplier, error)
 }
 
 // Sessions reads the agents context's sessions: that a session is the
@@ -200,6 +271,7 @@ type Endpoints struct {
 	Plans        Plans
 	Sessions     Sessions
 	Depreciation Depreciation
+	Evidence     Evidence
 	Pages        *pagination.Codec
 	Now          func() time.Time
 }

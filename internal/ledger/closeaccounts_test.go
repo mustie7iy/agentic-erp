@@ -47,4 +47,18 @@ func TestCloseAccountsAccess(t *testing.T) {
 	if len(cited) != 0 {
 		t.Errorf("company 2000's entry for a reader of 1000: got %v, want none", cited)
 	}
+	if _, err := (ledger.CloseAccounts{}).Accounts(context.Background(), uuid.New(), nil, []string{"100000"}); err == nil {
+		t.Error("an accrual's accounts outside a unit of work: got no error, want one")
+	}
+	var accounts []ledger.CloseAccount
+	if err := apitest.InRequest(t, e.Tenant, e.Reader(t, "Reader of 1000 as well", e.US), func(ctx context.Context) error {
+		var err error
+		accounts, err = ledger.CloseAccounts{}.Accounts(ctx, e.DE, []uuid.UUID{e.Account(t, "2000", "100000")}, []string{"100000"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(accounts) != 0 {
+		t.Errorf("company 2000's accounts for a reader of 1000: got %v, want none", accounts)
+	}
 }

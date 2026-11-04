@@ -153,6 +153,9 @@ var tierRules = []struct {
 	// A company's variance settings decide which rows of its variance
 	// report need a comment before sign-off and post nothing (ADR-0058 §3).
 	{rx(`^companies\[\*\]\.close\.variance(\.|$)`), TierOperational},
+	// The account accruals are credited to decides what the parked entries
+	// of accrual proposals post (ADR-0058 §3): posting-related.
+	{rx(`^companies\[\*\]\.close\.accrual_account$`), TierPostingRelated},
 	{rx(`^close(\.|$)`), TierOperational},
 }
 
