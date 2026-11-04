@@ -8,7 +8,9 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 next="$root/scripts/next-version.sh"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# shellcheck source=scripts/lib/on-exit.sh
+. "$root/scripts/lib/on-exit.sh"
+on_exit 'rm -rf "$work"'
 failed=0
 
 # repo makes an empty repository in $work/$1 tagged $2 (none when empty).
@@ -245,4 +247,5 @@ if [ -n "${GIT_CLIFF:-}" ]; then
 else
   echo "skip changelog: GIT_CLIFF is not set"
 fi
+finished
 exit "$failed"

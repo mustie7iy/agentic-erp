@@ -12,8 +12,15 @@
 #
 # Each step prints a heading, the commands it runs and an excerpt of the
 # answers, and checks what it expects: any unexpected answer stops the run
-# with the reason, the answer and the server's last log lines. The summary
-# at the end lists the steps that passed and those skipped.
+# with the reason, the answer and the server's last log lines and exits 1,
+# as does a stop the script did not ask for: a command that failed or an
+# unbound variable in the script's own shell (scripts/lib/on-exit.sh), a
+# check (fail) failed in a command substitution whose status the caller
+# drops, or a step that ended without passing or skipping (review:T61j). A
+# failed command inside such a substitution stops nothing by itself; the
+# check that reads its empty output does. The summary at the end lists the steps
+# that passed and those skipped; it says none failed only when every step
+# of the story ran.
 #
 #   WALKTHROUGH_PAUSE=1   wait for Enter after each step
 #   WALKTHROUGH_API_ADDR, WALKTHROUGH_ADMIN_ADDR   listeners (127.0.0.1:18080, 127.0.0.1:19090)
@@ -22,7 +29,8 @@
 #   WALKTHROUGH_DIR       work directory (default: a temporary one, removed after)
 #   WALKTHROUGH_BIN       directory with erp and erp-server already built (default: build them)
 #   WALKTHROUGH_KEEP=1    keep the server running at the end, to look around with erp call
-#   WALKTHROUGH_UNTIL     stop after this step (its function name, e.g. step_migrate)
+#   WALKTHROUGH_UNTIL     stop after this step (its function name, e.g. step_migrate);
+#                         the summary says how many of the story's steps ran
 #
 # Needs jq, which reads the ids out of the answers, curl and PostgreSQL
 # (make db-up). Every run provisions a tenant of its own; tenants are
@@ -41,6 +49,8 @@ SFTP_ADDR="${WALKTHROUGH_SFTP_ADDR:-127.0.0.1:18022}"
 PAUSE="${WALKTHROUGH_PAUSE:-0}"
 # shellcheck source=walkthrough/dates.sh
 . "$ROOT/scripts/walkthrough/dates.sh"
+# shellcheck source=lib/on-exit.sh
+. "$ROOT/scripts/lib/on-exit.sh"
 TODAY=$(company_day)
 # A payment run is dated TODAY, the company's day. The migration (step 3)
 # loads the suppliers' bank accounts valid from the day before UTC's
@@ -69,6 +79,7 @@ fi
 mkdir -p "$WORK/data/objects" "$WORK/tokens"
 WORK=$(cd "$WORK" && pwd) # absolute: the commands run in it (start)
 echo '{"items": []}' >"$WORK/accounts.json"
+rm -f "$WORK/failed" # an earlier run's in a WALKTHROUGH_DIR (fail)
 SERVER_PID=''
 MODEL_PID=''
 SFTP_PID=''
@@ -88,7 +99,7 @@ cleanup() {
   fi
   if [ -z "${WALKTHROUGH_DIR:-}" ]; then rm -rf "$WORK"; fi
 }
-trap cleanup EXIT
+on_exit cleanup
 
 # tax_first is the GST/HST registration's first period (step 11): the
 # quarter before the latest one ended on the pilot company's date in
@@ -161,7 +172,11 @@ pause() {
   fi
 }
 
+# fail stops the run. It may run in a command substitution, whose exit the
+# caller does not always see (expect "..." "$(account 4711)" ...): the mark
+# it leaves in the work directory stops the run after the step (ran).
 fail() {
+  : >"$WORK/failed"
   printf '\n   %sUNEXPECTED in "%s":%s %s\n' "$RED" "$CURRENT" "$R" "$*" >&2
   if [ -s "$WORK/last.json" ]; then
     printf '   the last answer:\n' >&2
@@ -175,8 +190,21 @@ fail() {
   exit 1
 }
 
+# ran STEP BEFORE checks what STEP left, BEFORE the number of results
+# recorded until it began: it stops the run unless no check failed inside
+# it unseen (fail) and it passed or skipped exactly once.
+ran() {
+  if [ -e "$WORK/failed" ]; then exit 1; fi
+  if [ "${#STEPS[@]}" != $(($2 + 1)) ]; then
+    fail "$1 ended having recorded $((${#STEPS[@]} - $2)) results, not one (passed or skipped)"
+  fi
+}
+
+# summary STOPPED lists the steps; STOPPED names the step WALKTHROUGH_UNTIL
+# stopped after, if it did.
 summary() {
-  local i n=0 s=0
+  local i n=0 s=0 stopped=$1 defined
+  defined=$(wc -w <<<"$STORY" | tr -d ' ')
   printf '\n%s━━ Summary%s\n' "$B" "$R"
   for i in "${!STEPS[@]}"; do
     case "${RESULTS[$i]}" in
@@ -190,6 +218,12 @@ summary() {
       ;;
     esac
   done
+  if [ -n "$stopped" ] && [ "${#STEPS[@]}" != "$defined" ]; then
+    printf '\n   %sStopped after %s (WALKTHROUGH_UNTIL): %d of the %d steps ran, %d passed, %d skipped; the rest did not run.%s\n' \
+      "$YELLOW" "$stopped" "${#STEPS[@]}" "$defined" "$n" "$s" "$R"
+    return
+  fi
+  if [ "${#STEPS[@]}" != "$defined" ]; then fail "${#STEPS[@]} of the story's $defined steps ran"; fi
   printf '\n   %d steps passed, %d skipped, none failed.\n' "$n" "$s"
 }
 
@@ -3914,12 +3948,19 @@ STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit
 
 main() {
   start
-  local s
+  if [ -e "$WORK/failed" ]; then exit 1; fi
+  local s stopped='' before
   for s in $STORY; do
+    CURRENT=$s before=${#STEPS[@]}
     "$s"
-    if [ "${WALKTHROUGH_UNTIL:-}" = "$s" ]; then break; fi
+    ran "$s" "$before"
+    if [ "${WALKTHROUGH_UNTIL:-}" = "$s" ]; then
+      stopped=$s
+      break
+    fi
   done
-  summary
+  summary "$stopped"
+  finished
   if [ "${WALKTHROUGH_KEEP:-0}" = 1 ]; then
     say ""
     say "The server keeps running for a look around (Ctrl-C stops it):"

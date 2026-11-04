@@ -8,7 +8,9 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# shellcheck source=scripts/lib/on-exit.sh
+. "$root/scripts/lib/on-exit.sh"
+on_exit 'rm -rf "$work"'
 failed=0
 
 cat >"$work/kubectl" <<'PY'
@@ -171,4 +173,5 @@ PRE='mkdir -p deploy/helm/erp-cell && echo x >deploy/helm/erp-cell/Chart.yaml &&
 DRILL_CHARTS=current STALE_IMAGE=3 case_ current-charts-stale-image failed "revert to N: erp-server runs"
 DRILL_CHARTS=both case_ unknown-mode refused "neither n nor current"
 RUN=http://ci.example/1 case_ not-https refused "not an https"
+finished
 exit "$failed"

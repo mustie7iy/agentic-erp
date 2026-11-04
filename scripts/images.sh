@@ -54,7 +54,9 @@ KO_DOCKER_REPO="$repo" ERP_VERSION="${ERP_VERSION:-}" $KO build --jobs=1 --push=
   --sbom=spdx --sbom-dir="$OUT/sbom" --image-refs="$OUT/images.txt" \
   ./cmd/erp-server ./cmd/erp-router ./cmd/erp-web ./cmd/erp >/dev/null
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# shellcheck source=lib/on-exit.sh
+. "$here/lib/on-exit.sh"
+on_exit 'rm -rf "$work"'
 
 # erp-temporal, from its own module. OUT is made absolute: ko runs in
 # temporal/.
@@ -196,3 +198,4 @@ json.dump({
 }, open(out, "w"), indent=1)
 PY
 cat "$OUT/images.txt"
+finished

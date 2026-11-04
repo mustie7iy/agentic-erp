@@ -62,7 +62,9 @@ KUBECONFORM="${KUBECONFORM:-kubeconform}"
 CONFTEST="${CONFTEST:-conftest}"
 PROMTOOL="${PROMTOOL:-promtool}"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# shellcheck source=scripts/lib/on-exit.sh
+. scripts/lib/on-exit.sh
+on_exit 'rm -rf "$work"'
 mkdir "$work/schemas"
 
 # Kubernetes' own kinds from kubeconform's schemas; the add-ons' kinds from
@@ -895,3 +897,4 @@ done
 echo "helm-checks: erp-delivery installs the add-ons in order, then the platform at the cell's release, on the cell's own cluster"
 
 CRDS="$work/crds.yaml" HELM="$HELM" CONFTEST="$CONFTEST" ./scripts/admission-checks.sh
+finished

@@ -9725,6 +9725,13 @@
       "r": "docs/tables_test.go TestDesignTablesWellFormed · TestDataModelNamesEveryTable · TestTableProblemsBatch53 · docs/design/03-data-model.md §3.5, §3.23",
       "src": "review:batch53",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "A walkthrough or gate script stopped by an unbound variable exits non-zero: macOS's bash 3.2 ran the EXIT trap with status 0 after an expansion error under set -u, so make walkthrough exited 0 after stopping on CA_PACK; the scripts clean up through scripts/lib/on-exit.sh (on_exit, finished), which turns a status-0 exit before finished into 1, and the walkthrough also stops on a check failed in a command substitution and on a step that did not pass or skip exactly once, and says none failed only when every step of the story ran (WALKTHROUGH_UNTIL runs say how many did)",
+      "r": "scripts/lib/on-exit.sh · scripts/test-on-exit.sh · scripts/walkthrough.sh ran, summary · cmd/erp TestWalkthroughExitStatus · the 19 scripts with a cleanup trap · 06 §6.5",
+      "src": "review:T61j",
+      "c": []
      }
     ]
    },

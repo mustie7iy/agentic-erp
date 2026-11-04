@@ -13,7 +13,9 @@ export COSIGN
 scripts="$(cd "$(dirname "$0")" && pwd)"
 config="$scripts/../release/signing-config.json"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# shellcheck source=lib/on-exit.sh
+. "$scripts/lib/on-exit.sh"
+on_exit 'rm -rf "$work"'
 export COSIGN_PASSWORD=""
 mkdir -p "$work/release" "$work/other"
 (cd "$work/release" && $COSIGN generate-key-pair >/dev/null 2>&1)
@@ -80,3 +82,4 @@ $COSIGN attest --yes --key "$key" --signing-config "$config" --type spdxjson --p
 $COSIGN attest --yes --key "$key" --signing-config "$config" --type slsaprovenance1 --predicate "$work/modified.json" "${bare[2]}" >/dev/null 2>&1
 refuses "provenance from uncommitted changes" "uncommitted changes" verify "$pub" "$commit" "${bare[2]}"
 echo "signing-roundtrip: ${#refs[@]} images signed and verified; the six refusals held"
+finished

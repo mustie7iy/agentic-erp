@@ -20,7 +20,9 @@ cleanup() {
   chmod -R u+w "$work" 2>/dev/null || true
   rm -rf "$work"
 }
-trap cleanup EXIT
+# shellcheck source=lib/on-exit.sh
+. "$(dirname "$0")/lib/on-exit.sh"
+on_exit cleanup
 for run in first second; do
   mkdir -p "$work/$run/gocache" "$work/$run/kocache"
   builder="erp-reproducible-$run-$$"
@@ -45,3 +47,4 @@ mkdir -p "$(dirname "$OUT")"
 mv "$work/first/out" "$OUT"
 echo "images-reproducible: $(wc -l <"$OUT/images.txt" | tr -d ' ') image digests identical across two clean builds"
 cat "$OUT/images.txt"
+finished

@@ -5,7 +5,9 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# shellcheck source=scripts/lib/on-exit.sh
+. "$root/scripts/lib/on-exit.sh"
+on_exit 'rm -rf "$work"'
 head="$(printf "%040d" 0 | tr 0 a)" old="$(printf "%040d" 0 | tr 0 b)"
 printf '# the list\nowner\nSecond\n' >"$work/approvers"
 printf 'owner\n' >"$work/owner-only"
@@ -89,4 +91,5 @@ if grep -v '^#' "$root/.github/approvers" | grep -vqE '^[A-Za-z0-9-]+$'; then
 else
   echo "ok   approvers"
 fi
+finished
 exit "$failed"

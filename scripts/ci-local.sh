@@ -171,7 +171,7 @@ step budgets ./scripts/budgets.sh
 step coverage ./scripts/coverage.sh
 step fuzz make fuzz FUZZTIME=30s
 step build make build
-step skip-rules bash -c './scripts/test-ci-changes.sh && ./scripts/test-each-module.sh'
+step skip-rules bash -c './scripts/test-ci-changes.sh && ./scripts/test-each-module.sh && ./scripts/test-on-exit.sh'
 # The images (ADR-0032): built twice and compared when their inputs
 # changed, otherwise once, then scanned; linux/amd64, as pull requests
 # built them on GitHub.
