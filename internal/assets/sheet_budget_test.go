@@ -102,8 +102,12 @@ func TestAssetHistorySheetBudget(t *testing.T) {
 	sheet, _ := e.Must(200, "GET", path, "", "")
 	var closing int64
 	for n := 1; n <= 100000; n++ {
-		if n%3 != 0 {
-			closing += 1200000 - map[bool]int64{true: 300000}[n%5 <= 1]
+		if n%3 == 0 {
+			continue // retired in 2020
+		}
+		closing += 1200000
+		if n%5 <= 1 { // a quarter retired or transferred in 2026
+			closing -= 300000
 		}
 	}
 	want(t, "the closing cost of 100,000 assets", fmt.Sprint(sheet["totals"].(map[string]any)["closing_cost"].(map[string]any)["amount"]), decimal(closing))

@@ -36,13 +36,13 @@ const addedTo = `acquisitions = t.acquisitions + EXCLUDED.acquisitions, retired_
 // ledger and fiscal year, and its class's per company, ledger and fiscal
 // year. It is called once per transaction, after the posting has written
 // its movements and set each asset's last_seq to its seq (derive, or a
-// run's batch); after it the transaction takes only locks every posting
+// run's batch). After it the transaction takes only locks every posting
 // takes after its own keepTotals (its own assets' rows, a run's batch and
-// Operation, the audit chain's head at commit), never a class row. It upserts the class rows first and then the asset rows, each
-// statement in key order, so two postings touching the same classes in
-// any order wait for each other rather than deadlock
-// (TestYearTotalsInKeyOrder); the asset rows are the posting's own, whose
-// assets it holds FOR UPDATE.
+// Operation, the audit chain's head at commit), never a class row. It
+// upserts the class rows first and then the asset rows, each statement in
+// key order, so two postings touching the same classes in any order wait
+// for each other rather than deadlock (TestYearTotalsInKeyOrder); the
+// asset rows are the posting's own, whose assets it holds FOR UPDATE.
 func keepTotals(ctx context.Context, tx pgx.Tx, assets ...uuid.UUID) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO assets.class_year_total AS t (tenant_id, legal_entity_id, ledger_id, fiscal_year, class_code, acquisitions,
 			retired_cost, transferred_cost, depreciation, retired_accumulated, transferred_accumulated)

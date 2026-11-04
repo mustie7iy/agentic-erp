@@ -2171,9 +2171,9 @@ to overrule:
   asset rows in another, each in key order. After it a transaction takes
   only locks every posting takes after its own `keepTotals` (its own
   assets' rows, a run's batch and Operation, the audit chain's head at
-  commit), so no wait for those can close a cycle with a class row. §5's "class rows by
-  class code, then asset rows by asset id" is read as the whole keys'
-  order, since a posting's movements may span ledgers (a retirement) and
+  commit), so no wait for those can close a cycle with a class row.
+  §5's "class rows by class code, then asset rows by asset id" is read as
+  the whole keys' order, since a posting's movements may span ledgers (a retirement) and
   fiscal years (a center transfer's catch-up dated the period before).
 - **Keys.** `class_year_total` is keyed as §5 has it; `year_total` is keyed
   (tenant, ledger, asset, fiscal year) rather than (tenant, ledger, fiscal
