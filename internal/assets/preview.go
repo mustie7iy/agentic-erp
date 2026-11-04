@@ -51,7 +51,11 @@ type candidate struct {
 // their key too (the same assets, said of both tables): over 100,000
 // assets the lookups' estimate had the planner compile the query (JIT)
 // and a batch's 500 assets scanned every asset's terms (T57f2: 860 ms to
-// 430 ms, 86 ms to 9 ms).
+// 430 ms, 86 ms to 9 ms). It is planned per call (pagination.PlanPerCall):
+// a run's batches and the preview share connections, and from a cached
+// statement's sixth run PostgreSQL kept a generic plan that cannot tell
+// a batch from the whole company (a batch of 500 of 100,000 assets after
+// five previews: 9 ms to 134 ms).
 func selectDepreciable(ctx context.Context, tx pgx.Tx, le, ledger uuid.UUID, p Period, after *previewKey, only []uuid.UUID) ([]*candidate, error) {
 	var number *string
 	var id *uuid.UUID
@@ -72,7 +76,7 @@ func selectDepreciable(ctx context.Context, tx pgx.Tx, le, ledger uuid.UUID, p P
 					WHERE m.tenant_id = a.tenant_id AND m.asset_id = a.id AND m.ledger_id = t.ledger_id) <> 0)
 			AND (t.booked_through_year IS NULL OR (t.booked_through_year, t.booked_through_period) <= ($4::smallint, $5::smallint))
 			AND c.valid_from <= $3 AND ($8::uuid[] IS NULL OR (a.id = ANY($8) AND t.asset_id = ANY($8)))
-		ORDER BY a.asset_number, a.id`, le, ledger, p.End, p.FiscalYear, p.Number, number, id, only)
+		ORDER BY a.asset_number, a.id`, pagination.PlanPerCall, le, ledger, p.End, p.FiscalYear, p.Number, number, id, only)
 	var out []*candidate
 	var c candidate
 	_, err := pgx.ForEachRow(rows, []any{&c.asset, &c.number, &c.description, &c.class, &c.capitalised, &c.costCenter, &c.profitCenter,

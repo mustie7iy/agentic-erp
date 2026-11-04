@@ -231,7 +231,12 @@ func (e *Endpoints) planActualQuery(ctx context.Context, tx pgx.Tx, k paKind, pa
 }
 
 // planActualRows are the page's rows and one more, if there is one: the
-// first plan rows and actual rows after its start, merged by key.
+// first plan rows and actual rows after its start, merged by key. The
+// plan rows are planned per call (pagination.PlanPerCall), as a listing's
+// are: from a cached statement's sixth run PostgreSQL took a generic plan
+// that keeps the centers and the page's start as filters (2.4 million
+// plan lines: ten profit centers 308 ms to 398 ms, a later page 650 ms to
+// 733 ms; forced, a later page by cost center 15 ms to 361 ms).
 func (e *Endpoints) planActualRows(ctx context.Context, tx pgx.Tx, q paQuery) ([]planActual, error) {
 	var afterCenter, afterAccount *uuid.UUID
 	if a := q.actuals.After; a != nil {
@@ -241,7 +246,7 @@ func (e *Endpoints) planActualRows(ctx context.Context, tx pgx.Tx, q paQuery) ([
 	rows, _ := tx.Query(ctx, `SELECT `+center+`, account_id, sum(amount)::bigint FROM controlling.plan_line
 		WHERE category_id = $1 AND legal_entity_id = $2 AND fiscal_year = $3 AND fiscal_period BETWEEN $4 AND $5 AND `+center+` IS NOT NULL
 			AND replaced_by_batch_id IS NULL AND (NOT $6 OR `+center+` = ANY($7)) AND ($8::uuid IS NULL OR (`+center+`, account_id) > ($8, $9::uuid))
-		GROUP BY 1, 2 ORDER BY 1, 2 LIMIT $10`,
+		GROUP BY 1, 2 ORDER BY 1, 2 LIMIT $10`, pagination.PlanPerCall,
 		q.category, q.actuals.LegalEntityID, q.actuals.FiscalYear, q.from, q.to, q.centerFilter, q.actuals.Centers, afterCenter, afterAccount, q.size+1)
 	plans, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (planActual, error) {
 		var p planActual

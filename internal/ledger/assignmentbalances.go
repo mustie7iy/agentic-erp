@@ -9,6 +9,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -176,6 +177,11 @@ func (AssignmentBalances) ProfitCenterActuals(ctx context.Context, q ActualsQuer
 	return actuals(ctx, profitCenterBalances, q)
 }
 
+// actuals is planned per call (pagination.PlanPerCall), as a listing is:
+// its centers, its period range and its page's start are optional, and
+// from a cached statement's sixth run PostgreSQL took a generic plan
+// that keeps them as filters (360,000 balances: ten profit centers'
+// actuals 0.8 ms to 2.6-8.8 ms, every center's 162 ms to 178-201 ms).
 func actuals(ctx context.Context, k reportKind, q ActualsQuery) ([]AssignmentActual, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -196,7 +202,7 @@ func actuals(ctx context.Context, k reportKind, q ActualsQuery) ([]AssignmentAct
 	// $1-$8 are the report's (rows); $9 and $10 the key the page starts after.
 	rows, _ := tx.Query(ctx, `SELECT center_id, account_id, sum(debit_lc - credit_lc)::bigint FROM (`+k.rows()+`) b
 		WHERE ($9::uuid IS NULL OR (center_id, account_id) > ($9, $10::uuid))`+pnl+`
-		GROUP BY 1, 2 ORDER BY 1, 2 LIMIT $11`,
+		GROUP BY 1, 2 ORDER BY 1, 2 LIMIT $11`, pagination.PlanPerCall,
 		q.LegalEntityID, leading, q.FiscalYear, q.PeriodFrom, q.PeriodTo, q.Centers, nil, nil, afterCenter, afterAccount, q.Limit)
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (AssignmentActual, error) {
 		var a AssignmentActual

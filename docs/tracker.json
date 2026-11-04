@@ -9396,6 +9396,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Queries with optional conditions are planned per call where PostgreSQL's generic plan is worse: a cached statement switches to a generic plan from its sixth run on a connection, and EXPLAIN ANALYZE as erp_app over seeded volumes, forced and after five runs with mixed arguments, showed it chosen and slower for five reads, which now pass pagination.PlanPerCall: the close task worklist (72,000 tasks: 0.3-1.9 ms to 23-55 ms a page), assets selectDepreciable (a run's batch of 500 of 100,000 assets after five previews on the connection: 9 ms to 134 ms), the ledger reconciliation's trial balances (a period 26 ms to 50 ms, the year 212 ms to 290 ms), the plan/actual report's actuals (ledger AssignmentBalances: ten profit centers 0.8 ms to 2.6-8.8 ms, every center 162 ms to 178-201 ms) and its plan rows (2.4 million lines: ten profit centers 308 ms to 398 ms, a later page 650 ms to 733 ms). The others kept their custom plan or read the same index in both (open item aging, profit and loss balances, unreported tax items and their claim, tax codes, the segregation-of-duties check, key lookups); no layout test enforces the convention, since a query's text cannot tell those apart",
+        "r": "internal/closing/lists.go (ListCloseTasks) · internal/assets/preview.go (selectDepreciable) · internal/ledger/reconciliation.go (trialBalances) · internal/ledger/assignmentbalances.go (actuals) · internal/controlling/planactual.go (planActualRows) · TestLedgerReconciliationBudget, TestDepreciationRunBudget",
+        "src": "review:T57d",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "Sweep the remaining catch-all filter lists (68 sites in 26 files) onto the list helper",
         "r": "(post-pilot, PO 2026-10-21)",
