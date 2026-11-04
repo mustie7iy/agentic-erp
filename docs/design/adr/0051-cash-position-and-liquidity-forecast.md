@@ -2183,8 +2183,11 @@ As built (T53h; decided by default where §14 and §15 leave it open):
   worker of every replica, as the bank file transmitter is, T44e) claims a
   due export in a short transaction (FOR UPDATE SKIP LOCKED), builds the
   file and resolves the channel, uploads with no transaction open, and
-  records the outcome in a second transaction guarded by the attempt it
-  claimed; a failed attempt waits 1, 5 and 15 minutes, 1 and 4 hours, a
+  records the outcome in a second transaction guarded by the row version
+  its claim wrote (a claim taken over, or an outcome recorded already,
+  moved it, so a stale claimant records nothing; the attempt number cannot
+  tell a remade last attempt from the one it remakes, T53h review round 2,
+  `TestExporterFailures`); a failed attempt waits 1, 5 and 15 minutes, 1 and 4 hours, a
   refusal (a problem below 500, such as a disabled channel) or the sixth
   failure is final (`failed`, the problem code kept). Its principal is the
   system actor `cash-exporter`. Each claim reads the channel again: one
@@ -2205,7 +2208,13 @@ As built (T53h; decided by default where §14 and §15 leave it open):
   upload bounds and delivered once (`TestCashExportRetries`); a last
   attempt whose claim lapsed is made again as the last rather than taken
   for a failure, as sending it again either delivers it or finds it there
-  (review round 1). Each upload's hidden copy has a name of its own, so two
+  (review round 1), once: the remake's claim sets `last_error` to
+  `cash.export_outcome_unknown`, and a remake whose claim lapses too fails
+  the export with that code, so a replica that stops on every upload of
+  the file does not have it claimed again at every lease without end
+  (T53h review round 2, `TestCashExportLastAttemptLapsing`). Only a
+  pending export at the sixth attempt can be a remade one, as the sixth
+  attempt's own failure is final, so the code needs no column of its own. Each upload's hidden copy has a name of its own, so two
   uploads of one file at once never write into each other's copy. A delivered
   export is `resend` when its channel was delivered the same hash before:
   the same snapshot sent again, the same name, which the treasury system

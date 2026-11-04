@@ -123,8 +123,10 @@ func TestCashExportFailures(t *testing.T) {
 // is reported or becomes a failed attempt, and the export is delivered
 // once nothing fails; a file whose house banks cannot be named, or whose
 // legal entity the directory does not hold, is a failed attempt; a claim
-// that lapsed on the last attempt fails the export; a claim taken over
-// records nothing; Run logs failed rounds and stops with its context.
+// that lapsed on the last attempt is made again once, and fails the
+// export when it lapses again; a claim taken over, at a later attempt or
+// at the same one remade, records nothing; Run logs failed rounds and
+// stops with its context.
 func TestExporterFailures(t *testing.T) {
 	e := setupExport(t)
 	sid := e.take(t, "Board")["id"].(string)
@@ -209,7 +211,16 @@ func TestExporterFailures(t *testing.T) {
 		pgtest.Exec(t, `UPDATE cash.export SET attempts = 6, version = version + 1 WHERE id = $1`, x)
 		e.round(t, 1)
 		got := mustExport(t, e, x)
-		want(t, "made again as the last, delivered", fmt.Sprint(got["status"], " ", got["attempts"]), "delivered 6")
+		want(t, "made again as the last, delivered", fmt.Sprint(got["status"], " ", got["attempts"], " ", got["last_error_code"]),
+			"delivered 6 cash.export_outcome_unknown")
+	})
+	t.Run("the remade last attempt lapsed", func(t *testing.T) {
+		reset()
+		pgtest.Exec(t, `UPDATE cash.export SET attempts = 6, last_error = 'cash.export_outcome_unknown', version = version + 1 WHERE id = $1`, x)
+		e.round(t, 1)
+		got := mustExport(t, e, x)
+		want(t, "failed, not made a third time", fmt.Sprint(got["status"], " ", got["attempts"], " ", got["last_error_code"]),
+			"failed 6 cash.export_outcome_unknown")
 	})
 	t.Run("the last attempt lapsed, sent again and failing", func(t *testing.T) {
 		reset()
@@ -219,6 +230,29 @@ func TestExporterFailures(t *testing.T) {
 		e.round(t, 1)
 		got := mustExport(t, e, x)
 		want(t, "failed", fmt.Sprint(got["status"], " ", got["attempts"], " ", got["last_error_code"]), "failed 6 platform.unavailable")
+	})
+	t.Run("a remade last attempt taking the claim over", func(t *testing.T) {
+		// The claim of the sixth attempt lapses while its upload is
+		// stalled, and another replica remakes it: same attempt number,
+		// a later version. The stalled claimant records nothing.
+		reset()
+		pgtest.Exec(t, `UPDATE cash.export SET attempts = 5, version = version + 1 WHERE id = $1`, x)
+		w := e.exporter()
+		begun := 0
+		w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			if s.TenantID != uuid.Nil {
+				if begun++; begun == 2 {
+					pgtest.Exec(t, `UPDATE cash.export SET last_error = 'cash.export_outcome_unknown', version = version + 1 WHERE id = $1`, x)
+				}
+			}
+			return pool.Begin(ctx, s)
+		}
+		if _, err := w.RunOnce(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		got := mustExport(t, e, x)
+		want(t, "its outcome left to the remade claim", fmt.Sprint(got["status"], " ", got["attempts"], " ", got["last_error_code"]),
+			"pending 6 cash.export_outcome_unknown")
 	})
 	t.Run("a claim taken over", func(t *testing.T) {
 		reset()

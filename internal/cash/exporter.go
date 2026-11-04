@@ -29,12 +29,15 @@ import (
 // claims it in one short transaction of its tenant (FOR UPDATE SKIP
 // LOCKED, so replicas share the queue), builds its file and resolves its
 // channel, uploads with no transaction open, and records the outcome in a
-// second transaction, guarded by the attempt it claimed. A failed attempt
-// is tried again after exportBackoff; a refusal (a problem below 500) or
-// the last attempt's failure leaves the export failed. A claim whose
-// outcome never came (the replica stopped) lapses and is claimed again:
-// the file is named by its content, so an upload that finds it there
-// (sftpclient.ErrExists) has delivered it, and it is recorded once.
+// second transaction, guarded by the row version its claim wrote, so a
+// claimant whose claim was taken over records nothing (ADR-0008). A
+// failed attempt is tried again after exportBackoff; a refusal (a problem
+// below 500) or the last attempt's failure leaves the export failed. A
+// claim whose outcome never came (the replica stopped) lapses and is
+// claimed again: the file is named by its content, so an upload that
+// finds it there (sftpclient.ErrExists) has delivered it, and it is
+// recorded once. The last attempt is made again once when its claim
+// lapses; a second lapse fails the export (exportOutcomeUnknown).
 type Exporter struct {
 	Endpoints  *Endpoints
 	Pool       *database.Pool
@@ -63,6 +66,14 @@ var maxExportAttempts = len(exportBackoff) + 1
 // exportLease is how many upload bounds a claim lasts before it lapses.
 const exportLease = 5
 
+// exportOutcomeUnknown is the code a remade last attempt is marked with
+// when it is claimed, and the export fails with when that claim lapses
+// too: a replica that stops on every upload of the file never ends the
+// export otherwise (review round 2, T53h). Only a pending export at the
+// last attempt can be a remade one, since the last attempt's own failure
+// is final.
+const exportOutcomeUnknown = "cash.export_outcome_unknown"
+
 // exportFinishBound is how long recording an upload's outcome may take
 // once the worker's context has ended.
 const exportFinishBound = 10 * time.Second
@@ -71,6 +82,7 @@ const exportFinishBound = 10 * time.Second
 type exportClaim struct {
 	x        Export
 	attempt  int
+	version  int32 // the row version the claim wrote: a later one means it was taken over
 	endpoint sftpclient.Endpoint
 	file     exportFile
 	present  bool   // the upload found the file there already
@@ -193,11 +205,20 @@ func (w *Exporter) claim(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*exp
 // for upload; a channel that cannot be used, or a file that cannot be
 // built, is a failed attempt, and a channel no longer set up for the
 // export's company and format a refusal. A last attempt whose claim lapsed
-// is made again as the last: the file is named by its content, so sending
-// it again either delivers it or finds it there, and the outcome a lost
-// commit hid is recovered rather than taken for a failure.
+// is made again as the last, once: the file is named by its content, so
+// sending it again either delivers it or finds it there, and the outcome a
+// lost commit hid is recovered rather than taken for a failure. A remade
+// last attempt whose claim lapsed too fails the export.
 func (w *Exporter) prepare(ctx context.Context, tx pgx.Tx, x Export, now time.Time) (*exportClaim, error) {
 	c := &exportClaim{x: x, attempt: min(x.Attempts+1, maxExportAttempts)}
+	lastError := x.LastError
+	if x.Attempts >= maxExportAttempts { // the last attempt's claim lapsed
+		if lastError != nil && *lastError == exportOutcomeUnknown { // and so did its remake's
+			return nil, failExport(ctx, tx, c, c.attempt, problem.Conflict(exportOutcomeUnknown,
+				"The exporter stopped twice without an outcome on the last attempt; the treasury system may have the file. Ask for an export again."))
+		}
+		lastError = new(exportOutcomeUnknown)
+	}
 	var err error
 	if c.file, err = w.Endpoints.exportFile(ctx, tx, x); err != nil {
 		return nil, w.retry(ctx, tx, c, err, now)
@@ -208,8 +229,8 @@ func (w *Exporter) prepare(ctx context.Context, tx pgx.Tx, x Export, now time.Ti
 	if c.endpoint, err = w.Endpoints.Treasury.Endpoint(ctx, x.Connector); err != nil {
 		return nil, w.retry(ctx, tx, c, err, now)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE cash.export SET attempts = $2, next_attempt_at = $3, file_name = $4, sha256 = $5, version = version + 1 WHERE id = $1`,
-		x.ID, c.attempt, now.Add(exportLease*w.upload()), c.file.name, c.file.sha256); err != nil {
+	if err := tx.QueryRow(ctx, `UPDATE cash.export SET attempts = $2, next_attempt_at = $3, file_name = $4, sha256 = $5, last_error = $6, version = version + 1
+		WHERE id = $1 RETURNING version`, x.ID, c.attempt, now.Add(exportLease*w.upload()), c.file.name, c.file.sha256, lastError).Scan(&c.version); err != nil {
 		return nil, fmt.Errorf("cash: claim export %s: %w", x.ID, err)
 	}
 	return c, nil
@@ -265,15 +286,19 @@ func (w *Exporter) send(ctx context.Context, c *exportClaim) error {
 	return problem.Unavailable(detail, 0).WithCause(err)
 }
 
-// finish records the upload's outcome, if the claim still holds: a claim
-// that lapsed was claimed again, and that claim records its own.
+// finish records the upload's outcome, if the claim still holds: the row
+// is as the claim left it. A claim that lapsed was claimed again, and that
+// claim records its own; an outcome recorded already (a finish run again
+// after a commit whose acknowledgement was lost) moved the version too, so
+// it is recorded and published once. The attempt number does not tell
+// claims apart: a remade last attempt has the number of the one it
+// remakes.
 func (w *Exporter) finish(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, c *exportClaim, sendErr error) (bool, error) {
-	var status string
-	var attempts int
-	if err := tx.QueryRow(ctx, `SELECT status, attempts FROM cash.export WHERE id = $1 FOR UPDATE`, c.x.ID).Scan(&status, &attempts); err != nil {
+	var version int32
+	if err := tx.QueryRow(ctx, `SELECT version FROM cash.export WHERE id = $1 FOR UPDATE`, c.x.ID).Scan(&version); err != nil {
 		return false, fmt.Errorf("cash: read export %s after its upload: %w", c.x.ID, err)
 	}
-	if status != ExportPending || attempts != c.attempt {
+	if version != c.version {
 		return false, nil
 	}
 	err := uow.Act(ctx, tx, exporter(tenant), w.Now, func(ctx context.Context) error {

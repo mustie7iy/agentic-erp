@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"regexp"
@@ -360,6 +361,74 @@ func TestCashExportRetries(t *testing.T) {
 		}
 	}
 	want(t, "published once", events, 1)
+}
+
+// TestCashExportLastAttemptLapsing: a last attempt whose replica stops
+// before recording every outcome is made again once, then fails, rather
+// than claimed again at every lease; an outcome whose commit applied but
+// was not acknowledged is recorded and published once (ADR-0012).
+func TestCashExportLastAttemptLapsing(t *testing.T) {
+	e := setupExport(t)
+	sid := e.take(t, "Board")["id"].(string)
+	pgtest.Exec(t, `UPDATE cash.export SET status = 'failed', next_attempt_at = NULL, version = version + 1 WHERE snapshot_id = $1 AND connector_id = $2`, sid, e.csv)
+	x := byChannel(t, e.exports(t, sid), e.jsonl)["id"].(string)
+	pgtest.Exec(t, `UPDATE cash.export SET attempts = 5, last_error = 'platform.unavailable', version = version + 1 WHERE id = $1`, x)
+	claims := 0
+	for ; claims < 4 && mustExport(t, e, x)["status"] == cash.ExportPending; claims++ {
+		lost := e.exporter()
+		lost.Begin = loseCommit(t, 2) // the claim commits, the outcome is lost: the replica stopped
+		if _, err := lost.RunOnce(context.Background()); err != nil && !errors.Is(err, pgtest.ErrInjected) {
+			t.Fatalf("claim %d: got %v, want at most the lost outcome reported", claims+1, err)
+		}
+		e.clock.add(11 * time.Minute)
+	}
+	got := mustExport(t, e, x)
+	want(t, "ended after the last attempt and its remake", fmt.Sprint(claims, " ", got["status"], " ", got["attempts"], " ", got["last_error_code"]),
+		"3 failed 6 cash.export_outcome_unknown")
+	var audited int
+	pgtest.Scan(t, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND object_id = $2 AND action = 'cash.export.fail'`, []any{e.Tenant.ID, x}, &audited)
+	want(t, "the failure audited", audited, 1)
+
+	// Asked for again, the outcome's commit applies but is not
+	// acknowledged: delivered and published once, not claimed again.
+	again, _ := e.Must(201, "POST", "/v1/cash-snapshots/"+sid+"/exports", `{"connector_id": "`+e.jsonl.String()+`"}`, "")
+	w := e.exporter()
+	begun := 0
+	w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		tx, err := pgtest.Pool(t).Begin(ctx, s)
+		if err != nil || s.TenantID == uuid.Nil {
+			return tx, err
+		}
+		if begun++; begun == 2 {
+			return ackLostTx{tx}, nil
+		}
+		return tx, nil
+	}
+	if _, err := w.RunOnce(context.Background()); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("got %v, want the unacknowledged commit reported", err)
+	}
+	e.clock.add(11 * time.Minute)
+	e.round(t, 0)
+	delivered := mustExport(t, e, again["id"].(string))
+	want(t, "delivered once", fmt.Sprint(delivered["status"], " ", delivered["attempts"]), "delivered 1")
+	events := 0
+	for _, ev := range apitest.Published(t, e.Tenant, outbox.Event{Context: "cash", Name: "cash_export_delivered"}) {
+		if ev["cash_export_id"] == again["id"] {
+			events++
+		}
+	}
+	want(t, "published once", events, 1)
+}
+
+// ackLostTx commits, then reports the commit failed: a commit whose
+// acknowledgement was lost.
+type ackLostTx struct{ pgx.Tx }
+
+func (a ackLostTx) Commit(ctx context.Context) error {
+	if err := a.Tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return pgtest.ErrInjected
 }
 
 func mustExport(t *testing.T, e exportEnv, id string) map[string]any {

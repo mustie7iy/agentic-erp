@@ -1233,7 +1233,9 @@ func (UnimplementedHandler) GetCashActuals(ctx context.Context, params GetCashAc
 // `integration.invalid_settings`, `integration.not_a_treasury_channel`, or
 // `cash.export_channel_invalid` when the channel no longer names the snapshot's company or the
 // export's format) or the sixth attempt's failure is final; a last attempt whose outcome was lost is
-// made again, since the file under its name is the same. An export of a legal entity the caller cannot
+// made again once, since the file under its name is the same, with `last_error_code`
+// `cash.export_outcome_unknown`; when the outcome of that attempt is lost too, the export fails with
+// that code, and the treasury system may have the file. An export of a legal entity the caller cannot
 // act in is not found.
 //
 // GET /v1/cash-exports/{id}
