@@ -2214,8 +2214,9 @@ As built (T53h; decided by default where §14 and §15 leave it open):
   the file does not have it claimed again at every lease without end
   (T53h review round 2, `TestCashExportLastAttemptLapsing`). Only a
   pending export at the sixth attempt can be a remade one, as the sixth
-  attempt's own failure is final, so the code needs no column of its own. Each upload's hidden copy has a name of its own, so two
-  uploads of one file at once never write into each other's copy. A delivered
+  attempt's own failure is final, so the code needs no column of its own.
+  Each upload's hidden copy has a name of its own, so two uploads of one
+  file at once never write into each other's copy. A delivered
   export is `resend` when its channel was delivered the same hash before:
   the same snapshot sent again, the same name, which the treasury system
   recognises (`TestCashExport`); deliveries of one file to one channel are

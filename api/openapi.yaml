@@ -33285,7 +33285,7 @@ components:
         file_name: {type: string, description: "The file's name, `cash-<company code>-<snapshot date>-<sha256>.<format>`; absent until it is first sent.", readOnly: true}
         sha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "The SHA-256 of the file's content, in hexadecimal; absent until it is first sent.", readOnly: true}
         resend: {type: boolean, description: "Delivered: whether the channel had been delivered this file before, under the same name.", readOnly: true}
-        last_error_code: {type: string, description: "The problem code of the last failed attempt; absent when none failed.", readOnly: true}
+        last_error_code: {type: string, description: "The problem code of the last failed attempt; absent when none failed. A last attempt made again because its outcome was lost carries `cash.export_outcome_unknown` instead, delivered or not (the earlier attempt's code stays in its `cash.export.retry` audit record).", readOnly: true}
         delivered_at: {type: string, format: date-time, description: "When it was delivered.", readOnly: true}
         requested_by: {type: string, format: uuid, description: "Who took the snapshot, for an export queued then, or asked for the export.", readOnly: true}
         created_at: {type: string, format: date-time, readOnly: true}

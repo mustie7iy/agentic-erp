@@ -8851,7 +8851,9 @@ type CashExport struct {
 	SHA256 OptString `json:"sha256"`
 	// Delivered: whether the channel had been delivered this file before, under the same name.
 	Resend OptBool `json:"resend"`
-	// The problem code of the last failed attempt; absent when none failed.
+	// The problem code of the last failed attempt; absent when none failed. A last attempt made again
+	// because its outcome was lost carries `cash.export_outcome_unknown` instead, delivered or not (the
+	// earlier attempt's code stays in its `cash.export.retry` audit record).
 	LastErrorCode OptString `json:"last_error_code"`
 	// When it was delivered.
 	DeliveredAt OptDateTime `json:"delivered_at"`
