@@ -632,3 +632,28 @@ extract's LFBK names its vendor itself and is unchanged:
   `Supplier` names it, are stated from memory, not from a primary source in
   this repository. Confirm both against the pilot system's `$metadata` and
   set-up (docs/migration.md, "What to check on a real SAP system").
+
+## As built: an order item's delivery date (T53g, ADR-0051 decision P7)
+
+An order item may carry the day it is expected to be delivered
+(`delivery_date`, SAP's EKET-EINDT for an order of one schedule line,
+migration 000194): the liquidity forecast expects the item's open value
+invoiced on it and paid by the order's terms (ADR-0051 §5, As built T53g).
+It is part of what an order and an order change say, not of what a
+released order keeps: decided by default, since ADR-0051 settles its
+purpose and this ADR's rules for released items settle the rest.
+
+- **Given or copied.** An item that gives none takes the `needed_by` of the
+  requisition its order was created from, on creation and on a draft's
+  change of items; an item of an order of no requisition has none. No rule
+  ties it to the order date.
+- **Changed through an order change.** On a released order it changes as
+  quantity and price do: by an order change, approved when the change
+  needs it, applied as a version of the order. A change's item that gives
+  none keeps its own date; an item the change adds takes the requisition's
+  need date. `check_order_item_editable` leaves the column free, as it
+  does quantity and price; the identity a released item keeps (account,
+  assignment, unit, material, contract item) is unchanged.
+- **Not carried yet.** `PurchaseOrderReleased` and the order's document
+  for the supplier (ADR-0054) do not show it, and a migration run loads
+  none: nothing asked for either.

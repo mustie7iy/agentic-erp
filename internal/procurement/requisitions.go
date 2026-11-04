@@ -43,6 +43,9 @@ type Item struct {
 	// with its cost center. A change proposed before T56e reads "", none.
 	AccountAssignment string     `json:"account_assignment"`
 	CostCenterID      *uuid.UUID `json:"cost_center_id"`
+	// DeliveryDate is an order item's expected delivery date (T53g), nil
+	// for none; requisitions' and contracts' items have none.
+	DeliveryDate *time.Time `json:"delivery_date"`
 }
 
 // assignment is the item's account assignment, none when it has none
@@ -79,6 +82,8 @@ type ItemInput struct {
 	// order's item's assignment (itemAssignment); contracts take none.
 	AccountAssignment *string
 	CostCenterID      *uuid.UUID
+	// DeliveryDate is an order item's expected delivery date (T53g).
+	DeliveryDate *time.Time
 }
 
 // Requisition is a row of procurement.requisition with its live items.

@@ -110,6 +110,9 @@ type Orders interface {
 	// LockItems locks the order's items until the transaction ends: a
 	// document posts (lockedOrder) and is reversed (reversible) under them.
 	LockItems(ctx context.Context, id uuid.UUID, items []int32) error
+	// Released are the legal entity's released orders, whose open values
+	// the liquidity forecast reads (OpenOrders, T53g).
+	Released(ctx context.Context, legalEntity uuid.UUID) ([]procurement.Order, error)
 }
 
 // OrderNumbers finds purchase orders by document number (procurement

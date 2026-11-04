@@ -51,6 +51,7 @@ var documentReadPermissions = map[string]string{
 	DocDownPaymentRequest: "payables.invoice.read",
 	DocPaymentRun:         "payments.run.read",
 	DocMemoRecord:         "cash.memo.read",
+	DocPurchaseOrder:      "procurement.order.read",
 }
 
 // FlowsQuery is what a drill-down lists: the legal entity's flows in the

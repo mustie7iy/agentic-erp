@@ -318,10 +318,11 @@ start() {
   say "  - the GST34's lines (T61j-T61l): step 2 configures one"
   say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
-  say "  - the liquidity forecast's purchase orders, actuals and variance (T53f2-T53k): step 13 shows the daily cash"
-  say "    position with a memo record and the forecast of the supplier open items, payment runs, parked invoices, down"
-  say "    payment requests and blocked suppliers; step 21 its rows by liquidity item; step 22 its opening, memo records"
-  say "    and payments in transit, conversion and drill-down; step 23 its snapshots"
+  say "  - the liquidity forecast's treasury connector, agent, analytics and SAP migration (T53h-T53k): step 13 shows the"
+  say "    daily cash position with a memo record and the forecast of the supplier open items, payment runs, parked"
+  say "    invoices, down payment requests and blocked suppliers; step 21 its rows by liquidity item; step 22 its opening,"
+  say "    memo records and payments in transit, conversion and drill-down; step 23 its snapshots; steps 24-26 its actuals,"
+  say "    variance and comments; step 27 its purchase orders"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - asset acquisition, depreciation and the rest of asset accounting (T57c-T57i): steps 19 and 20 show the classes and the master"
   say "  - accounts receivable, period-end close (T64), consolidation (T68)"
@@ -2082,11 +2083,13 @@ forecast() {
   # from today, or, when that is one of Maple's holidays, the next working
   # day (at most four days later: Christmas on a Thursday, Boxing Day on
   # the Friday); a week's or a month's bucket may start on another day.
+  # Its own flow, not the bucket's total: SAP's open orders migrated in
+  # step 3 are forecast too (purchase_order, T53g).
   expect "SAP's USD invoice (step 3), on the next payment day" \
     "$(field 'def epoch: strptime("%Y-%m-%d") | mktime;
       . as $f | ([$f.buckets[] | select(.grain == "day") | .start | select(epoch | strftime("%a") | IN("Tue", "Thu"))][0] | epoch) as $pay
       | [.currencies[] | select(.currency == "USD") | .buckets | to_entries[] | select(any(.value.flows[]; .source == "payable"))
-      | "\(.value.total.amount) \(if $f.buckets[.key].grain == "day" then (.value.start | epoch) - $pay | (. >= 0 and . <= 4 * 86400) else true end)"]
+      | "\([.value.flows[] | select(.source == "payable") | .amount.amount] | join(" ")) \(if $f.buckets[.key].grain == "day" then (.value.start | epoch) - $pay | (. >= 0 and . <= 4 * 86400) else true end)"]
       | join(", ")')" "-1000.00 true"
   expect "each currency's total, its buckets' totals added up" \
     "$(field '[.currencies[] | (.total.amount | sub("\\."; "") | tonumber) == ([.buckets[].total.amount | sub("\\."; "") | tonumber] | add)] | all')" true
@@ -2835,6 +2838,61 @@ step_cash_variance_comment() {
   passed
 }
 
+# step_cash_orders is a released purchase order in the liquidity forecast:
+# its open value with its tax, expected by the order's terms from the
+# item's delivery date, drilled down to the order, as each reader may see
+# it (T53g, ADR-0051 §5, decision P7).
+step_cash_orders() {
+  heading "Step 27 — Purchase orders in the liquidity forecast: an open order expected from its delivery date and terms"
+  as ben
+  local deliver due item po flows
+  deliver=$(date_add "$TODAY" 20)
+  due=$(date_add "$deliver" 30)
+  item="{\"description\": \"Standing desks\", \"quantity\": {\"value\": \"4\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"500.00\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 6000)\", \"tax_code\": \"HON\", \"delivery_date\": \"$deliver\"}"
+  say "Ben orders four standing desks from Tyrell at CAD 500.00 each with Ontario HST (HON), for delivery on $deliver,"
+  say "net 30: the item carries its delivery date (SAP's EKET-EINDT, T53g)."
+  api 201 '"purchase order \(.document_number // .id): \(.status), \(.total_amount.amount) \(.total_amount.currency), terms \(.payment_term_code)", (.items[] | "  item \(.item_no): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount), \(.tax_code), delivery \(.delivery_date)")' \
+    createPurchaseOrder -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"NT30\", \"items\": [$item]}"
+  po=$(field .id)
+  expect "the item's delivery date" "$(field '.items[0].delivery_date')" "$deliver"
+  api 200 '"\(.status)\(if .release_request_id then ": release request \(.release_request_id)" else "" end)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Budgeted desks"
+    as ben
+    QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+  fi
+  expect "order status" "$(field .status)" released
+  as tom
+  say "Tom's forecast now has the order's open value (planned): what is not invoiced yet, CAD 2,000.00, plus the HST"
+  say "its code gives on the read date, CAD 260.00, expected invoiced on the delivery date and paid by NT30 on Maple's"
+  say "last payment day (Tuesday or Thursday) on or before $due, as a run would pay the invoice. He drills the weeks"
+  say "from the delivery date down to the order:"
+  api 200 '"  \(.count) flows, total \(.total.amount) \(.total.currency)", (.items[] | select(.source == "purchase_order") | "  \(.date) \(.source) \(.certainty) \(.share.amount): \([.documents[] | "\(.kind) \(.number // "-") \(.amount.amount)"] | join(", ")), supplier \(.supplier.name // "not shown")")' \
+    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$deliver" -p "to=$due" -p page_size=500
+  cp "$WORK/last.json" "$WORK/order-flows.json"
+  flows=$(field "[.items[] | select(.source == \"purchase_order\" and any(.documents[]; .id == \"$po\"))]")
+  expect "the order's flows" "$(jq 'length' <<<"$flows")" 1
+  expect "its amount, the open value with its tax" "$(jq -r '.[0].amount.amount' <<<"$flows")" "-2260.00"
+  expect "its certainty" "$(jq -r '.[0].certainty' <<<"$flows")" planned
+  expect "expected on the last payment day before it is due" \
+    "$(jq -r --arg due "$due" --arg week "$(date_add "$due" -7)" '.[0].date | . <= $due and . > $week' <<<"$flows")" true
+  expect "the order named, to read with getPurchaseOrder" "$(jq -r --arg po "$po" '.[0].documents[] | select(.id == $po) | .kind' <<<"$flows")" purchase_order
+  say "The forecast's rows by liquidity item count it under Supplier payments (its item's account 6000 has no rule):"
+  api 200 '.currencies[] | select(.currency == "CAD") | .items[] | select(.liquidity_item == "OP_SUPPLIERS") | (.flows[] | select(.source == "purchase_order") | "  CAD OP_SUPPLIERS \(.source) \(.certainty): \(.total.amount)")' \
+    getLiquidityForecast -p "legal_entity_id=$LE"
+  expect "the order in Supplier payments" \
+    "$(field '[.currencies[] | select(.currency == "CAD") | .items[] | select(.liquidity_item == "OP_SUPPLIERS") | .flows[] | select(.source == "purchase_order")] | length')" 1
+  as rita
+  say "Rita holds the forecast's read alone: she sees the order's flow, not the order (procurement.order.read) nor Tyrell."
+  api 200 '.items[] | select(.source == "purchase_order") | "  \(.date) \(.source) \(.share.amount): \(.documents | length) of \(.document_count) documents shown, supplier \(.supplier.name // "not shown")"' \
+    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$deliver" -p "to=$due" -p page_size=500
+  expect "the orders shown to Rita" "$(field '[.items[] | select(.source == "purchase_order") | .documents[]] | length')" 0
+  expect "the orders counted for Rita" "$(field '[.items[] | select(.source == "purchase_order") | .document_count] | add')" \
+    "$(jq '[.items[] | select(.source == "purchase_order") | .document_count] | add' "$WORK/order-flows.json")"
+  as tom
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -2856,7 +2914,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_cash_forecast step_cash_snapshot step_cash_actuals step_cash_variance step_cash_variance_comment'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_cash_forecast step_cash_snapshot step_cash_actuals step_cash_variance step_cash_variance_comment step_cash_orders'
 
 main() {
   start

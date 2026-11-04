@@ -33,7 +33,10 @@
 // that paid it and the variance attributed to timing, amount, new,
 // missing and unclassified. T53f4 lets people comment on a row of the
 // variance (ADR-0051 §11, §15): each comment keeps the snapshot its
-// variance compares with past the snapshot's retention.
+// variance compares with past the snapshot's retention. T53g adds the
+// released purchase orders' open values (ADR-0051 §5, decision P7), read
+// through payments' port as the invoices they expect, and matches a
+// payment of an order's invoice to the order in the variance.
 package cash
 
 import (

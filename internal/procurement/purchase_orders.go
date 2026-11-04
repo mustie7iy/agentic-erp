@@ -1,6 +1,7 @@
 package procurement
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math/big"
@@ -62,11 +63,16 @@ const orderSelect = `SELECT o.id, o.document_number, o.legal_entity_id, o.purcha
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'unit_price', i.unit_price, 'price_unit', i.price_unit,
 			'account_id', i.account_id, 'over_delivery_pct', trim_scale(i.over_delivery_pct)::text, 'tax_code', i.tax_code,
 			'contract_item_no', i.contract_item_no, 'valuation_price', i.valuation_price, 'valuation_price_unit', i.valuation_price_unit,
-			'account_assignment', i.account_assignment, 'cost_center_id', i.cost_center_id,
+			'account_assignment', i.account_assignment, 'cost_center_id', i.cost_center_id, 'delivery_date', ` + deliveryDate + `,
 			'received', trim_scale(coalesce((SELECT sum(g.quantity) FROM procurement.goods_movement_item g WHERE g.tenant_id = i.tenant_id
 				AND g.purchase_order_id = i.purchase_order_id AND g.po_item_no = i.item_no), 0))::text) ORDER BY i.item_no)
 		 FROM procurement.purchase_order_item i WHERE i.tenant_id = o.tenant_id AND i.purchase_order_id = o.id AND NOT i.is_removed), '[]')
 	FROM procurement.purchase_order o JOIN ref.currency c ON c.code = o.currency`
+
+// deliveryDate is an order item's delivery date in its items' JSON, as
+// time.Time reads it from JSON (RFC 3339, the day at midnight UTC, as a
+// date column scans), or null.
+const deliveryDate = `to_char(i.delivery_date, 'YYYY-MM-DD"T00:00:00Z"')`
 
 func scanOrder(row pgx.Row) (PurchaseOrder, error) {
 	var o PurchaseOrder
@@ -150,6 +156,9 @@ type orderHeader struct {
 	orderDate time.Time
 	contract  *Contract
 	tolerance string // the company's default over-delivery percentage
+	// neededBy is the need date of the requisition the order was created
+	// from, which an item without a delivery date takes (T53g).
+	neededBy *time.Time
 }
 
 // orderItems validates order items. Contract items take the contract's
@@ -182,7 +191,7 @@ func (e *Endpoints) orderItem(ctx context.Context, h orderHeader, i int, it Item
 	}
 	item := Item{No: int32(i + 1), MaterialID: it.MaterialID, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
 		UnitPrice: price, PriceUnit: max(it.PriceUnit, 1), AccountID: it.AccountID, OverDelivery: h.tolerance, TaxCode: it.TaxCode,
-		ContractItemNo: it.ContractItemNo}
+		ContractItemNo: it.ContractItemNo, DeliveryDate: cmp.Or(it.DeliveryDate, h.neededBy)}
 	if it.OverDelivery != nil {
 		pct, ok := new(big.Rat).SetString(*it.OverDelivery)
 		if !ok || pct.Sign() < 0 || pct.Cmp(big.NewRat(100, 1)) > 0 {
@@ -241,37 +250,42 @@ func writeOrderItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, items
 	nos, materials, descriptions, quantities, units := make([]int32, n), make([]*uuid.UUID, n), make([]string, n), make([]string, n), make([]string, n)
 	prices, priceUnits, accounts, tolerances := make([]money.Minor, n), make([]int32, n), make([]uuid.UUID, n), make([]string, n)
 	taxes, contractItems, assigned, centers := make([]*string, n), make([]*int32, n), make([]string, n), make([]*uuid.UUID, n)
+	delivery := make([]*time.Time, n)
 	for i, it := range items {
 		nos[i], materials[i], descriptions[i], quantities[i], units[i] = it.No, it.MaterialID, it.Description, it.Quantity, it.Unit
 		prices[i], priceUnits[i], accounts[i], tolerances[i] = it.UnitPrice, it.PriceUnit, it.AccountID, it.OverDelivery
-		taxes[i], contractItems[i], assigned[i], centers[i] = it.TaxCode, it.ContractItemNo, it.assignment(), it.CostCenterID
+		taxes[i], contractItems[i], assigned[i], centers[i], delivery[i] = it.TaxCode, it.ContractItemNo, it.assignment(), it.CostCenterID, it.DeliveryDate
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.purchase_order_item AS i (tenant_id, purchase_order_id, item_no, material_id, description, quantity,
 			uom_code, unit_price, price_unit, account_id, over_delivery_pct, tax_code, contract_item_no, valuation_price, valuation_price_unit,
-			account_assignment, cost_center_id)
-		SELECT $1, $2, n, m, d, q::numeric, u, p, pu, a, t::numeric, tx, ci, CASE WHEN $14 THEN p END, CASE WHEN $14 THEN pu END, aa, cc
+			account_assignment, cost_center_id, delivery_date)
+		SELECT $1, $2, n, m, d, q::numeric, u, p, pu, a, t::numeric, tx, ci, CASE WHEN $14 THEN p END, CASE WHEN $14 THEN pu END, aa, cc, dd
 		FROM unnest($3::int[], $4::uuid[], $5::text[], $6::text[], $7::text[], $8::bigint[], $9::int[], $10::uuid[], $11::text[], $12::text[], $13::int[],
-			$15::text[], $16::uuid[]) AS x(n, m, d, q, u, p, pu, a, t, tx, ci, aa, cc)
+			$15::text[], $16::uuid[], $17::date[]) AS x(n, m, d, q, u, p, pu, a, t, tx, ci, aa, cc, dd)
 		ON CONFLICT (tenant_id, purchase_order_id, item_no) DO UPDATE SET material_id = EXCLUDED.material_id, description = EXCLUDED.description,
 			quantity = EXCLUDED.quantity, uom_code = EXCLUDED.uom_code, unit_price = EXCLUDED.unit_price, price_unit = EXCLUDED.price_unit,
 			account_id = EXCLUDED.account_id, over_delivery_pct = EXCLUDED.over_delivery_pct, tax_code = EXCLUDED.tax_code,
 			contract_item_no = EXCLUDED.contract_item_no, account_assignment = EXCLUDED.account_assignment, cost_center_id = EXCLUDED.cost_center_id,
-			is_removed = false, valuation_price = coalesce(i.valuation_price, EXCLUDED.valuation_price),
+			delivery_date = EXCLUDED.delivery_date, is_removed = false, valuation_price = coalesce(i.valuation_price, EXCLUDED.valuation_price),
 			valuation_price_unit = coalesce(i.valuation_price_unit, EXCLUDED.valuation_price_unit)`,
 		tenant, id, nos, materials, descriptions, quantities, units, prices, priceUnits, accounts, tolerances, taxes, contractItems, valued,
-		assigned, centers); err != nil {
+		assigned, centers, delivery); err != nil {
 		return fmt.Errorf("procurement: write items of purchase order %s: %w", id, err)
 	}
 	return removeItems(ctx, tx, "purchase_order_item", "purchase_order_id", id, n)
 }
 
 // header checks what an order's items depend on: currency, contract,
-// purchasing organization and the company's default tolerance.
+// purchasing organization, the company's default tolerance and the need
+// date of the requisition the order is created from, if any.
 func (e *Endpoints) header(ctx context.Context, tx pgx.Tx, le tenancy.Entity, supplier uuid.UUID, currency string, orderDate time.Time,
-	contract, purchasingOrg *uuid.UUID) (orderHeader, error) {
+	contract, purchasingOrg, requisition *uuid.UUID) (orderHeader, error) {
 	h := orderHeader{le: le, currency: currency, orderDate: orderDate, tolerance: "0"}
 	var err error
 	if h.exp, err = exponent(ctx, tx, currency, "currency"); err != nil {
+		return h, err
+	}
+	if h.neededBy, err = neededBy(ctx, tx, requisition); err != nil {
 		return h, err
 	}
 	if err := e.supplier(ctx, supplier, le.ID); err != nil {
@@ -357,7 +371,7 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
-	h, err := e.header(ctx, tx, le, in.SupplierID, in.Currency, in.OrderDate, in.ContractID, in.PurchasingOrgID)
+	h, err := e.header(ctx, tx, le, in.SupplierID, in.Currency, in.OrderDate, in.ContractID, in.PurchasingOrgID, in.RequisitionID)
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
@@ -398,6 +412,16 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 	}
 	return o, audit.Record(ctx, "procurement.purchase_order.create", "procurement.purchase_order", id, map[string]any{"document_number": number,
 		"items": len(items), "requisition_id": in.RequisitionID})
+}
+
+// neededBy is the need date of the requisition an order was created from,
+// nil for an order of none or a requisition needed by no date.
+func neededBy(ctx context.Context, tx pgx.Tx, requisition *uuid.UUID) (*time.Time, error) {
+	if requisition == nil {
+		return nil, nil
+	}
+	r, err := getRequisition(ctx, tx, *requisition, false)
+	return r.NeededBy, err
 }
 
 // orderedRequisition locks the requisition an order is created from, if
@@ -479,7 +503,7 @@ func (e *Endpoints) updateOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
-	h, err := e.header(ctx, tx, le, supplier, currency, orderDate, contract, org)
+	h, err := e.header(ctx, tx, le, supplier, currency, orderDate, contract, org, o.RequisitionID)
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
@@ -563,7 +587,7 @@ func currentItems(o PurchaseOrder) []ItemInput {
 		in = append(in, ItemInput{MaterialID: it.MaterialID, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
 			Price: money.Minor(price).Plain(o.Exponent), Currency: o.Currency, PriceUnit: it.PriceUnit, AccountID: it.AccountID,
 			OverDelivery: &it.OverDelivery, TaxCode: it.TaxCode, ContractItemNo: it.ContractItemNo, AccountAssignment: &assignment,
-			CostCenterID: it.CostCenterID})
+			CostCenterID: it.CostCenterID, DeliveryDate: it.DeliveryDate})
 	}
 	return in
 }

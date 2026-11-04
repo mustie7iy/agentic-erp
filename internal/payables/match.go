@@ -135,17 +135,40 @@ func companyLimits(co *config.Company) (limits, error) {
 // system's posted documents invoiced and credited before migration
 // (TakeOverInvoiced, T72b2).
 func invoicedQuantities(ctx context.Context, tx pgx.Tx, order, exclude uuid.UUID) (map[int32]string, error) {
-	rows, _ := tx.Query(ctx, `SELECT po_item_no, trim_scale(sum(CASE WHEN kind = 'credit_memo' THEN -quantity ELSE quantity END))::text FROM (
-			SELECT t.po_item_no, i.kind, t.quantity FROM payables.supplier_invoice_item t
+	byOrder, err := quantitiesInvoiced(ctx, tx, []uuid.UUID{order}, []string{Posted}, exclude)
+	if err != nil {
+		return nil, fmt.Errorf("payables: read quantities invoiced on order %s: %w", order, err)
+	}
+	if byOrder[order] == nil {
+		return map[int32]string{}, nil
+	}
+	return byOrder[order], nil
+}
+
+// quantitiesInvoiced is what the supplier documents in the statuses on the
+// orders invoiced of each of their items, net of credit memos, with what
+// the source system's documents invoiced before migration, by order and
+// item; the document exclude is left out.
+func quantitiesInvoiced(ctx context.Context, tx pgx.Tx, orders []uuid.UUID, statuses []string, exclude uuid.UUID) (map[uuid.UUID]map[int32]string, error) {
+	rows, _ := tx.Query(ctx, `SELECT purchase_order_id, po_item_no, trim_scale(sum(CASE WHEN kind = 'credit_memo' THEN -quantity ELSE quantity END))::text FROM (
+			SELECT t.purchase_order_id, t.po_item_no, i.kind, t.quantity FROM payables.supplier_invoice_item t
 			JOIN payables.supplier_invoice i ON i.tenant_id = t.tenant_id AND i.id = t.supplier_invoice_id
-			WHERE t.purchase_order_id = $1 AND i.status = 'posted' AND i.id <> $2 AND NOT t.is_removed
+			WHERE t.purchase_order_id = ANY($1) AND i.status = ANY($2) AND i.id <> $3 AND NOT t.is_removed
 			UNION ALL
-			SELECT po_item_no, kind, quantity FROM payables.migrated_invoice_item WHERE purchase_order_id = $1) d GROUP BY 1`, order, exclude)
-	invoiced := map[int32]string{}
+			SELECT purchase_order_id, po_item_no, kind, quantity FROM payables.migrated_invoice_item WHERE purchase_order_id = ANY($1)) d GROUP BY 1, 2`,
+		orders, statuses, exclude)
+	invoiced := map[uuid.UUID]map[int32]string{}
+	var order uuid.UUID
 	var no int32
 	var qty string
-	if _, err := pgx.ForEachRow(rows, []any{&no, &qty}, func() error { invoiced[no] = qty; return nil }); err != nil {
-		return nil, fmt.Errorf("payables: read quantities invoiced on order %s: %w", order, err)
+	if _, err := pgx.ForEachRow(rows, []any{&order, &no, &qty}, func() error {
+		if invoiced[order] == nil {
+			invoiced[order] = map[int32]string{}
+		}
+		invoiced[order][no] = qty
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("quantities invoiced on %d orders: %w", len(orders), err)
 	}
 	return invoiced, nil
 }

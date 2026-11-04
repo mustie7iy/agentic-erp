@@ -8830,8 +8830,8 @@ type CashFlowTotal struct {
 	Late   bool  `json:"late"`
 	Amount Money `json:"amount"`
 	// How many flows: payments, memo records' occurrences, or in the liquidity forecast for `payable`,
-	// `payable_blocked` and `invoice_unposted` supplier payments (a supplier's documents netted into one
-	// payment, as a run nets them), not documents, and for `down_payment` requests.
+	// `payable_blocked`, `invoice_unposted` and `purchase_order` supplier payments (a supplier's documents
+	// netted into one payment, as a run nets them), not documents, and for `down_payment` requests.
 	Count int32 `json:"count"`
 }
 
@@ -25448,8 +25448,8 @@ func (s *LiquidityForecastCurrency) SetItems(val []LiquidityForecastItem) {
 
 // A document a forecast flow pays, to read through its own context's API: a posted supplier open
 // item's journal entry (`getJournalEntry`), a parked or held supplier invoice (`getSupplierInvoice`),
-// a down payment request (`getDownPaymentRequest`), a payment run (`getPaymentRun`) or a memo record
-// (`getMemoRecord`).
+// a down payment request (`getDownPaymentRequest`), a payment run (`getPaymentRun`), a memo record
+// (`getMemoRecord`) or a purchase order (`getPurchaseOrder`, T53g).
 // Ref: #/components/schemas/LiquidityForecastDocument
 type LiquidityForecastDocument struct {
 	// What the document is. Open enumeration: clients must accept and preserve values not listed here;
@@ -25504,11 +25504,12 @@ func (s *LiquidityForecastDocument) SetAmount(val Money) {
 }
 
 // A flow of the liquidity forecast (ADR-0051 §4): one supplier payment as a run would make it, a
-// run's payment, a payment in transit, a down payment request or a memo record's occurrence, with the
-// documents it pays. Its supplier and each document are given only to a caller who may read them in
-// their own context (`partner.supplier.read`; `ledger.entry.read` for a journal entry,
-// `payables.invoice.read` for a supplier invoice or down payment request, `payments.run.read` for a
-// payment run, `cash.memo.read` for a memo record), as an expansion is (04 §4.4); `document_count`
+// run's payment, a payment in transit, a down payment request, a memo record's occurrence or a
+// supplier's open purchase orders paid together, with the documents it pays. Its supplier and each
+// document are given only to a caller who may read them in their own context (`partner.supplier.read`;
+// `ledger.entry.read` for a journal entry, `payables.invoice.read` for a supplier invoice or down
+// payment request, `payments.run.read` for a payment run, `cash.memo.read` for a memo record,
+// `procurement.order.read` for a purchase order), as an expansion is (04 §4.4); `document_count`
 // counts them all.
 // Ref: #/components/schemas/LiquidityForecastFlow
 type LiquidityForecastFlow struct {
@@ -40942,6 +40943,13 @@ type PurchaseOrderItem struct {
 	TaxCode OptString `json:"tax_code"`
 	// Contract item the price comes from.
 	ContractItemNo OptInt32 `json:"contract_item_no"`
+	// The day the item is expected to be delivered (SAP's delivery date, EKET-EINDT; ADR-0051 §5, T53g).
+	// Optional. An item of an order created from a requisition, or of a draft changed while it names one,
+	// that gives none takes the requisition's `needed_by`. An order change's item that gives none keeps
+	// the item's date; an item it adds takes the requisition's `needed_by`. The liquidity forecast
+	// (`getLiquidityForecast`, source `purchase_order`) expects the item's open value invoiced on this
+	// day, else on the order date plus the company's `cash.order_lead_days`.
+	DeliveryDate OptDate `json:"delivery_date"`
 	// Derived: quantity received so far (101 receipts minus 102 reversals).
 	ReceivedQuantity OptQuantity `json:"received_quantity"`
 	// Price per `valuation_price_unit` the item's goods movements are valued at through GR/IR: its price
@@ -41010,6 +41018,11 @@ func (s *PurchaseOrderItem) GetTaxCode() OptString {
 // GetContractItemNo returns the value of ContractItemNo.
 func (s *PurchaseOrderItem) GetContractItemNo() OptInt32 {
 	return s.ContractItemNo
+}
+
+// GetDeliveryDate returns the value of DeliveryDate.
+func (s *PurchaseOrderItem) GetDeliveryDate() OptDate {
+	return s.DeliveryDate
 }
 
 // GetReceivedQuantity returns the value of ReceivedQuantity.
@@ -41085,6 +41098,11 @@ func (s *PurchaseOrderItem) SetTaxCode(val OptString) {
 // SetContractItemNo sets the value of ContractItemNo.
 func (s *PurchaseOrderItem) SetContractItemNo(val OptInt32) {
 	s.ContractItemNo = val
+}
+
+// SetDeliveryDate sets the value of DeliveryDate.
+func (s *PurchaseOrderItem) SetDeliveryDate(val OptDate) {
+	s.DeliveryDate = val
 }
 
 // SetReceivedQuantity sets the value of ReceivedQuantity.

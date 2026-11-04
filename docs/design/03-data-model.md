@@ -1343,7 +1343,8 @@ erDiagram
     int price_unit
     numeric over_delivery_pct
     text account_assignment "none | cost_center (T56e)"
-    uuid cost_center_id "T56e" }
+    uuid cost_center_id "T56e"
+    date delivery_date "T53g" }
   goods_movement { uuid id PK
     text movement_type "101 | 102 | 122 | 123"
     date posting_date
@@ -1557,6 +1558,13 @@ API as the document is released, with no foreign key across schemas. A
 released order's item keeps its assignment as it keeps its account
 (`purchase_order_item_identity`, 000161), and its goods movements post the
 item's account with its cost center.
+
+An order item carries its expected delivery date (`delivery_date`, optional,
+SAP's EKET-EINDT; migration 000194, T53g, ADR-0051 §5): the one it is
+given, else, on an order created from a requisition, the requisition's
+`needed_by`; a released order's item changes it through an order change
+(`check_order_item_editable` leaves it free, as quantity and price). The
+liquidity forecast expects the item's open value invoiced on it.
 
 ## 3.9 Accounts payable (`payables`)
 
@@ -2618,6 +2626,7 @@ line or reservation. An agent's budget is identity's
 | FLQLITEM/FLQLITEMT liquidity items, T035 planning groups, LFB1-FDGRV | `cash.liquidity_item`, `cash.planning_group`, `supplier_company.planning_group` (T53b) |
 | EBAN | `procurement.requisition` |
 | EKKO/EKPO | `procurement.purchase_order` + items |
+| EKET-EINDT (schedule line delivery date) | `purchase_order_item.delivery_date` (T53g); a migration run loads none yet |
 | Outline agreements (EKKO BSTYP K) | `procurement.contract` |
 | MKPF/MSEG, MATDOC | `procurement.goods_movement` + items |
 | MSEG BWART 122/123, reason (MSEG-GRUND, T157D) | `goods_movement.movement_type` 122/123, `goods_movement.reason` (T47b) |
@@ -2836,6 +2845,20 @@ the `cash.memo_record`s the snapshot names (whether each is a series) or
 a line realised (`realised_statement_id`, `realised_line_no`, an
 override's `recurrence_of` and `occurrence_date`). No migration; reading
 the variance is `cash.forecast.read`.
+
+T53g adds the released purchase orders' open values, storing nothing:
+each released `procurement.purchase_order`'s live items (through
+procurement's published orders port) less what the order's
+`payables.supplier_invoice_item`s of posted, parked and held documents
+invoice (credit memos negative) and `payables.migrated_invoice_item`s,
+at the item's price, with the tax its `tax_code` gives on the read date
+(`ledger.tax_code_definition`, `tax_rate`), expected on the item's
+`delivery_date`, else `order_date` plus `cash.order_lead_days`, by the
+order's `payment_term_code` (`partner.payment_term`). A snapshot's line
+names an order as `document_kind` `purchase_order` (000194 widens
+`snapshot_flow_document_kind_check` `NOT VALID`, 000195 validates it); the
+variance knows a payment of an invoice entered on an order
+(`payables.supplier_invoice.purchase_order_id`) as that order.
 
 T53f4 stores people's comments on the variance (000193,
 `cash.variance_comment` above), each naming the `cash.snapshot` its
