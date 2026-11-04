@@ -1418,7 +1418,7 @@ tracker item only when one does (07 §7.5).
   specialist.
 
 ## As built
-(Filled in by the slices T57a-T57i.)
+(Filled in by the slices T57a-T57i and T57f2.)
 
 **T57a (classes and asset accounts; asset reconciliation enforced).**
 Built as §3: `asset_classes` (code, name, terms per ledger),
@@ -2223,3 +2223,80 @@ to overrule:
   class and by asset and checks its closing values against the trial
   balance's acquisition cost and accumulated depreciation accounts.
 - **Tracker.** The leaf "Asset history sheet" (T57i) is done with T57i.
+
+**T57f2 (the run's and the preview's budgets).** 01 §1.3's budget of a
+run over 100,000 assets of one company and ledger (async, p95 120 s, p99
+240 s) and the preview's at that scale are `TestDepreciationRunBudget`
+(`internal/workflows`, beside the in-process runner it drives; run by
+`scripts/budgets.sh`, so by `make perf` and ci-local's budgets gate).
+Company 2000 holds 100,001 machines of 12,000.00 EUR over ten years,
+capitalised a month apart from January 2017 to May 2026 and booked by one
+run a month through May, so each has its acquisition and up to 113
+depreciation movements (5.8 million rows) and its year totals, written
+straight into the tables as `TestAssetHistorySheetBudget` writes its
+rows. The preview of June's run is read ten times, its first page and the
+next (every page reads all the selected assets, so any later page costs
+what the second does); the run is measured once, from its start (`POST
+/v1/depreciation-runs`) to posted, carried out by `workflows.Depreciator`
+in 201 batches of 500, as `TestProposalBudget` measures the proposal's
+single run against its p95. Measured on the development machine (Apple
+silicon, PostgreSQL 17 in Docker with 128 MB of shared buffers) beside
+the other lanes' suites, so with the load averages named:
+- **Before** (the T57f code, seeded as above): a preview page read the
+  5.8 million movements, 7.9 s in the database and about 20 s a page
+  with the rows scanned (seen while it ran, not timed to the end: the
+  machine's gate slots were needed). After the first fix alone (below):
+  preview median 6.4 s, p95 7.1 s; run 117 s (load 35 to 41).
+- **After, ERP_BUDGET_SCALE=1** (load 9 to 18): preview first page median
+  1.56 s, p95 1.77 s; next page median 1.53 s, p95 2.03 s; run 20.6 s
+  (budget 120 s). Seeding took 64 s, the whole test 120 s.
+- **After, ERP_BUDGET_SCALE=2** (load 17 to 18): preview first page
+  median 1.62 s, p95 3.11 s; next page median 1.56 s, p95 1.90 s; run
+  20.7 s (budget 240 s).
+The run meets its budget six times over. The preview does not meet the
+report class's p95 of 1 s at this scale: it reads the 100,001 selected
+assets (0.43 s), their 100,001 other movements and 580,000 totals rows
+(0.6 s) and walks them on every page, as T57e built it. The test checks
+the class's p99 (3 s, scaled) on every read, so the gate holds the 4.5
+times gained, and the p95 is a question for the product owner (below).
+Causes found with `EXPLAIN (ANALYZE, BUFFERS)` and a CPU profile, and
+fixed with behaviour unchanged (every existing test passes as before):
+- **Every page read every movement.** `readMovements` read all of the
+  selected assets' movements, depreciation included, to sum what is
+  booked: 5.8 million rows a page (7.9 s in the database, some 20 s with
+  the rows scanned and bucketed by period). A run's batches, the preview
+  and a catch-up now read the movements other than depreciation through
+  the partial index `movement_moves_by_asset` (migration 000198, built
+  concurrently) and the booked total from the year totals (T57i), which
+  every posting keeps with its movements in its own transaction and which
+  equal their sums (`TestAssetHistorySheet`); 100,000 rows and some
+  580,000 totals rows, 0.6 s. The schedule, which shows what is booked
+  per period, still reads every movement of its one asset.
+- **Exact rationals per period.** The walk computed each period's
+  straight-line amount with `money.Scale` (big rationals and a parsed
+  factor of "1"), 52 of the preview's 56 s of CPU; it is now
+  `money.Divide`, an integer division rounded half away from zero, equal
+  to `Scale(a, "1", n)` on both signs and at the ends of the range
+  (`TestDivide`, `FuzzDivide` in the fuzz gate). Declining balance keeps
+  `Scale` for its factor.
+- **The selection's lookups.** The latest assignment was looked up per
+  asset (a lateral `LIMIT 1`), whose estimate over 100,000 assets made the
+  planner compile the query (JIT, 250 ms); the company's assets' latest
+  assignments are read in one pass (`DISTINCT ON`), 860 ms to 430 ms. A batch's re-check of its 500 assets
+  scanned every asset's terms (86 ms a batch, 17 s a run); the terms are
+  now read by their key too (9 ms).
+Decided by default, for the product owner to overrule:
+- **The preview is a report** (`x-slo-class: report`, ADR-0043's class:
+  p95 1 s, p99 3 s): it sums a whole company's run on every page, as the
+  trial balance sums a period, so the write class a POST otherwise takes
+  (p95 200 ms) does not fit it. 01 §1.3 gains no row while its p95 is
+  not met.
+- **Booked from the totals** (above) relies on T57i's rule that every
+  posting adds its movements to the year totals in its own transaction;
+  each caller reads before its own posting writes.
+- **Question for the product owner (open):** at 100,000 assets the
+  preview takes about 1.5 s a page against the report class's 1 s.
+  Meeting 1 s needs a design change rather than a query fix: keep the
+  booked amount per asset and ledger on its terms row (written by every
+  depreciation movement's posting), or give the totals once rather than
+  on every page. Until then the budget test holds the p99.

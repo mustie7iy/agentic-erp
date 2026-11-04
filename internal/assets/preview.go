@@ -45,7 +45,12 @@ type candidate struct {
 // through a later period or whose latest assignment is valid from after
 // the period's last day; after marks those after the page token. With
 // only, just those of the assets named are read: a run's batch re-checks
-// its assets' selection under their locks (T57f).
+// its assets' selection under their locks (T57f). The latest assignment
+// of each of the company's assets is read in one pass (DISTINCT ON)
+// rather than looked up per asset, and with only the terms are read by their key too (the same
+// assets, said of both tables): over 100,000 assets the lookups' estimate
+// had the planner compile the query (JIT) and a batch's 500 assets
+// scanned every asset's terms (T57f2: 860 ms to 430 ms, 86 ms to 9 ms).
 func selectDepreciable(ctx context.Context, tx pgx.Tx, le, ledger uuid.UUID, p Period, after *previewKey, only []uuid.UUID) ([]*candidate, error) {
 	var number *string
 	var id *uuid.UUID
@@ -57,14 +62,15 @@ func selectDepreciable(ctx context.Context, tx pgx.Tx, le, ledger uuid.UUID, p P
 			t.booked_through_year, t.booked_through_period, $6::text IS NULL OR (a.asset_number, a.id) > ($6, $7::uuid)
 		FROM assets.asset a
 		JOIN assets.asset_terms t ON t.tenant_id = a.tenant_id AND t.asset_id = a.id AND t.ledger_id = $2
-		JOIN LATERAL (SELECT r.cost_center_id, r.profit_center_id, r.valid_from FROM assets.asset_assignment r
-			WHERE r.tenant_id = a.tenant_id AND r.asset_id = a.id ORDER BY r.seq DESC LIMIT 1) c ON true
+		JOIN (SELECT DISTINCT ON (r.asset_id) r.tenant_id, r.asset_id, r.cost_center_id, r.profit_center_id, r.valid_from FROM assets.asset_assignment r
+			WHERE ($8::uuid[] IS NULL AND r.asset_id IN (SELECT x.id FROM assets.asset x WHERE x.legal_entity_id = $1)) OR r.asset_id = ANY($8)
+			ORDER BY r.asset_id, r.seq DESC) c ON c.tenant_id = a.tenant_id AND c.asset_id = a.id
 		WHERE a.legal_entity_id = $1
 			AND ((a.status = 'active' AND coalesce(t.depreciation_start, a.capitalised_on) <= $3)
 				OR (SELECT coalesce(sum(m.accumulated), 0) FROM assets.movement m
 					WHERE m.tenant_id = a.tenant_id AND m.asset_id = a.id AND m.ledger_id = t.ledger_id) <> 0)
 			AND (t.booked_through_year IS NULL OR (t.booked_through_year, t.booked_through_period) <= ($4::smallint, $5::smallint))
-			AND c.valid_from <= $3 AND ($8::uuid[] IS NULL OR a.id = ANY($8))
+			AND c.valid_from <= $3 AND ($8::uuid[] IS NULL OR (a.id = ANY($8) AND t.asset_id = ANY($8)))
 		ORDER BY a.asset_number, a.id`, le, ledger, p.End, p.FiscalYear, p.Number, number, id, only)
 	var out []*candidate
 	var c candidate
@@ -72,7 +78,6 @@ func selectDepreciable(ctx context.Context, tx pgx.Tx, le, ledger uuid.UUID, p P
 		&c.terms.LedgerID, &c.terms.Method, &c.terms.UsefulLifeMonths, &c.terms.DecliningFactor, &c.terms.Residual, &c.terms.DepreciationStart,
 		&c.terms.BookedYear, &c.terms.BookedPeriod, &c.after}, func() error {
 		row := c
-		row.bookedIn = map[postingPeriod]money.Minor{}
 		out = append(out, &row)
 		c = candidate{} // the next row's pointers are scanned into a new value
 		return nil
@@ -155,7 +160,7 @@ func differences(ctx context.Context, tx pgx.Tx, ledger uuid.UUID, p Period, cs 
 	for _, c := range cs {
 		ds[c.asset] = &c.depreciable
 	}
-	if err := readMovements(ctx, tx, ledger, ds); err != nil {
+	if err := readMovements(ctx, tx, ledger, ds, false); err != nil {
 		return err
 	}
 	for _, c := range cs {

@@ -47,7 +47,7 @@ func (e *Endpoints) GetAssetSchedule(ctx context.Context, params gen.GetAssetSch
 		return nil, fmt.Errorf("assets: periods of %s in %d: %w", a.LegalEntityID, params.FiscalYear, err)
 	}
 	d := &depreciable{asset: a.ID, terms: a.Terms[i], capitalised: a.CapitalisedOn, bookedIn: map[postingPeriod]money.Minor{}}
-	if err := readMovements(ctx, tx, l.ID, map[uuid.UUID]*depreciable{a.ID: d}); err != nil {
+	if err := readMovements(ctx, tx, l.ID, map[uuid.UUID]*depreciable{a.ID: d}, true); err != nil {
 		return nil, err
 	}
 	steps, _, err := d.planned(MonthOf(periods[len(periods)-1].Start))

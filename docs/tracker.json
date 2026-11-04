@@ -1163,9 +1163,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Depreciation run and preview budgets: the 01 §1.3 budget of a run over 100,000 assets of one company and ledger (async, p95 120 s, p99 240 s) in the performance suite, and the preview's read at that scale (T57e as built: every page reads all the selected assets)",
-        "r": "ADR-0057 · T57f2",
+        "r": "migration 000198 (movement_moves_by_asset, partial: the movements other than depreciation) · internal/assets (readMovements: the moves and the booked total from the year totals, by period for the schedule alone; selectDepreciable: the latest assignments in one pass, a batch's terms by key; Plan.period: the straight-line amount by money.Divide) · internal/money (Divide: Scale by one in integers) · POST /v1/depreciation-runs/preview x-slo-class report · TestDepreciationRunBudget (internal/workflows: the run by the in-process runner and the preview over 100,000 assets), TestDivide, FuzzDivide · 03-data-model §3.21 · ADR-0057 (as built, T57f2) · T57f2",
         "src": "split:T57f · adr:ADR-0057",
         "c": []
        },

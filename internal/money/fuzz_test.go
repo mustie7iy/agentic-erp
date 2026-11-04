@@ -63,3 +63,18 @@ func FuzzConvert(f *testing.F) {
 		}
 	})
 }
+
+// Divide equals Scale by a factor of one on every amount and divisor.
+func FuzzDivide(f *testing.F) {
+	f.Add(int64(5), int64(2))
+	f.Add(int64(-5), int64(2))
+	f.Add(int64(math.MinInt64), int64(1))
+	f.Add(int64(math.MaxInt64), int64(math.MaxInt64))
+	f.Fuzz(func(t *testing.T, amount, divisor int64) {
+		want, wantErr := Scale(Minor(amount), "1", divisor)
+		got, err := Divide(Minor(amount), divisor)
+		if (err != nil) != (wantErr != nil) || got != want {
+			t.Fatalf("Divide(%d, %d) = %d %v, Scale gives %d %v", amount, divisor, got, err, want, wantErr)
+		}
+	})
+}
