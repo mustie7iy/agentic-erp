@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/google/uuid"
@@ -27,12 +28,14 @@ type previewKey struct {
 }
 
 // candidate is an asset a run of the period selects (ADR-0057 §7), with
-// whether it comes after the page token.
+// whether it comes after the page token; its number and description are
+// read for a preview's page alone (pageNames).
 type candidate struct {
 	depreciable
 	number, description, class string
 	costCenter, profitCenter   *uuid.UUID
 	after                      bool
+	rank                       int64 // its place by asset number among the company's assets
 	plannedTotal, difference   money.Minor
 	differenceGC               money.Minor // a run's, in group currency (T57f)
 }
@@ -43,46 +46,56 @@ type candidate struct {
 // start on or before the period's last day, or whose accumulated
 // depreciation in the ledger is not zero, passing over an asset booked
 // through a later period or whose latest assignment is valid from after
-// the period's last day; after marks those after the page token. With
-// only, just those of the assets named are read: a run's batch re-checks
-// its assets' selection under their locks (T57f). The latest assignment
-// of each of the company's assets is read in one pass (DISTINCT ON)
-// rather than looked up per asset, and with only the terms are read by
-// their key too (the same assets, said of both tables): over 100,000
-// assets the lookups' estimate had the planner compile the query (JIT)
-// and a batch's 500 assets scanned every asset's terms (T57f2: 860 ms to
-// 430 ms, 86 ms to 9 ms).
+// the period's last day; after marks those after the page token. Each
+// comes with the depreciation booked in the ledger, kept on its terms
+// (keepTotals). With only, just those of the assets named are read: a
+// run's batch re-checks its assets' selection under their locks (T57f).
+// Over 100,000 assets (T57f3): the latest assignments are read in their
+// key's order, the tenant in the DISTINCT ON so that the tenant the join
+// implies is pushed into it rather than applied after it (T57f2's, without
+// the tenant, was estimated at 83 rows of 100,000, so the terms were
+// probed per asset); and the order is the assets' rank by number, read in
+// the order of the number's index, the rows sorted by it here (sorting
+// 100,000 wide rows spilled to disk, 0.1 s); only the columns every
+// asset's difference needs are read, the terms' ledger being the one
+// asked for. With only, every table is read by the assets' keys (the same
+// assets, said of each).
 func selectDepreciable(ctx context.Context, tx pgx.Tx, le, ledger uuid.UUID, p Period, after *previewKey, only []uuid.UUID) ([]*candidate, error) {
 	var number *string
 	var id *uuid.UUID
 	if after != nil {
 		number, id = &after.Number, &after.ID
 	}
-	rows, _ := tx.Query(ctx, `SELECT a.id, a.asset_number, a.description, a.class_code, a.capitalised_on, c.cost_center_id, c.profit_center_id,
-			t.ledger_id, t.method, t.useful_life_months, trim_scale(t.declining_factor)::text, t.residual_value, t.depreciation_start,
-			t.booked_through_year, t.booked_through_period, $6::text IS NULL OR (a.asset_number, a.id) > ($6, $7::uuid)
-		FROM assets.asset a
+	rows, _ := tx.Query(ctx, `SELECT a.id, a.class_code, a.capitalised_on, c.cost_center_id, c.profit_center_id,
+			t.method, t.useful_life_months, trim_scale(t.declining_factor)::text, t.residual_value, t.depreciation_start,
+			t.booked_depreciation, $6::text IS NULL OR (a.asset_number, a.id) > ($6, $7::uuid), a.rank
+		FROM (SELECT x.tenant_id, x.id, x.asset_number, x.class_code, x.capitalised_on, x.status,
+				row_number() OVER (ORDER BY x.asset_number) AS rank
+			FROM assets.asset x WHERE x.legal_entity_id = $1 AND ($8::uuid[] IS NULL OR x.id = ANY($8))) a
 		JOIN assets.asset_terms t ON t.tenant_id = a.tenant_id AND t.asset_id = a.id AND t.ledger_id = $2
-		JOIN (SELECT DISTINCT ON (r.asset_id) r.tenant_id, r.asset_id, r.cost_center_id, r.profit_center_id, r.valid_from FROM assets.asset_assignment r
-			WHERE ($8::uuid[] IS NULL AND r.asset_id IN (SELECT x.id FROM assets.asset x WHERE x.legal_entity_id = $1)) OR r.asset_id = ANY($8)
-			ORDER BY r.asset_id, r.seq DESC) c ON c.tenant_id = a.tenant_id AND c.asset_id = a.id
-		WHERE a.legal_entity_id = $1
-			AND ((a.status = 'active' AND coalesce(t.depreciation_start, a.capitalised_on) <= $3)
+		JOIN (SELECT DISTINCT ON (r.tenant_id, r.asset_id) r.tenant_id, r.asset_id, r.cost_center_id, r.profit_center_id, r.valid_from
+			FROM assets.asset_assignment r WHERE $8::uuid[] IS NULL OR r.asset_id = ANY($8)
+			ORDER BY r.tenant_id DESC, r.asset_id DESC, r.seq DESC) c ON c.tenant_id = a.tenant_id AND c.asset_id = a.id
+		WHERE ((a.status = 'active' AND coalesce(t.depreciation_start, a.capitalised_on) <= $3)
 				OR (SELECT coalesce(sum(m.accumulated), 0) FROM assets.movement m
 					WHERE m.tenant_id = a.tenant_id AND m.asset_id = a.id AND m.ledger_id = t.ledger_id) <> 0)
 			AND (t.booked_through_year IS NULL OR (t.booked_through_year, t.booked_through_period) <= ($4::smallint, $5::smallint))
-			AND c.valid_from <= $3 AND ($8::uuid[] IS NULL OR (a.id = ANY($8) AND t.asset_id = ANY($8)))
-		ORDER BY a.asset_number, a.id`, le, ledger, p.End, p.FiscalYear, p.Number, number, id, only)
-	var out []*candidate
+			AND c.valid_from <= $3 AND ($8::uuid[] IS NULL OR t.asset_id = ANY($8))`,
+		le, ledger, p.End, p.FiscalYear, p.Number, number, id, only)
+	var all []candidate // one allocation as it grows, not one per asset
 	var c candidate
-	_, err := pgx.ForEachRow(rows, []any{&c.asset, &c.number, &c.description, &c.class, &c.capitalised, &c.costCenter, &c.profitCenter,
-		&c.terms.LedgerID, &c.terms.Method, &c.terms.UsefulLifeMonths, &c.terms.DecliningFactor, &c.terms.Residual, &c.terms.DepreciationStart,
-		&c.terms.BookedYear, &c.terms.BookedPeriod, &c.after}, func() error {
-		row := c
-		out = append(out, &row)
+	_, err := pgx.ForEachRow(rows, []any{&c.asset, &c.class, &c.capitalised, &c.costCenter, &c.profitCenter, &c.terms.Method,
+		&c.terms.UsefulLifeMonths, &c.terms.DecliningFactor, &c.terms.Residual, &c.terms.DepreciationStart, &c.booked, &c.after, &c.rank}, func() error {
+		c.terms.LedgerID = ledger
+		all = append(all, c)
 		c = candidate{} // the next row's pointers are scanned into a new value
 		return nil
 	})
+	out := make([]*candidate, len(all))
+	for i := range all {
+		out[i] = &all[i]
+	}
+	slices.SortFunc(out, func(a, b *candidate) int { return cmp.Compare(a.rank, b.rank) })
 	return out, errs.Wrapf(err, "assets: assets to depreciate of %s in %d/%d", le, p.FiscalYear, p.Number)
 }
 
@@ -153,20 +166,21 @@ func (e *Endpoints) previewOf(ctx context.Context, tx pgx.Tx, req *gen.Depreciat
 	return previewRun{co: co, ledger: l, period: p, assets: cs}, nil
 }
 
-// differences reads the selected assets' movements in the ledger and sets
+// differences reads the selected assets' moves in the ledger and sets
 // each one's planned depreciation through the period and its difference
-// from what is booked: what a run of the period posts (ADR-0057 §7).
+// from what is booked (read with the selection): what a run of the
+// period posts (ADR-0057 §7).
 func differences(ctx context.Context, tx pgx.Tx, ledger uuid.UUID, p Period, cs []*candidate) error {
 	ds := make(map[uuid.UUID]*depreciable, len(cs))
 	for _, c := range cs {
 		ds[c.asset] = &c.depreciable
 	}
-	if err := readMovements(ctx, tx, ledger, ds, false); err != nil {
+	if err := readMoves(ctx, tx, ledger, ds); err != nil {
 		return err
 	}
 	for _, c := range cs {
 		var err error
-		if _, c.plannedTotal, err = c.planned(MonthOf(p.Start)); err != nil {
+		if c.plannedTotal, err = c.planned(MonthOf(p.Start)); err != nil {
 			return err
 		}
 		c.difference = c.plannedTotal - c.booked
@@ -301,6 +315,10 @@ func notNil(id uuid.UUID) gen.OptUUID {
 func (e *Endpoints) previewAPI(ctx context.Context, tx pgx.Tx, doc *config.Config, r previewRun, accounts map[string]classAccounts, scope string,
 	size int) (*gen.DepreciationRunPreview, error) {
 	page := slices.DeleteFunc(slices.Clone(r.assets), func(c *candidate) bool { return !c.after })
+	page = page[:min(len(page), size+1)]
+	if err := pageNames(ctx, tx, page); err != nil {
+		return nil, err
+	}
 	var next gen.OptString
 	if len(page) > size {
 		page = page[:size]
@@ -341,6 +359,23 @@ func (e *Endpoints) previewAPI(ctx context.Context, tx pgx.Tx, doc *config.Confi
 		out.Totals.Lines[i] = line
 	}
 	return out, nil
+}
+
+// pageNames reads the page's assets' numbers and descriptions: only a
+// page shows them, of the 100,000 assets a preview may select (T57f3).
+func pageNames(ctx context.Context, tx pgx.Tx, page []*candidate) error {
+	at := make(map[uuid.UUID]*candidate, len(page))
+	for _, c := range page {
+		at[c.asset] = c
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, asset_number, description FROM assets.asset WHERE id = ANY($1)`, slices.Collect(maps.Keys(at)))
+	var id uuid.UUID
+	var number, description string
+	_, err := pgx.ForEachRow(rows, []any{&id, &number, &description}, func() error {
+		at[id].number, at[id].description = number, description
+		return nil
+	})
+	return errs.Wrapf(err, "assets: numbers of %d assets", len(page))
 }
 
 // accountAPI shows an account by its number and name.

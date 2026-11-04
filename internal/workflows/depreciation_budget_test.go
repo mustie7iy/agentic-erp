@@ -59,10 +59,11 @@ func TestDepreciationRunBudget(t *testing.T) {
 		e.Tenant.ID, e.DE, e.Tenant.Human.ID)
 	exec(`INSERT INTO assets.asset_assignment (tenant_id, asset_id, seq, valid_from, created_by) SELECT $1, s.id, 1, '-infinity', $2 FROM seed s`,
 		e.Tenant.ID, e.Tenant.Human.ID)
-	// The terms and ledger are the machine's own, the leading ledger's.
+	// The terms and ledger are the machine's own, the leading ledger's,
+	// with the depreciation booked the movements below hold.
 	exec(`INSERT INTO assets.asset_terms (tenant_id, asset_id, ledger_id, method, useful_life_months, residual_value, booked_through_year,
-			booked_through_period, created_by, updated_by)
-		SELECT $1, s.id, t.ledger_id, t.method, t.useful_life_months, 0, 2026, 5, $2, $2
+			booked_through_period, booked_depreciation, created_by, updated_by)
+		SELECT $1, s.id, t.ledger_id, t.method, t.useful_life_months, 0, 2026, 5, 10000 * s.booked, $2, $2
 		FROM seed s, (SELECT ledger_id, method, useful_life_months FROM assets.asset_terms WHERE tenant_id = $1 LIMIT 1) t`, e.Tenant.ID, e.Tenant.Human.ID)
 	// Seq 2 is the acquisition, seq 2 + k the run of the k-th month, one
 	// run (document) a month.
@@ -90,7 +91,9 @@ func TestDepreciationRunBudget(t *testing.T) {
 		ON CONFLICT (tenant_id, legal_entity_id, ledger_id, fiscal_year, class_code) DO UPDATE SET acquisitions = c.acquisitions + EXCLUDED.acquisitions,
 			depreciation = c.depreciation + EXCLUDED.depreciation`)
 	exec(`RESET session_replication_role`)
-	exec(`ANALYZE assets.asset, assets.asset_terms, assets.asset_assignment, assets.movement, assets.year_total, assets.class_year_total`)
+	// Vacuumed as autovacuum would have the insert-only movements, so the
+	// moves are read from their covering index alone (T57f3).
+	exec(`VACUUM (ANALYZE) assets.asset, assets.asset_terms, assets.asset_assignment, assets.movement, assets.year_total, assets.class_year_total`)
 	t.Logf("seeded 100,000 assets with their movements and year totals in %v", time.Since(start))
 
 	// Booked: each seeded asset's months at 10,000; June adds 10,000 to
@@ -115,13 +118,10 @@ func TestDepreciationRunBudget(t *testing.T) {
 			}
 		}
 		slices.Sort(times)
-		p95, worst := times[len(times)*95/100], times[len(times)-1]
-		t.Logf("preview, %s, over 100,001 assets: median %v, p95 (worst of ten) %v (report class: p95 1 s, p99 3 s)", name, times[len(times)/2], p95)
-		// The report class's p95 of 1 s is not met at this scale (some
-		// 1.5 s, ADR-0057 as built, T57f2: a question for the product
-		// owner); its p99 of 3 s holds every read.
-		if budget := nfr.Budget(3 * time.Second); worst > budget {
-			t.Errorf("preview, %s: %v exceeds the %v budget (p99 3 s scaled by ERP_BUDGET_SCALE)", name, worst, budget)
+		p95 := times[len(times)*95/100]
+		t.Logf("preview, %s, over 100,001 assets: median %v, p95 (worst of ten) %v", name, times[len(times)/2], p95)
+		if budget := nfr.Budget(time.Second); p95 > budget {
+			t.Errorf("preview, %s: p95 %v exceeds the %v budget (report class: p95 1 s scaled by ERP_BUDGET_SCALE)", name, p95, budget)
 		}
 	}
 

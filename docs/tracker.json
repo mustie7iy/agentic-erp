@@ -1170,6 +1170,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "The depreciation run's preview within the report class's p95 of 1 s over 100,000 assets, every page, its contract unchanged (T57f2 met only the p99; the p95 stands, coordinator 2026-11-04): the depreciation booked per asset and ledger kept on its terms by every posting, the moves read from a covering index, the selection planned by hash with the assets ranked by number; the preview's 01 §1.3 row",
+        "r": "migrations 000199 (asset_terms.booked_depreciation, backfilled), 000200 (movement_moves_covering, concurrently), 000201 (drops movement_moves_by_asset) · internal/assets (keepBooked in keepTotals; readMoves beside the schedule's readMovements, ids as pgtype.UUID; selectDepreciable: booked from the terms, the latest assignments by DISTINCT ON with the tenant, the rank by number, the columns every difference needs; pageNames; PlannedThrough; Terms.depreciated; grouped) · TestDepreciationRunBudget at the report class's p95 · TestAssetTermsBookedBackfilled · totalsDiffer counts the kept amounts · TestDepreciationActivitiesRunTwice compares them · 01 §1.3 · 03-data-model §3.21 · ADR-0057 (as built, T57f3) · T57f3",
+        "src": "review:T57f",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "Long-running jobs and a deactivated requester (pre-existing security finding on T57f): identity.Actors.Actor does not check that the principal is still active, so migration runs and depreciation runs keep acting, and posting, as a requester deactivated after the start; should they refuse such a requester and fail the run, as ADR-0056's recurrer checks Active?",
         "r": "internal/identity/directory.go Actors.Actor · internal/workflows requester (migrate.go) · ADR-0012 · ADR-0056 · ADR-0057 §7",

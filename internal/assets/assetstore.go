@@ -89,18 +89,28 @@ func readValues(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) (map[uuid.UUID]
 // readTerms reads the assets' terms, by asset.
 func readTerms(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) (map[uuid.UUID][]Terms, error) {
 	rows, _ := tx.Query(ctx, `SELECT asset_id, ledger_id, method, useful_life_months, trim_scale(declining_factor)::text, residual_value,
-			depreciation_start, booked_through_year, booked_through_period
+			depreciation_start, booked_through_year, booked_through_period, booked_depreciation
 		FROM assets.asset_terms WHERE asset_id = ANY($1)`, ids)
-	out := map[uuid.UUID][]Terms{}
-	var asset uuid.UUID
-	var t Terms
-	_, err := pgx.ForEachRow(rows, []any{&asset, &t.LedgerID, &t.Method, &t.UsefulLifeMonths, &t.DecliningFactor, &t.Residual,
-		&t.DepreciationStart, &t.BookedYear, &t.BookedPeriod}, func() error {
-		out[asset] = append(out[asset], t)
-		t = Terms{} // the next row's pointers are scanned into a new value
+	return grouped(rows, fmt.Sprintf("terms of %d assets", len(ids)), func(asset *uuid.UUID, t *Terms) []any {
+		return []any{asset, &t.LedgerID, &t.Method, &t.UsefulLifeMonths, &t.DecliningFactor, &t.Residual, &t.DepreciationStart, &t.BookedYear,
+			&t.BookedPeriod, &t.depreciated}
+	})
+}
+
+// grouped reads rows of a key and a value, the value's columns scanned
+// where scan points, into each key's values in row order; what names the
+// rows in an error.
+func grouped[T any](rows pgx.Rows, what string, scan func(key *uuid.UUID, v *T) []any) (map[uuid.UUID][]T, error) {
+	out := map[uuid.UUID][]T{}
+	var key uuid.UUID
+	var v T
+	_, err := pgx.ForEachRow(rows, scan(&key, &v), func() error {
+		out[key] = append(out[key], v)
+		var next T
+		v = next // the next row's pointers are scanned into a new value
 		return nil
 	})
-	return out, errs.Wrapf(err, "assets: terms of %d assets", len(ids))
+	return out, errs.Wrapf(err, "assets: %s", what)
 }
 
 // insertAsset writes a new planned asset, its first assignment (seq 1,

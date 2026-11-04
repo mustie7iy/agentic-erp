@@ -53,6 +53,7 @@ The architecture must reach these numbers by adding capacity
 | Ledger reconciliation of two ledgers of one company and year, every page | 1 s | 3 s |
 | Daily cash position of one company, 31 days (ADR-0051) | 2 s | 4 s |
 | Asset history sheet of one company, ledger and fiscal year (ADR-0057) | 1 s | 3 s |
+| Depreciation run preview over 100,000 assets of one company and ledger, every page (ADR-0057) | 1 s | 3 s |
 | Payment proposal over 100,000 open items | async, < 60 s | < 120 s |
 | Depreciation run over 100,000 assets of one company and ledger (ADR-0057) | async, < 120 s | < 240 s |
 

@@ -309,11 +309,11 @@ func (e *Endpoints) catchUps(ctx context.Context, tx pgx.Tx, a Asset, co Company
 	var out []*retiredLedger
 	for _, l := range kept {
 		t, _ := termsIn(a, l.ID) // termsInEvery found them
-		d := &depreciable{asset: a.ID, terms: t, capitalised: a.CapitalisedOn}
-		if err := readMovements(ctx, tx, l.ID, map[uuid.UUID]*depreciable{a.ID: d}, false); err != nil {
+		d := &depreciable{asset: a.ID, terms: t, capitalised: a.CapitalisedOn, booked: t.depreciated}
+		if err := readMoves(ctx, tx, l.ID, map[uuid.UUID]*depreciable{a.ID: d}); err != nil {
 			return nil, err
 		}
-		_, planned, err := d.planned(MonthOf(v.Start) - 1)
+		planned, err := d.planned(MonthOf(v.Start) - 1)
 		if err != nil {
 			return nil, err
 		}

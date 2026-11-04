@@ -98,11 +98,11 @@ func (s *deprScenario) cancel(t *testing.T, in workflows.DepreciationInput) {
 // deprState is what a run's activities change: the run and its
 // Operation (status and version), its batches' statuses, the run's
 // problem, the tenant's journal entries, depreciation movements, the sum
-// of its assets' seqs and the periods their terms are booked through, and
-// its assets events and audit records.
+// of its assets' seqs, the periods their terms are booked through and the
+// depreciation booked on them, and its assets events and audit records.
 type deprState struct {
-	Run, Operation, Batches, Problem, Booked  string
-	Entries, Movements, Seqs, Events, Audited int
+	Run, Operation, Batches, Problem, Booked               string
+	Entries, Movements, Seqs, Depreciated, Events, Audited int
 }
 
 func deprStateOf(t *testing.T, in workflows.DepreciationInput) deprState {
@@ -116,10 +116,11 @@ func deprStateOf(t *testing.T, in workflows.DepreciationInput) deprState {
 			(SELECT count(*) FROM ledger.journal_entry j WHERE j.tenant_id = r.tenant_id),
 			(SELECT count(*) FROM assets.movement m WHERE m.tenant_id = r.tenant_id AND m.kind = 'depreciation'),
 			(SELECT coalesce(sum(a.last_seq), 0) FROM assets.asset a WHERE a.tenant_id = r.tenant_id),
+			(SELECT coalesce(sum(t.booked_depreciation), 0) FROM assets.asset_terms t WHERE t.tenant_id = r.tenant_id),
 			(SELECT count(*) FROM assets.outbox x WHERE x.tenant_id = r.tenant_id),
 			(SELECT count(*) FROM audit.audit_event a WHERE a.tenant_id = r.tenant_id)
 		FROM assets.depreciation_run r JOIN platform.operation o ON o.id = r.operation_id WHERE r.id = $1`, []any{in.RunID},
-		&s.Run, &s.Operation, &s.Batches, &s.Problem, &s.Booked, &s.Entries, &s.Movements, &s.Seqs, &s.Events, &s.Audited)
+		&s.Run, &s.Operation, &s.Batches, &s.Problem, &s.Booked, &s.Entries, &s.Movements, &s.Seqs, &s.Depreciated, &s.Events, &s.Audited)
 	return s
 }
 

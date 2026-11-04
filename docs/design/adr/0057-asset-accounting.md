@@ -1418,7 +1418,7 @@ tracker item only when one does (07 §7.5).
   specialist.
 
 ## As built
-(Filled in by the slices T57a-T57i and T57f2.)
+(Filled in by the slices T57a-T57i, T57f2 and T57f3.)
 
 **T57a (classes and asset accounts; asset reconciliation enforced).**
 Built as §3: `asset_classes` (code, name, terms per ledger),
@@ -2295,9 +2295,97 @@ Decided by default, for the product owner to overrule:
 - **Booked from the totals** (above) relies on T57i's rule that every
   posting adds its movements to the year totals in its own transaction;
   each caller reads before its own posting writes.
-- **Question for the product owner (open):** at 100,000 assets the
+- **Question for the product owner (settled by the coordinator: the p95
+  stands; met by T57f3, below):** at 100,000 assets the
   preview takes about 1.5 s a page against the report class's 1 s.
   Meeting 1 s needs a design change rather than a query fix: keep the
   booked amount per asset and ledger on its terms row (written by every
   depreciation movement's posting), or give the totals once rather than
   on every page. Until then the budget test holds the p99.
+
+**T57f3 (the preview within the report class's p95).** T57f2's open
+question is settled by the coordinator: the report class's p95 of 1 s
+stands (ADR-0043), so the preview is made to meet it with its contract
+unchanged (the totals, "the same on every page", stay on every page, as
+T57e built them). Profiled as T57f2 was, with `EXPLAIN (ANALYZE, BUFFERS)`
+under the application's role and a CPU profile of the preview's reads, on
+the same 100,001 assets: with T57f2's code a page spent 0.57 s to 0.61 s
+in the selection, 0.65 s to 0.72 s reading the moves and the booked
+totals, and about 0.3 s more receiving and walking some 300,000 rows,
+the Go code's own CPU small beside the waits (load 8 to 35). The causes
+and their fixes, the behaviour unchanged (every existing test passes as
+before):
+- **The booked total read 580,000 totals rows a page** (0.15 s to 0.2 s,
+  and 100,000 rows more to receive). The depreciation booked per asset and
+  ledger is now kept on its terms, `asset_terms.booked_depreciation`
+  (migration 000199: added, then backfilled from the movements under a
+  SHARE lock on them, as 000197), by every posting that writes movements:
+  `keepTotals`, which each of them calls in its own transaction (an
+  acquisition and its reversal, a run's batch, a retirement and its
+  reversal, a transfer of either kind and its reversal), ends with
+  `keepBooked`, which locks the assets' terms rows in key order (tenant,
+  asset, ledger) and adds the depreciation of each asset's latest posting
+  in each ledger. No other writer of movements exists (no data migration
+  loads assets). The selection reads it with the terms it already joins,
+  and a catch-up with the asset's terms (`Terms.depreciated`).
+  `totalsDiffer`, which `TestAssetHistorySheet` and
+  `TestYearTotalsInKeyOrder` run after every kind of posting, also counts
+  terms whose kept amount differs from minus the sum of their asset's
+  depreciation movements in the ledger; `TestAssetTermsBookedBackfilled`
+  is the backfill's schema test; the run-twice test of the run's
+  activities compares the kept amounts too.
+- **The moves were read from the table.** 000198's partial index found an
+  asset's movements other than depreciation, but each was then read from
+  the table, where they lie among some 5.8 million depreciation rows
+  (90,000 pages a page, 0.45 s). The covering index
+  `movement_moves_covering` (migration 000200, built concurrently: the
+  same key and predicate, with the value date, cost, accumulated
+  depreciation and residual value included) serves them from the index
+  alone, the movements being insert-only and so all-visible once
+  vacuumed (0.45 s to some 0.03 s); 000201 drops 000198's index, which
+  nothing reads any more. The schedule, which shows what is booked by
+  period, still reads every movement of its one asset (`readMovements`);
+  the others read the moves alone (`readMoves`). The 100,000 ids are sent
+  as `pgtype.UUID`, which pgx writes as bytes (a `uuid.UUID` goes through
+  its `driver.Valuer` as text, some 50 ms a preview).
+- **The selection's plan.** T57f2's `DISTINCT ON` of the latest
+  assignments, without the tenant, was estimated at 83 rows of 100,000
+  (the tenant the join implies is applied after it), so the terms were
+  probed per asset; with the tenant among its columns the condition is
+  pushed into it, the assignments are read in their key's order and the
+  tables are hashed. The order by asset number sorted 100,000 wide rows
+  on disk (0.1 s); the assets now carry their rank by number, read in the
+  order of the number's index, and are sorted by it in Go (the number is
+  unique in a company, so the order is the same). Only the columns every
+  asset's difference needs are read; the page's numbers and descriptions
+  are read for its assets alone (`pageNames`).
+- **The walk kept every step.** Summing planned(P) through `Walk` kept
+  each asset's steps, some 270 MB a preview; `PlannedThrough` sums them as
+  it walks, and moves already in order are not copied.
+- **A batch's booked update** (found by the run's budget, 20 s to 38 s
+  with the first `keepBooked`): a locking CTE joined to the update was
+  estimated at one row and compared every pair (0.2 s a batch); the lock
+  is a statement of its own (15 ms a batch).
+Measured on the development machine as T57f2 was, beside the other lanes'
+suites, `ERP_BUDGET_SCALE=1`: at load 16 to 25, preview first page median
+0.65 s to 0.67 s, worst of ten 0.82 s to 0.85 s; next page median 0.66 s
+to 0.68 s, worst 0.67 s to 0.78 s; run 20.3 s to 26.8 s (budget 120 s).
+At `ERP_BUDGET_SCALE=2` (load 10 to 23): first page median 0.67 s to
+0.77 s, worst 0.67 s to 0.94 s; next page median 0.68 s to 0.81 s, worst
+0.68 s to 0.92 s; run 25 s to 41 s (budget 240 s). With the load above
+about 25 on the ten cores a single read of ten can pass 1 s (1.23 s to
+1.31 s seen), which the scale-2 budget of ci-local's gate (2 s) absorbs.
+The budget test now holds the report class's p95 on every page it reads
+(the worst of ten reads, as `TestAssetHistorySheetBudget` takes it), and
+01 §1.3 gains the preview's row (p95 1 s, p99 3 s). Decided by default,
+for the product owner to overrule:
+- **The kept amount is positive**, the depreciation booked as a debit of
+  expense, as the preview shows it and `depreciable.booked` holds it; the
+  year totals keep the credit, negative. Keeping it moves the terms'
+  `version`, as every update of the terms does (their optimistic lock);
+  the asset's own version moves with every posting already.
+- **The budget test vacuums its seeded tables**, as autovacuum does an
+  insert-only table once a fifth of it is new; until then the moves on
+  the newest pages are read from the table, a few per asset at most.
+- **Tracker.** A leaf "The depreciation run's preview within the report
+  class's p95" (T57f3, `review:T57f`), done with T57f3.

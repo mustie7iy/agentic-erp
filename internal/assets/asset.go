@@ -51,6 +51,10 @@ type Terms struct {
 	Residual                 money.Minor
 	DepreciationStart        *time.Time
 	BookedYear, BookedPeriod *int16
+	// depreciated is the depreciation booked in the ledger, as read
+	// (asset_terms.booked_depreciation, kept by every posting: keepTotals);
+	// never written from the terms.
+	depreciated money.Minor
 }
 
 // Values are an asset's values in one ledger, the sums of its movements
