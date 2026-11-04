@@ -306,13 +306,15 @@ func (e *Endpoints) readForecast(ctx context.Context, legalEntity uuid.UUID, min
 	if err != nil {
 		return forecastRead{}, err
 	}
-	return e.readForecastOf(ctx, tx, co, legalEntity, minCertainty, last)
+	return e.readForecastOf(ctx, tx, co, legalEntity, minCertainty, clock.Now(e.Now), last)
 }
 
 // readForecastOf reads, in tx, the forecast flows of a legal entity whose
 // company is known, the caller's access to it judged before (readForecast)
-// or not at all (the snapshot workflow acts in every company, T53f).
-func (e *Endpoints) readForecastOf(ctx context.Context, tx pgx.Tx, co Company, legalEntity uuid.UUID, minCertainty string,
+// or not at all (the snapshot workflow acts in every company, T53f), on the
+// company's date at instant now: the caller's one reading of the clock, so
+// a read of several companies reads them all at one instant (T53e5).
+func (e *Endpoints) readForecastOf(ctx context.Context, tx pgx.Tx, co Company, legalEntity uuid.UUID, minCertainty string, now time.Time,
 	last func(reader) (time.Time, error)) (forecastRead, error) {
 	cut, keep, err := certaintyCut(minCertainty)
 	if err != nil {
@@ -324,11 +326,11 @@ func (e *Endpoints) readForecastOf(ctx context.Context, tx pgx.Tx, co Company, l
 		return forecastRead{}, fmt.Errorf("cash: configuration: %w", err)
 	}
 	fr.version = version
-	read, zone, err := e.readDate(doc, co.Code)
+	day, err := companyDay(doc, co.Code, now)
 	if err != nil {
 		return forecastRead{}, err
 	}
-	fr.zone, fr.r = zone, reader{doc: doc, company: co.Code, settings: companyCash(doc, co.Code), read: read, sums: &sums{}}
+	fr.zone, fr.r = day.Zone, reader{doc: doc, company: co.Code, settings: companyCash(doc, co.Code), read: day.Date, sums: &sums{}}
 	horizon, err := last(fr.r)
 	if err != nil {
 		return forecastRead{}, err

@@ -1454,6 +1454,13 @@
        },
        {
         "s": "D",
+        "t": "Group liquidity forecast reads the clock once (review round 1 nits on T53e5): every company's read date and the group's buckets were dates at separate readings, so a read across midnight started the buckets on one day and read a company on the next; and the directory adapter's legal entities answer nothing with an error",
+        "r": "cash.Endpoints.GroupForecast, members, groupOf, addCompany, readForecastOf (instant now passed in) · internal/app cashCompanies.Entities · TestGroupLiquidityForecastOneReading · ADR-0051 (as built, T53e5) · T53e5",
+        "src": "review:T53e5",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "Snapshots of the liquidity forecast: TakeCashSnapshot workflow per company and day after its snapshot_time (run-twice test, document level within 31 days, per bucket beyond), on-demand snapshots, retention of 25 months, a snapshot read with its lines (split: the actuals, the variance and its comments are T53f2-T53f4)",
         "r": "POST/GET /v1/cash-snapshots, GET /v1/cash-snapshots/{id}, GET /v1/cash-snapshots/{id}/flows (CashSnapshot, CashSnapshotFlowPage) · CashSnapshotTaken event · migration 000198 (cash.snapshot, cash.snapshot_flow, cash.snapshot.take) · cash.Endpoints.TakeSnapshot, TakeDailySnapshot, PruneSnapshots, DueSnapshots, SnapshotTenants, Snapshot, Snapshots, SnapshotLines · uow.Consistent · workflows.TakeCashSnapshot, Snapshots, Snapshotter, Dispatcher.Snapshots · TestCashSnapshotRules, TestCashSnapshotPrivileges, TestCashSnapshot*, TestConsistentRead, TestTakeCashSnapshot, TestTakeSnapshotTwice, TestDispatchSnapshots, TestSnapshotter · walkthrough step 26 · ADR-0051 (as built, T53f) · 03-data-model §3.18 · T53f",
         "src": "baseline",

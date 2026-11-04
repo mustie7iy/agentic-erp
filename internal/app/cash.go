@@ -97,11 +97,14 @@ func (cashCompanies) Company(ctx context.Context, id uuid.UUID) (cash.Company, b
 
 func (cashCompanies) Entities(ctx context.Context) ([]cash.Entity, error) {
 	les, err := tenancy.Directory{}.Entities(ctx)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]cash.Entity, len(les))
 	for i, le := range les {
 		out[i] = cash.Entity{ID: le.ID, Company: cashCompany(le)}
 	}
-	return out, err
+	return out, nil
 }
 
 func (cashCompanies) GroupCurrency(ctx context.Context) (string, error) {
