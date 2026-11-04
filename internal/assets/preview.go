@@ -315,13 +315,13 @@ func notNil(id uuid.UUID) gen.OptUUID {
 func (e *Endpoints) previewAPI(ctx context.Context, tx pgx.Tx, doc *config.Config, r previewRun, accounts map[string]classAccounts, scope string,
 	size int) (*gen.DepreciationRunPreview, error) {
 	page := slices.DeleteFunc(slices.Clone(r.assets), func(c *candidate) bool { return !c.after })
-	page = page[:min(len(page), size+1)]
+	more := len(page) > size
+	page = page[:min(len(page), size)]
 	if err := pageNames(ctx, tx, page); err != nil {
 		return nil, err
 	}
 	var next gen.OptString
-	if len(page) > size {
-		page = page[:size]
+	if more {
 		last := page[size-1]
 		tok, _ := e.Pages.Encode(scope, previewKey{Number: last.number, ID: last.asset}) // a string and a uuid always encode
 		next = gen.NewOptString(tok)

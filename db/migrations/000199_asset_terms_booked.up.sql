@@ -11,7 +11,9 @@ ALTER TABLE assets.asset_terms ADD COLUMN booked_depreciation bigint NOT NULL DE
 -- The depreciation booked so far. Replicas of the release before keep
 -- posting while this runs, so the movements are locked SHARE first: their
 -- writers wait until it commits; a writer not waited out within the lock
--- timeout fails the migration, which the next start retries. A replica of
+-- timeout fails the migration, which the next start retries, and one that
+-- updated its terms before writing its movements may deadlock with the
+-- update below, PostgreSQL then aborting one of the two to be retried. A replica of
 -- the release before that posted after this commits would write
 -- depreciation the column misses; no release that posts assets has been
 -- deployed (PO 2026-11-02: deployment comes last), so none can (as
