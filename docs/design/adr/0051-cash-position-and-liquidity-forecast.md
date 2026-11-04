@@ -1841,6 +1841,33 @@ by default where §9, §10 and §15 leave it open):
 - **Refusals.** A `min_certainty` not known is 422 before any company is
   read, a caller in none included; sums out of the range of an amount, a
   company's or the companies' together, are 422 `cash.amount_too_large`.
+- **Budget** (product owner, 2026-11-04: the company forecast's). The
+  group forecast is held to the row of 01 §1.3 the company's forecast
+  has, p95 3 s and p99 6 s, over 100,000 open items in total across the
+  caller's companies. `TestGroupLiquidityForecastBudget` writes them as
+  `TestLiquidityForecastBudget` does (`budgetItems`, shared): 20,000 in
+  each of five companies configured as Maple Inc is (3000 and 3100 to
+  3400), every third in USD, so the read pays its per-company cost five
+  times and converts two currencies into EUR at planning rates, with Acme
+  Corp US and Acme GmbH read too and empty. Five, not fewer: the cost
+  that grows with companies is the per-company read (each company's open
+  items, banks, payments and memo records), and 20,000 items each keeps
+  the total the PO set. Its p95 is checked (`reportBudget`, shared with
+  the company's budget): the p95 of 20 reads is the slowest, so it holds
+  the p99 too. Measured on 2026-11-04 on a shared 10-core machine, in
+  two runs. At `ERP_BUDGET_SCALE=1` (load averages 27 to 46) the median
+  was 3.35 s and 3.04 s and the p95 4.02 s and 3.53 s, over the 3 s; the
+  company's forecast was over in the same runs (p95 3.22 s and 3.49 s).
+  At scale 2, the scale `make ci-local` and the full run on main use,
+  the median was 3.45 s and 2.41 s and the p95 5.77 s and 2.67 s, so
+  both runs passed. The second scale-2 run, at load 27 falling to 14,
+  was under 3 s unscaled, and a third scale-1 run during review (load
+  10 to 13) passed: median 2.35 s, p95 2.68 s. The time follows the
+  machine's load rather than the companies. Of a read's 3.4 s, some 0.35 s is the server's CPU
+  (a CPU profile of 21 reads: 7.3 s); the rest is waiting on PostgreSQL,
+  most of it in payments' `Payables` (`ledger.OpenItems.Owed`), the read
+  the company forecast makes for each company. No index or design change
+  was made.
 - **Evidence.** `cash.TestGroupLiquidityForecast` (Maple Inc, Acme Corp US
   and Acme GmbH in EUR, the group currency: the companies by code, each
   currency summed, the converted figures equal to the companies' own
@@ -1849,6 +1876,7 @@ by default where §9, §10 and §15 leave it open):
   neither the third's company, currency nor amounts; tampering with the
   access filter fails it; a reader of none, and its refusals),
   `TestGroupLiquidityForecastReadDates`, `TestGroupLiquidityForecastTooLarge`,
+  `TestGroupLiquidityForecastBudget`,
   `TestGroupLiquidityForecastFailures` (the directory, the group
   currency, a zone, a payment and every database failure),
   `tenancy.TestDirectory`; the walkthrough's step 36: Acme Corp US created
