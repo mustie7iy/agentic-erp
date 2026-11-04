@@ -594,9 +594,28 @@ caller, in a consistent read) and `cash.ExtractActualShares` (the store's
 extract, in its run), which the analytics context declares as ports and
 the composition root wires, so `cash` stays a leaf (§2). The
 classification is §11's, done once here. Decisions in ADR-0044 (As built
-T53j1). The snapshots' dataset, the forecast, variance and accuracy
-metrics and the representation of the forecast's lag wait for the
-product owner (T53j's remaining leaf).
+T53j1). The snapshots' dataset and the forecast are T53j2's, the
+variance and accuracy metrics T53j3's.
+
+As built (T53j2, the forecast in the analytical store; split from T53j,
+src `split:T53j`, product owner 2026-11-04): dataset `cash_snapshots`, one
+row per line at document level of each company's snapshot of each date
+(the daily one, else the last taken on demand, as the variance chooses),
+each with `lag_days`, its value date less the snapshot's date; metrics
+`forecast_lag_0`, `forecast_lag_7` and `forecast_lag_30`, each value
+date's flows from the snapshot taken that many days before it, blocked
+suppliers' flows left out, as §11's lags. Read through
+`cash.ForecastShares` and `cash.ExtractForecastShares`, through the same
+ports as the actuals. Decisions in ADR-0044 (As built T53j2). The product
+owner decided on 2026-11-04 that the forecast is read at one lag from
+daily snapshots and accepted that its figures by week or month differ
+from `getLiquidityForecastVariance`, which compares the one snapshot taken
+the lag before the period's start over the whole period: the metric's
+week adds seven days each forecast by its own snapshot. The same day
+compared alone gives the same figure. Accuracy (T53j3) is 100 less WAPE,
+Σ|actual − forecast| / Σ|forecast| over item × currency × day cells,
+rounded as `money.AbsPercentOf` (for one cell, 100 less the variance
+report's `variance_percent`), as the product owner decided the same day.
 
 Rejected for now: a stored flow table maintained from events (SAP's
 `FQM_FLOW`, decision P3 b). It would make reads cheap at any size, at the

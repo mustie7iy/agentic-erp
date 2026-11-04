@@ -18,9 +18,9 @@ import (
 
 // changing are the contexts whose events can change a dataset: payments'
 // statements and their matches, and the configuration's derivation rules
-// and house banks, change the cash actuals (T53j1); the cash context's own
-// events (memo records, snapshots, comments) change none of them.
-var changing = []string{"tenancy", "config", "partner", "ledger", "procurement", "payables", "payments"}
+// and house banks, change the cash actuals (T53j1); the cash context's
+// snapshots taken change the forecast (T53j2).
+var changing = []string{"tenancy", "config", "partner", "ledger", "procurement", "payables", "payments", "cash"}
 
 // MarkChanged marks the tenants of a relayed batch of a context's events
 // due an extract (ADR-0044). It is the outbox relay's Relayed hook: it runs

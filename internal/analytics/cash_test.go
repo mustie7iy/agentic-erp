@@ -11,16 +11,23 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
-// fakeCash answers the cash actuals' shares of any legal entity, or fails.
+// fakeCash answers the cash actuals' shares and the forecast's lines of
+// any legal entity, or fails.
 type fakeCash struct {
-	shares []CashShare
-	err    error
-	asked  []uuid.UUID
+	shares   []CashShare
+	forecast []ForecastShare
+	err      error
+	asked    []uuid.UUID
 }
 
 func (f *fakeCash) ActualShares(_ context.Context, le uuid.UUID) ([]CashShare, error) {
 	f.asked = append(f.asked, le)
 	return f.shares, f.err
+}
+
+func (f *fakeCash) ForecastShares(_ context.Context, le uuid.UUID) ([]ForecastShare, error) {
+	f.asked = append(f.asked, le)
+	return f.forecast, f.err
 }
 
 // cashPages are the API's pages of a legal entity with a uuid, and
@@ -88,6 +95,59 @@ func TestSourceCashErrors(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := Source{API: fakeAPI(t, c.pages), Datasets: []string{"cash_actuals"}, Cash: c.cash}.Facts(context.Background(), m, time.Now())
+			pgtest.CheckErr(t, err, c.want)
+		})
+	}
+}
+
+// TestSourceReadsCashForecast: a source of the forecast alone reads each
+// legal entity's snapshot lines through the cash context, one fact per
+// line with its dimensions, lag and value date's fiscal periods; it reads
+// no actuals and no business partners.
+func TestSourceReadsCashForecast(t *testing.T) {
+	m, _ := DefaultModel()
+	le := uuid.New()
+	day := time.Date(2026, 4, 9, 0, 0, 0, 0, time.UTC)
+	cash := &fakeCash{shares: []CashShare{{Currency: "CAD", Exponent: 2}}, forecast: []ForecastShare{{SnapshotID: uuid.New(), LineNo: 3,
+		SnapshotDate: day.AddDate(0, 0, -7), ValueDate: day, LagDays: 7, Currency: "CAD", Exponent: 2, Source: "payable_blocked", Certainty: "expected",
+		Blocked: true, Item: "OP_SUPPLIERS", ItemName: "Supplier payments", Amount: -300}}}
+	f, err := Source{API: fakeAPI(t, cashPages(le)), Datasets: []string{"cash_snapshots"}, Cash: cash}.Facts(context.Background(), m, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := f.Tables["cash_snapshots"]
+	if len(facts) != 1 || len(f.Tables["cash_actuals"]) != 0 || len(cash.asked) != 1 {
+		t.Fatalf("facts: got %+v and %d actuals asking %v, want one forecast line asked once", facts, len(f.Tables["cash_actuals"]), cash.asked)
+	}
+	want := map[string]string{"company": "3000", "currency": "CAD", "lag_days": "7", "house_bank": "", "source": "payable_blocked", "certainty": "expected",
+		"blocked": "true", "liquidity_item": "OP_SUPPLIERS", "liquidity_item_name": "Supplier payments", "value_date": "2026-04-09", "fiscal_month": "4"}
+	for dim, v := range want {
+		if got := facts[0].Dims[dim]; got != v {
+			t.Errorf("%s: got %q, want %q", dim, got, v)
+		}
+	}
+	if fc := facts[0]; fc.Amount != -300 || fc.Currency != "CAD" || f.Exponents["CAD"] != 2 || f.DataThrough != "2026-04-09" {
+		t.Errorf("amount: got %d %s exponent %d through %s, want -300 CAD 2 through 2026-04-09", fc.Amount, fc.Currency, f.Exponents["CAD"], f.DataThrough)
+	}
+}
+
+// TestSourceForecastErrors: the cash context failing on the forecast, or
+// a currency of two exponents, fails the facts.
+func TestSourceForecastErrors(t *testing.T) {
+	m, _ := DefaultModel()
+	le := uuid.New()
+	line := ForecastShare{SnapshotID: uuid.New(), LineNo: 1, ValueDate: time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC), Currency: "CAD", Exponent: 2, Amount: 1}
+	other := line
+	other.Exponent = 3
+	for name, c := range map[string]struct {
+		cash *fakeCash
+		want string
+	}{
+		"cash context":  {&fakeCash{err: errors.New("cash failed")}, "cash forecast of 3000: cash failed"},
+		"two exponents": {&fakeCash{forecast: []ForecastShare{line, other}}, "cash forecast of 3000: CAD has exponents 2 and 3"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Source{API: fakeAPI(t, cashPages(le)), Datasets: []string{"cash_snapshots"}, Cash: c.cash}.Facts(context.Background(), m, time.Now())
 			pgtest.CheckErr(t, err, c.want)
 		})
 	}

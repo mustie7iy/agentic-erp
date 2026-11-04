@@ -70,3 +70,42 @@ func (e Env) Statement(tb testing.TB, legalEntity uuid.UUID, lines ...StatementL
 	}
 	return id
 }
+
+// SnapshotLine is a line Snapshot writes: its value date, the last day of
+// its bucket ("": a line at document level), its source and certainty, its
+// liquidity item ("": none), its signed amount in minor units, and whether
+// it was expected on the house bank MAIN.
+type SnapshotLine struct {
+	ValueDate, BucketEnd string
+	Source, Certainty    string
+	Item                 string
+	Amount               int64
+	Bank                 bool
+}
+
+// Snapshot writes a snapshot of the legal entity's liquidity forecast of
+// the date, daily or on demand (named by its kind), with the lines
+// numbered from 1 in the legal entity's currency, as TakeCashSnapshot
+// would leave them, and returns its id.
+func (e Env) Snapshot(tb testing.TB, legalEntity uuid.UUID, kind, date string, lines ...SnapshotLine) uuid.UUID {
+	tb.Helper()
+	var bank uuid.UUID
+	var currency string
+	pgtest.Scan(tb, `SELECT hb.id, le.local_currency FROM tenancy.legal_entity le JOIN payments.house_bank hb ON hb.tenant_id = le.tenant_id AND hb.legal_entity_id = le.id
+		WHERE le.tenant_id = $1 AND le.id = $2 AND hb.code = 'MAIN'`, []any{e.Tenant.ID, legalEntity}, &bank, &currency)
+	id := uuid.Must(uuid.NewV7())
+	pgtest.Exec(tb, `INSERT INTO cash.snapshot (tenant_id, id, legal_entity_id, kind, name, snapshot_date, time_zone, horizon_end, config_version, taken_at, taken_by)
+		VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'on_demand' THEN 'On demand' END, $5, 'UTC', $5::date + 365, 1, clock_timestamp(), $6)`,
+		e.Tenant.ID, id, legalEntity, kind, date, e.Tenant.Human.ID)
+	for i, l := range lines {
+		var onBank *uuid.UUID
+		if l.Bank {
+			onBank = &bank
+		}
+		pgtest.Exec(tb, `INSERT INTO cash.snapshot_flow (tenant_id, snapshot_id, line_no, flow_no, value_date, bucket_end, house_bank_id, currency, source, certainty,
+				liquidity_item, amount, flow_count)
+			VALUES ($1, $2, $3, $3, $4, nullif($5, '')::date, $6, $7, $8, $9, nullif($10, ''), $11, 1)`,
+			e.Tenant.ID, id, i+1, l.ValueDate, l.BucketEnd, onBank, currency, l.Source, l.Certainty, l.Item, l.Amount)
+	}
+	return id
+}

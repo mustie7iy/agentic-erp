@@ -156,6 +156,7 @@ func setupParity(t *testing.T) parity {
 	p.Statement(t, p.DE, fixture.StatementLine{ValueDate: "2026-03-31", Amount: 50000}, fixture.StatementLine{ValueDate: "2026-04-02", Amount: -1500, Rule: "NCHG"},
 		fixture.StatementLine{ValueDate: "2026-07-15", Amount: -20000})
 	p.Statement(t, p.US, fixture.StatementLine{ValueDate: "2026-02-10", Amount: 10000}, fixture.StatementLine{ValueDate: "2026-08-20", Amount: -4500})
+	p.snapshots(t)
 
 	p.extract(t)
 	srv := httptest.NewServer(p.API.Handler)
@@ -163,6 +164,26 @@ func setupParity(t *testing.T) parity {
 	p.db = analytics.Source{API: &apitools.Client{BaseURL: srv.URL, Token: p.API.Issuer.Token(t, ten.ID, ten.Human.Subject, nil), HTTP: srv.Client()},
 		Cash: cashPort(t)}
 	return p
+}
+
+// snapshots keeps forecasts of both companies at lags 0, 7 and 30: 2000's
+// daily snapshot of 1 March (one taken on demand that day not preferred),
+// with a blocked supplier's line, one of no item and bank and a bucket's
+// sum beyond the document level, and one taken on demand on 1 July; 1000's
+// daily snapshot of 10 February.
+func (p parity) snapshots(t *testing.T) {
+	t.Helper()
+	line := func(day, source, item string, amount int64, bank bool) fixture.SnapshotLine {
+		return fixture.SnapshotLine{ValueDate: day, Source: source, Certainty: "expected", Item: item, Amount: amount, Bank: bank}
+	}
+	p.Snapshot(t, p.DE, "daily", "2026-03-01", line("2026-03-01", "payable", "OP_SUPPLIERS", -1000, true), line("2026-03-08", "payable", "OP_SUPPLIERS", -2000, true),
+		line("2026-03-08", "payable_blocked", "OP_SUPPLIERS", -400, false), line("2026-03-08", "memo", "", 700, false),
+		line("2026-03-31", "payment_run", "BANK_CHARGES", -300, true), line("2026-03-12", "payable", "OP_SUPPLIERS", -55, true),
+		fixture.SnapshotLine{ValueDate: "2026-04-05", BucketEnd: "2026-04-11", Source: "payable", Certainty: "expected", Amount: -9999})
+	p.Snapshot(t, p.DE, "on_demand", "2026-03-01", line("2026-03-01", "payable", "OP_SUPPLIERS", -1, true))
+	p.Snapshot(t, p.DE, "on_demand", "2026-07-01", line("2026-07-01", "memo", "REC_CUSTOMERS", 5000, true), line("2026-07-08", "payable", "OP_SUPPLIERS", -600, true))
+	p.Snapshot(t, p.US, "daily", "2026-02-10", line("2026-02-10", "payable", "OP_SUPPLIERS", -100, true), line("2026-02-17", "memo", "REC_CUSTOMERS", 250, true),
+		line("2026-03-12", "payable", "OP_SUPPLIERS", -80, false))
 }
 
 // extract waits until the tenant's postings are below the snapshot
@@ -259,6 +280,15 @@ func TestParity(t *testing.T) {
 				t.Errorf("%s by company: got %v, %v; want a row for each company", met.Name, res, err)
 			}
 		}
+		// Each lag's figure is of its own snapshots, a blocked supplier's
+		// line and a bucket's sum left out, a snapshot on demand only
+		// where its date has no daily one.
+		for metric, want := range map[string]string{"forecast_lag_0": "40.00", "forecast_lag_7": "-19.00", "forecast_lag_30": "-3.00"} {
+			res, err := analytics.Execute(m, dbFacts, analytics.Principal{Companies: []string{"2000"}}, analytics.Query{Measures: []string{metric}})
+			if err != nil || len(res.Rows) != 1 || fmt.Sprint(res.Rows[0][0]) != want {
+				t.Errorf("%s of 2000: got %v, %v; want %s", metric, res, err, want)
+			}
+		}
 		for ledger, want := range map[string]string{"": "120.00", p.parallel.String(): "1119.00"} {
 			res, err := analytics.Execute(m, dbFacts, analytics.Principal{Companies: []string{"2000"}}, analytics.Query{Measures: []string{"expenses"}, Ledger: ledger})
 			if err != nil || len(res.Rows) != 1 || fmt.Sprint(res.Rows[0][0]) != want {
@@ -352,12 +382,13 @@ func (p parity) permissions(t *testing.T) {
 		"orders":           `{"measures": ["purchase_order_value"], "by": ["company", "account_name", "vendor_name"]%s}`,
 		"cash":             `{"measures": ["actual"], "by": ["company", "liquidity_item_name", "house_bank"]%s}`,
 		"cash and vendors": `{"measures": ["actual", "invoice_count"], "by": ["company"]%s}`,
+		"forecast":         `{"measures": ["forecast_lag_7"], "by": ["company", "liquidity_item_name", "house_bank", "source", "certainty"]%s}`,
 	}
 	// needs are the permissions of the four checked each query's reads need.
 	needs := map[string][]string{
 		"accounts": {"tenancy.org.read", "partner.supplier.read", "ledger.account.read"}, "vendors": {"tenancy.org.read", "partner.supplier.read"},
 		"orders": {"tenancy.org.read", "partner.supplier.read", "ledger.account.read"}, "cash": {"tenancy.org.read", "cash.forecast.read"},
-		"cash and vendors": {"tenancy.org.read", "partner.supplier.read", "cash.forecast.read"},
+		"cash and vendors": {"tenancy.org.read", "partner.supplier.read", "cash.forecast.read"}, "forecast": {"tenancy.org.read", "cash.forecast.read"},
 	}
 	for _, perm := range []string{"tenancy.org.read", "partner.supplier.read", "ledger.account.read", "cash.forecast.read"} {
 		for how, c := range map[string]struct {
@@ -468,12 +499,13 @@ func (p parity) person(t *testing.T, lacking string, companies []string) pgtest.
 	return a
 }
 
-// isolation: the store answers a tenant's cash actuals from its own rows
-// and a principal's from its companies' alone. Tampered with, it shows
-// none of the others: the tenant's cash_actuals files published again
-// under another tenant's manifest give that tenant no rows (each row's
-// tenant_id is the view's filter, not the key's), and a plan asking for a
-// company the scope does not grant gives none of that company's.
+// isolation: the store answers a tenant's cash actuals and forecast from
+// its own rows and a principal's from its companies' alone. Tampered with,
+// it shows none of the others: the tenant's files of either dataset
+// published again under another tenant's manifest give that tenant no
+// rows (each row's tenant_id is the view's filter, not the key's), and a
+// plan asking for a company the scope does not grant gives none of that
+// company's.
 func (p parity) isolation(t *testing.T) {
 	ctx := context.Background()
 	var key string
@@ -486,8 +518,20 @@ func (p parity) isolation(t *testing.T) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		t.Fatal(err)
 	}
-	plan := wire.Plan{Dataset: "cash_actuals", Aggregate: "sum", By: []string{"company"}, FiscalYearStartMonth: 1}
-	all := wire.Scope{AllCompanies: true, Datasets: []string{"cash_actuals"}}
+	for dataset, want := range map[string][]string{
+		"cash_actuals":   {"1000 5500 USD", "2000 28500 EUR"},
+		"cash_snapshots": {"1000 70 USD", "2000 1345 EUR"},
+	} {
+		t.Run(dataset, func(t *testing.T) { p.isolated(t, key, m, dataset, want) })
+	}
+}
+
+// isolated is isolation of one dataset, whose sums by company are want.
+func (p parity) isolated(t *testing.T, key string, m extract.Manifest, dataset string, want []string) {
+	t.Helper()
+	ctx := context.Background()
+	plan := wire.Plan{Dataset: dataset, Aggregate: "sum", By: []string{"company"}, FiscalYearStartMonth: 1}
+	all := wire.Scope{AllCompanies: true, Datasets: []string{dataset}}
 	query := func(t *testing.T, tenant uuid.UUID, key string, scope wire.Scope, plan wire.Plan) []string {
 		t.Helper()
 		res, err := p.r.Query(ctx, wire.Request{TenantID: tenant, ManifestKey: key, Scope: scope, Plan: plan})
@@ -500,17 +544,17 @@ func (p parity) isolation(t *testing.T) {
 		}
 		return out
 	}
-	if got, want := query(t, p.Tenant.ID, key, all, plan), []string{"1000 5500 USD", "2000 28500 EUR"}; !slices.Equal(got, want) {
-		t.Fatalf("the tenant's actuals by company: got %q, want %q", got, want)
+	if got := query(t, p.Tenant.ID, key, all, plan); !slices.Equal(got, want) {
+		t.Fatalf("the tenant's %s by company: got %q, want %q", dataset, got, want)
 	}
 	t.Run("another tenant's manifest", func(t *testing.T) {
 		other := uuid.New()
 		if other == p.Tenant.ID {
 			t.Fatal("the other tenant: got the tenant's id, want another")
 		}
-		ds := m.Datasets["cash_actuals"]
+		ds := m.Datasets[dataset]
 		ds.Files = nil
-		for _, f := range m.Datasets["cash_actuals"].Files {
+		for _, f := range m.Datasets[dataset].Files {
 			content, _, err := p.objects.Get(ctx, f.Key)
 			if err != nil {
 				t.Fatal(err)
@@ -521,19 +565,22 @@ func (p parity) isolation(t *testing.T) {
 			}
 			ds.Files = append(ds.Files, f)
 		}
-		forged, _ := json.Marshal(extract.Manifest{TenantID: other, Datasets: map[string]extract.Dataset{"cash_actuals": ds}}) // a Manifest always marshals
+		if len(ds.Files) == 0 {
+			t.Fatalf("%s: got no files, want the tenant's", dataset)
+		}
+		forged, _ := json.Marshal(extract.Manifest{TenantID: other, Datasets: map[string]extract.Dataset{dataset: ds}}) // a Manifest always marshals
 		forgedKey := extract.ManifestKey(other, 1, "0123456789abcdef")
 		if err := p.objects.Put(ctx, forgedKey, forged, blobstore.PutOptions{}); err != nil {
 			t.Fatal(err)
 		}
 		if got := query(t, other, forgedKey, all, plan); len(got) != 0 {
-			t.Errorf("the other tenant's actuals: got %q, want none of tenant %s's", got, p.Tenant.ID)
+			t.Errorf("the other tenant's %s: got %q, want none of tenant %s's", dataset, got, p.Tenant.ID)
 		}
 	})
 	t.Run("a company not granted", func(t *testing.T) {
-		only := wire.Scope{Companies: []string{"2000"}, Datasets: []string{"cash_actuals"}}
-		if got, want := query(t, p.Tenant.ID, key, only, plan), []string{"2000 28500 EUR"}; !slices.Equal(got, want) {
-			t.Errorf("by company within 2000: got %q, want %q", got, want)
+		only := wire.Scope{Companies: []string{"2000"}, Datasets: []string{dataset}}
+		if got := query(t, p.Tenant.ID, key, only, plan); !slices.Equal(got, want[1:]) {
+			t.Errorf("by company within 2000: got %q, want %q", got, want[1:])
 		}
 		tampered := plan
 		tampered.Where = []wire.Filter{{Column: "company", Op: "in", Values: []string{"1000"}}}

@@ -675,7 +675,7 @@ ADR or existing behaviour:
 - *Certainty is not a column.* ADR-0051 §11 gives the actuals their match
   in place of a flow's source and certainty: every actual is certain, so
   the dimension would say nothing here; it belongs to the snapshots'
-  dataset (T53j's remaining leaf).
+  dataset (T53j2, below).
 - *The house bank by code only.* The account's last four characters are
   not in the dataset: the API shows them to `cash.position.read` and
   `payments.statement.read`, not to `cash.forecast.read`, the actuals'
@@ -699,6 +699,85 @@ ADR or existing behaviour:
 - *Errors.* Actuals whose classification goes out of the range of an
   amount stop the run and refuse the query, `runAnalyticsQuery` answering
   422 `cash.amount_too_large`, as `getCashActuals` does.
+
+**The forecast (T53j2, ADR-0051 §6 and §11; product owner 2026-11-04 on
+the lag; decided by default otherwise).** Dataset `cash_snapshots` v1
+(`analytics/datasets/v1/cash_snapshots.yaml`), a fact of load `snapshot`
+dated `value_date`: one row per line at document level of each company's
+snapshot of each date, with `snapshot_id` (its id), `line_no`, `company`,
+`lag_days` (the value date less the snapshot's date, 0 to 30), `house_bank`
+(its code, null for a flow of no bank), `source`, `certainty`, `blocked`
+(a blocked supplier's flow, source `payable_blocked`), `liquidity_item` and
+`liquidity_item_name` (null for no item), and the signed amount as
+`amount_minor`, `currency`, `exponent`; one file per month of value dates.
+The semantic layer's metrics `forecast_lag_0`, `forecast_lag_7` and
+`forecast_lag_30` (sum, filtered on `lag_days` and on `blocked` false; the
+agent's word `forecast` means `forecast_lag_7`) have the dimensions
+company, currency, the fiscal periods, `value_date`, `house_bank`,
+`source`, `certainty`, `liquidity_item` and `liquidity_item_name`.
+Decisions:
+- *One lag per metric* (product owner 2026-11-04: the forecast is read at
+  a single lag, 0, 7 or 30, from daily snapshots). A metric's `filter`
+  already fixes a dimension to values, so each lag is a metric of its own
+  rather than a new rule that a query must pick one lag: a sum over lags
+  would add the same day's flow forecast by several snapshots, and a
+  metric derived from `forecast_lag_n` and `actual` (T53j3's variance)
+  keeps the lag without a dimension `actual` does not have. `lag_days` is
+  a dimension of the dataset (the filter's), not of the metrics: each
+  metric holds one value of it. The three are the variance's lags
+  (ADR-0051 As built T53f3).
+- *Which snapshot of a date.* The daily one, else the last taken on demand
+  that day: the variance's rule (`snapshotOn`), now one ordering in the
+  cash context (`snapshotPreferred`) that both use, so a tenant whose
+  snapshotter missed a day, or a walkthrough before the snapshot time,
+  still has a forecast; one snapshot per company and date, so no day is
+  counted twice. A snapshot on demand of a date that has a daily one is
+  not in the dataset.
+- *Document level only.* Lags 0 to 30 are the 31 days a snapshot keeps
+  per document and day (ADR-0051 As built T53f); a bucket's sum beyond
+  names no day, so it is not a row (a later lag is the dataset's next
+  version, a changed grain).
+- *Blocked suppliers' flows kept, and left out by the metrics.* The
+  forecast's totals and the variance leave `payable_blocked` out (ADR-0051
+  §9 As built T53e2); the rows keep them, as listCashSnapshotFlows does,
+  and the metrics filter `blocked` false, as `open_payables` filters
+  `cleared`, so a source added later (ADR-0051 §4: receivables, tax) is
+  counted without the metric changing.
+- *Read through the cash context, as the actuals are.* The house banks'
+  codes are the payments context's and the items' names the active
+  configuration's, which `cash` resolves for its own reads; so both paths
+  ask it through the same ports (`analytics.Cash`, `extract.Cash`, the
+  actuals' renamed: `ForecastShares` as the caller in a consistent read,
+  `ExtractForecastShares` in the run, for the legal entities that have
+  snapshots), adapted by `app.AnalyticsCash`, and `cash` stays a leaf.
+  `listCashSnapshotFlows` would answer the database path too, but a call
+  per snapshot and currency, 25 months of daily snapshots, and it names
+  no item's name. Today's names, as the variance names its rows; the item
+  each line was classified in is the snapshot's (ADR-0051 §4).
+- *Permissions.* `cash.forecast.read` for the dataset (`FactDatasets`), as
+  every snapshot read; no `partner.supplier.read`: no supplier, payment or
+  document is a column. The house bank by code only, as for the actuals.
+- *Marked due.* The relay's batches of `cash` (a snapshot taken, a memo
+  record or comment, which change nothing here but cost one run) mark a
+  tenant due. Retention publishes no event: a snapshot deleted after 25
+  months leaves the store at the next run of the tenant, at the latest
+  the sweep's (ADR-0044 T55c).
+- *Held whole, at pilot scale.* As the actuals: a company's 25 months of
+  daily snapshots at document level are a few hundred thousand lines at
+  most; the database path reads a legal entity's whole forecast per
+  query. The same trigger applies.
+- *The week and the month.* A metric by week or month adds each day of
+  its own snapshot, so its figures differ from
+  `getLiquidityForecastVariance`, which compares one snapshot over its
+  period; the product owner accepted that on 2026-11-04 (ADR-0051 As
+  built T53j2).
+- *Evidence.* `cash.TestForecastShares`, `TestForecastSharesFailures`;
+  `extract.TestCashForecast`, `TestCashForecastFailures`,
+  `TestMarksTheCashChanged`; `analytics.TestSourceReadsCashForecast`,
+  `TestSourceForecastErrors`; `store.TestParity` (every query of the three
+  metrics, permissions `forecast`, isolation and tamper of
+  `cash_snapshots`, each lag's figure in "not vacuous"); the
+  walkthrough's step 38.
 
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other

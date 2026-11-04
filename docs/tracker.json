@@ -1523,10 +1523,17 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Analytics, the forecast: dataset cash_snapshots (contract file, one row per line at document level of each company's snapshot of each date, the daily one else the last taken on demand, with lag_days = value_date - snapshot_date; read by the cash context through the actuals' ports, extracted in the tenant's run; the relay marks a tenant due for the cash context's events), semantic dimensions source and certainty, metrics forecast_lag_0, forecast_lag_7 and forecast_lag_30 (one lag each, blocked suppliers' flows left out); no partner.supplier.read; parity, isolation and tamper tests",
+        "r": "analytics/datasets/v1/cash_snapshots.yaml · semantic.yaml forecast_lag_0/7/30, source, certainty, lag_days, blocked · cash.ForecastShares, ExtractForecastShares, snapshotPreferred, asCaller, asExtract · analytics.Cash, ForecastShare · extract.Cash, ForecastShare, cashForecast, cashOf · app.AnalyticsCash · extract changing cash · runAnalyticsQuery description · TestForecastShares, TestForecastSharesFailures, TestCashForecast, TestCashForecastFailures, TestMarksTheCashChanged, TestSourceReadsCashForecast, TestSourceForecastErrors, TestParity (forecast, permissions, isolation) · walkthrough step 38 · ADR-0044 (As built T53j2) · ADR-0051 §6 (As built T53j2) · 03-data-model §3.18 · T53j2",
+        "src": "split:T53j · po:2026-11-04 · adr:ADR-0051",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Analytics, the forecast: dataset cash_snapshots (contract file, extraction in the tenant's run; the relay marks a tenant due for the cash context's snapshot events), semantic dimensions source and certainty, metrics forecast, variance and accuracy; isolation tests passing; waits for the product owner on how accuracy is computed and how the forecast's lag is represented",
-        "r": "T53j",
-        "src": "baseline",
+        "t": "Analytics, the forecast's variance and accuracy: metrics variance (actual less forecast) and accuracy at each of the lags 0, 7 and 30 over the cash_actuals and cash_snapshots datasets; accuracy = 100 - WAPE, WAPE = sum of |actual - forecast| / sum of |forecast| over item x currency x day cells (for one cell, 100 less the variance report's variance_percent), rounded as money.AbsPercentOf (product owner 2026-11-04); how the per-cell absolute value is built in the semantic layer (a new aggregate kind or a dataset at cell grain) decided by default in ADR-0044's As built, one mechanism; parity, isolation and tamper tests; a walkthrough step through runAnalyticsQuery",
+        "r": "T53j · T53j3",
+        "src": "adr:ADR-0051 · po:2026-11-04",
         "c": []
        },
        {

@@ -206,7 +206,7 @@ func minDay(a, b time.Time) time.Time {
 // that day.
 func snapshotOn(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, date time.Time) (Snapshot, error) {
 	s, err := scanSnapshot(tx.QueryRow(ctx, snapshotSelect+` WHERE s.legal_entity_id = $1 AND s.snapshot_date = $2
-		ORDER BY s.kind = 'daily' DESC, s.taken_at DESC, s.id DESC LIMIT 1`, legalEntity, date))
+		ORDER BY `+snapshotPreferred+` LIMIT 1`, legalEntity, date))
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return Snapshot{}, errNoSnapshot(date)
