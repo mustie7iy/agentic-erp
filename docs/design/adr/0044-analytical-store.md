@@ -772,7 +772,9 @@ Decisions:
   target (15 minutes; nothing but a run moves `checked_at`), so the
   deleted snapshot leaves the files within about `SweepEvery` plus the
   target of its deletion, and the next day's snapshot ends it in any
-  case. No answer shows it beyond the target after the deletion: the
+  case. No answer shows it beyond the target, plus the replica's replay
+  lag, after the deletion (a run reading a lagging replica may record its
+  check after the prune with files that still hold it): the
   store answers only while checked within the target, the database path
   no longer has it, and a superseded manifest's files kept for running
   queries (`Keep`) answer no new one (verified against `extract.Sweep`,
