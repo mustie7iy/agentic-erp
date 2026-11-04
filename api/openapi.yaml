@@ -21142,7 +21142,7 @@ components:
       name: Idempotency-Key
       in: header
       required: true
-      description: "Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a different body returns 422; a repeat while the first is still running returns 409 with `Retry-After`. Missing returns 428."
+      description: "Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a different body returns 422; a repeat while the first is still running returns 409 with `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry with the same key runs. Missing returns 428."
       schema:
         type: string
         minLength: 8
@@ -41842,7 +41842,7 @@ components:
             instance: /v1/supplier-invoices
             trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
     Conflict:
-      description: "Business rule conflict: wrong state for the transition, duplicate, closed period, or a request with the same `Idempotency-Key` is still running (then `Retry-After` is set)."
+      description: "Business rule conflict: wrong state for the transition, duplicate, closed period; or `request.in_progress`, a request with the same `Idempotency-Key` still running or a lock another request holds, with `Retry-After`. A 409 with `Retry-After` is not stored under the `Idempotency-Key`: the retry with the same key runs."
       content:
         application/problem+json:
           schema:
