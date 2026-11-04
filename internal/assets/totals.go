@@ -36,8 +36,9 @@ const addedTo = `acquisitions = t.acquisitions + EXCLUDED.acquisitions, retired_
 // ledger and fiscal year, and its class's per company, ledger and fiscal
 // year. It is called once per transaction, after the posting has written
 // its movements and set each asset's last_seq to its seq (derive, or a
-// run's batch); after it the transaction takes no lock another posting
-// may hold. It upserts the class rows first and then the asset rows, each
+// run's batch); after it the transaction takes only locks every posting
+// takes after its own keepTotals (its own assets' rows, a run's batch and
+// Operation, the audit chain's head at commit), never a class row. It upserts the class rows first and then the asset rows, each
 // statement in key order, so two postings touching the same classes in
 // any order wait for each other rather than deadlock
 // (TestYearTotalsInKeyOrder); the asset rows are the posting's own, whose

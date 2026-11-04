@@ -2168,8 +2168,10 @@ to overrule:
   posting's movements and the assets' `last_seq` are written, reads the
   movements of each asset's latest posting (its `seq` is the asset's
   `last_seq`, §5) and upserts the class rows in one statement and then the
-  asset rows in another, each in key order. Nothing after it in the
-  transaction waits for a row another posting may hold. §5's "class rows by
+  asset rows in another, each in key order. After it a transaction takes
+  only locks every posting takes after its own `keepTotals` (its own
+  assets' rows, a run's batch and Operation, the audit chain's head at
+  commit), so no wait for those can close a cycle with a class row. §5's "class rows by
   class code, then asset rows by asset id" is read as the whole keys'
   order, since a posting's movements may span ledgers (a retirement) and
   fiscal years (a center transfer's catch-up dated the period before).
@@ -2209,7 +2211,9 @@ to overrule:
   configuration no longer has it. The head names the company (code and
   name), the ledger (code and name) and the fiscal year with its first and
   last day, from the ledger's periods (422 `ledger.no_fiscal_period` for a
-  year not set up); a ledger the company does not keep is 422
+  year not set up); a `group_by` other than `class` and `asset` is 400
+  `request.invalid_parameter` (an open enumeration, as the contract's
+  rules ask); a ledger the company does not keep is 422
   `ledger.ledger_not_kept`, a company the caller may not act in 404.
 - **The ledger comparison** sums `GET /v1/balances` over the fiscal years
   so far, since the ledger carries no balance into a new year; the

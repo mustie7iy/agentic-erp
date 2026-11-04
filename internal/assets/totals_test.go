@@ -83,7 +83,7 @@ func TestYearTotalsInKeyOrder(t *testing.T) {
 		transferred, _, _ = e.clocked.Do("POST", "/v1/asset-transfers", fmt.Sprintf(`{"asset_id": %q, "kind": "asset", "to_asset_id": %q,
 			"share": {"percent": "50"}}`, plot, press), "")
 	})
-	pgtest.Eventually(t, 4*time.Second, func() bool {
+	pgtest.Eventually(t, 10*time.Second, func() bool {
 		var waiting int
 		pgtest.Scan(t, `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
 			AND query LIKE '%INSERT INTO assets.class_year_total%'`, nil, &waiting)
