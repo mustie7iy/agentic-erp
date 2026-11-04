@@ -557,14 +557,11 @@ func runEvent(r Run, company, name string, payload map[string]any) outbox.Event 
 // (noEntity) still records its failure. The tenancy context failing is an
 // error.
 func (e *Endpoints) companyCode(ctx context.Context, legalEntity uuid.UUID) (string, error) {
-	le, found, err := e.LegalEntities.Entity(ctx, legalEntity)
+	code, _, err := tenancy.CompanyCode(e.LegalEntities)(ctx, legalEntity) // not found: ""
 	if err != nil {
 		return "", fmt.Errorf("payments: the company code of legal entity %s: %w", legalEntity, err)
 	}
-	if !found {
-		return "", nil
-	}
-	return le.Code, nil
+	return code, nil
 }
 
 // withCompany adds the company's code to an event's payload, beside its
