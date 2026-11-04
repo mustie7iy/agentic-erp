@@ -39,11 +39,11 @@ type PeriodDepreciation struct {
 func (CloseChecks) Depreciation(ctx context.Context, legalEntity, ledger uuid.UUID, fiscalYear, period int16, end time.Time) (PeriodDepreciation, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
-		return PeriodDepreciation{}, err
+		return PeriodDepreciation{}, fmt.Errorf("assets: depreciation of %s: %w", legalEntity, err)
 	}
 	access, err := authz.Companies(ctx)
 	if err != nil {
-		return PeriodDepreciation{}, err
+		return PeriodDepreciation{}, fmt.Errorf("assets: depreciation of %s: %w", legalEntity, err)
 	}
 	if !access.Allows(legalEntity) {
 		return PeriodDepreciation{}, fmt.Errorf("assets: depreciation of %s: not a company the caller may act in", legalEntity)

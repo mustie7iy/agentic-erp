@@ -114,10 +114,11 @@ func TestDepreciationPosted(t *testing.T) {
 	de, tag := open(t, e.Client, e.DE, 1, "")
 	base := "/v1/period-closes/" + apitest.String(t, de, "id") + "/tasks/DEPRECIATED:check"
 	machine(t, e)
+	machine(t, e)
 	task, tag = e.Must(200, "POST", base, "", tag)
 	wantLines(t, "before any run", depreciationLines(t, task), []string{
-		"false No posted depreciation run of 2026/1 in ledger 0L (1 asset to depreciate), 2L (1 asset to depreciate); run the depreciation first.",
-		"0L Leading ledger 2026-01-31 posted=false run=<nil> to depreciate=1", "2L HGB 2026-01-31 posted=false run=<nil> to depreciate=1"})
+		"false No posted depreciation run of 2026/1 in ledger 0L (2 assets to depreciate), 2L (2 assets to depreciate); run the depreciation first.",
+		"0L Leading ledger 2026-01-31 posted=false run=<nil> to depreciate=2", "2L HGB 2026-01-31 posted=false run=<nil> to depreciate=2"})
 	wantFields(t, "before any run", task, map[string]any{"status": "open"})
 
 	leading, local := e.Ledger(t, config.LeadingLedger), e.Ledger(t, "2L")
@@ -130,8 +131,8 @@ func TestDepreciationPosted(t *testing.T) {
 	}
 	task, tag = e.Must(200, "POST", base, "", tag)
 	wantLines(t, "0L's run, 2L's failed", depreciationLines(t, task), []string{
-		"false No posted depreciation run of 2026/1 in ledger 2L (1 asset to depreciate); run the depreciation first.",
-		"0L Leading ledger 2026-01-31 posted=true run=" + run0 + " to depreciate=<nil>", "2L HGB 2026-01-31 posted=false run=<nil> to depreciate=1"})
+		"false No posted depreciation run of 2026/1 in ledger 2L (2 assets to depreciate); run the depreciation first.",
+		"0L Leading ledger 2026-01-31 posted=true run=" + run0 + " to depreciate=<nil>", "2L HGB 2026-01-31 posted=false run=<nil> to depreciate=2"})
 
 	run2, _ := depreciate(t, e, local, false)
 	task, _ = e.Must(200, "POST", base, "", tag)
