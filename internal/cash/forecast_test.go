@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/cash"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -36,7 +37,15 @@ type forecastEnv struct {
 
 func setupForecast(t *testing.T, extend func(*config.Config), permissions ...string) forecastEnv {
 	t.Helper()
-	e := forecastEnv{positionEnv: setupPositionWith(t, extend, append([]string{"cash.forecast.read"}, permissions...)...)}
+	return setupForecastOf(t, nil, extend, permissions...)
+}
+
+// setupForecastOf is setupForecast with further legal entities beside
+// Maple Inc, which extend configures; only Maple's suppliers are set up as
+// setupForecast sets them up.
+func setupForecastOf(t *testing.T, more []fixture.Company, extend func(*config.Config), permissions ...string) forecastEnv {
+	t.Helper()
+	e := forecastEnv{positionEnv: setupPositionOf(t, more, extend, append([]string{"cash.forecast.read"}, permissions...)...)}
 	e.payables = e.Account(t, "3000", "211000")
 	e.exec(t, `UPDATE partner.supplier_company SET payment_methods = '{T}', version = version + 1 WHERE tenant_id = $1 AND legal_entity_id = $2`,
 		e.Tenant.ID, e.le)
