@@ -60,8 +60,15 @@ type assetEnv struct {
 
 func newAssets(t *testing.T, permissions ...string) assetEnv {
 	t.Helper()
-	e := assetEnv{Env: fixture.NewWith(t, nil, withLedgers, append(permissions, "assets.asset.read", "assets.asset.change")...)}
-	e.c = e.CostCenters(t, withLedgers)
+	return newAssetsWith(t, withLedgers, permissions...)
+}
+
+// newAssetsWith is newAssets with the document doc gives (withLedgers or
+// one extending it).
+func newAssetsWith(t *testing.T, doc func(*config.Config), permissions ...string) assetEnv {
+	t.Helper()
+	e := assetEnv{Env: fixture.NewWith(t, nil, doc, append(permissions, "assets.asset.read", "assets.asset.change")...)}
+	e.c = e.CostCenters(t, doc)
 	pc, _ := e.Must(201, "POST", "/v1/profit-centers", fmt.Sprintf(`{"code": "PC2", "name": "PC 2", "responsible": "Jane Doe",
 		"legal_entity_ids": [%q], "valid_from": "2026-01-01", "reason": "r"}`, e.US), "")
 	e.Approve(t, pc["pending_change_id"].(string))

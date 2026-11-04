@@ -18028,6 +18028,238 @@ func (s *Server) handleGetAssetAcquisitionRequest(args [1]string, argsEscaped bo
 	}
 }
 
+// handleGetAssetHistorySheetRequest handles getAssetHistorySheet operation.
+//
+// The asset history sheet of a company, ledger and fiscal year (ADR-0057 §9, T57i): the
+// reconciliation of the assets' carrying amounts from the year's opening to its closing, by class
+// (`group_by=class`, the default) or by asset (`group_by=asset`). Each row has the opening cost
+// (acquisition cost at the start of the year), the year's acquisitions, retirements (cost retired,
+// negative) and transfers (cost of asset transfers in less out; a center transfer changes no cost),
+// the closing cost; the opening accumulated depreciation, the year's depreciation (runs' and the
+// catch-ups of retirements and transfers, with their reversals), the accumulated depreciation
+// retirements took (positive) and transfers moved, the closing accumulated depreciation; and the
+// opening and closing net book values (cost plus accumulated depreciation). Accumulated depreciation
+// is negative, the credit it is, as an asset's `values` show it, so a closing value is its opening
+// value plus the year's columns, and the closing cost and accumulated depreciation of a company's
+// classes equal the ledger's balances of their acquisition cost and accumulated depreciation accounts
+// where no migration loaded balances on them (ADR-0057 §3). A movement counts in the fiscal year it
+// was posted in, whatever its value date: depreciation posted late (a catch-up) is the year's it was
+// posted in. Amounts are in the company's local currency (`currency`), exact at the moment of the
+// read: the totals are kept with every movement. A class or asset with neither a movement posted in
+// the year nor an opening value has no row; its sums are zero. By class every class comes in one
+// response, by class code; by asset the assets are ordered and paged by asset number, each with its
+// class. `class` keeps one class's rows. `totals` sums every row the filters select, on every page.
+// `ledger_id` defaults to the leading ledger; one the company does not keep is 422
+// `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page
+// token is issued only by asset. A legal entity the caller cannot act in is 404. Reads only.
+//
+// GET /v1/asset-history-sheet
+func (s *Server) handleGetAssetHistorySheetRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAssetHistorySheet"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/asset-history-sheet"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetAssetHistorySheetOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetAssetHistorySheetOperation,
+			ID:   "getAssetHistorySheet",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetAssetHistorySheetOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetAssetHistorySheetParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetAssetHistorySheetRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetAssetHistorySheetOperation,
+			OperationSummary: "Get the asset history sheet",
+			OperationID:      "getAssetHistorySheet",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "legal_entity_id",
+					In:   "query",
+				}: params.LegalEntityID,
+				{
+					Name: "ledger_id",
+					In:   "query",
+				}: params.LedgerID,
+				{
+					Name: "fiscal_year",
+					In:   "query",
+				}: params.FiscalYear,
+				{
+					Name: "group_by",
+					In:   "query",
+				}: params.GroupBy,
+				{
+					Name: "class",
+					In:   "query",
+				}: params.Class,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetAssetHistorySheetParams
+			Response = GetAssetHistorySheetRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetAssetHistorySheetParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetAssetHistorySheet(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetAssetHistorySheet(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetAssetHistorySheetResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleGetAssetRetirementRequest handles getAssetRetirement operation.
 //
 // One retirement with its asset, what it took per ledger and its journal entries (ADR-0057 §8). One

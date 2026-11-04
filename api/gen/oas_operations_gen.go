@@ -93,6 +93,7 @@ const (
 	GetApprovalRequestOperation               OperationName = "GetApprovalRequest"
 	GetAssetOperation                         OperationName = "GetAsset"
 	GetAssetAcquisitionOperation              OperationName = "GetAssetAcquisition"
+	GetAssetHistorySheetOperation             OperationName = "GetAssetHistorySheet"
 	GetAssetRetirementOperation               OperationName = "GetAssetRetirement"
 	GetAssetScheduleOperation                 OperationName = "GetAssetSchedule"
 	GetAssetTransferOperation                 OperationName = "GetAssetTransfer"

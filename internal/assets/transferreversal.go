@@ -208,10 +208,14 @@ func writeTransferReversal(ctx context.Context, tx pgx.Tx, p reqctx.Principal, q
 			AND m.document_id = $1 AND m.kind = 'depreciation' AND m.reverses_id IS NULL`, q.ID, p.ID); err != nil {
 		return fmt.Errorf("assets: booked_through before transfer %s: %w", q.ID, err)
 	}
-	for _, id := range sortedIDs(slices.Collect(maps.Keys(seqs))) {
+	ids := sortedIDs(slices.Collect(maps.Keys(seqs)))
+	for _, id := range ids {
 		if err := derive(ctx, tx, p, id, seqs[id]); err != nil {
 			return err
 		}
+	}
+	if err := keepTotals(ctx, tx, ids...); err != nil {
+		return err
 	}
 	if q.Kind != TransferCenter {
 		return nil

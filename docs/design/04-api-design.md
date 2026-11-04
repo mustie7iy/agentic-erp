@@ -259,6 +259,20 @@ profit center or a node of a profit center hierarchy), its actual as `GET
 /v1/profit-center-balances` reads it: profit and loss accounts only, the
 segments summed, paged by profit center and account.
 
+The asset history sheet (ADR-0057 §9, T57i), `GET /v1/asset-history-sheet`
+(`assets.asset.read`, `x-slo-class: report`), reconciles a company's asset
+values over one fiscal year in one ledger (the leading one by default):
+opening cost, acquisitions, retirements, transfers and closing cost; the
+same for accumulated depreciation, negative as the credit it is, as an
+asset's `values` show it; opening and closing net book values; in local
+currency, a movement counted in the fiscal year it was posted in. By class
+(`group_by=class`, the default) every class comes in one answer; by asset
+(`group_by=asset`) it pages by asset number. A row with neither a movement
+in the year nor an opening value is left out. `totals` sums every row the
+filters (`class`) select, on every page, and the closing values of a
+company's classes equal the ledger's balances of their asset accounts. It
+reads year totals the postings keep, so it is exact at the read.
+
 Tax registrations (ADR-0049 §10, T61g) are the tax filing context's,
 read-only: the configuration sets them up. `GET /v1/tax-registrations`
 (`tax.registration.read`) lists those covering a company the caller may

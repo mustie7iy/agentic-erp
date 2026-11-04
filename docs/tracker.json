@@ -1198,9 +1198,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Asset history sheet: year_total and class_year_total kept with every movement, upserted in key order (schema test of their sums, a two-transaction deadlock test); GET /v1/asset-history-sheet per company, ledger and fiscal year, by class or by asset, every column (cost, acquisitions, retirements, transfers, accumulated depreciation, depreciation of the year, net book values) with the totals; closing values equal the asset accounts' ledger balances (test); the 01 §1.3 budget; walkthrough: the year's sheet of the steps before, its totals matching the trial balance's asset accounts",
-        "r": "ADR-0057 · T57i",
+        "r": "migration 000197 (assets.year_total keyed ledger, asset, year; assets.class_year_total; the movements so far totalled; sums-only update grant) · internal/assets (totals.go: keepTotals after every posting's movements, class rows then asset rows in key order; sheet.go: GetAssetHistorySheet) · GET /v1/asset-history-sheet (getAssetHistorySheet, x-slo-class report) · TestAssetHistorySheet, TestAssetHistorySheetRefused, TestYearTotalsInKeyOrder, TestAssetHistorySheetDatabaseFailures, TestAssetHistorySheetBudget, TestAssetYearTotalsBackfilled, TestAssetYearTotalRules · walkthrough step_asset_history_sheet (step 27) · ADR-0057 (as built, T57i) · 03-data-model §3.21 · 04-api-design · T57i",
         "src": "adr:ADR-0057",
         "c": []
        }
@@ -1235,7 +1235,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Asset history sheet",
       "r": "T57 · ADR-0057 §9 · T57i",
       "src": "baseline",

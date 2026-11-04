@@ -163,7 +163,10 @@ func writeAcquisition(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uui
 	if err := writeMovements(ctx, tx, p, id, seq, a, entries); err != nil {
 		return err
 	}
-	return derive(ctx, tx, p, a.asset.ID, seq)
+	if err := derive(ctx, tx, p, a.asset.ID, seq); err != nil {
+		return err
+	}
+	return keepTotals(ctx, tx, a.asset.ID)
 }
 
 // useLine adds what an acquisition takes of its line to what is used of

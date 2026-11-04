@@ -977,6 +977,33 @@ type Invoker interface {
 	//
 	// GET /v1/asset-acquisitions/{id}
 	GetAssetAcquisition(ctx context.Context, params GetAssetAcquisitionParams) (GetAssetAcquisitionRes, error)
+	// GetAssetHistorySheet invokes getAssetHistorySheet operation.
+	//
+	// The asset history sheet of a company, ledger and fiscal year (ADR-0057 §9, T57i): the
+	// reconciliation of the assets' carrying amounts from the year's opening to its closing, by class
+	// (`group_by=class`, the default) or by asset (`group_by=asset`). Each row has the opening cost
+	// (acquisition cost at the start of the year), the year's acquisitions, retirements (cost retired,
+	// negative) and transfers (cost of asset transfers in less out; a center transfer changes no cost),
+	// the closing cost; the opening accumulated depreciation, the year's depreciation (runs' and the
+	// catch-ups of retirements and transfers, with their reversals), the accumulated depreciation
+	// retirements took (positive) and transfers moved, the closing accumulated depreciation; and the
+	// opening and closing net book values (cost plus accumulated depreciation). Accumulated depreciation
+	// is negative, the credit it is, as an asset's `values` show it, so a closing value is its opening
+	// value plus the year's columns, and the closing cost and accumulated depreciation of a company's
+	// classes equal the ledger's balances of their acquisition cost and accumulated depreciation accounts
+	// where no migration loaded balances on them (ADR-0057 §3). A movement counts in the fiscal year it
+	// was posted in, whatever its value date: depreciation posted late (a catch-up) is the year's it was
+	// posted in. Amounts are in the company's local currency (`currency`), exact at the moment of the
+	// read: the totals are kept with every movement. A class or asset with neither a movement posted in
+	// the year nor an opening value has no row; its sums are zero. By class every class comes in one
+	// response, by class code; by asset the assets are ordered and paged by asset number, each with its
+	// class. `class` keeps one class's rows. `totals` sums every row the filters select, on every page.
+	// `ledger_id` defaults to the leading ledger; one the company does not keep is 422
+	// `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page
+	// token is issued only by asset. A legal entity the caller cannot act in is 404. Reads only.
+	//
+	// GET /v1/asset-history-sheet
+	GetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (GetAssetHistorySheetRes, error)
 	// GetAssetRetirement invokes getAssetRetirement operation.
 	//
 	// One retirement with its asset, what it took per ledger and its journal entries (ADR-0057 §8). One
@@ -16595,6 +16622,257 @@ func (c *Client) sendGetAssetAcquisition(ctx context.Context, params GetAssetAcq
 
 	stage = "DecodeResponse"
 	result, err := decodeGetAssetAcquisitionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetAssetHistorySheet invokes getAssetHistorySheet operation.
+//
+// The asset history sheet of a company, ledger and fiscal year (ADR-0057 §9, T57i): the
+// reconciliation of the assets' carrying amounts from the year's opening to its closing, by class
+// (`group_by=class`, the default) or by asset (`group_by=asset`). Each row has the opening cost
+// (acquisition cost at the start of the year), the year's acquisitions, retirements (cost retired,
+// negative) and transfers (cost of asset transfers in less out; a center transfer changes no cost),
+// the closing cost; the opening accumulated depreciation, the year's depreciation (runs' and the
+// catch-ups of retirements and transfers, with their reversals), the accumulated depreciation
+// retirements took (positive) and transfers moved, the closing accumulated depreciation; and the
+// opening and closing net book values (cost plus accumulated depreciation). Accumulated depreciation
+// is negative, the credit it is, as an asset's `values` show it, so a closing value is its opening
+// value plus the year's columns, and the closing cost and accumulated depreciation of a company's
+// classes equal the ledger's balances of their acquisition cost and accumulated depreciation accounts
+// where no migration loaded balances on them (ADR-0057 §3). A movement counts in the fiscal year it
+// was posted in, whatever its value date: depreciation posted late (a catch-up) is the year's it was
+// posted in. Amounts are in the company's local currency (`currency`), exact at the moment of the
+// read: the totals are kept with every movement. A class or asset with neither a movement posted in
+// the year nor an opening value has no row; its sums are zero. By class every class comes in one
+// response, by class code; by asset the assets are ordered and paged by asset number, each with its
+// class. `class` keeps one class's rows. `totals` sums every row the filters select, on every page.
+// `ledger_id` defaults to the leading ledger; one the company does not keep is 422
+// `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page
+// token is issued only by asset. A legal entity the caller cannot act in is 404. Reads only.
+//
+// GET /v1/asset-history-sheet
+func (c *Client) GetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (GetAssetHistorySheetRes, error) {
+	res, err := c.sendGetAssetHistorySheet(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (res GetAssetHistorySheetRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAssetHistorySheet"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/asset-history-sheet"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAssetHistorySheetOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/asset-history-sheet"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "ledger_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "ledger_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LedgerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.Int32ToString(params.FiscalYear))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "group_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "group_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.GroupBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "class" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "class",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Class.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAssetHistorySheetOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAssetHistorySheetResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

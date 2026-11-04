@@ -2891,6 +2891,56 @@ step_asset_transfer() {
   passed
 }
 
+step_asset_history_sheet() {
+  heading "Step 27 — The asset history sheet: the year's acquisitions, depreciation, retirements and transfers by class; its closing values the trial balance's asset accounts"
+  as carla
+  say "Carla reads this year's asset history sheet in the leading ledger (ADR-0057 §9, T57i): per class the cost at"
+  say "the year's opening, the acquisitions, retirements and asset transfers of steps 21 to 26 and the closing cost, the"
+  say "same for accumulated depreciation (negative, the credit it is), and the net book values. The postings keep its"
+  say "year totals, so it reads a few rows per class rather than every movement."
+  local row cols c ledger
+  row='"  \(.class_code) \(.class_name // ""): cost \(.opening_cost.amount) + acquired \(.acquisitions.amount) + retired \(.retirements.amount) + transferred \(.transfers.amount) = \(.closing_cost.amount); accumulated depreciation \(.opening_accumulated.amount) + \(.depreciation.amount) + retired \(.retirements_accumulated.amount) + transferred \(.transfers_accumulated.amount) = \(.closing_accumulated.amount); net book value \(.closing_net_book_value.amount) \(.closing_net_book_value.currency)"'
+  api 200 '"sheet of \(.company_code) in \(.ledger_code) \(.ledger_name), \(.start_date) to \(.end_date), by \(.group_by):", (.items[] | '"$row"'),
+    (.totals | "  total: cost \(.closing_cost.amount), accumulated depreciation \(.closing_accumulated.amount), net book value \(.closing_net_book_value.amount)")' \
+    getAssetHistorySheet -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  ledger=$(field .ledger_id)
+  expect "the classes" "$(field '[.items[].class_code] | join(" ")')" "MACHINES TOOLS"
+  expect "the press's retirement in the machines' cost" "$(field '.items[] | select(.class_code == "MACHINES") | .retirements.amount | startswith("-")')" true
+  expect "the tool set's cost, transferred from the milling machine" \
+    "$(field '[.items[] | .transfers.amount] | join(" ")')" "$(field '"-\(.items[1].transfers.amount) \(.items[1].transfers.amount)"')"
+  expect "the year's depreciation" "$(field '.totals.depreciation.amount | startswith("-")')" true
+  cp "$WORK/last.json" "$WORK/sheet.json"
+  say "Only assets post to the acquisition cost and accumulated depreciation accounts (step 19), so the sheet's closing"
+  say "values are those accounts' balances in the trial balance: debits less credits of every period so far (the"
+  say "accounts are this year's; a catch-up may fall in the period before, so last year's are added)."
+  accounts
+  QUIET=1 api 200 '' listAssetClasses -p "legal_entity_id=$LE"
+  cp "$WORK/last.json" "$WORK/classes.json"
+  for c in acquisition_cost:closing_cost accumulated_depreciation:closing_accumulated; do
+    local kind=${c%%:*} column=${c#*:} number balance=0 b y
+    for number in $(jq -r "[.items[].companies[] | select(.company_code == \"$CC\") | .accounts.$kind.number] | unique | .[]" "$WORK/classes.json"); do
+      b=0
+      for y in $((YEAR - 1)) "$YEAR"; do
+        QUIET=1 api 200 '' listBalances -p "legal_entity_id=$LE" -p "ledger_id=$ledger" -p "fiscal_year=$y" -p "account_id=$(account "$number")" -p page_size=500
+        expect "one page of balances" "$(field '.next_page_token // "none"')" none
+        b=$((b + $(field '[.items[] | (.debit_lc.amount | sub("\\."; "") | tonumber) - (.credit_lc.amount | sub("\\."; "") | tonumber)] | add // 0')))
+      done
+      say "  account $number: $(amount "$b") in the trial balance"
+      balance=$((balance + b))
+    done
+    expect "the sheet's $column, the accounts' balance" "$(jq -r ".totals.$column.amount" "$WORK/sheet.json")" "$(amount "$balance")"
+  done
+  say "By asset, the same year: one row per asset by number with its class; the rows add up to the totals."
+  api 200 '.items[] | "  \(.asset_number) \(.description) (\(.class_code), \(.status)): cost \(.closing_cost.amount), accumulated \(.closing_accumulated.amount), net \(.closing_net_book_value.amount)"' \
+    getAssetHistorySheet -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p group_by=asset -p page_size=500
+  expect "one page of assets" "$(field '.next_page_token // "none"')" none
+  for cols in closing_cost closing_accumulated; do
+    expect "the assets' $cols, the total" "$(field "[.items[].$cols.amount | sub(\"\\\\.\"; \"\") | tonumber] | add")" \
+      "$(field ".totals.$cols.amount | sub(\"\\\\.\"; \"\") | tonumber")"
+  done
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -2912,7 +2962,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_asset_acquisitions step_asset_reversal step_asset_depreciation step_depreciation_run step_asset_retirement step_asset_transfer'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_asset_acquisitions step_asset_reversal step_asset_depreciation step_depreciation_run step_asset_retirement step_asset_transfer step_asset_history_sheet'
 
 main() {
   start

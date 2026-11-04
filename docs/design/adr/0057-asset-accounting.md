@@ -2137,3 +2137,85 @@ product owner to overrule:
   sharing the machinery accounts, so step 26 shows a reclassification.
 - **Tracker.** The leaf "Retirements and transfers" (T57g, T57h) is done
   with T57h, as T57d closed its leaf.
+
+**T57i (the asset history sheet).** Built as §5's year totals and §9:
+migration 000197 creates `assets.year_total` and
+`assets.class_year_total` (RLS, `tenant_id` leading their keys; the
+application may add to their sums only, with no update of a key column
+and no delete) and totals the movements written before it; schema tests
+`TestAssetYearTotalsBackfilled`, `TestAssetYearTotalRules`. Every posting
+that writes movements (an acquisition and its reversal, a run's batch, a
+retirement and its reversal, a transfer of either kind and its reversal)
+adds them to the totals in its own transaction (`keepTotals`), so the
+totals equal the movements' sums (`TestAssetHistorySheet` compares them
+for every kind; `TestYearTotalsInKeyOrder` runs a batch and an asset
+transfer touching the same two classes in opposite orders at once). `GET
+/v1/asset-history-sheet` (`getAssetHistorySheet`, `assets.asset.read`,
+`x-slo-class: report`, reads only) reads them by class or by asset. The
+closing values of a company's classes equal the ledger's balances of their
+acquisition cost and accumulated depreciation accounts, read through the
+ledger's own API (`GET /v1/balances`), in both ledgers and both years of
+`TestAssetHistorySheet` and in walkthrough step 27. The 01 §1.3 budget
+(p95 1 s) is `TestAssetHistorySheetBudget`: 100,000 assets with ten years
+of totals each (a million rows), read by class, by asset (first and a later
+page) and by asset of one class. Decided by default, for the product owner
+to overrule:
+- **Totals kept by the posting, not by a trigger.** A trigger on the
+  movements would add each one as it is written, in the order a posting
+  writes them (a batch by asset id, a transfer sender first), so a batch
+  and a transfer touching two classes in opposite orders could deadlock,
+  which §5 rules out. `keepTotals` runs once per transaction after the
+  posting's movements and the assets' `last_seq` are written, reads the
+  movements of each asset's latest posting (its `seq` is the asset's
+  `last_seq`, §5) and upserts the class rows in one statement and then the
+  asset rows in another, each in key order. Nothing after it in the
+  transaction waits for a row another posting may hold. §5's "class rows by
+  class code, then asset rows by asset id" is read as the whole keys'
+  order, since a posting's movements may span ledgers (a retirement) and
+  fiscal years (a center transfer's catch-up dated the period before).
+- **Keys.** `class_year_total` is keyed as §5 has it; `year_total` is keyed
+  (tenant, ledger, asset, fiscal year) rather than (tenant, ledger, fiscal
+  year, asset), so the sheet by asset reads an asset's years up to the
+  year in one index range of the key.
+- **The backfill** runs in the migration under a SHARE lock on the
+  movements (their writers wait; the lock not had within 5 s fails the
+  migration, which the next start retries) with row-level security off,
+  failing under a role that does not bypass it, as 000042. A replica of
+  the release before that posted after it would write movements the totals
+  miss; no release that posts assets has been deployed (PO 2026-11-02:
+  deployment last), so none can.
+- **A movement counts in the fiscal year it was posted in** (the movement's
+  `fiscal_year`), whatever its value date: depreciation caught up late is
+  the year's it was posted in (§7's period lock interplay).
+- **Signs and columns.** Amounts are in local currency (§9). Accumulated
+  depreciation is negative, the credit it is, as an asset's `values` show
+  it, so retirements are a negative cost and a positive accumulated
+  depreciation, every closing value is its opening value plus the year's
+  columns, the net book value is cost plus accumulated depreciation, and
+  the closing values equal the accounts' debit-less-credit balances. A
+  retirement's and a transfer's catch-up is depreciation of the year;
+  `transfers` is asset transfers in less out (§9).
+- **Rows.** A class or asset with neither a movement posted in the year
+  nor an opening value has no row (an asset retired in an earlier year,
+  one planned without a posting); its sums are zero, so the totals are
+  unchanged. By class every class comes in one answer (classes are
+  configuration, few), by class code; by asset the assets are paged by
+  asset number (as text, as the assets list orders them; page size 50 by
+  default) and a page token is issued only there. `class` keeps one
+  class's rows, and the totals are then that class's. The totals, the same
+  on every page, are read from the class rows. A row by asset names the
+  asset (id, number, description, its status now) and its class; a class
+  is named from the active configuration, its name absent when the
+  configuration no longer has it. The head names the company (code and
+  name), the ledger (code and name) and the fiscal year with its first and
+  last day, from the ledger's periods (422 `ledger.no_fiscal_period` for a
+  year not set up); a ledger the company does not keep is 422
+  `ledger.ledger_not_kept`, a company the caller may not act in 404.
+- **The ledger comparison** sums `GET /v1/balances` over the fiscal years
+  so far, since the ledger carries no balance into a new year; the
+  walkthrough adds last year's, where a catch-up dated the period before
+  may fall.
+- **Walkthrough.** Step 27 reads the year's sheet of steps 21 to 26 by
+  class and by asset and checks its closing values against the trial
+  balance's acquisition cost and accumulated depreciation accounts.
+- **Tracker.** The leaf "Asset history sheet" (T57i) is done with T57i.

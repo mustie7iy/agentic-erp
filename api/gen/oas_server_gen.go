@@ -956,6 +956,33 @@ type Handler interface {
 	//
 	// GET /v1/asset-acquisitions/{id}
 	GetAssetAcquisition(ctx context.Context, params GetAssetAcquisitionParams) (GetAssetAcquisitionRes, error)
+	// GetAssetHistorySheet implements getAssetHistorySheet operation.
+	//
+	// The asset history sheet of a company, ledger and fiscal year (ADR-0057 §9, T57i): the
+	// reconciliation of the assets' carrying amounts from the year's opening to its closing, by class
+	// (`group_by=class`, the default) or by asset (`group_by=asset`). Each row has the opening cost
+	// (acquisition cost at the start of the year), the year's acquisitions, retirements (cost retired,
+	// negative) and transfers (cost of asset transfers in less out; a center transfer changes no cost),
+	// the closing cost; the opening accumulated depreciation, the year's depreciation (runs' and the
+	// catch-ups of retirements and transfers, with their reversals), the accumulated depreciation
+	// retirements took (positive) and transfers moved, the closing accumulated depreciation; and the
+	// opening and closing net book values (cost plus accumulated depreciation). Accumulated depreciation
+	// is negative, the credit it is, as an asset's `values` show it, so a closing value is its opening
+	// value plus the year's columns, and the closing cost and accumulated depreciation of a company's
+	// classes equal the ledger's balances of their acquisition cost and accumulated depreciation accounts
+	// where no migration loaded balances on them (ADR-0057 §3). A movement counts in the fiscal year it
+	// was posted in, whatever its value date: depreciation posted late (a catch-up) is the year's it was
+	// posted in. Amounts are in the company's local currency (`currency`), exact at the moment of the
+	// read: the totals are kept with every movement. A class or asset with neither a movement posted in
+	// the year nor an opening value has no row; its sums are zero. By class every class comes in one
+	// response, by class code; by asset the assets are ordered and paged by asset number, each with its
+	// class. `class` keeps one class's rows. `totals` sums every row the filters select, on every page.
+	// `ledger_id` defaults to the leading ledger; one the company does not keep is 422
+	// `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page
+	// token is issued only by asset. A legal entity the caller cannot act in is 404. Reads only.
+	//
+	// GET /v1/asset-history-sheet
+	GetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (GetAssetHistorySheetRes, error)
 	// GetAssetRetirement implements getAssetRetirement operation.
 	//
 	// One retirement with its asset, what it took per ledger and its journal entries (ADR-0057 §8). One

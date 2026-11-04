@@ -4759,6 +4759,534 @@ func (s *AssetHeaders) SetResponse(val Asset) {
 
 func (*AssetHeaders) createAssetRes() {}
 
+// The asset history sheet of a company, ledger and fiscal year (ADR-0057 §9): per class or asset the
+// reconciliation of cost, accumulated depreciation and net book value from the year's opening to its
+// closing, in the company's local currency, with the totals of every row the filters select.
+// Ref: #/components/schemas/AssetHistorySheet
+type AssetHistorySheet struct {
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The fiscal year's first day: the opening values are those before it.
+	StartDate time.Time `json:"start_date"`
+	// The fiscal year's last day: the closing values are those after it, as posted so far.
+	EndDate time.Time `json:"end_date"`
+	// The company's local currency, every amount's.
+	Currency string `json:"currency"`
+	// What a row is: an asset class or an asset. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	GroupBy string `json:"group_by"`
+	// The rows: every class by class code, or this page's assets by asset number.
+	Items  []AssetHistorySheetRow  `json:"items"`
+	Totals AssetHistorySheetValues `json:"totals"`
+	// Opaque cursor for the next page of assets; absent on the last page and by class.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AssetHistorySheet) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *AssetHistorySheet) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *AssetHistorySheet) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *AssetHistorySheet) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *AssetHistorySheet) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *AssetHistorySheet) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetHistorySheet) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetStartDate returns the value of StartDate.
+func (s *AssetHistorySheet) GetStartDate() time.Time {
+	return s.StartDate
+}
+
+// GetEndDate returns the value of EndDate.
+func (s *AssetHistorySheet) GetEndDate() time.Time {
+	return s.EndDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *AssetHistorySheet) GetCurrency() string {
+	return s.Currency
+}
+
+// GetGroupBy returns the value of GroupBy.
+func (s *AssetHistorySheet) GetGroupBy() string {
+	return s.GroupBy
+}
+
+// GetItems returns the value of Items.
+func (s *AssetHistorySheet) GetItems() []AssetHistorySheetRow {
+	return s.Items
+}
+
+// GetTotals returns the value of Totals.
+func (s *AssetHistorySheet) GetTotals() AssetHistorySheetValues {
+	return s.Totals
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AssetHistorySheet) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AssetHistorySheet) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *AssetHistorySheet) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *AssetHistorySheet) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *AssetHistorySheet) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *AssetHistorySheet) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *AssetHistorySheet) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetHistorySheet) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetStartDate sets the value of StartDate.
+func (s *AssetHistorySheet) SetStartDate(val time.Time) {
+	s.StartDate = val
+}
+
+// SetEndDate sets the value of EndDate.
+func (s *AssetHistorySheet) SetEndDate(val time.Time) {
+	s.EndDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *AssetHistorySheet) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetGroupBy sets the value of GroupBy.
+func (s *AssetHistorySheet) SetGroupBy(val string) {
+	s.GroupBy = val
+}
+
+// SetItems sets the value of Items.
+func (s *AssetHistorySheet) SetItems(val []AssetHistorySheetRow) {
+	s.Items = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *AssetHistorySheet) SetTotals(val AssetHistorySheetValues) {
+	s.Totals = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AssetHistorySheet) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*AssetHistorySheet) getAssetHistorySheetRes() {}
+
+// One row of the asset history sheet: an asset class, or an asset with its class, and its values.
+// Ref: #/components/schemas/AssetHistorySheetRow
+type AssetHistorySheetRow struct {
+	// The asset class (`GET /v1/asset-classes`).
+	ClassCode string `json:"class_code"`
+	// The class's name; absent when the active configuration no longer has the class.
+	ClassName OptString `json:"class_name"`
+	// The asset (`GET /v1/assets/{id}`); by asset only.
+	AssetID OptUUID `json:"asset_id"`
+	// The asset's number in its company; by asset only.
+	AssetNumber OptString `json:"asset_number"`
+	// What the asset is; by asset only.
+	Description OptString `json:"description"`
+	// The asset's status now, not at the year's end; by asset only. Open enumeration: clients must accept
+	// and preserve values not listed here; values may be added within /v1.
+	Status                 OptString `json:"status"`
+	OpeningCost            Money     `json:"opening_cost"`
+	Acquisitions           Money     `json:"acquisitions"`
+	Retirements            Money     `json:"retirements"`
+	Transfers              Money     `json:"transfers"`
+	ClosingCost            Money     `json:"closing_cost"`
+	OpeningAccumulated     Money     `json:"opening_accumulated"`
+	Depreciation           Money     `json:"depreciation"`
+	RetirementsAccumulated Money     `json:"retirements_accumulated"`
+	TransfersAccumulated   Money     `json:"transfers_accumulated"`
+	ClosingAccumulated     Money     `json:"closing_accumulated"`
+	OpeningNetBookValue    Money     `json:"opening_net_book_value"`
+	ClosingNetBookValue    Money     `json:"closing_net_book_value"`
+}
+
+// GetClassCode returns the value of ClassCode.
+func (s *AssetHistorySheetRow) GetClassCode() string {
+	return s.ClassCode
+}
+
+// GetClassName returns the value of ClassName.
+func (s *AssetHistorySheetRow) GetClassName() OptString {
+	return s.ClassName
+}
+
+// GetAssetID returns the value of AssetID.
+func (s *AssetHistorySheetRow) GetAssetID() OptUUID {
+	return s.AssetID
+}
+
+// GetAssetNumber returns the value of AssetNumber.
+func (s *AssetHistorySheetRow) GetAssetNumber() OptString {
+	return s.AssetNumber
+}
+
+// GetDescription returns the value of Description.
+func (s *AssetHistorySheetRow) GetDescription() OptString {
+	return s.Description
+}
+
+// GetStatus returns the value of Status.
+func (s *AssetHistorySheetRow) GetStatus() OptString {
+	return s.Status
+}
+
+// GetOpeningCost returns the value of OpeningCost.
+func (s *AssetHistorySheetRow) GetOpeningCost() Money {
+	return s.OpeningCost
+}
+
+// GetAcquisitions returns the value of Acquisitions.
+func (s *AssetHistorySheetRow) GetAcquisitions() Money {
+	return s.Acquisitions
+}
+
+// GetRetirements returns the value of Retirements.
+func (s *AssetHistorySheetRow) GetRetirements() Money {
+	return s.Retirements
+}
+
+// GetTransfers returns the value of Transfers.
+func (s *AssetHistorySheetRow) GetTransfers() Money {
+	return s.Transfers
+}
+
+// GetClosingCost returns the value of ClosingCost.
+func (s *AssetHistorySheetRow) GetClosingCost() Money {
+	return s.ClosingCost
+}
+
+// GetOpeningAccumulated returns the value of OpeningAccumulated.
+func (s *AssetHistorySheetRow) GetOpeningAccumulated() Money {
+	return s.OpeningAccumulated
+}
+
+// GetDepreciation returns the value of Depreciation.
+func (s *AssetHistorySheetRow) GetDepreciation() Money {
+	return s.Depreciation
+}
+
+// GetRetirementsAccumulated returns the value of RetirementsAccumulated.
+func (s *AssetHistorySheetRow) GetRetirementsAccumulated() Money {
+	return s.RetirementsAccumulated
+}
+
+// GetTransfersAccumulated returns the value of TransfersAccumulated.
+func (s *AssetHistorySheetRow) GetTransfersAccumulated() Money {
+	return s.TransfersAccumulated
+}
+
+// GetClosingAccumulated returns the value of ClosingAccumulated.
+func (s *AssetHistorySheetRow) GetClosingAccumulated() Money {
+	return s.ClosingAccumulated
+}
+
+// GetOpeningNetBookValue returns the value of OpeningNetBookValue.
+func (s *AssetHistorySheetRow) GetOpeningNetBookValue() Money {
+	return s.OpeningNetBookValue
+}
+
+// GetClosingNetBookValue returns the value of ClosingNetBookValue.
+func (s *AssetHistorySheetRow) GetClosingNetBookValue() Money {
+	return s.ClosingNetBookValue
+}
+
+// SetClassCode sets the value of ClassCode.
+func (s *AssetHistorySheetRow) SetClassCode(val string) {
+	s.ClassCode = val
+}
+
+// SetClassName sets the value of ClassName.
+func (s *AssetHistorySheetRow) SetClassName(val OptString) {
+	s.ClassName = val
+}
+
+// SetAssetID sets the value of AssetID.
+func (s *AssetHistorySheetRow) SetAssetID(val OptUUID) {
+	s.AssetID = val
+}
+
+// SetAssetNumber sets the value of AssetNumber.
+func (s *AssetHistorySheetRow) SetAssetNumber(val OptString) {
+	s.AssetNumber = val
+}
+
+// SetDescription sets the value of Description.
+func (s *AssetHistorySheetRow) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetStatus sets the value of Status.
+func (s *AssetHistorySheetRow) SetStatus(val OptString) {
+	s.Status = val
+}
+
+// SetOpeningCost sets the value of OpeningCost.
+func (s *AssetHistorySheetRow) SetOpeningCost(val Money) {
+	s.OpeningCost = val
+}
+
+// SetAcquisitions sets the value of Acquisitions.
+func (s *AssetHistorySheetRow) SetAcquisitions(val Money) {
+	s.Acquisitions = val
+}
+
+// SetRetirements sets the value of Retirements.
+func (s *AssetHistorySheetRow) SetRetirements(val Money) {
+	s.Retirements = val
+}
+
+// SetTransfers sets the value of Transfers.
+func (s *AssetHistorySheetRow) SetTransfers(val Money) {
+	s.Transfers = val
+}
+
+// SetClosingCost sets the value of ClosingCost.
+func (s *AssetHistorySheetRow) SetClosingCost(val Money) {
+	s.ClosingCost = val
+}
+
+// SetOpeningAccumulated sets the value of OpeningAccumulated.
+func (s *AssetHistorySheetRow) SetOpeningAccumulated(val Money) {
+	s.OpeningAccumulated = val
+}
+
+// SetDepreciation sets the value of Depreciation.
+func (s *AssetHistorySheetRow) SetDepreciation(val Money) {
+	s.Depreciation = val
+}
+
+// SetRetirementsAccumulated sets the value of RetirementsAccumulated.
+func (s *AssetHistorySheetRow) SetRetirementsAccumulated(val Money) {
+	s.RetirementsAccumulated = val
+}
+
+// SetTransfersAccumulated sets the value of TransfersAccumulated.
+func (s *AssetHistorySheetRow) SetTransfersAccumulated(val Money) {
+	s.TransfersAccumulated = val
+}
+
+// SetClosingAccumulated sets the value of ClosingAccumulated.
+func (s *AssetHistorySheetRow) SetClosingAccumulated(val Money) {
+	s.ClosingAccumulated = val
+}
+
+// SetOpeningNetBookValue sets the value of OpeningNetBookValue.
+func (s *AssetHistorySheetRow) SetOpeningNetBookValue(val Money) {
+	s.OpeningNetBookValue = val
+}
+
+// SetClosingNetBookValue sets the value of ClosingNetBookValue.
+func (s *AssetHistorySheetRow) SetClosingNetBookValue(val Money) {
+	s.ClosingNetBookValue = val
+}
+
+// The history sheet's columns summed over every row the filters select: opening cost, acquisitions
+// (positive), retirements (cost retired, negative), transfers (asset transfers in less out), closing
+// cost; opening accumulated depreciation (negative), the year's depreciation, the accumulated
+// depreciation retirements took (positive) and transfers moved, closing accumulated depreciation;
+// opening and closing net book value.
+// Ref: #/components/schemas/AssetHistorySheetValues
+type AssetHistorySheetValues struct {
+	OpeningCost            Money `json:"opening_cost"`
+	Acquisitions           Money `json:"acquisitions"`
+	Retirements            Money `json:"retirements"`
+	Transfers              Money `json:"transfers"`
+	ClosingCost            Money `json:"closing_cost"`
+	OpeningAccumulated     Money `json:"opening_accumulated"`
+	Depreciation           Money `json:"depreciation"`
+	RetirementsAccumulated Money `json:"retirements_accumulated"`
+	TransfersAccumulated   Money `json:"transfers_accumulated"`
+	ClosingAccumulated     Money `json:"closing_accumulated"`
+	OpeningNetBookValue    Money `json:"opening_net_book_value"`
+	ClosingNetBookValue    Money `json:"closing_net_book_value"`
+}
+
+// GetOpeningCost returns the value of OpeningCost.
+func (s *AssetHistorySheetValues) GetOpeningCost() Money {
+	return s.OpeningCost
+}
+
+// GetAcquisitions returns the value of Acquisitions.
+func (s *AssetHistorySheetValues) GetAcquisitions() Money {
+	return s.Acquisitions
+}
+
+// GetRetirements returns the value of Retirements.
+func (s *AssetHistorySheetValues) GetRetirements() Money {
+	return s.Retirements
+}
+
+// GetTransfers returns the value of Transfers.
+func (s *AssetHistorySheetValues) GetTransfers() Money {
+	return s.Transfers
+}
+
+// GetClosingCost returns the value of ClosingCost.
+func (s *AssetHistorySheetValues) GetClosingCost() Money {
+	return s.ClosingCost
+}
+
+// GetOpeningAccumulated returns the value of OpeningAccumulated.
+func (s *AssetHistorySheetValues) GetOpeningAccumulated() Money {
+	return s.OpeningAccumulated
+}
+
+// GetDepreciation returns the value of Depreciation.
+func (s *AssetHistorySheetValues) GetDepreciation() Money {
+	return s.Depreciation
+}
+
+// GetRetirementsAccumulated returns the value of RetirementsAccumulated.
+func (s *AssetHistorySheetValues) GetRetirementsAccumulated() Money {
+	return s.RetirementsAccumulated
+}
+
+// GetTransfersAccumulated returns the value of TransfersAccumulated.
+func (s *AssetHistorySheetValues) GetTransfersAccumulated() Money {
+	return s.TransfersAccumulated
+}
+
+// GetClosingAccumulated returns the value of ClosingAccumulated.
+func (s *AssetHistorySheetValues) GetClosingAccumulated() Money {
+	return s.ClosingAccumulated
+}
+
+// GetOpeningNetBookValue returns the value of OpeningNetBookValue.
+func (s *AssetHistorySheetValues) GetOpeningNetBookValue() Money {
+	return s.OpeningNetBookValue
+}
+
+// GetClosingNetBookValue returns the value of ClosingNetBookValue.
+func (s *AssetHistorySheetValues) GetClosingNetBookValue() Money {
+	return s.ClosingNetBookValue
+}
+
+// SetOpeningCost sets the value of OpeningCost.
+func (s *AssetHistorySheetValues) SetOpeningCost(val Money) {
+	s.OpeningCost = val
+}
+
+// SetAcquisitions sets the value of Acquisitions.
+func (s *AssetHistorySheetValues) SetAcquisitions(val Money) {
+	s.Acquisitions = val
+}
+
+// SetRetirements sets the value of Retirements.
+func (s *AssetHistorySheetValues) SetRetirements(val Money) {
+	s.Retirements = val
+}
+
+// SetTransfers sets the value of Transfers.
+func (s *AssetHistorySheetValues) SetTransfers(val Money) {
+	s.Transfers = val
+}
+
+// SetClosingCost sets the value of ClosingCost.
+func (s *AssetHistorySheetValues) SetClosingCost(val Money) {
+	s.ClosingCost = val
+}
+
+// SetOpeningAccumulated sets the value of OpeningAccumulated.
+func (s *AssetHistorySheetValues) SetOpeningAccumulated(val Money) {
+	s.OpeningAccumulated = val
+}
+
+// SetDepreciation sets the value of Depreciation.
+func (s *AssetHistorySheetValues) SetDepreciation(val Money) {
+	s.Depreciation = val
+}
+
+// SetRetirementsAccumulated sets the value of RetirementsAccumulated.
+func (s *AssetHistorySheetValues) SetRetirementsAccumulated(val Money) {
+	s.RetirementsAccumulated = val
+}
+
+// SetTransfersAccumulated sets the value of TransfersAccumulated.
+func (s *AssetHistorySheetValues) SetTransfersAccumulated(val Money) {
+	s.TransfersAccumulated = val
+}
+
+// SetClosingAccumulated sets the value of ClosingAccumulated.
+func (s *AssetHistorySheetValues) SetClosingAccumulated(val Money) {
+	s.ClosingAccumulated = val
+}
+
+// SetOpeningNetBookValue sets the value of OpeningNetBookValue.
+func (s *AssetHistorySheetValues) SetOpeningNetBookValue(val Money) {
+	s.OpeningNetBookValue = val
+}
+
+// SetClosingNetBookValue sets the value of ClosingNetBookValue.
+func (s *AssetHistorySheetValues) SetClosingNetBookValue(val Money) {
+	s.ClosingNetBookValue = val
+}
+
 // An asset's values in one ledger (ADR-0057 §5): its acquisition cost, accumulated depreciation
 // (negative, the credit it is) and net book value, in the company's local currency and in group
 // currency as the ledger booked them.
@@ -21880,6 +22408,22 @@ func (*GetAssetBadRequest) getAssetRes() {}
 type GetAssetForbidden Problem
 
 func (*GetAssetForbidden) getAssetRes() {}
+
+type GetAssetHistorySheetBadRequest Problem
+
+func (*GetAssetHistorySheetBadRequest) getAssetHistorySheetRes() {}
+
+type GetAssetHistorySheetForbidden Problem
+
+func (*GetAssetHistorySheetForbidden) getAssetHistorySheetRes() {}
+
+type GetAssetHistorySheetNotFound Problem
+
+func (*GetAssetHistorySheetNotFound) getAssetHistorySheetRes() {}
+
+type GetAssetHistorySheetUnprocessableEntity Problem
+
+func (*GetAssetHistorySheetUnprocessableEntity) getAssetHistorySheetRes() {}
 
 type GetAssetNotFound Problem
 
@@ -52307,6 +52851,7 @@ func (*TooManyRequestsHeaders) getAiUsageRes()                       {}
 func (*TooManyRequestsHeaders) getAnalyticsModelRes()                {}
 func (*TooManyRequestsHeaders) getApprovalRequestRes()               {}
 func (*TooManyRequestsHeaders) getAssetAcquisitionRes()              {}
+func (*TooManyRequestsHeaders) getAssetHistorySheetRes()             {}
 func (*TooManyRequestsHeaders) getAssetRes()                         {}
 func (*TooManyRequestsHeaders) getAssetRetirementRes()               {}
 func (*TooManyRequestsHeaders) getAssetScheduleRes()                 {}
@@ -52697,6 +53242,7 @@ func (*UnauthorizedHeaders) getAiUsageRes()                       {}
 func (*UnauthorizedHeaders) getAnalyticsModelRes()                {}
 func (*UnauthorizedHeaders) getApprovalRequestRes()               {}
 func (*UnauthorizedHeaders) getAssetAcquisitionRes()              {}
+func (*UnauthorizedHeaders) getAssetHistorySheetRes()             {}
 func (*UnauthorizedHeaders) getAssetRes()                         {}
 func (*UnauthorizedHeaders) getAssetRetirementRes()               {}
 func (*UnauthorizedHeaders) getAssetScheduleRes()                 {}
