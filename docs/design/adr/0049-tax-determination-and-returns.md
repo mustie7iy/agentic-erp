@@ -1289,11 +1289,17 @@ companies (all in the tenant, under RLS). A registration change is financial
     109 - 112, 205 + 405, 113A + 113B) and 114 and 115 as 113C's negative
     and positive part are written from memory, and their labels say so,
     pending the tax specialist. 205 and 405 come before 113B, which reads
-    them (an expression reads earlier lines only). An expression line's
-    earlier-period part is its expression over the earlier lines' parts
-    (T61h), so 114 and 115, which are not linear, can show such a part
-    on a line whose amount is 0 (`TestGST34Golden`'s second quarter:
-    115 owes 120.00, 114 is 0.00 of which 10.00 earlier).
+    them (an expression reads earlier lines only). 114 and 115 are the
+    first lines that are not linear, so an expression box's derived
+    figures are now differences of evaluations (review round 1): its
+    earlier-period part is its value less its value without the earlier
+    periods' items, and an amendment's own figure is its corrected
+    figure less the amended return's; for linear boxes both are what
+    T61h and T61i computed. `TestGST34Golden`: the second quarter owes
+    120.00, of which -10.00 from a late ITC, 114 0.00 with no earlier
+    part; an amendment reversing an import and an instalment turns the
+    first quarter's refund of 783.00 into 167.00 owing, its 114 -783.00
+    and 115 167.00.
   - **The mapping.** GST and HST are the components keyed `gst` and `hst`,
     as the pack's codes key them, so QST and the provincial sales taxes
     are on no line (and are not claimed by this registration's return:

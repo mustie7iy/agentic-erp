@@ -356,7 +356,11 @@ func TestCanadaPackGST34(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadAll(packs.FS): %v", err)
 	}
-	def := lib.Get("CA", "2026.6").Return("GST34")
+	ca := lib.Get("CA", "2026.6")
+	if ca == nil || ca.Return("GST34") == nil {
+		t.Fatal("Get(CA, 2026.6).Return(GST34): got none, want the GST/HST return")
+	}
+	def := ca.Return("GST34")
 	b, err := fs.ReadFile(packs.FS, "ca/TAX-PENDING-T61j.md")
 	if err != nil {
 		t.Fatalf("read the pending file: %v", err)

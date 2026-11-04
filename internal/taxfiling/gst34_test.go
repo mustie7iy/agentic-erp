@@ -165,8 +165,9 @@ type gst34 struct {
 // kind and a credit, purchases by supplier invoice (GST, HST, QST and BC
 // PST; self-assessed imported services and real property), the GST the
 // CBSA collected on an import, the adjustments, an instalment and a
-// rebate, and a sale posted twice and reversed.
-func (g gst34) worked(t *testing.T) {
+// rebate, and a sale posted twice and reversed. It returns the ids of the
+// import's entry and the instalment's.
+func (g gst34) worked(t *testing.T) (imported, instalment string) {
 	t.Helper()
 	g.entry(t, "2026-01-15", "100000 1130.00", "400000 -1000.00 HS13", "240000 -130.00 HS13")              // an Ontario sale, HST 13%
 	g.entry(t, "2026-01-20", "100000 2100.00", "400000 -2000.00 GS5", "240000 -100.00 GS5")                // a sale with GST 5%
@@ -177,15 +178,16 @@ func (g gst34) worked(t *testing.T) {
 	g.entry(t, "2026-02-10", "400000 200.00 GS5", "240000 10.00 GS5", "100000 -210.00")                    // a credit note on the GST sale
 	twice, tag := g.entry(t, "2026-02-12", "100000 105.00", "400000 -100.00 GS5", "240000 -5.00 GS5")      // posted twice by mistake
 	g.e.Must(200, "POST", "/v1/journal-entries/"+twice+":reverse", "", tag)
-	g.invoice(t, "P1", "2026-02-15", "1615.00", "115.00", "1000.00 G5", "500.00 HON") // ITCs: 50.00 and 65.00
-	g.invoice(t, "P2", "2026-02-16", "216.98", "16.98", "100.00 QST", "100.00 PBC")   // QST refund and BC PST expensed: on no line
-	g.invoice(t, "P3", "2026-02-20", "1000.00", "0.00", "1000.00 RC4")                // imported services: 130.00 owed, 78.00 claimed
-	g.invoice(t, "P4", "2026-02-21", "2000.00", "0.00", "2000.00 RP5")                // real property: 100.00 owed and claimed
-	g.entry(t, "2026-03-02", "140000 650.00 IC5 13000.00", "219500 -650.00")          // the CBSA's GST on an import
-	g.entry(t, "2026-03-10", "520000 25.00", "240000 -25.00 AI")                      // an adjustment increasing the net tax
-	g.entry(t, "2026-03-11", "140000 40.00 AD", "520000 -40.00")                      // an adjustment decreasing it
-	g.entry(t, "2026-03-12", "140200 300.00 IN", "100000 -300.00")                    // an instalment paid
-	g.entry(t, "2026-03-13", "140300 15.00 RB", "400000 -15.00")                      // a rebate claimed
+	g.invoice(t, "P1", "2026-02-15", "1615.00", "115.00", "1000.00 G5", "500.00 HON")      // ITCs: 50.00 and 65.00
+	g.invoice(t, "P2", "2026-02-16", "216.98", "16.98", "100.00 QST", "100.00 PBC")        // QST refund and BC PST expensed: on no line
+	g.invoice(t, "P3", "2026-02-20", "1000.00", "0.00", "1000.00 RC4")                     // imported services: 130.00 owed, 78.00 claimed
+	g.invoice(t, "P4", "2026-02-21", "2000.00", "0.00", "2000.00 RP5")                     // real property: 100.00 owed and claimed
+	imported, _ = g.entry(t, "2026-03-02", "140000 650.00 IC5 13000.00", "219500 -650.00") // the CBSA's GST on an import
+	g.entry(t, "2026-03-10", "520000 25.00", "240000 -25.00 AI")                           // an adjustment increasing the net tax
+	g.entry(t, "2026-03-11", "140000 40.00 AD", "520000 -40.00")                           // an adjustment decreasing it
+	instalment, _ = g.entry(t, "2026-03-12", "140200 300.00 IN", "100000 -300.00")         // an instalment paid
+	g.entry(t, "2026-03-13", "140300 15.00 RB", "400000 -15.00")                           // a rebate claimed
+	return imported, instalment
 }
 
 // gst34Lines are the lines of the worked set's return, in the pack's
@@ -204,7 +206,7 @@ const gst34Lines = "101=4400.00/0.00#8 103=260.00/0.00#6 104=25.00/0.00#1 105=28
 func TestGST34Golden(t *testing.T) {
 	e, le := gst34Env(t)
 	g := gst34{e: e, le: le}
-	g.worked(t)
+	imported, instalment := g.worked(t)
 	reg := id(t, e, "GSTHST")
 	draft, _ := e.Must(200, "GET", compute(reg, "2026-01-01"), "", "")
 	want(t, "the draft's lines", boxes(draft), gst34Lines)
@@ -212,7 +214,11 @@ func TestGST34Golden(t *testing.T) {
 		"GST34 GST/HST return (GST34 lines) CAD map[country:CA version:2026.6]")
 	// 405 drills down to the owed part of the imported services.
 	items, _ := e.Must(200, "GET", "/v1/tax-registrations/"+reg+"/draft-return/items?period_start=2026-01-01&box=405", "", "")
-	it := items["items"].([]any)[0].(map[string]any)
+	list, _ := items["items"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("line 405's items: got %v, want one", items["items"])
+	}
+	it := list[0].(map[string]any)
 	want(t, "line 405's item", fmt.Sprintf("%v/%v %v %v", it["tax_code"], it["component"], it["account_key"], it["box_amount"].(map[string]any)["amount"]),
 		"RC4/hst_405 self_output 130.00")
 
@@ -232,6 +238,7 @@ func TestGST34Golden(t *testing.T) {
 	pgtest.Scan(t, `SELECT string_agg(code || '/' || component, ' ' ORDER BY code, component) FROM ledger.tax_item
 		WHERE tenant_id = $1 AND legal_entity_id = $2 AND reported_in IS NULL`, []any{e.Tenant.ID, le}, &unclaimed)
 	want(t, "the items no line selects", unclaimed, "GQ/qst OS/gst PBC/pst_bc QST/qst")
+	amended(t, g, ret["id"].(string), reg, imported, instalment)
 
 	// The second quarter owes: an Ontario sale, and a supplier's invoice of
 	// 30 March that arrived in April, its ITC an earlier period's (P7),
@@ -241,5 +248,35 @@ func TestGST34Golden(t *testing.T) {
 	q2, _ := e.Must(200, "GET", compute(reg, "2026-04-01"), "", "")
 	want(t, "the second quarter's lines", boxes(q2), "101=1000.00/0.00#1 103=130.00/0.00#1 104=0.00/0.00#0 105=130.00/0.00 106=10.00/10.00#1 "+
 		"107=0.00/0.00#0 108=10.00/10.00 109=120.00/-10.00 110=0.00/0.00#0 111=0.00/0.00#0 112=0.00/0.00 113a=120.00/-10.00 205=0.00/0.00#0 "+
-		"405=0.00/0.00#0 113b=0.00/0.00 113c=120.00/-10.00 114=0.00/10.00 115=120.00/0.00")
+		"405=0.00/0.00#0 113b=0.00/0.00 113c=120.00/-10.00 114=0.00/0.00 115=120.00/-10.00")
+}
+
+// amended files the first quarter's return and amends it with the
+// reversals of the import and the instalment, posted in April with the
+// originals' tax dates: the refund of 783.00 turns into 167.00 owing, so
+// the amendment's 114 falls by 783.00 and its 115 rises by 167.00 (not
+// the subtotals' 950.00 taken as owing).
+func amended(t *testing.T, g gst34, ret, reg string, entries ...string) {
+	t.Helper()
+	e := g.e
+	e.Approve(t, ret)
+	e.Must(200, "POST", "/v1/tax-returns/"+ret+":file", `{"confirmation_number": "CRA-Q1", "filed_on": "2026-04-20"}`, `"2"`)
+	for _, je := range entries {
+		_, tag := e.Must(200, "GET", "/v1/journal-entries/"+je, "", "")
+		e.Must(200, "POST", "/v1/journal-entries/"+je+":reverse", `{"posting_date": "2026-04-20"}`, tag)
+	}
+	amendment, _ := e.Must(201, "POST", returnsOf(reg), `{"period_start": "2026-01-01", "kind": "amendment"}`, "")
+	got := map[string]string{}
+	for _, b := range strings.Fields(snapshot(amendment)) {
+		code, rest, _ := strings.Cut(b, "=")
+		got[code] = rest
+	}
+	for line, figures := range map[string]string{"106": "-650.00/0.00/293.00#1", "109": "650.00/0.00/-48.00", "110": "-300.00/0.00/0.00#1",
+		"113c": "950.00/0.00/167.00", "114": "-783.00/0.00/0.00", "115": "167.00/0.00/167.00"} {
+		t.Run("amendment's line "+line, func(t *testing.T) {
+			if got[line] != figures {
+				t.Errorf("amount/prior part/corrected: got %s, want %s", got[line], figures)
+			}
+		})
+	}
 }

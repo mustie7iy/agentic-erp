@@ -48,7 +48,7 @@ The lines:
    in it (left out), and that it holds only revenue posted with a GST/HST
    code: sales posted without a tax code are on no line.
 3. Line 101 is in whole dollars on a paper return (ADR-0049 Context); the
-   return here is in cents, as entered online: confirm.
+   return here is in cents: is that how it is entered when filed online?
 4. Line 205: whether its self-assessed tax is claimed back as an input
    tax credit on 106 like 405's (ADR-0049 §9 states it for 405 only); as
    built, 106 takes the recovered part of every gst or hst claim, so a
@@ -59,8 +59,11 @@ default in ADR-0049 §11 As built, T61j):
 5. GST and HST are the components keyed `gst` and `hst`, as the pack's
    purchase codes key them; a sales code, a zero-rated or exempt code
    names its component `gst` (the country's) or `hst` (the province's) so
-   that 101 and 103 see it. QST and the provincial sales taxes are on no
-   line, so a Quebec registrant's QST waits for the FPZ-500 below.
+   that 101 and 103 see it, and has one such component: 101 sums the base
+   of each, so a code with both (an HST split into gst and hst parts)
+   would count its base twice; nothing refuses such a code. QST and the
+   provincial sales taxes are on no line, so a Quebec registrant's QST
+   waits for the FPZ-500 below.
 6. A self-assessed code keys its owed part (`self_output`) after its
    line (`gst_405`, `hst_405`; `gst_205`, `hst_205`) and its claim
    (`self_input`) `gst` or `hst`.
@@ -69,7 +72,10 @@ default in ADR-0049 §11 As built, T61j):
    code increases the net tax (104), an input code decreases it (107),
    and input codes keyed `instalment` and `rebate` are 110 and 111. Which
    adjustments a business enters on 104 and 107 (the ITC restrictions of
-   ADR-0049 §6, for one) is the specialist's to list for the pilot.
+   ADR-0049 §6, for one) is the specialist's to list for the pilot. An
+   adjustment code is meant for a manual entry's tax line alone; only the
+   capture refuses to propose one, and a sales or invoice line naming one
+   is not refused: its base is then on no line (101 leaves the kind out).
 
 Not built, waiting for the specialist and the pilot:
 8. The FPZ-500 (GST/HST and QST) for a Quebec registrant (P4 (b): only if

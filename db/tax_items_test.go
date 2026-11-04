@@ -643,7 +643,7 @@ func TestLineJurisdictionRules(t *testing.T) {
 // TestTaxAdjustmentKind: a code of kind adjustment (ADR-0049 §11, T61j,
 // migrations 000207-000208) is tax alone: an entry of its tax line has its
 // item of that kind, with no base; a kind the list does not hold is
-// refused on the item as on the code.
+// refused on the item (TestTaxCodeSchema refuses it on the code).
 func TestTaxAdjustmentKind(t *testing.T) {
 	need(t)
 	s := newTaxScene(t)

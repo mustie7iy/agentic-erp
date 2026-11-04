@@ -34822,7 +34822,7 @@ components:
           x-extensible-enum: [selection, expression]
           readOnly: true
         amount: {$ref: "#/components/schemas/Money", description: "The box's value, prior-period items included."}
-        prior_period_amount: {$ref: "#/components/schemas/Money", description: "The part of `amount` from prior-period items; of an expression box, its expression over the earlier boxes' prior-period parts."}
+        prior_period_amount: {$ref: "#/components/schemas/Money", description: "The part of `amount` from prior-period items; of an expression box, its value less its value without those items (the expression over the earlier boxes' parts when it is linear; not for a line's positive or negative part, such as a balance owing)."}
         item_count: {type: integer, format: int64, description: "The items a selection box sums; absent for an expression box.", readOnly: true}
     TaxReturnItem:
       type: object
@@ -34991,7 +34991,7 @@ components:
           description: "`selection`: a sum of one measure of the tax items the box selects; `expression`: computed from earlier boxes. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum: [selection, expression]
           readOnly: true
-        amount: {$ref: "#/components/schemas/Money", description: "The box's value from this return's items, prior-period items included: an amendment's correction."}
+        amount: {$ref: "#/components/schemas/Money", description: "The box's value from this return's items, prior-period items included: an amendment's correction, which of an expression box is its `corrected_amount` less the amended return's (so a refund turned into a balance owing shows the refund's fall and the balance's rise)."}
         prior_period_amount: {$ref: "#/components/schemas/Money", description: "The part of `amount` from prior-period items."}
         corrected_amount: {$ref: "#/components/schemas/Money", description: "The period's figure after this return: an original's `amount`; an amendment's, the amended return's plus its own (of an expression box, its expression over the corrected boxes)."}
         item_count: {type: integer, format: int64, description: "The items a selection box sums; absent for an expression box.", readOnly: true}
