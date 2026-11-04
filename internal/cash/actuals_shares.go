@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
@@ -71,7 +72,7 @@ func (e *Endpoints) ActualShares(ctx context.Context, legalEntity uuid.UUID) ([]
 	}
 	// Read only: nothing to keep, and the rollback's error changes nothing read.
 	defer func() { _ = rtx.Rollback(context.WithoutCancel(ctx)) }()
-	return e.shares(rctx, co, legalEntity)
+	return e.shares(rctx, rtx, co, legalEntity)
 }
 
 // ExtractActualShares are the shares of every statement line of the legal
@@ -81,6 +82,10 @@ func (e *Endpoints) ActualShares(ctx context.Context, legalEntity uuid.UUID) ([]
 // transaction (ADR-0044). A legal entity the directory does not know has
 // none.
 func (e *Endpoints) ExtractActualShares(ctx context.Context, legalEntity uuid.UUID) ([]ActualShare, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
 	co, ok, err := e.LegalEntities.Company(ctx, legalEntity)
 	if err != nil {
 		return nil, fmt.Errorf("cash: legal entity %s: %w", legalEntity, err)
@@ -88,13 +93,14 @@ func (e *Endpoints) ExtractActualShares(ctx context.Context, legalEntity uuid.UU
 	if !ok {
 		return nil, nil
 	}
-	return e.shares(ctx, co, legalEntity)
+	return e.shares(ctx, tx, co, legalEntity)
 }
 
-// shares reads and classifies the company's statement lines of every value
-// date and lists each line's shares, in the order the lines are read.
-func (e *Endpoints) shares(ctx context.Context, co Company, legalEntity uuid.UUID) ([]ActualShare, error) {
-	ar, err := e.classified(ctx, co, legalEntity, firstValueDate, lastValueDate)
+// shares reads, in tx, and classifies the company's statement lines of
+// every value date and lists each line's shares, in the order the lines
+// are read.
+func (e *Endpoints) shares(ctx context.Context, tx pgx.Tx, co Company, legalEntity uuid.UUID) ([]ActualShare, error) {
+	ar, err := e.classified(ctx, tx, co, legalEntity, firstValueDate, lastValueDate)
 	if err != nil {
 		return nil, err
 	}

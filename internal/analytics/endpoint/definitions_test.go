@@ -228,7 +228,7 @@ func errOf(_ any, err error) error { return err }
 func TestDisclosure(t *testing.T) {
 	detail := `{"invoices": 3, "metrics_since": 2025, "metrics": [{"metric": "revenue", "changed": 3, "values": [
 		{"company": "1000", "fiscal_year": "2026", "before": "1", "after": "2"},
-		{"company": "2000", "fiscal_year": "2025", "before": "1", "after": "1"},
+		{"company": "2000", "currency": "USD", "fiscal_year": "2025", "before": "1", "after": "1"},
 		{"company": "2000", "fiscal_year": "2026", "before": "1", "after": "2"},
 		{"company": "", "fiscal_year": "2026", "before": "3", "after": "4"}]}]}`
 	evidence := configuration.Evidence{Kind: "simulation", Detail: json.RawMessage(detail),
@@ -244,7 +244,7 @@ func TestDisclosure(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := `{"invoices":3,"metrics":[{"metric":"revenue","changed":1,"values":[` +
-			`{"company":"2000","fiscal_year":"2025","before":"1","after":"1"},{"company":"2000","fiscal_year":"2026","before":"1","after":"2"}]}],"metrics_since":2025}`
+			`{"company":"2000","currency":"USD","fiscal_year":"2025","before":"1","after":"1"},{"company":"2000","fiscal_year":"2026","before":"1","after":"2"}]}],"metrics_since":2025}`
 		if string(got.Detail) != want {
 			t.Errorf("reader of 2000: got %s, want %s", got.Detail, want)
 		}

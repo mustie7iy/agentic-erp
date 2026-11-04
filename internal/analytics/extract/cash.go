@@ -95,23 +95,27 @@ func (r *run) cashActuals(ctx context.Context, tx pgx.Tx) error {
 		return fmt.Errorf("%s: companies: %w", cashActualsDataset, err)
 	}
 	ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), reqctx.Principal{ID: ExtractActor(), Kind: reqctx.KindSystem, TenantID: r.tenant})
-	var all []cashActual
+	type share struct {
+		company string
+		CashShare
+	}
+	var all []share
 	for _, co := range companies {
 		shares, err := r.x.Cash.ExtractActualShares(ctx, co.ID)
 		if err != nil {
 			return fmt.Errorf("%s of %s: %w", cashActualsDataset, co.Code, err)
 		}
 		for _, sh := range shares {
-			all = append(all, cashRow(r.tenant, co.Code, sh))
+			all = append(all, share{co.Code, sh})
 		}
 	}
-	slices.SortFunc(all, func(a, b cashActual) int {
-		return cmp.Or(cmp.Compare(a.ValueDate, b.ValueDate), strings.Compare(a.Company, b.Company), bytes.Compare(a.StatementID[:], b.StatementID[:]),
-			cmp.Compare(a.LineNo, b.LineNo), strings.Compare(deref(a.LiquidityItem), deref(b.LiquidityItem)))
+	slices.SortFunc(all, func(a, b share) int {
+		return cmp.Or(a.ValueDate.Compare(b.ValueDate), strings.Compare(a.company, b.company), bytes.Compare(a.StatementID[:], b.StatementID[:]),
+			cmp.Compare(a.LineNo, b.LineNo), strings.Compare(a.Item, b.Item))
 	})
 	months, done := snapshotOf[cashActual](ctx, r, cashActualsDataset)
-	for _, a := range all {
-		if err = months.add(time.Unix(int64(a.ValueDate)*86400, 0).UTC().Format(monthLayout), a); err != nil {
+	for _, sh := range all {
+		if err = months.add(sh.ValueDate.Format(monthLayout), cashRow(r.tenant, sh.company, sh.CashShare)); err != nil {
 			break
 		}
 	}
@@ -128,12 +132,4 @@ func cashRow(tenant uuid.UUID, company string, sh CashShare) cashActual {
 		a.LiquidityItem, a.LiquidityItemName = &item, &name
 	}
 	return a
-}
-
-// deref is a nullable string's value, "" for null.
-func deref(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
 }

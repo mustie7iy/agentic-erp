@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics/extract"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -133,6 +134,25 @@ func TestCashActualsFailures(t *testing.T) {
 	if res := failEach(t, e); !res.Published {
 		t.Errorf("run: got %+v, want published", res)
 	}
+	t.Run("a file not stored", func(t *testing.T) {
+		pgtest.Exec(t, `DELETE FROM analytics.snapshot WHERE tenant_id = $1`, e.Tenant.ID) // a first run, which writes every month
+		x := e.x
+		x.Store = failingStore{Store: e.server.Store(), method: "put", part: "cash_actuals/month=2026-03"}
+		if _, err := x.Run(context.Background(), e.Tenant.ID); !errors.Is(err, blobstore.ErrLocked) || !strings.Contains(err.Error(), "cash_actuals") {
+			t.Errorf("run: got %v, want the March file's write failed", err)
+		}
+	})
+	t.Run("without the cash context", func(t *testing.T) {
+		x := e.x
+		x.Cash = nil
+		res, err := x.Run(context.Background(), e.Tenant.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := e.manifest(t, res.ManifestKey).Datasets["cash_actuals"]; ok {
+			t.Error("manifest: got cash_actuals, want none without the cash context")
+		}
+	})
 	t.Run("cash context", func(t *testing.T) {
 		x := e.x
 		x.Cash = failingCash{}

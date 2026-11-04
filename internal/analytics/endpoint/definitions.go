@@ -218,7 +218,8 @@ func recent(m *analytics.Model, name string, year int) analytics.Query {
 // the metric does not allow.
 type cell struct{ Company, Currency, FiscalYear string }
 
-// cells are a result's measure by company and fiscal year.
+// cells are a result's measure by company, fiscal year and, where the
+// metric is broken down by it, currency.
 func cells(res *analytics.Result) map[cell]string {
 	out := map[cell]string{}
 	for _, row := range res.Rows {
