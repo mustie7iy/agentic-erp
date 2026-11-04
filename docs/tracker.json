@@ -1177,16 +1177,23 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Long-running jobs and a deactivated requester (pre-existing security finding on T57f): identity.Actors.Actor does not check that the principal is still active, so migration runs and depreciation runs keep acting, and posting, as a requester deactivated after the start; should they refuse such a requester and fail the run, as ADR-0056's recurrer checks Active?",
-        "r": "internal/identity/directory.go Actors.Actor · internal/workflows requester (migrate.go) · ADR-0012 · ADR-0056 · ADR-0057 §7",
+        "s": "D",
+        "t": "Long-running jobs refuse a deactivated requester (pre-existing security finding on T57f; PO decision 2026-11-03: deactivated requesters are refused): every step that does deferred work as its requester (a migration run, a payment proposal and release, a simulation, a depreciation run's plan, batches and finish; workflow and in-process runners alike) first calls identity.Actors.MayAct, which refuses a requester blocked or deprovisioned since the start with 403 identity.principal_blocked, not retried; the job fails through its existing problem path, audited and recorded as the requester, its earlier postings kept and its slot freed (a migration run back to queued, a release left releasing for :release)",
+        "r": "internal/identity/directory.go Actors.MayAct · internal/workflows (working, Depreciations.acting) · integration prepareAs · payments mayAct · configuration simulation · ADR-0012 As built · ADR-0057 As built · 04 §4.8",
+        "src": "review:T57f · po:2026-11-03",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Every stopped simulation is audited (pre-existing finding on review:T57f's requester refusal, ADR-0011): every problem that fails a simulation's operation (an operation naming no change request, a change request gone or no longer awaiting evidence, a requester no longer active, a base or proposal this replica cannot read, simulator and regression problems), in the worker and the SimulateChange activity alike, records one config.change_request.simulate_failed entry with the problem's code and detail and the operation id, in the transaction that fails the operation (on the operation itself when it names no change request); the never-released simulate_refused is folded into it; a transient error records nothing and leaves the operation queued, and a retry after the commit records nothing twice",
+        "r": "internal/configuration/simulation.go (stopped) · internal/configuration/stopped_test.go · ADR-0011 · ADR-0012 As built",
         "src": "review:T57f",
         "c": []
        },
        {
-        "s": "T",
-        "t": "A retryable 409 stored under the Idempotency-Key (pre-existing finding on T57f, review round 3): the unit of work stores every 409 as a business outcome, including request.in_progress, which a lock timeout answers with Retry-After, so a client retrying with the same key, as Retry-After invites, gets the stale 409 replayed forever instead of the retry running; should a retryable answer (request.in_progress, and any other carrying Retry-After) leave the key unstored, as the rejections of the request itself do?",
-        "r": "internal/platform/uow/uow.go (businessOutcome, finish) · ADR-0046 · 04-api-design §4.7 (idempotency)",
+        "s": "D",
+        "t": "A retryable answer leaves the Idempotency-Key free (pre-existing finding on T57f, review round 3): the unit of work stored every 409 as a business outcome, request.in_progress of a lock timeout included, so a retry with the same key, as its Retry-After invites, got the stale 409 replayed; an answer carrying Retry-After, whatever its status (409 request.in_progress, 429, 503), is no longer a business outcome (uow.businessOutcome reads the header problem.Write sets from RetryAfter), so it stores nothing and the retry runs, while a 409 without Retry-After is stored and replayed as before; tests: TestLockTimeoutRetryRuns (a real lock timeout, then the retry after the lock is released succeeds), TestRetryableAnswersLeaveTheKey (each retryable class)",
+        "r": "internal/platform/uow/uow.go (businessOutcome, finish) · ADR-0008 (as built) · ADR-0046 · 04-api-design §4.6, §4.7 (idempotency) · api/openapi.yaml (Conflict, IdempotencyKey)",
         "src": "review:T57f",
         "c": []
        },
@@ -1198,9 +1205,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Transfers: to another cost center (its profit center derived, ledger.profit_center_mismatch for another) or profit center, valued on the posting period's first day (per ledger a catch-up through the period before on the previous row's centers, booked_through raised to it; a profit center change reposting all booked balances after the catch-up at local and group amounts, no movement but the catch-up's; every later posting on the latest assignment's centers; the catch-up dated the previous period's last day while that period is open, the asset is not booked through the transfer's period and the previous row's valid_from is on or before that day, else in the transfer's period on the old centers (also when the previous row is valid from the transfer's period: test, two center transfers valued 1 April with a February-valued acquisition capitalised between them, the second transfer's catch-up posted in April on the first transfer's centers); test: March open, a transfer valued 1 April posting March's depreciation on the old centers dated 31 March, then the March run posting nothing for the asset, a March-dated acquisition refused with assets.posting_before_center_transfer (a March-dated acquisition reversal with assets.reversal_before_original or assets.later_movements), and the April run posting on the new centers; the reversal reversing the catch-up, returning booked_through, and restoring the previous centers with the previous row's valid_from, so a March run and a March-dated acquisition are accepted again; test: a transfer whose catch-up was dated 31 March reversed after March closed, the catch-up's reversal posted in April on the old centers and booked_through back) and to another asset of the same company (share, residual value carried, receiver activated, sender retired by a full transfer, reclassification across classes; the receiver checked with assets.later_value_date and with assets.posting_before_center_transfer for a posting date before its latest assignment row; a reversed invoice's reversal line refused onto the receiver with assets.source_reversed); :reverse for both kinds, refused with assets.later_movements once anything followed on the sender or receiver, and with assets.reversal_before_original when an asset transfer's reversal or a center transfer's main part is dated before the transfer's posting date (tests); assets.transfer_other_company, transfer_same_asset, transfer_mid_period, value_date_outside_period, later_value_date, value_date_before_capitalisation; walkthrough: an asset moved to a cost center of another profit center from this period, its balances reposted, and part of it to an asset of another class; a test of a `center` transfer's `main` part reversed on a later date, its lines on the restoring row's centers (review round 10)",
-        "r": "ADR-0057 · T57h",
+        "r": "migration 000204 (assets.transfer: transfer_transition, transfer_fixed, transfer_seq_once, transfer_to_seq_once, transfer_kind, transfer_same_asset, transfer_share, transfer_value_date, transfer_reversal, transfer_reversal_date; asset_assignment.restores_seq, asset_assignment_restores) · internal/assets (transfer.go, transfercenter.go, transferstore.go, transferreversal.go, transferevents.go, transfer_api.go; derive: capitalised by asset transfers in; retirement's catch-up, share and dates shared) · ledger: entry_owned_elsewhere names the transfer's path · POST/GET /v1/asset-transfers, GET /v1/asset-transfers/{id}, :reverse; AssetDocumentEntry.part; AssetMovementPosted, AssetMovementReversed (transfer), AssetChanged (retired, reactivated) · TestCenterTransferWithTheMonthBeforeOpen, TestCenterTransferReversed, TestCenterTransferWithTheMonthBeforeClosed, TestCenterTransferCatchUpReversedAfterTheClose, TestTwoCenterTransfersInOnePeriod, TestCenterTransferAfterTheRun, TestAssetTransfer, TestAssetTransferReversalRefused, TestAssetTransferOfAReversedInvoice, TestTransferRefused, TestTransfersAtOnce, TestListAssetTransfers, TestTransferDatabaseFailures, TestTransferReadsFail, TestAssetTransferRules · walkthrough step_asset_transfer (step 32) · ADR-0057 (as built, T57h) · 03-data-model §3.21 · 04 §4.9 · T57h",
         "src": "adr:ADR-0057",
         "c": []
        },
@@ -1235,7 +1242,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Retirements and transfers",
       "r": "T57 · ADR-0057 §8 · T57g, T57h",
       "src": "baseline",
@@ -1481,9 +1488,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Forecast from procurement (P7): optional delivery_date on order items (contract first, additive, copied from requisitions' need date), open value net of invoiced quantity plus tax, expected dates from delivery or lead days and the order's terms; no requisitions; ADR-0034 note",
-        "r": "T53g",
+        "r": "PurchaseOrderItem.delivery_date · source purchase_order, LiquidityForecastDocument and CashSnapshotDocument kind purchase_order (procurement.order.read) · migrations 000205-000206 (purchase_order_item.delivery_date, snapshot_flow_document_kind_check) · procurement.Orders.Released, Order.OrderDate, OrderItem.DeliveryDate, neededBy · payables.Endpoints.OpenOrders, InvoiceOrders, quantitiesInvoiced, orderAdvances, readCharged · payments.CashPosition.Orders, CashOrder, CashPaid.Order · cash.SourcePurchaseOrder, DocPurchaseOrder, Paid.Order (variance key) · TestLiquidityForecastOrders, TestLiquidityForecastOrdersFailures, TestForecastVarianceOrder, TestOpenValue, TestWithTax, TestOpenOrderTax, TestOpenOrderAdvance, TestOrderDeliveryDates, TestLiquidityForecastBudget (orders) · walkthrough step 33 · ADR-0051 (as built, T53g) · ADR-0034 (as built, delivery date) · 03-data-model §3.8, §3.17, §3.18 · 04-api-design · T53g",
         "src": "baseline",
         "c": []
        },
@@ -9654,6 +9661,20 @@
       "t": "TestOffboardingFailures fails each statement of an export and of an erasure in turn up to the run's own statement count, not a fixed bound (finding of the T57b review: an export ran 195 statements against a bound of 199, and the assets schema pushed it past, so T57b raised the bound to 399); a run that succeeds though one of its statements failed, or issues none, fails the test",
       "r": "internal/offboarding/offboarding_test.go eachStatementFailing",
       "src": "review:T57b",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Three tests that failed only on a loaded machine (load average 25 and more) hold whatever the load: TestDeterministic's six hundred rule evaluations run under a time limit the machine cannot reach, compiled through rules' unexported compile, while TestTimeLimit holds every rule Compile builds to ADR-0046's 10 ms and shows a limit stops a rule by one already past (it failed with the evaluation's context deadline exceeded whenever the process was descheduled for 10 ms); the performance budget tests measure only in scripts/budgets.sh, which sets ERP_MEASURE_BUDGETS (nfr.Measure), one package at a time at the gate's scale, and skip in any other go test (TestReportBudgets measured p95 47 ms against 30 ms in a plain run beside other packages); TestMigratedClearingAndSignOffLockInOneOrder moves the clearing entry behind its copies in one transaction until a scan reads a copy first (an insert can go to an earlier page the free space map offers once autovacuum has recorded free space in the package database's busy partition), and still deadlocks on the old lock order",
+      "r": "internal/platform/rules compile.go compile · TestDeterministic · TestTimeLimit · internal/nfr measure.go Measure · scripts/budgets.sh · internal/ledger periodlockorder_test.go behindCopies · docs/testing.md · 06 §6.5",
+      "src": "review:batch52",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "The browser tests' company choice (choose) waits for htmx to settle, not for the swapped content alone (the lines added or left out already wait for the autofocus htmx gives in the same settle step): htmx puts the content in at once but processes it (its hx- attributes' listeners, its autofocus) only as the swap settles, 20 ms or more later, so an amount typed in that window sent no request and TestEntryFormJobsInTheBrowser's running totals stayed at zero under the whole tree's race run (batch 52 ci-local); choose returns only once no element is htmx-request, htmx-swapping, htmx-settling or htmx-added (htmxSettled), and the test passes with the settle delay raised to 3 s, where it failed without the wait",
+      "r": "internal/web/e2e e2e_test.go htmxSettled · entry_test.go choose · TestEntryFormJobsInTheBrowser",
+      "src": "review:batch52",
       "c": []
      }
     ]

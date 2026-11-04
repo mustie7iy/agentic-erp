@@ -45,11 +45,13 @@ func refocus(t *testing.T, ctx context.Context) {
 }
 
 // choose chooses the option of the select as a person does: its value
-// set and its change sent, which htmx acts on.
+// set and its change sent, which htmx acts on; it returns once htmx has
+// swapped and settled what it answered, so the next field typed in is
+// one htmx listens to.
 func choose(t *testing.T, ctx context.Context, sel, value string) {
 	t.Helper()
 	if err := chromedp.Do(ctx, chromedp.SetValue(chromedp.CSS(sel), value),
-		chromedp.Evaluate[chromedp.Void](`document.querySelector("`+sel+`").dispatchEvent(new Event("change", {bubbles: true}))`)); err != nil {
+		chromedp.Evaluate[chromedp.Void](`document.querySelector("`+sel+`").dispatchEvent(new Event("change", {bubbles: true}))`), htmxSettled); err != nil {
 		t.Fatal(err)
 	}
 }

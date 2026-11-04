@@ -3,6 +3,7 @@ package payments
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -15,19 +16,21 @@ import (
 )
 
 // What a CashPayable is (ADR-0051 §4): a supplier open item, an invoice
-// not posted yet as the item it would become (T53e2), or a down payment
-// request (T53e2), which a run pays whole and never nets.
+// not posted yet as the item it would become (T53e2), a down payment
+// request (T53e2), which a run pays whole and never nets, or a purchase
+// order's open value as the item invoicing it would give (T53g).
 const (
 	CashItem        = "item"
 	CashUnposted    = "unposted"
 	CashDownPayment = "down_payment"
+	CashOrder       = "order"
 )
 
 // CashPayable is a supplier open item as the liquidity forecast reads it
 // (ADR-0051 §5, T53e): the item, when it is due, whether its supplier is
 // blocked, and the house bank and method a run would pay it through.
 type CashPayable struct {
-	Kind string // CashItem, CashUnposted or CashDownPayment
+	Kind string // CashItem, CashUnposted, CashDownPayment or CashOrder
 	ledger.PayableItem
 	// Due is its net due date (ledger.PayableItem.DueDate): an invoice's by
 	// the terms it was posted with, else its supplier's net days; a debit
@@ -77,8 +80,10 @@ func (c CashPayable) Pays(on time.Time) (money.Minor, error) {
 // Payables are what the legal entity's runs are expected to pay its
 // suppliers (ADR-0051 §4, §5): the supplier open items no live run holds
 // (a run's payment counts instead, Pending), the invoices not posted yet
-// as the items they would become (CashUnposted, T53e2), and the open down
-// payment requests no live run pays (CashDownPayment, T53e2); each with
+// as the items they would become (CashUnposted, T53e2), the open down
+// payment requests no live run pays (CashDownPayment, T53e2), and the
+// released purchase orders' open values as the items invoicing them would
+// give (CashOrder, T53g); each with
 // its due date, its supplier's block, and the bank and method a run on
 // the date would route it through. What a run holds is the run's flow,
 // never the document's as well (ADR-0051 §5).
@@ -87,7 +92,7 @@ func (c CashPosition) Payables(ctx context.Context, legalEntity uuid.UUID, on ti
 	if err != nil {
 		return nil, err
 	}
-	items, err := c.documents(ctx, tx, legalEntity)
+	items, err := c.documents(ctx, tx, legalEntity, on)
 	if err != nil {
 		return nil, err
 	}
@@ -126,9 +131,9 @@ func (c CashPosition) Payables(ctx context.Context, legalEntity uuid.UUID, on ti
 }
 
 // documents are the legal entity's supplier open items no live run holds,
-// its unposted invoices and its open down payment requests no live run
-// pays, without their routing.
-func (c CashPosition) documents(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID) ([]CashPayable, error) {
+// its unposted invoices, its open down payment requests no live run pays
+// and its open purchase orders as read on the date, without their routing.
+func (c CashPosition) documents(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, on time.Time) ([]CashPayable, error) {
 	open, err := c.Owed.Owed(ctx, legalEntity)
 	if err != nil {
 		return nil, err
@@ -150,11 +155,18 @@ func (c CashPosition) documents(ctx context.Context, tx pgx.Tx, legalEntity uuid
 	if err != nil {
 		return nil, err
 	}
-	if err := c.withNumbers(ctx, legalEntity, unposted); err != nil {
+	orders, err := c.Orders.OpenOrders(ctx, legalEntity, on)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.withNumbers(ctx, legalEntity, append(slices.Clip(unposted), orders...)); err != nil {
 		return nil, err
 	}
 	for _, it := range unposted {
 		out = append(out, CashPayable{Kind: CashUnposted, PayableItem: it})
+	}
+	for _, it := range orders {
+		out = append(out, CashPayable{Kind: CashOrder, PayableItem: it})
 	}
 	requests, err := c.Requests.Open(ctx, legalEntity)
 	if err != nil {
@@ -253,12 +265,14 @@ type CashPaying struct {
 // nets), the item's offsetting lines, its journal entry, and the supplier
 // invoice that entry was posted for (nil for none: a manual entry, a
 // migrated item), by which the forecast variance knows the documents a
-// payment paid (T53f3).
+// payment paid (T53f3), and the purchase order that invoice was entered on
+// (nil for none, T53g).
 type CashPaid struct {
 	Amount  money.Minor
 	Lines   []ledger.OffsettingLine
 	Entry   uuid.UUID
 	Invoice *uuid.UUID
+	Order   *uuid.UUID
 }
 
 // Paying is what each of the payments pays, keyed by payment; a payment
@@ -288,6 +302,10 @@ func (c CashPosition) Paying(ctx context.Context, legalEntity uuid.UUID, ids []u
 	if err != nil {
 		return nil, err
 	}
+	orders, err := c.Orders.InvoiceOrders(ctx, slices.Collect(maps.Values(invoices)))
+	if err != nil {
+		return nil, err
+	}
 	out := map[uuid.UUID]CashPaying{}
 	for _, x := range all {
 		pay := out[x.payment]
@@ -296,6 +314,9 @@ func (c CashPosition) Paying(ctx context.Context, legalEntity uuid.UUID, ids []u
 			paid := CashPaid{Amount: x.amount, Lines: lines[*x.entry], Entry: x.entry.EntryID}
 			if inv, ok := invoices[*x.entry]; ok {
 				paid.Invoice = &inv
+				if o, ok := orders[inv]; ok {
+					paid.Order = &o
+				}
 			}
 			pay.Items = append(pay.Items, paid)
 		}

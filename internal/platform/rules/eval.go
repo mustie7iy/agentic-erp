@@ -75,10 +75,10 @@ func failure(err error) string {
 	}
 }
 
-// eval runs one rule within the timeout of ADR-0046. The checker proved
-// the result boolean.
+// eval runs one rule within the timeout of ADR-0046 (Timeout outside
+// this package's tests). The checker proved the result boolean.
 func (r compiled) eval(ctx context.Context, act interpreter.Activation) (bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, Timeout)
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	out, _, err := r.prg.ContextEval(ctx, act)
 	if err != nil {

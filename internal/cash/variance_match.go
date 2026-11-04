@@ -19,10 +19,12 @@ import (
 // within its 31 days (T53f): a run's payment or a payment in transit by
 // the payment, a supplier item by its journal entry, an invoice not yet
 // posted by the invoice, a down payment request, a memo record (a series'
-// occurrence by the series and its day). A statement line matched to
-// payments is split by the items they settled (T53f2), each piece known by
-// its payment, then its item's journal entry, then the invoice that entry
-// was posted for, or, paying no item, by the down payment request; a line
+// occurrence by the series and its day), a purchase order's open value by
+// the order (T53g). A statement line matched to payments is split by the
+// items they settled (T53f2), each piece known by its payment, then its
+// item's journal entry, then the invoice that entry was posted for, then
+// the order that invoice was entered on, or, paying no item, by the down
+// payment request; a line
 // that realised a memo record by the record, and an override of a series'
 // occurrence by the series and that occurrence's day as the snapshot
 // dated it. Each piece is matched to the first of its keys the snapshot
@@ -36,8 +38,9 @@ func docKey(kind string, id uuid.UUID) string { return kind + ":" + id.String() 
 
 // paymentKeys are the keys of the pieces paymentParts splits a payment
 // into, in the same order: per item it settles, the payment, the item's
-// journal entry and the invoice it was posted for; a payment of no item,
-// the payment and the down payment request it pays.
+// journal entry, the invoice it was posted for and the purchase order that
+// invoice was entered on (T53g); a payment of no item, the payment and the
+// down payment request it pays.
 func paymentKeys(id uuid.UUID, p Paying) [][]string {
 	if len(p.Items) == 0 {
 		k := []string{paymentKey(id)}
@@ -51,6 +54,9 @@ func paymentKeys(id uuid.UUID, p Paying) [][]string {
 		out[i] = []string{paymentKey(id), docKey(DocJournalEntry, it.Entry)}
 		if it.Invoice != nil {
 			out[i] = append(out[i], docKey(DocSupplierInvoice, *it.Invoice))
+		}
+		if it.Order != nil {
+			out[i] = append(out[i], docKey(DocPurchaseOrder, *it.Order))
 		}
 	}
 	return out

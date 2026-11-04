@@ -25,9 +25,7 @@ import (
 // It reads every page of the year's differences, with the trial balances,
 // and the drill-down of one account (T52e).
 func TestLedgerReconciliationBudget(t *testing.T) {
-	if testing.Short() || raceDetector {
-		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
-	}
+	nfr.Measure(t)
 	r := reconBudgetData(t)
 	var times []time.Duration
 	for range 10 {

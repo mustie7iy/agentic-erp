@@ -24,9 +24,7 @@ import (
 // writes a period's rows when its first lines are posted, so a period's
 // rows lie together as they would.
 func TestCenterBalancesBudget(t *testing.T) {
-	if testing.Short() || raceDetector {
-		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
-	}
+	nfr.Measure(t)
 	r := centerBudgetData(t)
 	for _, path := range []string{"/v1/cost-center-balances", "/v1/profit-center-balances"} {
 		var times []time.Duration

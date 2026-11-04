@@ -44,9 +44,7 @@ func many(n int, one func() string) string {
 // of 500 accounts, five companies and a hundred suppliers named on the
 // open items' page.
 func TestReportBudgets(t *testing.T) {
-	if testing.Short() || raceDetector {
-		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
-	}
+	nfr.Measure(t)
 	company, ledger, compare, account := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	m := moneyJSON("-1234567.89")
 	suppliers := make([]uuid.UUID, reportPageSize)

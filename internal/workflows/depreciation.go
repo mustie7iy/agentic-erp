@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
@@ -172,17 +173,34 @@ func (d *Depreciations) begin(ctx context.Context, s database.Scope) (pgx.Tx, er
 
 // as runs fn in one transaction of the run's tenant as its requester; a
 // business problem comes back as the non-retryable error the workflow
-// records.
+// records. It is the failure's step: it records how the run ended, as the
+// requester whatever their status.
 func (d *Depreciations) as(ctx context.Context, in DepreciationInput, fn func(ctx context.Context) error) error {
+	return d.step(ctx, in, requester, fn)
+}
+
+// acting is as for a step that does the run's work (the plan, a batch, the
+// finish): its requester must still be active (working). One blocked or
+// deprovisioned since the start is refused with identity.principal_blocked
+// (PO 2026-11-03), which fails the run through FailDepreciationRun; the
+// batches posted before stay posted.
+func (d *Depreciations) acting(ctx context.Context, in DepreciationInput, fn func(ctx context.Context) error) error {
+	return d.step(ctx, in, working, fn)
+}
+
+// step runs fn in one transaction of the run's tenant as who the actor
+// reads.
+func (d *Depreciations) step(ctx context.Context, in DepreciationInput, actor func(Actors, uuid.UUID, string) func(context.Context, pgx.Tx) (reqctx.Principal, bool, error),
+	fn func(ctx context.Context) error) error {
 	what := "depreciation run " + in.RunID.String()
 	return asProblem(uow.Job{Begin: d.begin, Scope: database.Scope{Role: d.AppRole, TenantID: in.TenantID}, Now: d.Now,
-		Name: "workflows: " + what}.As(ctx, requester(d.Actors, in.OperationID, what), fn))
+		Name: "workflows: " + what}.As(ctx, actor(d.Actors, in.OperationID, what), fn))
 }
 
 // PlanDepreciationRun plans the run and returns its batches.
 func (d *Depreciations) PlanDepreciationRun(ctx context.Context, in DepreciationInput) ([]int32, error) {
 	var batches []int32
-	err := d.as(ctx, in, func(ctx context.Context) error {
+	err := d.acting(ctx, in, func(ctx context.Context) error {
 		var err error
 		batches, err = d.Runs.PlanDepreciationRun(ctx, in.RunID)
 		return err
@@ -192,12 +210,12 @@ func (d *Depreciations) PlanDepreciationRun(ctx context.Context, in Depreciation
 
 // PostDepreciationBatch posts one batch of the run.
 func (d *Depreciations) PostDepreciationBatch(ctx context.Context, in DepreciationInput, batch int32) error {
-	return d.as(ctx, in, func(ctx context.Context) error { return d.Runs.PostDepreciationBatch(ctx, in.RunID, batch) })
+	return d.acting(ctx, in, func(ctx context.Context) error { return d.Runs.PostDepreciationBatch(ctx, in.RunID, batch) })
 }
 
 // FinishDepreciationRun sets the run posted.
 func (d *Depreciations) FinishDepreciationRun(ctx context.Context, in DepreciationInput) error {
-	return d.as(ctx, in, func(ctx context.Context) error { return d.Runs.FinishDepreciationRun(ctx, in.RunID) })
+	return d.acting(ctx, in, func(ctx context.Context) error { return d.Runs.FinishDepreciationRun(ctx, in.RunID) })
 }
 
 // FailDepreciationRun sets the run failed with the problem that stopped it.

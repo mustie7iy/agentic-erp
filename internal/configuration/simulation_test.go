@@ -422,3 +422,40 @@ func TestSimulationWorkerFailures(t *testing.T) {
 }
 
 var _ = apitest.NewKey
+
+// TestSimulationRequesterBlocked: a simulation whose requester is blocked
+// after queueing it (PO 2026-11-03) replays nothing: its operation fails
+// with identity.principal_blocked, audited on the change request
+// (config.change_request.simulate_failed), no evidence is recorded and the change
+// request stays awaiting evidence, for someone active to simulate; run
+// again, the job is done.
+func TestSimulationRequesterBlocked(t *testing.T) {
+	s := sim{fixture.New(t, append(perms, "platform.operation.read")...)}
+	cr, op := s.tier3(t, "9")
+	sims := &fakeSimulator{sim: configuration.Simulation{Passed: true, Summary: "0 invoices replayed."}}
+	w := worker(t, sims)
+	pgtest.Exec(t, `UPDATE identity.principal SET status = 'blocked', version = version + 1 WHERE id = $1`, s.Tenant.Human.ID)
+	ctx := context.Background()
+	id := uuid.MustParse(apitest.String(t, op, "id"))
+	if did, err := w.Simulate(ctx, s.Tenant.ID, id); !did || err != nil {
+		t.Fatalf("simulate: got %t %v, want the job done", did, err)
+	}
+	state := func() string {
+		var got string
+		pgtest.Scan(t, `SELECT o.status || ' ' || coalesce(o.error->>'code', '') || ' ' || c.status || ' ' ||
+				(SELECT count(*) FROM config.evidence v WHERE v.change_request_id = c.id) || ' ' ||
+				(SELECT count(*) FROM audit.audit_event a WHERE a.tenant_id = c.tenant_id AND a.action = 'config.change_request.simulate_failed' AND a.object_id = c.id
+					AND a.detail->>'code' = 'identity.principal_blocked' AND a.detail->>'operation_id' = o.id::text)
+			FROM platform.operation o, config.change_request c WHERE o.id = $1 AND c.id = $2`, []any{id, uuid.MustParse(apitest.String(t, cr, "id"))}, &got)
+		return got
+	}
+	if got := state(); got != "failed identity.principal_blocked awaiting_evidence 0 1" {
+		t.Errorf("the operation, the change request, its evidence and audit records: got %q, want failed with identity.principal_blocked, awaiting evidence, none, one", got)
+	}
+	if sims.calls != 0 {
+		t.Errorf("replays: got %d, want none", sims.calls)
+	}
+	if did, err := w.Simulate(ctx, s.Tenant.ID, id); did || err != nil {
+		t.Errorf("run again: got %t %v, want nothing to do", did, err)
+	}
+}

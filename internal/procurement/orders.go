@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -35,6 +36,9 @@ type OrderItem struct {
 	// CostCenterID is the item's cost center (T56e), nil when it is
 	// assigned to none: an invoice item on it takes it.
 	CostCenterID *uuid.UUID `json:"cost_center_id"`
+	// DeliveryDate is the item's expected delivery date, nil for none
+	// (T53g): when the liquidity forecast expects it invoiced.
+	DeliveryDate *time.Time `json:"delivery_date"`
 }
 
 // Order is a purchase order as payables sees it.
@@ -44,10 +48,36 @@ type Order struct {
 	LegalEntityID   uuid.UUID
 	SupplierID      uuid.UUID
 	Currency        string
+	OrderDate       time.Time
 	PaymentTermCode string
 	Status          string
 	Valuation       string // ValuationDirect or ValuationGRIR (T33)
 	Items           []OrderItem
+}
+
+// payablesOrder selects an order as payables sees it, from
+// procurement.purchase_order po.
+const payablesOrder = `SELECT po.id, po.document_number, po.legal_entity_id, po.supplier_id, po.currency, po.order_date, po.payment_term_code, po.status,
+		po.valuation, coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code,
+			'unit_price', i.unit_price, 'price_unit', i.price_unit, 'account_id', i.account_id, 'tax_code', i.tax_code,
+			-- an order's items are valued as it is released, a released one's always
+			-- (value_released_items, purchase_order_item_valued): payables posts
+			-- only on released orders
+			'valuation_price', coalesce(i.valuation_price, 0), 'valuation_price_unit', coalesce(i.valuation_price_unit, 1),
+			'cost_center_id', i.cost_center_id, 'delivery_date', ` + deliveryDate + `,
+			'received', trim_scale(coalesce((SELECT sum(g.quantity) FROM procurement.goods_movement_item g WHERE g.tenant_id = i.tenant_id
+				AND g.purchase_order_id = i.purchase_order_id AND g.po_item_no = i.item_no), 0))::text) ORDER BY i.item_no)
+		 FROM procurement.purchase_order_item i WHERE i.tenant_id = po.tenant_id AND i.purchase_order_id = po.id AND NOT i.is_removed), '[]')
+	FROM procurement.purchase_order po`
+
+// scanPayablesOrder scans a row of payablesOrder.
+func scanPayablesOrder(row pgx.Row) (Order, error) {
+	var o Order
+	if err := row.Scan(&o.ID, &o.DocumentNumber, &o.LegalEntityID, &o.SupplierID, &o.Currency, &o.OrderDate, &o.PaymentTermCode, &o.Status, &o.Valuation,
+		&o.Items); err != nil {
+		return Order{}, fmt.Errorf("scan purchase order: %w", err)
+	}
+	return o, nil
 }
 
 // Order returns the purchase order, or ok = false when there is none.
@@ -56,20 +86,7 @@ func (Orders) Order(ctx context.Context, id uuid.UUID) (Order, bool, error) {
 	if err != nil {
 		return Order{}, false, err
 	}
-	o := Order{ID: id}
-	err = tx.QueryRow(ctx, `SELECT po.document_number, po.legal_entity_id, po.supplier_id, po.currency, po.payment_term_code, po.status, po.valuation,
-			coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code,
-				'unit_price', i.unit_price, 'price_unit', i.price_unit, 'account_id', i.account_id, 'tax_code', i.tax_code,
-				-- an order's items are valued as it is released, a released one's always
-				-- (value_released_items, purchase_order_item_valued): payables posts
-				-- only on released orders
-				'valuation_price', coalesce(i.valuation_price, 0), 'valuation_price_unit', coalesce(i.valuation_price_unit, 1),
-				'cost_center_id', i.cost_center_id,
-				'received', trim_scale(coalesce((SELECT sum(g.quantity) FROM procurement.goods_movement_item g WHERE g.tenant_id = i.tenant_id
-					AND g.purchase_order_id = i.purchase_order_id AND g.po_item_no = i.item_no), 0))::text) ORDER BY i.item_no)
-			 FROM procurement.purchase_order_item i WHERE i.tenant_id = po.tenant_id AND i.purchase_order_id = po.id AND NOT i.is_removed), '[]')
-		FROM procurement.purchase_order po WHERE po.id = $1`, id).
-		Scan(&o.DocumentNumber, &o.LegalEntityID, &o.SupplierID, &o.Currency, &o.PaymentTermCode, &o.Status, &o.Valuation, &o.Items)
+	o, err := scanPayablesOrder(tx.QueryRow(ctx, payablesOrder+` WHERE po.id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Order{}, false, nil
 	}
@@ -77,6 +94,23 @@ func (Orders) Order(ctx context.Context, id uuid.UUID) (Order, bool, error) {
 		return Order{}, false, fmt.Errorf("procurement: read purchase order %s: %w", id, err)
 	}
 	return o, true, nil
+}
+
+// Released are the legal entity's released purchase orders, which receipts
+// and invoices may still come for: what the liquidity forecast reads the
+// open order values of (ADR-0051 §5, T53g), by document number. A closed,
+// cancelled, draft or pending order expects nothing.
+func (Orders) Released(ctx context.Context, legalEntity uuid.UUID) ([]Order, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, payablesOrder+` WHERE po.legal_entity_id = $1 AND po.status = 'released' ORDER BY po.document_number`, legalEntity)
+	orders, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Order, error) { return scanPayablesOrder(r) })
+	if err != nil {
+		return nil, fmt.Errorf("procurement: released purchase orders of %s: %w", legalEntity, err)
+	}
+	return orders, nil
 }
 
 // LockItems locks the order's items an invoice posts against (payables),

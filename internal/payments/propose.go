@@ -697,8 +697,10 @@ func (e *Endpoints) proposer(ctx context.Context, tx pgx.Tx, j Job, status strin
 }
 
 // Process does a job as its proposer: it builds the run, or fails it when
-// its operation was cancelled. A problem while building fails the run and
-// its operation; other errors leave both for another attempt.
+// its operation was cancelled or its proposer is no longer active
+// (identity.principal_blocked, PO 2026-11-03). A problem while building
+// fails the run and its operation; other errors leave both for another
+// attempt.
 func (e *Endpoints) Process(ctx context.Context, j Job) error {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -711,11 +713,16 @@ func (e *Endpoints) Process(ctx context.Context, j Job) error {
 	if j.Cancelled {
 		return fail(ctx, tx, p, r, nil)
 	}
+	var why *problem.Problem
+	if err := e.mayAct(ctx, tx, p, r.ID); errors.As(err, &why) {
+		return fail(ctx, tx, p, r, why)
+	} else if err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `SAVEPOINT propose`); err != nil {
 		return fmt.Errorf("payments: savepoint before building run %s: %w", r.ID, err)
 	}
 	_, err = e.build(ctx, tx, p, r)
-	var why *problem.Problem
 	if !errors.As(err, &why) || why.Status >= 500 {
 		return err
 	}

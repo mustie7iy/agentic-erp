@@ -1936,6 +1936,19 @@ Decided by default, for the product owner to overrule:
   for a posted run alone. The batch size is 500 (decided by default 12),
   a field of the endpoints (`BatchSize`) that tests set lower.
 
+**A requester no longer active (review:T57f, PO 2026-11-03).** A
+depreciation run's steps that do its work (the plan, each batch, the
+finish) refuse a requester blocked or deprovisioned since the start with
+403 `identity.principal_blocked` (`identity.Actors.MayAct`, through the
+workflow's `working` requester): a business problem, not retried, which
+fails the run through `FailDepreciationRun` with that code on the run and
+its Operation, audited (`assets.depreciation_run.fail`). The batches posted
+before stay posted, the next posts nothing, and the company and ledger are
+free for a new run of the period by someone active. The failure is
+recorded as the requester whatever their status, so the run never stays
+running. The rule is shared with the other deferred work (ADR-0012 As
+built).
+
 **Fix forward (batch 50, from ci-local).** An asset's terms and an
 acquisition's entries are read from their tables in no order, and an update
 of a row (a PATCH of the terms, a reversal of the entries) can change the
@@ -2054,3 +2067,121 @@ retirement's path. Decided by default, for the product owner to overrule:
   `TestRetirementRecordedInLedgerOrder` for the posting and its reversal),
   and the AssetChanged a retirement or its reversal records gets that order
   for its terms, as every asset change's (`record`).
+
+**T57h (transfers).** Built as §5, §6, §7 and §8 for transfers: migration
+000204 creates `assets.transfer` (`transfer_transition`, `transfer_fixed`,
+`transfer_seq_once`, `transfer_to_seq_once`, `transfer_kind`,
+`transfer_same_asset`, `transfer_share`, `transfer_value_date`,
+`transfer_reversal`, `transfer_reversal_date`) and adds `restores_seq` to
+`assets.asset_assignment` (`asset_assignment_restores`; schema test
+`TestAssetTransferRules`). `POST`, `GET /v1/asset-transfers`, `GET
+/v1/asset-transfers/{id}` and `POST /v1/asset-transfers/{id}:reverse`
+(`createAssetTransfer`, `listAssetTransfers`, `getAssetTransfer`,
+`reverseAssetTransfer`; `assets.asset.post` for the writes, human-only,
+`assets.asset.read` for the reads), audited (`assets.transfer.post`,
+`.reverse`) and published as AssetMovementPosted and AssetMovementReversed
+(`document_kind` `transfer`) and, when a full asset transfer retires the
+asset or its reversal makes it active again, AssetChanged (`retired`,
+`reactivated`). An asset is capitalised from its earliest posted
+acquisition or asset transfer in (`derive`). The ledger's
+`ledger.entry_owned_elsewhere` names the transfer's path. No new port: the
+catch-up, its group amounts and the share are the retirement's
+(`catchUps`, `sharedGroupAmounts`, `take`, `postingDates`), the new
+centers are derived and checked as at an asset's creation
+(`assets.Centers.Assignment` on the value date), and whether the period
+before is open is `assets.Ledger.PeriodOpen`. Decided by default, for the
+product owner to overrule:
+- **The request.** `kind` `center` names `cost_center_id` (required for an
+  asset with a cost center) or, for an asset without one, `profit_center_id`
+  or a cost center to take; a profit center given beside a cost center
+  must be the one it derives (422 `ledger.profit_center_mismatch`). New
+  centers equal to the asset's, the derived profit center included, are 422
+  `request.validation_failed`; the same cost center whose own profit center
+  changed since (ADR-0050 §3) is accepted, and is a profit center change.
+  `kind` `asset` names `to_asset_id` and a `share` as a retirement's; a
+  center transfer takes no receiver or share, an asset transfer no centers
+  (422 `request.validation_failed`). A center transfer's value date
+  defaults to its posting period's first day, an asset transfer's to its
+  posting date; another day of the period is 422
+  `assets.transfer_mid_period`, another period
+  `assets.value_date_outside_period`. A center transfer of a `planned`
+  asset is accepted (§8 restricts the capitalisation date to retirements
+  and asset transfers; T57b's "gives them one by a center transfer"); an
+  asset transfer of one is 422 `assets.asset_not_capitalised`, as a
+  retirement. A transfer already reversed is 409
+  `assets.transfer_not_posted`, a code beside §10's list (as T57g added
+  `assets.retirement_not_posted`).
+- **Order of the checks and locks.** Both assets of an asset transfer are
+  read FOR UPDATE in id order (`TestTransfersAtOnce`: transfers between
+  the same two assets in both directions at once serialise, one posts),
+  then the ledgers' number ranges in ledger order, as a retirement's. The
+  receiver's `assets.posting_before_center_transfer` is checked before
+  `assets.later_value_date`, since a receiver's row valid from a later
+  period would meet both and the first names the cause.
+- **Where a catch-up is posted** (§8): its own entry (`part`
+  `catch_up`, dated the period before's last day, its group amount
+  translated at that day's rate) only when it is not zero, the asset is
+  not booked through the transfer's period in that ledger, the previous
+  row's `valid_from` is on or before that day and that period is open in
+  the ledger (`ledger.AssetReads.PeriodOpen`; a period of a fiscal year not
+  set up counts as not open); otherwise in the `main` entry on the
+  previous centers. The catch-up's movement takes the posting date and
+  period of the entry its lines are in, so the schedule shows it in the
+  period before.
+- **What a profit center change moves.** All of the asset's cost and
+  accumulated depreciation in each ledger after the catch-up, at the sums
+  of its movements in local and group currency (§8; no translation), from
+  the previous profit center to the new one on the same accounts, four
+  lines, a line with neither amount left out. The representation shows
+  them per ledger (`cost`, `accumulated`, read back as the sums of the
+  asset's movements up to the transfer's `seq`, no column of their own),
+  zero without a profit center change; a ledger with nothing to post gets
+  no entry.
+- **An asset transfer** catches up the sender only (§8); the receiver
+  takes its `transfer_in` valued at the transfer's value date and its next
+  run posts what that changes. The receiver's movements carry its own
+  class; `transfer_out` records the fraction of cost (`share`),
+  `transfer_in` none.
+- **Reversal.** The body is a reason and an optional posting date for the
+  main entries, by default the transfer's own. A catch-up entry is
+  reversed on its own date while its period is open in its ledger, else on
+  the main reversal date (§8); every movement's reversal takes the date
+  and period of its entry's reversal, or the reversal's date without an
+  entry. Each asset's movements are negated with that asset's next `seq`;
+  a center transfer's reversal then writes a row restoring the previous
+  row's centers and `valid_from` (`restores_seq`), so the asset is on its
+  previous centers from where they were in force, and a run or an
+  acquisition of the period before is accepted again. Since a reversal
+  takes a new `seq`, after reversing a transfer an earlier transfer of the
+  same asset is no longer its latest posting and is not reversed
+  (decided by default 20, as for retirements).
+- **`assets.later_value_date` reads the latest assignment row only**
+  (review round 1): T57g's "its assignment rows valid from after it" would
+  count a reversed center transfer's row, which the row restoring the
+  previous one follows, so a retirement or transfer of the period before
+  would stay refused after the reversal; the rows left after setting
+  reversed ones aside are in date order (§8), so the latest row is the one
+  to compare.
+- **Entries' parts.** `AssetDocumentEntry` gains `part` (`main`,
+  `catch_up`) on every assets document, a center transfer's catch-up
+  listed before its main entry in each ledger.
+- **Events.** AssetMovementPosted and AssetMovementReversed of a transfer
+  carry its kind, a center transfer's centers before and after, an asset
+  transfer's receiver with its status and version after it, and per
+  ledger the main entry (the catch-up entry when there is no main one) with
+  a catch-up entry of its own named beside it (`catch_up_journal_entry_id`).
+- **Walkthrough.** Step 19's configuration gains a second class, TOOLS,
+  sharing the machinery accounts, so step 32 shows a reclassification.
+- **Tracker.** The leaf "Retirements and transfers" (T57g, T57h) is done
+  with T57h, as T57d closed its leaf.
+- **Ledger order of the records (batch 52's merge).** T57h predates batch
+  51's merge of T57g: its audit records and events listed a transfer's
+  ledgers as the database grouped its movements (`transferDetails`). They
+  take the ledger port's order too (`transferredInLedgerOrder`, through
+  `inPortLedgerOrder`, which `retiredInLedgerOrder` now uses as well;
+  `TestTransferRecordedInLedgerOrder` for the posting and its reversal),
+  and the AssetChanged a full transfer or its reversal records gets that
+  order for its terms (`record`). `readEntries` keeps T57h's `ORDER BY
+  part`, a ledger's catch-up before its main entry, which the API keeps
+  (it goes through the entries ledger by ledger); the records pick a
+  ledger's parts by name (`partsIn`).

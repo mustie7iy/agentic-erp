@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mustie7iy/agentic-erp/internal/nfr"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -12,9 +13,7 @@ import (
 // over 100,000 open items (asynchronous, under 60 s): 2,000 suppliers with
 // 50 due invoices each, every supplier paid.
 func TestProposalBudget(t *testing.T) {
-	if testing.Short() || raceDetector {
-		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
-	}
+	nfr.Measure(t)
 	e := setup(t)
 	ctx := context.Background()
 	admin := pgtest.Admin(t)

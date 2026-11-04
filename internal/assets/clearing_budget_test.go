@@ -20,9 +20,7 @@ import (
 // the journal, without the row checks a posting runs (as
 // TestOpenItemsAgingBudget seeds them), within a deadline of their own.
 func TestClearingItemsBudget(t *testing.T) {
-	if testing.Short() || raceDetector {
-		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
-	}
+	nfr.Measure(t)
 	e := newAcquisitions(t)
 	a, _ := e.create(t, e.body(e.DE, "MACHINES", fmt.Sprintf(`, "cost_center_id": %q`, e.c.Admin)))
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)

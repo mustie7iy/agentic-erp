@@ -3,7 +3,6 @@ package assets
 import (
 	"context"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -111,22 +110,24 @@ func (v docView) supplierInvoice(context string, doc *uuid.UUID) gen.OptAssetSup
 		SupplierID: s.SupplierID, SupplierName: s.SupplierName})
 }
 
-// entries shows a document's entries in ledger order, each with its
-// reversal once reversed.
+// entries shows a document's entries in ledger order, a ledger's
+// catch-up before its main entry, each with its part and its reversal once
+// reversed.
 func (v docView) entries(es []DocumentEntry) []gen.AssetDocumentEntry {
 	out := []gen.AssetDocumentEntry{}
 	for _, l := range v.ledgers {
-		i := slices.IndexFunc(es, func(en DocumentEntry) bool { return en.LedgerID == l.ID })
-		if i < 0 {
-			continue
+		for _, x := range es {
+			if x.LedgerID != l.ID {
+				continue
+			}
+			en := gen.AssetDocumentEntry{LedgerID: l.ID, LedgerCode: l.Code, LedgerName: l.Name, Part: gen.NewOptString(x.Part),
+				FiscalYear: int32(x.FiscalYear), JournalEntryID: x.EntryID, DocumentNumber: x.DocumentNumber}
+			if r := x.Reversal; r != nil {
+				en.ReversalFiscalYear, en.ReversalJournalEntryID = gen.NewOptInt32(int32(r.FiscalYear)), gen.NewOptUUID(r.EntryID)
+				en.ReversalDocumentNumber = gen.NewOptString(r.DocumentNumber)
+			}
+			out = append(out, en)
 		}
-		en := gen.AssetDocumentEntry{LedgerID: l.ID, LedgerCode: l.Code, LedgerName: l.Name, FiscalYear: int32(es[i].FiscalYear),
-			JournalEntryID: es[i].EntryID, DocumentNumber: es[i].DocumentNumber}
-		if r := es[i].Reversal; r != nil {
-			en.ReversalFiscalYear, en.ReversalJournalEntryID = gen.NewOptInt32(int32(r.FiscalYear)), gen.NewOptUUID(r.EntryID)
-			en.ReversalDocumentNumber = gen.NewOptString(r.DocumentNumber)
-		}
-		out = append(out, en)
 	}
 	return out
 }

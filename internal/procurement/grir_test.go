@@ -263,9 +263,7 @@ func TestGRIRReceiptFailures(t *testing.T) {
 // order valued through GR/IR whose items already moved 200 times each, so
 // the ledger reads positions with history.
 func TestGoodsReceiptBudget(t *testing.T) {
-	if testing.Short() || raceDetector {
-		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
-	}
+	nfr.Measure(t)
 	e := setup(t)
 	e.GRIR(t)
 	lines := make([]string, 5)

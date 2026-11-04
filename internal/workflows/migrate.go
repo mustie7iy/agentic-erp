@@ -40,9 +40,12 @@ func MigrateRun(ctx workflow.Context, in MigrateInput) error {
 }
 
 // Actors reads who deferred work acts as: the person who queued it
-// (identity context).
+// (identity context). Actor reads them whatever their status, so the step
+// that records a run's failure still acts as them; MayAct refuses one no
+// longer active, which the steps doing the work check (PO 2026-11-03).
 type Actors interface {
 	Actor(ctx context.Context, tx pgx.Tx, id uuid.UUID) (reqctx.Principal, error)
+	MayAct(ctx context.Context, tx pgx.Tx, id uuid.UUID) error
 }
 
 // requester is who an operation's work acts as: the person who queued it,
@@ -59,6 +62,23 @@ func requester(actors Actors, operation uuid.UUID, what string) func(ctx context
 			return reqctx.Principal{}, false, fmt.Errorf("workflows: %s: %w", what, err)
 		}
 		return actor, true, nil
+	}
+}
+
+// working is requester for work that acts: it refuses a requester no
+// longer active, blocked or deprovisioned since they queued the work, with
+// identity.principal_blocked (PO 2026-11-03), a business problem.
+func working(actors Actors, operation uuid.UUID, what string) func(ctx context.Context, tx pgx.Tx) (reqctx.Principal, bool, error) {
+	read := requester(actors, operation, what)
+	return func(ctx context.Context, tx pgx.Tx) (reqctx.Principal, bool, error) {
+		actor, ok, err := read(ctx, tx)
+		if err != nil {
+			return reqctx.Principal{}, false, err
+		}
+		if err := actors.MayAct(ctx, tx, actor.ID); err != nil {
+			return reqctx.Principal{}, false, fmt.Errorf("workflows: %s: %w", what, err)
+		}
+		return actor, ok, nil
 	}
 }
 
@@ -80,7 +100,10 @@ func (m *Migrations) begin(ctx context.Context, s database.Scope) (pgx.Tx, error
 
 // Execute does the run's work as the operation's requester, in one
 // transaction with its report, audit entries and events; an operation no
-// longer running is left alone.
+// longer running is left alone. The requester is read whatever their
+// status: the integration context refuses one no longer active itself, in
+// this transaction, failing the operation and putting the run back
+// (integration.Requesters, PO 2026-11-03).
 func (m *Migrations) Execute(ctx context.Context, in MigrateInput) error {
 	return uow.Job{Begin: m.begin, Scope: database.Scope{Role: m.AppRole, TenantID: in.TenantID}, Now: m.Now,
 		Name: fmt.Sprintf("workflows: migration run %s", in.RunID)}.As(ctx, requester(m.Actors, in.OperationID, "migration run "+in.RunID.String()), func(ctx context.Context) error {

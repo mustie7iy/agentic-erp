@@ -2,6 +2,9 @@ package identity_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -9,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -82,6 +86,48 @@ func TestActorsActive(t *testing.T) {
 		}
 		if _, err := (identity.Actors{}).Active(ctx, tx, uuid.New()); err == nil {
 			t.Error("an unknown principal: got no error, want one")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestActorsMayAct: work may act as an active principal; one blocked or
+// deprovisioned since is refused with identity.principal_blocked, 403, as
+// its requests are; an unknown one is an error, not a refusal.
+func TestActorsMayAct(t *testing.T) {
+	ten := pgtest.NewTenant(t)
+	pgtest.Exec(t, `UPDATE identity.principal SET status = 'blocked', version = version + 1 WHERE id = $1`, ten.Agent.ID)
+	pgtest.Exec(t, `UPDATE identity.principal SET status = 'deprovisioned', version = version + 1 WHERE id = $1`, ten.Service.ID)
+	err := apitest.InRequest(t, ten, ten.Human, func(ctx context.Context) error {
+		tx, _ := reqctx.TxFrom(ctx)
+		if err := (identity.Actors{}).MayAct(ctx, tx, ten.Human.ID); err != nil {
+			t.Errorf("active: got %v, want nil", err)
+		}
+		for name, id := range map[string]uuid.UUID{"blocked": ten.Agent.ID, "deprovisioned": ten.Service.ID} {
+			t.Run(name, func(t *testing.T) {
+				var why *problem.Problem
+				err := (identity.Actors{}).MayAct(ctx, tx, id)
+				if !errors.As(err, &why) {
+					t.Fatalf("got %v, want a problem", err)
+				}
+				if got := fmt.Sprint(why.Status, " ", why.Code); got != "403 identity.principal_blocked" {
+					t.Errorf("got %s, want 403 identity.principal_blocked", got)
+				}
+				if !strings.Contains(why.Detail, name) {
+					t.Errorf("detail: got %q, want the status %s named", why.Detail, name)
+				}
+			})
+		}
+		var why *problem.Problem
+		unknown := (identity.Actors{}).MayAct(ctx, tx, uuid.New())
+		if unknown == nil {
+			t.Error("an unknown principal: got nil, want an error")
+		}
+		if errors.As(unknown, &why) {
+			t.Errorf("an unknown principal: got the problem %s, want an error that is no problem", why.Code)
 		}
 		return nil
 	})

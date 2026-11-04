@@ -172,7 +172,7 @@ Errors use RFC 9457 Problem Details (`application/problem+json`):
 | 401 | Missing or invalid token |
 | 403 | No permission, no company access, or a segregation-of-duties conflict (`code` says which) |
 | 404 | Not found, **or** exists in another company the caller cannot see |
-| 409 | Business rule conflict: wrong state for the transition, duplicate, period closed |
+| 409 | Business rule conflict: wrong state for the transition, duplicate, period closed; with `Retry-After` (`request.in_progress`), a lock another request holds: retry with the same `Idempotency-Key` |
 | 412 | `If-Match` does not match the current version |
 | 422 | Validation failed (`errors[]` lists fields), or `Idempotency-Key` reused with a different body |
 | 428 | `If-Match` or `Idempotency-Key` missing where required |
@@ -323,6 +323,13 @@ Per ADR-0008:
   the original status and body with `Idempotent-Replayed: true`; a different
   body is 422; a repeat while the first is still running is 409 with
   `Retry-After`.
+- What is stored with the key: a success, and a business outcome (404,
+  409, 410, 422), which a retry would meet again. An answer with
+  `Retry-After` is never stored, whatever its status (409
+  `request.in_progress` of a lock timeout, 429, 503): a retry with the same
+  key runs, as `Retry-After` invites. Rejections of the request itself
+  (400, 401, 403, 412, 413, 428) and 5xx are not stored either, so a
+  corrected retry runs (ADR-0008, as built).
 - Keys are scoped to tenant, so two tenants cannot collide.
 - A `GET` marked `x-snapshot: true` reads as of one database state: its
   unit of work runs at `REPEATABLE READ` (read-only), so every statement
@@ -394,6 +401,16 @@ cancellation takes effect at the next step, which fails the run with
 `cancelled`, and the company and ledger are free for a new run of the
 period, which posts what is left.
 
+Deferred work acts as the person who asked for it, and refuses them once
+they are no longer active (PO 2026-11-03, ADR-0012 As built): a step of a
+migration run, a payment proposal or release, a simulation or a
+depreciation run whose requester was blocked or deprovisioned since the
+start fails its operation with 403 `identity.principal_blocked`, the code
+their own requests get. What earlier steps posted stays posted; a
+migration run goes back to `queued` and a run under release stays
+`releasing` with its posted payments, for someone active to start or
+resume.
+
 ## 4.9 Security
 
 - OAuth 2.0 bearer tokens (OIDC) from the tenant's identity provider; the
@@ -446,8 +463,8 @@ period, which posts what is left.
   same way, naming `goods-receipts/{id}:reverse` (a 102 posts its own
   entry, T33); an assets document's entry names its document's path
   (`asset-acquisitions/{id}:reverse`, `asset-retirements/{id}:reverse`
-  (T57g), and the transfers' with their slice; a depreciation run's entries
-  are never reversed one by one, ADR-0057 §4, T57d). Entries of contexts with no reversal path yet
+  (T57g), `asset-transfers/{id}:reverse` (T57h); a depreciation run's
+  entries are never reversed one by one, ADR-0057 §4, T57d). Entries of contexts with no reversal path yet
   (receivables) are refused the same way, saying so.
 - Approval decisions (`:approve`, `:reject` on approval requests) require a
   human principal; agent tokens are refused with `403 identity.agent_not_allowed`
@@ -613,10 +630,10 @@ with the month's total against the tenant's cap.
 | configuration | `change-requests`, `config-versions`, `number-ranges` | `:submit`, `:withdraw`, `:activate`, `:simulate` |
 | partner | `business-partners`, `bank-accounts`, `partner-changes` | `:block`, `:unblock`, `:submit` |
 | ledger | `accounts`, `fiscal-periods`, `journal-entries`, `parked-journal-entries`, `clearings`, `open-items`, `balances`, `exchange-rates` | `:reverse`, `:open`, `:close`, `:lock`, `:post`, `:cancel`, `:unlock` |
-| procurement | `requisitions`, `purchase-orders` (with `{id}/document`, the order's plain-text document for the supplier, ADR-0054), `contracts`, `goods-receipts` | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse` |
+| procurement | `requisitions`, `purchase-orders` (with `{id}/document`, the order's plain-text document for the supplier, ADR-0054; an item's optional `delivery_date`, which the liquidity forecast expects its invoice on, T53g), `contracts`, `goods-receipts` | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse` |
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:submit`, `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
-| cash | `cash-position`, `liquidity-forecast` (computed on read, ADR-0051), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key), `cash-snapshots`, `liquidity-forecast-variance` (computed on read) and its `comments` (a person's, T53f4) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
+| cash | `cash-position`, `liquidity-forecast` (computed on read, ADR-0051; its sources include the released purchase orders' open values, `purchase_order`, T53g), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key), `cash-snapshots`, `liquidity-forecast-variance` (computed on read) and its `comments` (a person's, T53f4) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
 | controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual`, `profit-center-plan-actual` (computed on read, ADR-0050 §8) | `:lock`, `:unlock` |
 | tax | `tax-registrations` (from the configuration), `tax-registrations/{id}/periods`, `tax-registrations/{id}/draft-return` and its `items` (computed on read, ADR-0049 §10-§11), `tax-registrations/{id}/returns`, `tax-returns/{id}` | `:file`, `:withdraw` (T61i) |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |

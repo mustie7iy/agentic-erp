@@ -1350,7 +1350,8 @@ erDiagram
     int price_unit
     numeric over_delivery_pct
     text account_assignment "none | cost_center (T56e)"
-    uuid cost_center_id "T56e" }
+    uuid cost_center_id "T56e"
+    date delivery_date "T53g" }
   goods_movement { uuid id PK
     text movement_type "101 | 102 | 122 | 123"
     date posting_date
@@ -1564,6 +1565,13 @@ API as the document is released, with no foreign key across schemas. A
 released order's item keeps its assignment as it keeps its account
 (`purchase_order_item_identity`, 000161), and its goods movements post the
 item's account with its cost center.
+
+An order item carries its expected delivery date (`delivery_date`, optional,
+SAP's EKET-EINDT; migration 000205, T53g, ADR-0051 §5): the one it is
+given, else, on an order created from a requisition, the requisition's
+`needed_by`; a released order's item changes it through an order change
+(`check_order_item_editable` leaves it free, as quantity and price). The
+liquidity forecast expects the item's open value invoiced on it.
 
 ## 3.9 Accounts payable (`payables`)
 
@@ -2658,6 +2666,7 @@ line or reservation. An agent's budget is identity's
 | FLQLITEM/FLQLITEMT liquidity items, T035 planning groups, LFB1-FDGRV | `cash.liquidity_item`, `cash.planning_group`, `supplier_company.planning_group` (T53b) |
 | EBAN | `procurement.requisition` |
 | EKKO/EKPO | `procurement.purchase_order` + items |
+| EKET-EINDT (schedule line delivery date) | `purchase_order_item.delivery_date` (T53g); a migration run loads none yet |
 | Outline agreements (EKKO BSTYP K) | `procurement.contract` |
 | MKPF/MSEG, MATDOC | `procurement.goods_movement` + items |
 | MSEG BWART 122/123, reason (MSEG-GRUND, T157D) | `goods_movement.movement_type` 122/123, `goods_movement.reason` (T47b) |
@@ -2877,6 +2886,20 @@ a line realised (`realised_statement_id`, `realised_line_no`, an
 override's `recurrence_of` and `occurrence_date`). No migration; reading
 the variance is `cash.forecast.read`.
 
+T53g adds the released purchase orders' open values, storing nothing:
+each released `procurement.purchase_order`'s live items (through
+procurement's published orders port) less what the order's
+`payables.supplier_invoice_item`s of posted, parked and held documents
+invoice (credit memos negative) and `payables.migrated_invoice_item`s,
+at the item's price, with the tax its `tax_code` gives on the read date
+(`ledger.tax_code_definition`, `tax_rate`), expected on the item's
+`delivery_date`, else `order_date` plus `cash.order_lead_days`, by the
+order's `payment_term_code` (`partner.payment_term`). A snapshot's line
+names an order as `document_kind` `purchase_order` (000205 widens
+`snapshot_flow_document_kind_check` `NOT VALID`, 000206 validates it); the
+variance knows a payment of an invoice entered on an order
+(`payables.supplier_invoice.purchase_order_id`) as that order.
+
 T53f4 stores people's comments on the variance (000201,
 `cash.variance_comment` above), each naming the `cash.snapshot` its
 variance compares with, found as T53f3 finds it; 000201 replaces
@@ -3014,8 +3037,8 @@ by `ledger.tax_item_reported_in`, built concurrently by migration 000180).
 The asset master (ADR-0057 §5, §7, §8, T57b), its acquisitions and
 their reversals (§6, T57c, T57d), its depreciation schedule, read from
 them (§7, T57e, no table of its own), the depreciation runs that post
-it (§7, T57f, migration 000200) and its retirements (§8, T57g, migration
-000203), owned by the assets context
+it (§7, T57f, migration 000200), its retirements (§8, T57g, migration
+000203) and its transfers (§8, T57h, migration 000204), owned by the assets context
 (`internal/assets`, a leaf). Migration 000191 creates the schema, its
 outbox (`assets.outbox`, AssetChanged) and the permission
 `assets.asset.change` (`assets.asset.read` came with T57a). The classes and
@@ -3035,6 +3058,9 @@ erDiagram
   depreciation_batch ||--o{ movement : "a depreciation movement per asset"
   asset ||--o{ retirement : "by seq"
   retirement ||--o{ document_entry : "one per ledger it posts in"
+  asset ||--o{ transfer : "by seq, as sender or receiver"
+  transfer ||--o{ document_entry : "main and catch_up per ledger"
+  transfer |o--o{ asset_assignment : "a center transfer's row and its restorer"
   asset { uuid id PK
     uuid legal_entity_id "tenancy context"
     text asset_number "unique in the company"
@@ -3102,6 +3128,17 @@ erDiagram
     bigint proceeds "local currency"
     bigint proceeds_gc
     text status "posted | reversed" }
+  transfer { uuid id PK
+    uuid asset_id
+    int seq
+    text kind "center | asset"
+    uuid to_asset_id "an asset transfer's receiver"
+    int to_seq
+    numeric share_percent
+    bigint share_cost "local currency"
+    uuid cost_center_id "a center transfer's new centers"
+    uuid profit_center_id
+    text status "posted | reversed" }
   depreciation_batch { uuid run_id PK
     int batch_no PK
     uuid_array asset_ids "1-500"
@@ -3114,12 +3151,13 @@ erDiagram
 |---|---|
 | `assets.asset` | An asset (SAP ANLA): its company, number from the company's `asset` range in the fiscal year it is created (`asset_number_once`), class, description, status and capitalisation date. It starts `planned` and moves planned -> active -> retired, back by reversals (retired -> active, active -> planned), or planned -> cancelled, which is final (`asset_transition`, a trigger); capitalised exactly while active or retired (`asset_capitalised`). Its company, number, class and creation never change (`asset_fixed`) and `last_seq` never goes back (`asset_seq_forward`): every posting, reversal and assignment touching the asset takes the next `seq` under the asset's lock, so posting order is `seq` order, never id order (ADR-0057 §5). Its version moves with every change of its master, terms or assignments |
 | `assets.asset_terms` | Its depreciation terms per ledger the company keeps (one depreciation area each, ADR-0057 §7), copied from the class when it is created and changeable until depreciation is posted in that ledger (`booked_through_*` set; `asset_terms_in_use`, a trigger): a method, a useful life of 1-1200 months, a declining factor above 1 and at most 10 with declining balance alone (`asset_terms_declining_factor`), a residual value of zero or more in minor units of local currency, and an optional depreciation start (null: the capitalisation date) |
-| `assets.asset_assignment` | Its cost center (optional) and profit center from `valid_from` on, insert-only (`platform.forbid_mutation`): the first row at creation, valid from `-infinity`, each later one from a center transfer or its reversal (T57h). A row takes the asset's current `last_seq`, raised first (`asset_assignment_seq`), and only the first is valid from `-infinity` (`asset_assignment_valid_from`), so the row with the highest `seq` is the latest and names the asset's centers. The profit center is the cost center's on the row's date, derived by the ledger (`ledger.AssetReads.Assignment`) |
+| `assets.asset_assignment` | Its cost center (optional) and profit center from `valid_from` on, insert-only (`platform.forbid_mutation`): the first row at creation, valid from `-infinity`, each later one from a center transfer or its reversal (T57h, `transfer_id`). A row takes the asset's current `last_seq`, raised first (`asset_assignment_seq`), and only the first is valid from `-infinity` (`asset_assignment_valid_from`), except a row a center transfer's reversal writes to restore the previous one (`restores_seq`, migration 000204), which repeats that row's centers and `valid_from`, `-infinity` included (`asset_assignment_restores`), so the row with the highest `seq` is the latest and names the asset's centers. The profit center is the cost center's on the row's date, derived by the ledger (`ledger.AssetReads.Assignment`) |
 | `assets.acquisition` | An acquisition (T57c, migration 000192; ADR-0057 §6): an asset's cost from a posted line on its class's clearing account (`source_*`, with the entry's document number, source context and document as posted) or, from T57d, against an offset account (`offset_account_id`), never both (`acquisition_source`); in the line's (or the manual amount's) currency with its local and group amounts (`amount_lc`, `amount_gc`, a manual one's as the ledger converted its cost line), its value and posting dates and the asset's `seq` (`acquisition_seq_once`). It starts `posted` and is reversed at most once, keeping what it posted (`acquisition_transition`, `acquisition_fixed`); it is `reversed` exactly when its reversal's posting date and reason are recorded (`acquisition_reversal`, T57d, migration 000195), never dated before its own posting date (`acquisition_reversal_date`), and keeps them |
 | `assets.clearing_use` | What acquisitions used of a capitalised line, keyed by the line: its amounts in its currency, local and group currency, and what is used of each, which stays between zero and the line's amount (the mirror for a credit line, `clearing_use_within_line`); the line's amounts never change (`clearing_use_line_fixed`). Read FOR UPDATE by every acquisition from the line, and given back by its reversal. A reversal's line names the line it reverses (`reverses_entry_year`, `reverses_entry_id`, both or neither, `clearing_use_reverses`; T57d), which never changes, so an asset's take-off through it is bounded by what it holds from that line |
 | `assets.movement` | The subledger (ADR-0057 §5): one append-only row per asset, ledger and effect (`acquisition`, `depreciation`, `retirement`, `transfer_out`, `transfer_in`) with the signed change of cost and accumulated depreciation in local and group currency, of residual value (negative when a retirement or transfer out took it, positive when a transfer in brought it, T57e), proceeds and share, its document and journal entry. The depreciation schedule and a run's preview (T57e) are computed from these rows and `asset_terms` at the read, never stored (ADR-0057 §7), and `GET /v1/assets/{id}/movements` lists them. A reversal row has its original's kind, asset and ledger and exactly the negated amounts (`movement_reversal`), each original is reversed at most once (`movement_reversed_once`), and depreciation changes accumulated depreciation alone (`movement_depreciation`) |
 | `assets.document_entry` | The journal entry of each assets document per ledger and part (`main`, or a center transfer's `catch_up`), with its document number; the reversal records its reversal entry and that entry's number once (`document_entry_reversal`, `document_entry_reversal_number`, `document_entry_reversed_once`; T57d), the only update granted |
 | `assets.retirement` | A retirement (T57g, migration 000203; ADR-0057 §8): a `sale` with proceeds in local currency, zero or more, or a `scrapping` without (`retirement_proceeds`, which also keeps the proceeds' group amount zero without proceeds), of a share given as a percent above 0 and at most 100 or a positive cost, not both (`retirement_share`; neither: all of it), valued in its posting date's month on or before it (`retirement_value_date`: not backdated, decided by default 13), with the asset's `seq` (`retirement_seq_once`). It starts `posted` and is reversed at most once, keeping what it posted (`retirement_transition`, `retirement_fixed`); it is `reversed` exactly when its reversal's posting date and reason are recorded (`retirement_reversal`), never dated before its own (`retirement_reversal_date`). Per ledger it writes a `depreciation` movement (its catch-up, with `booked_through_before_*`) and a `retirement` movement (cost, accumulated depreciation and residual value taken, proceeds, `share`, above 0 and at most 1: `movement_share`), and a `document_entry` where the ledger posted an entry |
+| `assets.transfer` | A transfer (T57h, migration 000204; ADR-0057 §8): `center`, to the cost center (its profit center derived) or profit center named, with the centers it moved from (`from_*`), valued on its posting period's first day; or `asset`, of a share given as a percent above 0 and at most 100 or a positive cost, not both (`transfer_share`; neither: all of it), to another asset (`to_asset_id` with that asset's `seq`, `to_seq`, `transfer_to_seq_once`; not itself, `transfer_same_asset`), valued in its posting date's month on or before it (`transfer_kind`, `transfer_value_date`: not backdated, decided by default 13 and 17), with the asset's `seq` (`transfer_seq_once`). It starts `posted` and is reversed at most once, keeping what it posted (`transfer_transition`, `transfer_fixed`); it is `reversed` exactly when its reversal's posting date and reason are recorded (`transfer_reversal`), never dated before its own (`transfer_reversal_date`). Per ledger it writes the asset's `depreciation` movement (its catch-up, with `booked_through_before_*`), an asset transfer also the asset's `transfer_out` and the receiver's `transfer_in`, and a `document_entry` per part it posted (`main`, and a center transfer's `catch_up` dated the period before's last day). An asset is capitalised from its earliest posted acquisition or asset transfer in (`transfer_by_receiver`) |
 | `assets.depreciation_run` | A depreciation run (T57f, migration 000200; ADR-0057 §7) of a company, ledger and regular period (`depreciation_run_fiscal_period_check`), dated the period's last day, with its Operation. It starts `queued` and moves queued -> running -> posted, or to failed from queued or running; posted and failed are final (`depreciation_run_transition`), and what it runs never changes, nor its plan once running nor its outcome once ended (`depreciation_run_fixed`). It is planned (`assets_planned`) once running (`depreciation_run_planned`), has its totals (`amount`, `assets_posted`, `assets_skipped`) exactly when posted (`depreciation_run_totals`) and its problem exactly when failed (`depreciation_run_error`). One run of a company and ledger is queued or running at a time (`depreciation_run_one_at_a_time`, a partial unique index; 409 `assets.run_in_progress`) |
 | `assets.depreciation_batch` | A run's batch of 1-500 assets by asset number (`depreciation_batch_asset_ids_check`), `pending` until posted once in one transaction (`depreciation_batch_transition`, which keeps its assets), with its totals exactly when posted (`depreciation_batch_posted`) and its journal entry and document number only then, all or none (`depreciation_batch_entry`; none when no asset of it had a difference). A run's depreciation movements (`document_kind` `depreciation_run`) carry the batch's entry, whose document number the movements list reads from here |
 

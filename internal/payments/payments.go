@@ -158,9 +158,24 @@ type Roles interface {
 }
 
 // Actors reads who a run's deferred work acts as: its proposer or
-// releaser (identity context).
+// releaser (identity context). Actor reads them whatever their status, so
+// a run's failure is still recorded as them; MayAct refuses one no longer
+// active (PO 2026-11-03).
 type Actors interface {
 	Actor(ctx context.Context, tx pgx.Tx, id uuid.UUID) (reqctx.Principal, error)
+	MayAct(ctx context.Context, tx pgx.Tx, id uuid.UUID) error
+}
+
+// mayAct refuses deferred work on the run (a proposal, a payment posted, a
+// release finished) acting as p once p is no longer active, blocked or
+// deprovisioned since they proposed or released it, with
+// identity.principal_blocked (PO 2026-11-03): a business problem, which
+// fails the proposal or the release instead of being retried.
+func (e *Endpoints) mayAct(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run uuid.UUID) error {
+	if err := e.Actors.MayAct(ctx, tx, p.ID); err != nil {
+		return fmt.Errorf("payments: run %s, acting as %s: %w", run, p.ID, err)
+	}
+	return nil
 }
 
 // Endpoints implements the payments part of the generated API.

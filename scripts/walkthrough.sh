@@ -314,15 +314,15 @@ start() {
   say "  - the GST34's lines (T61j-T61l): step 2 configures one"
   say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
-  say "  - the liquidity forecast's purchase orders and an agent's variance comments (T53g-T53k): step 13 shows the daily cash"
-  say "    position with a memo record and the forecast of the supplier open items, payment runs, parked invoices, down"
-  say "    payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening, memo records"
-  say "    and payments in transit, conversion and drill-down; step 26 its snapshots; step 27 the cash actuals;"
-  say "    step 28 the forecast's variance, step 30 a person's comment on it"
+  say "  - the liquidity forecast's treasury connector, agent, analytics and SAP migration (T53h-T53k): step 13 shows the"
+  say "    daily cash position with a memo record and the forecast of the supplier open items, payment runs, parked"
+  say "    invoices, down payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening,"
+  say "    memo records and payments in transit, conversion and drill-down; step 26 its snapshots; step 27 the cash actuals;"
+  say "    step 28 the forecast's variance, step 30 a person's comment on it; step 33 its purchase orders"
   say "  - cost center postings, reports and planning (T56d-T56j)"
-  say "  - asset transfers and the rest of asset accounting (T57h-T57i): steps 19 and 20 show the classes and the master,"
-  say "    steps 22 and 24 acquisitions and their corrections, step 25 the depreciation schedule and preview, step 29 a"
-  say "    depreciation run, step 31 retirements"
+  say "  - the rest of asset accounting (T57i): steps 19 and 20 show the classes and the master, steps 22 and 24"
+  say "    acquisitions and their corrections, step 25 the depreciation schedule and preview, step 29 a depreciation run,"
+  say "    step 31 retirements, step 32 transfers"
   say "  - accounts receivable, the period close's accruals and its close agent (T64e-T64g, T64j), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
@@ -2090,11 +2090,13 @@ forecast() {
   # from today, or, when that is one of Maple's holidays, the next working
   # day (at most four days later: Christmas on a Thursday, Boxing Day on
   # the Friday); a week's or a month's bucket may start on another day.
+  # Its own flow, not the bucket's total: SAP's open orders migrated in
+  # step 3 are forecast too (purchase_order, T53g).
   expect "SAP's USD invoice (step 3), on the next payment day" \
     "$(field 'def epoch: strptime("%Y-%m-%d") | mktime;
       . as $f | ([$f.buckets[] | select(.grain == "day") | .start | select(epoch | strftime("%a") | IN("Tue", "Thu"))][0] | epoch) as $pay
       | [.currencies[] | select(.currency == "USD") | .buckets | to_entries[] | select(any(.value.flows[]; .source == "payable"))
-      | "\(.value.total.amount) \(if $f.buckets[.key].grain == "day" then (.value.start | epoch) - $pay | (. >= 0 and . <= 4 * 86400) else true end)"]
+      | "\([.value.flows[] | select(.source == "payable") | .amount.amount] | join(" ")) \(if $f.buckets[.key].grain == "day" then (.value.start | epoch) - $pay | (. >= 0 and . <= 4 * 86400) else true end)"]
       | join(", ")')" "-1000.00 true"
   expect "each currency's total, its buckets' totals added up" \
     "$(field '[.currencies[] | (.total.amount | sub("\\."; "") | tonumber) == ([.buckets[].total.amount | sub("\\."; "") | tonumber] | add)] | all')" true
@@ -2433,7 +2435,9 @@ ASSET_SETTINGS='
 .asset_classes = [{"code": "MACHINES", "name": "Machinery and equipment",
     "terms": [(.companies[] | select(.code == "@CC@") | .ledgers // ["0L"])[] |
       if . == "0L" then {"ledger": ., "method": "straight_line", "useful_life_months": 120}
-      else {"ledger": ., "method": "declining_balance", "useful_life_months": 120, "declining_factor": "2"} end]}]
+      else {"ledger": ., "method": "declining_balance", "useful_life_months": 120, "declining_factor": "2"} end]},
+  {"code": "TOOLS", "name": "Tools and fixtures",
+    "terms": [(.companies[] | select(.code == "@CC@") | .ledgers // ["0L"])[] | {"ledger": ., "method": "straight_line", "useful_life_months": 60}]}]
 | (.companies[] | select(.code == "@CC@")) |= (
     .chart_of_accounts += [
       {"number": "1600", "name": "Machinery", "type": "asset", "asset_reconciliation": true},
@@ -2443,8 +2447,8 @@ ASSET_SETTINGS='
       {"number": "4950", "name": "Gain on asset retirements", "type": "revenue"},
       {"number": "6250", "name": "Depreciation of machinery", "type": "expense"},
       {"number": "6950", "name": "Loss on asset retirements", "type": "expense"}]
-    | .asset_accounts = [{"class": "MACHINES", "acquisition_cost": "1600", "accumulated_depreciation": "1609", "depreciation": "6250",
-        "clearing": "1690", "gain": "4950", "loss": "6950", "sale_clearing": "1695"}])
+    | .asset_accounts = (["MACHINES", "TOOLS"] | map({"class": ., "acquisition_cost": "1600", "accumulated_depreciation": "1609", "depreciation": "6250",
+        "clearing": "1690", "gain": "4950", "loss": "6950", "sale_clearing": "1695"})))
 | .number_ranges += (["asset", "journal_aa", "journal_af"] | map({"company": "@CC@", "document_type": ., "fiscal_year": @YEAR@, "first": 1, "last": 999999}))'
 
 step_assets() {
@@ -2454,7 +2458,7 @@ step_assets() {
   say "years in the leading ledger and at twice the declining rate in 2L, with its accounts. The acquisition cost"
   say "and accumulated depreciation accounts are asset reconciliation accounts, which only the assets context"
   say "posts to, so their balances are the assets' values. The company numbers its assets and their entries"
-  say "(AA, AF) in this fiscal year's ranges."
+  say "(AA, AF) in this fiscal year's ranges. A second class, tools and fixtures over five years, shares the accounts."
   api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
   local base settings cr request
   base=$(field '.items[0].number')
@@ -2486,7 +2490,7 @@ step_assets() {
   api 200 '.items[] | "class \(.code) \(.name):", (.terms[] | "  \(.ledger_code) \(.ledger_name): \(.method), \(.useful_life_months) months\(if .declining_factor then ", factor \(.declining_factor)" else "" end)"),
     (.companies[] | "  company \(.company_code) \(.company_name): cost \(.accounts.acquisition_cost.number) \(.accounts.acquisition_cost.name), accumulated depreciation \(.accounts.accumulated_depreciation.number), depreciation \(.accounts.depreciation.number), clearing \(.accounts.clearing.number)")' \
     listAssetClasses -p "legal_entity_id=$LE"
-  expect "the classes of $CC" "$(field '[.items[] | .code] | join(" ")')" MACHINES
+  expect "the classes of $CC" "$(field '[.items[] | .code] | join(" ")')" "MACHINES TOOLS"
   expect "the class's cost account in $CC" "$(field '.items[0].companies[] | select(.company_code == "'"$CC"'") | "\(.accounts.acquisition_cost.number) \(.accounts.acquisition_cost.name)"')" \
     "1600 Machinery"
   expect "the leading ledger's terms" "$(field '.items[0].terms[] | select(.ledger_code == "0L") | "\(.method) \(.useful_life_months)"')" "straight_line 120"
@@ -3519,6 +3523,125 @@ step_asset_retirement() {
   passed
 }
 
+step_asset_transfer() {
+  heading "Step 32 — Asset transfers: the milling machine moved to a cost center of another profit center from this period, its balances reposted; a quarter of it moved to a tool of another class"
+  as sam
+  say "Maple opens a Toronto office. Sam sets up its profit center and cost center, which the controller approves."
+  local pc cc mill tool q start values cost
+  api 201 '"profit center \(.code) \(.name): \(.status)"' createProfitCenter \
+    -body "{\"code\": \"PC-TOR\", \"name\": \"Toronto office\", \"responsible\": \"Carla Controller\", \"legal_entity_ids\": [\"$LE\"], \"valid_from\": \"$YEAR-01-01\", \"reason\": \"The Toronto office\"}"
+  pc=$(field .id)
+  center_approved sam
+  api 201 '"cost center \(.code) \(.name): \(.status)"' createCostCenter \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"CC-2100\", \"name\": \"Toronto workshop\", \"responsible\": \"Carla Controller\", \"category\": \"ADMIN\", \"profit_center_id\": \"$pc\", \"valid_from\": \"$YEAR-01-01\", \"reason\": \"The Toronto workshop\"}"
+  cc=$(field .id)
+  center_approved sam
+  as carla
+  say "The milling machine moves to the Toronto workshop (ADR-0057 §8, T57h). A center transfer takes effect from the"
+  say "first day of its posting period: each ledger's depreciation is first caught up through the period before on the"
+  say "old centers (what this period's run already charged on them is posted back; step 29's run charged the lathe and"
+  say "the press, not the machine, so its catch-up is zero here), and since the profit center changes, the machine's"
+  say "booked cost and accumulated depreciation move to the new profit center on the same accounts."
+  QUIET=1 api 200 '' listAssets -p "legal_entity_id=$LE" -p status=active
+  mill=$(field '[.items[] | select(.description == "CNC milling machine") | .id][0]')
+  values='"  asset \(.asset_number) \(.description) (\(.class_code)): \(.status) on \(.cost_center_code // "no cost center")/\(.profit_center_code // "-"); \([.values[] | "\(.ledger_code) cost \(.cost.amount), accumulated \(.accumulated.amount)"] | join("; "))"'
+  api 200 "$values" getAsset -p "id=$mill"
+  cost=$(field '[.values[] | "\(.ledger_code) \(.cost.amount)"] | join(", ")')
+  QUIET=1 api 200 '' getAssetSchedule -p "id=$mill" -p "fiscal_year=$YEAR"
+  start=$(field ".periods[] | select(.start_date <= \"$TODAY\" and .end_date >= \"$TODAY\") | .start_date")
+  if [ "$start" != "$TODAY" ]; then
+    say "A center transfer valued on another day of the period is refused:"
+    refused 422 assets.transfer_mid_period createAssetTransfer \
+      -body "{\"asset_id\": \"$mill\", \"kind\": \"center\", \"cost_center_id\": \"$cc\", \"value_date\": \"$TODAY\"}"
+  fi
+  api 201 '"transfer \(.kind) of asset \(.asset_number) from \(.value_date): \(.from.cost_center_code)/\(.from.profit_center_code) -> \(.to.cost_center_code)/\(.to.profit_center_code), profit center change \(.profit_center_change)",
+    (.ledgers[] | "  \(.ledger_code): catch-up \(.catch_up.amount) on \(.catch_up_posting_date), cost moved \(.cost.amount), accumulated moved \(.accumulated.amount) \(.cost.currency)"),
+    "  entries \([.entries[] | "\(.ledger_code) \(.part) \(.document_number)"] | join(", "))"' \
+    createAssetTransfer -body "{\"asset_id\": \"$mill\", \"kind\": \"center\", \"cost_center_id\": \"$cc\", \"text\": \"Milling machine to Toronto\"}"
+  q=$(field .id)
+  expect "the transfer's value date, the period's first day" "$(field .value_date)" "$start"
+  expect "the new centers" "$(field '"\(.to.cost_center_code) \(.to.profit_center_code) \(.profit_center_change)"')" "CC-2100 PC-TOR true"
+  expect "the cost moved, all of the machine's" "$(field '[.ledgers[] | "\(.ledger_code) \(.cost.amount)"] | join(", ")')" "$cost"
+  api 200 '"entry \(.document_number): \([.lines[] | "\(.account_id | acct) \(.amount.amount)"] | join(", "))"' \
+    getJournalEntry -p "id=$(field '.entries[] | select(.ledger_code == "0L" and .part == "main") | .journal_entry_id')"
+  api 200 "$values" getAsset -p "id=$mill"
+  expect "the machine's centers" "$(field '"\(.cost_center_code) \(.profit_center_code)"')" "CC-2100 PC-TOR"
+  say "A quarter of the machine, its tooling, becomes an asset of its own in the tools class (a reclassification):"
+  say "the share of its cost and accumulated depreciation, after the catch-up, moves to a new tool asset, which becomes"
+  say "active from the transfer's value date and depreciates what it received over its own life."
+  api 201 '"asset \(.company_code)/\(.asset_number) \(.description) (\(.class_code)): \(.status)"' createAsset \
+    -body "{\"legal_entity_id\": \"$LE\", \"class_code\": \"TOOLS\", \"description\": \"Milling tool set\", \"cost_center_id\": \"$cc\"}"
+  tool=$(field .id)
+  api 201 '"transfer \(.kind) of asset \(.asset_number) to \(.to_asset_number) \(.to_asset_description) (\(.to_class_code)), \(.share_percent) %",
+    (.ledgers[] | "  \(.ledger_code): catch-up \(.catch_up.amount), cost \(.cost.amount), accumulated \(.accumulated.amount) \(.cost.currency)")' \
+    createAssetTransfer -body "{\"asset_id\": \"$mill\", \"kind\": \"asset\", \"to_asset_id\": \"$tool\", \"share\": {\"percent\": \"25\"}, \"text\": \"Tooling split off the milling machine\"}"
+  expect "the receiver's class" "$(field .to_class_code)" TOOLS
+  api 200 "$values" getAsset -p "id=$tool"
+  expect "the tool, active from today" "$(field '"\(.status) \(.capitalised_on)"')" "active $TODAY"
+  api 200 "$values" getAsset -p "id=$mill"
+  api 200 '"the machine'"'"'s transfers: \([.items[] | "\(.kind) \(.status)"] | join(", "))"' listAssetTransfers -p "asset_id=$mill"
+  expect "the machine's transfers" "$(field '[.items[].kind] | sort | join(" ")')" "asset center"
+  say "The center transfer is no longer the machine's latest posting, so it is not reversed any more:"
+  QUIET=1 api 200 '' getAssetTransfer -p "id=$q"
+  refused 409 assets.later_movements reverseAssetTransfer -p "id=$q" -if-match "$ETAG" -body '{"reason": "Moved in error"}'
+  passed
+}
+
+# step_cash_orders is a released purchase order in the liquidity forecast:
+# its open value with its tax, expected by the order's terms from the
+# item's delivery date, drilled down to the order, as each reader may see
+# it (T53g, ADR-0051 §5, decision P7).
+step_cash_orders() {
+  heading "Step 33 — Purchase orders in the liquidity forecast: an open order expected from its delivery date and terms"
+  as ben
+  local deliver due item po flows
+  deliver=$(date_add "$TODAY" 20)
+  due=$(date_add "$deliver" 30)
+  item="{\"description\": \"Standing desks\", \"quantity\": {\"value\": \"4\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"500.00\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 6000)\", \"tax_code\": \"HON\", \"delivery_date\": \"$deliver\"}"
+  say "Ben orders four standing desks from Tyrell at CAD 500.00 each with Ontario HST (HON), for delivery on $deliver,"
+  say "net 30: the item carries its delivery date (SAP's EKET-EINDT, T53g)."
+  api 201 '"purchase order \(.document_number // .id): \(.status), \(.total_amount.amount) \(.total_amount.currency), terms \(.payment_term_code)", (.items[] | "  item \(.item_no): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount), \(.tax_code), delivery \(.delivery_date)")' \
+    createPurchaseOrder -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"NT30\", \"items\": [$item]}"
+  po=$(field .id)
+  expect "the item's delivery date" "$(field '.items[0].delivery_date')" "$deliver"
+  api 200 '"\(.status)\(if .release_request_id then ": release request \(.release_request_id)" else "" end)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Budgeted desks"
+    as ben
+    QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+  fi
+  expect "order status" "$(field .status)" released
+  as tom
+  say "Tom's forecast now has the order's open value (planned): what is not invoiced yet, CAD 2,000.00, plus the HST"
+  say "its code gives on the read date, CAD 260.00, expected invoiced on the delivery date and paid by NT30 on Maple's"
+  say "last payment day (Tuesday or Thursday) on or before $due, as a run would pay the invoice. He drills the weeks"
+  say "from the delivery date down to the order:"
+  api 200 '"  \(.count) flows, total \(.total.amount) \(.total.currency)", (.items[] | select(.source == "purchase_order") | "  \(.date) \(.source) \(.certainty) \(.share.amount): \([.documents[] | "\(.kind) \(.number // "-") \(.amount.amount)"] | join(", ")), supplier \(.supplier.name // "not shown")")' \
+    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$deliver" -p "to=$due" -p page_size=500
+  cp "$WORK/last.json" "$WORK/order-flows.json"
+  flows=$(field "[.items[] | select(.source == \"purchase_order\" and any(.documents[]; .id == \"$po\"))]")
+  expect "the order's flows" "$(jq 'length' <<<"$flows")" 1
+  expect "its amount, the open value with its tax" "$(jq -r '.[0].amount.amount' <<<"$flows")" "-2260.00"
+  expect "its certainty" "$(jq -r '.[0].certainty' <<<"$flows")" planned
+  expect "expected on the last payment day before it is due" \
+    "$(jq -r --arg due "$due" --arg week "$(date_add "$due" -7)" '.[0].date | . <= $due and . > $week' <<<"$flows")" true
+  expect "the order named, to read with getPurchaseOrder" "$(jq -r --arg po "$po" '.[0].documents[] | select(.id == $po) | .kind' <<<"$flows")" purchase_order
+  say "The forecast's rows by liquidity item count it under Supplier payments (its item's account 6000 has no rule):"
+  api 200 '.currencies[] | select(.currency == "CAD") | .items[] | select(.liquidity_item == "OP_SUPPLIERS") | (.flows[] | select(.source == "purchase_order") | "  CAD OP_SUPPLIERS \(.source) \(.certainty): \(.total.amount)")' \
+    getLiquidityForecast -p "legal_entity_id=$LE"
+  expect "the order in Supplier payments" \
+    "$(field '[.currencies[] | select(.currency == "CAD") | .items[] | select(.liquidity_item == "OP_SUPPLIERS") | .flows[] | select(.source == "purchase_order")] | length')" 1
+  as rita
+  say "Rita holds the forecast's read alone: she sees the order's flow, not the order (procurement.order.read) nor Tyrell."
+  api 200 '.items[] | select(.source == "purchase_order") | "  \(.date) \(.source) \(.share.amount): \(.documents | length) of \(.document_count) documents shown, supplier \(.supplier.name // "not shown")"' \
+    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$deliver" -p "to=$due" -p page_size=500
+  expect "the orders shown to Rita" "$(field '[.items[] | select(.source == "purchase_order") | .documents[]] | length')" 0
+  expect "the orders counted for Rita" "$(field '[.items[] | select(.source == "purchase_order") | .document_count] | add')" \
+    "$(jq '[.items[] | select(.source == "purchase_order") | .document_count] | add' "$WORK/order-flows.json")"
+  as tom
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -3540,7 +3663,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_close'
 
 main() {
   start

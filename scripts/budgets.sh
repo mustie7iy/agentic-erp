@@ -10,6 +10,10 @@
 # they take seconds and also run in the race suite.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# The budget tests measure only here (nfr.Measure): measured in a plain go
+# test beside other packages, a wall-clock budget fails on the machine's
+# load, not on the code (batch 52).
+export ERP_MEASURE_BUDGETS=1
 pkgs=()
 while IFS= read -r p; do pkgs+=("./$p"); done < <(grep -rlE --include='*_test.go' 'func Test[A-Za-z0-9]*(Budget|Perf)[A-Za-z0-9]*\(' internal cmd |
   xargs -n1 dirname | sort -u)

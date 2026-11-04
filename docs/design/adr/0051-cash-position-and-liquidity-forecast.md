@@ -425,6 +425,132 @@ currency on its bank, value date the run date plus value days (a run
 date in the past with the payment still unmatched: tomorrow, flagged
 `late`).
 
+As built (T53g, the purchase orders, decision P7; decided by default where
+§4, §5, §9 and §11 leave it open):
+- **The delivery date.** `delivery_date` on order items (migration 000205,
+  `procurement.purchase_order_item.delivery_date`, nullable; the contract's
+  `PurchaseOrderItem.delivery_date`, optional, additive), SAP's EKET-EINDT
+  for an order of one schedule line. An item that gives none takes the
+  `needed_by` of the requisition its order was created from (on creation
+  and on a draft's change of items alike); an order change's item that
+  gives none keeps its own date first, one it adds takes the need date;
+  a released order's item changes it only through an order change, as its
+  quantity and price (`check_order_item_editable` leaves the column free).
+  No rule ties it to the order date: nothing settles one, and SAP accepts
+  any. Requisitions are no source (P7).
+- **One port, the run's rules** (T53e2's precedent). The orders reach the
+  forecast through the payments context's `CashPosition.Payables` as a
+  fourth kind (`CashOrder`), from a port payments declares (`Orders`)
+  that payables implements (`payables.Endpoints.OpenOrders`), wired in
+  `internal/app`: payables already reads orders through procurement's
+  published port (now with `Orders.Released`) and knows what is invoiced
+  on an order item and how an invoice's tax is calculated, so "cash reads
+  both contexts" (§5) is payables reading procurement for it; procurement
+  gains no dependency and no context an import. Each order becomes, per
+  day its items' invoices are expected, the open item invoicing it would
+  give (`ledger.PayableItem`), so the supplier's routing, block, due date,
+  discount tiers, payment days and value days are the run's for it, as for
+  an unposted invoice. Source `purchase_order`, certainty `planned` (§4),
+  netted per supplier and currency among themselves (not with posted or
+  unposted documents, another certainty), its bank the supplier's ranked
+  one as an unposted invoice's (§4's table says none; T53e2 routed the
+  unposted invoices, and an order's invoice is paid by the same run); a
+  blocked supplier's orders are `payable_blocked` (planned) on their net
+  due date, apart, as T53e2 shows everything no run pays.
+- **The open value** (§5). Per item: the ordered quantity less what its
+  supplier documents posted, parked or on hold invoice, net of credit
+  memos, with what SAP invoiced before migration
+  (`payables.migrated_invoice_item`; one query for every released order of
+  the company, `quantitiesInvoiced`, which posting's `invoicedQuantities`
+  now calls for one order), so an order and its parked invoice are not
+  counted twice (T53e2's note); credits beyond what is invoiced leave the
+  item open as ordered, and invoicing beyond the order leaves nothing; at
+  the item's price per price unit (`money.Scale`, half away from zero).
+  Received and not invoiced stays in (§5). Released orders only: draft,
+  pending, closed and cancelled ones add nothing.
+- **Down payments on an order** (review round 1). A down payment request
+  names its order (`purchase_order_id`), and the order's invoice is
+  cleared against it (ADR-0037): while one is open it is forecast as
+  `down_payment`, and once paid the cash is out, so the order's documents
+  are reduced by the order's requests `open` or `paid` (not `cleared` nor
+  `cancelled`, tax included, in the order's currency), the earliest first
+  and none below nothing; a document they cover in full is left out
+  (`orderAdvances`). Without this the order would be forecast twice. What
+  is left of them after the order's last open document is not carried to
+  the order's invoices already posted or parked: those are forecast as a
+  run would pay them, in full until the clearing (review round 2).
+- **The tax** (§5: "T61's engine port once it is there"; it is, ADR-0049).
+  The tax the supplier would charge on the open values, calculated as an
+  invoice's is (`codesDocument`, `tax.Calculate`, `chargedSum`: every
+  component but the self-assessed ones, which the supplier does not
+  charge) on the read date with the company's tax settings, each code
+  read once per forecast and calculated on its own (the calculator rounds
+  each code apart anyway). A code that cannot be calculated then (not an
+  input code of the legal entity, no rate, amounts out of range) adds no
+  tax rather than refuse the forecast, as a read's calculated figures leave
+  them out (`readCharged`, shared with `readFigures`); the other codes of
+  the document keep theirs (review round 1). Nothing new is
+  stated about tax: the rates are the configuration's.
+- **Dates and amount.** An order's items expected on one day are one
+  document (the drill-down's `purchase_order`, the order's number): their
+  open values plus their tax, invoiced on the item's delivery date, else
+  the order date plus `cash.order_lead_days` (default 30), a past date as
+  it is (the invoice is late; an overdue due date moves to the next
+  payment day as an item's). The order's payment term counts from that day
+  (a term not configured: none, so the supplier's net days, as an unposted
+  invoice's); the cash discount of a tier taken is deducted from the
+  amount as for an item (§5: "as for an item"). Withholding at payment is
+  not deducted: §5 names the open value plus tax, and a supplier's
+  withholding applies to the invoice once there is one.
+- **Liquidity items** (§4: "an order item's account"). The document's lines
+  are its items' accounts and open values with their tax codes, signed as
+  an invoice posts them, their numbers from the company's chart as an
+  unposted invoice's, so tax follows its base and an order of several
+  accounts is split over their items.
+- **Drill-down and visibility** (T53e4's rule, not widened). A flow names
+  each order (`LiquidityForecastDocument.kind` `purchase_order`, to read
+  with `getPurchaseOrder`) only to a caller who may use
+  `procurement.order.read`, as `authz.MayUse` decides it.
+- **Snapshots and the variance's match key** (T53f, T53f3). A snapshot's
+  line within 31 days names the order (000205 widens
+  `snapshot_flow_document_kind_check` `NOT VALID`, 000206 validates it).
+  Order lines need a match key, since an order is paid through an invoice
+  the snapshot did not name: a statement line's piece is also known by the
+  purchase order its invoice was entered on, after the payment, the
+  journal entry and the invoice (`payments.CashPaid.Order`, from payables'
+  `InvoiceOrders` through the same `Orders` port), so an order forecast
+  and paid through its invoice is `amount` or `timing`, not `missing` and
+  `new`; an invoice the snapshot named itself matches first.
+- **Budget** (01 §Performance, rule 15d). `TestLiquidityForecastBudget`
+  adds 10,000 orders of five items (8,000 closed, 2,000 released with a
+  posted invoice each, two items taxed) to its 100,000 open items. At
+  `ERP_BUDGET_SCALE=2` on the development laptop (load 8-16 from parallel
+  lanes) the forecast answered in 2.2 s median, 2.9 s p95 (2.4 s and
+  2.5 s on the base without orders, load 12-22), the drill-down in 2.3 s
+  and 2.7 s (2.2 s and 2.3 s): within p95 3 s unscaled. No index added:
+  the released orders are read by legal entity and status from the
+  tenant's orders.
+- **Not built.** The SAP migration loads no delivery date (EKET), and
+  `PurchaseOrderReleased` does not carry it; neither was asked for.
+- **Evidence.** `cash.TestLiquidityForecastOrders` (Maple Inc: an item
+  taxed at 19% net of posted and parked quantities and a cancelled invoice
+  ignored, less the order's open down payment request (a cancelled one
+  not), in its discount tier from its delivery date; two items without
+  a date by the lead days in one document, one of a code Maple does not
+  have, one credited beyond what is invoiced; an order of a term not
+  configured by its supplier's net days; an item invoiced beyond its
+  order and one invoiced in SAP adding nothing; a blocked vendor's order
+  apart; draft and closed orders nothing; the certainty cut; the CAPEX
+  row by the item's account; the snapshot's lines naming the orders),
+  `TestLiquidityForecastOrdersFailures` (every database failure),
+  `TestForecastVarianceOrder` (an order paid 50.00 less through its
+  invoice: `amount`), `payables.TestOpenValue`, `TestWithTax`,
+  `TestOpenOrderTax` (a code not calculable beside one that is),
+  `TestOpenOrderAdvance`, `procurement.TestOrderDeliveryDates`; the
+  walkthrough's step 33: Ben orders desks with HST for a delivery date,
+  Tom drills the order's flow down to it on the last payment day before
+  NT30's due date, and Rita sees the flow without the order.
+
 ### 6. Where it is computed, and freshness (decision P3)
 **Position and forecast are computed at read time from PostgreSQL**
 through the ports of §2, in one `REPEATABLE READ` read-only transaction,
@@ -1163,7 +1289,7 @@ As built (one company-date helper; review:batch27, Pilot readiness
 - `min_certainty` cuts the sources (SAP's balance profile);
 - **drill-down**: a bucket and item to its flows and documents (open
   items, runs, order items, memo records), through the owning contexts'
-  APIs;
+  APIs (orders since T53g, As built in §5);
 - per currency always; a converted total in a display currency (§10) on
   request; across companies the caller has, in group currency.
 

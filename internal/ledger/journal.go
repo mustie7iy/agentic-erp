@@ -1390,7 +1390,8 @@ func requireOwnEntry(orig Entry) error {
 		// so the document's paths are named (ADR-0057 §4).
 		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for asset document "+orig.SourceDocumentID.String()+
 			"; an acquisition is reversed with POST /v1/asset-acquisitions/"+orig.SourceDocumentID.String()+":reverse, a retirement with POST /v1/asset-retirements/"+
-			orig.SourceDocumentID.String()+":reverse, a transfer with its own :reverse, and a depreciation run's entries are never reversed one by one.")
+			orig.SourceDocumentID.String()+":reverse, a transfer with POST /v1/asset-transfers/"+orig.SourceDocumentID.String()+
+			":reverse, and a depreciation run's entries are never reversed one by one.")
 	}
 	return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted by the "+orig.SourceContext+
 		" context, and no reversal path exists yet for that context's entries, so it cannot be reversed.")

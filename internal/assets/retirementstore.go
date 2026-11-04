@@ -2,7 +2,6 @@ package assets
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -10,9 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
-	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
-	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -100,17 +97,10 @@ func writeRetiredLedger(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id u
 		-l.cost, -l.costGC, -l.accumulated, -l.accumulatedGC, -l.residual, r.in.Proceeds, share); err != nil {
 		return fmt.Errorf("assets: movements of asset %s in ledger %s: %w", r.asset.Number, l.ledger.Code, err)
 	}
-	if l.entry != nil {
-		if _, err := tx.Exec(ctx, `INSERT INTO assets.document_entry (tenant_id, document_kind, document_id, ledger_id, part, journal_entry_year,
-				journal_entry_id, document_number) VALUES ($1, 'retirement', $2, $3, 'main', $4, $5, $6)`,
-			p.TenantID, id, l.ledger.ID, l.entry.FiscalYear, l.entry.ID, l.entry.DocumentNumber); err != nil {
-			return fmt.Errorf("assets: entry of retirement %s in ledger %s: %w", id, l.ledger.Code, err)
-		}
+	if err := insertDocumentEntry(ctx, tx, p, "retirement", id, l.ledger, partMain, l.entry); err != nil {
+		return err
 	}
-	_, err := tx.Exec(ctx, `UPDATE assets.asset_terms SET booked_through_year = $3, booked_through_period = $4, version = version + 1, updated_by = $5
-		WHERE asset_id = $1 AND ledger_id = $2 AND (booked_through_year IS NULL OR (booked_through_year, booked_through_period) < ($3, $4))`,
-		r.asset.ID, l.ledger.ID, r.before.year, r.before.period, p.ID)
-	return errs.Wrapf(err, "assets: book asset %s through %d/%d in ledger %s", r.asset.Number, r.before.year, r.before.period, l.ledger.Code)
+	return bookThrough(ctx, tx, p, r.asset, l.ledger, r.before)
 }
 
 // retirementSelect reads retirements with their assets' numbers and
@@ -137,20 +127,8 @@ func scanRetirement(r pgx.Row) (Retirement, error) {
 // in, with what it took per ledger and its entries; any other is not
 // found.
 func readRetirement(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Retirement, error) {
-	access, err := authz.Companies(ctx)
-	if err != nil {
-		return Retirement{}, err
-	}
-	q, err := scanRetirement(tx.QueryRow(ctx, retirementSelect+` WHERE q.id = $1`, id))
-	switch {
-	case errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(q.LegalEntityID)):
-		return Retirement{}, problem.NotFoundOf("asset retirement")
-	case err != nil:
-		return Retirement{}, fmt.Errorf("assets: retirement %s: %w", id, err)
-	}
-	qs := []Retirement{q}
-	err = retirementDetails(ctx, tx, qs)
-	return qs[0], err
+	return readDocument(ctx, tx, id, retirementSelect, "retirement", scanRetirement, func(q Retirement) uuid.UUID { return q.LegalEntityID },
+		retirementDetails)
 }
 
 // retirementDetails reads what the retirements took per ledger and their

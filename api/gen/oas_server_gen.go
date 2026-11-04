@@ -504,6 +504,52 @@ type Handler interface {
 	//
 	// POST /v1/asset-retirements
 	CreateAssetRetirement(ctx context.Context, req *AssetRetirementCreate, params CreateAssetRetirementParams) (CreateAssetRetirementRes, error)
+	// CreateAssetTransfer implements createAssetTransfer operation.
+	//
+	// Transfers an asset (ADR-0057 §8, T57h; SAP's transfer within a company code). `kind` `center` moves
+	// the asset to another cost center (`cost_center_id`; its profit center is the cost center's on the
+	// value date, a different `profit_center_id` given is 422 `ledger.profit_center_mismatch`) or, for an
+	// asset without a cost center, to another profit center (`profit_center_id`); the centers are checked
+	// as a posting on the class's depreciation account on the value date would check them (422
+	// `ledger.cost_center_invalid`, `ledger.profit_center_invalid`, `assets.cost_center_required`), and
+	// must differ from the asset's (422 `request.validation_failed`). It is valued on the first day of its
+	// posting period (the default; another day of the period is 422 `assets.transfer_mid_period`, another
+	// period 422 `assets.value_date_outside_period`). Per ledger the company keeps (the leading ledger
+	// first, then by code) it first catches up the depreciation through the period before on the asset's
+	// previous centers, as a retirement does (negative when the posting period's run already posted), and
+	// books the asset through that period; the catch-up is an entry of its own (`part` `catch_up`) dated
+	// that period's last day when that period is open in the ledger, the asset is not booked through the
+	// transfer's period and its previous centers were already in force then; otherwise it is posted in the
+	// transfer's entry, on the previous centers, which must still be valid then. When the profit center
+	// changes, the transfer moves all the asset's booked cost and accumulated depreciation in each ledger,
+	// after the catch-up, at their local and group amounts from the previous profit center to the new one
+	// on the same accounts (`part` `main`). It writes no movement but the catch-up's; from then on every
+	// posting for the asset takes the new centers, a depreciation run of an earlier period passes over the
+	// asset and an acquisition is posted on or after the transfer's value date (409
+	// `assets.posting_before_center_transfer`). `kind` `asset` moves a share of the asset's balances
+	// (`share`, as for a retirement; default all of it) to another asset of the same company
+	// (`to_asset_id`; another company's is 422 `assets.transfer_other_company`, the asset itself 422
+	// `assets.transfer_same_asset`), possibly of another class (a reclassification): valued in its posting
+	// period on or before its posting date (default the posting date, 422
+	// `assets.value_date_outside_period`) and not before the asset's capitalisation date (422
+	// `assets.value_date_before_capitalisation`), posted on or after the receiver's latest center
+	// assignment (409 `assets.posting_before_center_transfer`), it catches up the asset's depreciation as
+	// a retirement does, then per ledger posts one entry: Cr the asset's acquisition cost and Dr the
+	// receiver's for the cost taken, Dr the asset's accumulated depreciation and Cr the receiver's for the
+	// accumulated depreciation taken, each on its asset's profit center, at their booked group amounts;
+	// the residual value taken goes to the receiver, which depreciates the net value received over its own
+	// remaining life. A planned receiver becomes active with the transfer's value date as its
+	// capitalisation date; a full transfer retires the asset. For either kind, the asset (and the
+	// receiver) may have no movement or center assignment valued in a later period nor depreciation booked
+	// through a later period in any ledger (409 `assets.later_value_date`); a planned asset is 422
+	// `assets.asset_not_capitalised` for an asset transfer; a retired or cancelled asset or receiver 422
+	// `assets.asset_retired` or `assets.asset_cancelled`; an asset without terms in a ledger its company
+	// keeps 422 `assets.ledger_terms_missing`; an asset or receiver the caller cannot act in is 404. A
+	// ledger with nothing to post gets no entry. Audited, and published as AssetMovementPosted (and
+	// AssetChanged `retired` when a full transfer retires the asset). Human-only.
+	//
+	// POST /v1/asset-transfers
+	CreateAssetTransfer(ctx context.Context, req *AssetTransferCreate, params CreateAssetTransferParams) (CreateAssetTransferRes, error)
 	// CreateBusinessPartner implements createBusinessPartner operation.
 	//
 	// Creates the partner in status `pending` together with a partner change of kind `create` (see
@@ -1044,6 +1090,13 @@ type Handler interface {
 	//
 	// GET /v1/assets/{id}/schedule
 	GetAssetSchedule(ctx context.Context, params GetAssetScheduleParams) (GetAssetScheduleRes, error)
+	// GetAssetTransfer implements getAssetTransfer operation.
+	//
+	// One transfer with its asset (and an asset transfer's receiver), what it moved per ledger and its
+	// journal entries (ADR-0057 §8). One of a legal entity the caller cannot act in is not found.
+	//
+	// GET /v1/asset-transfers/{id}
+	GetAssetTransfer(ctx context.Context, params GetAssetTransferParams) (GetAssetTransferRes, error)
 	// GetBankAccount implements getBankAccount operation.
 	//
 	// Returns one bank account of the partner, masked.
@@ -1391,13 +1444,24 @@ type Handler interface {
 	// term not configured gives way to its supplier's net days, and withholding tax codes that would
 	// refuse it are left out. `down_payment` (`expected`, T53e2), the open down payment requests that no
 	// live run pays, each whole and never netted (a run pays a request on its own), on its due date moved
-	// to the next working day, `late` when that is before the read date. A supplier blocked for payment or
-	// posting, inactive, or not set up in the company is paid by no run: its items, unposted invoices and
-	// requests are `payable_blocked` (each keeping its own certainty), on their net due date (a request's
-	// due date; an overdue one on the read date), at what they owe then, netted as a run would, apart from
-	// the totals: listed in each bucket's flows and summed per currency in `blocked`, but counted in the
-	// buckets' `total`s, the currency's `total` and `beyond` only with `include_blocked=true`. Amounts are
-	// signed: a payment out is negative. Each currency gives its flows per bucket by source, certainty and
+	// to the next working day, `late` when that is before the read date. `purchase_order` (`planned`,
+	// T53g), the open value of the released purchase orders: each item's ordered quantity less what its
+	// supplier documents posted, parked or on hold invoice (net of credit memos, with what the source
+	// system invoiced before migration), at its price, plus the tax its tax code gives on the read date
+	// (the tax the supplier charges, as an invoice's is calculated, per code; a code that cannot be
+	// calculated then adds none), less the order's down payment requests not yet cleared (open ones are
+	// `down_payment` flows of their own), taken from its earliest invoices first; its invoice is expected
+	// on the item's `delivery_date`, else the order date plus the company's `cash.order_lead_days`
+	// (default 30), and paid by the order's payment terms from that day (a term not configured: its
+	// supplier's net days) by the same rule as `payable`, an order's items expected on one day being one
+	// document; closed, cancelled, draft or fully invoiced orders add nothing; netted per supplier and
+	// currency among themselves. A supplier blocked for payment or posting, inactive, or not set up in the
+	// company is paid by no run: its items, unposted invoices, requests and open orders are
+	// `payable_blocked` (each keeping its own certainty), on their net due date (a request's due date; an
+	// overdue one on the read date), at what they owe then, netted as a run would, apart from the totals:
+	// listed in each bucket's flows and summed per currency in `blocked`, but counted in the buckets'
+	// `total`s, the currency's `total` and `beyond` only with `include_blocked=true`. Amounts are signed:
+	// a payment out is negative. Each currency gives its flows per bucket by source, certainty and
 	// lateness with the bucket's total, the total over the horizon, and what is expected after the last
 	// bucket (`beyond`, in no bucket). Each currency also gives its rows by liquidity item and its
 	// hierarchy (`items`, T53e3; ADR-0051 §4, §9): every flow is split over the liquidity items
@@ -1855,6 +1919,15 @@ type Handler interface {
 	//
 	// GET /v1/asset-retirements
 	ListAssetRetirements(ctx context.Context, params ListAssetRetirementsParams) (ListAssetRetirementsRes, error)
+	// ListAssetTransfers implements listAssetTransfers operation.
+	//
+	// The asset transfers of the legal entities the caller may act in (ADR-0057 §8, T57h), each with its
+	// asset (and an asset transfer's receiver), what it moved per ledger and its journal entries. Filters:
+	// company, asset (as sender or receiver), kind, posting dates and status. Sortable by: `posting_date`
+	// (default), `created_at`.
+	//
+	// GET /v1/asset-transfers
+	ListAssetTransfers(ctx context.Context, params ListAssetTransfersParams) (ListAssetTransfersRes, error)
 	// ListAssets implements listAssets operation.
 	//
 	// The assets of the legal entities the caller may act in (ADR-0057 §5, T57b), each with its class,
@@ -1949,9 +2022,9 @@ type Handler interface {
 	// supplier (number and name) only to a caller who may use `partner.supplier.read`, its payment only to
 	// one who may use `payments.run.read`, and its document only to one who may use the document's
 	// context's read permission (`ledger.entry.read`, `payables.invoice.read`, `payments.run.read`,
-	// `cash.memo.read`), as the forecast's drill-down does; for others they are left out, never refused,
-	// and `has_document` still says whether it names one. A snapshot of a legal entity the caller cannot
-	// act in is not found.
+	// `cash.memo.read`, `procurement.order.read`), as the forecast's drill-down does; for others they are
+	// left out, never refused, and `has_document` still says whether it names one. A snapshot of a legal
+	// entity the caller cannot act in is not found.
 	//
 	// GET /v1/cash-snapshots/{id}/flows
 	ListCashSnapshotFlows(ctx context.Context, params ListCashSnapshotFlowsParams) (ListCashSnapshotFlowsRes, error)
@@ -2230,9 +2303,9 @@ type Handler interface {
 	// bucket's drill-down totals its cell of the item's row; `count` counts the flows of every page. Each
 	// flow names its supplier (number and name) only to a caller who may use `partner.supplier.read`, and
 	// each document only to one who may use its context's read permission (`ledger.entry.read`,
-	// `payables.invoice.read`, `payments.run.read`, `cash.memo.read`); for others it is left out, never
-	// refused, and `document_count` still counts it. A liquidity item the configuration does not have
-	// lists nothing. A legal entity the caller cannot act in is 404.
+	// `payables.invoice.read`, `payments.run.read`, `cash.memo.read`, `procurement.order.read`); for
+	// others it is left out, never refused, and `document_count` still counts it. A liquidity item the
+	// configuration does not have lists nothing. A legal entity the caller cannot act in is 404.
 	//
 	// GET /v1/liquidity-forecast-flows
 	ListLiquidityForecastFlows(ctx context.Context, params ListLiquidityForecastFlowsParams) (ListLiquidityForecastFlowsRes, error)
@@ -3418,6 +3491,30 @@ type Handler interface {
 	//
 	// POST /v1/asset-retirements/{id}:reverse
 	ReverseAssetRetirement(ctx context.Context, req *AssetRetirementReverse, params ReverseAssetRetirementParams) (ReverseAssetRetirementRes, error)
+	// ReverseAssetTransfer implements reverseAssetTransfer operation.
+	//
+	// Reverses a posted transfer of either kind (ADR-0057 §8, T57h): each ledger's entries through the
+	// ledger's reversal path, and the asset's (and the receiver's) movements negated; each entry's
+	// reversal is shown beside it in `entries`. The main entry is reversed on `posting_date` (default the
+	// transfer's posting date), never before the transfer's posting date (422
+	// `assets.reversal_before_original`), in a period open in every ledger it posted in (409
+	// `ledger.period_not_open`). A center transfer's catch-up entry, dated the last day of the period
+	// before, is reversed on that day while that period is still open in its ledger, and otherwise on the
+	// main entry's reversal date, on the same previous centers. The asset's depreciation booked-through
+	// period in each ledger returns to what it was before the catch-up (so a run of the period before
+	// posts that period's depreciation again), and a center transfer's reversal moves the balances back
+	// and restores the previous centers from the day they were in force (the previous assignment's valid
+	// from), so acquisitions dated then are accepted again. The asset's and the receiver's status are
+	// derived again: a planned receiver becomes planned again, a retired asset active. Only the latest
+	// posting of every asset it touches is reversed: once anything was posted on the asset, or an asset
+	// transfer's receiver, after the transfer (a depreciation run, an acquisition, a reversal), whether
+	// reversed or not, it is refused (409 `assets.later_movements`). One already reversed is 409
+	// `assets.transfer_not_posted`. The If-Match is the transfer's ETag; a transfer the caller cannot act
+	// in is 404. Audited, and published as AssetMovementReversed (and AssetChanged `reactivated` when the
+	// asset was retired). Human-only.
+	//
+	// POST /v1/asset-transfers/{id}:reverse
+	ReverseAssetTransfer(ctx context.Context, req *AssetTransferReverse, params ReverseAssetTransferParams) (ReverseAssetTransferRes, error)
 	// ReverseGoodsReceipt implements reverseGoodsReceipt operation.
 	//
 	// Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
@@ -3445,9 +3542,10 @@ type Handler interface {
 	// `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. An assets document's entry
 	// (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is
 	// reversed with `POST /v1/asset-acquisitions/{id}:reverse`, a retirement with
-	// `POST /v1/asset-retirements/{id}:reverse` (transfers with their own `:reverse`, a depreciation run's
-	// entries never one by one). Entries of any other context are 409 `ledger.entry_owned_elsewhere` too:
-	// no reversal path exists for them yet. Returns the new reversal entry. Human-only.
+	// `POST /v1/asset-retirements/{id}:reverse`, a transfer with `POST /v1/asset-transfers/{id}:reverse`
+	// (a depreciation run's entries never one by one). Entries of any other context are 409
+	// `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal
+	// entry. Human-only.
 	//
 	// POST /v1/journal-entries/{id}:reverse
 	ReverseJournalEntry(ctx context.Context, req OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error)
