@@ -1052,16 +1052,16 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Payments' events name the company by its code beside legal_entity_id, and PaymentExcluded its supplier by number and name beside supplier_id: the payment run, bank file and bank statement events give the ids alone",
-      "r": "api/asyncapi.yaml payments channel (PaymentRunProposed/Released/Rejected/Failed, PaymentExcluded, BankStatement* events) · internal/payments runEvent, exclusions, statements · release.go supplierNamed and procurement expiry_names.go are the patterns (optional fields, eventcompat) · REVIEW.md API-consumer class: an identifier without the name its consumer needs",
+      "r": "api/asyncapi.yaml payments channel (PaymentRunProposed/Released/Rejected/Failed, PaymentExcluded, BankStatement* events) · internal/payments runEvent, exclusions, statements · release.go supplierNamed and procurement expiry_names.go are the patterns (optional fields, eventcompat) · REVIEW.md API-consumer class: an identifier without the name its consumer needs · done in paynames: optional legal_entity_code on PaymentRunProposed/Released/Rejected/Failed, PaymentExcluded and the twelve BankStatement* events, supplier_number on PaymentExcluded (payments.go companyCode, withCompany, runEvent; release.go recordExcluded; statementBank.Company, matcher.company; RefuseFetched, ChangedFetched, AcceptGap methods of Endpoints) · the supplier's name left out of PaymentExcluded, a security-posture question for the product owner (webhooks) · tests apitest.CompanyNamed in payments' events and workflows' count, TestEventCompany, TestUnpayablePaymentIsDropped · ADR-0038 as built (review:batch28)",
       "src": "review:batch28",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "payments.withholding_too_large's detail gives the withholding, the cash discount and the amount owed as raw minor units without currency or scaling, and names the item only by its journal entry's UUID (fiscal year/entry id/line), not by the supplier's number and name and the invoice's document number",
-      "r": "internal/payments propose.go withholdingWithin (fmt %d of money.Minor, it.EntryID) · money.EventAmount / the amount formatting other refusals use, release.go supplierNamed (batch 28's apinames5) are the patterns · REVIEW.md API-consumer classes: an amount without its currency and scale, an identifier without the name its consumer needs · T46f",
+      "r": "internal/payments propose.go withholdingWithin (fmt %d of money.Minor, it.EntryID) · money.EventAmount / the amount formatting other refusals use, release.go supplierNamed (batch 28's apinames5) are the patterns · REVIEW.md API-consumer classes: an amount without its currency and scale, an identifier without the name its consumer needs · T46f · done in paynames: takeDiscounts returns withholdingTooLarge, paymentsFor names it (nameRefusal, nameWithholding, proposalSupplier): amounts in the run's currency at its scale, the item by its entry's document number, fiscal year and line, the supplier by number and name; payments.statement_amount_differs gives its currency too · tests TestNameWithholding, TestNameTooLarge, TestWithholdingBeyondTheItem, TestPostStatementLineByHand · ADR-0038 as built (review:batch28)",
       "src": "review:batch28",
       "c": []
      },

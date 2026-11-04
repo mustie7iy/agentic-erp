@@ -9,6 +9,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 // withheld is a run's payment of the supplier as "amount discount
@@ -139,8 +140,9 @@ func TestWithholdingBeyondTheItem(t *testing.T) {
 	e.Withholding(t, config.WithholdingTaxCode{Code: "W2", Description: "99.495% of gross at payment", RatePercent: "99.495", Base: config.WithholdingGross,
 		Account: "236000", Posting: config.WithholdingAtPayment})
 	e.SupplierWithholding(t, e.Supplier, "W2")
-	e.invoice(t, e.Supplier, "INV-1", "1.00", "2026-03-01")
+	small := e.invoice(t, e.Supplier, "INV-1", "1.00", "2026-03-01")
 	e.invoice(t, e.Supplier, "INV-2", "100.00", "2026-03-01") // the supplier is still owed something
+	pgtest.Exec(t, `UPDATE partner.business_partner SET name = 'Tyrell Office Products', version = version + 1 WHERE id = $1`, e.Supplier)
 	op := e.propose(t, "2026-03-10", "2026-03-20")
 	work(t)
 	run, _ := e.Must(200, "GET", op["resource"].(string), "", "")
@@ -148,7 +150,24 @@ func TestWithholdingBeyondTheItem(t *testing.T) {
 		t.Fatalf("run status: got %v, want failed: %s %v", run["status"], e.withheld(t, run), e.exclusions(t, run))
 	}
 	done, _ := e.Must(200, "GET", "/v1/operations/"+id(op), "", "")
-	if got, ok := done["error"].(map[string]any); !ok || got["code"] != "payments.withholding_too_large" {
-		t.Errorf("operation error: got %v, want payments.withholding_too_large", got)
+	got, ok := done["error"].(map[string]any)
+	if !ok || got["code"] != "payments.withholding_too_large" {
+		t.Fatalf("operation error: got %v, want payments.withholding_too_large", got)
+	}
+	// The consumer learns which invoice of which supplier, and the amounts
+	// in the run's currency, without reading the ledger or the partner.
+	entry, _ := e.Must(200, "GET", fmt.Sprintf("/v1/journal-entries/%v", small["journal_entry_id"]), "", "")
+	for field, want := range map[string]string{
+		"withholding": "withholding tax of 0.97 EUR",
+		"discount":    "cash discount of 0.03 EUR",
+		"amount owed": "all of the 1.00 EUR the item owes",
+		"invoice":     fmt.Sprintf("of document %v (journal entry %v) of fiscal year 2026", entry["document_number"], small["journal_entry_id"]),
+		"supplier":    "supplier BP90000001 Tyrell Office Products (" + e.Supplier.String() + ")",
+	} {
+		t.Run(field, func(t *testing.T) {
+			if detail := fmt.Sprint(got["detail"]); !strings.Contains(detail, want) {
+				t.Errorf("detail: got %q, want it to contain %q", detail, want)
+			}
+		})
 	}
 }

@@ -7,7 +7,6 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
-	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -158,7 +157,7 @@ func TestAcceptGapDatabaseFailures(t *testing.T) {
 	e := sc.e
 	h := endpoints(nil)
 	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "accept", func(ctx context.Context) error {
-		_, err := payments.AcceptGap(ctx, uuidOf(sc.statement), nil, "x")
+		_, err := h.AcceptGap(ctx, uuidOf(sc.statement), nil, "x")
 		return err
 	})
 	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "accept handler", func(ctx context.Context) error {

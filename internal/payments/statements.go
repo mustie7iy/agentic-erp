@@ -117,6 +117,7 @@ type statementBank struct {
 	ID, LegalEntityID uuid.UUID
 	Currency          string
 	IBAN              string
+	Company           string // its company's code, which the import's events name (companyCode)
 }
 
 // statementFormats are the formats an upload names, and their parsers.
@@ -266,7 +267,8 @@ func (e *Endpoints) statementBank(ctx context.Context, tx pgx.Tx, tenant, id uui
 	if b.IBAN, err = e.Keys.Open(ctx, tenant, sealed); err != nil {
 		return statementBank{}, fmt.Errorf("payments: open the IBAN of house bank %s: %w", id, err)
 	}
-	return b, nil
+	b.Company, err = e.companyCode(ctx, b.LegalEntityID)
+	return b, err
 }
 
 // lockStatements makes the house bank's imports wait for each other until
@@ -409,8 +411,8 @@ func relinkNext(ctx context.Context, tx pgx.Tx, p reqctx.Principal, bank stateme
 	var events []outbox.Event
 	if name := map[string]string{StatementImported: "bank_statement_gap_closed", StatementGap: "bank_statement_gap_found"}[now]; name != "" && was != now {
 		events = append(events, outbox.Event{Context: "payments", Name: name, AggregateType: "payments.bank_statement", AggregateID: next,
-			Payload: map[string]any{"bank_statement_id": next, "house_bank_id": bank.ID, "legal_entity_id": bank.LegalEntityID,
-				"previous_statement_id": id, "status": now}})
+			Payload: withCompany(map[string]any{"bank_statement_id": next, "house_bank_id": bank.ID, "legal_entity_id": bank.LegalEntityID,
+				"previous_statement_id": id, "status": now}, bank.Company)})
 	}
 	return record(ctx, "payments.bank_statement.relink", next, map[string]any{"previous_statement_id": id, "previous_status": was, "status": now}, events...)
 }
@@ -422,7 +424,7 @@ func recordStatement(ctx context.Context, id uuid.UUID, bank statementBank, sum 
 		"opening_balance": map[string]any{"amount": s.Opening.Amount.Plain(exp), "currency": s.Currency},
 		"closing_balance": map[string]any{"amount": s.Closing.Amount.Plain(exp), "currency": s.Currency}, "previous_statement_id": prev, "status": status}
 	return record(ctx, "payments.bank_statement.import", id, map[string]any{"statement_ref": s.ID, "sequence": s.Sequence, "file_sha256": sha256Hex(sum),
-		"status": status}, outbox.Event{Context: "payments", Name: "bank_statement_imported", AggregateType: "payments.bank_statement", AggregateID: id, Payload: payload})
+		"status": status}, outbox.Event{Context: "payments", Name: "bank_statement_imported", AggregateType: "payments.bank_statement", AggregateID: id, Payload: withCompany(payload, bank.Company)})
 }
 
 const statementSelect = `SELECT s.id, s.house_bank_id, s.legal_entity_id, s.format, s.file_sha256, s.file_position, s.file_ref, s.message_id, s.statement_ref,

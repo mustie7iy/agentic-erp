@@ -113,6 +113,9 @@ type matcher struct {
 	s     Statement
 	rules []config.MatchingRule
 	co    *config.Company
+	// company is the code of the statement's company, which its events
+	// name (companyCode), read once a statement.
+	company string
 }
 
 // matchStatement matches the statement's unmatched lines, and takes up
@@ -143,7 +146,11 @@ func (e *Endpoints) applyRules(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 	if err != nil || co == nil || len(co.BankStatements.MatchingRules) == 0 {
 		return err
 	}
-	m := matcher{e: e, tx: tx, p: p, s: s, rules: co.BankStatements.MatchingRules, co: co}
+	company, err := e.companyCode(ctx, s.LegalEntityID)
+	if err != nil {
+		return err
+	}
+	m := matcher{e: e, tx: tx, p: p, s: s, rules: co.BankStatements.MatchingRules, co: co, company: company}
 	// A pass after the first changes a line only when the pass before
 	// matched one, which takes payments no rule run gives back: the passes
 	// end.
@@ -254,14 +261,14 @@ func (m matcher) line(ctx context.Context, l matchLine) (bool, error) {
 		if *l.Open == sig {
 			return false, nil // the rules find what they found before
 		}
-		if err := rejectLive(ctx, m.tx, m.p, m.s, l.LineNo, rejection{}); err != nil {
+		if err := rejectLive(ctx, m.tx, m.p, m.s, m.company, l.LineNo, rejection{}); err != nil {
 			return false, err
 		}
 	}
 	if !ok {
 		return l.Open != nil, reopenLine(ctx, m.tx, m.p, m.s.ID, l)
 	}
-	_, err = writeMatch(ctx, m.tx, m.p, m.s, l.LineNo, next)
+	_, err = writeMatch(ctx, m.tx, m.p, m.s, m.company, l.LineNo, next)
 	return true, err
 }
 
@@ -546,8 +553,9 @@ type newMatch struct {
 
 // writeMatch records the match of the line with its targets, sets the
 // line's status by it, audits it and publishes BankStatementLineMatched,
-// BankStatementLineExcluded, or for an agent's BankStatementLineProposed.
-func writeMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s Statement, lineNo int32, m newMatch) (uuid.UUID, error) {
+// BankStatementLineExcluded, or for an agent's BankStatementLineProposed,
+// naming the statement's company by company (companyCode).
+func writeMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s Statement, company string, lineNo int32, m newMatch) (uuid.UUID, error) {
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO payments.statement_match (tenant_id, id, statement_id, line_no, kind, rule, reason, status, created_by, updated_by,
 			session_id, proposal)
@@ -586,7 +594,7 @@ func writeMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s Statement,
 			"bank_statement_line_proposed", m.session, m.proposal, m.session, m.proposal
 	}
 	return id, record(ctx, "payments.statement_match.create", id, detail,
-		outbox.Event{Context: "payments", Name: name, AggregateType: "payments.statement_match", AggregateID: id, Payload: payload})
+		outbox.Event{Context: "payments", Name: name, AggregateType: "payments.statement_match", AggregateID: id, Payload: withCompany(payload, company)})
 }
 
 // matchSelect reads matches with their targets as JSON.

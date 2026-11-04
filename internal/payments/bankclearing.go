@@ -73,11 +73,15 @@ func (b BankClearings) Approved(ctx context.Context, match, request uuid.UUID) e
 	if err != nil {
 		return err
 	}
+	company, err := b.Endpoints.companyCode(ctx, w.s.LegalEntityID)
+	if err != nil {
+		return err
+	}
 	why := ""
 	if w.why != nil {
 		why = *w.why
 	}
-	if err := postMatch(ctx, tx, p, b.Endpoints.Postings, w.s, w.l, in, why, &request); err != nil {
+	if err := postMatch(ctx, tx, p, b.Endpoints.Postings, w.s, company, w.l, in, why, &request); err != nil {
 		return err
 	}
 	if err := b.Endpoints.reconcile(ctx, tx, p, w.s); err != nil {

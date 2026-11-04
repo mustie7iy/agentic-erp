@@ -176,14 +176,18 @@ func (e *Endpoints) decideLine(ctx context.Context, statement uuid.UUID, lineNo 
 	if err != nil {
 		return Match{}, err
 	}
-	if err := rejectLive(ctx, d.tx, d.p, d.s, lineNo, rejection{outcome: outcome}); err != nil {
+	company, err := e.companyCode(ctx, d.s.LegalEntityID)
+	if err != nil {
+		return Match{}, err
+	}
+	if err := rejectLive(ctx, d.tx, d.p, d.s, company, lineNo, rejection{outcome: outcome}); err != nil {
 		return Match{}, err
 	}
 	m, err := decide(ctx, d)
 	if err != nil {
 		return Match{}, err
 	}
-	id, err := writeMatch(ctx, d.tx, d.p, d.s, lineNo, m)
+	id, err := writeMatch(ctx, d.tx, d.p, d.s, company, lineNo, m)
 	if err != nil {
 		return Match{}, err
 	}
@@ -218,8 +222,9 @@ type rejection struct{ outcome, reason string }
 
 // rejectLive rejects the line's live match, if it has one: audited, and
 // for an agent's proposal with the outcome, published as
-// BankStatementLineProposalDecided.
-func rejectLive(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s Statement, lineNo int32, r rejection) error {
+// BankStatementLineProposalDecided, naming the statement's company by
+// company (companyCode).
+func rejectLive(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s Statement, company string, lineNo int32, r rejection) error {
 	var id uuid.UUID
 	var was, kind string
 	var session *uuid.UUID
@@ -240,8 +245,8 @@ func rejectLive(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s Statement,
 	}
 	detail["outcome"], detail["reason"] = r.outcome, r.reason
 	return record(ctx, "payments.statement_match.reject", id, detail, outbox.Event{Context: "payments", Name: "bank_statement_line_proposal_decided",
-		AggregateType: "payments.statement_match", AggregateID: id, Payload: map[string]any{"statement_match_id": id, "bank_statement_id": s.ID,
-			"line_no": lineNo, "house_bank_id": s.HouseBankID, "legal_entity_id": s.LegalEntityID, "session_id": session, "outcome": r.outcome}})
+		AggregateType: "payments.statement_match", AggregateID: id, Payload: withCompany(map[string]any{"statement_match_id": id, "bank_statement_id": s.ID,
+			"line_no": lineNo, "house_bank_id": s.HouseBankID, "legal_entity_id": s.LegalEntityID, "session_id": session, "outcome": r.outcome}, company)})
 }
 
 // manualTargets checks a person's targets: payments the line may clear

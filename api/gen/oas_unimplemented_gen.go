@@ -4120,9 +4120,11 @@ func (UnimplementedHandler) ProposeMemoRecord(ctx context.Context, req *MemoReco
 // returns an Operation. A run that takes cash discount in a legal entity without a cash discount
 // account fails with 422 `payments.no_cash_discount_account` (T36d). A withholding tax deducted at
 // payment that, rounded after the cash discount, would take all an item owes fails it with 422
-// `payments.withholding_too_large` (T46f). Open items that add up to more than an amount can hold fail
-// it with 422 `payments.amount_too_large`, whose `detail` names the supplier by its number and name
-// when one supplier's items do, or the run.
+// `payments.withholding_too_large` (T46f), whose `detail` names the item by its journal entry's
+// document number, fiscal year and line, the supplier by its number and name, and the amounts in the
+// run's currency. Open items that add up to more than an amount can hold fail it with 422
+// `payments.amount_too_large`, whose `detail` names the supplier by its number and name when one
+// supplier's items do, or the run.
 //
 // POST /v1/payment-runs:propose
 func (UnimplementedHandler) ProposePaymentRun(ctx context.Context, req *PaymentRunPropose, params ProposePaymentRunParams) (r ProposePaymentRunRes, _ error) {
