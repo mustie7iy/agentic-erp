@@ -221,6 +221,38 @@ func TestGroupLiquidityForecastReadDates(t *testing.T) {
 	want(t, "the buckets, from the 17th to the 18th", len(g.Buckets), 2)
 }
 
+// TestGroupLiquidityForecastOneReading: one response reads the clock once,
+// so a read that spans midnight gives every company the read date its
+// buckets start on, never the next day's for some of them.
+func TestGroupLiquidityForecastOneReading(t *testing.T) {
+	e := setupForecast(t, withForecast)
+	before := time.Date(2026, 4, 17, 23, 59, 59, 0, time.UTC)
+	reads := 0
+	midnight := func() time.Time { // the first reading before midnight, every later one after it
+		reads++
+		if reads == 1 {
+			return before
+		}
+		return before.Add(2 * time.Second)
+	}
+	var g cash.GroupForecast
+	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		var err error
+		g, err = app.Cash(app.Config{Now: midnight}).GroupForecast(ctx, cash.GroupForecastQuery{})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dates []string
+	for _, c := range g.Companies {
+		dates = append(dates, c.Code+" "+c.ReadDate.Format(time.DateOnly))
+	}
+	want(t, "the companies' read dates", dates, []string{"1000 2026-04-17", "2000 2026-04-17", "3000 2026-04-17"})
+	want(t, "the group's read date", g.ReadDate.Format(time.DateOnly), "2026-04-17")
+	want(t, "the clock's readings", reads, 1)
+}
+
 // TestGroupLiquidityForecastTooLarge: a company's amounts, or the
 // companies' together, out of the range of an amount refuse the read.
 func TestGroupLiquidityForecastTooLarge(t *testing.T) {

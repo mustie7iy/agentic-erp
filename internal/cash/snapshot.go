@@ -13,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -218,7 +219,7 @@ func dailyTaken(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, date time
 // lines.
 func (e *Endpoints) readSnapshot(ctx context.Context, tx pgx.Tx, co Company, legalEntity uuid.UUID) (taken, error) {
 	var bs []Bucket
-	fr, err := e.readForecastOf(ctx, tx, co, legalEntity, CertaintyPlanned, func(r reader) (time.Time, error) {
+	fr, err := e.readForecastOf(ctx, tx, co, legalEntity, CertaintyPlanned, clock.Now(e.Now), func(r reader) (time.Time, error) {
 		bs = buckets(r.read, r.settings.BucketsOrDefault())
 		return bs[len(bs)-1].End, nil
 	})

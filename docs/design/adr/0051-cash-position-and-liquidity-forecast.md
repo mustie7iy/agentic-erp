@@ -1800,7 +1800,15 @@ by default where §9, §10 and §15 leave it open):
   first bucket, and a Toronto evening is in the first bucket when UTC is
   already on the next day (`TestGroupLiquidityForecastReadDates`). Each
   company still opens and judges lateness on its own read date, as its
-  own forecast does.
+  own forecast does. One response reads the clock once (review round 1
+  on T53e5): the companies' read dates, and so the group's first bucket,
+  are each company's date at that one instant (`readForecastOf` takes
+  it, a company's own forecast and the snapshot reading it once each),
+  so a read across midnight never starts the buckets on one day and
+  reads a company on the next (`TestGroupLiquidityForecastOneReading`, a
+  clock that passes midnight after its first reading). The directory
+  adapter answers no legal entities with an error, never a slice beside
+  it.
 - **Per currency** (§9 "per currency always"). `currencies` sums the
   companies' figures of each currency, never converted, by code: the
   openings (banks counted, `stale` and `gap` when one company's are), each
