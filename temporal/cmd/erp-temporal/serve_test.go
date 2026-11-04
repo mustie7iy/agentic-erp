@@ -101,7 +101,7 @@ namespaceDefaults:
   archival:
     history: {state: disabled}
     visibility: {state: disabled}
-# An address, not localhost: see engine.frontend.
+# An address, not localhost: see newEngineWith.
 publicClient:
   hostPort: 127.0.0.1:{{index .Ports 0}}
 `))
