@@ -326,7 +326,12 @@ Per ADR-0008:
   unit of work runs at `REPEATABLE READ` (read-only), so every statement
   sees what the first saw. A report computed from several contexts' reads
   needs it, such as the daily cash position (`getCashPosition`, ADR-0051
-  §6); the contract allows the mark on `GET` only (`api/spec.go`).
+  §6), and so does a report whose totals and page are separate
+  statements (`getAssetHistorySheet`, ADR-0057). The contract allows the
+  mark on a `GET` and on a read carried in a `POST` for its body
+  (`x-autonomy: read`, such as `previewDepreciationRun`), which runs
+  read-write at that level for its idempotency record alone and so must
+  write nothing else (no audit, no outbox); nowhere else (`api/spec.go`).
 
 ## 4.8 Long-running operations
 

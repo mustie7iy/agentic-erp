@@ -110,8 +110,11 @@ type handler struct {
 
 // Config is what the API needs.
 type Config struct {
-	Pool       *database.Pool
-	AppRole    string
+	Pool    *database.Pool
+	AppRole string
+	// Begin starts the API's request transactions; nil: Pool.Begin. Tests
+	// set it to run a concurrent change between a request's statements.
+	Begin      database.BeginFunc
 	Verifier   *authn.Verifier
 	Pages      *pagination.Codec
 	FieldKeys  *fieldcrypt.Keyring // seals bank accounts and tax identifiers with each tenant's key
@@ -213,7 +216,7 @@ func New(cfg Config) (http.Handler, error) {
 			Items: ledger.TaxItems{}, Packs: library, Approvals: opener(), Periods: ledger.ReturnPeriods{}},
 	}
 	return httpapi.New(h, httpapi.Pipeline{
-		Pool: cfg.Pool, AppRole: cfg.AppRole, Verifier: cfg.Verifier, Limits: cfg.Limits, RequestTimeout: cfg.RequestTimeout,
+		Pool: cfg.Pool, Begin: cfg.Begin, AppRole: cfg.AppRole, Verifier: cfg.Verifier, Limits: cfg.Limits, RequestTimeout: cfg.RequestTimeout,
 		// The API-hosted upload is the one route outside the generated
 		// server: a signed URL instead of a bearer token, a body above the
 		// request limit, and no unit of work (the upload itself is not

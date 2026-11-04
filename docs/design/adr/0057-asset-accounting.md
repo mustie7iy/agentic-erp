@@ -2389,3 +2389,42 @@ for the product owner to overrule:
   the newest pages are read from the table, a few per asset at most.
 - **Tracker.** A leaf "The depreciation run's preview within the report
   class's p95" (T57f3, `review:T57f`), done with T57f3.
+
+**The preview and the history sheet in one snapshot (review of T57f3).**
+The preview reads its selection with the depreciation booked (kept on the
+terms), then the selected assets' moves, then its page's names, each a
+statement of its own; the history sheet by asset sums the classes' totals
+and then reads its page. At READ COMMITTED a posting committed between
+them, a sale's catch-up and moves say, left one response disagreeing with
+itself: the moves after the sale against the depreciation booked before
+its catch-up (June's preview of a half-sold mill: 5.00 planned against
+10.00 booked, a difference of -5.00, of a state that never was), or rows
+after a scrapping beside totals before it. Both operations are now
+marked `x-snapshot: true`, the mechanism the cash position uses (ADR-0051
+§6, 04 §4.7), so the unit of work runs them at REPEATABLE READ and every
+statement reads the state of the first (`TestPreviewInOneSnapshot`,
+`TestAssetHistorySheetInOneSnapshot`: the posting committed between the
+statements through `app.Config.Begin`, a request transaction that runs it
+before the statement named; both fail with the mark removed). Decided by
+default, for the product owner to overrule:
+- **The mark on a read carried in a POST.** The contract allowed
+  `x-snapshot` on a `GET` alone; the preview is a `POST` for its body.
+  The mark is now allowed on an operation marked `x-autonomy: read` too,
+  which changes no business data (`api/spec.go`; any other `POST` is
+  still refused), and the unit of work honours it whatever the method
+  (`uow.Middleware.scope`). Such a request stays read-write, as its
+  idempotency record is written in it; at REPEATABLE READ only a
+  concurrent request of the same key can then fail to serialise (503,
+  retried with the key). A separate read-only transaction was rejected,
+  as ADR-0051 rejected it: a second connection per request.
+- **What else was checked** (the reads T57f2, T57f3 and T57i added): the
+  sheet by class is one statement; a run's plan only lists the assets,
+  each batch re-reading its own under their locks; a retirement's and a
+  transfer's catch-up read their asset's terms and moves holding it
+  `FOR UPDATE`, which every posting of the asset takes. The schedule
+  (`GET /v1/assets/{id}/schedule`, T57e) reads the asset's terms and then
+  its movements, its figures all from the one movements read, and is
+  left as built.
+- **Tracker.** A leaf "The depreciation run's preview and the asset
+  history sheet read in one snapshot" (`review:T57f`, the review of
+  T57f3, which is T57f's), done with this step.

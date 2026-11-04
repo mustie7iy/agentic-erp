@@ -56,9 +56,13 @@ type Operation struct {
 	Stability string
 	// Class is the operation's latency class (ADR-0043): one of Classes.
 	Class string
-	// Snapshot is x-snapshot: true, on a GET only: the operation reads as
-	// of one database state, so its unit of work runs at REPEATABLE READ
-	// (a cash position computed from several contexts, ADR-0051 §6).
+	// Snapshot is x-snapshot: true, on a GET or a read (x-autonomy: read)
+	// only: the operation reads as of one database state, so its unit of
+	// work runs at REPEATABLE READ (a cash position computed from several
+	// contexts, ADR-0051 §6; a depreciation run's preview, whose request
+	// is a body, ADR-0057 As built). A marked POST writes nothing but its
+	// idempotency record (no audit, no outbox): any other write at that
+	// level fails to serialise whenever another commits after its snapshot.
 	Snapshot bool
 }
 
@@ -125,8 +129,8 @@ func decodeOperation(method, path string, node yaml.Node, permissioned bool) (Op
 	if err != nil {
 		return Operation{}, err
 	}
-	if op.Snapshot && !strings.EqualFold(method, "get") {
-		return Operation{}, errors.New("x-snapshot is for GET operations, which run read-only")
+	if op.Snapshot && !strings.EqualFold(method, "get") && op.Autonomy != "read" {
+		return Operation{}, errors.New("x-snapshot is for GET operations and reads (x-autonomy: read), which change no business data")
 	}
 	return Operation{
 		ID: op.ID, Method: strings.ToUpper(method), Path: path, Permission: op.Permission, EntityPermissions: op.Entities, AlsoPermissions: op.Also,

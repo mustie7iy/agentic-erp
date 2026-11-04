@@ -57,11 +57,15 @@ type Middleware struct {
 	// kill switch (agents.Admit, ADR-0036), so an agent stopped mid-run
 	// cannot go on acting; nil admits every agent.
 	Agents func(ctx context.Context, tx pgx.Tx) error
-	// Snapshot reports whether a safe request reads as of one database
-	// state (the contract's x-snapshot): its transaction then runs at
-	// REPEATABLE READ, so every statement sees the state of the first, as
-	// a cash position read from several contexts needs (ADR-0051 §6); nil
-	// keeps READ COMMITTED for every request.
+	// Snapshot reports whether a request reads as of one database state
+	// (the contract's x-snapshot, which marks GETs and reads by
+	// x-autonomy: read alone): its transaction then runs at REPEATABLE
+	// READ, so every statement sees the state of the first, as a cash
+	// position read from several contexts needs (ADR-0051 §6). A marked
+	// POST, such as a depreciation run's preview, still writes its
+	// idempotency record, read-write at that level: only a concurrent
+	// request of the same key can then fail to serialise (503, retried
+	// with the key). Nil keeps READ COMMITTED for every request.
 	Snapshot func(*http.Request) bool
 }
 
@@ -197,7 +201,7 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 // REPEATABLE READ for one that reads as of one database state (Snapshot).
 func (m *Middleware) scope(r *http.Request, claims reqctx.Claims, safe bool) database.Scope {
 	s := database.Scope{Role: m.Role, TenantID: claims.TenantID, ReadOnly: safe}
-	if safe && m.Snapshot != nil && m.Snapshot(r) {
+	if m.Snapshot != nil && m.Snapshot(r) {
 		s.Isolation = pgx.RepeatableRead
 	}
 	return s

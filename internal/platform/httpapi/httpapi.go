@@ -41,8 +41,11 @@ import (
 // Pipeline is what wraps the generated server: authentication, quotas,
 // deadlines, the unit of work and telemetry.
 type Pipeline struct {
-	Pool     *database.Pool
-	AppRole  string
+	Pool    *database.Pool
+	AppRole string
+	// Begin starts the unit of work's transactions; nil: Pool.Begin. Tests
+	// set it to run a concurrent change between a request's statements.
+	Begin    database.BeginFunc
 	Verifier *authn.Verifier
 	// Limits enforces the request quotas of 04 §4.11; nil applies none.
 	Limits *ratelimit.Limiter
@@ -98,8 +101,8 @@ func New(h gen.Handler, p Pipeline) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	unit := &uow.Middleware{Pool: p.Pool, Role: p.AppRole, Log: p.Log, Now: p.Now, Sessions: p.Sessions, RequireBoundAgents: p.RequireBoundAgents,
-		Agents: p.Agents, Snapshot: snapshot(srv, api.MustOperations())}
+	unit := &uow.Middleware{Pool: p.Pool, Begin: p.Begin, Role: p.AppRole, Log: p.Log, Now: p.Now, Sessions: p.Sessions,
+		RequireBoundAgents: p.RequireBoundAgents, Agents: p.Agents, Snapshot: snapshot(srv, api.MustOperations())}
 	chain := unit.Wrap(fileParts(srv))
 	if p.Loopback != nil {
 		p.Loopback.handler = chain
