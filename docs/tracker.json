@@ -1157,6 +1157,13 @@
        },
        {
         "s": "D",
+        "t": "The acquisitions worklist's lines are planned per call (TestClearingItemsBudget at scale 1, a fix step after batch 53): ledger AssetReads.ClearingLines ran as a cached prepared statement, so from its sixth run on a connection PostgreSQL used a generic plan that keeps the first page's cursor condition and cannot size the Skip and Keep arrays; over 20,000 clearing lines the query went from 38 ms to 65-80 ms and the request's median from about 100 ms to 130-190 ms against the 150 ms budget. It now passes pagination.PlanPerCall, as every listing does. The ~10.5 s the t57f3 and snapprev lanes measured was their base (de8110a9), which predates batch 48's usesOf fix (70f9e43a): its per-line OR scanned every acquisition for every line (EXPLAIN ANALYZE 11-15 s against 32-65 ms)",
+        "r": "internal/ledger/assetreads.go (ClearingLines) · internal/assets/clearing_budget_test.go (TestClearingItemsBudget)",
+        "src": "review:T57d",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "Depreciation schedule and preview: the planned schedule walk (straight-line; declining balance with the switch to straight-line), rounding with d_k = max(0, min(d_k, B_k - R_k)), late acquisitions (one valued before a retirement posted earlier), retirements applied by their recorded amounts, a transfer in's residual value, end of life, planned less booked for a run and a catch-up (negative when the period's own run is posted), table tests per method including two retirements in one period; GET /v1/assets/{id}/schedule; GET /v1/assets/{id}/movements (ledger, year, kind; ADR-0057 §10, given to this slice at batch 47 integration since no slice owned it); POST /v1/depreciation-runs/preview with totals per account and center; walkthrough: the preview of the asset's first period in each ledger",
         "r": "internal/assets (schedule.go: Walk, Planned, Month; depreciation.go; schedule_api.go; preview.go) · ledger.Calendar.Periods, port assets.Ledger.Periods (internal/app/assets.go) · GET /v1/assets/{id}/schedule, GET /v1/assets/{id}/movements (ADR-0057 §10, assigned at batch 47's integration), POST /v1/depreciation-runs/preview (x-autonomy read) · TestScheduleWalk, TestCatchUps, TestScheduleWalkRefused, TestAssetSchedule, TestPreviewDepreciationRun, TestAssetMovements, TestDepreciationReadFailures, TestPreviewSettingsLost, TestDepreciationOutOfRange, TestAccountsAndCalendarPorts · walkthrough step_asset_depreciation (step 25) · ADR-0057 (as built, T57e) · 03-data-model §3.21 · T57e",
         "src": "adr:ADR-0057",
