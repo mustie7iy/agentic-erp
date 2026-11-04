@@ -22,9 +22,10 @@ import (
 // The checks this build runs (ADR-0058 §6; config.CloseChecks lists them
 // for the template's validation).
 const (
-	CheckNoParked    = "no_parked_entries"
-	CheckRevaluation = "revaluation_posted"
-	CheckVariances   = "variances_explained"
+	CheckNoParked     = "no_parked_entries"
+	CheckRevaluation  = "revaluation_posted"
+	CheckVariances    = "variances_explained"
+	CheckDepreciation = "depreciation_posted"
 )
 
 // maxNamed is how many parked entries a no_parked_entries result names,
@@ -75,13 +76,17 @@ type foundParked struct {
 	CreatedByName string    `json:"created_by_name"`
 }
 
-// foundLedger is a covered ledger as a revaluation_posted check found it.
+// foundLedger is a covered ledger as a revaluation_posted or a
+// depreciation_posted check found it: its run, and for depreciation
+// without a posted run how many assets a run would select.
 type foundLedger struct {
-	LedgerID   uuid.UUID  `json:"ledger_id"`
-	LedgerCode string     `json:"ledger_code"`
-	LedgerName string     `json:"ledger_name"`
-	KeyDate    string     `json:"key_date"`
-	Run        *uuid.UUID `json:"revaluation_run_id,omitempty"`
+	LedgerID     uuid.UUID  `json:"ledger_id"`
+	LedgerCode   string     `json:"ledger_code"`
+	LedgerName   string     `json:"ledger_name"`
+	KeyDate      string     `json:"key_date"`
+	Run          *uuid.UUID `json:"revaluation_run_id,omitempty"`
+	Depreciation *uuid.UUID `json:"depreciation_run_id,omitempty"`
+	ToDepreciate *int       `json:"assets_to_depreciate,omitempty"`
 }
 
 // toAPI shows a recorded result; what a check found is shown for its own
@@ -98,12 +103,10 @@ func (f *found) toAPI(check string, passed bool, at time.Time, by uuid.UUID, byN
 				Reference: apitypes.OptString(p.Reference), HeaderText: apitypes.OptString(p.HeaderText), CreatedBy: p.CreatedBy,
 				CreatedByKind: p.CreatedByKind, CreatedByName: p.CreatedByName}
 		}
-	case CheckRevaluation:
+	case CheckRevaluation, CheckDepreciation:
 		out.Ledgers = make([]gen.CloseCheckLedger, len(f.Ledgers))
 		for i, l := range f.Ledgers {
-			day, _ := time.Parse(time.DateOnly, l.KeyDate) // written by run from a date
-			out.Ledgers[i] = gen.CloseCheckLedger{LedgerID: l.LedgerID, LedgerCode: l.LedgerCode, LedgerName: l.LedgerName, KeyDate: day,
-				Posted: l.Run != nil, RevaluationRunID: apitypes.OptUUID(l.Run)}
+			out.Ledgers[i] = l.toAPI()
 		}
 	case CheckVariances:
 		if f.Compared {
@@ -114,6 +117,17 @@ func (f *found) toAPI(check string, passed bool, at time.Time, by uuid.UUID, byN
 			out.UnexplainedRows[i] = gen.CloseCheckVariance{Basis: u.Basis, AccountID: u.AccountID, AccountNumber: u.AccountNumber, AccountName: u.AccountName,
 				Variance: gen.Money{Amount: u.Variance, Currency: u.Currency}, StaleComment: u.StaleComment}
 		}
+	}
+	return out
+}
+
+// toAPI shows a covered ledger as its check found it.
+func (l foundLedger) toAPI() gen.CloseCheckLedger {
+	day, _ := time.Parse(time.DateOnly, l.KeyDate) // written by run from a date
+	out := gen.CloseCheckLedger{LedgerID: l.LedgerID, LedgerCode: l.LedgerCode, LedgerName: l.LedgerName, KeyDate: day,
+		Posted: l.Run != nil || l.Depreciation != nil, RevaluationRunID: apitypes.OptUUID(l.Run), DepreciationRunID: apitypes.OptUUID(l.Depreciation)}
+	if l.ToDepreciate != nil {
+		out.AssetsToDepreciate.SetTo(int32(*l.ToDepreciate)) // at most a company's assets
 	}
 	return out
 }
@@ -172,6 +186,8 @@ func (e *Endpoints) run(ctx context.Context, tx pgx.Tx, t task) (bool, found, er
 		return e.revaluationPosted(ctx, t.LegalEntityID, covered)
 	case CheckVariances:
 		return e.variancesExplained(ctx, tx, t)
+	case CheckDepreciation:
+		return e.depreciationPosted(ctx, t.LegalEntityID, t.FiscalYear, t.FiscalPeriod, covered)
 	}
 	return false, found{}, fmt.Errorf("closing: task %s of close %s runs check %q, which this build does not", t.Code, t.CloseID, *t.Check)
 }
@@ -297,4 +313,40 @@ func (e *Endpoints) company(ctx context.Context, legalEntity uuid.UUID) (Company
 		err = fmt.Errorf("legal entity %s is not held by the tenancy context", legalEntity)
 	}
 	return co, errs.Wrapf(err, "closing: company of %s", legalEntity)
+}
+
+// depreciationPosted passes when each covered ledger has a posted
+// depreciation run of the period, or has no asset a run of it would
+// select (ADR-0057 §7), and names each ledger with its run or, without
+// one, how many assets a run would select.
+func (e *Endpoints) depreciationPosted(ctx context.Context, legalEntity uuid.UUID, year, period int16, covered []LedgerPeriod) (bool, found, error) {
+	f := found{Ledgers: make([]foundLedger, len(covered))}
+	var missing []string
+	for i, k := range covered {
+		run, selected, err := e.Depreciation.Posted(ctx, legalEntity, k.LedgerID, year, period, k.Period.EndDate)
+		if err != nil {
+			return false, found{}, fmt.Errorf("closing: depreciation of ledger %s: %w", k.Code, err)
+		}
+		f.Ledgers[i] = foundLedger{LedgerID: k.LedgerID, LedgerCode: k.Code, LedgerName: k.Name, KeyDate: k.Period.EndDate.Format(time.DateOnly),
+			Depreciation: run}
+		if run == nil {
+			f.Ledgers[i].ToDepreciate = &selected
+			if selected > 0 {
+				missing = append(missing, fmt.Sprintf("%s (%s)", k.Code, assetCount(selected)))
+			}
+		}
+	}
+	f.Summary = fmt.Sprintf("Every covered ledger has a posted depreciation run of %d/%d or nothing to depreciate.", year, period)
+	if len(missing) > 0 {
+		f.Summary = fmt.Sprintf("No posted depreciation run of %d/%d in ledger %s; run the depreciation first.", year, period, strings.Join(missing, ", "))
+	}
+	return len(missing) == 0, f, nil
+}
+
+// assetCount is n assets in words.
+func assetCount(n int) string {
+	if n == 1 {
+		return "1 asset to depreciate"
+	}
+	return fmt.Sprintf("%d assets to depreciate", n)
 }

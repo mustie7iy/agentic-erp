@@ -330,17 +330,21 @@ type Handler interface {
 	// of the company dated in the period (the leading ledger's period's first to last day) is `parked` or
 	// `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted`
 	// passes when each covered ledger has a posted revaluation run keyed on its period's last day, and
-	// names each ledger with its run; `variances_explained` (T64i) passes when every row requiring a
-	// comment of each basis the company configures (`companies[].close.variance`; none configured fails)
-	// has an accepted comment that is not stale, and names the first 20 that have none, or only a stale
-	// one. A check is a statement about the moment it ran: run it again to refresh it. Refused while a
-	// task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409
-	// `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's
-	// new ETag. People only. Audited, and published as PeriodCloseChanged (`task_checked`, with
-	// `check_passed`). A signed-off close whose covered periods are all locked refuses it (409
-	// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
-	// request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`)
-	// (ADR-0058 §7, T64d).
+	// names each ledger with its run; `depreciation_posted` (T64k) passes when each covered ledger has a
+	// posted depreciation run of the close's fiscal year and period (`GET /v1/depreciation-runs`; a failed
+	// or cancelled run, or one still queued or running, does not count) or has no asset a run of that
+	// period in that ledger would select (the selection `POST /v1/depreciation-runs/preview` shows), and
+	// names each ledger with its latest posted run or, without one, how many assets a run would select;
+	// `variances_explained` (T64i) passes when every row requiring a comment of each basis the company
+	// configures (`companies[].close.variance`; none configured fails) has an accepted comment that is not
+	// stale, and names the first 20 that have none, or only a stale one. A check is a statement about the
+	// moment it ran: run it again to refresh it. Refused while a task it depends on is open (409
+	// `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`).
+	// `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only.
+	// Audited, and published as PeriodCloseChanged (`task_checked`, with `check_passed`). A signed-off
+	// close whose covered periods are all locked refuses it (409 `closing.close_signed_off`); once one of
+	// them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again
+	// first, published as PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d).
 	//
 	// POST /v1/period-closes/{id}/tasks/{code}:check
 	CheckCloseTask(ctx context.Context, params CheckCloseTaskParams) (CheckCloseTaskRes, error)

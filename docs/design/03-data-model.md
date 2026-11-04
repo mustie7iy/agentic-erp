@@ -3132,7 +3132,8 @@ adapts, and no context reads it. Its template is configuration (T64a):
 (`[A-Z0-9_]{1,30}`), a `name` (cosmetic), a `kind` (`manual` or `check`,
 with a `check` this build runs exactly when the kind is `check`; each
 slice that builds a check adds it: `no_parked_entries` and
-`revaluation_posted` from T64c, `variances_explained` from T64i), a `due_day` (business days after the
+`revaluation_posted` from T64c, `variances_explained` from T64i,
+`depreciation_posted` from T64k), a `due_day` (business days after the
 period's last day, -31 to 31, 0 that day itself), `depends_on` (other
 tasks of the template, each once, without a cycle, and given to every
 company the dependent task is) and optional `companies` (only these
@@ -3196,7 +3197,9 @@ closing.close_task    + checked_at, checked_by, check_passed, check_result jsonb
 what it found (`check_result`: its summary and, for `no_parked_entries`,
 the count and the first 20 parked entries with who parked them; for
 `revaluation_posted`, each covered ledger with its key date and posted
-run), names included as they were then. The four are set together, on a
+run; for `depreciation_posted` (T64k), each covered ledger with its
+latest posted depreciation run of the period or, without one, how many
+assets a run would select), names included as they were then. The four are set together, on a
 check task only (`close_task_checked`), never when the task is created,
 and once recorded are replaced by the next check, never removed
 (`closing.check_close_task`). A check task is `done` only while its latest
@@ -3205,7 +3208,13 @@ and when become its completion, unless it was done already) and a failure
 open; reopening it keeps the result. The checks read the ledger through
 its port (`ledger.CloseChecks`): parked entries of the company by posting
 date in the leading ledger's period (`ledger.parked_entry`) and posted
-revaluation runs per ledger and key date (`ledger.revaluation_run`).
+revaluation runs per ledger and key date (`ledger.revaluation_run`);
+the depreciation check reads the assets context through its port
+(`assets.CloseChecks`): the latest `posted` run of the company, ledger,
+fiscal year and period (`assets.depreciation_run`,
+`depreciation_run_by_company`) and, without one, the assets a run would
+select (the run's and the preview's selection over `assets.asset`,
+`asset_terms`, `asset_assignment` and `movement`, ADR-0057 §7).
 
 A close's sign-offs (T64d, migration 000199):
 

@@ -1265,3 +1265,76 @@ default, for the product owner to overrule:
   runs with `ERP_EVAL_CELL=true` (§12). T64e, when built, takes it over.
 - No performance budget: §10 asks for none. A list page computes each
   close and basis's report once, to tell its comments' staleness.
+
+**T64k (the depreciation check).** Built as §6: `config.CloseChecks`
+gains `depreciation_posted`, so a template's check task may name it.
+`:check` (and the sign-off, which runs every check again) reads, for each
+covered ledger, the company's depreciation of the close's fiscal year and
+period through the port `closing.Depreciation`, adapted in `internal/app`
+over the assets context's new published port `assets.CloseChecks`
+(`Depreciation`: the latest posted run of the company, ledger, year and
+period; without one, how many assets a run of that period in that ledger
+would select). The check passes when every covered ledger has a posted
+run or nothing to select, and its result names each covered ledger, the
+leading one first, then by code, with its period's last day, `posted`,
+its run (`depreciation_run_id`) or, without one, `assets_to_depreciate`,
+in the result's `ledgers` beside the revaluation check's (additive fields
+of `CloseCheckLedger`; the check codes' open enumerations gain
+`depreciation_posted`). No migration: the check stores its result in
+T64c's columns. Walkthrough: `close_depreciation` in `step_close`, before
+the other checks. Decided by default, for the product owner to overrule:
+- **What counts as posted**: a run whose status is `posted` for exactly
+  the close's fiscal year and period in that ledger. A `failed` run does
+  not, even when some of its batches posted, and neither does a
+  cancelled one (its Operation cancelled, the run ends `failed`, ADR-0057
+  T57f) nor one still `queued` or `running`. Of several posted runs of the
+  period (a repeat run) the result names the latest.
+- **"Nothing to depreciate"** is the run's own selection
+  (`selectDepreciable`, which the plan, each batch's re-check and the
+  preview share; ADR-0057 §7 step 1), counted, so the check and a run can
+  never disagree. A company without assets, or whose assets start
+  depreciating after the period, passes. An asset that is selected but
+  whose difference is zero (a fully depreciated asset still active) still
+  needs the run, as the ADR's table says ("nothing a run would select"),
+  and a run of it posts nothing and is `posted` with an amount of zero.
+- **A period passed over**: once a later period's run has posted in a
+  ledger, every asset it processed is booked through that later period,
+  so the selection of the earlier one passes them over and its check
+  passes: that run caught their depreciation up (ADR-0057 §7, period lock
+  interplay), and the earlier period cannot be run any more
+  (`assets.run_out_of_order`). An asset capitalised after that run with a
+  value date in or before the earlier period is not booked yet, so it is
+  selected for the earlier period too and fails that close's check,
+  which no run can then pass; the next period's run catches it up. The
+  check is §6's as written, so such a close cannot be signed off (it keeps
+  the tasks it copied); whether the check should then pass on the later
+  period's run is listed for the product owner, not decided here.
+- **A posted run stays enough**: an acquisition posted into the period
+  after its run (whose depreciation the next run catches up) does not
+  fail the check again; §6 asks for a posted run, not for a zero
+  difference.
+- The selected assets are counted only without a posted run: after a run
+  they are still selected (a repeat run selects them and posts nothing),
+  so a count would mislead. `assets_to_depreciate` is absent with a run.
+- `posted` keeps its meaning per check (a run of the check's kind), so a
+  ledger with nothing to depreciate shows `posted: false` with
+  `assets_to_depreciate: 0` and passes; the summary names each failing
+  ledger with its count ("No posted depreciation run of 2026/1 in ledger
+  2L (1 asset to depreciate); run the depreciation first.").
+- **No further permission**: `checkCloseTask` keeps `closing.close.manage`
+  and `ledger.entry.read`. The result shows a run's id and a count, not an
+  asset; reading the run or the assets needs `assets.asset.read` as
+  before.
+- The assets port answers an error, not "nothing to depreciate", for a
+  company the caller may not act in, so a check never passes on what it
+  could not read; the closing context only asks for a close's company,
+  which the caller may act in.
+- **The walkthrough**: step 29 (`step_depreciation_run`) runs before
+  `step_close`, which stays last, and posts the period's run in the
+  leading ledger only; the close covers 0L and 2L, so `close_depreciation`
+  runs the check, which fails naming 2L, where the lathe still waits,
+  with 0L's run; Carla runs the period's depreciation in 2L and the check
+  passes, naming both runs. That is the leaf's "fails before the period's
+  depreciation run and passes after it", per covered ledger, without
+  reordering the story. The template gains the check task `DEPRECIATED`
+  (due day 2, no dependency).

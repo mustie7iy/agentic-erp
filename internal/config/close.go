@@ -43,8 +43,10 @@ const (
 // that builds a check adds it, and a template naming another is refused.
 // T64c: no parked entry left in the period; each covered ledger's
 // revaluation posted at the period's last day. T64i: every variance
-// requiring a comment explained by an accepted, current one.
-var CloseChecks = []string{"no_parked_entries", "revaluation_posted", "variances_explained"}
+// requiring a comment explained by an accepted, current one. T64k: each
+// covered ledger's depreciation of the period posted, or nothing to
+// depreciate.
+var CloseChecks = []string{"no_parked_entries", "revaluation_posted", "variances_explained", "depreciation_posted"}
 
 // Close template bounds (ADR-0058 §3).
 const (

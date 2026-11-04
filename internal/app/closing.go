@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/agents"
+	"github.com/mustie7iy/agentic-erp/internal/assets"
 	"github.com/mustie7iy/agentic-erp/internal/closing"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/controlling"
@@ -18,11 +19,11 @@ import (
 
 // Closing is the financial close context as the API wires it (ADR-0058
 // §2): a leaf that reads the configuration, tenancy, ledger, identity,
-// controlling and agents contexts through the adapters below, so none of them
-// imports it and it imports none of them.
+// controlling, agents and assets contexts through the adapters below, so
+// none of them imports it and it imports none of them.
 func Closing(cfg Config) *closing.Endpoints {
 	return &closing.Endpoints{Settings: configuration.Settings{}, Companies: closingCompanies{}, Ledger: closingLedger{}, People: closingPeople{},
-		Plans: closingPlans{}, Sessions: agents.Sessions{}, Pages: cfg.Pages, Now: cfg.Now}
+		Plans: closingPlans{}, Sessions: agents.Sessions{}, Depreciation: closingDepreciation{}, Pages: cfg.Pages, Now: cfg.Now}
 }
 
 // closingCompanies gives the closing context a legal entity's code, name
@@ -127,4 +128,13 @@ func (closingPlans) Category(ctx context.Context, code string) (closing.PlanCate
 
 func (closingPlans) Amounts(ctx context.Context, legalEntity, category uuid.UUID, fiscalYear, period int16, profit bool) (map[uuid.UUID]money.Minor, error) {
 	return controlling.Plans{}.Amounts(ctx, legalEntity, category, fiscalYear, period, profit)
+}
+
+// closingDepreciation gives the closing context the assets context's
+// depreciation of a period, the depreciation check's (T64k).
+type closingDepreciation struct{}
+
+func (closingDepreciation) Posted(ctx context.Context, legalEntity, ledgerID uuid.UUID, fiscalYear, period int16, end time.Time) (*uuid.UUID, int, error) {
+	d, err := assets.CloseChecks{}.Depreciation(ctx, legalEntity, ledgerID, fiscalYear, period, end)
+	return d.Run, d.Selected, err
 }

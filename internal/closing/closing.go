@@ -34,7 +34,10 @@
 // person accepts or rejects it, or writes one; a comment keeps the figures
 // it was written against and is stale once they change, and the check
 // variances_explained passes when every row requiring a comment has an
-// accepted one that is current.
+// accepted one that is current. T64k adds the depreciation check (ADR-0058
+// §6): each covered ledger has a posted depreciation run of the period, or
+// nothing a run of it would select, read through the assets context's
+// port (ADR-0057 §7).
 package closing
 
 import (
@@ -166,6 +169,14 @@ type Plans interface {
 	Amounts(ctx context.Context, legalEntity, category uuid.UUID, fiscalYear, period int16, profit bool) (map[uuid.UUID]money.Minor, error)
 }
 
+// Depreciation reads the assets context: a legal entity's latest posted
+// depreciation run of a fiscal year and period, ending on end, in a
+// ledger, nil without one; and, only without one, how many of its assets
+// a run of that period in that ledger would select (ADR-0057 §7).
+type Depreciation interface {
+	Posted(ctx context.Context, legalEntity, ledger uuid.UUID, fiscalYear, period int16, end time.Time) (run *uuid.UUID, selected int, err error)
+}
+
 // Person is a principal as the closing context names it: its name, kind
 // (human, agent, service) and status (active, blocked, deprovisioned).
 type Person struct {
@@ -182,12 +193,13 @@ type People interface {
 // API. Now is the clock overdue tasks are judged by (nil: the system
 // clock); Pages signs the lists' page tokens.
 type Endpoints struct {
-	Settings  Settings
-	Companies Companies
-	Ledger    Ledger
-	People    People
-	Plans     Plans
-	Sessions  Sessions
-	Pages     *pagination.Codec
-	Now       func() time.Time
+	Settings     Settings
+	Companies    Companies
+	Ledger       Ledger
+	People       People
+	Plans        Plans
+	Sessions     Sessions
+	Depreciation Depreciation
+	Pages        *pagination.Codec
+	Now          func() time.Time
 }
