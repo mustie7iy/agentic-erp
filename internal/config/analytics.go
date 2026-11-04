@@ -31,7 +31,7 @@ type Dimension struct {
 
 // Derived is a metric computed from two others.
 type Derived struct {
-	Op    string `yaml:"op" json:"op"` // subtract | divide
+	Op    string `yaml:"op" json:"op"` // subtract | divide | complement (1 less left / right, the quotient rounded to a ratio's digits first)
 	Left  string `yaml:"left" json:"left"`
 	Right string `yaml:"right" json:"right"`
 }

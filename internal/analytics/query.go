@@ -446,16 +446,20 @@ func (ev *cellEval) eval(n string) (*big.Rat, bool) {
 }
 
 // derived evaluates both inputs first, so both contribute currencies even
-// when the result is undefined: a ratio needs both inputs and a non-zero
-// denominator, a difference needs only one side.
+// when the result is undefined: a ratio or a complement needs both inputs
+// and a non-zero denominator, a difference needs only one side.
 func (ev *cellEval) derived(d *Derived) (*big.Rat, bool) {
 	l, okL := ev.eval(d.Left)
 	r, okR := ev.eval(d.Right)
-	if d.Op == "divide" {
+	if d.Op == "divide" || d.Op == "complement" {
 		if !okL || !okR || r.Sign() == 0 {
 			return nil, false
 		}
-		return new(big.Rat).Quo(l, r), true
+		q := new(big.Rat).Quo(l, r)
+		if d.Op == "divide" {
+			return q, true
+		}
+		return complement(q), true
 	}
 	if !okL && !okR {
 		return nil, false
@@ -467,6 +471,20 @@ func (ev *cellEval) derived(d *Derived) (*big.Rat, bool) {
 		r = new(big.Rat)
 	}
 	return new(big.Rat).Sub(l, r), true
+}
+
+// complement is one less the quotient as a ratio shows it, rounded to
+// ratioScale digits half away from zero first: 100% less the percentage
+// shown, as the variance report's accuracy for one cell is 100 less its
+// variance_percent (money.AbsPercentOf; product owner 2026-11-04). Rounded
+// after the subtraction, a quotient on a half (0.12345) would give 0.8766,
+// not 1 less 0.1235. A quotient too large to round is left exact, and its
+// complement is then out of range (value).
+func complement(q *big.Rat) *big.Rat {
+	if units, err := money.Round(q, ratioScale); err == nil {
+		q = money.Rat(units, ratioScale)
+	}
+	return new(big.Rat).Sub(big.NewRat(1, 1), q)
 }
 
 // byValues orders groups by their dimension values, each compared as

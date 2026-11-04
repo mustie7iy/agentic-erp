@@ -174,3 +174,7 @@ func (failingCash) ExtractActualShares(context.Context, uuid.UUID) ([]extract.Ca
 func (failingCash) ExtractForecastShares(context.Context, uuid.UUID) ([]extract.ForecastShare, error) {
 	return nil, errCash
 }
+
+func (failingCash) ExtractAccuracyCells(context.Context, uuid.UUID) ([]extract.AccuracyCell, error) {
+	return nil, errCash
+}

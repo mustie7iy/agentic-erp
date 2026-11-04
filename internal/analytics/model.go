@@ -176,7 +176,14 @@ func (m *Model) checkMetric(met *Metric, dims map[string]bool) error {
 		if l == nil || r == nil {
 			return fmt.Errorf("semantic model: %s derives from unknown metric", met.Name)
 		}
-		if met.Derived.Op != "subtract" && met.Derived.Op != "divide" {
+		switch met.Derived.Op {
+		case "subtract", "divide":
+		case "complement":
+			// One less a quotient is a share of something: a ratio.
+			if met.Type != Ratio {
+				return fmt.Errorf("semantic model: %s is a complement of type %q, want ratio", met.Name, met.Type)
+			}
+		default:
 			return fmt.Errorf("semantic model: %s has unknown op %q", met.Name, met.Derived.Op)
 		}
 		return nil

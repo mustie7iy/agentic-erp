@@ -362,7 +362,7 @@ start() {
   say "    memo records and payments in transit, conversion and drill-down; step 26 its snapshots; step 27 the cash actuals;"
   say "    step 28 the forecast's variance, step 30 a person's comment on it; step 33 its purchase orders; step 35 its"
   say "    treasury connector over SFTP; step 36 the forecast across companies in group currency; step 37 the actuals in"
-  say "    analytics, step 38 the forecast in analytics (its variance and accuracy metrics wait for T53j3)"
+  say "    analytics, step 38 the forecast, its variance and accuracy in analytics"
   say "  - a webhook delivered: the walkthrough runs without the event bus and never sends one to this machine"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - accounts receivable, the period close's accruals and its close agent (T64e-T64g, T64j), consolidation (T68)"
@@ -3947,10 +3947,11 @@ step_cash_analytics() {
 # (the last taken on demand, step 35's, or the daily one when the
 # walkthrough runs after Maple's snapshot time, which is then read instead),
 # at lags 0, 7 and 30, each the snapshot's own lines of that day, blocked
-# suppliers' flows left out; Rita, who holds the forecast's read alone,
+# suppliers' flows left out; then its variance and accuracy (T53j3,
+# forecast_accuracy_analytics); Rita, who holds the forecast's read alone,
 # reads the same.
 step_cash_forecast_analytics() {
-  heading "Step 38 — The forecast in analytics: what today's snapshot expected for today, a week and a month ahead"
+  heading "Step 38 — The forecast in analytics: what today's snapshot expected for today, a week and a month ahead, and how accurate it was today"
   as tom
   local snap kind other day lag q kept got seen=0 total=0 preferred=0 on_demand=0
   say "The variance report compares one snapshot over its period. The governed forecast metrics read each value date"
@@ -3968,8 +3969,8 @@ step_cash_forecast_analytics() {
   for lag in 0 7 30; do
     day=$(date_add "$TODAY" "$lag")
     kept=$(kept_on "$WORK/forecast_lines.json" "$day")
-    q="{\"measures\": [\"forecast_lag_$lag\"], \"by\": [\"currency\", \"value_date\", \"source\", \"certainty\", \"liquidity_item\"], \"companies\": [\"$CC\"], \"order_by\": \"value_date\"}"
-    say "forecast_lag_$lag, by currency, value date, source, certainty and liquidity item: $day is today's snapshot's day $lag."
+    q="{\"measures\": [\"forecast_lag_$lag\"], \"by\": [\"currency\", \"value_date\", \"flow_source\", \"certainty\", \"liquidity_item\"], \"companies\": [\"$CC\"], \"order_by\": \"value_date\"}"
+    say "forecast_lag_$lag, by currency, value date, flow source, certainty and liquidity item: $day is today's snapshot's day $lag."
     api 200 '"answered from \(.source) as of \(.as_of)", (.rows[] | "  " + (map(.value // "-") | join("  ")))' runAnalyticsQuery -body "$q"
     got=$(cad_on "$day")
     expect "the CAD forecast of $day at lag $lag, the snapshot's lines of that day" "$(amount "$got")" "$(amount "$kept")"
@@ -3986,13 +3987,79 @@ step_cash_forecast_analytics() {
   else
     expect "today's snapshot forecasts one of those days" "$seen" 1
   fi
+  forecast_accuracy_analytics
   as rita
-  say "Rita, who holds the forecast's read alone, reads the day-ahead forecast: it names no supplier (ADR-0044 As built T53j2)."
+  say "Rita, who holds the forecast's read alone, reads the day-ahead forecast and its accuracy: they name no supplier"
+  say "(ADR-0044 As built T53j2, T53j3)."
   q="{\"measures\": [\"forecast_lag_0\"], \"by\": [\"currency\", \"value_date\"], \"companies\": [\"$CC\"]}"
   api 200 '(.rows[] | "  " + (map(.value // "-") | join("  ")))' runAnalyticsQuery -body "$q"
   expect "Rita's CAD forecast of $TODAY, Tom's" "$(amount "$(cad_on "$TODAY")")" "$(amount "$(kept_on "$WORK/forecast_lines.json" "$TODAY")")"
+  api 200 '(.rows[] | "  " + (map(.value // "-") | join("  ")))' runAnalyticsQuery -body "$ACCURACY_TODAY"
+  expect "Rita's CAD accuracy of $TODAY, Tom's" "$(field '[.rows[] | select(.[0].value == "CAD") | .[4].value // "-"][0]')" "$ACCURACY_CAD"
   as tom
   passed
+}
+
+# forecast_accuracy_analytics is the forecast's variance and accuracy as
+# governed metrics (T53j3, ADR-0044 As built T53j3; product owner
+# 2026-11-04): today's actuals against today's snapshot at lag 0, in cells
+# of a currency and liquidity item, checked by hand against the variance
+# report of the day (step 28's): each item's variance is the report's, its
+# accuracy 100% less the report's variance_percent (none where nothing was
+# forecast), and the day's accuracy 1 less WAPE, the items' absolute
+# variances over their absolute forecasts rounded to two decimals of a
+# percentage half away from zero. No snapshot was taken a week or a month
+# ago, so no day is compared at lags 7 and 30.
+forecast_accuracy_analytics() {
+  local report ours abs_v=0 abs_f=0 want v f item var pct line
+  say "The variance report compares today's snapshot with today's statement lines, item by item (step 28):"
+  api 200 '.currencies[] | select(.currency == "CAD") | .items[] | "  \("  " * .level)\(.liquidity_item // "unclassified"): \(.total.forecast.amount) -> \(.total.actual.amount), variance \(.total.variance.amount) (\(.total.variance_percent // "-")%)"' \
+    getLiquidityForecastVariance -p "legal_entity_id=$LE" -p "from=$TODAY" -p "to=$TODAY" -p lag=0
+  # The report's leaf rows of CAD (an item's row is followed by its
+  # children's, one level deeper), each item's own cell, of something
+  # forecast or paid.
+  report=$(field '[.currencies[] | select(.currency == "CAD") | .items as $it | range(0; $it | length) as $i
+    | select($i + 1 == ($it | length) or $it[$i + 1].level <= $it[$i].level) | $it[$i]
+    | select(.total.forecast.amount != "0.00" or .total.variance.amount != "0.00")
+    | "\(.liquidity_item // "")|\(.total.forecast.amount)|\(.total.variance.amount)|\(.total.variance_percent // "-")"] | .[]')
+  local -a mine=()
+  while IFS='|' read -r item f var pct; do
+    [ -n "$item$f" ] || continue
+    v=$(cents "$var") f=$(cents "$f")
+    abs_v=$((abs_v + (v < 0 ? -v : v))) abs_f=$((abs_f + (f < 0 ? -f : f)))
+    if [ "$pct" = - ]; then mine+=("$item $var -"); else mine+=("$item $var $(ratio4 $((10000 - $(cents "$pct"))))"); fi
+  done <<<"$report"
+  say "Tom asks the semantic layer for the variance and accuracy of today's forecast at lag 0 (variance_lag_0, accuracy_lag_0),"
+  say "by currency and liquidity item: the actual less the forecast, and 100% less the variance's size in percent of the"
+  say "forecast's, as the report's variance_percent; none where nothing was forecast:"
+  api 200 '"answered from \(.source) as of \(.as_of), \(.columns | map(.name) | join(", "))", (.rows[] | "  " + (map(.value // "-") | join("  ")))' \
+    runAnalyticsQuery -body "{\"measures\": [\"variance_lag_0\", \"accuracy_lag_0\"], \"by\": [\"currency\", \"liquidity_item\"], \"companies\": [\"$CC\"], \"where\": [{\"dim\": \"value_date\", \"op\": \"in\", \"values\": [\"$TODAY\"]}]}"
+  ours=$(field '.rows[] | select(.[0].value == "CAD") | select(.[2].value != "0.00" or .[3].value != null) | "\(.[1].value // "") \(.[2].value) \(.[3].value // "-")"' | sort)
+  expect "each item's variance and accuracy, the report's" "$ours" "$(printf '%s\n' ${mine[@]+"${mine[@]}"} | sort)"
+  if [ "$abs_f" = 0 ]; then
+    want=-
+  else
+    want=$(ratio4 $((10000 - (2 * abs_v * 10000 + abs_f) / (2 * abs_f))))
+  fi
+  ACCURACY_TODAY="{\"measures\": [\"variance_lag_0\", \"absolute_variance_lag_0\", \"absolute_forecast_lag_0\", \"accuracy_lag_0\"], \"by\": [\"currency\"], \"companies\": [\"$CC\"], \"where\": [{\"dim\": \"value_date\", \"op\": \"in\", \"values\": [\"$TODAY\"]}]}"
+  say "The day's accuracy is 1 less WAPE: the items' absolute variances, $(amount "$abs_v") CAD, over their absolute forecasts,"
+  say "$(amount "$abs_f") CAD, the quotient rounded to two decimals of a percentage first: $want."
+  api 200 '(.rows[] | "  " + (map(.value // "-") | join("  ")))' runAnalyticsQuery -body "$ACCURACY_TODAY"
+  line=$(field '[.rows[] | select(.[0].value == "CAD")][0]')
+  expect "today's absolute variance, by hand" "$(jq -r '.[2].value' <<<"$line")" "$(amount "$abs_v")"
+  expect "today's absolute forecast, by hand" "$(jq -r '.[3].value' <<<"$line")" "$(amount "$abs_f")"
+  ACCURACY_CAD=$(jq -r '.[4].value // "-"' <<<"$line")
+  expect "today's accuracy, 1 less WAPE by hand" "$ACCURACY_CAD" "$want"
+  say "No snapshot was taken a week or a month before today, so no day is compared at those lags (the report refuses them):"
+  api 200 '"  \(.rows | length) rows"' runAnalyticsQuery -body "{\"measures\": [\"accuracy_lag_7\", \"accuracy_lag_30\"], \"companies\": [\"$CC\"]}"
+  expect "no day compared a week or a month ahead" "$(field '.rows | length')" 0
+}
+
+# ratio4 N is N ten-thousandths as a ratio with four decimals, "-0.5000".
+ratio4() {
+  local n=$1 sign=''
+  if [ "$n" -lt 0 ]; then sign=- n=$((-n)); fi
+  printf '%s%d.%04d' "$sign" "$((n / 10000))" "$((n % 10000))"
 }
 
 # kept_on FILE DAY is the CAD cents a snapshot's page of lines (FILE)

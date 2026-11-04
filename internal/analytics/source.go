@@ -24,9 +24,10 @@ type Source struct {
 	// does not need, so a permission another fact type needs does not
 	// refuse it. Nil builds every one.
 	Datasets []string
-	// Cash reads the cash actuals' shares and the snapshots' lines as the
-	// caller (cash_actuals, cash_snapshots); nil, as for a source that
-	// reads the API alone, builds neither.
+	// Cash reads the cash actuals' shares, the snapshots' lines and the
+	// accuracy's cells as the caller (cash_actuals, cash_snapshots,
+	// cash_accuracy); nil, as for a source that reads the API alone,
+	// builds none of them.
 	Cash Cash
 }
 
@@ -44,7 +45,7 @@ func (s Source) Permissions() []string {
 		out = append(out, "ledger.account.read")
 	}
 	for _, d := range FactDatasets {
-		// The cash actuals and forecast are read with one permission.
+		// The cash actuals, forecast and accuracy are read with one permission.
 		if s.builds(d.Dataset) && !slices.Contains(out, d.Permission) {
 			out = append(out, d.Permission)
 		}
@@ -61,7 +62,7 @@ type FactDataset struct{ Dataset, Permission string }
 // governed model names no other (FromConfig).
 var FactDatasets = []FactDataset{
 	{"gl_lines", "ledger.entry.read"}, {"po_lines", "procurement.order.read"}, {"ap_invoices", "payables.invoice.read"},
-	{cashActuals, "cash.forecast.read"}, {cashSnapshots, "cash.forecast.read"},
+	{cashActuals, "cash.forecast.read"}, {cashSnapshots, "cash.forecast.read"}, {cashAccuracy, "cash.forecast.read"},
 }
 
 // builds reports whether the source builds a fact table.
