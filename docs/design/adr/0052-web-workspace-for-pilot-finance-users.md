@@ -3588,8 +3588,8 @@ T73h3's behaviour and 04 §4.4:
   `certificate_authorities`, and an empty list lets the client send any
   certificate (RFC 5246 §7.4.4; RFC 8446 §4.2.4). Chromium offers every
   installed certificate when the list is empty
-  (`net/ssl/client_cert_store_mac.cc`: "request.cert_authorities.empty()
-  || …"), shows the selector when any is left
+  (`net/ssl/client_cert_store_mac.cc`: "request.cert_authorities.empty() ||
+  …"), shows the selector when any is left
   (`chrome/browser/ui/views/ssl_client_certificate_selector.cc`;
   `ChromeContentBrowserClient::SelectClientCertificate`), continues
   silently with none, and skips the selector only for URLs the

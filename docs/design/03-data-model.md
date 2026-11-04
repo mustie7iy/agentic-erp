@@ -346,7 +346,37 @@ erDiagram
   custom_field_schema { text entity_type PK
     int version PK
     jsonb json_schema }
+  config_version ||--o{ active_version : "active in"
+  config_version ||--o{ regression_suite : "captured under"
+  regression_suite ||--o{ regression_case : contains
+  active_version { uuid tenant_id PK
+    int number "the tenant's one active version" }
+  regression_suite { uuid id PK
+    text number "unique per tenant"
+    text name
+    int config_version
+    smallint window_days
+    int case_count
+    jsonb strata
+    timestamptz captured_at }
+  regression_case { uuid suite_id PK
+    int case_no PK
+    uuid supplier_invoice_id
+    text document_number
+    uuid legal_entity_id
+    text company
+    text why
+    text expected_decision
+    jsonb expected_issues }
 ```
+
+`active_version` holds each tenant's active version, exactly one per
+tenant (000003). A regression suite (T10, 000018) is a stratified sample
+of real supplier invoices with the decision each got under a
+configuration version; the simulation of a change request replays the
+latest suite of its base version and records the result as regression
+evidence. A suite's cases are its record and are never rewritten
+(`regression_case_immutable`).
 
 Configuration is authored as a versioned document (as in Phase 1). On
 activation, each owning context applies its part to its own relational tables
@@ -2330,8 +2360,8 @@ counts them rather than leave one unreserved; such a run is rejected and
 proposed again before the migration is retried.
 
 Entry locks (clearing, reversal, settlement, reservation) are advisory
-locks on 64 buckets per tenant (`'ledger.journal_entry:' || tenant || ':'
-|| bucket`, the bucket from the entry id's random low bits; the tenant from
+locks on 64 buckets per tenant (`'ledger.journal_entry:' || tenant || ':' ||
+bucket`, the bucket from the entry id's random low bits; the tenant from
 `platform.require_tenant()` (migration 000039), which fails a transaction
 without one where a NULL key would take no lock), each set
 taken once per transaction in bucket order and before any posting period or
@@ -3370,3 +3400,15 @@ first. The report and the check read a close's comments of a basis
 (`variance_comment_by_created`). The account, entries, session and
 principals are other contexts', by id, without foreign keys. Schema
 tests: `db/closing_test.go` (`TestVarianceCommentRules`).
+
+## 3.23 Analytics (`analytics`)
+
+Saved reports, and the analytical store's bookkeeping in PostgreSQL
+(ADR-0044); the store's datasets and manifests are files, not tables.
+
+| Table | Purpose |
+|---|---|
+| `analytics.report` | A saved report (000010): its title, the question it answers, its `spec` and `queries`, and its owner |
+| `analytics.snapshot` | The pointer to a tenant's current manifest (T55b, 000114), one row per tenant, so all of its datasets are swapped together and a reader never sees two runs mixed: the manifest's key, named by its watermark and a digest of what it lists (`snapshot_manifest_key_check`, T55c, 000115), the watermark (the cutoff of the run that wrote the manifest), `as_of`, `published_at`, and `checked_at` (T55c, 000115): the snapshot time of the last run that read every dataset and left no journal entry above its watermark, on which freshness is judged. A run publishes by moving the pointer, guarded by the manifest it read. Derived data: rebuilt after a restore or a move |
+| `analytics.extract_due` | The tenants due an extract (T55c, 000115), one row per tenant: the outbox relay marks a tenant changed (`changed_at`) in the transaction that publishes its events, once per batch; the scheduler claims a due tenant at most once per interval (`started_at`) and records the start of the last run that finished (`done_at`, never after the claim: `extract_due_done_at_claim`), so a change after it is still due; `claimed_lsn` (T55f, 000116) is the primary's WAL position at the claim, and the run reads on the replica only once it has replayed past it |
+| `analytics.superseded` | The manifests a publication replaced (T55f, 000116), kept seven days so a running query never loses a file, each with the keys it listed that its successor does not (`dropped`), which the lifecycle then deletes, but for what the current manifest or a later supersession lists, without reading other manifests. Bookkeeping of derived data: no audit record |
