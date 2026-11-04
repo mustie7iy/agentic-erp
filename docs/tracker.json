@@ -1192,6 +1192,13 @@
        },
        {
         "s": "D",
+        "t": "Every read of the assets context in one snapshot (review finding on the preview's snapshot step, T57f's): getAsset and listAssets read the asset, its terms and its values in separate statements, so a posting committed between them could show the terms unbooked beside the posting's accumulated depreciation; the sweep found the class in the schedule, the acquisition, retirement and transfer reads, the depreciation runs' and the clearing worklist, all marked x-snapshot",
+        "r": "api/openapi.yaml (getAsset, listAssets, getAssetSchedule, get/listAssetAcquisition(s), get/listAssetRetirement(s), get/listAssetTransfer(s), get/listDepreciationRun(s), listAssetClearingItems: x-snapshot) · TestReadsInOneSnapshot, TestSnapshotOperations · 04-api-design §4.7 · ADR-0057 (as built, every read in one snapshot)",
+        "src": "review:T57f",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "Long-running jobs refuse a deactivated requester (pre-existing security finding on T57f; PO decision 2026-11-03: deactivated requesters are refused): every step that does deferred work as its requester (a migration run, a payment proposal and release, a simulation, a depreciation run's plan, batches and finish; workflow and in-process runners alike) first calls identity.Actors.MayAct, which refuses a requester blocked or deprovisioned since the start with 403 identity.principal_blocked, not retried; the job fails through its existing problem path, audited and recorded as the requester, its earlier postings kept and its slot freed (a migration run back to queued, a release left releasing for :release)",
         "r": "internal/identity/directory.go Actors.MayAct · internal/workflows (working, Depreciations.acting) · integration prepareAs · payments mayAct · configuration simulation · ADR-0012 As built · ADR-0057 As built · 04 §4.8",
         "src": "review:T57f · po:2026-11-03",

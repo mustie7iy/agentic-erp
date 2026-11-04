@@ -1089,14 +1089,17 @@ type Invoker interface {
 	// GetAsset invokes getAsset operation.
 	//
 	// One asset with its class, centers and depreciation terms per ledger (ADR-0057 §5). An asset of a
-	// legal entity the caller cannot act in is not found.
+	// legal entity the caller cannot act in is not found. Read from one database state (a repeatable-read
+	// snapshot), so the asset's terms and values agree whatever posts meanwhile.
 	//
 	// GET /v1/assets/{id}
 	GetAsset(ctx context.Context, params GetAssetParams) (GetAssetRes, error)
 	// GetAssetAcquisition invokes getAssetAcquisition operation.
 	//
 	// One acquisition with its asset, its source line and the supplier invoice behind it, and its journal
-	// entries per ledger (ADR-0057 §6). One of a legal entity the caller cannot act in is not found.
+	// entries per ledger (ADR-0057 §6). One of a legal entity the caller cannot act in is not found. Read
+	// from one database state (a repeatable-read snapshot), so its status and its journal entries agree
+	// whatever posts meanwhile.
 	//
 	// GET /v1/asset-acquisitions/{id}
 	GetAssetAcquisition(ctx context.Context, params GetAssetAcquisitionParams) (GetAssetAcquisitionRes, error)
@@ -1132,7 +1135,9 @@ type Invoker interface {
 	// GetAssetRetirement invokes getAssetRetirement operation.
 	//
 	// One retirement with its asset, what it took per ledger and its journal entries (ADR-0057 §8). One
-	// of a legal entity the caller cannot act in is not found.
+	// of a legal entity the caller cannot act in is not found. Read from one database state (a
+	// repeatable-read snapshot), so its status, its journal entries and what it took agree whatever posts
+	// meanwhile.
 	//
 	// GET /v1/asset-retirements/{id}
 	GetAssetRetirement(ctx context.Context, params GetAssetRetirementParams) (GetAssetRetirementRes, error)
@@ -1154,14 +1159,18 @@ type Invoker interface {
 	// book value at the period's end. `totals` sums the year's periods. `ledger_id` defaults to the
 	// leading ledger. A ledger the asset has no terms in is 422 `assets.ledger_terms_missing`; a fiscal
 	// year that is not set up is 422 `ledger.no_fiscal_period`. Amounts are in the company's local
-	// currency. An asset of a legal entity the caller cannot act in is not found.
+	// currency. An asset of a legal entity the caller cannot act in is not found. Read from one database
+	// state (a repeatable-read snapshot), so the asset's depreciation start, terms and movements agree
+	// whatever posts meanwhile.
 	//
 	// GET /v1/assets/{id}/schedule
 	GetAssetSchedule(ctx context.Context, params GetAssetScheduleParams) (GetAssetScheduleRes, error)
 	// GetAssetTransfer invokes getAssetTransfer operation.
 	//
 	// One transfer with its asset (and an asset transfer's receiver), what it moved per ledger and its
-	// journal entries (ADR-0057 §8). One of a legal entity the caller cannot act in is not found.
+	// journal entries (ADR-0057 §8). One of a legal entity the caller cannot act in is not found. Read
+	// from one database state (a repeatable-read snapshot), so its status, its journal entries and what it
+	// moved agree whatever posts meanwhile.
 	//
 	// GET /v1/asset-transfers/{id}
 	GetAssetTransfer(ctx context.Context, params GetAssetTransferParams) (GetAssetTransferRes, error)
@@ -1402,7 +1411,8 @@ type Invoker interface {
 	// One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it
 	// planned, posted and skipped, the depreciation it posted, the problem that failed it, and its batches
 	// with their journal entries and document numbers. One of a legal entity the caller cannot act in is
-	// not found.
+	// not found. Read from one database state (a repeatable-read snapshot), so its status, counts and
+	// batches agree whatever posts meanwhile.
 	//
 	// GET /v1/depreciation-runs/{id}
 	GetDepreciationRun(ctx context.Context, params GetDepreciationRunParams) (GetDepreciationRunRes, error)
@@ -1976,7 +1986,8 @@ type Invoker interface {
 	// The asset acquisitions of the legal entities the caller may act in (ADR-0057 §6, T57c), each with
 	// its asset, its source line and the supplier invoice behind it, and its journal entries per ledger.
 	// Filters: company, asset, source entry, posting dates and status. Sortable by: `posting_date`
-	// (default), `created_at`.
+	// (default), `created_at`. Read from one database state (a repeatable-read snapshot), so each
+	// acquisition's status and its journal entries agree whatever posts meanwhile.
 	//
 	// GET /v1/asset-acquisitions
 	ListAssetAcquisitions(ctx context.Context, params ListAssetAcquisitionsParams) (ListAssetAcquisitionsRes, error)
@@ -2008,7 +2019,9 @@ type Invoker interface {
 	// take something from: not reversed with something left, or reversed with something offered. A legal
 	// entity the caller cannot act in has none. Ordered by posting date, entry and line. The lines are
 	// ledger amounts, so besides `assets.asset.read` the caller needs `ledger.entry.read`
-	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Read from one database state (a
+	// repeatable-read snapshot), so a line's used and remaining amounts and its acquisitions agree
+	// whatever posts meanwhile.
 	//
 	// GET /v1/asset-clearing-items
 	ListAssetClearingItems(ctx context.Context, params ListAssetClearingItemsParams) (ListAssetClearingItemsRes, error)
@@ -2031,7 +2044,9 @@ type Invoker interface {
 	//
 	// The asset retirements of the legal entities the caller may act in (ADR-0057 §8, T57g), each with
 	// its asset, what it took per ledger and its journal entries. Filters: company, asset, kind, posting
-	// dates and status. Sortable by: `posting_date` (default), `created_at`.
+	// dates and status. Sortable by: `posting_date` (default), `created_at`. Read from one database state
+	// (a repeatable-read snapshot), so each retirement's status, its journal entries and what it took
+	// agree whatever posts meanwhile.
 	//
 	// GET /v1/asset-retirements
 	ListAssetRetirements(ctx context.Context, params ListAssetRetirementsParams) (ListAssetRetirementsRes, error)
@@ -2040,7 +2055,8 @@ type Invoker interface {
 	// The asset transfers of the legal entities the caller may act in (ADR-0057 §8, T57h), each with its
 	// asset (and an asset transfer's receiver), what it moved per ledger and its journal entries. Filters:
 	// company, asset (as sender or receiver), kind, posting dates and status. Sortable by: `posting_date`
-	// (default), `created_at`.
+	// (default), `created_at`. Read from one database state (a repeatable-read snapshot), so each
+	// transfer's status, its journal entries and what it moved agree whatever posts meanwhile.
 	//
 	// GET /v1/asset-transfers
 	ListAssetTransfers(ctx context.Context, params ListAssetTransfersParams) (ListAssetTransfersRes, error)
@@ -2049,7 +2065,8 @@ type Invoker interface {
 	// The assets of the legal entities the caller may act in (ADR-0057 §5, T57b), each with its class,
 	// its centers (the latest assignment's) and its depreciation terms per ledger. Filters: company,
 	// class, status, cost center (the asset's current one) and asset number. Sortable by: `asset_number`
-	// (default; as text), `created_at`.
+	// (default; as text), `created_at`. Read from one database state (a repeatable-read snapshot), so each
+	// asset's terms and values agree whatever posts meanwhile.
 	//
 	// GET /v1/assets
 	ListAssets(ctx context.Context, params ListAssetsParams) (ListAssetsRes, error)
@@ -2278,7 +2295,8 @@ type Invoker interface {
 	//
 	// The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
 	// its batches and their journal entries' document numbers. Filters: company, ledger, fiscal year and
-	// status. Sortable by: `created_at` (default).
+	// status. Sortable by: `created_at` (default). Read from one database state (a repeatable-read
+	// snapshot), so each run's status, counts and batches agree whatever posts meanwhile.
 	//
 	// GET /v1/depreciation-runs
 	ListDepreciationRuns(ctx context.Context, params ListDepreciationRunsParams) (ListDepreciationRunsRes, error)
@@ -18093,7 +18111,8 @@ func (c *Client) sendGetApprovalRequest(ctx context.Context, params GetApprovalR
 // GetAsset invokes getAsset operation.
 //
 // One asset with its class, centers and depreciation terms per ledger (ADR-0057 §5). An asset of a
-// legal entity the caller cannot act in is not found.
+// legal entity the caller cannot act in is not found. Read from one database state (a repeatable-read
+// snapshot), so the asset's terms and values agree whatever posts meanwhile.
 //
 // GET /v1/assets/{id}
 func (c *Client) GetAsset(ctx context.Context, params GetAssetParams) (GetAssetRes, error) {
@@ -18225,7 +18244,9 @@ func (c *Client) sendGetAsset(ctx context.Context, params GetAssetParams) (res G
 // GetAssetAcquisition invokes getAssetAcquisition operation.
 //
 // One acquisition with its asset, its source line and the supplier invoice behind it, and its journal
-// entries per ledger (ADR-0057 §6). One of a legal entity the caller cannot act in is not found.
+// entries per ledger (ADR-0057 §6). One of a legal entity the caller cannot act in is not found. Read
+// from one database state (a repeatable-read snapshot), so its status and its journal entries agree
+// whatever posts meanwhile.
 //
 // GET /v1/asset-acquisitions/{id}
 func (c *Client) GetAssetAcquisition(ctx context.Context, params GetAssetAcquisitionParams) (GetAssetAcquisitionRes, error) {
@@ -18610,7 +18631,9 @@ func (c *Client) sendGetAssetHistorySheet(ctx context.Context, params GetAssetHi
 // GetAssetRetirement invokes getAssetRetirement operation.
 //
 // One retirement with its asset, what it took per ledger and its journal entries (ADR-0057 §8). One
-// of a legal entity the caller cannot act in is not found.
+// of a legal entity the caller cannot act in is not found. Read from one database state (a
+// repeatable-read snapshot), so its status, its journal entries and what it took agree whatever posts
+// meanwhile.
 //
 // GET /v1/asset-retirements/{id}
 func (c *Client) GetAssetRetirement(ctx context.Context, params GetAssetRetirementParams) (GetAssetRetirementRes, error) {
@@ -18757,7 +18780,9 @@ func (c *Client) sendGetAssetRetirement(ctx context.Context, params GetAssetReti
 // book value at the period's end. `totals` sums the year's periods. `ledger_id` defaults to the
 // leading ledger. A ledger the asset has no terms in is 422 `assets.ledger_terms_missing`; a fiscal
 // year that is not set up is 422 `ledger.no_fiscal_period`. Amounts are in the company's local
-// currency. An asset of a legal entity the caller cannot act in is not found.
+// currency. An asset of a legal entity the caller cannot act in is not found. Read from one database
+// state (a repeatable-read snapshot), so the asset's depreciation start, terms and movements agree
+// whatever posts meanwhile.
 //
 // GET /v1/assets/{id}/schedule
 func (c *Client) GetAssetSchedule(ctx context.Context, params GetAssetScheduleParams) (GetAssetScheduleRes, error) {
@@ -18925,7 +18950,9 @@ func (c *Client) sendGetAssetSchedule(ctx context.Context, params GetAssetSchedu
 // GetAssetTransfer invokes getAssetTransfer operation.
 //
 // One transfer with its asset (and an asset transfer's receiver), what it moved per ledger and its
-// journal entries (ADR-0057 §8). One of a legal entity the caller cannot act in is not found.
+// journal entries (ADR-0057 §8). One of a legal entity the caller cannot act in is not found. Read
+// from one database state (a repeatable-read snapshot), so its status, its journal entries and what it
+// moved agree whatever posts meanwhile.
 //
 // GET /v1/asset-transfers/{id}
 func (c *Client) GetAssetTransfer(ctx context.Context, params GetAssetTransferParams) (GetAssetTransferRes, error) {
@@ -22262,7 +22289,8 @@ func (c *Client) sendGetCurrentPrincipal(ctx context.Context) (res GetCurrentPri
 // One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it
 // planned, posted and skipped, the depreciation it posted, the problem that failed it, and its batches
 // with their journal entries and document numbers. One of a legal entity the caller cannot act in is
-// not found.
+// not found. Read from one database state (a repeatable-read snapshot), so its status, counts and
+// batches agree whatever posts meanwhile.
 //
 // GET /v1/depreciation-runs/{id}
 func (c *Client) GetDepreciationRun(ctx context.Context, params GetDepreciationRunParams) (GetDepreciationRunRes, error) {
@@ -30861,7 +30889,8 @@ func (c *Client) sendListApprovalRequests(ctx context.Context, params ListApprov
 // The asset acquisitions of the legal entities the caller may act in (ADR-0057 §6, T57c), each with
 // its asset, its source line and the supplier invoice behind it, and its journal entries per ledger.
 // Filters: company, asset, source entry, posting dates and status. Sortable by: `posting_date`
-// (default), `created_at`.
+// (default), `created_at`. Read from one database state (a repeatable-read snapshot), so each
+// acquisition's status and its journal entries agree whatever posts meanwhile.
 //
 // GET /v1/asset-acquisitions
 func (c *Client) ListAssetAcquisitions(ctx context.Context, params ListAssetAcquisitionsParams) (ListAssetAcquisitionsRes, error) {
@@ -31319,7 +31348,9 @@ func (c *Client) sendListAssetClasses(ctx context.Context, params ListAssetClass
 // take something from: not reversed with something left, or reversed with something offered. A legal
 // entity the caller cannot act in has none. Ordered by posting date, entry and line. The lines are
 // ledger amounts, so besides `assets.asset.read` the caller needs `ledger.entry.read`
-// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Read from one database state (a
+// repeatable-read snapshot), so a line's used and remaining amounts and its acquisitions agree
+// whatever posts meanwhile.
 //
 // GET /v1/asset-clearing-items
 func (c *Client) ListAssetClearingItems(ctx context.Context, params ListAssetClearingItemsParams) (ListAssetClearingItemsRes, error) {
@@ -31764,7 +31795,9 @@ func (c *Client) sendListAssetMovements(ctx context.Context, params ListAssetMov
 //
 // The asset retirements of the legal entities the caller may act in (ADR-0057 §8, T57g), each with
 // its asset, what it took per ledger and its journal entries. Filters: company, asset, kind, posting
-// dates and status. Sortable by: `posting_date` (default), `created_at`.
+// dates and status. Sortable by: `posting_date` (default), `created_at`. Read from one database state
+// (a repeatable-read snapshot), so each retirement's status, its journal entries and what it took
+// agree whatever posts meanwhile.
 //
 // GET /v1/asset-retirements
 func (c *Client) ListAssetRetirements(ctx context.Context, params ListAssetRetirementsParams) (ListAssetRetirementsRes, error) {
@@ -32037,7 +32070,8 @@ func (c *Client) sendListAssetRetirements(ctx context.Context, params ListAssetR
 // The asset transfers of the legal entities the caller may act in (ADR-0057 §8, T57h), each with its
 // asset (and an asset transfer's receiver), what it moved per ledger and its journal entries. Filters:
 // company, asset (as sender or receiver), kind, posting dates and status. Sortable by: `posting_date`
-// (default), `created_at`.
+// (default), `created_at`. Read from one database state (a repeatable-read snapshot), so each
+// transfer's status, its journal entries and what it moved agree whatever posts meanwhile.
 //
 // GET /v1/asset-transfers
 func (c *Client) ListAssetTransfers(ctx context.Context, params ListAssetTransfersParams) (ListAssetTransfersRes, error) {
@@ -32310,7 +32344,8 @@ func (c *Client) sendListAssetTransfers(ctx context.Context, params ListAssetTra
 // The assets of the legal entities the caller may act in (ADR-0057 §5, T57b), each with its class,
 // its centers (the latest assignment's) and its depreciation terms per ledger. Filters: company,
 // class, status, cost center (the asset's current one) and asset number. Sortable by: `asset_number`
-// (default; as text), `created_at`.
+// (default; as text), `created_at`. Read from one database state (a repeatable-read snapshot), so each
+// asset's terms and values agree whatever posts meanwhile.
 //
 // GET /v1/assets
 func (c *Client) ListAssets(ctx context.Context, params ListAssetsParams) (ListAssetsRes, error) {
@@ -38468,7 +38503,8 @@ func (c *Client) sendListCountryPacks(ctx context.Context, params ListCountryPac
 //
 // The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
 // its batches and their journal entries' document numbers. Filters: company, ledger, fiscal year and
-// status. Sortable by: `created_at` (default).
+// status. Sortable by: `created_at` (default). Read from one database state (a repeatable-read
+// snapshot), so each run's status, counts and batches agree whatever posts meanwhile.
 //
 // GET /v1/depreciation-runs
 func (c *Client) ListDepreciationRuns(ctx context.Context, params ListDepreciationRunsParams) (ListDepreciationRunsRes, error) {
