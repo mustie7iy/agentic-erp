@@ -327,7 +327,10 @@ Per ADR-0008:
   sees what the first saw. A report computed from several contexts' reads
   needs it, such as the daily cash position (`getCashPosition`, ADR-0051
   §6), and so does a report whose totals and page are separate
-  statements (`getAssetHistorySheet`, ADR-0057). The contract allows the
+  statements (`getAssetHistorySheet`, ADR-0057), and a read whose
+  figures come from several statements that must agree, such as an
+  asset with its terms and values (`getAsset`; every such read of the
+  assets context, ADR-0057 As built). The contract allows the
   mark on a `GET` and on a read carried in a `POST` for its body
   (`x-autonomy: read`, such as `previewDepreciationRun`), which runs
   read-write at that level for its idempotency record alone and so must

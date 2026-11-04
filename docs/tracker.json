@@ -1184,6 +1184,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Every read of the assets context in one snapshot (review finding on the preview's snapshot step, T57f's): getAsset and listAssets read the asset, its terms and its values in separate statements, so a posting committed between them could show the terms unbooked beside the posting's accumulated depreciation; the sweep found the class in the schedule, the acquisition, retirement and transfer reads, the depreciation runs' and the clearing worklist, all marked x-snapshot",
+        "r": "api/openapi.yaml (getAsset, listAssets, getAssetSchedule, get/listAssetAcquisition(s), get/listAssetRetirement(s), get/listAssetTransfer(s), get/listDepreciationRun(s), listAssetClearingItems: x-snapshot) · TestReadsInOneSnapshot, TestSnapshotOperations · 04-api-design §4.7 · ADR-0057 (as built, every read in one snapshot)",
+        "src": "review:T57f",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "Long-running jobs and a deactivated requester (pre-existing security finding on T57f): identity.Actors.Actor does not check that the principal is still active, so migration runs and depreciation runs keep acting, and posting, as a requester deactivated after the start; should they refuse such a requester and fail the run, as ADR-0056's recurrer checks Active?",
         "r": "internal/identity/directory.go Actors.Actor · internal/workflows requester (migrate.go) · ADR-0012 · ADR-0056 · ADR-0057 §7",

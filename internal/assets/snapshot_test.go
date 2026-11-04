@@ -2,14 +2,17 @@ package assets_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/assets"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 )
 
@@ -99,5 +102,114 @@ func TestAssetHistorySheetInOneSnapshot(t *testing.T) {
 	after := e.sheet(t, "&fiscal_year=2026&group_by=asset")
 	if got := strings.Join(sheetRows(after), "; "); got == strings.Join(sheetRows(before), "; ") {
 		t.Errorf("the rows after the scrapping: got %s, want the mill's retirement", got)
+	}
+}
+
+// snapshotRead is a read of the assets context and a change that alters
+// what it returns: the read's path, the SQL of the statement before which
+// the change is committed, and the change.
+type snapshotRead struct {
+	path, marker string
+	change       func()
+}
+
+// clearingLine posts company 2000's 1,200.00 EUR line on the clearing
+// account and creates a planned asset that may be capitalised from it.
+func (e assetEnv) clearingLine(t *testing.T) (uuid.UUID, any) {
+	t.Helper()
+	entry := e.post(t, "2000", "2026-06-10", "EUR", nil, line{"169000", "1200.00"}, line{"100000", "-1200.00"})
+	a, _ := e.create(t, fmt.Sprintf(`{"legal_entity_id": %q, "class_code": "MACHINES", "description": "Mill", "cost_center_id": %q}`, e.DE, e.c.Admin))
+	return entry, a["id"]
+}
+
+// TestReadsInOneSnapshot: every read of an asset, its schedule, its
+// documents, the depreciation runs and the clearing worklist that issues
+// more than one statement returns one database state: a posting
+// committed between its statements is not seen by it, whose response is
+// the one before the posting, which the posting does alter (x-snapshot:
+// one REPEATABLE READ transaction, ADR-0057 As built, review:T57f). With
+// an operation's mark removed its case fails.
+func TestReadsInOneSnapshot(t *testing.T) {
+	const values, entries, batches = "sum(residual)", "FROM assets.document_entry WHERE document_kind", "cardinality(asset_ids)"
+	run := func(path string) func(t *testing.T, e assetEnv) snapshotRead {
+		return func(t *testing.T, e assetEnv) snapshotRead {
+			t.Helper()
+			mill, _ := e.depreciable(t, "Mill")
+			_, r := e.start(t, e.l0, 6)
+			return snapshotRead{strings.NewReplacer("{asset}", mill, "{run}", r.String()).Replace(path), values, func() { e.carry(t, r) }}
+		}
+	}
+	planned := func(path string) func(t *testing.T, e assetEnv) snapshotRead {
+		return func(t *testing.T, e assetEnv) snapshotRead {
+			t.Helper()
+			e.depreciable(t, "Mill")
+			_, r := e.start(t, e.l0, 6)
+			return snapshotRead{strings.ReplaceAll(path, "{run}", r.String()), batches, func() {
+				if err := e.step(t, func(ctx context.Context, h *assets.Endpoints) error {
+					_, err := h.PlanDepreciationRun(ctx, r)
+					return err
+				}); err != nil {
+					t.Errorf("plan the run: %v", err)
+				}
+			}}
+		}
+	}
+	acquired := func(path, marker string) func(t *testing.T, e assetEnv) snapshotRead {
+		return func(t *testing.T, e assetEnv) snapshotRead {
+			t.Helper()
+			entry, a := e.clearingLine(t)
+			return snapshotRead{strings.NewReplacer("{asset}", fmt.Sprint(a), "{company}", e.DE.String()).Replace(path), marker, func() { e.acquire(t, a, entry, 1, "") }}
+		}
+	}
+	document := func(path string, post func(t *testing.T, e assetEnv, mill string) (map[string]any, func(map[string]any))) func(t *testing.T, e assetEnv) snapshotRead {
+		return func(t *testing.T, e assetEnv) snapshotRead {
+			t.Helper()
+			mill, _ := e.depreciable(t, "Mill")
+			q, reverse := post(t, e, mill)
+			return snapshotRead{strings.NewReplacer("{asset}", mill, "{id}", q["id"].(string)).Replace(path), entries, func() { reverse(q) }}
+		}
+	}
+	acquisition := func(t *testing.T, e assetEnv, mill string) (map[string]any, func(map[string]any)) {
+		t.Helper()
+		q, _ := e.Must(200, "GET", "/v1/asset-acquisitions?asset_id="+mill, "", "")
+		return q["items"].([]any)[0].(map[string]any), func(q map[string]any) { e.reverse(t, q, "") }
+	}
+	retirement := func(t *testing.T, e assetEnv, mill string) (map[string]any, func(map[string]any)) {
+		t.Helper()
+		return e.retire(t, mill, `"kind": "scrapping"`), func(q map[string]any) { e.unretire(t, q, `{"reason": "r"}`) }
+	}
+	transfer := func(t *testing.T, e assetEnv, mill string) (map[string]any, func(map[string]any)) {
+		t.Helper()
+		other := e.otherCenter(t)
+		return e.transfer(t, mill, fmt.Sprintf(`"kind": "center", "cost_center_id": %q`, other)), func(q map[string]any) { e.untransfer(t, q, `{"reason": "r"}`) }
+	}
+	for name, read := range map[string]func(t *testing.T, e assetEnv) snapshotRead{
+		"getAsset":               run("/v1/assets/{asset}"),
+		"listAssets":             run("/v1/assets?class_code=MACHINES"),
+		"getAssetSchedule":       acquired("/v1/assets/{asset}/schedule?fiscal_year=2026", "ORDER BY asset_id, seq"),
+		"listAssetClearingItems": acquired("/v1/asset-clearing-items?legal_entity_id={company}&fiscal_year=2026", "q.source_line_no, q.id, q.asset_id"),
+		"getAssetAcquisition":    document("/v1/asset-acquisitions/{id}", acquisition),
+		"listAssetAcquisitions":  document("/v1/asset-acquisitions?asset_id={asset}", acquisition),
+		"getAssetRetirement":     document("/v1/asset-retirements/{id}", retirement),
+		"listAssetRetirements":   document("/v1/asset-retirements?asset_id={asset}", retirement),
+		"getAssetTransfer":       document("/v1/asset-transfers/{id}", transfer),
+		"listAssetTransfers":     document("/v1/asset-transfers?asset_id={asset}", transfer),
+		"getDepreciationRun":     planned("/v1/depreciation-runs/{run}"),
+		"listDepreciationRuns":   planned("/v1/depreciation-runs?fiscal_year=2026"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newRuns(t)
+			r := read(t, e)
+			before, _ := e.Must(200, "GET", r.path, "", "")
+			c, changed := e.between(t, r.marker, r.change)
+			during, _ := c.Must(200, "GET", r.path, "", "")
+			if !changed() {
+				t.Fatal("the posting: got none committed during the read, want one")
+			}
+			want(t, "the response read while the posting was committed", during, before)
+			if after, _ := e.Must(200, "GET", r.path, "", ""); fmt.Sprint(after) == fmt.Sprint(before) {
+				t.Errorf("the response after the posting: got %v, the one before it, want the posting's", after)
+			}
+		})
 	}
 }
