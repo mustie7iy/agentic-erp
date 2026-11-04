@@ -28,6 +28,17 @@ type CashPosition struct {
 	Payees   Payees   // their suppliers' blocks, net days and payment methods
 	Unposted Unposted // the invoices not posted yet (T53e2)
 	Requests Requests // the open down payment requests (T53e2)
+	Orders   Orders   // the open values of the released purchase orders (T53g)
+}
+
+// Orders is what the liquidity forecast reads of the purchase orders: the
+// released orders' open values, each as the supplier open item invoicing
+// it would give, and the order an invoice was entered on, by which the
+// forecast variance knows a payment of the invoice as the order (payables
+// context, T53g).
+type Orders interface {
+	OpenOrders(ctx context.Context, legalEntity uuid.UUID, on time.Time) ([]ledger.PayableItem, error)
+	InvoiceOrders(ctx context.Context, invoices []uuid.UUID) (map[uuid.UUID]uuid.UUID, error)
 }
 
 // Unposted is what the liquidity forecast reads of the invoices parked or

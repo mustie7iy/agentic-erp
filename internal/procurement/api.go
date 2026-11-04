@@ -35,7 +35,8 @@ func orderInputs(items []gen.PurchaseOrderItem) []ItemInput {
 		in := ItemInput{No: apitypes.Ptr[int32](it.ItemNo), MaterialID: apitypes.Ptr[uuid.UUID](it.MaterialID), Description: it.Description, Quantity: it.Quantity.Value,
 			Unit: it.Quantity.Unit, Price: it.UnitPrice.Amount, Currency: it.UnitPrice.Currency, PriceUnit: it.PriceUnit.Value, AccountID: it.AccountID,
 			TaxCode: apitypes.Ptr[string](it.TaxCode), ContractItemNo: apitypes.Ptr[int32](it.ContractItemNo),
-			AccountAssignment: apitypes.Ptr[string](it.AccountAssignment), CostCenterID: apitypes.Ptr[uuid.UUID](it.CostCenterID)}
+			AccountAssignment: apitypes.Ptr[string](it.AccountAssignment), CostCenterID: apitypes.Ptr[uuid.UUID](it.CostCenterID),
+			DeliveryDate: apitypes.Ptr[time.Time](it.DeliveryDate)}
 		if d, ok := it.OverDeliveryPct.Get(); ok {
 			s := string(d)
 			in.OverDelivery = &s
@@ -125,7 +126,7 @@ func orderItemToAPI(it Item, currency string, exp int) gen.PurchaseOrderItem {
 		PriceUnit: gen.NewOptInt32(it.PriceUnit), AccountID: it.AccountID, OverDeliveryPct: gen.NewOptDecimal(gen.Decimal(it.OverDelivery)),
 		TaxCode: apitypes.OptString(it.TaxCode), ContractItemNo: apitypes.OptInt32(it.ContractItemNo),
 		AccountAssignment: gen.NewOptString(it.assignment()),
-		CostCenterID:      apitypes.OptUUID(it.CostCenterID)}
+		CostCenterID:      apitypes.OptUUID(it.CostCenterID), DeliveryDate: apitypes.OptDate(it.DeliveryDate)}
 }
 
 func changeToAPI(ch PurchaseOrderChange) gen.PurchaseOrderChange {

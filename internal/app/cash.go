@@ -20,12 +20,15 @@ import (
 
 // Cash is the cash context as the API wires it (ADR-0051 §2): a leaf that
 // reads the tenancy, payments, ledger, payables and agents contexts through the
-// adapters below, so none of them imports it and it imports none of them.
+// adapters below, and procurement's orders through payables, so none of
+// them imports it and it imports none of them.
 func Cash(cfg Config) *cash.Endpoints {
+	// Posting's own dependencies: the forecast reads an invoice, and an
+	// order's open value, as posting would (T53e2, T53g).
+	invoices := payablesEndpoints(cfg, nil)
 	return &cash.Endpoints{LegalEntities: cashCompanies{}, Settings: configuration.Settings{},
 		Payments: cashPayments{position: payments.CashPosition{Accounts: ledger.Accounts{}, Owed: ledger.OpenItems{}, Payees: partner.Payees{},
-			Unposted: payablesEndpoints(cfg, nil), // posting's own dependencies: the forecast reads an invoice as posting would
-			Requests: downPayments{}}},
+			Unposted: invoices, Requests: downPayments{}, Orders: invoices}},
 		Ledger: cashLedger{}, Sessions: agents.Sessions{}, Partners: cashPartners{},
 		Pages: cfg.Pages, Now: cfg.Now, Consistent: consistent(cfg)}
 }
@@ -136,7 +139,7 @@ func (c cashPayments) Paying(ctx context.Context, legalEntity uuid.UUID, ids []u
 	for id, p := range ps {
 		items := make([]cash.Paid, len(p.Items))
 		for i, it := range p.Items {
-			items[i] = cash.Paid{Amount: it.Amount, Lines: cashLines(it.Lines), Entry: it.Entry, Invoice: it.Invoice}
+			items[i] = cash.Paid{Amount: it.Amount, Lines: cashLines(it.Lines), Entry: it.Entry, Invoice: it.Invoice, Order: it.Order}
 		}
 		out[id] = cash.Paying{PlanningGroup: p.PlanningGroup, Items: items, Request: p.Request}
 	}
@@ -174,13 +177,14 @@ func cashLines(ls []ledger.OffsettingLine) []cash.DocumentLine {
 // cashSources are the forecast's sources of the payments context's kinds
 // of payable (ADR-0051 §4).
 var cashSources = map[string]string{payments.CashItem: cash.SourcePayable, payments.CashUnposted: cash.SourceInvoiceUnposted,
-	payments.CashDownPayment: cash.SourceDownPayment}
+	payments.CashDownPayment: cash.SourceDownPayment, payments.CashOrder: cash.SourcePurchaseOrder}
 
 // cashDocuments are the kinds of document the forecast's drill-down names
 // for the payments context's kinds of payable (T53e4): a posted item's
-// journal entry, an unposted invoice, a down payment request.
+// journal entry, an unposted invoice, a down payment request, a purchase
+// order (T53g).
 var cashDocuments = map[string]string{payments.CashItem: cash.DocJournalEntry, payments.CashUnposted: cash.DocSupplierInvoice,
-	payments.CashDownPayment: cash.DocDownPaymentRequest}
+	payments.CashDownPayment: cash.DocDownPaymentRequest, payments.CashOrder: cash.DocPurchaseOrder}
 
 func cashPaymentsOf(ps []payments.CashPayment) []cash.Payment {
 	out := make([]cash.Payment, len(ps))

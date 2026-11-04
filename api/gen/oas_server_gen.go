@@ -1444,13 +1444,24 @@ type Handler interface {
 	// term not configured gives way to its supplier's net days, and withholding tax codes that would
 	// refuse it are left out. `down_payment` (`expected`, T53e2), the open down payment requests that no
 	// live run pays, each whole and never netted (a run pays a request on its own), on its due date moved
-	// to the next working day, `late` when that is before the read date. A supplier blocked for payment or
-	// posting, inactive, or not set up in the company is paid by no run: its items, unposted invoices and
-	// requests are `payable_blocked` (each keeping its own certainty), on their net due date (a request's
-	// due date; an overdue one on the read date), at what they owe then, netted as a run would, apart from
-	// the totals: listed in each bucket's flows and summed per currency in `blocked`, but counted in the
-	// buckets' `total`s, the currency's `total` and `beyond` only with `include_blocked=true`. Amounts are
-	// signed: a payment out is negative. Each currency gives its flows per bucket by source, certainty and
+	// to the next working day, `late` when that is before the read date. `purchase_order` (`planned`,
+	// T53g), the open value of the released purchase orders: each item's ordered quantity less what its
+	// supplier documents posted, parked or on hold invoice (net of credit memos, with what the source
+	// system invoiced before migration), at its price, plus the tax its tax code gives on the read date
+	// (the tax the supplier charges, as an invoice's is calculated, per code; a code that cannot be
+	// calculated then adds none), less the order's down payment requests not yet cleared (open ones are
+	// `down_payment` flows of their own), taken from its earliest invoices first; its invoice is expected
+	// on the item's `delivery_date`, else the order date plus the company's `cash.order_lead_days`
+	// (default 30), and paid by the order's payment terms from that day (a term not configured: its
+	// supplier's net days) by the same rule as `payable`, an order's items expected on one day being one
+	// document; closed, cancelled, draft or fully invoiced orders add nothing; netted per supplier and
+	// currency among themselves. A supplier blocked for payment or posting, inactive, or not set up in the
+	// company is paid by no run: its items, unposted invoices, requests and open orders are
+	// `payable_blocked` (each keeping its own certainty), on their net due date (a request's due date; an
+	// overdue one on the read date), at what they owe then, netted as a run would, apart from the totals:
+	// listed in each bucket's flows and summed per currency in `blocked`, but counted in the buckets'
+	// `total`s, the currency's `total` and `beyond` only with `include_blocked=true`. Amounts are signed:
+	// a payment out is negative. Each currency gives its flows per bucket by source, certainty and
 	// lateness with the bucket's total, the total over the horizon, and what is expected after the last
 	// bucket (`beyond`, in no bucket). Each currency also gives its rows by liquidity item and its
 	// hierarchy (`items`, T53e3; ADR-0051 §4, §9): every flow is split over the liquidity items
@@ -2011,9 +2022,9 @@ type Handler interface {
 	// supplier (number and name) only to a caller who may use `partner.supplier.read`, its payment only to
 	// one who may use `payments.run.read`, and its document only to one who may use the document's
 	// context's read permission (`ledger.entry.read`, `payables.invoice.read`, `payments.run.read`,
-	// `cash.memo.read`), as the forecast's drill-down does; for others they are left out, never refused,
-	// and `has_document` still says whether it names one. A snapshot of a legal entity the caller cannot
-	// act in is not found.
+	// `cash.memo.read`, `procurement.order.read`), as the forecast's drill-down does; for others they are
+	// left out, never refused, and `has_document` still says whether it names one. A snapshot of a legal
+	// entity the caller cannot act in is not found.
 	//
 	// GET /v1/cash-snapshots/{id}/flows
 	ListCashSnapshotFlows(ctx context.Context, params ListCashSnapshotFlowsParams) (ListCashSnapshotFlowsRes, error)
@@ -2292,9 +2303,9 @@ type Handler interface {
 	// bucket's drill-down totals its cell of the item's row; `count` counts the flows of every page. Each
 	// flow names its supplier (number and name) only to a caller who may use `partner.supplier.read`, and
 	// each document only to one who may use its context's read permission (`ledger.entry.read`,
-	// `payables.invoice.read`, `payments.run.read`, `cash.memo.read`); for others it is left out, never
-	// refused, and `document_count` still counts it. A liquidity item the configuration does not have
-	// lists nothing. A legal entity the caller cannot act in is 404.
+	// `payables.invoice.read`, `payments.run.read`, `cash.memo.read`, `procurement.order.read`); for
+	// others it is left out, never refused, and `document_count` still counts it. A liquidity item the
+	// configuration does not have lists nothing. A legal entity the caller cannot act in is 404.
 	//
 	// GET /v1/liquidity-forecast-flows
 	ListLiquidityForecastFlows(ctx context.Context, params ListLiquidityForecastFlowsParams) (ListLiquidityForecastFlowsRes, error)

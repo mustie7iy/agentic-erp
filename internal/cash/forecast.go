@@ -30,7 +30,9 @@ import (
 // Payable is what a run is expected to pay a supplier as the forecast
 // reads it (ADR-0051 §4, §5): a supplier open item (SourcePayable), an
 // invoice not posted yet as the item it would become
-// (SourceInvoiceUnposted), or a down payment request (SourceDownPayment);
+// (SourceInvoiceUnposted), a down payment request (SourceDownPayment), or
+// a purchase order's open value as the item invoicing it would give
+// (SourcePurchaseOrder, T53g);
 // what paying it on a day pays, the days a run would pay it on, whether
 // its supplier is blocked, and the bank and method that would pay it.
 type Payable struct {
@@ -63,14 +65,16 @@ type Payable struct {
 	Lines         []DocumentLine
 	PlanningGroup string
 	// Document is the document it is: a posted item's journal entry, an
-	// unposted invoice, or a down payment request (T53e4).
+	// unposted invoice, a down payment request (T53e4), or a purchase
+	// order (T53g).
 	Document Document
 }
 
 // Document is a document a forecast flow pays, as the drill-down names it
 // (ADR-0051 §9, T53e4): its kind (DocJournalEntry, DocSupplierInvoice,
-// DocDownPaymentRequest, DocPaymentRun or DocMemoRecord), its id in its
-// own context and its number, "" when it has none.
+// DocDownPaymentRequest, DocPaymentRun, DocMemoRecord or
+// DocPurchaseOrder), its id in its own context and its number, "" when it
+// has none.
 type Document struct {
 	Kind   string
 	ID     uuid.UUID
@@ -84,6 +88,7 @@ const (
 	DocDownPaymentRequest = "down_payment_request"
 	DocPaymentRun         = "payment_run"
 	DocMemoRecord         = "memo_record"
+	DocPurchaseOrder      = "purchase_order"
 )
 
 // Paying is what a payment of a run not yet released pays (ADR-0051 §4,
@@ -100,13 +105,15 @@ type Paying struct {
 
 // Paid is an open item a payment settles: what the payment pays of it
 // (negative for a credit memo it nets), its offsetting lines, its journal
-// entry, and the supplier invoice that entry was posted for (nil for
-// none): the documents the variance matches a payment to (T53f3).
+// entry, the supplier invoice that entry was posted for and the purchase
+// order that invoice was entered on (nil for none): the documents the
+// variance matches a payment to (T53f3, T53g).
 type Paid struct {
 	Amount  money.Minor
 	Lines   []DocumentLine
 	Entry   uuid.UUID
 	Invoice *uuid.UUID
+	Order   *uuid.UUID
 }
 
 // Sources and certainties of the forecast's flows (ADR-0051 §4).
@@ -115,6 +122,7 @@ const (
 	SourcePayableBlocked  = "payable_blocked"
 	SourceInvoiceUnposted = "invoice_unposted"
 	SourceDownPayment     = "down_payment"
+	SourcePurchaseOrder   = "purchase_order"
 	CertaintyActual       = "actual"
 	CertaintyExpected     = "expected"
 	CertaintyPlanned      = "planned"
@@ -380,7 +388,7 @@ func errForecastTooLarge() *problem.Problem {
 
 // forecastFlows are the legal entity's supplier payments on their
 // expected days (supplierFlows: payable, invoice_unposted, down_payment,
-// and payable_blocked apart), the payments of runs not yet released
+// purchase_order, and payable_blocked apart), the payments of runs not yet released
 // (payment_run, confirmed), whose items and requests the payables port
 // leaves out (never both), the payments in transit from its active house
 // banks (in_transit, confirmed) and its memo records' occurrences up to the
@@ -548,7 +556,7 @@ func (r reader) supplierFlows(payables []Payable) ([]datedFlow, error) {
 // date, any other on its payment day (payDay).
 func (r reader) expected(p Payable) (netting, time.Time) {
 	k := netting{supplier: p.Supplier, currency: p.Currency, source: p.Source, certainty: CertaintyExpected}
-	if p.Source == SourceInvoiceUnposted {
+	if p.Source == SourceInvoiceUnposted || p.Source == SourcePurchaseOrder {
 		k.certainty = CertaintyPlanned
 	}
 	switch {

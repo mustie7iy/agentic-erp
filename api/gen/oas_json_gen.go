@@ -126980,6 +126980,12 @@ func (s *PurchaseOrderItem) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.DeliveryDate.Set {
+			e.FieldStart("delivery_date")
+			s.DeliveryDate.Encode(e, json.EncodeDate)
+		}
+	}
+	{
 		if s.ReceivedQuantity.Set {
 			e.FieldStart("received_quantity")
 			s.ReceivedQuantity.Encode(e)
@@ -126999,7 +127005,7 @@ func (s *PurchaseOrderItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPurchaseOrderItem = [15]string{
+var jsonFieldsNameOfPurchaseOrderItem = [16]string{
 	0:  "item_no",
 	1:  "material_id",
 	2:  "description",
@@ -127012,9 +127018,10 @@ var jsonFieldsNameOfPurchaseOrderItem = [15]string{
 	9:  "over_delivery_pct",
 	10: "tax_code",
 	11: "contract_item_no",
-	12: "received_quantity",
-	13: "valuation_price",
-	14: "valuation_price_unit",
+	12: "delivery_date",
+	13: "received_quantity",
+	14: "valuation_price",
+	15: "valuation_price_unit",
 }
 
 // Decode decodes PurchaseOrderItem from json.
@@ -127150,6 +127157,16 @@ func (s *PurchaseOrderItem) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"contract_item_no\"")
+			}
+		case "delivery_date":
+			if err := func() error {
+				s.DeliveryDate.Reset()
+				if err := s.DeliveryDate.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"delivery_date\"")
 			}
 		case "received_quantity":
 			if err := func() error {

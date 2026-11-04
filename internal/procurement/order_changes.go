@@ -286,7 +286,7 @@ func (e *Endpoints) proposal(ctx context.Context, tx pgx.Tx, o PurchaseOrder, ba
 			return ChangeProposal{}, 0, err
 		}
 	}
-	h, err := e.header(ctx, tx, le, o.SupplierID, o.Currency, pr.OrderDate, o.ContractID, o.PurchasingOrgID)
+	h, err := e.header(ctx, tx, le, o.SupplierID, o.Currency, pr.OrderDate, o.ContractID, o.PurchasingOrgID, o.RequisitionID)
 	if err != nil {
 		return ChangeProposal{}, 0, err
 	}
@@ -331,7 +331,8 @@ func removedItems(ctx context.Context, tx pgx.Tx, order uuid.UUID) ([]Item, erro
 // the change leaves it out, rather than the company default a new item
 // takes: a change of price alone does not move the tolerance, nor refuse
 // an item over-delivered within it. Likewise its assignment (T56e), which
-// a released item keeps: a client that sends neither field keeps it.
+// a released item keeps: a client that sends neither field keeps it; and
+// its delivery date (T53g), which a client that sends none keeps.
 func keptTolerance(current []Item, in []ItemInput) []ItemInput {
 	out := slices.Clone(in)
 	for i := range out {
@@ -344,6 +345,9 @@ func keptTolerance(current []Item, in []ItemInput) []ItemInput {
 		if out[i].AccountAssignment == nil && out[i].CostCenterID == nil {
 			assignment := current[i].assignment()
 			out[i].AccountAssignment, out[i].CostCenterID = &assignment, current[i].CostCenterID
+		}
+		if out[i].DeliveryDate == nil {
+			out[i].DeliveryDate = current[i].DeliveryDate
 		}
 	}
 	return out

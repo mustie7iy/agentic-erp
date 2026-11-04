@@ -1,7 +1,9 @@
 package cash_test
 
 import (
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,16 +104,19 @@ func (e positionEnv) budgetData(t *testing.T) {
 // suppliers set up in the company and its blocked vendor, each item with
 // its terms (net 15-119 days from its document date, every third with a 2%
 // tier) and its expense line, read in the company's buckets and converted
-// into CAD, and one month's flows drilled down by liquidity item. No index
-// is added for the due date, which is computed: the read takes every open
-// item, so an index on it would not narrow it (§6). The first read of each
-// warms the caches and is not counted.
+// into CAD, and one month's flows drilled down by liquidity item. Since
+// T53g it also has 10,000 purchase orders of five items, 2,000 of them
+// released and open (forecastOrderData). No index is added for the due
+// date, which is computed: the read takes every open item, so an index on
+// it would not narrow it (§6). The first read of each warms the caches
+// and is not counted.
 func TestLiquidityForecastBudget(t *testing.T) {
 	if testing.Short() || raceDetector {
 		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
 	}
 	e := setupForecast(t, withItems)
 	e.forecastBudgetData(t)
+	e.forecastOrderData(t)
 	budget := nfr.Budget(3 * time.Second)
 	measure := func(what, query string, check func(map[string]any)) {
 		t.Helper()
@@ -131,8 +136,12 @@ func TestLiquidityForecastBudget(t *testing.T) {
 		}
 	}
 	measure("liquidity forecast", "/v1/liquidity-forecast?legal_entity_id="+e.le.String()+"&display_currency=CAD", func(f map[string]any) {
-		if got := amount(f["currencies"].([]any)[0].(map[string]any)["blocked"].(map[string]any)["amount"]); got == "0.00 CAD" {
+		cad := f["currencies"].([]any)[0].(map[string]any)
+		if got := amount(cad["blocked"].(map[string]any)["amount"]); got == "0.00 CAD" {
 			t.Fatalf("blocked: got %s, want the vendor's items", got)
+		}
+		if !strings.Contains(fmt.Sprint(cad["buckets"]), "purchase_order") {
+			t.Fatal("orders: got no purchase_order flow, want the open orders'")
 		}
 	})
 	measure("drill-down of a month", "/v1/liquidity-forecast-flows?legal_entity_id="+e.le.String()+"&currency=CAD&from=2026-07-17&to=2026-08-16"+
@@ -171,4 +180,39 @@ func (e forecastEnv) forecastBudgetData(t *testing.T) {
 	e.exec(t, `DROP TABLE budget_item`)
 	e.exec(t, `RESET session_replication_role`)
 	e.exec(t, `ANALYZE ledger.journal_entry, ledger.journal_line, ledger.open_item_terms`)
+}
+
+// forecastOrderData writes the budget's purchase orders straight into
+// procurement and payables, without the checks an order's release and an
+// invoice's posting run: 10,000 orders of five items of Maple's two
+// suppliers, 8,000 closed and 2,000 released, each item 10 EA at 1.00 to
+// 99.00, the first two with V1, the first three delivered on a day of the
+// next 300 (the others by the lead days), and a posted invoice of 2 EA on
+// each released order's first item.
+func (e forecastEnv) forecastOrderData(t *testing.T) {
+	t.Helper()
+	e.exec(t, `SET session_replication_role = replica`)
+	e.exec(t, `CREATE TEMP TABLE budget_order AS
+		SELECT n, gen_random_uuid() AS id, CASE WHEN n % 2 = 0 THEN $1::uuid ELSE (SELECT partner_id FROM partner.supplier_company
+			WHERE legal_entity_id = $2 AND partner_id NOT IN ($1, $3) ORDER BY partner_id LIMIT 1) END AS supplier,
+			CASE WHEN n % 5 = 0 THEN 'released' ELSE 'closed' END AS status
+		FROM generate_series(1, 10000) n`, e.Supplier, e.le, e.Vendor)
+	e.exec(t, `INSERT INTO procurement.purchase_order (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, order_date,
+			payment_term_code, status, created_by, updated_by)
+		SELECT $1, id, 'PB' || n, $2, supplier, 'CAD', date '2026-01-01' + (n % 100), 'NT30', status, $3, $3 FROM budget_order`,
+		e.Tenant.ID, e.le, e.Tenant.Human.ID)
+	e.exec(t, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price,
+			account_id, tax_code, valuation_price, valuation_price_unit, delivery_date)
+		SELECT $1, id, k, 'Goods', 10, 'EA', 100 * (1 + (n + k) % 99), $2, CASE WHEN k <= 2 THEN 'V1' END, 100 * (1 + (n + k) % 99), 1,
+			CASE WHEN k <= 3 THEN date '2026-04-17' + ((n * k) % 300) END
+		FROM budget_order, generate_series(1, 5) k`, e.Tenant.ID, e.expense)
+	e.exec(t, `INSERT INTO payables.supplier_invoice (tenant_id, id, document_number, legal_entity_id, supplier_id, supplier_reference, invoice_date,
+			currency, gross_amount, tax_amount, purchase_order_id, status, source, kind, journal_entry_year, journal_entry_id, created_by, updated_by)
+		SELECT $1, gen_random_uuid(), 'IB' || n, $2, supplier, 'IB' || n, date '2026-04-01', 'CAD', 200, 0, id, 'posted', 'manual', 'invoice', 2026,
+			gen_random_uuid(), $3, $3 FROM budget_order WHERE status = 'released'`, e.Tenant.ID, e.le, e.Tenant.Human.ID)
+	e.exec(t, `INSERT INTO payables.supplier_invoice_item (tenant_id, supplier_invoice_id, item_no, purchase_order_id, po_item_no, quantity, uom_code, amount)
+		SELECT $1, i.id, 1, i.purchase_order_id, 1, 2, 'EA', 200 FROM payables.supplier_invoice i WHERE i.document_number LIKE 'IB%'`, e.Tenant.ID)
+	e.exec(t, `DROP TABLE budget_order`)
+	e.exec(t, `RESET session_replication_role`)
+	e.exec(t, `ANALYZE procurement.purchase_order, procurement.purchase_order_item, payables.supplier_invoice, payables.supplier_invoice_item`)
 }

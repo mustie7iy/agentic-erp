@@ -258,17 +258,34 @@ func (e *Endpoints) calculatedTax(ctx context.Context, v Invoice) (*problem.Calc
 // tax.ErrInvalidCode), which posting fails on, without making the problem a
 // read never answers; the calculator's other errors are not expected.
 func readFigures(v Invoice, items []tax.ComponentTax, err error) (*problem.CalculatedTax, error) {
+	charged, ok, err := readCharged(items, err)
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("payables: tax of invoice %s: %w", v.ID, err)
+	case !ok:
+		return nil, nil
+	}
+	return taxFigures(v, items, charged), nil
+}
+
+// readCharged is the tax a read's calculation charges (chargedSum), err
+// the calculator's: ok = false when it, or the charged total, finds
+// amounts out of range (money.ErrOverflow), or the calculator finds a code
+// it cannot calculate on the tax date (tax.ErrNoRate, tax.ErrInvalidCode),
+// which a read leaves out rather than refuse; the calculator's other
+// errors are returned.
+func readCharged(items []tax.ComponentTax, err error) (money.Minor, bool, error) {
 	var charged money.Minor
 	if err == nil {
 		charged, _, err = chargedSum(items)
 	}
 	switch {
 	case errors.Is(err, money.ErrOverflow), errors.Is(err, tax.ErrNoRate), errors.Is(err, tax.ErrInvalidCode):
-		return nil, nil
+		return 0, false, nil
 	case err != nil:
-		return nil, fmt.Errorf("payables: tax of invoice %s: %w", v.ID, err)
+		return 0, false, err
 	}
-	return taxFigures(v, items, charged), nil
+	return charged, true, nil
 }
 
 // taxConversion converts tax into local currency on the tax date at the
