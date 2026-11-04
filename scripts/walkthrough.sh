@@ -320,9 +320,9 @@ start() {
   say "    and payments in transit, conversion and drill-down; step 26 its snapshots; step 27 the cash actuals;"
   say "    step 28 the forecast's variance, step 30 a person's comment on it"
   say "  - cost center postings, reports and planning (T56d-T56j)"
-  say "  - asset retirements, transfers and the rest of asset accounting (T57g-T57i): steps 19 and 20 show the classes and"
-  say "    the master, steps 22 and 24 acquisitions and their corrections, step 25 the depreciation schedule and preview, step 29"
-  say "    a depreciation run"
+  say "  - asset transfers and the rest of asset accounting (T57h-T57i): steps 19 and 20 show the classes and the master,"
+  say "    steps 22 and 24 acquisitions and their corrections, step 25 the depreciation schedule and preview, step 29 a"
+  say "    depreciation run, step 31 retirements"
   say "  - accounts receivable, the period close's accruals, close agent and depreciation check (T64e-T64g, T64j, T64k), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
@@ -3426,6 +3426,54 @@ step_cash_variance_comment() {
   passed
 }
 
+# step_asset_retirement is half the press of step 24 sold and the rest
+# scrapped after step 29's run, retiring it (T57g, ADR-0057 §8).
+step_asset_retirement() {
+  heading "Step 31 — Asset retirements: half the press sold with a gain, the rest scrapped, the press retired; a retirement valued in the period before refused"
+  as carla
+  say "Maple sells half of the hydraulic press of step 24 for CAD 4,000.00 and scraps the rest (ADR-0057 §8, T57g). This"
+  say "period's run (step 29) already posted the press's depreciation in the leading ledger. A retirement first catches"
+  say "up each ledger's depreciation through the period before its own, which posts this period's back, so the half sold"
+  say "depreciates for none of it; it then takes its share of the press's cost and accumulated depreciation and posts one"
+  say "entry per ledger: Dr sale clearing for the proceeds, Cr machinery for the cost, the gain or loss for the difference."
+  local press start prev values sale scrap
+  accounts
+  QUIET=1 api 200 '' listAssets -p "legal_entity_id=$LE" -p status=active
+  press=$(field '[.items[] | select(.description == "Hydraulic press") | .id][0]')
+  values='"  asset \(.asset_number) \(.description): \(.status); \([.values[] | "\(.ledger_code) cost \(.cost.amount), accumulated \(.accumulated.amount), net \(.net_book_value.amount) \(.net_book_value.currency)"] | join("; "))"'
+  api 200 "$values" getAsset -p "id=$press"
+  QUIET=1 api 200 '' getAssetSchedule -p "id=$press" -p "fiscal_year=$YEAR"
+  start=$(field ".periods[] | select(.start_date <= \"$TODAY\" and .end_date >= \"$TODAY\") | .start_date")
+  prev=$(date_add "$start" -1)
+  say "A retirement is not backdated: one valued in the period before this one is refused."
+  refused 422 assets.value_date_outside_period createAssetRetirement \
+    -body "{\"asset_id\": \"$press\", \"kind\": \"scrapping\", \"value_date\": \"$prev\", \"posting_date\": \"$TODAY\"}"
+  api 201 '"retirement \(.kind) of asset \(.asset_number), \(.share_percent) %, proceeds \(.proceeds.amount) \(.proceeds.currency) (group \(.proceeds_gc.amount) \(.proceeds_gc.currency)): \(.status)",
+    (.ledgers[] | "  \(.ledger_code): catch-up \(.catch_up.amount), cost \(.cost.amount), accumulated \(.accumulated.amount), book value \(.net_book_value.amount), gain \(.gain.amount) \(.gain.currency) (group \(.gain_gc.amount) \(.gain_gc.currency))"),
+    "  entries \([.entries[] | "\(.ledger_code) \(.document_number)"] | join(", "))"' \
+    createAssetRetirement -body "{\"asset_id\": \"$press\", \"kind\": \"sale\", \"proceeds\": {\"amount\": \"4000.00\", \"currency\": \"CAD\"}, \"share\": {\"percent\": \"50\"}, \"text\": \"Half the press sold\"}"
+  sale=$(field .id)
+  expect "the gain in every ledger" "$(field '[.ledgers[].gain.amount] | unique | join(" ")')" "250.00"
+  expect "the leading ledger's catch-up, this period's run posted back" "$(field '.ledgers[] | select(.ledger_code == "0L") | .catch_up.amount')" "-62.50"
+  expect "an entry in every ledger" "$(field '.entries | length')" "$(field '.ledgers | length')"
+  api 200 '"entry \(.document_number) in the leading ledger: \(.leading_ledger); \([.lines[] | "\(.account_id | acct) \(.amount.amount)"] | join(", "))"' \
+    getJournalEntry -p "id=$(field '.entries[] | select(.ledger_code == "0L") | .journal_entry_id')"
+  api 200 "$values" getAsset -p "id=$press"
+  expect "the half left" "$(field '"\(.status) \([.values[].cost.amount] | unique | join(" "))"')" "active 3750.00"
+  say "The rest is scrapped: a full retirement, no proceeds, the book value left a loss. It retires the press."
+  api 201 '"retirement \(.kind) of asset \(.asset_number), full \(.full): \(.status)", (.ledgers[] | "  \(.ledger_code): cost \(.cost.amount), book value \(.net_book_value.amount), loss \(.gain.amount) \(.gain.currency)")' \
+    createAssetRetirement -body "{\"asset_id\": \"$press\", \"kind\": \"scrapping\", \"text\": \"Rest of the press scrapped\"}"
+  scrap=$(field .id)
+  expect "the loss in every ledger" "$(field '[.ledgers[].gain.amount] | unique | join(" ")')" "-3750.00"
+  api 200 "$values" getAsset -p "id=$press"
+  expect "the press, retired with nothing left" "$(field '"\(.status) \([.values[] | .cost.amount, .cost_gc.amount, .accumulated.amount, .accumulated_gc.amount] | unique | join(" "))"')" "retired 0.00"
+  say "A retired asset takes no more documents:"
+  refused 422 assets.asset_retired createAssetRetirement -body "{\"asset_id\": \"$press\", \"kind\": \"scrapping\"}"
+  api 200 '"the press'"'"'s retirements: \([.items[] | "\(.kind) \(.status)"] | join(", "))"' listAssetRetirements -p "asset_id=$press"
+  expect "the press's retirements" "$(field '[.items[].id] | join(" ")')" "$sale $scrap"
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -3447,7 +3495,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_close'
 
 main() {
   start

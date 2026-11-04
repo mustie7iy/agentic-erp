@@ -1136,7 +1136,10 @@ func entryLines(in NewEntry, expTC int) ([]Line, error) {
 			return nil, problem.BadRequest("request.invalid_amount", fmt.Sprintf("Amounts in %s have exactly %d decimals.", in.Currency, expTC),
 				problem.FieldError{Field: field + ".amount", Code: "invalid", Message: err.Error()})
 		}
-		if tc == 0 && (l.lc == nil || *l.lc == 0) {
+		// A line keeping a local or group amount may have none in its
+		// currency: an asset's balance whose local amount is zero but whose
+		// group amount is not, taken off at its booked amounts (ADR-0057 §8).
+		if tc == 0 && (l.lc == nil || *l.lc == 0) && (l.gc == nil || *l.gc == 0) {
 			return nil, problem.Unprocessable("ledger.zero_amount", "Line amounts are never zero.",
 				problem.FieldError{Field: field + ".amount", Code: "zero", Message: "debit positive, credit negative"})
 		}
@@ -1386,8 +1389,8 @@ func requireOwnEntry(orig Entry) error {
 		// The entry does not say which kind of assets document posted it,
 		// so the document's paths are named (ADR-0057 §4).
 		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for asset document "+orig.SourceDocumentID.String()+
-			"; an acquisition is reversed with POST /v1/asset-acquisitions/"+orig.SourceDocumentID.String()+":reverse, a retirement or a transfer "+
-			"with its own :reverse, and a depreciation run's entries are never reversed one by one.")
+			"; an acquisition is reversed with POST /v1/asset-acquisitions/"+orig.SourceDocumentID.String()+":reverse, a retirement with POST /v1/asset-retirements/"+
+			orig.SourceDocumentID.String()+":reverse, a transfer with its own :reverse, and a depreciation run's entries are never reversed one by one.")
 	}
 	return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted by the "+orig.SourceContext+
 		" context, and no reversal path exists yet for that context's entries, so it cannot be reversed.")

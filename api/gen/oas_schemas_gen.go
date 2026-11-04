@@ -4954,8 +4954,8 @@ type AssetMovement struct {
 	// The kind of document it belongs to. Open enumeration: clients must accept and preserve values not
 	// listed here; values may be added within /v1.
 	DocumentKind string `json:"document_kind"`
-	// The document (an acquisition: `GET /v1/asset-acquisitions/{id}`; a depreciation run:
-	// `GET /v1/depreciation-runs/{id}`).
+	// The document (an acquisition: `GET /v1/asset-acquisitions/{id}`; a retirement:
+	// `GET /v1/asset-retirements/{id}`; a depreciation run: `GET /v1/depreciation-runs/{id}`).
 	DocumentID uuid.UUID `json:"document_id"`
 	// That ledger's journal entry (`GET /v1/journal-entries/{id}`); absent for a catch-up of zero.
 	JournalEntryID OptUUID `json:"journal_entry_id"`
@@ -5312,6 +5312,775 @@ func (s *AssetPage) SetNextPageToken(val OptString) {
 }
 
 func (*AssetPage) listAssetsRes() {}
+
+// Merged schema.
+// Ref: #/components/schemas/AssetRetirement
+type AssetRetirement struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The asset.
+	AssetID uuid.UUID `json:"asset_id"`
+	// The asset's number in its company.
+	AssetNumber string `json:"asset_number"`
+	// The asset's description.
+	AssetDescription string `json:"asset_description"`
+	// `sale` or `scrapping`. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Kind string `json:"kind"`
+	// The date the share left from.
+	ValueDate time.Time `json:"value_date"`
+	// The posting date of its entries.
+	PostingDate time.Time `json:"posting_date"`
+	// The posting date's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The posting date's regular period.
+	Period int32 `json:"period"`
+	// Whether it took all of the asset's balances in every ledger: no share, 100 %, or the whole cost.
+	Full bool `json:"full"`
+	// The share given as a percentage of cost, as a plain decimal.
+	SharePercent OptString `json:"share_percent"`
+	// The share given as a cost, in local currency.
+	ShareCost OptMoney `json:"share_cost"`
+	// The sale's proceeds in local currency; zero for a scrapping.
+	Proceeds Money `json:"proceeds"`
+	// The proceeds in group currency, at the posting date's rate.
+	ProceedsGc Money `json:"proceeds_gc"`
+	// The retirement's text.
+	Text OptString `json:"text"`
+	// `posted`, or `reversed`. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+	// What it took per ledger the company keeps, the leading ledger first and then by ledger code.
+	Ledgers []AssetRetirementLedger `json:"ledgers"`
+	// Its journal entries, one per ledger it posted in (none in a ledger where every amount was zero),
+	// each with its reversal once reversed.
+	Entries  []AssetDocumentEntry       `json:"entries"`
+	Reversal OptAssetRetirementReversal `json:"reversal"`
+}
+
+// GetID returns the value of ID.
+func (s *AssetRetirement) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *AssetRetirement) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *AssetRetirement) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *AssetRetirement) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *AssetRetirement) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *AssetRetirement) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AssetRetirement) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *AssetRetirement) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetAssetID returns the value of AssetID.
+func (s *AssetRetirement) GetAssetID() uuid.UUID {
+	return s.AssetID
+}
+
+// GetAssetNumber returns the value of AssetNumber.
+func (s *AssetRetirement) GetAssetNumber() string {
+	return s.AssetNumber
+}
+
+// GetAssetDescription returns the value of AssetDescription.
+func (s *AssetRetirement) GetAssetDescription() string {
+	return s.AssetDescription
+}
+
+// GetKind returns the value of Kind.
+func (s *AssetRetirement) GetKind() string {
+	return s.Kind
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *AssetRetirement) GetValueDate() time.Time {
+	return s.ValueDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetRetirement) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetRetirement) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *AssetRetirement) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetFull returns the value of Full.
+func (s *AssetRetirement) GetFull() bool {
+	return s.Full
+}
+
+// GetSharePercent returns the value of SharePercent.
+func (s *AssetRetirement) GetSharePercent() OptString {
+	return s.SharePercent
+}
+
+// GetShareCost returns the value of ShareCost.
+func (s *AssetRetirement) GetShareCost() OptMoney {
+	return s.ShareCost
+}
+
+// GetProceeds returns the value of Proceeds.
+func (s *AssetRetirement) GetProceeds() Money {
+	return s.Proceeds
+}
+
+// GetProceedsGc returns the value of ProceedsGc.
+func (s *AssetRetirement) GetProceedsGc() Money {
+	return s.ProceedsGc
+}
+
+// GetText returns the value of Text.
+func (s *AssetRetirement) GetText() OptString {
+	return s.Text
+}
+
+// GetStatus returns the value of Status.
+func (s *AssetRetirement) GetStatus() string {
+	return s.Status
+}
+
+// GetLedgers returns the value of Ledgers.
+func (s *AssetRetirement) GetLedgers() []AssetRetirementLedger {
+	return s.Ledgers
+}
+
+// GetEntries returns the value of Entries.
+func (s *AssetRetirement) GetEntries() []AssetDocumentEntry {
+	return s.Entries
+}
+
+// GetReversal returns the value of Reversal.
+func (s *AssetRetirement) GetReversal() OptAssetRetirementReversal {
+	return s.Reversal
+}
+
+// SetID sets the value of ID.
+func (s *AssetRetirement) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *AssetRetirement) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *AssetRetirement) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *AssetRetirement) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *AssetRetirement) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *AssetRetirement) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AssetRetirement) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *AssetRetirement) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetAssetID sets the value of AssetID.
+func (s *AssetRetirement) SetAssetID(val uuid.UUID) {
+	s.AssetID = val
+}
+
+// SetAssetNumber sets the value of AssetNumber.
+func (s *AssetRetirement) SetAssetNumber(val string) {
+	s.AssetNumber = val
+}
+
+// SetAssetDescription sets the value of AssetDescription.
+func (s *AssetRetirement) SetAssetDescription(val string) {
+	s.AssetDescription = val
+}
+
+// SetKind sets the value of Kind.
+func (s *AssetRetirement) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *AssetRetirement) SetValueDate(val time.Time) {
+	s.ValueDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetRetirement) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetRetirement) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *AssetRetirement) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetFull sets the value of Full.
+func (s *AssetRetirement) SetFull(val bool) {
+	s.Full = val
+}
+
+// SetSharePercent sets the value of SharePercent.
+func (s *AssetRetirement) SetSharePercent(val OptString) {
+	s.SharePercent = val
+}
+
+// SetShareCost sets the value of ShareCost.
+func (s *AssetRetirement) SetShareCost(val OptMoney) {
+	s.ShareCost = val
+}
+
+// SetProceeds sets the value of Proceeds.
+func (s *AssetRetirement) SetProceeds(val Money) {
+	s.Proceeds = val
+}
+
+// SetProceedsGc sets the value of ProceedsGc.
+func (s *AssetRetirement) SetProceedsGc(val Money) {
+	s.ProceedsGc = val
+}
+
+// SetText sets the value of Text.
+func (s *AssetRetirement) SetText(val OptString) {
+	s.Text = val
+}
+
+// SetStatus sets the value of Status.
+func (s *AssetRetirement) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetLedgers sets the value of Ledgers.
+func (s *AssetRetirement) SetLedgers(val []AssetRetirementLedger) {
+	s.Ledgers = val
+}
+
+// SetEntries sets the value of Entries.
+func (s *AssetRetirement) SetEntries(val []AssetDocumentEntry) {
+	s.Entries = val
+}
+
+// SetReversal sets the value of Reversal.
+func (s *AssetRetirement) SetReversal(val OptAssetRetirementReversal) {
+	s.Reversal = val
+}
+
+// A retirement of an asset by sale or scrapping, in full or in part (ADR-0057 §8).
+// Ref: #/components/schemas/AssetRetirementCreate
+type AssetRetirementCreate struct {
+	// The asset retired (an active one).
+	AssetID uuid.UUID `json:"asset_id"`
+	// `sale`, with `proceeds`, or `scrapping`, without. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Kind string `json:"kind"`
+	// A sale's proceeds, zero or more, in the company's local currency; required for a sale, none for a
+	// scrapping. They are posted on the class's sale clearing account.
+	Proceeds OptMoney                `json:"proceeds"`
+	Share    OptAssetRetirementShare `json:"share"`
+	// The date the share leaves from (the start of its period for depreciation); default the posting date.
+	// In the posting date's period, on or before the posting date.
+	ValueDate OptDate `json:"value_date"`
+	// The retirement's posting date; default the company's date today.
+	PostingDate OptDate `json:"posting_date"`
+	// A text for the retirement and its entries.
+	Text OptString `json:"text"`
+}
+
+// GetAssetID returns the value of AssetID.
+func (s *AssetRetirementCreate) GetAssetID() uuid.UUID {
+	return s.AssetID
+}
+
+// GetKind returns the value of Kind.
+func (s *AssetRetirementCreate) GetKind() string {
+	return s.Kind
+}
+
+// GetProceeds returns the value of Proceeds.
+func (s *AssetRetirementCreate) GetProceeds() OptMoney {
+	return s.Proceeds
+}
+
+// GetShare returns the value of Share.
+func (s *AssetRetirementCreate) GetShare() OptAssetRetirementShare {
+	return s.Share
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *AssetRetirementCreate) GetValueDate() OptDate {
+	return s.ValueDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetRetirementCreate) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetText returns the value of Text.
+func (s *AssetRetirementCreate) GetText() OptString {
+	return s.Text
+}
+
+// SetAssetID sets the value of AssetID.
+func (s *AssetRetirementCreate) SetAssetID(val uuid.UUID) {
+	s.AssetID = val
+}
+
+// SetKind sets the value of Kind.
+func (s *AssetRetirementCreate) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetProceeds sets the value of Proceeds.
+func (s *AssetRetirementCreate) SetProceeds(val OptMoney) {
+	s.Proceeds = val
+}
+
+// SetShare sets the value of Share.
+func (s *AssetRetirementCreate) SetShare(val OptAssetRetirementShare) {
+	s.Share = val
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *AssetRetirementCreate) SetValueDate(val OptDate) {
+	s.ValueDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetRetirementCreate) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetText sets the value of Text.
+func (s *AssetRetirementCreate) SetText(val OptString) {
+	s.Text = val
+}
+
+// AssetRetirementHeaders wraps AssetRetirement with response headers.
+type AssetRetirementHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           AssetRetirement
+}
+
+// GetETag returns the value of ETag.
+func (s *AssetRetirementHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AssetRetirementHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *AssetRetirementHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *AssetRetirementHeaders) GetResponse() AssetRetirement {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *AssetRetirementHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AssetRetirementHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *AssetRetirementHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AssetRetirementHeaders) SetResponse(val AssetRetirement) {
+	s.Response = val
+}
+
+func (*AssetRetirementHeaders) createAssetRetirementRes() {}
+
+// What a retirement took in one ledger (ADR-0057 §8): its depreciation catch-up, then its share of
+// the asset's balances, and its gain or loss.
+// Ref: #/components/schemas/AssetRetirementLedger
+type AssetRetirementLedger struct {
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// The fraction of the asset's cost in this ledger it took, as a plain decimal (1: all of it).
+	Share string `json:"share"`
+	// The depreciation it caught up through the period before its posting period, an expense; negative
+	// when it posted the posting period's run back.
+	CatchUp Money `json:"catch_up"`
+	// The catch-up in group currency, at the posting date's rate.
+	CatchUpGc Money `json:"catch_up_gc"`
+	// The acquisition cost it took off, in local currency.
+	Cost Money `json:"cost"`
+	// The acquisition cost it took off, at its booked group amount.
+	CostGc Money `json:"cost_gc"`
+	// The accumulated depreciation it took off, after the catch-up, negative as the credit it was.
+	Accumulated Money `json:"accumulated"`
+	// The accumulated depreciation it took off, at its booked group amount.
+	AccumulatedGc Money `json:"accumulated_gc"`
+	// The residual value it took off, in local currency.
+	Residual Money `json:"residual"`
+	// The book value it took off: `cost` plus `accumulated`.
+	NetBookValue Money `json:"net_book_value"`
+	// The book value it took off in group currency.
+	NetBookValueGc Money `json:"net_book_value_gc"`
+	// The proceeds less the book value taken: a gain when positive (on the gain account), a loss when
+	// negative (on the loss account).
+	Gain Money `json:"gain"`
+	// The gain or loss in group currency: the proceeds' group amount less the book value's.
+	GainGc Money `json:"gain_gc"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *AssetRetirementLedger) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *AssetRetirementLedger) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *AssetRetirementLedger) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetShare returns the value of Share.
+func (s *AssetRetirementLedger) GetShare() string {
+	return s.Share
+}
+
+// GetCatchUp returns the value of CatchUp.
+func (s *AssetRetirementLedger) GetCatchUp() Money {
+	return s.CatchUp
+}
+
+// GetCatchUpGc returns the value of CatchUpGc.
+func (s *AssetRetirementLedger) GetCatchUpGc() Money {
+	return s.CatchUpGc
+}
+
+// GetCost returns the value of Cost.
+func (s *AssetRetirementLedger) GetCost() Money {
+	return s.Cost
+}
+
+// GetCostGc returns the value of CostGc.
+func (s *AssetRetirementLedger) GetCostGc() Money {
+	return s.CostGc
+}
+
+// GetAccumulated returns the value of Accumulated.
+func (s *AssetRetirementLedger) GetAccumulated() Money {
+	return s.Accumulated
+}
+
+// GetAccumulatedGc returns the value of AccumulatedGc.
+func (s *AssetRetirementLedger) GetAccumulatedGc() Money {
+	return s.AccumulatedGc
+}
+
+// GetResidual returns the value of Residual.
+func (s *AssetRetirementLedger) GetResidual() Money {
+	return s.Residual
+}
+
+// GetNetBookValue returns the value of NetBookValue.
+func (s *AssetRetirementLedger) GetNetBookValue() Money {
+	return s.NetBookValue
+}
+
+// GetNetBookValueGc returns the value of NetBookValueGc.
+func (s *AssetRetirementLedger) GetNetBookValueGc() Money {
+	return s.NetBookValueGc
+}
+
+// GetGain returns the value of Gain.
+func (s *AssetRetirementLedger) GetGain() Money {
+	return s.Gain
+}
+
+// GetGainGc returns the value of GainGc.
+func (s *AssetRetirementLedger) GetGainGc() Money {
+	return s.GainGc
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *AssetRetirementLedger) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *AssetRetirementLedger) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *AssetRetirementLedger) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetShare sets the value of Share.
+func (s *AssetRetirementLedger) SetShare(val string) {
+	s.Share = val
+}
+
+// SetCatchUp sets the value of CatchUp.
+func (s *AssetRetirementLedger) SetCatchUp(val Money) {
+	s.CatchUp = val
+}
+
+// SetCatchUpGc sets the value of CatchUpGc.
+func (s *AssetRetirementLedger) SetCatchUpGc(val Money) {
+	s.CatchUpGc = val
+}
+
+// SetCost sets the value of Cost.
+func (s *AssetRetirementLedger) SetCost(val Money) {
+	s.Cost = val
+}
+
+// SetCostGc sets the value of CostGc.
+func (s *AssetRetirementLedger) SetCostGc(val Money) {
+	s.CostGc = val
+}
+
+// SetAccumulated sets the value of Accumulated.
+func (s *AssetRetirementLedger) SetAccumulated(val Money) {
+	s.Accumulated = val
+}
+
+// SetAccumulatedGc sets the value of AccumulatedGc.
+func (s *AssetRetirementLedger) SetAccumulatedGc(val Money) {
+	s.AccumulatedGc = val
+}
+
+// SetResidual sets the value of Residual.
+func (s *AssetRetirementLedger) SetResidual(val Money) {
+	s.Residual = val
+}
+
+// SetNetBookValue sets the value of NetBookValue.
+func (s *AssetRetirementLedger) SetNetBookValue(val Money) {
+	s.NetBookValue = val
+}
+
+// SetNetBookValueGc sets the value of NetBookValueGc.
+func (s *AssetRetirementLedger) SetNetBookValueGc(val Money) {
+	s.NetBookValueGc = val
+}
+
+// SetGain sets the value of Gain.
+func (s *AssetRetirementLedger) SetGain(val Money) {
+	s.Gain = val
+}
+
+// SetGainGc sets the value of GainGc.
+func (s *AssetRetirementLedger) SetGainGc(val Money) {
+	s.GainGc = val
+}
+
+// One page of asset retirements.
+// Ref: #/components/schemas/AssetRetirementPage
+type AssetRetirementPage struct {
+	// The retirements on this page.
+	Items []AssetRetirement `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *AssetRetirementPage) GetItems() []AssetRetirement {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AssetRetirementPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *AssetRetirementPage) SetItems(val []AssetRetirement) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AssetRetirementPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*AssetRetirementPage) listAssetRetirementsRes() {}
+
+// The reversal of a retirement; its entries are shown beside the retirement's in `entries`.
+// Ref: #/components/schemas/AssetRetirementReversal
+type AssetRetirementReversal struct {
+	// The reversal's posting date.
+	PostingDate time.Time `json:"posting_date"`
+	// Why it was reversed.
+	Reason string `json:"reason"`
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetRetirementReversal) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetReason returns the value of Reason.
+func (s *AssetRetirementReversal) GetReason() string {
+	return s.Reason
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetRetirementReversal) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetReason sets the value of Reason.
+func (s *AssetRetirementReversal) SetReason(val string) {
+	s.Reason = val
+}
+
+// The reversal of an asset retirement (ADR-0057 §8).
+// Ref: #/components/schemas/AssetRetirementReverse
+type AssetRetirementReverse struct {
+	// Why the retirement is reversed.
+	Reason string `json:"reason"`
+	// The reversal's posting date; default the retirement's. On or after the retirement's posting date, in
+	// a period open in every ledger.
+	PostingDate OptDate `json:"posting_date"`
+}
+
+// GetReason returns the value of Reason.
+func (s *AssetRetirementReverse) GetReason() string {
+	return s.Reason
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetRetirementReverse) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// SetReason sets the value of Reason.
+func (s *AssetRetirementReverse) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetRetirementReverse) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// The share of the asset's cost retired, one of `percent` and `cost`; absent: all of it.
+// Ref: #/components/schemas/AssetRetirementShare
+type AssetRetirementShare struct {
+	// A percentage of the cost in each ledger, above 0 and at most 100, up to four decimals; 100 is a full
+	// retirement.
+	Percent OptString `json:"percent"`
+	// A cost in the company's local currency, above zero and at most the asset's cost; all of it is a full
+	// retirement.
+	Cost OptMoney `json:"cost"`
+}
+
+// GetPercent returns the value of Percent.
+func (s *AssetRetirementShare) GetPercent() OptString {
+	return s.Percent
+}
+
+// GetCost returns the value of Cost.
+func (s *AssetRetirementShare) GetCost() OptMoney {
+	return s.Cost
+}
+
+// SetPercent sets the value of Percent.
+func (s *AssetRetirementShare) SetPercent(val OptString) {
+	s.Percent = val
+}
+
+// SetCost sets the value of Cost.
+func (s *AssetRetirementShare) SetCost(val OptMoney) {
+	s.Cost = val
+}
 
 // An asset's planned and booked depreciation per regular period of a fiscal year in one ledger
 // (ADR-0057 §7), in the company's local currency.
@@ -15697,6 +16466,7 @@ func (*ConflictHeaders) closePurchaseOrderRes()               {}
 func (*ConflictHeaders) completeCloseTaskRes()                {}
 func (*ConflictHeaders) createAssetAcquisitionRes()           {}
 func (*ConflictHeaders) createAssetRes()                      {}
+func (*ConflictHeaders) createAssetRetirementRes()            {}
 func (*ConflictHeaders) createBusinessPartnerRes()            {}
 func (*ConflictHeaders) createChangeRequestRes()              {}
 func (*ConflictHeaders) createClearingRes()                   {}
@@ -15815,6 +16585,7 @@ func (*ConflictHeaders) requestBankAccountEndRes()            {}
 func (*ConflictHeaders) resumeWebhookSubscriptionRes()        {}
 func (*ConflictHeaders) retireEntryTemplateRes()              {}
 func (*ConflictHeaders) reverseAssetAcquisitionRes()          {}
+func (*ConflictHeaders) reverseAssetRetirementRes()           {}
 func (*ConflictHeaders) reverseGoodsReceiptRes()              {}
 func (*ConflictHeaders) reverseJournalEntryRes()              {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()           {}
@@ -18357,6 +19128,30 @@ func (*CreateAssetPreconditionFailed) createAssetRes() {}
 type CreateAssetPreconditionRequired Problem
 
 func (*CreateAssetPreconditionRequired) createAssetRes() {}
+
+type CreateAssetRetirementBadRequest Problem
+
+func (*CreateAssetRetirementBadRequest) createAssetRetirementRes() {}
+
+type CreateAssetRetirementForbidden Problem
+
+func (*CreateAssetRetirementForbidden) createAssetRetirementRes() {}
+
+type CreateAssetRetirementNotFound Problem
+
+func (*CreateAssetRetirementNotFound) createAssetRetirementRes() {}
+
+type CreateAssetRetirementPreconditionFailed Problem
+
+func (*CreateAssetRetirementPreconditionFailed) createAssetRetirementRes() {}
+
+type CreateAssetRetirementPreconditionRequired Problem
+
+func (*CreateAssetRetirementPreconditionRequired) createAssetRetirementRes() {}
+
+type CreateAssetRetirementUnprocessableEntity Problem
+
+func (*CreateAssetRetirementUnprocessableEntity) createAssetRetirementRes() {}
 
 type CreateAssetUnprocessableEntity Problem
 
@@ -23734,6 +24529,46 @@ func (s *GetAssetOKHeaders) SetResponse(val Asset) {
 }
 
 func (*GetAssetOKHeaders) getAssetRes() {}
+
+type GetAssetRetirementBadRequest Problem
+
+func (*GetAssetRetirementBadRequest) getAssetRetirementRes() {}
+
+type GetAssetRetirementForbidden Problem
+
+func (*GetAssetRetirementForbidden) getAssetRetirementRes() {}
+
+type GetAssetRetirementNotFound Problem
+
+func (*GetAssetRetirementNotFound) getAssetRetirementRes() {}
+
+// GetAssetRetirementOKHeaders wraps AssetRetirement with response headers.
+type GetAssetRetirementOKHeaders struct {
+	ETag     OptString
+	Response AssetRetirement
+}
+
+// GetETag returns the value of ETag.
+func (s *GetAssetRetirementOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetAssetRetirementOKHeaders) GetResponse() AssetRetirement {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetAssetRetirementOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetAssetRetirementOKHeaders) SetResponse(val AssetRetirement) {
+	s.Response = val
+}
+
+func (*GetAssetRetirementOKHeaders) getAssetRetirementRes() {}
 
 type GetAssetScheduleBadRequest Problem
 
@@ -32047,6 +32882,14 @@ type ListAssetMovementsNotFound Problem
 
 func (*ListAssetMovementsNotFound) listAssetMovementsRes() {}
 
+type ListAssetRetirementsBadRequest Problem
+
+func (*ListAssetRetirementsBadRequest) listAssetRetirementsRes() {}
+
+type ListAssetRetirementsForbidden Problem
+
+func (*ListAssetRetirementsForbidden) listAssetRetirementsRes() {}
+
 type ListAssetsBadRequest Problem
 
 func (*ListAssetsBadRequest) listAssetsRes() {}
@@ -37288,6 +38131,98 @@ func (o OptAssetOffsetAccount) Get() (v AssetOffsetAccount, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAssetOffsetAccount) Or(d AssetOffsetAccount) AssetOffsetAccount {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssetRetirementReversal returns new OptAssetRetirementReversal with value set to v.
+func NewOptAssetRetirementReversal(v AssetRetirementReversal) OptAssetRetirementReversal {
+	return OptAssetRetirementReversal{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetRetirementReversal is optional AssetRetirementReversal.
+type OptAssetRetirementReversal struct {
+	Value AssetRetirementReversal
+	Set   bool
+}
+
+// IsSet returns true if OptAssetRetirementReversal was set.
+func (o OptAssetRetirementReversal) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetRetirementReversal) Reset() {
+	var v AssetRetirementReversal
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetRetirementReversal) SetTo(v AssetRetirementReversal) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetRetirementReversal) Get() (v AssetRetirementReversal, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetRetirementReversal) Or(d AssetRetirementReversal) AssetRetirementReversal {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssetRetirementShare returns new OptAssetRetirementShare with value set to v.
+func NewOptAssetRetirementShare(v AssetRetirementShare) OptAssetRetirementShare {
+	return OptAssetRetirementShare{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetRetirementShare is optional AssetRetirementShare.
+type OptAssetRetirementShare struct {
+	Value AssetRetirementShare
+	Set   bool
+}
+
+// IsSet returns true if OptAssetRetirementShare was set.
+func (o OptAssetRetirementShare) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetRetirementShare) Reset() {
+	var v AssetRetirementShare
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetRetirementShare) SetTo(v AssetRetirementShare) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetRetirementShare) Get() (v AssetRetirementShare, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetRetirementShare) Or(d AssetRetirementShare) AssetRetirementShare {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -51889,6 +52824,69 @@ type ReverseAssetAcquisitionUnprocessableEntity Problem
 
 func (*ReverseAssetAcquisitionUnprocessableEntity) reverseAssetAcquisitionRes() {}
 
+type ReverseAssetRetirementBadRequest Problem
+
+func (*ReverseAssetRetirementBadRequest) reverseAssetRetirementRes() {}
+
+type ReverseAssetRetirementForbidden Problem
+
+func (*ReverseAssetRetirementForbidden) reverseAssetRetirementRes() {}
+
+type ReverseAssetRetirementNotFound Problem
+
+func (*ReverseAssetRetirementNotFound) reverseAssetRetirementRes() {}
+
+// ReverseAssetRetirementOKHeaders wraps AssetRetirement with response headers.
+type ReverseAssetRetirementOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           AssetRetirement
+}
+
+// GetETag returns the value of ETag.
+func (s *ReverseAssetRetirementOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ReverseAssetRetirementOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ReverseAssetRetirementOKHeaders) GetResponse() AssetRetirement {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ReverseAssetRetirementOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ReverseAssetRetirementOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReverseAssetRetirementOKHeaders) SetResponse(val AssetRetirement) {
+	s.Response = val
+}
+
+func (*ReverseAssetRetirementOKHeaders) reverseAssetRetirementRes() {}
+
+type ReverseAssetRetirementPreconditionFailed Problem
+
+func (*ReverseAssetRetirementPreconditionFailed) reverseAssetRetirementRes() {}
+
+type ReverseAssetRetirementPreconditionRequired Problem
+
+func (*ReverseAssetRetirementPreconditionRequired) reverseAssetRetirementRes() {}
+
+type ReverseAssetRetirementUnprocessableEntity Problem
+
+func (*ReverseAssetRetirementUnprocessableEntity) reverseAssetRetirementRes() {}
+
 type ReverseGoodsReceiptBadRequest Problem
 
 func (*ReverseGoodsReceiptBadRequest) reverseGoodsReceiptRes() {}
@@ -53232,6 +54230,7 @@ func (*ServiceUnavailableHeaders) closePurchaseOrderRes()               {}
 func (*ServiceUnavailableHeaders) completeCloseTaskRes()                {}
 func (*ServiceUnavailableHeaders) createAssetAcquisitionRes()           {}
 func (*ServiceUnavailableHeaders) createAssetRes()                      {}
+func (*ServiceUnavailableHeaders) createAssetRetirementRes()            {}
 func (*ServiceUnavailableHeaders) createBusinessPartnerRes()            {}
 func (*ServiceUnavailableHeaders) createChangeRequestRes()              {}
 func (*ServiceUnavailableHeaders) createClearingRes()                   {}
@@ -53336,6 +54335,7 @@ func (*ServiceUnavailableHeaders) requestBankAccountEndRes()            {}
 func (*ServiceUnavailableHeaders) resumeWebhookSubscriptionRes()        {}
 func (*ServiceUnavailableHeaders) retireEntryTemplateRes()              {}
 func (*ServiceUnavailableHeaders) reverseAssetAcquisitionRes()          {}
+func (*ServiceUnavailableHeaders) reverseAssetRetirementRes()           {}
 func (*ServiceUnavailableHeaders) reverseGoodsReceiptRes()              {}
 func (*ServiceUnavailableHeaders) reverseJournalEntryRes()              {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()           {}
@@ -57585,6 +58585,7 @@ func (*TooManyRequestsHeaders) closePurchaseOrderRes()               {}
 func (*TooManyRequestsHeaders) completeCloseTaskRes()                {}
 func (*TooManyRequestsHeaders) createAssetAcquisitionRes()           {}
 func (*TooManyRequestsHeaders) createAssetRes()                      {}
+func (*TooManyRequestsHeaders) createAssetRetirementRes()            {}
 func (*TooManyRequestsHeaders) createBusinessPartnerRes()            {}
 func (*TooManyRequestsHeaders) createChangeRequestRes()              {}
 func (*TooManyRequestsHeaders) createClearingRes()                   {}
@@ -57640,6 +58641,7 @@ func (*TooManyRequestsHeaders) getAnalyticsModelRes()                {}
 func (*TooManyRequestsHeaders) getApprovalRequestRes()               {}
 func (*TooManyRequestsHeaders) getAssetAcquisitionRes()              {}
 func (*TooManyRequestsHeaders) getAssetRes()                         {}
+func (*TooManyRequestsHeaders) getAssetRetirementRes()               {}
 func (*TooManyRequestsHeaders) getAssetScheduleRes()                 {}
 func (*TooManyRequestsHeaders) getBankAccountRes()                   {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()               {}
@@ -57722,6 +58724,7 @@ func (*TooManyRequestsHeaders) listAssetAcquisitionsRes()            {}
 func (*TooManyRequestsHeaders) listAssetClassesRes()                 {}
 func (*TooManyRequestsHeaders) listAssetClearingItemsRes()           {}
 func (*TooManyRequestsHeaders) listAssetMovementsRes()               {}
+func (*TooManyRequestsHeaders) listAssetRetirementsRes()             {}
 func (*TooManyRequestsHeaders) listAssetsRes()                       {}
 func (*TooManyRequestsHeaders) listAuditEventsRes()                  {}
 func (*TooManyRequestsHeaders) listBalancesRes()                     {}
@@ -57861,6 +58864,7 @@ func (*TooManyRequestsHeaders) requestBankAccountEndRes()            {}
 func (*TooManyRequestsHeaders) resumeWebhookSubscriptionRes()        {}
 func (*TooManyRequestsHeaders) retireEntryTemplateRes()              {}
 func (*TooManyRequestsHeaders) reverseAssetAcquisitionRes()          {}
+func (*TooManyRequestsHeaders) reverseAssetRetirementRes()           {}
 func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()              {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()              {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()           {}
@@ -57995,6 +58999,7 @@ func (*UnauthorizedHeaders) closePurchaseOrderRes()               {}
 func (*UnauthorizedHeaders) completeCloseTaskRes()                {}
 func (*UnauthorizedHeaders) createAssetAcquisitionRes()           {}
 func (*UnauthorizedHeaders) createAssetRes()                      {}
+func (*UnauthorizedHeaders) createAssetRetirementRes()            {}
 func (*UnauthorizedHeaders) createBusinessPartnerRes()            {}
 func (*UnauthorizedHeaders) createChangeRequestRes()              {}
 func (*UnauthorizedHeaders) createClearingRes()                   {}
@@ -58050,6 +59055,7 @@ func (*UnauthorizedHeaders) getAnalyticsModelRes()                {}
 func (*UnauthorizedHeaders) getApprovalRequestRes()               {}
 func (*UnauthorizedHeaders) getAssetAcquisitionRes()              {}
 func (*UnauthorizedHeaders) getAssetRes()                         {}
+func (*UnauthorizedHeaders) getAssetRetirementRes()               {}
 func (*UnauthorizedHeaders) getAssetScheduleRes()                 {}
 func (*UnauthorizedHeaders) getBankAccountRes()                   {}
 func (*UnauthorizedHeaders) getBankFileContentRes()               {}
@@ -58132,6 +59138,7 @@ func (*UnauthorizedHeaders) listAssetAcquisitionsRes()            {}
 func (*UnauthorizedHeaders) listAssetClassesRes()                 {}
 func (*UnauthorizedHeaders) listAssetClearingItemsRes()           {}
 func (*UnauthorizedHeaders) listAssetMovementsRes()               {}
+func (*UnauthorizedHeaders) listAssetRetirementsRes()             {}
 func (*UnauthorizedHeaders) listAssetsRes()                       {}
 func (*UnauthorizedHeaders) listAuditEventsRes()                  {}
 func (*UnauthorizedHeaders) listBalancesRes()                     {}
@@ -58271,6 +59278,7 @@ func (*UnauthorizedHeaders) requestBankAccountEndRes()            {}
 func (*UnauthorizedHeaders) resumeWebhookSubscriptionRes()        {}
 func (*UnauthorizedHeaders) retireEntryTemplateRes()              {}
 func (*UnauthorizedHeaders) reverseAssetAcquisitionRes()          {}
+func (*UnauthorizedHeaders) reverseAssetRetirementRes()           {}
 func (*UnauthorizedHeaders) reverseGoodsReceiptRes()              {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()              {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()           {}
