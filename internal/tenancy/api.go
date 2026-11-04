@@ -390,13 +390,36 @@ func (Directory) EntityByCode(ctx context.Context, code string) (Entity, bool, e
 	return entity(ctx, `code = $1`, code)
 }
 
+// Entities are the tenant's legal entities, by company code: what a view
+// across companies starts from (the group liquidity forecast, ADR-0051
+// §9, T53e5). Company access is not applied: callers apply it where it
+// matters.
+func (Directory) Entities(ctx context.Context) ([]Entity, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT `+entityColumns+` FROM tenancy.legal_entity ORDER BY code`)
+	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Entity, error) {
+		var e Entity
+		return e, r.Scan(&e.ID, &e.Code, &e.Name, &e.CountryCode, &e.Status, &e.LocalCurrency, &e.FiscalCalendarID)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("tenancy: list legal entities: %w", err)
+	}
+	return out, nil
+}
+
+// entityColumns are what an Entity is read from.
+const entityColumns = `id, code, name, country_code, status, local_currency, fiscal_calendar_id`
+
 func entity(ctx context.Context, where string, arg any) (Entity, bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return Entity{}, false, err
 	}
 	var e Entity
-	err = tx.QueryRow(ctx, `SELECT id, code, name, country_code, status, local_currency, fiscal_calendar_id FROM tenancy.legal_entity WHERE `+where, arg).
+	err = tx.QueryRow(ctx, `SELECT `+entityColumns+` FROM tenancy.legal_entity WHERE `+where, arg).
 		Scan(&e.ID, &e.Code, &e.Name, &e.CountryCode, &e.Status, &e.LocalCurrency, &e.FiscalCalendarID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Entity{}, false, nil

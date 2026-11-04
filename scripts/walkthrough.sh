@@ -3642,6 +3642,69 @@ step_cash_orders() {
   passed
 }
 
+step_cash_group() {
+  heading "Step 34 — The group liquidity forecast: the companies a treasurer may act in, summed in group currency"
+  as ada
+  local us cal cory receipt weeks own usd maple_own maple_usd sum=0
+  weeks=(-p grain=week -p "to=$(date_add "$TODAY" 55)")
+  usd='[.currencies[] | select(.currency == "USD") | .total.amount, .beyond.amount.amount] | map(sub("\\."; "") | tonumber) | add // 0'
+  own='.converted | [.opening.amount, .total.amount, .beyond.amount] | map(sub("\\."; "") | tonumber) | add'
+  say "The group takes on its US sister, Acme Corp US (SAP company 1000, in USD): Ada creates its legal entity and"
+  say "activates it."
+  QUIET=1 api 200 '' getLegalEntity -p "id=$LE"
+  cal=$(field .fiscal_calendar_id)
+  api 201 '"legal entity \(.code) \(.name): \(.country_code), \(.local_currency), \(.status)"' createLegalEntity \
+    -body "{\"code\": \"1000\", \"name\": \"Acme Corp US\", \"country_code\": \"US\", \"local_currency\": \"USD\", \"fiscal_calendar_id\": \"$cal\"}"
+  us=$(field .id)
+  api 200 '"legal entity \(.code): \(.status)"' activateLegalEntity -p "id=$us" -if-match "$ETAG"
+  as tom
+  receipt=$(date_add "$TODAY" 20)
+  say "Tom expects a US customer's USD 3,000.00 at Acme Corp US on $receipt (a memo record without a house bank):"
+  api 201 '"memo record \(.reference): \(.amount.amount) \(.amount.currency) on \(.value_date), \(.liquidity_item)"' \
+    createMemoRecord -body "{\"legal_entity_id\": \"$us\", \"amount\": {\"amount\": \"3000.00\", \"currency\": \"USD\"}, \"value_date\": \"$receipt\", \"liquidity_item\": \"REC_CUSTOMERS\", \"description\": \"Acme Corp US, order 12\", \"reference\": \"WT-3001\"}"
+  say "He reads the forecast across the companies he may act in (ADR-0051 §9, §10, §15): each company's own forecast"
+  say "per currency, summed, and in the group currency, each company converted as its own forecast converts it:"
+  api 200 '"  in \(.group_currency) from \(.read_date): \(.buckets | length) \(.buckets[0].grain)s",
+      (.companies[] | "  company \(.company_code) \(.name): read \(.read_date) in \(.time_zone); rates \([.rates[] | "\(.currency) \(.rate_type) \(.rate)"] | join(", ")); without a rate: \(.incomplete_currencies | join(", "))"),
+      (.currencies[] | "  \(.currency): opens at \(.opening.amount.amount), \(.total.amount) over the horizon, \(.beyond.amount.amount) after it"),
+      "  converted: opens at \(.converted.opening.amount), closes at \(.converted.buckets[-1].closing.amount) \(.converted.currency)"' \
+    getGroupLiquidityForecast "${weeks[@]}"
+  cp "$WORK/last.json" "$WORK/group.json"
+  expect "the companies, by code" "$(field '[.companies[].company_code] | join(" ")')" "1000 $CC"
+  expect "the group currency" "$(field .group_currency)" CAD
+  expect "the converted closing, the converted opening plus the converted totals" \
+    "$(field 'def c: sub("\\."; "") | tonumber; .converted | ((.opening.amount | c) + ([.buckets[].total.amount | c] | add)) == (.buckets[-1].closing.amount | c)')" true
+  say "The group's figures are the companies' own over the same weeks, summed: per currency, and converted into CAD:"
+  api 200 '"  \(.legal_entity_id): converted opening \(.converted.opening.amount), total \(.converted.total.amount), beyond \(.converted.beyond.amount) \(.converted.currency)"' \
+    getLiquidityForecast -p "legal_entity_id=$us" -p display_currency=CAD "${weeks[@]}"
+  sum=$((sum + $(field "$own")))
+  expect "Acme Corp US's USD, its receipt" "$(field "$usd")" 300000
+  api 200 '"  \(.legal_entity_id): converted opening \(.converted.opening.amount), total \(.converted.total.amount), beyond \(.converted.beyond.amount) \(.converted.currency)"' \
+    getLiquidityForecast -p "legal_entity_id=$LE" -p display_currency=CAD "${weeks[@]}"
+  maple_own=$(field "$own")
+  sum=$((sum + maple_own))
+  maple_usd=$(field "$usd")
+  expect "the group's USD, Maple's and Acme Corp US's" "$(jq "$usd" "$WORK/group.json")" "$((maple_usd + 300000))"
+  expect "the group's converted opening, total and beyond, the companies' summed" "$(jq "$own" "$WORK/group.json")" "$sum"
+  as ada
+  say "Cory in reporting holds the forecast's read (cash_reporting) in Maple alone: Acme Corp US is not his, so it"
+  say "reaches nothing he reads, neither a company, a currency nor a total."
+  QUIET=1 api 201 '' createPrincipal -body '{"kind": "human", "external_subject": "cory", "display_name": "Cory Reporting", "all_companies": false}'
+  cory=$(field .id)
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$cory\", \"role_id\": \"$(role cash_reporting)\"}"
+  QUIET=1 api 201 '' createCompanyAccess -body "{\"principal_id\": \"$cory\", \"legal_entity_id\": \"$LE\"}"
+  token cory "Cory Reporting"
+  printf '%s\tCory Reporting\n' "$cory" >>"$WORK/names"
+  as cory
+  api 200 '"  companies \([.companies[].company_code] | join(", ")); currencies \([.currencies[].currency] | join(", ")); converted total \(.converted.total.amount) \(.converted.currency)"' \
+    getGroupLiquidityForecast "${weeks[@]}"
+  expect "Cory's companies" "$(field '[.companies[].company_code] | join(" ")')" "$CC"
+  expect "Cory's USD, Maple's alone" "$(field "$usd")" "$maple_usd"
+  expect "Cory's converted opening, total and beyond, Maple's alone" "$(field "$own")" "$maple_own"
+  as tom
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -3663,7 +3726,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_cash_group step_close'
 
 main() {
   start

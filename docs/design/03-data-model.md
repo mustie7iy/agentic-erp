@@ -2856,6 +2856,13 @@ parked or held `payables.supplier_invoice`, a
 Conversion reads `ledger.exchange_rate` through the rate service. No
 migration.
 
+T53e5 sums the forecast across companies, still storing nothing
+(`GET /v1/group-liquidity-forecast`): the companies are the
+`tenancy.legal_entity` rows the caller may act in
+(`identity.company_access`, or `identity.principal.all_companies`), each
+read as its own forecast reads it, and the group currency is
+`tenancy.tenant.group_currency`. No migration.
+
 T53f stores the forecast as it was (000198, `cash.snapshot`,
 `cash.snapshot_flow` above): read in a read-only repeatable-read
 transaction (the workflow activity's first, a request's on a pool of its

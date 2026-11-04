@@ -177,6 +177,7 @@ var operationRolesOidc = map[string][]string{
 	GetForecastVarianceCommentOperation:       []string{},
 	GetGoodsReceiptOperation:                  []string{},
 	GetGrIrClearingOperation:                  []string{},
+	GetGroupLiquidityForecastOperation:        []string{},
 	GetHierarchyOperation:                     []string{},
 	GetHierarchyNodeOperation:                 []string{},
 	GetJournalEntryOperation:                  []string{},

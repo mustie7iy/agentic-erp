@@ -1446,9 +1446,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Group liquidity forecast: the forecast across the companies the caller may act in, summed in group currency (ADR-0051 §9: across companies the caller has, in group currency; §10: group currency across companies; §15: cross-company views need the caller's access to each company); T53e4 built one company's forecast converted into a display currency",
-        "r": "T53e5",
+        "r": "GET /v1/group-liquidity-forecast (GroupLiquidityForecast, GroupLiquidityForecastCompany, GroupLiquidityForecastCurrency, GroupLiquidityForecastConverted) · cash.Endpoints.GroupForecast, certaintyCut, sums.closings, sums.close · cash.LegalEntities.Entities, GroupCurrency (internal/app cashCompanies) · tenancy.Directory.Entities · TestGroupLiquidityForecast, TestGroupLiquidityForecastAccess, TestGroupLiquidityForecastReadDates, TestGroupLiquidityForecastTooLarge, TestGroupLiquidityForecastFailures · walkthrough step 34 · ADR-0051 (as built, T53e5) · 03-data-model §3.18 · 04-api-design · T53e5",
         "src": "adr:ADR-0051",
         "c": []
        },
