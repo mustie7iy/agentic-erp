@@ -1474,9 +1474,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The bank file transmitter records an upload's outcome only for the claim that made it, guarded by the row version the claim wrote rather than its status and attempt number (pre-existing finding on T53h): a claimant stalled past its lease, whose file was meanwhile failed (after a refusal, the last failure or a cancel) and asked for again with its attempts counted afresh, finds the new claim's status and attempt and records its own outcome as the new claim's, leaving the new upload's outcome unrecorded and its operation never completed",
-        "r": "internal/payments/transmitter.go claim, prepare, finish · TestTransmitter",
+        "r": "internal/payments/transmitter.go claim, prepare, finish · pgtest.AckLostTx · TestTransmitter, TestTransmitterStaleClaim, TestTransmitterUnacknowledgedFinish · ADR-0038 (as built, T44e)",
         "src": "review:T53h",
         "c": []
        },
