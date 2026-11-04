@@ -263,12 +263,14 @@ func notBeforeCapitalisation(a Asset, value time.Time) error {
 // through a later period in a ledger (409 assets.later_value_date,
 // ADR-0057 §6): a run of a later period, an acquisition valued later, a
 // transfer from a later date. A reversed movement and its reversal cancel
-// out (§7) and do not count.
+// out (§7) and do not count, and only the latest assignment row is read:
+// a reversed center transfer's row is followed by the row restoring the
+// previous one, and the rows left are in date order (§8).
 func laterValueDate(ctx context.Context, tx pgx.Tx, a Asset, v Period) error {
 	var later bool
 	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM assets.movement m WHERE m.asset_id = $1 AND m.value_date > $2 AND m.reverses_id IS NULL
 				AND NOT EXISTS (SELECT FROM assets.movement r WHERE r.tenant_id = m.tenant_id AND r.reverses_id = m.id))
-			OR EXISTS (SELECT FROM assets.asset_assignment WHERE asset_id = $1 AND valid_from > $2)
+			OR (SELECT valid_from FROM assets.asset_assignment WHERE asset_id = $1 ORDER BY seq DESC LIMIT 1) > $2
 			OR EXISTS (SELECT FROM assets.asset_terms WHERE asset_id = $1 AND (booked_through_year, booked_through_period) > ($3::smallint, $4::smallint))`,
 		a.ID, v.End, v.FiscalYear, v.Number).Scan(&later)
 	if err != nil {

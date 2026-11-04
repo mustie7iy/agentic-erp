@@ -80,33 +80,35 @@ func (e *Endpoints) newRetirement(ctx context.Context, req *gen.AssetRetirementC
 		in.Proceeds, in.ProceedsCurrency = amount, m.Currency
 	}
 	if s, ok := req.Share.Get(); ok {
-		return in, e.shareOf(ctx, s, &in)
+		var err error
+		in.Percent, in.Cost, in.CostCurrency, err = e.shareOf(ctx, s)
+		return in, err
 	}
 	return in, nil
 }
 
-// shareOf reads a retirement's share: a percent or a cost, one of the two.
-func (e *Endpoints) shareOf(ctx context.Context, s gen.AssetRetirementShare, in *NewRetirement) error {
+// shareOf reads a retirement's or asset transfer's share: a percent (in
+// ten-thousandths of a percent) or a cost with its currency, one of the
+// two.
+func (e *Endpoints) shareOf(ctx context.Context, s gen.AssetRetirementShare) (*int64, *money.Minor, string, error) {
 	if s.Percent.Set == s.Cost.Set {
-		return validation("share", "a percent or a cost, one of the two; no share for all of it")
+		return nil, nil, "", validation("share", "a percent or a cost, one of the two; no share for all of it")
 	}
 	if p, ok := s.Percent.Get(); ok {
 		v, err := money.ParseDecimal(p, 4) // in ten-thousandths of a percent
 		if err != nil || v <= 0 || v > hundredPercent {
-			return validation("share.percent", "a plain decimal above 0 and at most 100, with up to four decimals")
+			return nil, nil, "", validation("share.percent", "a plain decimal above 0 and at most 100, with up to four decimals")
 		}
-		in.Percent = (*int64)(&v)
-		return nil
+		return (*int64)(&v), nil, "", nil
 	}
 	cost, err := e.amountOf(ctx, s.Cost.Value, "share.cost")
 	if err != nil {
-		return err
+		return nil, nil, "", err
 	}
 	if cost <= 0 {
-		return validation("share.cost.amount", "above zero")
+		return nil, nil, "", validation("share.cost.amount", "above zero")
 	}
-	in.Cost, in.CostCurrency = &cost, s.Cost.Value.Currency
-	return nil
+	return nil, &cost, s.Cost.Value.Currency, nil
 }
 
 // ReverseAssetRetirement implements POST /v1/asset-retirements/{id}:reverse.

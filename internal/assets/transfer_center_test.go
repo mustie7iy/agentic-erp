@@ -189,7 +189,9 @@ func (e assetEnv) acquisitionOf(t *testing.T, asset any) string {
 // dated 31 March and its main entry's 20 April on the restoring row's
 // centers; booked_through returns, the previous centers are the asset's
 // again from -infinity, so a March run posts March on them and a
-// March-dated acquisition is accepted. A reversal dated before the
+// March-dated acquisition is accepted, and so is a transfer valued 1
+// March (the reversed row valid from April no longer counts as a later
+// assignment). A reversal dated before the
 // transfer's posting date and a second reversal are refused.
 func TestCenterTransferReversed(t *testing.T) {
 	e := newRuns(t)
@@ -218,6 +220,8 @@ func TestCenterTransferReversed(t *testing.T) {
 		"0L 620000 1000 PC1 3000 3261; 0L 160900 - PC1 -3000 -3261")
 	march2 := e.post(t, "2000", "2026-03-20", "EUR", nil, line{"169000", "120.00"}, line{"100000", "-120.00"})
 	e.acquire(t, mill, march2, 1, `, "posting_date": "2026-03-20"`)
+	e.transfer(t, mill, fmt.Sprintf(`"kind": "center", "cost_center_id": %q, "posting_date": "2026-03-25"`, cc))
+	want(t, "a March transfer after the reversal", e.centersOf(t, mill), "4000 PC3 from 2026-03-01")
 }
 
 // TestCenterTransferWithTheMonthBeforeClosed: with March closed, the

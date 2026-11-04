@@ -2118,6 +2118,13 @@ product owner to overrule:
   takes a new `seq`, after reversing a transfer an earlier transfer of the
   same asset is no longer its latest posting and is not reversed
   (decided by default 20, as for retirements).
+- **`assets.later_value_date` reads the latest assignment row only**
+  (review round 1): T57g's "its assignment rows valid from after it" would
+  count a reversed center transfer's row, which the row restoring the
+  previous one follows, so a retirement or transfer of the period before
+  would stay refused after the reversal; the rows left after setting
+  reversed ones aside are in date order (§8), so the latest row is the one
+  to compare.
 - **Entries' parts.** `AssetDocumentEntry` gains `part` (`main`,
   `catch_up`) on every assets document, a center transfer's catch-up
   listed before its main entry in each ledger.

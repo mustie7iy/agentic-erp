@@ -538,8 +538,8 @@ const movementShareSQL = `INSERT INTO assets.movement (tenant_id, id, asset_id, 
 // center transfer) with the seqs, the kind, value and posting dates, a
 // share and centers.
 const transferSQL = `INSERT INTO assets.transfer (tenant_id, id, legal_entity_id, asset_id, seq, kind, value_date, posting_date, fiscal_year,
-		fiscal_period, currency, currency_gc, to_asset_id, to_seq, share_percent, cost_center_id, profit_center_id, status, created_by, updated_by)
-	VALUES ($1, $2, $3, $4, $5, $6, $7::date, $8::date, 2026, 6, 'EUR', 'USD', $9, $10, $11::numeric, $12, $13, $14, $15, $15)`
+		fiscal_period, currency, currency_gc, to_asset_id, to_seq, share_percent, cost_center_id, profit_center_id, status, created_by, updated_by, share_cost)
+	VALUES ($1, $2, $3, $4, $5, $6, $7::date, $8::date, 2026, 6, 'EUR', 'USD', $9, $10, $11::numeric, $12, $13, $14, $15, $15, $16)`
 
 // TestAssetTransferRules: a transfer starts posted, is reversed at most
 // once on or after its own date and keeps what it posted; a center
@@ -551,10 +551,19 @@ func TestAssetTransferRules(t *testing.T) {
 	f := newAssetFixture(t)
 	center := id()
 	mustApp(t, f.tenant, func(tx pgx.Tx) error {
-		return exec(tx, transferSQL, f.tenant, center, f.entity, f.active, 2, "center", "2026-06-01", "2026-06-15", nil, nil, nil, f.cc, f.pc, "posted", f.actor)
+		if err := exec(tx, transferSQL, f.tenant, center, f.entity, f.active, 2, "center", "2026-06-01", "2026-06-15", nil, nil, nil, f.cc, f.pc, "posted",
+			f.actor, nil); err != nil {
+			return err
+		}
+		return exec(tx, transferSQL, f.tenant, id(), f.entity, f.active, 9, "asset", "2026-06-10", "2026-06-15", f.planned, 5, nil, nil, nil, "posted",
+			f.actor, 100)
 	})
 	row := func(seq int, kind, value, posting string, to, toSeq, percent, pc any, status string) error {
-		return f.try(t, transferSQL, f.tenant, id(), f.entity, f.active, seq, kind, value, posting, to, toSeq, percent, nil, pc, status, f.actor)
+		return f.try(t, transferSQL, f.tenant, id(), f.entity, f.active, seq, kind, value, posting, to, toSeq, percent, nil, pc, status, f.actor, nil)
+	}
+	shared := func(toSeq int, percent, cost any) error {
+		return f.try(t, transferSQL, f.tenant, id(), f.entity, f.active, 10, "asset", "2026-06-10", "2026-06-15", f.planned, toSeq, percent, nil, nil,
+			"posted", f.actor, cost)
 	}
 	reverse := `UPDATE assets.transfer SET status = 'reversed', reversal_posting_date = $2::date, reversal_reason = $3, version = version + 1 WHERE id = $1`
 	for name, c := range map[string]struct {
@@ -572,6 +581,9 @@ func TestAssetTransferRules(t *testing.T) {
 		"valued in the month before":             {row(3, "asset", "2026-05-31", "2026-06-15", f.planned, 2, nil, nil, "posted"), "transfer_value_date"},
 		"valued after its posting date":          {row(3, "asset", "2026-06-16", "2026-06-15", f.planned, 2, nil, nil, "posted"), "transfer_value_date"},
 		"a percent above 100":                    {row(3, "asset", "2026-06-10", "2026-06-15", f.planned, 2, "100.5", nil, "posted"), "transfer_share_percent_check"},
+		"a percent and a cost":                   {shared(6, "5", 100), "transfer_share"},
+		"a cost of zero":                         {shared(6, nil, 0), "transfer_share_cost_check"},
+		"a receiver's seq taken":                 {shared(5, nil, 100), "transfer_to_seq_once"},
 		"a seq taken":                            {row(2, "asset", "2026-06-10", "2026-06-15", f.planned, 2, nil, nil, "posted"), "transfer_seq_once"},
 		"reversed without its date":              {f.try(t, `UPDATE assets.transfer SET status = 'reversed', version = version + 1 WHERE id = $1`, center), "transfer_reversal"},
 		"reversed before it was posted":          {f.try(t, reverse, center, "2026-06-14", "r"), "transfer_reversal_date"},
@@ -615,6 +627,8 @@ func TestAssetTransferRules(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) { failsWith(t, f.try(t, restore, c.args...), c.want) })
 	}
+	failsWith(t, f.try(t, `INSERT INTO assets.asset_assignment (tenant_id, asset_id, seq, valid_from, restores_seq, created_by)
+		VALUES ($1, $2, 1, '-infinity', 1, $3)`, f.tenant, f.active, f.actor), "a restoring assignment repeats")
 	mustApp(t, f.tenant, func(tx pgx.Tx) error {
 		return exec(tx, restore, f.tenant, f.planned, "-infinity", f.cc, f.pc, 1, f.actor)
 	})

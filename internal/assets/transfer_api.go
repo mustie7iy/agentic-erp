@@ -81,12 +81,9 @@ func (e *Endpoints) newTransfer(ctx context.Context, req *gen.AssetTransferCreat
 	if !ok {
 		return in, nil
 	}
-	var r NewRetirement
-	if err := e.shareOf(ctx, s, &r); err != nil {
-		return NewTransfer{}, err
-	}
-	in.Percent, in.Cost, in.CostCurrency = r.Percent, r.Cost, r.CostCurrency
-	return in, nil
+	var err error
+	in.Percent, in.Cost, in.CostCurrency, err = e.shareOf(ctx, s)
+	return in, err
 }
 
 // ReverseAssetTransfer implements POST /v1/asset-transfers/{id}:reverse.
