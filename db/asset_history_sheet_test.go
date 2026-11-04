@@ -164,7 +164,7 @@ func TestAssetYearTotalRules(t *testing.T) {
 // without depreciation stay at zero.
 func TestAssetTermsBookedBackfilled(t *testing.T) {
 	conn := emptyDatabase(t)
-	migrateBefore(t, conn, 199)
+	migrateBefore(t, conn, 211)
 	f := fixtureIDs()
 	mill, plot, ledger2 := id(), id(), id()
 	inTenant(t, conn, f.tenant, func(tx pgx.Tx) error {
