@@ -1177,9 +1177,16 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Long-running jobs and a deactivated requester (pre-existing security finding on T57f): identity.Actors.Actor does not check that the principal is still active, so migration runs and depreciation runs keep acting, and posting, as a requester deactivated after the start; should they refuse such a requester and fail the run, as ADR-0056's recurrer checks Active?",
-        "r": "internal/identity/directory.go Actors.Actor · internal/workflows requester (migrate.go) · ADR-0012 · ADR-0056 · ADR-0057 §7",
+        "s": "D",
+        "t": "Long-running jobs refuse a deactivated requester (pre-existing security finding on T57f; PO decision 2026-11-03: deactivated requesters are refused): every step that does deferred work as its requester (a migration run, a payment proposal and release, a simulation, a depreciation run's plan, batches and finish; workflow and in-process runners alike) first calls identity.Actors.MayAct, which refuses a requester blocked or deprovisioned since the start with 403 identity.principal_blocked, not retried; the job fails through its existing problem path, audited and recorded as the requester, its earlier postings kept and its slot freed (a migration run back to queued, a release left releasing for :release)",
+        "r": "internal/identity/directory.go Actors.MayAct · internal/workflows (working, Depreciations.acting) · integration prepareAs · payments mayAct · configuration simulation · ADR-0012 As built · ADR-0057 As built · 04 §4.8",
+        "src": "review:T57f · po:2026-11-03",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Every stopped simulation is audited (pre-existing finding on review:T57f's requester refusal, ADR-0011): every problem that fails a simulation's operation (an operation naming no change request, a change request gone or no longer awaiting evidence, a requester no longer active, a base or proposal this replica cannot read, simulator and regression problems), in the worker and the SimulateChange activity alike, records one config.change_request.simulate_failed entry with the problem's code and detail and the operation id, in the transaction that fails the operation (on the operation itself when it names no change request); the never-released simulate_refused is folded into it; a transient error records nothing and leaves the operation queued, and a retry after the commit records nothing twice",
+        "r": "internal/configuration/simulation.go (stopped) · internal/configuration/stopped_test.go · ADR-0011 · ADR-0012 As built",
         "src": "review:T57f",
         "c": []
        },

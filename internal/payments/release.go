@@ -142,7 +142,8 @@ func PaymentsToPost(ctx context.Context, tx pgx.Tx, run uuid.UUID) (todo []uuid.
 // PostPayment posts one payment of a releasing run: the entry that clears
 // its items, as the releaser, in the request's transaction; a payment
 // already posted is left alone (posted = false), so a retry posts nothing
-// twice. Progress is recorded on the release operation.
+// twice. A releaser no longer active is refused (mayAct), which fails the
+// release. Progress is recorded on the release operation.
 func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (posted bool, err error) {
 	tx, actor, err := reqctx.Request(ctx)
 	if err != nil {
@@ -154,6 +155,9 @@ func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (post
 	}
 	if p.JournalEntryID != nil || p.Excluded {
 		return false, nil
+	}
+	if err := e.mayAct(ctx, tx, actor, r.ID); err != nil {
+		return false, err
 	}
 	if p.Kind == KindDownPayment {
 		if err := e.postDownPayment(ctx, tx, r, p); err != nil {
@@ -280,7 +284,8 @@ func paymentOf(ctx context.Context, tx pgx.Tx, run, pay uuid.UUID) (Payment, err
 // FinishRelease ends a release whose payments are all posted: the bank file
 // is produced, the run is released, the operation succeeds and the events
 // go out, in the request's transaction. A run already released is left
-// alone: the release was finished before, and its completion lost.
+// alone: the release was finished before, and its completion lost. A
+// releaser no longer active is refused (mayAct), which fails the release.
 func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -288,6 +293,9 @@ func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
 	}
 	if r.Status == Released {
 		return r, nil
+	}
+	if err := e.mayAct(ctx, tx, p, r.ID); err != nil {
+		return Run{}, err
 	}
 	pays, err := paymentsOf(ctx, tx, r.ID)
 	if err != nil {

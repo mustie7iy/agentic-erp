@@ -1744,3 +1744,34 @@ func TestApprovalDeadlineCancelled(t *testing.T) {
 		t.Errorf("got %q, want the request named", err.Error())
 	}
 }
+
+// TestMigrationRequesterBlocked: a run whose requester is blocked after
+// the start (PO 2026-11-03) loads nothing: the activity fails the
+// operation with identity.principal_blocked, audited, and puts the run
+// back to queued, to be started again by someone active; the workflow
+// ends without an error, so the refusal is not retried, and the activity
+// run again does nothing.
+func TestMigrationRequesterBlocked(t *testing.T) {
+	e, _, in, m := migrationAsked(t, "extract.json")
+	pgtest.Exec(t, `UPDATE identity.principal SET status = 'blocked', version = version + 1 WHERE id = $1`, e.Tenant.Human.ID)
+	if err := executeMigration(t, m, in); err != nil {
+		t.Fatalf("the workflow: got %v, want it ended without an error", err)
+	}
+	state := func() string {
+		var s string
+		pgtest.Scan(t, `SELECT r.status || ' ' || o.status || ' ' || coalesce(o.error->>'code', '') || ' ' ||
+				(SELECT count(*) FROM ledger.journal_entry j WHERE j.tenant_id = r.tenant_id) || ' ' ||
+				(SELECT count(*) FROM audit.audit_event a WHERE a.tenant_id = r.tenant_id AND a.action = 'integration.migration_run.fail' AND a.object_id = r.id)
+			FROM integration.migration_run r JOIN platform.operation o ON o.id = $2 WHERE r.id = $1`, []any{in.RunID, in.OperationID}, &s)
+		return s
+	}
+	if got := state(); got != "queued failed identity.principal_blocked 0 1" {
+		t.Fatalf("the run, its operation, entries and audit records: got %q, want queued, failed with identity.principal_blocked, nothing loaded, one record", got)
+	}
+	if err := m.Execute(context.Background(), in); err != nil {
+		t.Fatalf("run again: got %v, want nil", err)
+	}
+	if got := state(); got != "queued failed identity.principal_blocked 0 1" {
+		t.Errorf("run again: got %q, want nothing changed", got)
+	}
+}

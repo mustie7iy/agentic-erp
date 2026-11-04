@@ -22019,7 +22019,9 @@ func (s *DepreciationRunBatch) SetDocumentNumber(val OptString) {
 
 // The problem that failed a run: its code and detail, as the Operation's error gives them;
 // `assets.run_cancelled` when its Operation was cancelled, which stays `cancelled` without an error,
-// and `platform.internal` when a step's error outlasted its retries.
+// `identity.principal_blocked` when the person who started it was blocked or deprovisioned since (a
+// step refuses to act as them; the batches posted before stay posted), and `platform.internal` when a
+// step's error outlasted its retries.
 // Ref: #/components/schemas/DepreciationRunError
 type DepreciationRunError struct {
 	// The problem's code, such as `ledger.period_not_open`.
@@ -38477,7 +38479,9 @@ type Operation struct {
 	Resource NilString `json:"resource"`
 	// Operation-specific result, present when `status` is `succeeded`.
 	Result OptOperationResult `json:"result"`
-	// Why the operation failed, present when `status` is `failed`.
+	// Why the operation failed, present when `status` is `failed`. Work an operation defers acts as the
+	// principal that started it (`created_by`, or a payment run's releaser) and refuses them once they are
+	// no longer active: 403 `identity.principal_blocked`, the work done before staying done.
 	Error OptProblem `json:"error"`
 	// Version; changes as the operation progresses.
 	Version int32 `json:"version"`

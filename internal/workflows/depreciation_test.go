@@ -476,3 +476,147 @@ func TestDepreciatorFailsARun(t *testing.T) {
 		t.Errorf("the run cancelled after its first batch: got %s, want it failed with assets.run_cancelled, its first batch posted", run)
 	}
 }
+
+// block blocks the run's requester, as a deactivation does; unblock makes
+// them active again, so the test's own requests go through.
+func (s *deprScenario) block(t *testing.T) {
+	t.Helper()
+	pgtest.Exec(t, `UPDATE identity.principal SET status = 'blocked', version = version + 1 WHERE id = $1`, s.e.Tenant.Human.ID)
+}
+
+func (s *deprScenario) unblock(t *testing.T) {
+	t.Helper()
+	pgtest.Exec(t, `UPDATE identity.principal SET status = 'active', version = version + 1 WHERE id = $1`, s.e.Tenant.Human.ID)
+}
+
+// TestDepreciationRunRequesterBlocked: a requester blocked after the
+// run's first batch of two (PO 2026-11-03) fails the run at its next step
+// with identity.principal_blocked, on the run and its Operation: the first
+// batch stays posted, the second posts nothing, and the company and ledger
+// are free for a new run. The engine does not retry the refusal: it is a
+// business problem, and the workflow ends without an error.
+func TestDepreciationRunRequesterBlocked(t *testing.T) {
+	s := deprSetup(t)
+	s.machine(t, "Lathe")
+	h := app.Assets(app.Config{})
+	h.BatchSize = 1
+	s.d.Runs = h
+	in := s.start(t, 6)
+	before := deprStateOf(t, in)
+	var refused atomic.Int32
+	blockAfterFirst := func(env *testsuite.TestWorkflowEnvironment) {
+		env.SetOnActivityCompletedListener(func(info *activity.Info, _ converter.EncodedValue, err error) {
+			switch {
+			case info.ActivityType.Name == "PostDepreciationBatch" && err == nil:
+				s.block(t) // committed, before the workflow takes the next step
+			case err != nil:
+				refused.Add(1)
+			}
+		})
+	}
+	if err := s.runDepreciation(t, in, blockAfterFirst); err != nil {
+		t.Fatalf("the workflow: got %v, want it ended without an error", err)
+	}
+	if n := refused.Load(); n != 1 {
+		t.Errorf("the refused step's tries: got %d, want 1 (not retried)", n)
+	}
+	got := deprStateOf(t, in)
+	for _, c := range []struct{ what, got, want string }{
+		{"the run", strings.Split(got.Run, "/")[0], "failed"}, {"its problem", got.Problem, "identity.principal_blocked"},
+		{"its Operation", strings.Split(got.Operation, "/")[0], "failed"}, {"its batches", got.Batches, "posted pending"},
+		{"the entries and movements", fmt.Sprint(got.Entries, " ", got.Movements), fmt.Sprint(before.Entries+1, " 1")},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s: got %q, want %q", c.what, c.got, c.want)
+		}
+	}
+	var audited int
+	pgtest.Scan(t, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'assets.depreciation_run.fail' AND object_id = $2`,
+		[]any{in.TenantID, in.RunID}, &audited)
+	if audited != 1 {
+		t.Errorf("the failure's audit records: got %d, want 1", audited)
+	}
+	s.unblock(t)
+	s.start(t, 6) // the company and ledger are free again
+}
+
+// TestDepreciatorRequesterBlocked: without a workflow engine, a run whose
+// requester is blocked after its first batch fails at the second with
+// identity.principal_blocked, the first staying posted; recording the
+// failure, which acts as the blocked requester, runs twice as a no-op.
+func TestDepreciatorRequesterBlocked(t *testing.T) {
+	s := deprSetup(t)
+	s.machine(t, "Lathe")
+	h := app.Assets(app.Config{})
+	h.BatchSize = 1
+	s.d.Runs = h
+	in := s.start(t, 6)
+	ctx := context.Background()
+	if _, err := s.d.PlanDepreciationRun(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.d.PostDepreciationBatch(ctx, in, 1); err != nil {
+		t.Fatal(err)
+	}
+	s.block(t)
+	w := &workflows.Depreciator{Depreciations: s.d, Log: slog.New(slog.DiscardHandler)}
+	if err := w.Depreciate(ctx, in); err != nil {
+		t.Fatalf("the run: got %v, want it failed without an error", err)
+	}
+	got := deprStateOf(t, in)
+	if run := fmt.Sprint(strings.Split(got.Run, "/")[0], " ", got.Problem, " ", strings.Split(got.Operation, "/")[0], " ", got.Batches); run != "failed identity.principal_blocked failed posted pending" {
+		t.Errorf("the run: got %s, want it failed with identity.principal_blocked, its first batch posted", run)
+	}
+	var why *problem.Problem
+	err := s.d.PostDepreciationBatch(ctx, in, 2)
+	if !errors.As(err, &why) {
+		t.Fatalf("a batch posted after the refusal: got %v, want a problem", err)
+	}
+	if why.Code != "identity.principal_blocked" {
+		t.Errorf("a batch posted after the refusal: got %s, want identity.principal_blocked", why.Code)
+	}
+	s.unblock(t)
+	july := s.start(t, 7)
+	s.block(t)
+	refusal := *problem.Forbidden("identity.principal_blocked", "The requester is blocked.")
+	twiceDepr(t, "FailDepreciationRun as a blocked requester", july, func() error { return s.d.FailDepreciationRun(ctx, july, refusal) })
+	failed := deprStateOf(t, july)
+	if failed.Run != "failed/2" {
+		t.Errorf("the run failed as a blocked requester: got %s, want failed/2", failed.Run)
+	}
+	if failed.Problem != "identity.principal_blocked" {
+		t.Errorf("its problem: got %s, want identity.principal_blocked", failed.Problem)
+	}
+}
+
+// TestDepreciationStepRequesterUnread: a step whose reads of its
+// requester (the Operation's, the principal, their status) fail reports
+// the failure for the retry policy, as no business problem.
+func TestDepreciationStepRequesterUnread(t *testing.T) {
+	s := deprSetup(t)
+	in := s.start(t, 6)
+	pool := pgtest.Pool(t)
+	defer func() { s.d.Begin = nil }()
+	for n := 1; n <= 3; n++ {
+		t.Run(fmt.Sprint("statement ", n), func(t *testing.T) {
+			s.d.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
+				tx, err := pool.Begin(ctx, scope)
+				if err != nil {
+					return nil, err
+				}
+				return &pgtest.FailingTx{Tx: tx, FailAt: n}, nil
+			}
+			_, err := s.d.PlanDepreciationRun(context.Background(), in)
+			if !errors.Is(err, pgtest.ErrInjected) {
+				t.Errorf("got %v, want the injected failure", err)
+			}
+			var why *problem.Problem
+			if errors.As(err, &why) {
+				t.Errorf("got the problem %s, want no problem: a retryable error", why.Code)
+			}
+		})
+	}
+	if got := deprStateOf(t, in); !strings.HasPrefix(got.Run, "queued/") {
+		t.Errorf("the run: got %s, want it still queued", got.Run)
+	}
+}

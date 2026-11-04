@@ -142,6 +142,12 @@ type Secrets interface {
 	Resolve(ctx context.Context, ref string) (string, error)
 }
 
+// Requesters refuses a run's deferred work acting as a requester no longer
+// active (identity, PO 2026-11-03).
+type Requesters interface {
+	MayAct(ctx context.Context, tx pgx.Tx, id uuid.UUID) error
+}
+
 // Endpoints implements the integration part of the generated API.
 type Endpoints struct {
 	Pages         *pagination.Codec
@@ -159,6 +165,7 @@ type Endpoints struct {
 	Postings      Postings
 	Reports       Reports
 	Secrets       Secrets
+	Requesters    Requesters       // the workflow's Execute refuses a requester no longer active
 	Keys          Sealer           // seals webhook secrets with the tenant's key
 	Resolver      egress.Resolver  // resolves webhook hosts when a URL is written
 	ExtractDir    string           // sap_file connectors read extracts below it; empty: they cannot be used

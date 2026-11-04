@@ -22325,7 +22325,7 @@ components:
           readOnly: true
         error:
           $ref: "#/components/schemas/Problem"
-          description: "Why the operation failed, present when `status` is `failed`."
+          description: "Why the operation failed, present when `status` is `failed`. Work an operation defers acts as the principal that started it (`created_by`, or a payment run's releaser) and refuses them once they are no longer active: 403 `identity.principal_blocked`, the work done before staying done."
           readOnly: true
         version:
           type: integer
@@ -37981,7 +37981,7 @@ components:
           updated_at: "2026-11-30T17:00:04Z"
     DepreciationRunError:
       type: object
-      description: "The problem that failed a run: its code and detail, as the Operation's error gives them; `assets.run_cancelled` when its Operation was cancelled, which stays `cancelled` without an error, and `platform.internal` when a step's error outlasted its retries."
+      description: "The problem that failed a run: its code and detail, as the Operation's error gives them; `assets.run_cancelled` when its Operation was cancelled, which stays `cancelled` without an error, `identity.principal_blocked` when the person who started it was blocked or deprovisioned since (a step refuses to act as them; the batches posted before stay posted), and `platform.internal` when a step's error outlasted its retries."
       required: [code, detail]
       properties:
         code: {type: string, description: "The problem's code, such as `ledger.period_not_open`.", readOnly: true}

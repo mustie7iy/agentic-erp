@@ -394,6 +394,16 @@ cancellation takes effect at the next step, which fails the run with
 `cancelled`, and the company and ledger are free for a new run of the
 period, which posts what is left.
 
+Deferred work acts as the person who asked for it, and refuses them once
+they are no longer active (PO 2026-11-03, ADR-0012 As built): a step of a
+migration run, a payment proposal or release, a simulation or a
+depreciation run whose requester was blocked or deprovisioned since the
+start fails its operation with 403 `identity.principal_blocked`, the code
+their own requests get. What earlier steps posted stays posted; a
+migration run goes back to `queued` and a run under release stays
+`releasing` with its posted payments, for someone active to start or
+resume.
+
 ## 4.9 Security
 
 - OAuth 2.0 bearer tokens (OIDC) from the tenant's identity provider; the

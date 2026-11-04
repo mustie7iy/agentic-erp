@@ -395,6 +395,16 @@ func (e *Endpoints) runStep(ctx context.Context, id uuid.UUID, ifMatch func(int3
 	return st.work(ctx, tx, p, r, op, t, ext, c)
 }
 
+// prepareAs prepares the run's work as the requester p, who must still be
+// active: work queued by someone blocked or deprovisioned since is refused
+// with identity.principal_blocked (PO 2026-11-03), loading nothing.
+func (e *Endpoints) prepareAs(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run) (target, *sap.Extract, Connector, error) {
+	if err := e.Requesters.MayAct(ctx, tx, p.ID); err != nil {
+		return target{}, nil, Connector{}, fmt.Errorf("integration: the requester of migration run %s: %w", r.ID, err)
+	}
+	return e.prepare(ctx, tx, r)
+}
+
 // activeConnector is the run's connector, active.
 func activeConnector(ctx context.Context, tx pgx.Tx, r Run) (Connector, error) {
 	c, err := getConnector(ctx, tx, r.ConnectorID, false)
@@ -424,8 +434,9 @@ func (e *Endpoints) hand(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r R
 // Execute does a running run's work in the request's transaction, as the
 // activity of the migration workflow: the start (extract, check, load) or
 // the reconciliation, by the operation's kind. A problem preparing the run
-// (the connector's secret, the source not answering) fails the operation
-// and puts the run back where it was, to be started again; the load's and
+// (its requester no longer active, the connector's secret, the source not
+// answering) fails the operation and puts the run back where it was, to be
+// started again; the load's and
 // reconciliation's own outcomes are the run's report, as in the request.
 func (e *Endpoints) Execute(ctx context.Context, id uuid.UUID) (operations.Operation, error) {
 	tx, p, err := reqctx.Request(ctx)
@@ -447,7 +458,7 @@ func (e *Endpoints) Execute(ctx context.Context, id uuid.UUID) (operations.Opera
 		return op, nil // done, or cancelled: nothing to do twice
 	}
 	reconcile := op.Kind == "integration.reconcile"
-	t, ext, c, err := e.prepare(ctx, tx, r)
+	t, ext, c, err := e.prepareAs(ctx, tx, p, r)
 	if err != nil {
 		var why *problem.Problem
 		if !errors.As(err, &why) || why.Status >= 500 && why.Code != "platform.unavailable" {

@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -191,17 +192,21 @@ func (w *SimulationWorker) simulate(ctx context.Context, tenant uuid.UUID, where
 }
 
 // process simulates the job's change request and completes its operation.
-// A problem (the request is no longer awaiting evidence, the proposal
-// cannot be replayed) fails the operation; other errors leave the job for
-// another attempt.
+// A problem (its requester no longer active, PO 2026-11-03; the request is
+// no longer awaiting evidence, the proposal cannot be replayed) fails the
+// operation, audited as a stopped simulation; other errors leave the job
+// for another attempt.
 func (w *SimulationWorker) process(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, j job) error {
-	fail := func(p *problem.Problem) error {
-		_, err := operations.Fail(ctx, j.OperationID, p)
-		return err
-	}
 	id, err := uuid.Parse(j.ChangeRequest)
 	if err != nil {
-		return fail(problem.Unprocessable("config.invalid_request", "The operation does not name a change request."))
+		return stopped(ctx, "platform.operation", j.OperationID, j.OperationID,
+			problem.Unprocessable("config.invalid_request", "The operation does not name a change request."))
+	}
+	fail := func(p *problem.Problem) error {
+		return stopped(ctx, "config.change_request", id, j.OperationID, p)
+	}
+	if err := w.Dependencies.Actors.MayAct(ctx, tx, actor.ID); err != nil {
+		return failOrRetry(fmt.Errorf("configuration: simulation %s, acting as %s: %w", j.OperationID, actor.ID, err), fail)
 	}
 	c, err := getCR(ctx, tx, id, true)
 	if err != nil {
@@ -335,6 +340,24 @@ func recordEvidence(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, id u
 		return fmt.Errorf("configuration: record %s evidence of change request %s: %w", kind, id, err)
 	}
 	return nil
+}
+
+// simulateFailed is the audit action of a simulation a problem stopped
+// (ADR-0011): its operation failed, with the problem's code and detail
+// and the operation in the entry's detail.
+const simulateFailed = "config.change_request.simulate_failed"
+
+// stopped fails a simulation's operation with the problem that stopped it
+// and records the stop on the change request, in the same transaction, so
+// that its history shows every stopped simulation (ADR-0011), a refused
+// requester's among them. An operation naming no change request records
+// it on the operation itself. The job runs only while its operation is queued,
+// so a retry after the commit records nothing twice.
+func stopped(ctx context.Context, objectType string, object, operation uuid.UUID, p *problem.Problem) error {
+	if _, err := operations.Fail(ctx, operation, p); err != nil {
+		return err
+	}
+	return audit.Record(ctx, simulateFailed, objectType, object, map[string]any{"operation_id": operation, "code": p.Code, "detail": p.Detail})
 }
 
 // failOrRetry fails the operation with a problem the request caused, and

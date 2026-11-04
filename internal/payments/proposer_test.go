@@ -206,3 +206,22 @@ func proposerRunLoop(t *testing.T) {
 	stop()
 	proposer(t).Run(stopped)
 }
+
+// TestProposerRequesterBlocked: without a workflow engine, a proposal
+// whose proposer is blocked after asking for it (PO 2026-11-03) is not
+// built: the run and its operation fail with identity.principal_blocked.
+func TestProposerRequesterBlocked(t *testing.T) {
+	e := setup(t)
+	op := e.propose(t, "2026-04-15", "2026-04-15")
+	pgtest.Exec(t, `UPDATE identity.principal SET status = 'blocked', version = version + 1 WHERE id = $1`, e.Tenant.Human.ID)
+	if _, err := proposer(t).RunOnce(context.Background()); err != nil {
+		t.Fatalf("round: got %v, want the job done", err)
+	}
+	var got string
+	pgtest.Scan(t, `SELECT r.status || ' ' || o.status || ' ' || coalesce(o.error->>'code', '') || ' ' ||
+			(SELECT count(*) FROM payments.payment p WHERE p.payment_run_id = r.id)
+		FROM platform.operation o JOIN payments.payment_run r ON r.operation_id = o.id WHERE o.id = $1`, []any{uuid.MustParse(op["id"].(string))}, &got)
+	if got != "failed failed identity.principal_blocked 0" {
+		t.Errorf("the run, its operation and payments: got %q, want both failed with identity.principal_blocked, no payment", got)
+	}
+}

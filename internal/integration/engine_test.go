@@ -151,3 +151,34 @@ func TestRunsWithAnEngine(t *testing.T) {
 		t.Fatalf("execute without an audit buffer: got %v, want %v", err, audit.ErrNoBuffer)
 	}
 }
+
+// TestExecuteRequesterBlocked: the workflow's Execute refuses a run whose
+// requester was blocked after the start (PO 2026-11-03): nothing is
+// loaded, the operation fails with identity.principal_blocked and the run
+// is back to queued, to be started again by someone active.
+func TestExecuteRequesterBlocked(t *testing.T) {
+	e := setup(t)
+	h := withEngine(e)
+	yes := func(int32) error { return nil }
+	run := uuid.MustParse(e.run(t, e.connector(t, "extract.json"), "documents", false, e.US.String())["id"].(string))
+	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { _, err := h.StartRun(ctx, run, yes); return err }); err != nil {
+		t.Fatal(err)
+	}
+	pgtest.Exec(t, `UPDATE identity.principal SET status = 'blocked', version = version + 1 WHERE id = $1`, e.Tenant.Human.ID)
+	var op operations.Operation
+	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) { op, err = h.Execute(ctx, run); return err }); err != nil {
+		t.Fatalf("execute: got %v, want the operation failed", err)
+	}
+	var got string
+	pgtest.Scan(t, `SELECT r.status || ' ' || (SELECT count(*) FROM ledger.journal_entry j WHERE j.tenant_id = r.tenant_id) FROM integration.migration_run r WHERE r.id = $1`,
+		[]any{run}, &got)
+	if got != "queued 0" {
+		t.Errorf("the run and the entries: got %q, want queued, none loaded", got)
+	}
+	if op.Status != operations.Failed {
+		t.Errorf("the operation: got %s, want failed", op.Status)
+	}
+	if !strings.Contains(string(op.Error), `"identity.principal_blocked"`) {
+		t.Errorf("the operation's problem: got %s, want identity.principal_blocked", op.Error)
+	}
+}

@@ -67,3 +67,66 @@ namespaces per environment and tenant isolation by task queue or namespace.
   then payment proposals (chunked, resumable) and release as an operation,
   simulations and migration runs, then approvals and period close as
   workflows with human waits and timers.
+
+## As built
+
+**Deferred work and a requester no longer active (review:T57f, PO
+2026-11-03).** The work an operation defers acts as the person who asked
+for it, read again in each step's transaction (`identity.Actors.Actor`):
+a migration run's activity (T28), a payment proposal and a release
+(T27, the proposer and the releaser), a simulation (its requester) and a
+depreciation run's steps (ADR-0057 §7), with the workflow engine or the
+in-process runners. The product owner decided on 2026-11-03 that a
+requester blocked or deprovisioned since the start is refused. Each step
+that does the work first calls `identity.Actors.MayAct`, the one place the
+rule and its problem live: a requester no longer active is refused with
+403 `identity.principal_blocked`, the code a request of theirs gets (the
+unit of work's `resolve`), so no new code. The refusal is a business
+problem, not retried, and fails the work through the path each job
+already had for a problem, which records it as the requester whatever
+their status (`Actor` stays a plain read for those steps):
+- a migration run's operation fails and the run goes back to `queued` (or
+  `loaded` for a reconciliation) with `integration.migration_run.fail`
+  audited, nothing loaded (`integration.Endpoints.prepareAs`);
+- a proposal fails its run and operation (`payments.payment_run.fail`),
+  nothing proposed;
+- a release refuses the next payment or the finish: the release
+  operation fails (`payments.payment_run.fail`), the payments posted
+  before stay posted, the run stays `releasing` without a bank file (or
+  goes back to `proposed` with nothing posted), and a person active
+  resumes it with `:release`;
+- a simulation fails its operation, audited on the change request
+  (`config.change_request.simulate_failed`, below), no evidence recorded,
+  the change request left awaiting evidence;
+- a depreciation run fails (ADR-0057 As built).
+Decided by default: the check lives in one method each step calls rather
+than in `Actor` itself, because the steps that record a failure must still
+act as the requester. A step of a release, a proposal, a simulation or a
+migration already done (a payment posted, a run released) stays a no-op on
+a retry before the check, so a lost completion still succeeds; a
+depreciation run's step checks first, so such a retry with the requester
+blocked in between is refused, which leaves what was posted posted (a
+posted run stays posted, `FailDepreciationRun` leaving it alone). The
+ledger's recurrer keeps its own owner check (ADR-0056), which also needs
+the owner's permission and company access.
+
+**Every stopped simulation is audited (review:T57f, ADR-0011).** Every
+problem that fails a simulation's operation, in the in-process worker and
+in the `SimulateChange` activity alike (one code path,
+`configuration.SimulationWorker.process`), records one
+`config.change_request.simulate_failed` entry on the change request, in
+the transaction that fails the operation, with the problem's `code` and
+`detail` and the `operation_id`: an operation naming no change request
+(`config.invalid_request`, recorded on the operation itself, object type
+`platform.operation`, the action keeping its name since there is no change
+request to record it on), a change request gone or no longer awaiting
+evidence, a requester no longer active, a base or proposal this replica
+cannot read whole, and a problem the simulator or the regression replay
+reports. Decided by default: one action for every cause, the code telling
+them apart, so the requester refusal's own `simulate_refused`, never
+released, was folded into it. A transient error records nothing and leaves
+the operation queued; the job runs only while its operation is queued, so
+a retry after the commit records nothing twice. The other operation-backed
+jobs already audit their failures on their own object
+(`payments.payment_run.fail`, `payments.bank_file.fail`,
+`integration.migration_run.fail`, `assets.depreciation_run.fail`).
