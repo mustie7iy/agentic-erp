@@ -426,7 +426,7 @@ var _ = apitest.NewKey
 // TestSimulationRequesterBlocked: a simulation whose requester is blocked
 // after queueing it (PO 2026-11-03) replays nothing: its operation fails
 // with identity.principal_blocked, audited on the change request
-// (config.change_request.simulate_refused), no evidence is recorded and the change
+// (config.change_request.simulate_failed), no evidence is recorded and the change
 // request stays awaiting evidence, for someone active to simulate; run
 // again, the job is done.
 func TestSimulationRequesterBlocked(t *testing.T) {
@@ -444,7 +444,7 @@ func TestSimulationRequesterBlocked(t *testing.T) {
 		var got string
 		pgtest.Scan(t, `SELECT o.status || ' ' || coalesce(o.error->>'code', '') || ' ' || c.status || ' ' ||
 				(SELECT count(*) FROM config.evidence v WHERE v.change_request_id = c.id) || ' ' ||
-				(SELECT count(*) FROM audit.audit_event a WHERE a.tenant_id = c.tenant_id AND a.action = 'config.change_request.simulate_refused' AND a.object_id = c.id
+				(SELECT count(*) FROM audit.audit_event a WHERE a.tenant_id = c.tenant_id AND a.action = 'config.change_request.simulate_failed' AND a.object_id = c.id
 					AND a.detail->>'code' = 'identity.principal_blocked' AND a.detail->>'operation_id' = o.id::text)
 			FROM platform.operation o, config.change_request c WHERE o.id = $1 AND c.id = $2`, []any{id, uuid.MustParse(apitest.String(t, cr, "id"))}, &got)
 		return got

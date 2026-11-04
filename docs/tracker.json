@@ -1184,9 +1184,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "A failed simulation leaves no audit record (pre-existing finding on review:T57f's requester refusal): every problem that fails a simulation's operation (config.invalid_request, a change request no longer awaiting evidence, a proposal or base that cannot be replayed, simulator and regression problems) goes through operations.Fail alone, so the change request's audit history does not show the stopped simulation (ADR-0011); only the refusal of a requester no longer active records config.change_request.simulate_refused. Should every simulation failure be audited the same way?",
-        "r": "internal/configuration/simulation.go (process, fail) · ADR-0011 · ADR-0012 As built",
+        "s": "D",
+        "t": "Every stopped simulation is audited (pre-existing finding on review:T57f's requester refusal, ADR-0011): every problem that fails a simulation's operation (an operation naming no change request, a change request gone or no longer awaiting evidence, a requester no longer active, a base or proposal this replica cannot read, simulator and regression problems), in the worker and the SimulateChange activity alike, records one config.change_request.simulate_failed entry with the problem's code and detail and the operation id, in the transaction that fails the operation (on the operation itself when it names no change request); the never-released simulate_refused is folded into it; a transient error records nothing and leaves the operation queued, and a retry after the commit records nothing twice",
+        "r": "internal/configuration/simulation.go (stopped) · internal/configuration/stopped_test.go · ADR-0011 · ADR-0012 As built",
         "src": "review:T57f",
         "c": []
        },

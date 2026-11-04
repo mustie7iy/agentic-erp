@@ -96,8 +96,8 @@ their status (`Actor` stays a plain read for those steps):
   goes back to `proposed` with nothing posted), and a person active
   resumes it with `:release`;
 - a simulation fails its operation, audited on the change request
-  (`config.change_request.simulate_refused`), no evidence recorded, the
-  change request left awaiting evidence;
+  (`config.change_request.simulate_failed`, below), no evidence recorded,
+  the change request left awaiting evidence;
 - a depreciation run fails (ADR-0057 As built).
 Decided by default: the check lives in one method each step calls rather
 than in `Actor` itself, because the steps that record a failure must still
@@ -109,3 +109,24 @@ blocked in between is refused, which leaves what was posted posted (a
 posted run stays posted, `FailDepreciationRun` leaving it alone). The
 ledger's recurrer keeps its own owner check (ADR-0056), which also needs
 the owner's permission and company access.
+
+**Every stopped simulation is audited (review:T57f, ADR-0011).** Every
+problem that fails a simulation's operation, in the in-process worker and
+in the `SimulateChange` activity alike (one code path,
+`configuration.SimulationWorker.process`), records one
+`config.change_request.simulate_failed` entry on the change request, in
+the transaction that fails the operation, with the problem's `code` and
+`detail` and the `operation_id`: an operation naming no change request
+(`config.invalid_request`, recorded on the operation itself, object type
+`platform.operation`, the action keeping its name since there is no change
+request to record it on), a change request gone or no longer awaiting
+evidence, a requester no longer active, a base or proposal this replica
+cannot read whole, and a problem the simulator or the regression replay
+reports. Decided by default: one action for every cause, the code telling
+them apart, so the requester refusal's own `simulate_refused`, never
+released, was folded into it. A transient error records nothing and leaves
+the operation queued; the job runs only while its operation is queued, so
+a retry after the commit records nothing twice. The other operation-backed
+jobs already audit their failures on their own object
+(`payments.payment_run.fail`, `payments.bank_file.fail`,
+`integration.migration_run.fail`, `assets.depreciation_run.fail`).
