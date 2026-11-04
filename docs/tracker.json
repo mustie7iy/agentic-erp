@@ -9392,6 +9392,13 @@
      },
      {
       "s": "D",
+      "t": "A named bug class in REVIEW.md: records or events in database read order, a list, audit record, event payload or extract built from a query with no explicit ORDER BY (or from a map), or anything depending on heap order, is Blocking; the fix is an explicit key or sorting through the owning port's order (from T57b's readTerms, fixed in c300e530 with inLedgerOrder, and the same shape in T57g and T57h's transferredInLedgerOrder)",
+      "r": "REVIEW.md",
+      "src": "review:batch52",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "Delivery process of 2026-10-28 (PO: \"waterfall of waterfall\"; ADR-0053): the 9.5/10 bar kept; a step that adds or changes a capability is a slice a named user or API consumer can use end to end, closing one or more tracker leaves in about half an agent-day, with contract, domain, migration, tests, docs and at least one new or extended walkthrough step as its acceptance evidence; lanes run a fast loop (static checks, gitleaks, generate, contract checks when it changes, the changed and directly importing packages' tests against real PostgreSQL with -race once, 100% coverage of the changed packages, go-reviewer) and make ci-local runs every full gate once per batch, unchanged, before every pull request, the lanes returning to full gates if more than 1 batch in 3 fails on what they would have caught; the product owner is not a gate: agents accept slices with go-reviewer and REVIEW.md's API-consumer classes, decide by default and record it in the ADR's As built section (or a new ADR, accepted after go-reviewer, when nothing settles it), and block only on new scope, money or tax rules, legal or regulatory facts and security posture, batched into one question; a digest per batch with the decisions and process metrics; three lanes; the web workspace deferred, its tests kept passing; branch protection approved and refused by GitHub on a free private repository, so merge-pr.sh enforces ci-ok by convention",
       "r": "docs/design/adr/0053-delivery-process-slices-fast-lane-loop.md · REVIEW.md · .claude/agents/go-reviewer.md · CLAUDE.md · 06 §6.2 · 06 §6.5 · 06 §6.8 · 07-transition §7.7",
       "src": "po:2026-10-28",
