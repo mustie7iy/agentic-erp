@@ -463,7 +463,10 @@ var loaded = chromedp.Poll[chromedp.Void](`document.readyState === "complete"`,
 // wait for the swapped content alone can end inside that window, and a
 // field typed in then sends no request: TestEntryFormJobsInTheBrowser's
 // totals stayed at zero under the whole tree's race run (batch 52). It
-// polls on a timer, as loaded does.
+// cannot pass before the request starts only because htmx marks the
+// element htmx-request while the dispatched change still runs: after a
+// trigger htmx delays (delay:, throttle:, every) it would. It polls on a
+// timer, as loaded does.
 var htmxSettled = chromedp.Poll[chromedp.Void](`document.querySelector(".htmx-request, .htmx-swapping, .htmx-settling, .htmx-added") === null`,
 	chromedp.WithPollingInterval(50*time.Millisecond), chromedp.WithPollingTimeout(20*time.Second))
 
