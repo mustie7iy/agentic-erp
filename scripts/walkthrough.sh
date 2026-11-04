@@ -14,13 +14,11 @@
 # answers, and checks what it expects: any unexpected answer stops the run
 # with the reason, the answer and the server's last log lines and exits 1,
 # as does a stop the script did not ask for: a command that failed or an
-# unbound variable in the script's own shell (scripts/lib/on-exit.sh), a
-# check (fail) failed in a command substitution whose status the caller
-# drops, or a step that ended without passing or skipping (review:T61j). A
-# failed command inside such a substitution stops nothing by itself; the
-# check that reads its empty output does. The summary at the end lists the steps
-# that passed and those skipped; it says none failed only when every step
-# of the story ran.
+# unbound variable, in the script's own shell (scripts/lib/on-exit.sh) or
+# in a command substitution whose status the caller drops (stop_unseen),
+# or a step that ended without passing or skipping (review:T61j). The
+# summary at the end lists the steps that passed and those skipped; it
+# says none failed only when every step of the story ran.
 #
 #   WALKTHROUGH_PAUSE=1   wait for Enter after each step
 #   WALKTHROUGH_API_ADDR, WALKTHROUGH_ADMIN_ADDR   listeners (127.0.0.1:18080, 127.0.0.1:19090)
@@ -190,6 +188,43 @@ fail() {
   exit 1
 }
 
+# stop_unseen makes a failed command or an unbound variable inside a
+# command substitution stop the run (review:T61j). bash clears set -e in a
+# substitution (macOS's bash 3.2, which runs this, has no inherit_errexit),
+# and its caller sees its status only in a plain assignment, x=$(f): not in
+# local x=$(f), an argument, expect "..." "$(f)" ..., or printed text,
+# say "$(f)". So every failed command, here or in any subshell (set -E),
+# stops the run through fail, and so does a substitution that stops with a
+# status other than 0, as an unbound variable stops it
+# (on_substitution_exit, scripts/lib/on-exit.sh); either leaves fail's
+# mark, and ran stops the run after the step. ( ... ) and pipelines keep
+# set -e, which stops them as before. A substitution whose failure is
+# expected says so inside it, $(f || true), in a condition too: bash 3.2
+# runs the ERR trap in $(f) || true and in if [ "$(f)" ... ], and a
+# substitution ending with a status other than 0, $(grep -c x f) finding
+# none, stops the run on both bash 3.2 and 5.
+stop_unseen() {
+  set -E
+  trap 'command_failed $? "$LINENO" "$BASH_COMMAND"' ERR
+  on_substitution_exit substitution_ended
+}
+
+# command_failed STATUS LINE COMMAND stops the run; once, when the command
+# is a substitution's caller, x=$(f), whose f failed already.
+command_failed() {
+  if [ -e "$WORK/failed" ]; then exit 1; fi
+  fail "the command \`$3\` failed with status $1 (line $2)"
+}
+
+# substitution_ended STATUS stops the run when a command substitution
+# stopped with STATUS other than 0 and no check reported why (fail's mark).
+substitution_ended() {
+  if [ "$1" != 0 ] && [ ! -e "$WORK/failed" ]; then
+    fail "a command substitution stopped with status $1 (an unbound variable reported above, or its last command failed)"
+  fi
+  exit "$1"
+}
+
 # ran STEP BEFORE checks what STEP left, BEFORE the number of results
 # recorded until it began: it stops the run unless no check failed inside
 # it unseen (fail) and it passed or skipped exactly once.
@@ -244,7 +279,7 @@ api() {
   local want=$1 filter=$2 out status
   shift 2
   if [ -z "${QUIET:-}" ]; then show erp call "$@"; fi
-  out=$("$ERP" call "$@" 2>"$WORK/stderr") || true # 4xx answers exit 1: the status is checked below
+  out=$("$ERP" call "$@" 2>"$WORK/stderr" || true) # 4xx answers exit 1: the status is checked below
   # The first line is the status and the ETag, the rest the answer.
   status=${out%%$'\n'*}
   case "$out" in *$'\n'*) printf '%s\n' "${out#*$'\n'}" >"$WORK/last.json" ;; *) : >"$WORK/last.json" ;; esac
@@ -338,7 +373,8 @@ amount() {
 start() {
   heading "The system under test"
   if [ -n "${WALKTHROUGH_BIN:-}" ]; then
-    BIN=$(cd "$WALKTHROUGH_BIN" && pwd) || fail "no directory $WALKTHROUGH_BIN"
+    BIN=$(cd "$WALKTHROUGH_BIN" 2>/dev/null && pwd || true) # a missing one is reported below, once
+    [ -n "$BIN" ] || fail "no directory $WALKTHROUGH_BIN"
   else
     BIN="$WORK/bin"
     say "Building erp-server and the erp command line from this checkout..."
@@ -4099,6 +4135,7 @@ name_actors() {
 STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_close'
 
 main() {
+  stop_unseen
   start
   if [ -e "$WORK/failed" ]; then exit 1; fi
   local s stopped='' before
@@ -4119,7 +4156,7 @@ main() {
     say "  export ERP_API_URL=$ERP_API_URL ERP_ADMIN_URL=$ERP_ADMIN_URL"
     say "  export ERP_TOKEN=\$(cat $WORK/tokens/carla)   # or ada, ben, alex, priya, sam, tom, tara"
     say "  $ERP call listSupplierInvoices"
-    wait "$SERVER_PID" || true # stopped by Ctrl-C or a kill: the walkthrough itself has passed
+    wait "$SERVER_PID" || true # the server killed: the run ends as its summary did; Ctrl-C ends it non-zero after cleanup
   fi
 }
 
