@@ -172,7 +172,7 @@ Errors use RFC 9457 Problem Details (`application/problem+json`):
 | 401 | Missing or invalid token |
 | 403 | No permission, no company access, or a segregation-of-duties conflict (`code` says which) |
 | 404 | Not found, **or** exists in another company the caller cannot see |
-| 409 | Business rule conflict: wrong state for the transition, duplicate, period closed |
+| 409 | Business rule conflict: wrong state for the transition, duplicate, period closed; with `Retry-After` (`request.in_progress`), a lock another request holds: retry with the same `Idempotency-Key` |
 | 412 | `If-Match` does not match the current version |
 | 422 | Validation failed (`errors[]` lists fields), or `Idempotency-Key` reused with a different body |
 | 428 | `If-Match` or `Idempotency-Key` missing where required |
@@ -323,6 +323,13 @@ Per ADR-0008:
   the original status and body with `Idempotent-Replayed: true`; a different
   body is 422; a repeat while the first is still running is 409 with
   `Retry-After`.
+- What is stored with the key: a success, and a business outcome (404,
+  409, 410, 422), which a retry would meet again. An answer with
+  `Retry-After` is never stored, whatever its status (409
+  `request.in_progress` of a lock timeout, 429, 503): a retry with the same
+  key runs, as `Retry-After` invites. Rejections of the request itself
+  (400, 401, 403, 412, 413, 428) and 5xx are not stored either, so a
+  corrected retry runs (ADR-0008, as built).
 - Keys are scoped to tenant, so two tenants cannot collide.
 - A `GET` marked `x-snapshot: true` reads as of one database state: its
   unit of work runs at `REPEATABLE READ` (read-only), so every statement

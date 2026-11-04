@@ -27,7 +27,8 @@ type AcceptBankStatementGapParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -226,7 +227,8 @@ type AcceptBankStatementLineProposalParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -493,7 +495,8 @@ type AcceptMemoRecordProposalParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -690,7 +693,8 @@ type ActivateChangeRequestParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -887,7 +891,8 @@ type ActivateLegalEntityParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -1084,7 +1089,8 @@ type ActivateOrgUnitParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -1283,7 +1289,8 @@ type AddHierarchyNodeParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -1527,7 +1534,8 @@ type ApplyCountryPackParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -1606,7 +1614,8 @@ type ApplyPlanBatchParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -1690,7 +1699,8 @@ type ApproveApprovalRequestParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -1887,7 +1897,8 @@ type AssignProfitCenterParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -2084,7 +2095,8 @@ type BlockBusinessPartnerParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -2281,7 +2293,8 @@ type BlockLegalEntityParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -2478,7 +2491,8 @@ type BlockOrgUnitParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -2675,7 +2689,8 @@ type BlockPrincipalParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -2872,7 +2887,8 @@ type CancelApprovalRequestParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -3069,7 +3085,8 @@ type CancelAssetParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -3266,7 +3283,8 @@ type CancelContractParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -3463,7 +3481,8 @@ type CancelDownPaymentRequestParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -3660,7 +3679,8 @@ type CancelMemoRecordParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -3857,7 +3877,8 @@ type CancelOperationParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -4054,7 +4075,8 @@ type CancelParkedJournalEntryParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -4251,7 +4273,8 @@ type CancelPurchaseOrderParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -4450,7 +4473,8 @@ type CancelPurchaseOrderChangeParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -4699,7 +4723,8 @@ type CancelRequisitionParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -4896,7 +4921,8 @@ type CancelRevaluationRunParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -5093,7 +5119,8 @@ type CancelSupplierInvoiceParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -5285,7 +5312,8 @@ type CaptureSupplierInvoiceParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -5371,7 +5399,8 @@ type CheckCloseTaskParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -5640,7 +5669,8 @@ type ClearSupplierInvoiceDownPaymentsParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -5837,7 +5867,8 @@ type CloseFiscalPeriodParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -6034,7 +6065,8 @@ type ClosePurchaseOrderParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -6233,7 +6265,8 @@ type CompleteCloseTaskParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -6497,7 +6530,8 @@ type CreateAssetParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -6576,7 +6610,8 @@ type CreateAssetAcquisitionParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -6655,7 +6690,8 @@ type CreateBusinessPartnerParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -6734,7 +6770,8 @@ type CreateChangeRequestParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -6813,7 +6850,8 @@ type CreateClearingParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -6892,7 +6930,8 @@ type CreateCompanyAccessParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -6971,7 +7010,8 @@ type CreateConnectorParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -7050,7 +7090,8 @@ type CreateContractParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -7129,7 +7170,8 @@ type CreateCostCenterParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -7208,7 +7250,8 @@ type CreateDownPaymentRequestParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -7287,7 +7330,8 @@ type CreateEntryTemplateParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -7366,7 +7410,8 @@ type CreateExchangeRateParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -7447,7 +7492,8 @@ type CreateGrIrClearingParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -7578,7 +7624,8 @@ type CreateHierarchyParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -7657,7 +7704,8 @@ type CreateLegalEntityParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -7736,7 +7784,8 @@ type CreateMemoRecordParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -7815,7 +7864,8 @@ type CreateMigrationRunParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -7894,7 +7944,8 @@ type CreateOrgUnitParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -7973,7 +8024,8 @@ type CreatePartnerChangeParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -8052,7 +8104,8 @@ type CreatePeriodCloseParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -8131,7 +8184,8 @@ type CreatePlanCategoryParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -8210,7 +8264,8 @@ type CreatePrincipalParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -8289,7 +8344,8 @@ type CreateProfitCenterParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -8368,7 +8424,8 @@ type CreatePurchaseOrderParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -8449,7 +8506,8 @@ type CreatePurchaseOrderChangeParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -8580,7 +8638,8 @@ type CreateRecommendationParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -8659,7 +8718,8 @@ type CreateRegressionSuiteParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -8738,7 +8798,8 @@ type CreateRequisitionParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -8817,7 +8878,8 @@ type CreateRoleParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -8896,7 +8958,8 @@ type CreateRoleAssignmentParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -8975,7 +9038,8 @@ type CreateSegmentParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -9054,7 +9118,8 @@ type CreateSodRuleParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -9133,7 +9198,8 @@ type CreateSupplierInvoiceParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -9212,7 +9278,8 @@ type CreateUploadParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -9291,7 +9358,8 @@ type CreateWebhookSubscriptionParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -9375,7 +9443,8 @@ type DecideRecommendationParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -9572,7 +9641,8 @@ type DeleteWebhookSubscriptionParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -9769,7 +9839,8 @@ type DisableConnectorParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -9966,7 +10037,8 @@ type EnableConnectorParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -10163,7 +10235,8 @@ type EndAgentSessionParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -10360,7 +10433,8 @@ type EndCompanyAccessParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -10552,7 +10626,8 @@ type EndCurrentSessionParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -10636,7 +10711,8 @@ type EndRoleAssignmentParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -10835,7 +10911,8 @@ type EndRolePermissionParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -11084,7 +11161,8 @@ type EndSodRuleParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -11283,7 +11361,8 @@ type ExcludeBankStatementLineParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -11550,7 +11629,8 @@ type FileTaxReturnParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -19043,7 +19123,8 @@ type GrantRolePermissionParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 	// Resource identifier (UUIDv7).
 	ID uuid.UUID
@@ -19181,7 +19262,8 @@ type HoldSupplierInvoiceParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -19373,7 +19455,8 @@ type ImportBankStatementsParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -61318,7 +61401,8 @@ type LockCostCenterParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -61515,7 +61599,8 @@ type LockFiscalPeriodParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -61712,7 +61797,8 @@ type LockPlanCategoryParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -61909,7 +61995,8 @@ type LockProfitCenterParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -62106,7 +62193,8 @@ type MatchBankStatementParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -62305,7 +62393,8 @@ type MatchBankStatementLineParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -62572,7 +62661,8 @@ type MatchSupplierInvoiceParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -62769,7 +62859,8 @@ type MoveCostCenterParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -62968,7 +63059,8 @@ type MoveHierarchyNodeParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -63217,7 +63309,8 @@ type MoveProfitCenterParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -63414,7 +63507,8 @@ type OpenFiscalPeriodParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -63611,7 +63705,8 @@ type ParkFromEntryTemplateParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -63803,7 +63898,8 @@ type ParkJournalEntryParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -63887,7 +63983,8 @@ type PauseWebhookSubscriptionParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -64084,7 +64181,8 @@ type PingWebhookSubscriptionParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -64281,7 +64379,8 @@ type PlaceInHierarchyParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -64480,7 +64579,8 @@ type PostBankStatementLineParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -64742,7 +64842,8 @@ type PostGoodsReceiptParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -64821,7 +64922,8 @@ type PostJournalEntryParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -64905,7 +65007,8 @@ type PostParkedJournalEntryParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -65097,7 +65200,8 @@ type PostRevaluationRunParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -65181,7 +65285,8 @@ type PostSupplierInvoiceParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -65375,7 +65480,8 @@ type PrepareTaxReturnParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -65506,7 +65612,8 @@ type PreviewDepreciationRunParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`
@@ -65748,7 +65855,8 @@ type PreviewRevaluationParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -65834,7 +65942,8 @@ type ProposeBankStatementLineParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -66096,7 +66205,8 @@ type ProposeMemoRecordParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -66175,7 +66285,8 @@ type ProposePaymentRunParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -66259,7 +66370,8 @@ type RealiseMemoRecordParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -66456,7 +66568,8 @@ type ReconcileMigrationRunParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -66650,7 +66763,8 @@ type RecordAgentToolCallParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -66786,7 +66900,8 @@ type RedateCostCenterParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -66983,7 +67098,8 @@ type RedateProfitCenterParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -67182,7 +67298,8 @@ type RedeliverWebhookDeliveryParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -67431,7 +67548,8 @@ type RejectApprovalRequestParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -67630,7 +67748,8 @@ type RejectBankStatementLineProposalParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -67897,7 +68016,8 @@ type RejectMemoRecordProposalParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -68094,7 +68214,8 @@ type RejectPaymentRunParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -68291,7 +68412,8 @@ type ReleaseContractParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -68488,7 +68610,8 @@ type ReleasePaymentRunParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -68685,7 +68808,8 @@ type ReleasePurchaseOrderParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -68882,7 +69006,8 @@ type ReleaseSupplierInvoiceParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -69081,7 +69206,8 @@ type RemoveHierarchyNodeParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -69332,7 +69458,8 @@ type RenameHierarchyNodeParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -69581,7 +69708,8 @@ type RenewContractParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -69780,7 +69908,8 @@ type ReopenCloseTaskParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -70049,7 +70178,8 @@ type ReplayWebhookDeliveriesParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -70246,7 +70376,8 @@ type ReportBankFileStatusParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -70438,7 +70569,8 @@ type RequestBankAccountChangeParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 	// Resource identifier (UUIDv7).
 	ID uuid.UUID
@@ -70578,7 +70710,8 @@ type RequestBankAccountEndParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -70827,7 +70960,8 @@ type ResumeWebhookSubscriptionParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -71024,7 +71158,8 @@ type RetireEntryTemplateParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -71221,7 +71356,8 @@ type ReverseAssetAcquisitionParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -71418,7 +71554,8 @@ type ReverseGoodsReceiptParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -71615,7 +71752,8 @@ type ReverseJournalEntryParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -71812,7 +71950,8 @@ type ReverseSupplierInvoiceParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -72009,7 +72148,8 @@ type RotateWebhookSubscriptionSecretParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -72201,7 +72341,8 @@ type RunAnalyticsQueryParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -72285,7 +72426,8 @@ type SignOffPeriodCloseParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -72482,7 +72624,8 @@ type SimulateChangeRequestParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -72674,7 +72817,8 @@ type StartAgentSessionParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -72753,7 +72897,8 @@ type StartDepreciationRunParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -72837,7 +72982,8 @@ type StartMigrationRunParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -73034,7 +73180,8 @@ type SubmitChangeRequestParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -73231,7 +73378,8 @@ type SubmitPaymentRunParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -73430,7 +73578,8 @@ type SubmitPurchaseOrderChangeParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -73679,7 +73828,8 @@ type SubmitRequisitionParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -73871,7 +74021,8 @@ type TakeCashSnapshotParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -73955,7 +74106,8 @@ type TerminateContractParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -74152,7 +74304,8 @@ type TransmitBankFileParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -74349,7 +74502,8 @@ type UnblockBusinessPartnerParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -74546,7 +74700,8 @@ type UnblockLegalEntityParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -74743,7 +74898,8 @@ type UnblockOrgUnitParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -74940,7 +75096,8 @@ type UnlockFiscalPeriodParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -75137,7 +75294,8 @@ type UnlockPlanCategoryParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -75332,7 +75490,8 @@ type UpdateAiPolicyParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -75477,7 +75636,8 @@ type UpdateAssetParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -75674,7 +75834,8 @@ type UpdateChangeRequestParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -75873,7 +76034,8 @@ type UpdateCloseTaskParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -76142,7 +76304,8 @@ type UpdateConnectorParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -76339,7 +76502,8 @@ type UpdateContractParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -76536,7 +76700,8 @@ type UpdateCostCenterParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -76733,7 +76898,8 @@ type UpdateEntryTemplateParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -76930,7 +77096,8 @@ type UpdateLegalEntityParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -77127,7 +77294,8 @@ type UpdateMemoRecordParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -77324,7 +77492,8 @@ type UpdateOrgUnitParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -77521,7 +77690,8 @@ type UpdateParkedJournalEntryParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -77718,7 +77888,8 @@ type UpdatePrincipalParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -77915,7 +78086,8 @@ type UpdateProfitCenterParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -78112,7 +78284,8 @@ type UpdatePurchaseOrderParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -78311,7 +78484,8 @@ type UpdatePurchaseOrderChangeParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -78560,7 +78734,8 @@ type UpdateRequisitionParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -78757,7 +78932,8 @@ type UpdateRoleParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -78954,7 +79130,8 @@ type UpdateSegmentParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -79151,7 +79328,8 @@ type UpdateSupplierInvoiceParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -79348,7 +79526,8 @@ type UpdateWebhookSubscriptionParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -79540,7 +79719,8 @@ type UploadMemoRecordsParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -79619,7 +79799,8 @@ type VerifyAuditChainParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -79703,7 +79884,8 @@ type WithdrawChangeRequestParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 
@@ -79900,7 +80082,8 @@ type WithdrawTaxReturnParams struct {
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
-	// `Retry-After`. Missing returns 428.
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
 }
 

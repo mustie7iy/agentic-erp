@@ -1184,9 +1184,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "A retryable 409 stored under the Idempotency-Key (pre-existing finding on T57f, review round 3): the unit of work stores every 409 as a business outcome, including request.in_progress, which a lock timeout answers with Retry-After, so a client retrying with the same key, as Retry-After invites, gets the stale 409 replayed forever instead of the retry running; should a retryable answer (request.in_progress, and any other carrying Retry-After) leave the key unstored, as the rejections of the request itself do?",
-        "r": "internal/platform/uow/uow.go (businessOutcome, finish) · ADR-0046 · 04-api-design §4.7 (idempotency)",
+        "s": "D",
+        "t": "A retryable answer leaves the Idempotency-Key free (pre-existing finding on T57f, review round 3): the unit of work stored every 409 as a business outcome, request.in_progress of a lock timeout included, so a retry with the same key, as its Retry-After invites, got the stale 409 replayed; an answer carrying Retry-After, whatever its status (409 request.in_progress, 429, 503), is no longer a business outcome (uow.businessOutcome reads the header problem.Write sets from RetryAfter), so it stores nothing and the retry runs, while a 409 without Retry-After is stored and replayed as before; tests: TestLockTimeoutRetryRuns (a real lock timeout, then the retry after the lock is released succeeds), TestRetryableAnswersLeaveTheKey (each retryable class)",
+        "r": "internal/platform/uow/uow.go (businessOutcome, finish) · ADR-0008 (as built) · ADR-0046 · 04-api-design §4.6, §4.7 (idempotency) · api/openapi.yaml (Conflict, IdempotencyKey)",
         "src": "review:T57f",
         "c": []
        },

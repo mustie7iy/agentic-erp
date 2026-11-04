@@ -274,13 +274,24 @@ func Act(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now func() time
 	return buf.Flush(ctx, tx, actor, reqctx.TraceID(ctx), clock.Now(now))
 }
 
-// businessOutcome lists the 4xx answers that are the result of running the
-// request against the current state. They are stored with the key, so a
-// retry gets the same answer. Other 4xx answers reject the request itself
-// (400, 401, 403, 405, 412, 413, 428, 429): nothing is stored, and a
-// corrected retry with the same key runs.
-var businessOutcome = map[int]bool{
+// outcomeStatus lists the 4xx statuses a business outcome may have: only
+// candidates, as businessOutcome decides (read it, never this map). Other
+// 4xx answers reject the request itself (400, 401, 403, 405, 412, 413,
+// 428, 429): nothing is stored, and a corrected retry with the same key
+// runs.
+var outcomeStatus = map[int]bool{
 	http.StatusNotFound: true, http.StatusConflict: true, http.StatusGone: true, http.StatusUnprocessableEntity: true,
+}
+
+// businessOutcome reports whether a failed answer is a business outcome,
+// stored with the key so a retry gets the same answer. An answer carrying
+// Retry-After is not, whatever its status: it says the same request may
+// succeed later (409 request.in_progress of a lock timeout, as 429 and 503
+// do), so storing it would replay it to the very retry it invites
+// (ADR-0008, as built). It is the one place that decides, for every
+// problem that sets RetryAfter.
+func businessOutcome(rec *recorder) bool {
+	return outcomeStatus[rec.status] && rec.header.Get("Retry-After") == ""
 }
 
 // finish decides what the transaction keeps:
@@ -289,10 +300,11 @@ var businessOutcome = map[int]bool{
 //     and the audit of a refusal (audit.Refuse), so a refused write is
 //     recorded although its work rolls back, once, with the answer a
 //     retry gets (ADR-0046);
-//   - anything else: nothing (the deferred rollback).
+//   - anything else, a retryable answer included: nothing (the deferred
+//     rollback), so the key is free for the retry.
 func (m *Middleware) finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, req *request, rec *recorder, buf *audit.Buffer) error {
 	failed := rec.status >= 400
-	if failed && (req == nil || !businessOutcome[rec.status]) {
+	if failed && (req == nil || !businessOutcome(rec)) {
 		return nil
 	}
 	flush := buf.Flush

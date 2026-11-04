@@ -42,6 +42,7 @@ type app struct {
 	entered chan struct{} // closed when a request enters /slow: it holds its idempotency key
 	slow    atomic.Int32  // requests that entered /slow
 	commits atomic.Int32  // creates whose commit ran their OnCommit
+	retried sync.Map      // Idempotency-Keys /retryable has answered once
 }
 
 func newApp(t *testing.T, pool *database.Pool, also ...*authntest.Issuer) *app {
@@ -66,7 +67,7 @@ func newApp(t *testing.T, pool *database.Pool, also ...*authntest.Issuer) *app {
 			VALUES ($1, $2, 'test.create', 'queued', $3, $3)`, p.TenantID, id, p.ID)
 		return id, err
 	}
-	mux.HandleFunc("POST /create", func(w http.ResponseWriter, r *http.Request) {
+	created := func(w http.ResponseWriter, r *http.Request) {
 		id, err := create(w, r)
 		if err != nil {
 			problem.Write(w, r, problem.From(err))
@@ -78,6 +79,31 @@ func newApp(t *testing.T, pool *database.Pool, also ...*authntest.Issuer) *app {
 		w.Header().Set("Location", "/v1/operations/"+id.String())
 		w.WriteHeader(201)
 		a.check(json.NewEncoder(w).Encode(map[string]string{"id": id.String()}))
+	}
+	mux.HandleFunc("POST /create", created)
+	mux.HandleFunc("POST /retryable", func(w http.ResponseWriter, r *http.Request) {
+		// The first request with a key answers the retryable problem its
+		// body names, after doing its work; a retry with the key creates.
+		if _, seen := a.retried.LoadOrStore(r.Header.Get("Idempotency-Key"), true); seen {
+			created(w, r)
+			return
+		}
+		_, err := create(w, r) // undone, as the answer is not stored
+		a.check(err)
+		body, err := io.ReadAll(r.Body)
+		a.check(err)
+		problem.Write(w, r, retryable[string(body)]())
+	})
+	mux.HandleFunc("POST /locked", func(w http.ResponseWriter, r *http.Request) {
+		// Starts the operation the body names, waiting for its row lock.
+		tx, _ := reqctx.TxFrom(r.Context())
+		body, err := io.ReadAll(r.Body)
+		a.check(err)
+		if _, err := tx.Exec(r.Context(), `UPDATE platform.operation SET status = 'running', version = version + 1 WHERE id = $1`, string(body)); err != nil {
+			problem.Write(w, r, problem.From(err))
+			return
+		}
+		w.WriteHeader(204)
 	})
 	mux.HandleFunc("POST /conflict", func(w http.ResponseWriter, r *http.Request) {
 		_, err := create(w, r) // undone by the 4xx
@@ -587,6 +613,122 @@ func TestConcurrentRetryWaitsThenGets409(t *testing.T) {
 	}
 	if got := third.Header().Get("Idempotent-Replayed"); got != "true" {
 		t.Fatalf("after completion Idempotent-Replayed: got %q, want true", got)
+	}
+}
+
+// retryable are the answers that invite a retry of the same request with
+// Retry-After, by the class of failure behind them.
+var retryable = map[string]func() *problem.Problem{
+	"lock timeout":      func() *problem.Problem { return problem.From(&pgconn.PgError{Code: "55P03"}) },
+	"serialization":     func() *problem.Problem { return problem.From(&pgconn.PgError{Code: "40001"}) },
+	"deadlock":          func() *problem.Problem { return problem.From(&pgconn.PgError{Code: "40P01"}) },
+	"statement timeout": func() *problem.Problem { return problem.From(&pgconn.PgError{Code: "57014"}) },
+	"failover":          func() *problem.Problem { return problem.From(&pgconn.PgError{Code: "25006"}) },
+	"lost connection":   func() *problem.Problem { return problem.From(io.ErrUnexpectedEOF) },
+	"deadline":          func() *problem.Problem { return problem.From(context.DeadlineExceeded) },
+	"rate limit": func() *problem.Problem {
+		p := problem.New(http.StatusTooManyRequests, "request.rate_limited", "Too many requests", "slow down")
+		p.RetryAfter = 2
+		return p
+	},
+	"conflict to retry": func() *problem.Problem { // as request.idempotency_key_in_use
+		p := problem.Conflict("test.busy", "retry")
+		p.RetryAfter = 1
+		return p
+	},
+}
+
+// TestRetryableAnswersLeaveTheKey: an answer with Retry-After, a 409 among
+// them, stores nothing under the key, so the retry it invites runs rather
+// than replaying it; what the retry answers is stored as usual.
+func TestRetryableAnswersLeaveTheKey(t *testing.T) {
+	a := newApp(t, pgtest.Pool(t))
+	ten := pgtest.NewTenant(t)
+	keys := func(key string) int {
+		return count(t, "SELECT count(*) FROM platform.idempotency_key WHERE tenant_id = $1 AND key = $2", ten.ID, key)
+	}
+	for class, answer := range retryable {
+		t.Run(class, func(t *testing.T) {
+			a := a.in(t)
+			c := call{method: "POST", path: "/retryable", key: "key-retry-" + strings.ReplaceAll(class, " ", "-"), body: class,
+				tenant: ten.ID, subject: ten.Human.Subject}
+			want := answer()
+			before := operations(t, ten)
+			r := a.do(c)
+			if r.Code != want.Status {
+				t.Fatalf("first status: got %d, want %d (%s)", r.Code, want.Status, r.Body)
+			}
+			if got := r.Header().Get("Retry-After"); got == "" {
+				t.Errorf("first Retry-After: got empty, want set")
+			}
+			if n := keys(c.key); n != 0 {
+				t.Errorf("keys stored by the retryable answer: got %d, want 0", n)
+			}
+			if n := operations(t, ten); n != before {
+				t.Errorf("operations after the retryable answer: got %d, want %d (its work undone)", n, before)
+			}
+			if r := a.do(c); r.Code != 201 || r.Header().Get("Idempotent-Replayed") != "" {
+				t.Fatalf("retry: got %d replayed %q, want 201 run afresh (%s)", r.Code, r.Header().Get("Idempotent-Replayed"), r.Body)
+			}
+			if n := operations(t, ten); n != before+1 {
+				t.Errorf("operations after the retry: got %d, want %d", n, before+1)
+			}
+			if r := a.do(c); r.Header().Get("Idempotent-Replayed") != "true" {
+				t.Errorf("after the retry Idempotent-Replayed: got %q, want true", r.Header().Get("Idempotent-Replayed"))
+			}
+		})
+	}
+}
+
+// TestLockTimeoutRetryRuns: a request that waits past lock_timeout for a
+// row another transaction holds answers 409 request.in_progress with
+// Retry-After; once the lock is released, the same request with the same
+// key runs and succeeds, rather than replaying the 409.
+func TestLockTimeoutRetryRuns(t *testing.T) {
+	pool, err := database.Open(context.Background(), pgtest.URL(t), database.Settings{LockTimeout: 200 * time.Millisecond, StatementTimeout: 10 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	a := newApp(t, pool)
+	ten := pgtest.NewTenant(t)
+	r := a.do(call{method: "POST", path: "/create", key: "key-locked-create", tenant: ten.ID, subject: ten.Human.Subject})
+	var op struct{ ID string }
+	if err := json.Unmarshal(r.Body.Bytes(), &op); err != nil || r.Code != 201 {
+		t.Fatalf("create: got %d %v, want 201 (%s)", r.Code, err, r.Body)
+	}
+	ctx := context.Background()
+	holder, err := pgtest.Admin(t).Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Rolled back below, or here when the test stops early.
+	defer func() { _ = holder.Rollback(ctx) }() // after the release below it is a no-op
+	if _, err := holder.Exec(ctx, `SELECT 1 FROM platform.operation WHERE id = $1 FOR UPDATE`, op.ID); err != nil {
+		t.Fatal(err)
+	}
+	c := call{method: "POST", path: "/locked", key: "key-locked-0001", body: op.ID, tenant: ten.ID, subject: ten.Human.Subject}
+	r = a.do(c)
+	if r.Code != 409 || !strings.Contains(r.Body.String(), `"request.in_progress"`) {
+		t.Fatalf("while locked: got %d %s, want 409 request.in_progress", r.Code, r.Body)
+	}
+	if got := r.Header().Get("Retry-After"); got != "1" {
+		t.Errorf("while locked Retry-After: got %q, want 1", got)
+	}
+	if err := holder.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	r = a.do(c)
+	if r.Code != 204 || r.Header().Get("Idempotent-Replayed") != "" {
+		t.Fatalf("retry after release: got %d replayed %q, want 204 run afresh (%s)", r.Code, r.Header().Get("Idempotent-Replayed"), r.Body)
+	}
+	var status string
+	pgtest.Scan(t, "SELECT status FROM platform.operation WHERE id = $1", []any{op.ID}, &status)
+	if status != "running" {
+		t.Errorf("operation status after the retry: got %q, want running", status)
+	}
+	if r := a.do(c); r.Code != 204 || r.Header().Get("Idempotent-Replayed") != "true" {
+		t.Errorf("after the retry: got %d replayed %q, want 204 replayed", r.Code, r.Header().Get("Idempotent-Replayed"))
 	}
 }
 
