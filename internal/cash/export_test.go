@@ -258,22 +258,62 @@ func TestCashExportChannelChanged(t *testing.T) {
 }
 
 // TestCashExportSameFileAtOnce: two exports of one snapshot to one
-// channel, sent by two exporters at once, are delivered one after the
-// other: exactly one of them is a resend.
+// channel, finished by two exporters at once, are delivered one after the
+// other: the second finish waits for the first's lock of the deliveries of
+// that file, then sees the first delivered and is the resend. The first
+// finish is held before its commit until the second waits, so the two
+// overlap every run.
 func TestCashExportSameFileAtOnce(t *testing.T) {
 	e := setupExport(t)
 	sid := e.take(t, "Board")["id"].(string)
 	pgtest.Exec(t, `UPDATE cash.export SET status = 'failed', next_attempt_at = NULL, version = version + 1 WHERE snapshot_id = $1 AND connector_id = $2`, sid, e.csv)
 	e.Must(201, "POST", "/v1/cash-snapshots/"+sid+"/exports", `{"connector_id": "`+e.jsonl.String()+`"}`, "")
-	var wg sync.WaitGroup
-	errs := make([]error, 2)
-	for i := range 2 {
-		wg.Go(func() { _, errs[i] = e.exporter().RunOnce(context.Background()) })
+	held, release := make(chan struct{}), make(chan struct{})
+	var released sync.Once
+	releaseFirst := func() { released.Do(func() { close(release) }) }
+	defer releaseFirst() // a failed wait still lets the first finish end
+	first := e.exporter()
+	begun := 0
+	first.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		tx, err := pgtest.Pool(t).Begin(ctx, s)
+		if err != nil || s.TenantID == uuid.Nil {
+			return tx, err
+		}
+		if begun++; begun == 2 { // its finish: delivered, locked, not yet committed
+			return heldCommitTx{Tx: tx, held: held, release: release}, nil
+		}
+		return tx, nil
 	}
-	wg.Wait()
-	for _, err := range errs {
-		if err != nil {
-			t.Fatal(err)
+	firstDone, secondDone := make(chan error, 1), make(chan error, 1)
+	go func() { _, err := first.RunOnce(context.Background()); firstDone <- err }()
+	select {
+	case <-held:
+	case err := <-firstDone:
+		t.Fatalf("the first exporter ended before its finish was held: %v", err)
+	}
+	go func() { _, err := e.exporter().RunOnce(context.Background()); secondDone <- err }()
+	admin := pgtest.Admin(t) // one connection for the whole wait
+	var finishedEarly bool
+	pgtest.Eventually(t, 10*time.Second, func() bool {
+		select {
+		case err := <-secondDone:
+			secondDone <- err
+			finishedEarly = true
+			return true
+		default:
+		}
+		var waiting bool
+		err := admin.QueryRow(context.Background(), `SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = current_database()
+			AND wait_event_type = 'Lock' AND wait_event = 'advisory' AND query LIKE '%pg_advisory_xact_lock%cash.export:%')`).Scan(&waiting)
+		return err == nil && waiting
+	}, "the second finish never waited for the first's lock")
+	releaseFirst()
+	if finishedEarly {
+		t.Fatal("the second finish ended while the first held its delivery: it did not wait for the lock")
+	}
+	for name, done := range map[string]chan error{"first": firstDone, "second": secondDone} {
+		if err := <-done; err != nil {
+			t.Fatalf("%s exporter: %v", name, err)
 		}
 	}
 	var resends []string
@@ -284,6 +324,23 @@ func TestCashExportSameFileAtOnce(t *testing.T) {
 	}
 	slices.Sort(resends)
 	want(t, "one first delivery, one resend", resends, []string{"delivered false", "delivered true"})
+}
+
+// heldCommitTx says, at its commit, that it is held, and commits once
+// released.
+type heldCommitTx struct {
+	pgx.Tx
+	held    chan<- struct{}
+	release <-chan struct{}
+}
+
+func (h heldCommitTx) Commit(ctx context.Context) error {
+	close(h.held)
+	<-h.release
+	if err := h.Tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
 }
 
 // TestCashExportRefusals: an export is asked for only to an active
