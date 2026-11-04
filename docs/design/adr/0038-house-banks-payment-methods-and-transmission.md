@@ -799,11 +799,13 @@ expose its channel's connector). Decided by default, as above:
   `api/eventcompat.go` require of a new payload field; an event published
   before them has none.
 - **Where.** `companyCode` reads the code through the `LegalEntities` port
-  (tenancy's `Directory`), once a change rather than once an event: once
-  a run event, once a statement import (`statementBank.Company`), once a
-  statement's matching (`matcher.company`), once a person's or an agent's
-  decision on a line, once a reconciliation that reconciles something, once
-  a fetched file refused or changed. The proposal names its company by the
+  (tenancy's `Directory`), never once a line: once a run event, once a
+  statement import (`statementBank.Company`), once a statement's matching
+  (`matcher.company`), once a person's or an agent's decision on a line,
+  once a reconciliation that reconciles something, once a fetched file
+  refused or changed. A change that does several of these (a decision that
+  posts and reconciles, an approval that posts and reconciles) reads it for
+  each, a primary-key read at most three times a request. The proposal names its company by the
   legal entity it already read (`build`), so the proposal reads nothing
   more (TestProposalBudget's queries are unchanged). `RefuseFetched`,
   `ChangedFetched` and `AcceptGap` became methods of `Endpoints` to reach
