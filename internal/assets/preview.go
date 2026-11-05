@@ -59,7 +59,12 @@ type candidate struct {
 // 100,000 wide rows spilled to disk, 0.1 s); only the columns every
 // asset's difference needs are read, the terms' ledger being the one
 // asked for. With only, every table is read by the assets' keys (the same
-// assets, said of each).
+// assets, said of each). It is planned per call (pagination.PlanPerCall):
+// a run's batches and the preview share connections, and from a cached
+// statement's sixth run PostgreSQL kept a generic plan that cannot tell
+// a batch from the whole company (measured on T57f2's form of the query:
+// a batch of 500 of 100,000 assets after five previews, 9 ms to 134 ms);
+// a custom plan per call keeps the plan T57f3 chose for each case.
 func selectDepreciable(ctx context.Context, tx pgx.Tx, le, ledger uuid.UUID, p Period, after *previewKey, only []uuid.UUID) ([]*candidate, error) {
 	var number *string
 	var id *uuid.UUID
@@ -81,7 +86,7 @@ func selectDepreciable(ctx context.Context, tx pgx.Tx, le, ledger uuid.UUID, p P
 					WHERE m.tenant_id = a.tenant_id AND m.asset_id = a.id AND m.ledger_id = t.ledger_id) <> 0)
 			AND (t.booked_through_year IS NULL OR (t.booked_through_year, t.booked_through_period) <= ($4::smallint, $5::smallint))
 			AND c.valid_from <= $3 AND ($8::uuid[] IS NULL OR t.asset_id = ANY($8))`,
-		le, ledger, p.End, p.FiscalYear, p.Number, number, id, only)
+		pagination.PlanPerCall, le, ledger, p.End, p.FiscalYear, p.Number, number, id, only)
 	var all []candidate // one allocation as it grows, not one per asset
 	var c candidate
 	_, err := pgx.ForEachRow(rows, []any{&c.asset, &c.class, &c.capitalised, &c.costCenter, &c.profitCenter, &c.terms.Method,
