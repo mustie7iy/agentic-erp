@@ -2476,3 +2476,42 @@ default, for the product owner to overrule:
 - **Tracker.** A leaf "The depreciation run's preview and the asset
   history sheet read in one snapshot" (`review:T57f`, the review of
   T57f3, which is T57f's), done with this step.
+
+**Every read of the assets context in one snapshot (review of the
+snapshot step).** The review of the step above found the same class in
+an asset's reads: `getAsset` and `listAssets` read the asset (or the
+page), its terms and its values in three statements, so a depreciation
+run committed between them showed the asset unbooked in its terms
+beside June's accumulated depreciation in its values. A sweep of every
+read in `internal/assets` found the class in ten more, each fixed the
+same way, by `x-snapshot: true`:
+- `getAssetSchedule` (left as built in the step above, which saw its
+  figures all from the movements read but missed the start): the
+  asset's row (its capitalisation date, the depreciation start when
+  the terms give none), its terms, then its movements; an acquisition committed between showed the acquired cost
+  on an asset without a depreciation start.
+- `getAssetAcquisition`, `getAssetRetirement`, `getAssetTransfer` and
+  their lists: the document (its status and reversal), then its entries
+  (and a retirement's or transfer's amounts per ledger); a reversal
+  committed between showed a `posted` document with its reversal entry.
+- `getDepreciationRun`, `listDepreciationRuns`: the run, then its
+  batches; a plan committed between showed a `queued` run with no
+  assets planned beside its batches.
+- `listAssetClearingItems`: what acquisitions used of the year's lines,
+  the lines, then each line's acquisitions; an acquisition committed
+  between showed it beside a line still wholly remaining.
+
+`TestReadsInOneSnapshot` commits the posting between each operation's
+statements (`app.Config.Begin`) and wants the response the one before
+it; with the marks removed every case fails. Safe as built:
+`listAssetMovements` reads the asset for its company and then the
+movements, every figure from that one statement; `listAssetClasses`
+reads configuration and company names, no figures; the responses of
+the writes (creating, changing, cancelling an asset, posting and
+reversing its documents) re-read their rows holding the asset `FOR
+UPDATE`, which every posting of it takes. Decided by default,
+for the product owner to overrule: a read-only `GET` at REPEATABLE READ
+cannot fail to serialise, so the mark costs no retry, and a read that
+issues one statement keeps READ COMMITTED.
+- **Tracker.** A leaf "Every read of the assets context in one snapshot"
+  (`review:T57f`), done with this step.

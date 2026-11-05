@@ -446,6 +446,30 @@ gates on each pull request:
     and on a step that did not pass or skip exactly once; its summary says
     "none failed" only when every step of the story ran, and a
     `WALKTHROUGH_UNTIL` run says how many did (`TestWalkthroughExitStatus`).
+  - 2026-11-04 (review:T61j, walkexit2): the walkthrough review found that
+    a failed command or an unbound variable inside a command substitution
+    still stopped nothing unless the substitution was a plain assignment's
+    value: bash clears `set -e` in a substitution (bash 3.2 has no
+    `inherit_errexit`; bash 5 does the same without it), and the caller
+    drops its status in `local x=$(f)`, an argument and printed text, while
+    even `x=$(f)` misses a command that failed before `f`'s last. Layer: the
+    review, since the earlier fix's tests injected failures only into the
+    script's own shell. Changed: the walkthrough's `stop_unseen` sets an ERR
+    trap with `set -E`, which stops the run on a failed command in any
+    subshell, and `on_substitution_exit` (`scripts/lib/on-exit.sh`: a DEBUG
+    trap with `set -T` gives each command substitution an EXIT trap), which
+    fails on a substitution's status other than 0 (an unbound variable);
+    both leave `fail`'s mark, which the step runner checks after each step.
+    Only substitutions get the EXIT trap: bash 3.2 gives a `( … )` subshell
+    or a pipeline's function that has one status 0 after an expansion
+    error, where `set -e` stops it without one. A substitution whose
+    failure is expected tolerates it inside the parentheses, `$(f || true)`,
+    in a condition too, since bash 3.2 runs the ERR trap inside
+    `$(f) || true` and `if [ "$(f)" … ]`; the opposite form fails closed.
+    `on_exit`'s reason after a stop with status 0 names a signal among its
+    causes, which bash 3.2 also gives the EXIT trap status 0; the lib traps
+    no signal, which would wait for the foreground command
+    (`TestWalkthroughExitStatus`, `scripts/test-on-exit.sh`).
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull

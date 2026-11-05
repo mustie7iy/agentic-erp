@@ -14711,8 +14711,9 @@ paths:
       tags:
         - assets
       summary: List assets
-      description: "The assets of the legal entities the caller may act in (ADR-0057 §5, T57b), each with its class, its centers (the latest assignment's) and its depreciation terms per ledger. Filters: company, class, status, cost center (the asset's current one) and asset number. Sortable by: `asset_number` (default; as text), `created_at`."
+      description: "The assets of the legal entities the caller may act in (ADR-0057 §5, T57b), each with its class, its centers (the latest assignment's) and its depreciation terms per ledger. Filters: company, class, status, cost center (the asset's current one) and asset number. Sortable by: `asset_number` (default; as text), `created_at`. Read from one database state (a repeatable-read snapshot), so each asset's terms and values agree whatever posts meanwhile."
       x-permission: assets.asset.read
+      x-snapshot: true
       x-problem-codes:
         - config.not_bootstrapped
         - request.invalid_order_by
@@ -14838,8 +14839,9 @@ paths:
       tags:
         - assets
       summary: Get an asset
-      description: "One asset with its class, centers and depreciation terms per ledger (ADR-0057 §5). An asset of a legal entity the caller cannot act in is not found."
+      description: "One asset with its class, centers and depreciation terms per ledger (ADR-0057 §5). An asset of a legal entity the caller cannot act in is not found. Read from one database state (a repeatable-read snapshot), so the asset's terms and values agree whatever posts meanwhile."
       x-permission: assets.asset.read
+      x-snapshot: true
       x-problem-codes:
         - config.not_bootstrapped
       parameters:
@@ -15126,8 +15128,9 @@ paths:
       tags:
         - assets
       summary: Get an asset's depreciation schedule
-      description: "The asset's planned and booked depreciation in one ledger for each regular period of a fiscal year (ADR-0057 §7, T57e), computed at the read from its terms and movements, so it never disagrees with them. The planned schedule walks the periods from the one depreciation starts in (`depreciation_start`, the terms' own or else the capitalisation date; one period counts in full from its start): each movement valued by a period is applied at the start of the period of its value date (acquisitions add their cost; a transfer in adds the cost, accumulated depreciation and residual value it brought; a retirement or transfer out takes off those it recorded; a reversal cancels what it reverses), and each period takes, of its net book value B less its residual value R, by `straight_line` (B − R) / (n − k + 1) over the n − k + 1 periods of useful life left, or by `declining_balance` the greater of B × factor / n and that straight-line amount, rounded half away from zero to minor units and held between zero and B − R; from the last period of the useful life on, all of B − R. `planned` is that depreciation, `booked` the depreciation posted in the period (runs' and catch-ups', with their reversals, by posting period), `net_book_value` the planned net book value at the period's end. `totals` sums the year's periods. `ledger_id` defaults to the leading ledger. A ledger the asset has no terms in is 422 `assets.ledger_terms_missing`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. Amounts are in the company's local currency. An asset of a legal entity the caller cannot act in is not found."
+      description: "The asset's planned and booked depreciation in one ledger for each regular period of a fiscal year (ADR-0057 §7, T57e), computed at the read from its terms and movements, so it never disagrees with them. The planned schedule walks the periods from the one depreciation starts in (`depreciation_start`, the terms' own or else the capitalisation date; one period counts in full from its start): each movement valued by a period is applied at the start of the period of its value date (acquisitions add their cost; a transfer in adds the cost, accumulated depreciation and residual value it brought; a retirement or transfer out takes off those it recorded; a reversal cancels what it reverses), and each period takes, of its net book value B less its residual value R, by `straight_line` (B − R) / (n − k + 1) over the n − k + 1 periods of useful life left, or by `declining_balance` the greater of B × factor / n and that straight-line amount, rounded half away from zero to minor units and held between zero and B − R; from the last period of the useful life on, all of B − R. `planned` is that depreciation, `booked` the depreciation posted in the period (runs' and catch-ups', with their reversals, by posting period), `net_book_value` the planned net book value at the period's end. `totals` sums the year's periods. `ledger_id` defaults to the leading ledger. A ledger the asset has no terms in is 422 `assets.ledger_terms_missing`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. Amounts are in the company's local currency. An asset of a legal entity the caller cannot act in is not found. Read from one database state (a repeatable-read snapshot), so the asset's depreciation start, terms and movements agree whatever posts meanwhile."
       x-permission: assets.asset.read
+      x-snapshot: true
       x-problem-codes:
         - assets.ledger_terms_missing
         - ledger.no_fiscal_period
@@ -15232,8 +15235,9 @@ paths:
       tags:
         - assets
       summary: List asset acquisitions
-      description: "The asset acquisitions of the legal entities the caller may act in (ADR-0057 §6, T57c), each with its asset, its source line and the supplier invoice behind it, and its journal entries per ledger. Filters: company, asset, source entry, posting dates and status. Sortable by: `posting_date` (default), `created_at`."
+      description: "The asset acquisitions of the legal entities the caller may act in (ADR-0057 §6, T57c), each with its asset, its source line and the supplier invoice behind it, and its journal entries per ledger. Filters: company, asset, source entry, posting dates and status. Sortable by: `posting_date` (default), `created_at`. Read from one database state (a repeatable-read snapshot), so each acquisition's status and its journal entries agree whatever posts meanwhile."
       x-permission: assets.asset.read
+      x-snapshot: true
       x-problem-codes:
         - request.invalid_order_by
         - request.invalid_page_size
@@ -15414,8 +15418,9 @@ paths:
       tags:
         - assets
       summary: Get an asset acquisition
-      description: "One acquisition with its asset, its source line and the supplier invoice behind it, and its journal entries per ledger (ADR-0057 §6). One of a legal entity the caller cannot act in is not found."
+      description: "One acquisition with its asset, its source line and the supplier invoice behind it, and its journal entries per ledger (ADR-0057 §6). One of a legal entity the caller cannot act in is not found. Read from one database state (a repeatable-read snapshot), so its status and its journal entries agree whatever posts meanwhile."
       x-permission: assets.asset.read
+      x-snapshot: true
       x-problem-codes: []
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -15533,8 +15538,9 @@ paths:
       tags:
         - assets
       summary: List asset retirements
-      description: "The asset retirements of the legal entities the caller may act in (ADR-0057 §8, T57g), each with its asset, what it took per ledger and its journal entries. Filters: company, asset, kind, posting dates and status. Sortable by: `posting_date` (default), `created_at`."
+      description: "The asset retirements of the legal entities the caller may act in (ADR-0057 §8, T57g), each with its asset, what it took per ledger and its journal entries. Filters: company, asset, kind, posting dates and status. Sortable by: `posting_date` (default), `created_at`. Read from one database state (a repeatable-read snapshot), so each retirement's status, its journal entries and what it took agree whatever posts meanwhile."
       x-permission: assets.asset.read
+      x-snapshot: true
       x-problem-codes:
         - request.invalid_order_by
         - request.invalid_page_size
@@ -15715,8 +15721,9 @@ paths:
       tags:
         - assets
       summary: Get an asset retirement
-      description: "One retirement with its asset, what it took per ledger and its journal entries (ADR-0057 §8). One of a legal entity the caller cannot act in is not found."
+      description: "One retirement with its asset, what it took per ledger and its journal entries (ADR-0057 §8). One of a legal entity the caller cannot act in is not found. Read from one database state (a repeatable-read snapshot), so its status, its journal entries and what it took agree whatever posts meanwhile."
       x-permission: assets.asset.read
+      x-snapshot: true
       x-problem-codes: []
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -15832,8 +15839,9 @@ paths:
       tags:
         - assets
       summary: List asset transfers
-      description: "The asset transfers of the legal entities the caller may act in (ADR-0057 §8, T57h), each with its asset (and an asset transfer's receiver), what it moved per ledger and its journal entries. Filters: company, asset (as sender or receiver), kind, posting dates and status. Sortable by: `posting_date` (default), `created_at`."
+      description: "The asset transfers of the legal entities the caller may act in (ADR-0057 §8, T57h), each with its asset (and an asset transfer's receiver), what it moved per ledger and its journal entries. Filters: company, asset (as sender or receiver), kind, posting dates and status. Sortable by: `posting_date` (default), `created_at`. Read from one database state (a repeatable-read snapshot), so each transfer's status, its journal entries and what it moved agree whatever posts meanwhile."
       x-permission: assets.asset.read
+      x-snapshot: true
       x-problem-codes:
         - request.invalid_order_by
         - request.invalid_page_size
@@ -16019,8 +16027,9 @@ paths:
       tags:
         - assets
       summary: Get an asset transfer
-      description: "One transfer with its asset (and an asset transfer's receiver), what it moved per ledger and its journal entries (ADR-0057 §8). One of a legal entity the caller cannot act in is not found."
+      description: "One transfer with its asset (and an asset transfer's receiver), what it moved per ledger and its journal entries (ADR-0057 §8). One of a legal entity the caller cannot act in is not found. Read from one database state (a repeatable-read snapshot), so its status, its journal entries and what it moved agree whatever posts meanwhile."
       x-permission: assets.asset.read
+      x-snapshot: true
       x-problem-codes: []
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -16136,8 +16145,9 @@ paths:
       tags:
         - assets
       summary: List the lines on asset clearing accounts
-      description: "The worklist of acquisitions (ADR-0057 §6, T57c): the leading ledger's lines on the company's asset clearing accounts in one fiscal year, each with its amounts in its currency, local and group currency, what acquisitions used of it and what is left, its document and origin (for a supplier invoice its number, the supplier's reference and the supplier's name), and the acquisitions made from it. The lines of a reversed entry and of its reversal are left out while nothing was capitalised from the reversed one; a reversed line with acquisitions is shown with `source_reversed` and its reversal's line beside it (`reversal`, T57d), offered to each asset holding posted acquisitions from the reversed line with the most it may take from it: those acquisitions less what it already took from the reversal's line. With `remaining=true`, only lines an acquisition can still take something from: not reversed with something left, or reversed with something offered. A legal entity the caller cannot act in has none. Ordered by posting date, entry and line. The lines are ledger amounts, so besides `assets.asset.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      description: "The worklist of acquisitions (ADR-0057 §6, T57c): the leading ledger's lines on the company's asset clearing accounts in one fiscal year, each with its amounts in its currency, local and group currency, what acquisitions used of it and what is left, its document and origin (for a supplier invoice its number, the supplier's reference and the supplier's name), and the acquisitions made from it. The lines of a reversed entry and of its reversal are left out while nothing was capitalised from the reversed one; a reversed line with acquisitions is shown with `source_reversed` and its reversal's line beside it (`reversal`, T57d), offered to each asset holding posted acquisitions from the reversed line with the most it may take from it: those acquisitions less what it already took from the reversal's line. With `remaining=true`, only lines an acquisition can still take something from: not reversed with something left, or reversed with something offered. A legal entity the caller cannot act in has none. Ordered by posting date, entry and line. The lines are ledger amounts, so besides `assets.asset.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Read from one database state (a repeatable-read snapshot), so a line's used and remaining amounts and its acquisitions agree whatever posts meanwhile."
       x-permission: assets.asset.read
+      x-snapshot: true
       x-also-permissions:
         - ledger.entry.read
       x-problem-codes:
@@ -16251,8 +16261,9 @@ paths:
       tags:
         - assets
       summary: List depreciation runs
-      description: "The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with its batches and their journal entries' document numbers. Filters: company, ledger, fiscal year and status. Sortable by: `created_at` (default)."
+      description: "The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with its batches and their journal entries' document numbers. Filters: company, ledger, fiscal year and status. Sortable by: `created_at` (default). Read from one database state (a repeatable-read snapshot), so each run's status, counts and batches agree whatever posts meanwhile."
       x-permission: assets.asset.read
+      x-snapshot: true
       x-problem-codes:
         - request.invalid_order_by
         - request.invalid_page_size
@@ -16307,8 +16318,9 @@ paths:
       tags:
         - assets
       summary: Get a depreciation run
-      description: "One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it planned, posted and skipped, the depreciation it posted, the problem that failed it, and its batches with their journal entries and document numbers. One of a legal entity the caller cannot act in is not found."
+      description: "One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it planned, posted and skipped, the depreciation it posted, the problem that failed it, and its batches with their journal entries and document numbers. One of a legal entity the caller cannot act in is not found. Read from one database state (a repeatable-read snapshot), so its status, counts and batches agree whatever posts meanwhile."
       x-permission: assets.asset.read
+      x-snapshot: true
       x-problem-codes: []
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -19230,7 +19242,7 @@ paths:
       tags:
         - analytics
       summary: Run a semantic analytics query
-      description: "Answers governed metrics (the semantic model in the active configuration version's `analytics` section, `semantic.yaml` until a change request adds one; metric definitions change only through change requests), broken down by its dimensions and filtered on them, for the companies the principal may read. A query names metrics and dimensions, never SQL. It is answered from the analytical store when the tenant's store was found current within the freshness target and no earlier than `as_of`, else from the database; `source` and `as_of` say which (ADR-0044). The database answers through the API's own reads as the caller, so a metric over data the caller may not read is 403 as that read is, and the store answers only a caller who holds the permissions of those reads; the cash actuals (metric `actual`, ADR-0051 §11) are read as `getCashActuals` classifies them, with `cash.forecast.read`, and name no supplier, so a query of them alone needs no `partner.supplier.read`; so are the forecast's metrics (`forecast_lag_0`, `forecast_lag_7`, `forecast_lag_30`, ADR-0051 §6), each value date's flows as the company's snapshot taken that many days before it kept them (its daily snapshot, else the last taken on demand that day; at document level, blocked suppliers' flows left out), so a week or a month adds days of different snapshots, unlike `getLiquidityForecastVariance`, which compares one snapshot over its period; actuals adding up to more than an amount can hold are 422 `cash.amount_too_large`. A tenant without a configuration is 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may run it."
+      description: "Answers governed metrics (the semantic model in the active configuration version's `analytics` section, `semantic.yaml` until a change request adds one; metric definitions change only through change requests), broken down by its dimensions and filtered on them, for the companies the principal may read. A query names metrics and dimensions, never SQL. It is answered from the analytical store when the tenant's store was found current within the freshness target and no earlier than `as_of`, else from the database; `source` and `as_of` say which (ADR-0044). The database answers through the API's own reads as the caller, so a metric over data the caller may not read is 403 as that read is, and the store answers only a caller who holds the permissions of those reads; the cash actuals (metric `actual`, ADR-0051 §11) are read as `getCashActuals` classifies them, with `cash.forecast.read`, and name no supplier, so a query of them alone needs no `partner.supplier.read`; so are the forecast's metrics (`forecast_lag_0`, `forecast_lag_7`, `forecast_lag_30`, ADR-0051 §6), each value date's flows as the company's snapshot taken that many days before it kept them (its daily snapshot, else the last taken on demand that day; at document level, blocked suppliers' flows left out), so a week or a month adds days of different snapshots, unlike `getLiquidityForecastVariance`, which compares one snapshot over its period, each flow's source the dimension `flow_source`; and so are the forecast's variance and accuracy (`variance_lag_N`, `absolute_variance_lag_N`, `absolute_forecast_lag_N`, `accuracy_lag_N` for N of 0, 7 and 30, ADR-0051 §11), in cells of a company's value date, currency and liquidity item compared as that report compares them (days passed, of a snapshot taken the lag before): the accuracy is 1 less the weighted absolute percentage error, the cells' absolute variances over their absolute forecasts, rounded as that report's `variance_percent` first, so one cell's is 100% less its `variance_percent`, and null where nothing was forecast; actuals adding up to more than an amount can hold are 422 `cash.amount_too_large`. A tenant without a configuration is 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may run it."
       x-permission: analytics.query.run
       x-autonomy: read
       x-problem-codes:
@@ -41736,10 +41748,11 @@ components:
       properties:
         op:
           type: string
-          description: "`subtract` or `divide`."
+          description: "`subtract`, `divide`, or `complement`: one less the left divided by the right, the quotient first rounded to a ratio's four digits half away from zero (100% less the percentage shown), none where the right is zero. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum:
             - subtract
             - divide
+            - complement
         left:
           type: string
           description: The left metric.

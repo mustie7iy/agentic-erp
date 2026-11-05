@@ -123,15 +123,20 @@ func TestOperationsRejectsBadContracts(t *testing.T) {
 
 // TestSnapshotOperations: x-snapshot marks the GETs and the reads
 // carried in a POST (x-autonomy: read) that read as of one database
-// state: the cash position, the asset history sheet and a depreciation
-// run's preview are some, other reads are not.
+// state: the cash position, the asset history sheet, a depreciation
+// run's preview and every read of the assets context that issues more
+// than one statement are some, other reads (an asset's movements, one
+// statement) are not.
 func TestSnapshotOperations(t *testing.T) {
 	ops, err := Operations()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for id, want := range map[string]bool{"getCashPosition": true, "getAssetHistorySheet": true, "previewDepreciationRun": true,
-		"getBankReconciliation": false, "listBalances": false} {
+		"getAsset": true, "listAssets": true, "getAssetSchedule": true, "getAssetAcquisition": true, "listAssetAcquisitions": true,
+		"getAssetRetirement": true, "listAssetRetirements": true, "getAssetTransfer": true, "listAssetTransfers": true, "getDepreciationRun": true,
+		"listDepreciationRuns": true, "listAssetClearingItems": true,
+		"getBankReconciliation": false, "listBalances": false, "listAssetMovements": false, "listAssetClasses": false} {
 		t.Run(id, func(t *testing.T) {
 			if got := ops[id].Snapshot; got != want {
 				t.Errorf("snapshot: got %v, want %v", got, want)

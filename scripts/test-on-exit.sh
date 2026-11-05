@@ -45,6 +45,25 @@ case_ "an end without finished" 1 yes ':'
 case_ "an exit 0 before finished" 1 yes 'exit 0'
 case_ "finished" 0 no 'finished'
 case_ "finished, then exit 0" 0 no 'finished; exit 0'
+case_ "a SIGTERM" 143 yes 'kill -TERM $$; finished'
+check "a SIGTERM: the reason names a signal" "$(grep -q 'or a signal' "$work/err" && echo yes || echo no)" yes
+
+# on_substitution_exit's command sees every command substitution's exit
+# and its status, an unbound variable's in one whose status the caller
+# drops; no other subshell's, which bash 3.2 would give status 0 after an
+# unbound variable once it had an EXIT trap.
+substitutions() { # substitutions NAME WANT LAST: LAST runs after the substitutions
+  local status=0
+  rm -f "$work/seen"
+  printf 'set -euo pipefail\n. %q\nseen() { echo "$1" >>%q; }\non_substitution_exit seen\nf() { echo "$NOT_SET"; }\n: "$(f)" "$(true)"\n( exit 3 ) || :\n%s\nfinished\n' \
+    "$root/scripts/lib/on-exit.sh" "$work/seen" "$3" >"$work/script.sh"
+  bash "$work/script.sh" 2>/dev/null || status=$?
+  check "on_substitution_exit, $1: exit status" "$status" "$2"
+  check "on_substitution_exit, $1: the statuses seen" "$(tr '\n' ' ' <"$work/seen")" "1 0 "
+}
+substitutions "the substitutions" 0 ':'
+substitutions "then an unbound variable in ( ... )" 1 '( f )'
+substitutions "then an unbound variable in a pipeline's function" 1 'f | cat'
 
 # Every script under scripts/ that cleans up on exit goes through on_exit
 # and calls finished.

@@ -1068,14 +1068,17 @@ type Handler interface {
 	// GetAsset implements getAsset operation.
 	//
 	// One asset with its class, centers and depreciation terms per ledger (ADR-0057 §5). An asset of a
-	// legal entity the caller cannot act in is not found.
+	// legal entity the caller cannot act in is not found. Read from one database state (a repeatable-read
+	// snapshot), so the asset's terms and values agree whatever posts meanwhile.
 	//
 	// GET /v1/assets/{id}
 	GetAsset(ctx context.Context, params GetAssetParams) (GetAssetRes, error)
 	// GetAssetAcquisition implements getAssetAcquisition operation.
 	//
 	// One acquisition with its asset, its source line and the supplier invoice behind it, and its journal
-	// entries per ledger (ADR-0057 §6). One of a legal entity the caller cannot act in is not found.
+	// entries per ledger (ADR-0057 §6). One of a legal entity the caller cannot act in is not found. Read
+	// from one database state (a repeatable-read snapshot), so its status and its journal entries agree
+	// whatever posts meanwhile.
 	//
 	// GET /v1/asset-acquisitions/{id}
 	GetAssetAcquisition(ctx context.Context, params GetAssetAcquisitionParams) (GetAssetAcquisitionRes, error)
@@ -1111,7 +1114,9 @@ type Handler interface {
 	// GetAssetRetirement implements getAssetRetirement operation.
 	//
 	// One retirement with its asset, what it took per ledger and its journal entries (ADR-0057 §8). One
-	// of a legal entity the caller cannot act in is not found.
+	// of a legal entity the caller cannot act in is not found. Read from one database state (a
+	// repeatable-read snapshot), so its status, its journal entries and what it took agree whatever posts
+	// meanwhile.
 	//
 	// GET /v1/asset-retirements/{id}
 	GetAssetRetirement(ctx context.Context, params GetAssetRetirementParams) (GetAssetRetirementRes, error)
@@ -1133,14 +1138,18 @@ type Handler interface {
 	// book value at the period's end. `totals` sums the year's periods. `ledger_id` defaults to the
 	// leading ledger. A ledger the asset has no terms in is 422 `assets.ledger_terms_missing`; a fiscal
 	// year that is not set up is 422 `ledger.no_fiscal_period`. Amounts are in the company's local
-	// currency. An asset of a legal entity the caller cannot act in is not found.
+	// currency. An asset of a legal entity the caller cannot act in is not found. Read from one database
+	// state (a repeatable-read snapshot), so the asset's depreciation start, terms and movements agree
+	// whatever posts meanwhile.
 	//
 	// GET /v1/assets/{id}/schedule
 	GetAssetSchedule(ctx context.Context, params GetAssetScheduleParams) (GetAssetScheduleRes, error)
 	// GetAssetTransfer implements getAssetTransfer operation.
 	//
 	// One transfer with its asset (and an asset transfer's receiver), what it moved per ledger and its
-	// journal entries (ADR-0057 §8). One of a legal entity the caller cannot act in is not found.
+	// journal entries (ADR-0057 §8). One of a legal entity the caller cannot act in is not found. Read
+	// from one database state (a repeatable-read snapshot), so its status, its journal entries and what it
+	// moved agree whatever posts meanwhile.
 	//
 	// GET /v1/asset-transfers/{id}
 	GetAssetTransfer(ctx context.Context, params GetAssetTransferParams) (GetAssetTransferRes, error)
@@ -1381,7 +1390,8 @@ type Handler interface {
 	// One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it
 	// planned, posted and skipped, the depreciation it posted, the problem that failed it, and its batches
 	// with their journal entries and document numbers. One of a legal entity the caller cannot act in is
-	// not found.
+	// not found. Read from one database state (a repeatable-read snapshot), so its status, counts and
+	// batches agree whatever posts meanwhile.
 	//
 	// GET /v1/depreciation-runs/{id}
 	GetDepreciationRun(ctx context.Context, params GetDepreciationRunParams) (GetDepreciationRunRes, error)
@@ -1955,7 +1965,8 @@ type Handler interface {
 	// The asset acquisitions of the legal entities the caller may act in (ADR-0057 §6, T57c), each with
 	// its asset, its source line and the supplier invoice behind it, and its journal entries per ledger.
 	// Filters: company, asset, source entry, posting dates and status. Sortable by: `posting_date`
-	// (default), `created_at`.
+	// (default), `created_at`. Read from one database state (a repeatable-read snapshot), so each
+	// acquisition's status and its journal entries agree whatever posts meanwhile.
 	//
 	// GET /v1/asset-acquisitions
 	ListAssetAcquisitions(ctx context.Context, params ListAssetAcquisitionsParams) (ListAssetAcquisitionsRes, error)
@@ -1987,7 +1998,9 @@ type Handler interface {
 	// take something from: not reversed with something left, or reversed with something offered. A legal
 	// entity the caller cannot act in has none. Ordered by posting date, entry and line. The lines are
 	// ledger amounts, so besides `assets.asset.read` the caller needs `ledger.entry.read`
-	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Read from one database state (a
+	// repeatable-read snapshot), so a line's used and remaining amounts and its acquisitions agree
+	// whatever posts meanwhile.
 	//
 	// GET /v1/asset-clearing-items
 	ListAssetClearingItems(ctx context.Context, params ListAssetClearingItemsParams) (ListAssetClearingItemsRes, error)
@@ -2010,7 +2023,9 @@ type Handler interface {
 	//
 	// The asset retirements of the legal entities the caller may act in (ADR-0057 §8, T57g), each with
 	// its asset, what it took per ledger and its journal entries. Filters: company, asset, kind, posting
-	// dates and status. Sortable by: `posting_date` (default), `created_at`.
+	// dates and status. Sortable by: `posting_date` (default), `created_at`. Read from one database state
+	// (a repeatable-read snapshot), so each retirement's status, its journal entries and what it took
+	// agree whatever posts meanwhile.
 	//
 	// GET /v1/asset-retirements
 	ListAssetRetirements(ctx context.Context, params ListAssetRetirementsParams) (ListAssetRetirementsRes, error)
@@ -2019,7 +2034,8 @@ type Handler interface {
 	// The asset transfers of the legal entities the caller may act in (ADR-0057 §8, T57h), each with its
 	// asset (and an asset transfer's receiver), what it moved per ledger and its journal entries. Filters:
 	// company, asset (as sender or receiver), kind, posting dates and status. Sortable by: `posting_date`
-	// (default), `created_at`.
+	// (default), `created_at`. Read from one database state (a repeatable-read snapshot), so each
+	// transfer's status, its journal entries and what it moved agree whatever posts meanwhile.
 	//
 	// GET /v1/asset-transfers
 	ListAssetTransfers(ctx context.Context, params ListAssetTransfersParams) (ListAssetTransfersRes, error)
@@ -2028,7 +2044,8 @@ type Handler interface {
 	// The assets of the legal entities the caller may act in (ADR-0057 §5, T57b), each with its class,
 	// its centers (the latest assignment's) and its depreciation terms per ledger. Filters: company,
 	// class, status, cost center (the asset's current one) and asset number. Sortable by: `asset_number`
-	// (default; as text), `created_at`.
+	// (default; as text), `created_at`. Read from one database state (a repeatable-read snapshot), so each
+	// asset's terms and values agree whatever posts meanwhile.
 	//
 	// GET /v1/assets
 	ListAssets(ctx context.Context, params ListAssetsParams) (ListAssetsRes, error)
@@ -2257,7 +2274,8 @@ type Handler interface {
 	//
 	// The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
 	// its batches and their journal entries' document numbers. Filters: company, ledger, fiscal year and
-	// status. Sortable by: `created_at` (default).
+	// status. Sortable by: `created_at` (default). Read from one database state (a repeatable-read
+	// snapshot), so each run's status, counts and batches agree whatever posts meanwhile.
 	//
 	// GET /v1/depreciation-runs
 	ListDepreciationRuns(ctx context.Context, params ListDepreciationRunsParams) (ListDepreciationRunsRes, error)
@@ -3693,12 +3711,19 @@ type Handler interface {
 	// `forecast_lag_30`, ADR-0051 §6), each value date's flows as the company's snapshot taken that many
 	// days before it kept them (its daily snapshot, else the last taken on demand that day; at document
 	// level, blocked suppliers' flows left out), so a week or a month adds days of different snapshots,
-	// unlike `getLiquidityForecastVariance`, which compares one snapshot over its period; actuals adding
-	// up to more than an amount can hold are 422 `cash.amount_too_large`. A tenant without a configuration
-	// is 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or
-	// dimension, a filter it cannot apply, amounts of two currencies summed) is 422
-	// `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy`
-	// with `Retry-After`. Changes nothing: agents of any autonomy level may run it.
+	// unlike `getLiquidityForecastVariance`, which compares one snapshot over its period, each flow's
+	// source the dimension `flow_source`; and so are the forecast's variance and accuracy
+	// (`variance_lag_N`, `absolute_variance_lag_N`, `absolute_forecast_lag_N`, `accuracy_lag_N` for N of
+	// 0, 7 and 30, ADR-0051 §11), in cells of a company's value date, currency and liquidity item
+	// compared as that report compares them (days passed, of a snapshot taken the lag before): the
+	// accuracy is 1 less the weighted absolute percentage error, the cells' absolute variances over their
+	// absolute forecasts, rounded as that report's `variance_percent` first, so one cell's is 100% less
+	// its `variance_percent`, and null where nothing was forecast; actuals adding up to more than an
+	// amount can hold are 422 `cash.amount_too_large`. A tenant without a configuration is 409
+	// `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a
+	// filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many
+	// queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing:
+	// agents of any autonomy level may run it.
 	//
 	// POST /v1/analytics-queries
 	RunAnalyticsQuery(ctx context.Context, req *AnalyticsQuery, params RunAnalyticsQueryParams) (RunAnalyticsQueryRes, error)

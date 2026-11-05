@@ -25,7 +25,7 @@ type forecastRow struct {
 	ValueDate         int32     `parquet:"value_date,date"`
 	LagDays           int32     `parquet:"lag_days"`
 	HouseBank         *string   `parquet:"house_bank,optional"`
-	Source            string    `parquet:"source"`
+	FlowSource        string    `parquet:"flow_source"`
 	Certainty         string    `parquet:"certainty"`
 	Blocked           bool      `parquet:"blocked"`
 	LiquidityItem     *string   `parquet:"liquidity_item,optional"`
@@ -47,7 +47,7 @@ func (r forecastRow) String(names map[uuid.UUID]string) string {
 		item, name = *r.LiquidityItem, *r.LiquidityItemName
 	}
 	day := time.Unix(int64(r.ValueDate)*86400, 0).UTC().Format(time.DateOnly)
-	return fmt.Sprintf("%s/%d %s %s +%d %s %s/%s blocked=%v %s %s %d %s/%d", names[r.SnapshotID], r.LineNo, r.Company, day, r.LagDays, bank, r.Source,
+	return fmt.Sprintf("%s/%d %s %s +%d %s %s/%s blocked=%v %s %s %d %s/%d", names[r.SnapshotID], r.LineNo, r.Company, day, r.LagDays, bank, r.FlowSource,
 		r.Certainty, r.Blocked, item, name, r.AmountMinor, r.Currency, r.Exponent)
 }
 

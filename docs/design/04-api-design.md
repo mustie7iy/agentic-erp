@@ -353,18 +353,20 @@ Per ADR-0008:
   `listCashActualLines`, ADR-0051 §11, T53f2) and the forecast variance
   (`getLiquidityForecastVariance`, T53f3), and so does a report whose
   totals and page are separate statements (`getAssetHistorySheet`,
-  ADR-0057). The contract allows the mark on a `GET` and on a read
-  carried in a `POST` for its body (`x-autonomy: read`, such as
-  `previewDepreciationRun`), which runs read-write at that level for its
-  idempotency record alone and so must write nothing else (no audit, no
-  outbox); nowhere else (`api/spec.go`). A write that records such a
-  report, as taking a snapshot of the liquidity forecast does
-  (`takeCashSnapshot`, ADR-0051 §6, T53f), reads it in a read-only
-  `REPEATABLE READ` transaction of its own (`uow.Consistent`, on a small
-  pool of its own, so a request never waits for a second connection of
-  the pool it holds one of) and writes in its request's: run whole at
-  `REPEATABLE READ`, the write would fail whenever another write of the
-  tenant committed meanwhile.
+  ADR-0057), and a read whose figures come from several statements that
+  must agree, such as an asset with its terms and values (`getAsset`;
+  every such read of the assets context, ADR-0057 As built). The
+  contract allows the mark on a `GET` and on a read carried in a `POST`
+  for its body (`x-autonomy: read`, such as `previewDepreciationRun`),
+  which runs read-write at that level for its idempotency record alone
+  and so must write nothing else (no audit, no outbox); nowhere else
+  (`api/spec.go`). A write that records such a report, as taking a
+  snapshot of the liquidity forecast does (`takeCashSnapshot`, ADR-0051
+  §6, T53f), reads it in a read-only `REPEATABLE READ` transaction of
+  its own (`uow.Consistent`, on a small pool of its own, so a request
+  never waits for a second connection of the pool it holds one of) and
+  writes in its request's: run whole at `REPEATABLE READ`, the write
+  would fail whenever another write of the tenant committed meanwhile.
 
 ## 4.8 Long-running operations
 

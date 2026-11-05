@@ -282,8 +282,12 @@ func TestParity(t *testing.T) {
 		}
 		// Each lag's figure is of its own snapshots, a blocked supplier's
 		// line and a bucket's sum left out, a snapshot on demand only
-		// where its date has no daily one.
-		for metric, want := range map[string]string{"forecast_lag_0": "40.00", "forecast_lag_7": "-19.00", "forecast_lag_30": "-3.00"} {
+		// where its date has no daily one. 31 March's receipt was not
+		// forecast a month ahead and its bank charges forecast were not
+		// paid: 503.00 over 3.00, an accuracy of -166.6667; nothing
+		// forecast a week ahead was paid on its day: 0.
+		for metric, want := range map[string]string{"forecast_lag_0": "40.00", "forecast_lag_7": "-19.00", "forecast_lag_30": "-3.00",
+			"variance_lag_30": "503.00", "absolute_variance_lag_30": "503.00", "accuracy_lag_30": "-166.6667", "accuracy_lag_7": "0.0000"} {
 			res, err := analytics.Execute(m, dbFacts, analytics.Principal{Companies: []string{"2000"}}, analytics.Query{Measures: []string{metric}})
 			if err != nil || len(res.Rows) != 1 || fmt.Sprint(res.Rows[0][0]) != want {
 				t.Errorf("%s of 2000: got %v, %v; want %s", metric, res, err, want)
@@ -382,13 +386,15 @@ func (p parity) permissions(t *testing.T) {
 		"orders":           `{"measures": ["purchase_order_value"], "by": ["company", "account_name", "vendor_name"]%s}`,
 		"cash":             `{"measures": ["actual"], "by": ["company", "liquidity_item_name", "house_bank"]%s}`,
 		"cash and vendors": `{"measures": ["actual", "invoice_count"], "by": ["company"]%s}`,
-		"forecast":         `{"measures": ["forecast_lag_7"], "by": ["company", "liquidity_item_name", "house_bank", "source", "certainty"]%s}`,
+		"forecast":         `{"measures": ["forecast_lag_7"], "by": ["company", "liquidity_item_name", "house_bank", "flow_source", "certainty"]%s}`,
+		"accuracy":         `{"measures": ["accuracy_lag_30", "variance_lag_30"], "by": ["company", "liquidity_item_name"]%s}`,
 	}
 	// needs are the permissions of the four checked each query's reads need.
 	needs := map[string][]string{
 		"accounts": {"tenancy.org.read", "partner.supplier.read", "ledger.account.read"}, "vendors": {"tenancy.org.read", "partner.supplier.read"},
 		"orders": {"tenancy.org.read", "partner.supplier.read", "ledger.account.read"}, "cash": {"tenancy.org.read", "cash.forecast.read"},
 		"cash and vendors": {"tenancy.org.read", "partner.supplier.read", "cash.forecast.read"}, "forecast": {"tenancy.org.read", "cash.forecast.read"},
+		"accuracy": {"tenancy.org.read", "cash.forecast.read"},
 	}
 	for _, perm := range []string{"tenancy.org.read", "partner.supplier.read", "ledger.account.read", "cash.forecast.read"} {
 		for how, c := range map[string]struct {
@@ -499,8 +505,8 @@ func (p parity) person(t *testing.T, lacking string, companies []string) pgtest.
 	return a
 }
 
-// isolation: the store answers a tenant's cash actuals and forecast from
-// its own rows and a principal's from its companies' alone. Tampered with,
+// isolation: the store answers a tenant's cash actuals, forecast and
+// accuracy from its own rows and a principal's from its companies' alone. Tampered with,
 // it shows none of the others: the tenant's files of either dataset
 // published again under another tenant's manifest give that tenant no
 // rows (each row's tenant_id is the view's filter, not the key's), and a
@@ -521,6 +527,8 @@ func (p parity) isolation(t *testing.T) {
 	for dataset, want := range map[string][]string{
 		"cash_actuals":   {"1000 5500 USD", "2000 28500 EUR"},
 		"cash_snapshots": {"1000 70 USD", "2000 1345 EUR"},
+		// The three figures of every cell at every lag added up.
+		"cash_accuracy": {"1000 20790 USD", "2000 117400 EUR"},
 	} {
 		t.Run(dataset, func(t *testing.T) { p.isolated(t, key, m, dataset, want) })
 	}

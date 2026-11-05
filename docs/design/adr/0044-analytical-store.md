@@ -706,7 +706,9 @@ the lag; decided by default otherwise).** Dataset `cash_snapshots` v1
 dated `value_date`: one row per line at document level of each company's
 snapshot of each date, with `snapshot_id` (its id), `line_no`, `company`,
 `lag_days` (the value date less the snapshot's date, 0 to 30), `house_bank`
-(its code, null for a flow of no bank), `source`, `certainty`, `blocked`
+(its code, null for a flow of no bank), `flow_source` (the line's source,
+named so that it is not read as the answer's own `source`, review of
+T53j2, renamed in v1 before any release), `certainty`, `blocked`
 (a blocked supplier's flow, source `payable_blocked`), `liquidity_item` and
 `liquidity_item_name` (null for no item), and the signed amount as
 `amount_minor`, `currency`, `exponent`; one file per month of value dates.
@@ -714,15 +716,15 @@ The semantic layer's metrics `forecast_lag_0`, `forecast_lag_7` and
 `forecast_lag_30` (sum, filtered on `lag_days` and on `blocked` false; the
 agent's word `forecast` means `forecast_lag_7`) have the dimensions
 company, currency, the fiscal periods, `value_date`, `house_bank`,
-`source`, `certainty`, `liquidity_item` and `liquidity_item_name`.
+`flow_source`, `certainty`, `liquidity_item` and `liquidity_item_name`.
 Decisions:
 - *One lag per metric* (product owner 2026-11-04: the forecast is read at
   a single lag, 0, 7 or 30, from daily snapshots). A metric's `filter`
   already fixes a dimension to values, so each lag is a metric of its own
   rather than a new rule that a query must pick one lag: a sum over lags
-  would add the same day's flow forecast by several snapshots, and a
-  metric derived from `forecast_lag_n` and `actual` (T53j3's variance)
-  keeps the lag without a dimension `actual` does not have. `lag_days` is
+  would add the same day's flow forecast by several snapshots, and the
+  variance and accuracy per lag (T53j3, below, compared in cells of their
+  own) keep the lag the same way. `lag_days` is
   a dimension of the dataset (the filter's), not of the metrics: each
   metric holds one value of it. The three are the variance's lags
   (ADR-0051 As built T53f3).
@@ -759,9 +761,25 @@ Decisions:
   document is a column. The house bank by code only, as for the actuals.
 - *Marked due.* The relay's batches of `cash` (a snapshot taken, a memo
   record or comment, which change nothing here but cost one run) mark a
-  tenant due. Retention publishes no event: a snapshot deleted after 25
-  months leaves the store at the next run of the tenant, at the latest
-  the sweep's (ADR-0044 T55c).
+  tenant due. Retention publishes no event, and the daily workflow prunes
+  (`PruneSnapshots`) after the snapshot it takes has committed, so the
+  run that snapshot's event starts may read the expired one still: a
+  snapshot deleted after 25 months stays in the store's files until the
+  tenant's next run, which the next relayed batch of a context a dataset
+  reads starts, at the latest the sweep's. The sweep runs hourly
+  (`SweepEvery`, default an hour, as erp-server wires it) and marks a
+  tenant whose store was last checked longer ago than the freshness
+  target (15 minutes; nothing but a run moves `checked_at`), so the
+  deleted snapshot leaves the files within about `SweepEvery` plus the
+  target of its deletion, and the next day's snapshot ends it in any
+  case. No answer shows it beyond the target, plus the replica's replay
+  lag, after the deletion (a run reading a lagging replica may record its
+  check after the prune with files that still hold it): the
+  store answers only while checked within the target, the database path
+  no longer has it, and a superseded manifest's files kept for running
+  queries (`Keep`) answer no new one (verified against `extract.Sweep`,
+  `Scheduler.sweepIfDue`, `store.ReadSnapshot` and `TakeCashSnapshot`,
+  T53j3).
 - *Held whole, at pilot scale.* As the actuals: a company's 25 months of
   daily snapshots at document level are a few hundred thousand lines at
   most; the database path reads a legal entity's whole forecast per
@@ -777,6 +795,106 @@ Decisions:
   `TestSourceForecastErrors`; `store.TestParity` (every query of the three
   metrics, permissions `forecast`, isolation and tamper of
   `cash_snapshots`, each lag's figure in "not vacuous"); the
+  walkthrough's step 38.
+
+**The forecast's variance and accuracy (T53j3, ADR-0051 §11; product
+owner 2026-11-04 on WAPE; decided by default otherwise).** Dataset
+`cash_accuracy` v1 (`analytics/datasets/v1/cash_accuracy.yaml`), a fact
+of load `snapshot` dated `value_date`: per cell of a company's value
+date compared at a lag of 0, 7 or 30 days, currency and liquidity item,
+three rows, one per `figure`: `variance` (the actual less the forecast,
+signed), `absolute_variance` and `absolute_forecast` (their sizes), with
+`cell_id` (a name-based id of the legal entity, day, lag, currency and
+item), `company`, `lag_days`, `liquidity_item`, `liquidity_item_name`
+(null for no item) and `amount_minor`, `currency`, `exponent`; one file
+per month of value dates. Metrics, per lag N of 0, 7 and 30:
+`variance_lag_N` (sum of `variance`), `absolute_variance_lag_N` and
+`absolute_forecast_lag_N` (sums of the absolute figures, WAPE's terms),
+each filtered on `lag_days` and `figure` as the forecast's metrics filter
+`lag_days`; and `accuracy_lag_N`, a ratio, derived by the new op
+`complement` from the two absolute sums. They have the dimensions
+company, currency, the fiscal periods, `value_date`, `liquidity_item` and
+`liquidity_item_name`; the agent's words `variance` and `accuracy` mean
+the lag 7 ones, as `forecast` does. Decisions:
+- *The cell's absolute value: a dataset at the cell's grain, not a new
+  aggregate kind.* WAPE (product owner 2026-11-04) is Σ|actual −
+  forecast| / Σ|forecast| over item × currency × day cells, so each
+  cell's size is taken before cells are added, over two datasets. The
+  semantic layer's base metrics sum or count one dataset and its derived
+  metrics combine two figures of the same group, so an aggregate that
+  groups to cells first would be a second mechanism of aggregation: the
+  engine would group each base metric at two grains in one query, and
+  the store's plans, the reader's SQL and the database path would each
+  learn it. The cell instead is a row: the cash context, which already
+  classifies the actuals and reads the snapshots for both paths, compares
+  them once in cells (`cash.AccuracyCells`, `ExtractAccuracyCells`, the
+  third method of the same ports `analytics.Cash` and `extract.Cash`),
+  and the existing sums and filters do the rest, unchanged in the
+  reader, the plans and the parity test. The cost is a copy of the
+  compared cells in the store (three rows per cell), and a run that
+  classifies the actuals twice (once for `cash_actuals`, once for the
+  cells), held whole at pilot scale as both datasets are.
+- *A cell* is a company's value date, lag, currency and liquidity item
+  (the product owner's item × currency × day; the company is the
+  variance report's legal entity), as the variance report compares its
+  leaf rows: the actuals' shares of the day against the lines at document
+  level of the snapshot the variance would compare with (the daily one,
+  else the last on demand, `snapshotPreferred`), blocked suppliers' flows
+  left out, every certainty counted, exactly the figures `actual` and
+  `forecast_lag_N` give for that day, item and currency. Breaking a cell
+  down further (house bank, source, match) is not offered: it would
+  change the cells and so the WAPE.
+- *Which days are compared: the variance report's rules.* A value date is
+  compared at a lag when it is on or before the company's date
+  (`checkPassed`: a day not yet passed would count every flow due as
+  missing), the company's snapshot of the date the lag before was taken
+  (`snapshotOn`: none is 409 there, so the day is not compared here
+  rather than counted as nothing forecast) and its horizon reaches the
+  day (`checkHorizon`). On a compared day a cell of an actual alone counts
+  its size in the numerator and nothing in the denominator, one of a
+  forecast alone its size in both. So `variance_lag_N` is `actual` less
+  `forecast_lag_N` over the days compared, not over every day: a future
+  day forecast or a past day of no snapshot is not a variance. The
+  company's date is read when the cells are (the store's at its run, so
+  a day passing shows in the store's answer at its next run, within the
+  freshness target, as any change does).
+- *Rounding: 100 less the rounded WAPE.* The product owner's accuracy is
+  100 less WAPE rounded as `money.AbsPercentOf`, two decimals half away
+  from zero, so that for one cell it is 100 less the variance report's
+  `variance_percent`. Rounding `1 − WAPE` instead differs on a half
+  (12.345% gives 87.66%, not 87.65%), so the op `complement` is `1 −
+  left / right` with the quotient rounded to a ratio's four digits (two
+  of a percentage) first; a ratio as the semantic layer shows every ratio
+  (0.8765 is 87.65%, as `operating_margin`). It is an op of the same
+  derivation (two metrics, a type `ratio` required), since the semantic
+  layer has no constant to subtract from; `AnalyticsDerived.op` is an
+  open enumeration, so it is not a breaking change.
+- *Nothing forecast: no accuracy.* Where Σ|forecast| is zero the
+  accuracy has no value (null), as the variance report shows no
+  `variance_percent` when nothing was forecast and a ratio over zero
+  has none; `variance_lag_N` and the absolute sums still show. An
+  accuracy below zero (a variance larger than the forecast) is shown as
+  it is, not floored, as WAPE above 100% is.
+- *Several currencies are not added*: a query of the accuracy across
+  currencies without breaking it down by currency is 422, as for every
+  sum of two currencies; amounts are never converted (ADR-0051 §10).
+- *Permissions*: `cash.forecast.read` (`FactDatasets`), as the actuals
+  and the snapshots; no `partner.supplier.read`: no supplier, document or
+  bank is a column.
+- *Marked due*: by the actuals' and the snapshots' contexts already
+  (`payments`, `config`, `cash`), and by the sweep for a day passing.
+- *Evidence.* `cash.TestAccuracyCells` (days passed, a snapshot's
+  horizon, a snapshot on demand not preferred, blocked flows, cells of an
+  actual or a forecast alone, in two currencies), `TestAccuracyCellsTooLarge`,
+  `TestAccuracyCellsFailures`; `extract.TestCashAccuracy`,
+  `TestCashAccuracyFailures`; `analytics.TestAccuracyFigures` (hand-checked:
+  mixed signs, a cell of no forecast, a half, accuracy below zero, none
+  where nothing was forecast, two currencies refused),
+  `TestAccuracyOfOneCell` (each cell 100 less `money.AbsPercentOf`),
+  `TestSourceReadsCashAccuracy`, `TestSourceAccuracyErrors`,
+  `TestQueryValueErrors`, `TestModelValidationMessages`; `store.TestParity`
+  (every query of the twelve metrics, permissions `accuracy`, isolation
+  and tamper of `cash_accuracy`, figures in "not vacuous"); the
   walkthrough's step 38.
 
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot

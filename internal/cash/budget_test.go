@@ -7,7 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/nfr"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 // TestCashPositionBudget holds the cash position to ADR-0051's read budget
@@ -98,7 +104,7 @@ func (e positionEnv) budgetData(t *testing.T) {
 
 // TestLiquidityForecastBudget holds the liquidity forecast and its
 // drill-down to their read budget at 100,000 open supplier items (p95 3 s,
-// ADR-0051 §6 as built T53e4, 01 §Performance): Maple Inc owes two
+// p99 6 s, ADR-0051 §6 as built T53e4, 01 §Performance): Maple Inc owes two
 // suppliers set up in the company and its blocked vendor, each item with
 // its terms (net 15-119 days from its document date, every third with a 2%
 // tier) and its expense line, read in the company's buckets and converted
@@ -106,32 +112,13 @@ func (e positionEnv) budgetData(t *testing.T) {
 // T53g it also has 10,000 purchase orders of five items, 2,000 of them
 // released and open (forecastOrderData). No index is added for the due
 // date, which is computed: the read takes every open item, so an index on
-// it would not narrow it (§6). The first read of each warms the caches
-// and is not counted.
+// it would not narrow it (§6).
 func TestLiquidityForecastBudget(t *testing.T) {
 	nfr.Measure(t)
 	e := setupForecast(t, withItems)
 	e.forecastBudgetData(t)
 	e.forecastOrderData(t)
-	budget := nfr.Budget(3 * time.Second)
-	measure := func(what, query string, check func(map[string]any)) {
-		t.Helper()
-		e.Must(200, "GET", query, "", "")
-		var times []time.Duration
-		for range 20 {
-			start := time.Now()
-			f, _ := e.Must(200, "GET", query, "", "")
-			times = append(times, time.Since(start))
-			check(f)
-		}
-		slices.Sort(times)
-		p95 := times[len(times)*95/100]
-		t.Logf("%s over 100,000 open items: median %v, p95 %v", what, times[len(times)/2], p95)
-		if p95 > budget {
-			t.Fatalf("%s p95 %v exceeds the %v budget (3 s scaled by ERP_BUDGET_SCALE)", what, p95, budget)
-		}
-	}
-	measure("liquidity forecast", "/v1/liquidity-forecast?legal_entity_id="+e.le.String()+"&display_currency=CAD", func(f map[string]any) {
+	reportBudget(t, e.Client, "liquidity forecast over 100,000 open items", "/v1/liquidity-forecast?legal_entity_id="+e.le.String()+"&display_currency=CAD", func(f map[string]any) {
 		cad := f["currencies"].([]any)[0].(map[string]any)
 		if got := amount(cad["blocked"].(map[string]any)["amount"]); got == "0.00 CAD" {
 			t.Fatalf("blocked: got %s, want the vendor's items", got)
@@ -140,7 +127,7 @@ func TestLiquidityForecastBudget(t *testing.T) {
 			t.Fatal("orders: got no purchase_order flow, want the open orders'")
 		}
 	})
-	measure("drill-down of a month", "/v1/liquidity-forecast-flows?legal_entity_id="+e.le.String()+"&currency=CAD&from=2026-07-17&to=2026-08-16"+
+	reportBudget(t, e.Client, "drill-down of a month over 100,000 open items", "/v1/liquidity-forecast-flows?legal_entity_id="+e.le.String()+"&currency=CAD&from=2026-07-17&to=2026-08-16"+
 		"&liquidity_item=OP_SUPPLIERS&page_size=500", func(p map[string]any) {
 		if p["count"].(float64) == 0 {
 			t.Fatal("drill-down: got no flows, want the month's")
@@ -148,34 +135,151 @@ func TestLiquidityForecastBudget(t *testing.T) {
 	})
 }
 
+// groupBudgetCompanies are the further companies of the group forecast's
+// budget, each configured as Maple Inc is (withGroupBudget).
+var groupBudgetCompanies = []fixture.Company{{Code: "3100", Name: "Maple West", Country: "CA", Currency: "CAD"},
+	{Code: "3200", Name: "Maple East", Country: "CA", Currency: "CAD"}, {Code: "3300", Name: "Maple North", Country: "CA", Currency: "CAD"},
+	{Code: "3400", Name: "Maple South", Country: "CA", Currency: "CAD"}}
+
+// withGroupBudget is withItems with groupBudgetCompanies configured as
+// Maple Inc is: its chart, house banks MAIN in CAD and USD in USD, payment
+// method T and cash settings.
+func withGroupBudget(doc *config.Config) {
+	withItems(doc)
+	for _, c := range groupBudgetCompanies {
+		co := *doc.Company("3000")
+		co.Code, co.Name = c.Code, c.Name
+		doc.Companies = append(doc.Companies, co)
+	}
+}
+
+// TestGroupLiquidityForecastBudget holds the group liquidity forecast to
+// the budget of the company's (p95 3 s, p99 6 s; 01 §1.3, PO decision of
+// 2026-11-04, ADR-0051 §9 as built T53e5) at 100,000 open items in total:
+// Maple Inc and four companies configured as it is, 20,000 items each as
+// forecastBudgetData writes them, every third in USD, so that the group's
+// read pays its per-company cost five times and converts two currencies
+// into EUR, the group currency, at planning rates; Acme Corp US and Acme
+// GmbH, with no items, are read too, as every company the caller may act
+// in is. Read in the default buckets.
+func TestGroupLiquidityForecastBudget(t *testing.T) {
+	nfr.Measure(t)
+	e := setupForecastOf(t, groupBudgetCompanies, withGroupBudget)
+	companies := []budgetCompany{{le: e.le, payables: e.payables, expense: e.expense}}
+	for _, c := range groupBudgetCompanies {
+		var le uuid.UUID
+		pgtest.Scan(t, `SELECT id FROM tenancy.legal_entity WHERE tenant_id = $1 AND code = $2`, []any{e.Tenant.ID, c.Code}, &le)
+		companies = append(companies, budgetCompany{le: le, payables: e.Account(t, c.Code, "211000"), expense: e.Account(t, c.Code, "520000")})
+	}
+	e.budgetItems(t, companies, 20000, true)
+	e.rate(t, "planning", "CAD", "EUR", "2026-04-01", "0.660000000000")
+	e.rate(t, "planning", "USD", "EUR", "2026-04-01", "0.920000000000")
+	reportBudget(t, e.Client, "group liquidity forecast over 100,000 open items of five companies", "/v1/group-liquidity-forecast", func(g map[string]any) {
+		if got := len(g["companies"].([]any)); got != 7 {
+			t.Fatalf("companies: got %d, want 7", got)
+		}
+		// Each of the five companies converted both currencies: the read
+		// took its items.
+		for _, c := range g["companies"].([]any) {
+			cm := c.(map[string]any)
+			if strings.HasPrefix(cm["company_code"].(string), "3") {
+				if got := len(cm["rates"].([]any)); got != 2 {
+					t.Fatalf("rates of %s: got %d, want CAD's and USD's", cm["company_code"], got)
+				}
+			}
+		}
+		if got := g["converted"].(map[string]any)["incomplete_currencies"].([]any); len(got) != 0 {
+			t.Fatalf("converted incomplete: got %v, want none", got)
+		}
+		blocked := map[string]string{}
+		for _, c := range g["currencies"].([]any) {
+			cm := c.(map[string]any)
+			blocked[cm["currency"].(string)] = amount(cm["blocked"].(map[string]any)["amount"])
+		}
+		for _, code := range []string{"CAD", "USD"} {
+			if got, ok := blocked[code]; !ok || got == "0.00 "+code {
+				t.Fatalf("blocked in %s: got %q, want the vendor's items", code, got)
+			}
+		}
+	})
+}
+
+// reportBudget holds a report's read to the report budget of 01 §1.3
+// (p95 3 s, scaled by ERP_BUDGET_SCALE): the first read warms the caches
+// and is not counted, then 20 reads are timed and each checked. The p95
+// of 20 is the slowest read, so it holds the p99 of 6 s too.
+func reportBudget(t *testing.T, c apitest.Client, what, query string, check func(map[string]any)) {
+	t.Helper()
+	c.Must(200, "GET", query, "", "")
+	var times []time.Duration
+	for range 20 {
+		start := time.Now()
+		f, _ := c.Must(200, "GET", query, "", "")
+		times = append(times, time.Since(start))
+		check(f)
+	}
+	slices.Sort(times)
+	p95 := times[len(times)*95/100]
+	t.Logf("%s: median %v, p95 (the slowest of 20) %v", what, times[len(times)/2], p95)
+	if budget := nfr.Budget(3 * time.Second); p95 > budget {
+		t.Fatalf("%s: p95 %v exceeds the %v budget (3 s scaled by ERP_BUDGET_SCALE)", what, p95, budget)
+	}
+}
+
 // forecastBudgetData writes the budget's 100,000 open items straight into
-// the leading ledger, without the checks a posting runs: 45,000 for each
-// supplier set up in Maple Inc and 10,000 for its blocked vendor.
+// the leading ledger, without the checks a posting runs: 40,000 for
+// Maple Inc's supplier, 50,000 for a further supplier and 10,000 for its
+// blocked vendor.
 func (e forecastEnv) forecastBudgetData(t *testing.T) {
 	t.Helper()
+	e.budgetItems(t, []budgetCompany{{le: e.le, payables: e.payables, expense: e.expense}}, 100000, false)
+}
+
+// budgetCompany is a company budgetItems writes open items for: its legal
+// entity and its payables and expense accounts.
+type budgetCompany struct{ le, payables, expense uuid.UUID }
+
+// budgetItems writes perCompany open items of each company straight into
+// the leading ledger, without the checks a posting runs: in each company,
+// every tenth item the vendor's (blocked for payment there), the other
+// even ones the supplier's and the odd ones a further supplier's, all paid
+// by method T, each with its terms (net 15-119 days from its document
+// date, every third with a 2% tier) and its expense line; in CAD, or with
+// usd every third (the first, fourth and so on) in USD. Each line's local
+// and group amounts repeat the transaction amount: the forecast reads the
+// transaction currency's.
+func (e forecastEnv) budgetItems(t *testing.T, companies []budgetCompany, perCompany int, usd bool) {
+	t.Helper()
 	other := e.NewSupplier(t, "BP90000041")
-	e.exec(t, `UPDATE partner.supplier_company SET payment_methods = '{T}', version = version + 1 WHERE legal_entity_id = $1 AND partner_id = $2`, e.le, other)
+	les, payables, expenses := make([]uuid.UUID, len(companies)), make([]uuid.UUID, len(companies)), make([]uuid.UUID, len(companies))
+	for i, c := range companies {
+		les[i], payables[i], expenses[i] = c.le, c.payables, c.expense
+	}
+	e.exec(t, `UPDATE partner.supplier_company SET payment_methods = '{T}', is_payment_blocked = partner_id = $2, version = version + 1
+		WHERE tenant_id = $1 AND legal_entity_id = ANY($3) AND partner_id IN ($2, $4, $5)`, e.Tenant.ID, e.Vendor, les, e.Supplier, other)
 	e.exec(t, `SET session_replication_role = replica`)
 	e.exec(t, `CREATE TEMP TABLE budget_item AS
-		SELECT n, gen_random_uuid() AS id, date '2026-01-01' + (n % 107) AS day,
-			CASE WHEN n % 10 = 0 THEN $1::uuid WHEN n % 2 = 0 THEN $2::uuid ELSE $3::uuid END AS partner
-		FROM generate_series(1, 100000) n`, e.Vendor, e.Supplier, other)
+		SELECT n, gen_random_uuid() AS id, date '2026-01-01' + (n % 107) AS day, c.k, c.le, c.payables, c.expense,
+			CASE WHEN n % 10 = 0 THEN $1::uuid WHEN n % 2 = 0 THEN $2::uuid ELSE $3::uuid END AS partner,
+			CASE WHEN $8 AND n % 3 = 1 THEN 'USD' ELSE 'CAD' END AS currency
+		FROM unnest($4::uuid[], $5::uuid[], $6::uuid[]) WITH ORDINALITY AS c(le, payables, expense, k), generate_series(1, $7) n`,
+		e.Vendor, e.Supplier, other, les, payables, expenses, perCompany, usd)
 	e.exec(t, `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period, document_type, document_number,
 			document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, source_document_id, posted_by)
-		SELECT $1, 2026, id, $2, $3, extract(month FROM day), 'KR', 'B' || n, day, day, 'CAD', 'CAD', 'EUR', 1, 1, 'payables', gen_random_uuid(), $4
-		FROM budget_item`, e.Tenant.ID, e.le, e.leading, e.Tenant.Human.ID)
+		SELECT $1, 2026, id, le, $2, extract(month FROM day), 'KR', 'B' || k || '-' || n, day, day, currency, 'CAD', 'EUR', 1, 1, 'payables', gen_random_uuid(), $3
+		FROM budget_item`, e.Tenant.ID, e.leading, e.Tenant.Human.ID)
 	e.exec(t, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period, posting_date,
 			account_id, partner_id, amount_tc, amount_lc, amount_gc)
-		SELECT $1, 2026, id, k, $2, $3, extract(month FROM day), day, CASE WHEN k = 1 THEN $4::uuid ELSE $5::uuid END, CASE WHEN k = 1 THEN partner END,
-			CASE WHEN k = 1 THEN -(1000 + n % 997) ELSE 1000 + n % 997 END, CASE WHEN k = 1 THEN -(1000 + n % 997) ELSE 1000 + n % 997 END,
-			CASE WHEN k = 1 THEN -(1000 + n % 997) ELSE 1000 + n % 997 END
-		FROM budget_item, generate_series(1, 2) k`, e.Tenant.ID, e.le, e.leading, e.payables, e.expense)
+		SELECT $1, 2026, id, j, le, $2, extract(month FROM day), day, CASE WHEN j = 1 THEN payables ELSE expense END, CASE WHEN j = 1 THEN partner END,
+			CASE WHEN j = 1 THEN -(1000 + n % 997) ELSE 1000 + n % 997 END, CASE WHEN j = 1 THEN -(1000 + n % 997) ELSE 1000 + n % 997 END,
+			CASE WHEN j = 1 THEN -(1000 + n % 997) ELSE 1000 + n % 997 END
+		FROM budget_item, generate_series(1, 2) j`, e.Tenant.ID, e.leading)
 	e.exec(t, `INSERT INTO ledger.open_item_terms (tenant_id, fiscal_year, journal_entry_id, line_no, payment_term_code, baseline_date, net_days,
 			discount_days, discount_pct)
 		SELECT $1, 2026, id, 1, 'T', day, 15 + n % 105, CASE WHEN n % 3 = 0 THEN 10 END, CASE WHEN n % 3 = 0 THEN 2 END FROM budget_item`, e.Tenant.ID)
 	e.exec(t, `DROP TABLE budget_item`)
 	e.exec(t, `RESET session_replication_role`)
-	e.exec(t, `ANALYZE ledger.journal_entry, ledger.journal_line, ledger.open_item_terms`)
+	e.exec(t, `ANALYZE ledger.journal_entry, ledger.journal_line, ledger.open_item_terms, partner.supplier_company`)
 }
 
 // forecastOrderData writes the budget's purchase orders straight into

@@ -1157,6 +1157,13 @@
        },
        {
         "s": "D",
+        "t": "The acquisitions worklist's lines are planned per call (TestClearingItemsBudget at scale 1, a fix step after batch 53): ledger AssetReads.ClearingLines ran as a cached prepared statement, so from its sixth run on a connection PostgreSQL used a generic plan that keeps the first page's cursor condition and cannot size the Skip and Keep arrays; over 20,000 clearing lines the query went from 38 ms to 65-80 ms and the request's median from about 100 ms to 130-190 ms against the 150 ms budget. It now passes pagination.PlanPerCall, as every listing does. The ~10.5 s the t57f3 and snapprev lanes measured was their base (de8110a9), which predates batch 48's usesOf fix (70f9e43a): its per-line OR scanned every acquisition for every line (EXPLAIN ANALYZE 11-15 s against 32-65 ms)",
+        "r": "internal/ledger/assetreads.go (ClearingLines) · internal/assets/clearing_budget_test.go (TestClearingItemsBudget)",
+        "src": "review:T57d",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "Depreciation schedule and preview: the planned schedule walk (straight-line; declining balance with the switch to straight-line), rounding with d_k = max(0, min(d_k, B_k - R_k)), late acquisitions (one valued before a retirement posted earlier), retirements applied by their recorded amounts, a transfer in's residual value, end of life, planned less booked for a run and a catch-up (negative when the period's own run is posted), table tests per method including two retirements in one period; GET /v1/assets/{id}/schedule; GET /v1/assets/{id}/movements (ledger, year, kind; ADR-0057 §10, given to this slice at batch 47 integration since no slice owned it); POST /v1/depreciation-runs/preview with totals per account and center; walkthrough: the preview of the asset's first period in each ledger",
         "r": "internal/assets (schedule.go: Walk, Planned, Month; depreciation.go; schedule_api.go; preview.go) · ledger.Calendar.Periods, port assets.Ledger.Periods (internal/app/assets.go) · GET /v1/assets/{id}/schedule, GET /v1/assets/{id}/movements (ADR-0057 §10, assigned at batch 47's integration), POST /v1/depreciation-runs/preview (x-autonomy read) · TestScheduleWalk, TestCatchUps, TestScheduleWalkRefused, TestAssetSchedule, TestPreviewDepreciationRun, TestAssetMovements, TestDepreciationReadFailures, TestPreviewSettingsLost, TestDepreciationOutOfRange, TestAccountsAndCalendarPorts · walkthrough step_asset_depreciation (step 25) · ADR-0057 (as built, T57e) · 03-data-model §3.21 · T57e",
         "src": "adr:ADR-0057",
@@ -1187,6 +1194,13 @@
         "s": "D",
         "t": "The depreciation run's preview and the asset history sheet read in one snapshot (review finding on T57f3, a step of T57f's): the preview's selection with the depreciation booked, its moves and its page's names, and the sheet's totals and its page by asset, are separate statements, so a posting committed between them could leave one response's totals disagreeing with its own figures; both are marked x-snapshot, which now allows a read carried in a POST (x-autonomy: read)",
         "r": "api/openapi.yaml (previewDepreciationRun, getAssetHistorySheet: x-snapshot) · api/spec.go (x-snapshot on GET or x-autonomy: read) · uow.Middleware.scope (a marked POST at REPEATABLE READ, read-write) · app.Config.Begin, httpapi.Pipeline.Begin (tests) · TestPreviewInOneSnapshot, TestAssetHistorySheetInOneSnapshot, TestSnapshotOperations, TestSnapshotRequests · 04-api-design §4.7 · ADR-0051 (one snapshot, as built) · ADR-0057 (as built, the preview's snapshot)",
+        "src": "review:T57f",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Every read of the assets context in one snapshot (review finding on the preview's snapshot step, T57f's): getAsset and listAssets read the asset, its terms and its values in separate statements, so a posting committed between them could show the terms unbooked beside the posting's accumulated depreciation; the sweep found the class in the schedule, the acquisition, retirement and transfer reads, the depreciation runs' and the clearing worklist, all marked x-snapshot",
+        "r": "api/openapi.yaml (getAsset, listAssets, getAssetSchedule, get/listAssetAcquisition(s), get/listAssetRetirement(s), get/listAssetTransfer(s), get/listDepreciationRun(s), listAssetClearingItems: x-snapshot) · TestReadsInOneSnapshot, TestSnapshotOperations · 04-api-design §4.7 · ADR-0057 (as built, every read in one snapshot)",
         "src": "review:T57f",
         "c": []
        },
@@ -1475,6 +1489,13 @@
        },
        {
         "s": "D",
+        "t": "Group liquidity forecast performance budget (review of T53e5: x-slo-class report had none; PO decision 2026-11-04, option a): the company forecast's row of 01 §1.3, p95 3 s and p99 6 s, over 100,000 open items in total across the caller's companies",
+        "r": "cash.TestGroupLiquidityForecastBudget (five companies of 20,000 items, CAD and USD into EUR) · budgetItems, reportBudget, setupForecastOf, setupPositionOf (shared with TestLiquidityForecastBudget) · 01 §1.3 Performance · ADR-0051 (as built, T53e5)",
+        "src": "review:T53e5 · po:2026-11-04",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "Snapshots of the liquidity forecast: TakeCashSnapshot workflow per company and day after its snapshot_time (run-twice test, document level within 31 days, per bucket beyond), on-demand snapshots, retention of 25 months, a snapshot read with its lines (split: the actuals, the variance and its comments are T53f2-T53f4)",
         "r": "POST/GET /v1/cash-snapshots, GET /v1/cash-snapshots/{id}, GET /v1/cash-snapshots/{id}/flows (CashSnapshot, CashSnapshotFlowPage) · CashSnapshotTaken event · migration 000198 (cash.snapshot, cash.snapshot_flow, cash.snapshot.take) · cash.Endpoints.TakeSnapshot, TakeDailySnapshot, PruneSnapshots, DueSnapshots, SnapshotTenants, Snapshot, Snapshots, SnapshotLines · uow.Consistent · workflows.TakeCashSnapshot, Snapshots, Snapshotter, Dispatcher.Snapshots · TestCashSnapshotRules, TestCashSnapshotPrivileges, TestCashSnapshot*, TestConsistentRead, TestTakeCashSnapshot, TestTakeSnapshotTwice, TestDispatchSnapshots, TestSnapshotter · walkthrough step 26 · ADR-0051 (as built, T53f) · 03-data-model §3.18 · T53f",
         "src": "baseline",
@@ -1545,15 +1566,15 @@
        },
        {
         "s": "D",
-        "t": "Analytics, the forecast: dataset cash_snapshots (contract file, one row per line at document level of each company's snapshot of each date, the daily one else the last taken on demand, with lag_days = value_date - snapshot_date; read by the cash context through the actuals' ports, extracted in the tenant's run; the relay marks a tenant due for the cash context's events), semantic dimensions source and certainty, metrics forecast_lag_0, forecast_lag_7 and forecast_lag_30 (one lag each, blocked suppliers' flows left out); no partner.supplier.read; parity, isolation and tamper tests",
-        "r": "analytics/datasets/v1/cash_snapshots.yaml · semantic.yaml forecast_lag_0/7/30, source, certainty, lag_days, blocked · cash.ForecastShares, ExtractForecastShares, snapshotPreferred, asCaller, asExtract · analytics.Cash, ForecastShare · extract.Cash, ForecastShare, cashForecast, cashOf · app.AnalyticsCash · extract changing cash · runAnalyticsQuery description · TestForecastShares, TestForecastSharesFailures, TestCashForecast, TestCashForecastFailures, TestMarksTheCashChanged, TestSourceReadsCashForecast, TestSourceForecastErrors, TestParity (forecast, permissions, isolation) · walkthrough step 38 · ADR-0044 (As built T53j2) · ADR-0051 §6 (As built T53j2) · 03-data-model §3.18 · T53j2",
+        "t": "Analytics, the forecast: dataset cash_snapshots (contract file, one row per line at document level of each company's snapshot of each date, the daily one else the last taken on demand, with lag_days = value_date - snapshot_date; read by the cash context through the actuals' ports, extracted in the tenant's run; the relay marks a tenant due for the cash context's events), semantic dimensions flow_source (named source until T53j3, before release) and certainty, metrics forecast_lag_0, forecast_lag_7 and forecast_lag_30 (one lag each, blocked suppliers' flows left out); no partner.supplier.read; parity, isolation and tamper tests",
+        "r": "analytics/datasets/v1/cash_snapshots.yaml · semantic.yaml forecast_lag_0/7/30, flow_source (named source until T53j3), certainty, lag_days, blocked · cash.ForecastShares, ExtractForecastShares, snapshotPreferred, asCaller, asExtract · analytics.Cash, ForecastShare · extract.Cash, ForecastShare, cashForecast, cashOf · app.AnalyticsCash · extract changing cash · runAnalyticsQuery description · TestForecastShares, TestForecastSharesFailures, TestCashForecast, TestCashForecastFailures, TestMarksTheCashChanged, TestSourceReadsCashForecast, TestSourceForecastErrors, TestParity (forecast, permissions, isolation) · walkthrough step 38 · ADR-0044 (As built T53j2) · ADR-0051 §6 (As built T53j2) · 03-data-model §3.18 · T53j2",
         "src": "split:T53j · po:2026-11-04 · adr:ADR-0051",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Analytics, the forecast's variance and accuracy: metrics variance (actual less forecast) and accuracy at each of the lags 0, 7 and 30 over the cash_actuals and cash_snapshots datasets; accuracy = 100 - WAPE, WAPE = sum of |actual - forecast| / sum of |forecast| over item x currency x day cells (for one cell, 100 less the variance report's variance_percent), rounded as money.AbsPercentOf (product owner 2026-11-04); how the per-cell absolute value is built in the semantic layer (a new aggregate kind or a dataset at cell grain) decided by default in ADR-0044's As built, one mechanism; parity, isolation and tamper tests; a walkthrough step through runAnalyticsQuery",
-        "r": "T53j · T53j3",
+        "r": "analytics/datasets/v1/cash_accuracy.yaml (a dataset at cell grain: three figures per company, value date, lag, currency and liquidity item compared as the variance report compares) · semantic.yaml variance_lag_0/7/30, absolute_variance_lag_0/7/30, absolute_forecast_lag_0/7/30, accuracy_lag_0/7/30, figure, flow_source (renamed from source) · derived op complement (1 less the rounded quotient) · cash.AccuracyCells, ExtractAccuracyCells · analytics.Cash, AccuracyCell · extract.Cash, AccuracyCell, cashAccuracy · app.AnalyticsCash · AnalyticsDerived.op, runAnalyticsQuery description · TestAccuracyCells, TestAccuracyCellsTooLarge, TestAccuracyCellsFailures, TestCashAccuracy, TestCashAccuracyFailures, TestAccuracyFigures, TestAccuracyOfOneCell, TestSourceReadsCashAccuracy, TestSourceAccuracyErrors, TestParity (accuracy, permissions, isolation) · walkthrough step 38 · ADR-0044 (As built T53j3, T53j2's deleted snapshot bound) · ADR-0051 §11 (As built T53j3) · 03-data-model §3.18 · T53j · T53j3",
         "src": "adr:ADR-0051 · po:2026-11-04",
         "c": []
        },
@@ -9754,6 +9775,20 @@
       "t": "A walkthrough or gate script stopped by an unbound variable exits non-zero: macOS's bash 3.2 ran the EXIT trap with status 0 after an expansion error under set -u, so make walkthrough exited 0 after stopping on CA_PACK; the scripts clean up through scripts/lib/on-exit.sh (on_exit, finished), which turns a status-0 exit before finished into 1, and the walkthrough also stops on a check failed in a command substitution and on a step that did not pass or skip exactly once, and says none failed only when every step of the story ran (WALKTHROUGH_UNTIL runs say how many did)",
       "r": "scripts/lib/on-exit.sh · scripts/test-on-exit.sh · scripts/walkthrough.sh ran, summary · cmd/erp TestWalkthroughExitStatus · the 19 scripts with a cleanup trap · 06 §6.5",
       "src": "review:T61j",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A failed command or an unbound variable inside a command substitution stops the walkthrough, whatever the substitution's form (an argument, a local's value, printed text or an assignment): an ERR trap with set -E, and a DEBUG trap that gives every command substitution (no other subshell, which bash 3.2 would then give status 0 after an unbound variable) an EXIT trap, leave fail's mark, which the step runner checks after each step; a tolerated failure goes inside the parentheses; on_exit's reason for a stop with status 0 names a signal among its causes",
+      "r": "scripts/walkthrough.sh stop_unseen, command_failed, substitution_ended · scripts/lib/on-exit.sh on_substitution_exit · scripts/test-on-exit.sh a SIGTERM, on_substitution_exit · cmd/erp TestWalkthroughExitStatus · 06 §6.5",
+      "src": "review:T61j",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "erp-temporal's TestServe dials its engine at 127.0.0.1, not localhost (batch 55's ci-local failed two of TestServe/refusals' cases, another identity and another namespace, which got failed reaching server: context deadline exceeded after 5.00 s instead of permission denied): for a name, gRPC's DNS resolver also looks up the TXT record _grpc_config.<name> at the network's nameservers before the channel has an address, and one lost answer took the system resolver's 5 s timeout, the SDK's whole GetSystemInfo timeout (seen in gRPC's channel log: a channel's name resolution not done 5 s after it left idle). The engine was already serving (the readiness wait had started a workflow as the cell's server); the refusals stay PermissionDenied and fail if the authorizer is removed",
+      "r": "temporal/cmd/erp-temporal/serve_test.go (newEngineWith's frontend, engineYAML's publicClient) · scripts/temporal-checks.sh · ADR-0035",
+      "src": "ci:batch55",
       "c": []
      }
     ]

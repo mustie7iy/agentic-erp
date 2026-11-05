@@ -21,7 +21,7 @@ columns:
   - {name: value_date, type: date, role: date}
   - {name: lag_days, type: int32, role: dimension}
   - {name: house_bank, type: string, role: dimension, nullable: true}
-  - {name: source, type: string, role: dimension}
+  - {name: flow_source, type: string, role: dimension}
   - {name: certainty, type: string, role: dimension}
   - {name: blocked, type: bool, role: dimension}
   - {name: liquidity_item, type: string, role: dimension, nullable: true}
