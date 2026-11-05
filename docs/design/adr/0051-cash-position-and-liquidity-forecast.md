@@ -2340,8 +2340,18 @@ reconciliation and close agents leave it open):
   this step: the variance's request (refused as it is) and a row (an item
   and its descendants, or `unclassified`; not both, 422), narrowed by
   side, attribution and currency, paged by a cursor of the side, value
-  date and a digest of the line (the token names no document, as the
-  drill-downs'; `count` over every page; review round 1), and one entry
+  date and a digest of what the entry is (the token names no document, as
+  the drill-downs'; `count` over every page; review round 1): a snapshot
+  line by its number; a statement line's part by the statement and line,
+  the payment and the settled open item's ledger line (fiscal year,
+  entry, line: `payment_item`'s primary key, which the payments context
+  now passes with each item it reads, `CashPaid`), and the liquidity item.
+  That is unique by construction, so two items of one entry one payment
+  settles are two entries; never a position among the parts, which a line
+  read between two pages would move (review rounds 2 and 3). Two entries
+  of one key, which only a match naming one payment twice could give
+  (the contract's `uniqueItems`, not a constraint, refuses that), are
+  refused as an internal error rather than paged wrongly. One entry
   per contribution in the days kept per document: a snapshot line
   (`forecast`) or a statement line's part per liquidity item (`actual`),
   with its attribution, currency, item, value date, bucket and signed

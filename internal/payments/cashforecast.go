@@ -266,13 +266,17 @@ type CashPaying struct {
 // invoice that entry was posted for (nil for none: a manual entry, a
 // migrated item), by which the forecast variance knows the documents a
 // payment paid (T53f3), and the purchase order that invoice was entered on
-// (nil for none, T53g).
+// (nil for none, T53g). FiscalYear, Entry and LineNo are the item's ledger
+// line, which with the payment is payment_item's key: what tells apart two
+// items of one entry a payment settles (T53i).
 type CashPaid struct {
-	Amount  money.Minor
-	Lines   []ledger.OffsettingLine
-	Entry   uuid.UUID
-	Invoice *uuid.UUID
-	Order   *uuid.UUID
+	Amount     money.Minor
+	Lines      []ledger.OffsettingLine
+	FiscalYear int16
+	Entry      uuid.UUID
+	LineNo     int32
+	Invoice    *uuid.UUID
+	Order      *uuid.UUID
 }
 
 // Paying is what each of the payments pays, keyed by payment; a payment
@@ -311,7 +315,7 @@ func (c CashPosition) Paying(ctx context.Context, legalEntity uuid.UUID, ids []u
 		pay := out[x.payment]
 		pay.PlanningGroup, pay.Request = payees[x.supplier].PlanningGroup, x.request
 		if x.entry != nil {
-			paid := CashPaid{Amount: x.amount, Lines: lines[*x.entry], Entry: x.entry.EntryID}
+			paid := CashPaid{Amount: x.amount, Lines: lines[*x.entry], FiscalYear: x.entry.FiscalYear, Entry: x.entry.EntryID, LineNo: x.lineNo}
 			if inv, ok := invoices[*x.entry]; ok {
 				paid.Invoice = &inv
 				if o, ok := orders[inv]; ok {
@@ -325,11 +329,13 @@ func (c CashPosition) Paying(ctx context.Context, legalEntity uuid.UUID, ids []u
 	return out, nil
 }
 
-// cashSettled is an open item a payment settles, or a payment that settles none
-// (entry nil), with the down payment request a payment of one pays.
+// cashSettled is an open item a payment settles, by its entry and line,
+// or a payment that settles none (entry nil), with the down payment
+// request a payment of one pays.
 type cashSettled struct {
 	payment, supplier uuid.UUID
 	entry             *ledger.EntryRef
+	lineNo            int32
 	amount            money.Minor
 	request           *uuid.UUID
 }
@@ -342,7 +348,7 @@ func paidItems(ctx context.Context, legalEntity uuid.UUID, ids []uuid.UUID) ([]c
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT p.id, p.supplier_id, p.down_payment_request_id, i.item_fiscal_year, i.item_entry_id,
+	rows, _ := tx.Query(ctx, `SELECT p.id, p.supplier_id, p.down_payment_request_id, i.item_fiscal_year, i.item_entry_id, i.item_line_no,
 			i.amount - i.discount_amount - i.withholding_amount
 		FROM payments.payment p JOIN payments.payment_run r ON r.tenant_id = p.tenant_id AND r.id = p.payment_run_id
 		LEFT JOIN payments.payment_item i ON i.tenant_id = p.tenant_id AND i.payment_id = p.id AND i.is_active
@@ -352,16 +358,17 @@ func paidItems(ctx context.Context, legalEntity uuid.UUID, ids []uuid.UUID) ([]c
 	var p cashSettled
 	var year *int16
 	var entry *uuid.UUID
+	var lineNo *int32
 	var amount *money.Minor
 	var request *uuid.UUID
-	_, err = pgx.ForEachRow(rows, []any{&p.payment, &p.supplier, &request, &year, &entry, &amount}, func() error {
-		p.entry, p.amount, p.request = nil, 0, nil
+	_, err = pgx.ForEachRow(rows, []any{&p.payment, &p.supplier, &request, &year, &entry, &lineNo, &amount}, func() error {
+		p.entry, p.lineNo, p.amount, p.request = nil, 0, 0, nil
 		if request != nil {
 			r := *request // a copy: the scan reuses its target
 			p.request = &r
 		}
 		if entry != nil {
-			p.entry, p.amount = &ledger.EntryRef{FiscalYear: *year, EntryID: *entry}, *amount
+			p.entry, p.lineNo, p.amount = &ledger.EntryRef{FiscalYear: *year, EntryID: *entry}, *lineNo, *amount
 		}
 		all = append(all, p)
 		return nil

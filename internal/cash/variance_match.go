@@ -62,6 +62,23 @@ func paymentKeys(id uuid.UUID, p Paying) [][]string {
 	return out
 }
 
+// pieceIDs are what each piece paymentParts splits a payment into is
+// within its statement line, in the same order: per item it settles, the
+// payment and the item's ledger line (payment_item's primary key, so no
+// two pieces of one payment are alike, even of one entry); a payment of
+// no item, the payment. Never a position: a piece read between two pages
+// of the variance's documents moves no other's cursor key (T53i).
+func pieceIDs(id uuid.UUID, p Paying) []string {
+	if len(p.Items) == 0 {
+		return []string{id.String()}
+	}
+	out := make([]string, len(p.Items))
+	for i, it := range p.Items {
+		out[i] = fmt.Sprintf("%s|%d|%s|%d", id, it.FiscalYear, it.Entry, it.LineNo)
+	}
+	return out
+}
+
 // keptKey is the key a snapshot's line at document level names its
 // document by: the payment of a run's or an in-transit flow, a series'
 // occurrence by the series and its day, else the document; "" for a
@@ -153,6 +170,7 @@ type matching struct {
 // to ("" for none) and every key it is known by.
 type matchedPiece struct {
 	a      actual
+	id     string // what it is within its line (actualPiece)
 	key    string
 	keys   []string // every key it is known by, the memo records its line realised last
 	shares []Share
@@ -205,7 +223,7 @@ func newMatching(bs []Bucket, lines []keptLine, actuals []actual, series map[uui
 				key = keys[i]
 				mark(m.paid, key, m.bucket(a.ValueDate))
 			}
-			m.pieces = append(m.pieces, matchedPiece{a: a, key: key, keys: keys, shares: p.shares})
+			m.pieces = append(m.pieces, matchedPiece{a: a, id: p.id, key: key, keys: keys, shares: p.shares})
 		}
 	}
 	return m

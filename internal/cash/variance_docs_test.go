@@ -178,6 +178,8 @@ func TestVarianceDocuments(t *testing.T) {
 		want(t, "listed once across a line read between pages: "+l, counted[l], 1)
 	}
 	want(t, "and the new line", len(rest), len(got)+1)
+	e.pagedOnceAround(t, a, late, names)
+	e.twoLinesOfOneEntry(t, a, names)
 	e.Problem(400, "request.invalid_page_token", "GET", "/v1/liquidity-forecast-variance/documents?legal_entity_id="+e.le.String()+
 		"&from=2026-04-17&to=2026-05-21&lag=0&page_token=nope", "", "")
 	p := e.Problem(422, "request.validation_failed", "GET", "/v1/liquidity-forecast-variance/documents?legal_entity_id="+e.le.String()+
@@ -185,6 +187,97 @@ func TestVarianceDocuments(t *testing.T) {
 	want(t, "an item and the unclassified row", fmt.Sprint(p["errors"].([]any)[0].(map[string]any)["field"]), "unclassified")
 	e.Problem(409, "cash.snapshot_not_taken", "GET", "/v1/liquidity-forecast-variance/documents?legal_entity_id="+e.le.String()+
 		"&from=2026-04-17&to=2026-05-21", "", "")
+}
+
+// allPages lists the entries of every page of the query at the page size,
+// failing once it has paged more pages than there are entries: a cursor
+// that does not move on would page for ever.
+func (e varianceEnv) allPages(t *testing.T, query string, size int, names map[string]string) []string {
+	t.Helper()
+	var seen []string
+	for pages, token := 1, ""; ; pages++ {
+		page := e.docsOf(t, fmt.Sprintf("%s&page_size=%d%s", query, size, token))
+		seen = append(seen, entryLines(page, names)...)
+		next, ok := page["next_page_token"]
+		if !ok {
+			return seen
+		}
+		if pages > int(page["count"].(float64)) {
+			t.Fatalf("paged %d pages of %v entries at %d a page, want the pages to end", pages, page["count"], size)
+		}
+		token = "&page_token=" + fmt.Sprint(next)
+	}
+}
+
+// listedOnce checks that every entry of the list is among the seen once.
+func listedOnce(t *testing.T, what string, list, seen []string) {
+	t.Helper()
+	counted := map[string]int{}
+	for _, l := range seen {
+		counted[l]++
+	}
+	for _, l := range list {
+		want(t, what+": "+l, counted[l], 1)
+	}
+}
+
+// pagedOnceAround: a line read between two pages of the actuals, sorting
+// before the first page's last entry, moves no entry of the first read
+// (round 2 keyed a piece by its position among all, which the new line
+// moved): each is listed once over the pages either side of it.
+func (e varianceEnv) pagedOnceAround(t *testing.T, a actualsEnv, statement uuid.UUID, names map[string]string) {
+	t.Helper()
+	query := "&from=2026-04-17&to=2026-05-21&lag=0&grain=week&side=actual"
+	all := entryLines(e.docsOf(t, query), names)
+	first := e.docsOf(t, query+"&page_size=4")
+	seen := entryLines(first, names)
+	want(t, "the first page's last entry, after the new line's day", strings.Fields(seen[3])[4], "2026-04-23")
+	a.actualLine(t, statement, 2, "2026-04-17", 4300, "unmatched", "", target{})
+	for token := "&page_token=" + fmt.Sprint(first["next_page_token"]); ; {
+		page := e.docsOf(t, query+"&page_size=4"+token)
+		seen = append(seen, entryLines(page, names)...)
+		next, ok := page["next_page_token"]
+		if !ok {
+			break
+		}
+		token = "&page_token=" + fmt.Sprint(next)
+	}
+	listedOnce(t, "listed once across an actual read before the cursor", all, seen)
+	want(t, "and nothing else", len(seen), len(all))
+}
+
+// twoLinesOfOneEntry: a payment settling two open-item lines of one
+// journal entry is two entries, keyed by the item's ledger line (the
+// payments context's payment_item key), never one key for both; paged
+// one and two at a time, every entry is listed once and the pages end.
+func (e varianceEnv) twoLinesOfOneEntry(t *testing.T, a actualsEnv, names map[string]string) {
+	t.Helper()
+	entry := e.item(t, e.Supplier, "2026-05-01", "CAD", -10000, nil)
+	p := a.paid(t, e.Supplier, 10000, nil)
+	e.exec(t, `INSERT INTO payments.payment_item (tenant_id, payment_id, item_fiscal_year, item_entry_id, item_line_no, amount, due_date)
+		VALUES ($1, $2, 2026, $3, 1, 6000, '2026-05-11'), ($1, $2, 2026, $3, 2, 4000, '2026-05-11')`, e.Tenant.ID, p, entry)
+	s := e.statement(t, e.main, "CAD", "2026-05-11", "2026-05-11", 0, 0, nil, "imported")
+	a.actualLine(t, s, 1, "2026-05-11", -10000, "posted", "matched", target{payments: []uuid.UUID{p}})
+	query := "&from=2026-04-17&to=2026-05-21&lag=0&grain=week"
+	all := entryLines(e.docsOf(t, query), names)
+	var ofEntry []string
+	for _, l := range all {
+		if strings.Contains(l, "2026-05-11") {
+			ofEntry = append(ofEntry, strings.SplitN(l, ":", 2)[0])
+		}
+	}
+	sort.Strings(ofEntry)
+	want(t, "the payment's two items of one entry", ofEntry, []string{
+		"actual new CAD OP_SUPPLIERS 2026-05-11 (2026-05-08) -40.00",
+		"actual new CAD OP_SUPPLIERS 2026-05-11 (2026-05-08) -60.00",
+	})
+	for _, size := range []int{1, 2} {
+		t.Run(fmt.Sprint("page size ", size), func(t *testing.T) {
+			seen := e.allPages(t, query, size, names)
+			listedOnce(t, "listed once", all, seen)
+			want(t, "and nothing else", len(seen), len(all))
+		})
+	}
 }
 
 // TestVarianceDocumentsGated: each document shows only to a caller who

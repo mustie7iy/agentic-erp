@@ -28,3 +28,20 @@ func TestRefOf(t *testing.T) {
 		})
 	}
 }
+
+// TestInKeyOrder: the entries are sorted by key, and two of one key are
+// refused, as paging after a key would list one of them never or the page
+// for ever.
+func TestInKeyOrder(t *testing.T) {
+	entries := []VarianceEntry{{key: "1|b"}, {key: "0|a"}, {key: "1|a"}}
+	if err := inKeyOrder(entries); err != nil {
+		t.Fatalf("got %v, want no error", err)
+	}
+	if got := fmt.Sprint(entries[0].key, " ", entries[1].key, " ", entries[2].key); got != "0|a 1|a 1|b" {
+		t.Errorf("got %s, want 0|a 1|a 1|b", got)
+	}
+	err := inKeyOrder([]VarianceEntry{{key: "1|b"}, {key: "0|a"}, {key: "1|b"}})
+	if got, want := fmt.Sprint(err), "cash: two documents behind a variance have one cursor key 1|b"; got != want {
+		t.Errorf("got %s, want %s", got, want)
+	}
+}

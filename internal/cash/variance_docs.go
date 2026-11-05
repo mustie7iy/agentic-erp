@@ -154,7 +154,9 @@ func (e *Endpoints) varianceEntries(ctx context.Context, q DocsQuery) (VarianceD
 	}
 	in := inRow(vr.ar.r.doc.Cash.LiquidityItems, q.Item, q.Unclassified)
 	entries := slices.Concat(vr.m.forecastEntries(in), vr.m.actualEntries(in))
-	slices.SortStableFunc(entries, func(a, b VarianceEntry) int { return cmp.Compare(a.key, b.key) })
+	if err := inKeyOrder(entries); err != nil {
+		return VarianceDocs{}, err
+	}
 	exponents := map[string]int{}
 	for i := range entries {
 		en := &entries[i]
@@ -209,6 +211,21 @@ func entryKey(side int, day time.Time, what string) string {
 	return fmt.Sprintf("%d|%s|%s", side, day.Format(time.DateOnly), hex.EncodeToString(h[:])[:32])
 }
 
+// inKeyOrder sorts the entries by key, refusing two alike. A key names
+// what its entry is, so two alike are a fault in what the matching read,
+// and the page cursor, which resumes after a key, would end a page on the
+// first of them and never list the second, or list the page again for
+// ever: refused rather than paged wrongly.
+func inKeyOrder(entries []VarianceEntry) error {
+	slices.SortFunc(entries, func(a, b VarianceEntry) int { return cmp.Compare(a.key, b.key) })
+	for i := 1; i < len(entries); i++ {
+		if entries[i].key == entries[i-1].key {
+			return fmt.Errorf("cash: two documents behind a variance have one cursor key %s", entries[i].key)
+		}
+	}
+	return nil
+}
+
 // forecastEntries are the snapshot's document lines in the period's
 // buckets whose item is in the row.
 func (m *matching) forecastEntries(in func(string) bool) []VarianceEntry {
@@ -230,7 +247,9 @@ func (m *matching) forecastEntries(in func(string) bool) []VarianceEntry {
 }
 
 // actualEntries are the statement lines' parts in the period's buckets,
-// one per share whose item is in the row.
+// one per share whose item is in the row, each keyed by its statement
+// line, its piece within the line (pieceIDs: the payment and the settled
+// item's ledger line) and the share's item, which together are unique.
 func (m *matching) actualEntries(in func(string) bool) []VarianceEntry {
 	var out []VarianceEntry
 	for _, p := range m.pieces {
@@ -246,7 +265,7 @@ func (m *matching) actualEntries(in func(string) bool) []VarianceEntry {
 			no := p.a.LineNo
 			out = append(out, VarianceEntry{Side: SideActual, Attribution: attributions[m.actualAttribution(p, b)], Currency: p.a.Currency, Item: sh.Item,
 				ValueDate: p.a.ValueDate, Bucket: m.bs[b].Start, Amount: sh.Amount, Docs: slices.Clone(docs), LineNo: &no, BankReference: p.a.BankReference,
-				supplier: supplier, key: entryKey(1, p.a.ValueDate, fmt.Sprintf("%s|%d|%s|%s", p.a.StatementID, p.a.LineNo, strings.Join(p.keys, ","), sh.Item))})
+				supplier: supplier, key: entryKey(1, p.a.ValueDate, fmt.Sprintf("%s|%d|%s|%s", p.a.StatementID, p.a.LineNo, p.id, sh.Item))})
 		}
 	}
 	return out
