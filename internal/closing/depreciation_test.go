@@ -13,8 +13,10 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/closing"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -53,8 +55,14 @@ func machine(t *testing.T, e fixture.Env) {
 // returns the run's id and status.
 func depreciate(t *testing.T, e fixture.Env, ledger uuid.UUID, fail bool) (string, string) {
 	t.Helper()
-	op, _ := e.Must(202, "POST", "/v1/depreciation-runs", fmt.Sprintf(`{"legal_entity_id": %q, "ledger_id": %q, "fiscal_year": 2026, "period": 1}`,
-		e.DE, ledger), "")
+	return depreciateIn(t, e, ledger, 1, fail)
+}
+
+// depreciateIn is depreciate for 2026's period.
+func depreciateIn(t *testing.T, e fixture.Env, ledger uuid.UUID, period int, fail bool) (string, string) {
+	t.Helper()
+	op, _ := e.Must(202, "POST", "/v1/depreciation-runs", fmt.Sprintf(`{"legal_entity_id": %q, "ledger_id": %q, "fiscal_year": 2026, "period": %d}`,
+		e.DE, ledger, period), "")
 	run := uuid.MustParse(strings.TrimPrefix(op["resource"].(string), "/v1/depreciation-runs/"))
 	h := app.Assets(app.Config{})
 	step := func(fn func(ctx context.Context) error) {
@@ -93,8 +101,24 @@ func depreciationLines(t *testing.T, task map[string]any) []string {
 		l := x.(map[string]any)
 		out = append(out, fmt.Sprintf("%v %v %v posted=%v run=%v to depreciate=%v", l["ledger_code"], l["ledger_name"], l["key_date"], l["posted"],
 			l["depreciation_run_id"], l["assets_to_depreciate"]))
+		if later, ok := l["later_depreciation_run_id"]; ok {
+			out[len(out)-1] += fmt.Sprintf(" later=%v", later)
+		}
+	}
+	out = append(out, fmt.Sprintf("%v warnings", r["warnings_count"]))
+	for _, x := range apitest.List(t, r, "warnings") {
+		w := x.(map[string]any)
+		out = append(out, fmt.Sprintf("%v %v %v %v from %v/%v through %v/%v run=%v catch-up %v: %v", w["code"], w["ledger_code"], w["asset_number"],
+			w["asset_description"], w["missing_from_year"], w["missing_from_period"], w["missing_through_year"], w["missing_through_period"],
+			w["later_depreciation_run_id"], moneyText(w["catch_up"]), w["message"]))
 	}
 	return out
+}
+
+// moneyText is a Money as "amount currency".
+func moneyText(m any) string {
+	v := m.(map[string]any)
+	return fmt.Sprint(v["amount"], " ", v["currency"])
 }
 
 // TestDepreciationPosted: the depreciation check passes for a company
@@ -108,7 +132,7 @@ func TestDepreciationPosted(t *testing.T) {
 	task, _ := e.Must(200, "POST", "/v1/period-closes/"+apitest.String(t, us, "id")+"/tasks/DEPRECIATED:check", "", tag)
 	wantLines(t, "company 1000, nothing to depreciate", depreciationLines(t, task), []string{
 		"true Every covered ledger has a posted depreciation run of 2026/1 or nothing to depreciate.",
-		"0L Leading ledger 2026-01-31 posted=false run=<nil> to depreciate=0"})
+		"0L Leading ledger 2026-01-31 posted=false run=<nil> to depreciate=0", "0 warnings"})
 	wantFields(t, "nothing to depreciate", task, map[string]any{"status": "done"})
 
 	de, tag := open(t, e.Client, e.DE, 1, "")
@@ -118,7 +142,7 @@ func TestDepreciationPosted(t *testing.T) {
 	task, tag = e.Must(200, "POST", base, "", tag)
 	wantLines(t, "before any run", depreciationLines(t, task), []string{
 		"false No posted depreciation run of 2026/1 in ledger 0L (2 assets to depreciate), 2L (2 assets to depreciate); run the depreciation first.",
-		"0L Leading ledger 2026-01-31 posted=false run=<nil> to depreciate=2", "2L HGB 2026-01-31 posted=false run=<nil> to depreciate=2"})
+		"0L Leading ledger 2026-01-31 posted=false run=<nil> to depreciate=2", "2L HGB 2026-01-31 posted=false run=<nil> to depreciate=2", "0 warnings"})
 	wantFields(t, "before any run", task, map[string]any{"status": "open"})
 
 	leading, local := e.Ledger(t, config.LeadingLedger), e.Ledger(t, "2L")
@@ -132,14 +156,74 @@ func TestDepreciationPosted(t *testing.T) {
 	task, tag = e.Must(200, "POST", base, "", tag)
 	wantLines(t, "0L's run, 2L's failed", depreciationLines(t, task), []string{
 		"false No posted depreciation run of 2026/1 in ledger 2L (2 assets to depreciate); run the depreciation first.",
-		"0L Leading ledger 2026-01-31 posted=true run=" + run0 + " to depreciate=<nil>", "2L HGB 2026-01-31 posted=false run=<nil> to depreciate=2"})
+		"0L Leading ledger 2026-01-31 posted=true run=" + run0 + " to depreciate=<nil>", "2L HGB 2026-01-31 posted=false run=<nil> to depreciate=2", "0 warnings"})
 
 	run2, _ := depreciate(t, e, local, false)
 	task, _ = e.Must(200, "POST", base, "", tag)
 	wantLines(t, "every ledger's run", depreciationLines(t, task), []string{
 		"true Every covered ledger has a posted depreciation run of 2026/1 or nothing to depreciate.",
-		"0L Leading ledger 2026-01-31 posted=true run=" + run0 + " to depreciate=<nil>", "2L HGB 2026-01-31 posted=true run=" + run2 + " to depreciate=<nil>"})
+		"0L Leading ledger 2026-01-31 posted=true run=" + run0 + " to depreciate=<nil>", "2L HGB 2026-01-31 posted=true run=" + run2 + " to depreciate=<nil>", "0 warnings"})
 	wantFields(t, "every ledger's run", task, map[string]any{"status": "done"})
+}
+
+// TestDepreciationPostedLateAsset: a machine capitalised with a January
+// value date after February's run posted is selected by a run of
+// January, which is refused as out of order (PO 2026-11-04). January's
+// check still fails in 2L, whose February run has not posted, naming
+// both machines there; once it has, the check passes with the late
+// machine a warning in 0L, the only ledger whose February run posted
+// before it: its depreciation missing from January through February and
+// the 20.00 a run of February posts for it. After that repeat run of
+// February nothing is late.
+func TestDepreciationPostedLateAsset(t *testing.T) {
+	e := fixture.NewWith(t, nil, withDepreciation, depreciationPermissions...)
+	de, tag := open(t, e.Client, e.DE, 1, "")
+	base := "/v1/period-closes/" + apitest.String(t, de, "id") + "/tasks/DEPRECIATED:check"
+	leading, local := e.Ledger(t, config.LeadingLedger), e.Ledger(t, "2L")
+	machine(t, e)
+	feb, status := depreciateIn(t, e, leading, 2, false)
+	if status != "posted" {
+		t.Fatalf("February's run in 0L: got %s, want posted", status)
+	}
+	machine(t, e)
+	p, _ := e.Must(409, "POST", "/v1/depreciation-runs", fmt.Sprintf(`{"legal_entity_id": %q, "fiscal_year": 2026, "period": 1}`, e.DE), "")
+	wantFields(t, "January's run after February's", p, map[string]any{"code": "assets.run_out_of_order"})
+	task, tag := e.Must(200, "POST", base, "", tag)
+	wantLines(t, "2L without a later run", depreciationLines(t, task), []string{
+		"false No posted depreciation run of 2026/1 in ledger 2L (2 assets to depreciate); run the depreciation first.",
+		"0L Leading ledger 2026-01-31 posted=false run=<nil> to depreciate=1 later=" + feb,
+		"2L HGB 2026-01-31 posted=false run=<nil> to depreciate=2",
+		"1 warnings",
+		"depreciation_catch_up 0L 2 Press from 2026/1 through 2026/2 run=" + feb + " catch-up 20.00 EUR: Asset 2 (Press) in ledger 0L has no " +
+			"depreciation booked from 2026/1 through 2026/2, whose run posted before it; a run of 2026/2 or later catches up 20.00 EUR."})
+	wantFields(t, "2L without a later run", task, map[string]any{"status": "open"})
+
+	if _, status := depreciateIn(t, e, local, 2, false); status != "posted" {
+		t.Fatalf("February's run in 2L: got %s, want posted", status)
+	}
+	task, tag = e.Must(200, "POST", base, "", tag)
+	want := depreciationLines(t, task)
+	wantLines(t, "a later run in each ledger", want[:2], []string{
+		"true Every covered ledger has a posted depreciation run of 2026/1, nothing to depreciate or a posted run of a later period; ledger 0L " +
+			"(1 late asset, caught up by a run of 2026/2 or later), see the warnings.",
+		"0L Leading ledger 2026-01-31 posted=false run=<nil> to depreciate=1 later=" + feb})
+	wantFields(t, "a later run in each ledger", task, map[string]any{"status": "done"})
+	r := task["check_result"].(map[string]any)
+	wantFields(t, "the warnings counted", r, map[string]any{"warnings_count": float64(1)})
+	var audited string
+	pgtest.Scan(t, `SELECT string_agg((detail->>'passed') || ' ' || (detail->>'warnings_count'), ', ' ORDER BY seq) FROM audit.audit_event
+		WHERE tenant_id = $1 AND action = 'closing.period_close.check_task'`, []any{e.Tenant.ID}, &audited)
+	if audited != "false 1, true 1" {
+		t.Errorf("audited checks: got %q, want false 1, true 1", audited)
+	}
+
+	if _, status := depreciateIn(t, e, leading, 2, false); status != "posted" {
+		t.Fatalf("February's repeat run in 0L: got %s, want posted", status)
+	}
+	task, _ = e.Must(200, "POST", base, "", tag)
+	wantLines(t, "caught up", depreciationLines(t, task)[:2], []string{
+		"true Every covered ledger has a posted depreciation run of 2026/1 or nothing to depreciate.",
+		"0L Leading ledger 2026-01-31 posted=false run=<nil> to depreciate=0"})
 }
 
 // TestDepreciationCheckFailures runs the depreciation check with each of
@@ -163,9 +247,35 @@ func TestDepreciationCheckFailures(t *testing.T) {
 	}
 }
 
+// TestDepreciationCheckLateFailures runs the depreciation check with two
+// late machines in each ledger, each of its database statements failing
+// in turn, then counts them in the summary.
+func TestDepreciationCheckLateFailures(t *testing.T) {
+	e := fixture.NewWith(t, nil, withDepreciation, depreciationPermissions...)
+	got, tag := open(t, e.Client, e.DE, 1, "")
+	id := uuid.MustParse(apitest.String(t, got, "id"))
+	for _, l := range []string{config.LeadingLedger, "2L"} {
+		depreciateIn(t, e, e.Ledger(t, l), 2, false)
+	}
+	machine(t, e)
+	machine(t, e)
+	h := endpoints(t)
+	call := func(ctx context.Context) error {
+		_, err := h.CheckCloseTask(ctx, gen.CheckCloseTaskParams{ID: id, Code: "DEPRECIATED", IfMatch: tag})
+		return err
+	}
+	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "DEPRECIATED", call)
+	task, _ := e.Must(200, "POST", "/v1/period-closes/"+id.String()+"/tasks/DEPRECIATED:check", "", tag)
+	lines := depreciationLines(t, task)
+	wantLines(t, "two late machines in each ledger", []string{lines[0], lines[3]}, []string{
+		"true Every covered ledger has a posted depreciation run of 2026/1, nothing to depreciate or a posted run of a later period; ledger 0L " +
+			"(2 late assets, caught up by a run of 2026/2 or later), 2L (2 late assets, caught up by a run of 2026/2 or later), see the warnings.",
+		"4 warnings"})
+}
+
 // brokenDepreciation is an assets context that does not answer.
 type brokenDepreciation struct{}
 
-func (brokenDepreciation) Posted(context.Context, uuid.UUID, uuid.UUID, int16, int16, time.Time) (*uuid.UUID, int, error) {
-	return nil, 0, errors.New("the assets context is down")
+func (brokenDepreciation) Posted(context.Context, uuid.UUID, uuid.UUID, int16, int16, time.Time, int) (closing.PeriodDepreciation, error) {
+	return closing.PeriodDepreciation{}, errors.New("the assets context is down")
 }

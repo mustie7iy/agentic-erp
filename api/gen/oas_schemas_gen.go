@@ -16599,7 +16599,9 @@ type CloseCheckLedger struct {
 	KeyDate time.Time `json:"key_date"`
 	// Whether it has a posted run of the check's kind: a revaluation run at the key date, or a
 	// depreciation run of the period. A ledger without a posted depreciation run still passes
-	// `depreciation_posted` when `assets_to_depreciate` is 0.
+	// `depreciation_posted` when `assets_to_depreciate` is 0, or when it has `later_depreciation_run_id`:
+	// a run of the period is then refused as out of order, and each asset to depreciate is a
+	// `depreciation_catch_up` warning (PO 2026-11-04).
 	Posted bool `json:"posted"`
 	// `revaluation_posted`: the posted run (`GET /v1/revaluation-runs/{id}`); absent without one and for
 	// another check.
@@ -16611,6 +16613,10 @@ type CloseCheckLedger struct {
 	// this ledger would select (`POST /v1/depreciation-runs/preview`); 0, nothing to depreciate, passes.
 	// Absent with a posted run and for another check.
 	AssetsToDepreciate OptInt32 `json:"assets_to_depreciate"`
+	// `depreciation_posted` without a posted run of the period and with assets to depreciate: the latest
+	// posted depreciation run of a later period in this ledger (`GET /v1/depreciation-runs/{id}`), with
+	// which the check passes, the assets warned of; absent otherwise and for another check.
+	LaterDepreciationRunID OptUUID `json:"later_depreciation_run_id"`
 }
 
 // GetLedgerID returns the value of LedgerID.
@@ -16653,6 +16659,11 @@ func (s *CloseCheckLedger) GetAssetsToDepreciate() OptInt32 {
 	return s.AssetsToDepreciate
 }
 
+// GetLaterDepreciationRunID returns the value of LaterDepreciationRunID.
+func (s *CloseCheckLedger) GetLaterDepreciationRunID() OptUUID {
+	return s.LaterDepreciationRunID
+}
+
 // SetLedgerID sets the value of LedgerID.
 func (s *CloseCheckLedger) SetLedgerID(val uuid.UUID) {
 	s.LedgerID = val
@@ -16691,6 +16702,11 @@ func (s *CloseCheckLedger) SetDepreciationRunID(val OptUUID) {
 // SetAssetsToDepreciate sets the value of AssetsToDepreciate.
 func (s *CloseCheckLedger) SetAssetsToDepreciate(val OptInt32) {
 	s.AssetsToDepreciate = val
+}
+
+// SetLaterDepreciationRunID sets the value of LaterDepreciationRunID.
+func (s *CloseCheckLedger) SetLaterDepreciationRunID(val OptUUID) {
+	s.LaterDepreciationRunID = val
 }
 
 // A parked entry a `no_parked_entries` check found (`GET /v1/parked-journal-entries/{id}`), as it was
@@ -16838,7 +16854,8 @@ type CloseCheckResult struct {
 	// `revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted
 	// revaluation run keyed on its period's last day, if it has one; `depreciation_posted`: each covered
 	// ledger, in the same order, with its latest posted depreciation run of the period, if it has one, or
-	// how many assets a run would select; absent for another check.
+	// how many assets a run would select and the latest posted run of a later period, if there is one;
+	// absent for another check.
 	Ledgers []CloseCheckLedger `json:"ledgers"`
 	// `variances_explained`: how many rows of the company's configured bases require a comment and have no
 	// accepted one that is current (T64i); absent for another check, and when the company configures no
@@ -16847,6 +16864,12 @@ type CloseCheckResult struct {
 	// `variances_explained`: the first 20 of them, by basis as the company configures them, then by
 	// account number; absent for another check.
 	UnexplainedRows []CloseCheckVariance `json:"unexplained_rows"`
+	// How many warnings the check found: what it reports without failing (ADR-0058 §6 as built, PO
+	// 2026-11-04). 0 for a check that warns of nothing, and on a result recorded before checks warned.
+	WarningsCount int32 `json:"warnings_count"`
+	// The first 20 of them (`warnings_count` says how many there are), each ledger's in the order of
+	// `ledgers`, then by asset number; empty without any.
+	Warnings []CloseCheckWarning `json:"warnings"`
 }
 
 // GetCheck returns the value of Check.
@@ -16904,6 +16927,16 @@ func (s *CloseCheckResult) GetUnexplainedRows() []CloseCheckVariance {
 	return s.UnexplainedRows
 }
 
+// GetWarningsCount returns the value of WarningsCount.
+func (s *CloseCheckResult) GetWarningsCount() int32 {
+	return s.WarningsCount
+}
+
+// GetWarnings returns the value of Warnings.
+func (s *CloseCheckResult) GetWarnings() []CloseCheckWarning {
+	return s.Warnings
+}
+
 // SetCheck sets the value of Check.
 func (s *CloseCheckResult) SetCheck(val string) {
 	s.Check = val
@@ -16957,6 +16990,16 @@ func (s *CloseCheckResult) SetUnexplainedRowsCount(val OptInt32) {
 // SetUnexplainedRows sets the value of UnexplainedRows.
 func (s *CloseCheckResult) SetUnexplainedRows(val []CloseCheckVariance) {
 	s.UnexplainedRows = val
+}
+
+// SetWarningsCount sets the value of WarningsCount.
+func (s *CloseCheckResult) SetWarningsCount(val int32) {
+	s.WarningsCount = val
+}
+
+// SetWarnings sets the value of Warnings.
+func (s *CloseCheckResult) SetWarnings(val []CloseCheckWarning) {
+	s.Warnings = val
 }
 
 // A variance report row a `variances_explained` check found unexplained: it requires a comment and has
@@ -17036,6 +17079,176 @@ func (s *CloseCheckVariance) SetVariance(val Money) {
 // SetStaleComment sets the value of StaleComment.
 func (s *CloseCheckVariance) SetStaleComment(val bool) {
 	s.StaleComment = val
+}
+
+// What a check reports without failing (ADR-0058 §6 as built, PO 2026-11-04), as it was when the
+// check ran. `depreciation_catch_up`: an asset a depreciation run of the closed period would select in
+// a ledger whose later period's run has posted, so that no run of the closed period may post
+// (`assets.run_out_of_order`); a run of the later run's period or after posts its catch-up (ADR-0057
+// §7).
+// Ref: #/components/schemas/CloseCheckWarning
+type CloseCheckWarning struct {
+	// What it warns of. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Code string `json:"code"`
+	// The warning in one sentence.
+	Message string `json:"message"`
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// Its code.
+	LedgerCode string `json:"ledger_code"`
+	// The asset (`GET /v1/assets/{id}`).
+	AssetID uuid.UUID `json:"asset_id"`
+	// Its number.
+	AssetNumber string `json:"asset_number"`
+	// Its description.
+	AssetDescription string `json:"asset_description"`
+	// The fiscal year of the first period whose depreciation the asset has not booked in the ledger: the
+	// period after the one it is booked through, else its depreciation start's; absent when it has
+	// neither.
+	MissingFromYear OptInt32 `json:"missing_from_year"`
+	// That period, with `missing_from_year`.
+	MissingFromPeriod OptInt32 `json:"missing_from_period"`
+	// The fiscal year of the later run's period, the last period whose depreciation the asset misses.
+	MissingThroughYear int32 `json:"missing_through_year"`
+	// That period, with `missing_through_year`.
+	MissingThroughPeriod int32 `json:"missing_through_period"`
+	// The later period's posted run (`GET /v1/depreciation-runs/{id}`).
+	LaterDepreciationRunID uuid.UUID `json:"later_depreciation_run_id"`
+	// What a run of the later run's period would post for the asset when the check ran: its depreciation
+	// planned through that period less what is booked (`POST /v1/depreciation-runs/preview`, ADR-0057
+	// §7), in the run's currency; a run of a period after it posts that period's depreciation on top.
+	CatchUp Money `json:"catch_up"`
+}
+
+// GetCode returns the value of Code.
+func (s *CloseCheckWarning) GetCode() string {
+	return s.Code
+}
+
+// GetMessage returns the value of Message.
+func (s *CloseCheckWarning) GetMessage() string {
+	return s.Message
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *CloseCheckWarning) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *CloseCheckWarning) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetAssetID returns the value of AssetID.
+func (s *CloseCheckWarning) GetAssetID() uuid.UUID {
+	return s.AssetID
+}
+
+// GetAssetNumber returns the value of AssetNumber.
+func (s *CloseCheckWarning) GetAssetNumber() string {
+	return s.AssetNumber
+}
+
+// GetAssetDescription returns the value of AssetDescription.
+func (s *CloseCheckWarning) GetAssetDescription() string {
+	return s.AssetDescription
+}
+
+// GetMissingFromYear returns the value of MissingFromYear.
+func (s *CloseCheckWarning) GetMissingFromYear() OptInt32 {
+	return s.MissingFromYear
+}
+
+// GetMissingFromPeriod returns the value of MissingFromPeriod.
+func (s *CloseCheckWarning) GetMissingFromPeriod() OptInt32 {
+	return s.MissingFromPeriod
+}
+
+// GetMissingThroughYear returns the value of MissingThroughYear.
+func (s *CloseCheckWarning) GetMissingThroughYear() int32 {
+	return s.MissingThroughYear
+}
+
+// GetMissingThroughPeriod returns the value of MissingThroughPeriod.
+func (s *CloseCheckWarning) GetMissingThroughPeriod() int32 {
+	return s.MissingThroughPeriod
+}
+
+// GetLaterDepreciationRunID returns the value of LaterDepreciationRunID.
+func (s *CloseCheckWarning) GetLaterDepreciationRunID() uuid.UUID {
+	return s.LaterDepreciationRunID
+}
+
+// GetCatchUp returns the value of CatchUp.
+func (s *CloseCheckWarning) GetCatchUp() Money {
+	return s.CatchUp
+}
+
+// SetCode sets the value of Code.
+func (s *CloseCheckWarning) SetCode(val string) {
+	s.Code = val
+}
+
+// SetMessage sets the value of Message.
+func (s *CloseCheckWarning) SetMessage(val string) {
+	s.Message = val
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *CloseCheckWarning) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *CloseCheckWarning) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetAssetID sets the value of AssetID.
+func (s *CloseCheckWarning) SetAssetID(val uuid.UUID) {
+	s.AssetID = val
+}
+
+// SetAssetNumber sets the value of AssetNumber.
+func (s *CloseCheckWarning) SetAssetNumber(val string) {
+	s.AssetNumber = val
+}
+
+// SetAssetDescription sets the value of AssetDescription.
+func (s *CloseCheckWarning) SetAssetDescription(val string) {
+	s.AssetDescription = val
+}
+
+// SetMissingFromYear sets the value of MissingFromYear.
+func (s *CloseCheckWarning) SetMissingFromYear(val OptInt32) {
+	s.MissingFromYear = val
+}
+
+// SetMissingFromPeriod sets the value of MissingFromPeriod.
+func (s *CloseCheckWarning) SetMissingFromPeriod(val OptInt32) {
+	s.MissingFromPeriod = val
+}
+
+// SetMissingThroughYear sets the value of MissingThroughYear.
+func (s *CloseCheckWarning) SetMissingThroughYear(val int32) {
+	s.MissingThroughYear = val
+}
+
+// SetMissingThroughPeriod sets the value of MissingThroughPeriod.
+func (s *CloseCheckWarning) SetMissingThroughPeriod(val int32) {
+	s.MissingThroughPeriod = val
+}
+
+// SetLaterDepreciationRunID sets the value of LaterDepreciationRunID.
+func (s *CloseCheckWarning) SetLaterDepreciationRunID(val uuid.UUID) {
+	s.LaterDepreciationRunID = val
+}
+
+// SetCatchUp sets the value of CatchUp.
+func (s *CloseCheckWarning) SetCatchUp(val Money) {
+	s.CatchUp = val
 }
 
 type CloseFiscalPeriodBadRequest Problem

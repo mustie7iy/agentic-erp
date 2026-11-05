@@ -134,7 +134,19 @@ func (closingPlans) Amounts(ctx context.Context, legalEntity, category uuid.UUID
 // depreciation of a period, the depreciation check's (T64k).
 type closingDepreciation struct{}
 
-func (closingDepreciation) Posted(ctx context.Context, legalEntity, ledgerID uuid.UUID, fiscalYear, period int16, end time.Time) (*uuid.UUID, int, error) {
-	d, err := assets.CloseChecks{}.Depreciation(ctx, legalEntity, ledgerID, fiscalYear, period, end)
-	return d.Run, d.Selected, err
+func (closingDepreciation) Posted(ctx context.Context, legalEntity, ledgerID uuid.UUID, fiscalYear, period int16, end time.Time,
+	limit int) (closing.PeriodDepreciation, error) {
+	d, err := assets.CloseChecks{}.Depreciation(ctx, legalEntity, ledgerID, fiscalYear, period, end, limit)
+	out := closing.PeriodDepreciation{Run: d.Run, Selected: d.Selected, Late: make([]closing.LateAsset, len(d.Late))}
+	if d.Later != nil {
+		out.Later = &closing.LaterDepreciation{ID: d.Later.ID, Of: closing.FiscalPeriod(d.Later.Of), Currency: d.Later.Currency}
+	}
+	for i, a := range d.Late {
+		out.Late[i] = closing.LateAsset{ID: a.ID, Number: a.Number, Description: a.Description, CatchUp: a.CatchUp}
+		if a.MissingFrom != nil {
+			from := closing.FiscalPeriod(*a.MissingFrom)
+			out.Late[i].MissingFrom = &from
+		}
+	}
+	return out, err
 }

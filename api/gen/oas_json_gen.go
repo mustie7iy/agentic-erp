@@ -40322,9 +40322,15 @@ func (s *CloseCheckLedger) encodeFields(e *jx.Encoder) {
 			s.AssetsToDepreciate.Encode(e)
 		}
 	}
+	{
+		if s.LaterDepreciationRunID.Set {
+			e.FieldStart("later_depreciation_run_id")
+			s.LaterDepreciationRunID.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfCloseCheckLedger = [8]string{
+var jsonFieldsNameOfCloseCheckLedger = [9]string{
 	0: "ledger_id",
 	1: "ledger_code",
 	2: "ledger_name",
@@ -40333,6 +40339,7 @@ var jsonFieldsNameOfCloseCheckLedger = [8]string{
 	5: "revaluation_run_id",
 	6: "depreciation_run_id",
 	7: "assets_to_depreciate",
+	8: "later_depreciation_run_id",
 }
 
 // Decode decodes CloseCheckLedger from json.
@@ -40340,7 +40347,7 @@ func (s *CloseCheckLedger) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode CloseCheckLedger to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -40434,6 +40441,16 @@ func (s *CloseCheckLedger) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"assets_to_depreciate\"")
 			}
+		case "later_depreciation_run_id":
+			if err := func() error {
+				s.LaterDepreciationRunID.Reset()
+				if err := s.LaterDepreciationRunID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"later_depreciation_run_id\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -40443,8 +40460,9 @@ func (s *CloseCheckLedger) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
+	for i, mask := range [2]uint8{
 		0b00011111,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -40798,9 +40816,21 @@ func (s *CloseCheckResult) encodeFields(e *jx.Encoder) {
 			e.ArrEnd()
 		}
 	}
+	{
+		e.FieldStart("warnings_count")
+		e.Int32(s.WarningsCount)
+	}
+	{
+		e.FieldStart("warnings")
+		e.ArrStart()
+		for _, elem := range s.Warnings {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
 }
 
-var jsonFieldsNameOfCloseCheckResult = [11]string{
+var jsonFieldsNameOfCloseCheckResult = [13]string{
 	0:  "check",
 	1:  "passed",
 	2:  "checked_at",
@@ -40812,6 +40842,8 @@ var jsonFieldsNameOfCloseCheckResult = [11]string{
 	8:  "ledgers",
 	9:  "unexplained_rows_count",
 	10: "unexplained_rows",
+	11: "warnings_count",
+	12: "warnings",
 }
 
 // Decode decodes CloseCheckResult from json.
@@ -40966,6 +40998,36 @@ func (s *CloseCheckResult) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"unexplained_rows\"")
 			}
+		case "warnings_count":
+			requiredBitSet[1] |= 1 << 3
+			if err := func() error {
+				v, err := d.Int32()
+				s.WarningsCount = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"warnings_count\"")
+			}
+		case "warnings":
+			requiredBitSet[1] |= 1 << 4
+			if err := func() error {
+				s.Warnings = make([]CloseCheckWarning, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem CloseCheckWarning
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Warnings = append(s.Warnings, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"warnings\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -40977,7 +41039,7 @@ func (s *CloseCheckResult) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b00111111,
-		0b00000000,
+		0b00011000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -41198,6 +41260,305 @@ func (s *CloseCheckVariance) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *CloseCheckVariance) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *CloseCheckWarning) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *CloseCheckWarning) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("code")
+		e.Str(s.Code)
+	}
+	{
+		e.FieldStart("message")
+		e.Str(s.Message)
+	}
+	{
+		e.FieldStart("ledger_id")
+		json.EncodeUUID(e, s.LedgerID)
+	}
+	{
+		e.FieldStart("ledger_code")
+		e.Str(s.LedgerCode)
+	}
+	{
+		e.FieldStart("asset_id")
+		json.EncodeUUID(e, s.AssetID)
+	}
+	{
+		e.FieldStart("asset_number")
+		e.Str(s.AssetNumber)
+	}
+	{
+		e.FieldStart("asset_description")
+		e.Str(s.AssetDescription)
+	}
+	{
+		if s.MissingFromYear.Set {
+			e.FieldStart("missing_from_year")
+			s.MissingFromYear.Encode(e)
+		}
+	}
+	{
+		if s.MissingFromPeriod.Set {
+			e.FieldStart("missing_from_period")
+			s.MissingFromPeriod.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("missing_through_year")
+		e.Int32(s.MissingThroughYear)
+	}
+	{
+		e.FieldStart("missing_through_period")
+		e.Int32(s.MissingThroughPeriod)
+	}
+	{
+		e.FieldStart("later_depreciation_run_id")
+		json.EncodeUUID(e, s.LaterDepreciationRunID)
+	}
+	{
+		e.FieldStart("catch_up")
+		s.CatchUp.Encode(e)
+	}
+}
+
+var jsonFieldsNameOfCloseCheckWarning = [13]string{
+	0:  "code",
+	1:  "message",
+	2:  "ledger_id",
+	3:  "ledger_code",
+	4:  "asset_id",
+	5:  "asset_number",
+	6:  "asset_description",
+	7:  "missing_from_year",
+	8:  "missing_from_period",
+	9:  "missing_through_year",
+	10: "missing_through_period",
+	11: "later_depreciation_run_id",
+	12: "catch_up",
+}
+
+// Decode decodes CloseCheckWarning from json.
+func (s *CloseCheckWarning) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CloseCheckWarning to nil")
+	}
+	var requiredBitSet [2]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "code":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.Code = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"code\"")
+			}
+		case "message":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Message = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"message\"")
+			}
+		case "ledger_id":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.LedgerID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ledger_id\"")
+			}
+		case "ledger_code":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Str()
+				s.LedgerCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ledger_code\"")
+			}
+		case "asset_id":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.AssetID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"asset_id\"")
+			}
+		case "asset_number":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Str()
+				s.AssetNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"asset_number\"")
+			}
+		case "asset_description":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				v, err := d.Str()
+				s.AssetDescription = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"asset_description\"")
+			}
+		case "missing_from_year":
+			if err := func() error {
+				s.MissingFromYear.Reset()
+				if err := s.MissingFromYear.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"missing_from_year\"")
+			}
+		case "missing_from_period":
+			if err := func() error {
+				s.MissingFromPeriod.Reset()
+				if err := s.MissingFromPeriod.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"missing_from_period\"")
+			}
+		case "missing_through_year":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int32()
+				s.MissingThroughYear = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"missing_through_year\"")
+			}
+		case "missing_through_period":
+			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				v, err := d.Int32()
+				s.MissingThroughPeriod = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"missing_through_period\"")
+			}
+		case "later_depreciation_run_id":
+			requiredBitSet[1] |= 1 << 3
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.LaterDepreciationRunID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"later_depreciation_run_id\"")
+			}
+		case "catch_up":
+			requiredBitSet[1] |= 1 << 4
+			if err := func() error {
+				if err := s.CatchUp.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"catch_up\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode CloseCheckWarning")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [2]uint8{
+		0b01111111,
+		0b00011110,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfCloseCheckWarning) {
+					name = jsonFieldsNameOfCloseCheckWarning[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CloseCheckWarning) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CloseCheckWarning) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

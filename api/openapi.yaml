@@ -36118,6 +36118,8 @@ components:
         - checked_by
         - checked_by_name
         - summary
+        - warnings_count
+        - warnings
       properties:
         check:
           type: string
@@ -36164,7 +36166,7 @@ components:
           maxItems: 20
           items:
             $ref: "#/components/schemas/CloseCheckLedger"
-          description: "`revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted revaluation run keyed on its period's last day, if it has one; `depreciation_posted`: each covered ledger, in the same order, with its latest posted depreciation run of the period, if it has one, or how many assets a run would select; absent for another check."
+          description: "`revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted revaluation run keyed on its period's last day, if it has one; `depreciation_posted`: each covered ledger, in the same order, with its latest posted depreciation run of the period, if it has one, or how many assets a run would select and the latest posted run of a later period, if there is one; absent for another check."
           readOnly: true
         unexplained_rows_count:
           type: integer
@@ -36178,6 +36180,19 @@ components:
           items:
             $ref: "#/components/schemas/CloseCheckVariance"
           description: "`variances_explained`: the first 20 of them, by basis as the company configures them, then by account number; absent for another check."
+          readOnly: true
+        warnings_count:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "How many warnings the check found: what it reports without failing (ADR-0058 §6 as built, PO 2026-11-04). 0 for a check that warns of nothing, and on a result recorded before checks warned."
+          readOnly: true
+        warnings:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/CloseCheckWarning"
+          description: "The first 20 of them (`warnings_count` says how many there are), each ledger's in the order of `ledgers`, then by asset number; empty without any."
           readOnly: true
       examples:
         - check: no_parked_entries
@@ -36196,6 +36211,37 @@ components:
               created_by: 0192a000-0000-7000-8000-000000000101
               created_by_kind: human
               created_by_name: Carla Controller
+          warnings_count: 0
+          warnings: []
+        - check: depreciation_posted
+          passed: true
+          checked_at: "2026-11-03T15:00:00Z"
+          checked_by: 0192a000-0000-7000-8000-000000000101
+          checked_by_name: Carla Controller
+          summary: "Every covered ledger has a posted depreciation run of 2026/1, nothing to depreciate or a posted run of a later period; ledger 0L (1 late asset, caught up by a run of 2026/2 or later), see the warnings."
+          ledgers:
+            - ledger_id: 0192a000-0000-7000-8000-000000000d01
+              ledger_code: 0L
+              ledger_name: Leading ledger
+              key_date: "2026-01-31"
+              posted: false
+              assets_to_depreciate: 1
+              later_depreciation_run_id: 0192a000-0000-7000-8000-000000000e01
+          warnings_count: 1
+          warnings:
+            - code: depreciation_catch_up
+              message: "Asset 1000002 (Press) in ledger 0L has no depreciation booked from 2026/1 through 2026/2, whose run posted before it; a run of 2026/2 or later catches up 20.00 EUR."
+              ledger_id: 0192a000-0000-7000-8000-000000000d01
+              ledger_code: 0L
+              asset_id: 0192a000-0000-7000-8000-000000000f01
+              asset_number: "1000002"
+              asset_description: Press
+              missing_from_year: 2026
+              missing_from_period: 1
+              missing_through_year: 2026
+              missing_through_period: 2
+              later_depreciation_run_id: 0192a000-0000-7000-8000-000000000e01
+              catch_up: {amount: "20.00", currency: EUR}
     CloseCheckParkedEntry:
       type: object
       description: "A parked entry a `no_parked_entries` check found (`GET /v1/parked-journal-entries/{id}`), as it was when the check ran."
@@ -36279,7 +36325,7 @@ components:
           readOnly: true
         posted:
           type: boolean
-          description: "Whether it has a posted run of the check's kind: a revaluation run at the key date, or a depreciation run of the period. A ledger without a posted depreciation run still passes `depreciation_posted` when `assets_to_depreciate` is 0."
+          description: "Whether it has a posted run of the check's kind: a revaluation run at the key date, or a depreciation run of the period. A ledger without a posted depreciation run still passes `depreciation_posted` when `assets_to_depreciate` is 0, or when it has `later_depreciation_run_id`: a run of the period is then refused as out of order, and each asset to depreciate is a `depreciation_catch_up` warning (PO 2026-11-04)."
           readOnly: true
         revaluation_run_id:
           type: string
@@ -36296,6 +36342,87 @@ components:
           format: int32
           minimum: 0
           description: "`depreciation_posted` without a posted run: how many of the company's assets a run of the period in this ledger would select (`POST /v1/depreciation-runs/preview`); 0, nothing to depreciate, passes. Absent with a posted run and for another check."
+          readOnly: true
+        later_depreciation_run_id:
+          type: string
+          format: uuid
+          description: "`depreciation_posted` without a posted run of the period and with assets to depreciate: the latest posted depreciation run of a later period in this ledger (`GET /v1/depreciation-runs/{id}`), with which the check passes, the assets warned of; absent otherwise and for another check."
+          readOnly: true
+    CloseCheckWarning:
+      type: object
+      description: "What a check reports without failing (ADR-0058 §6 as built, PO 2026-11-04), as it was when the check ran. `depreciation_catch_up`: an asset a depreciation run of the closed period would select in a ledger whose later period's run has posted, so that no run of the closed period may post (`assets.run_out_of_order`); a run of the later run's period or after posts its catch-up (ADR-0057 §7)."
+      required:
+        - code
+        - message
+        - ledger_id
+        - ledger_code
+        - asset_id
+        - asset_number
+        - asset_description
+        - missing_through_year
+        - missing_through_period
+        - later_depreciation_run_id
+        - catch_up
+      properties:
+        code:
+          type: string
+          description: "What it warns of. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [depreciation_catch_up]
+          readOnly: true
+        message:
+          type: string
+          description: The warning in one sentence.
+          readOnly: true
+        ledger_id:
+          type: string
+          format: uuid
+          description: The ledger.
+          readOnly: true
+        ledger_code:
+          type: string
+          description: Its code.
+          readOnly: true
+        asset_id:
+          type: string
+          format: uuid
+          description: "The asset (`GET /v1/assets/{id}`)."
+          readOnly: true
+        asset_number:
+          type: string
+          description: Its number.
+          readOnly: true
+        asset_description:
+          type: string
+          description: Its description.
+          readOnly: true
+        missing_from_year:
+          type: integer
+          format: int32
+          description: "The fiscal year of the first period whose depreciation the asset has not booked in the ledger: the period after the one it is booked through, else its depreciation start's; absent when it has neither."
+          readOnly: true
+        missing_from_period:
+          type: integer
+          format: int32
+          description: "That period, with `missing_from_year`."
+          readOnly: true
+        missing_through_year:
+          type: integer
+          format: int32
+          description: "The fiscal year of the later run's period, the last period whose depreciation the asset misses."
+          readOnly: true
+        missing_through_period:
+          type: integer
+          format: int32
+          description: "That period, with `missing_through_year`."
+          readOnly: true
+        later_depreciation_run_id:
+          type: string
+          format: uuid
+          description: "The later period's posted run (`GET /v1/depreciation-runs/{id}`)."
+          readOnly: true
+        catch_up:
+          $ref: "#/components/schemas/Money"
+          description: "What a run of the later run's period would post for the asset when the check ran: its depreciation planned through that period less what is booked (`POST /v1/depreciation-runs/preview`, ADR-0057 §7), in the run's currency; a run of a period after it posts that period's depreciation on top."
           readOnly: true
     CloseTaskPage:
       type: object
