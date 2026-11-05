@@ -271,7 +271,12 @@ identifier and not a name, may be (`supplier_number`).
   (`legal_entity_code`, `supplier_number`, the date and `time_zone`) are
   required, since the job gives them on every event. A subscription naming
   a `.v1` type explicitly no longer receives it and a new one is refused;
-  `procurement.*` receives `.v2`. No partner consumes webhooks yet (T50h).
+  `procurement.*` receives `.v2`. Such a subscription still lists the
+  `.v1` type, so an update sending its `event_types` back unchanged is
+  refused (422 `integration.unknown_event_type`) until the type is replaced.
+  A `.v1` delivery made before the change is kept its 30 days and may still
+  be sent, redelivered or replayed with the name, as it was recorded. No
+  partner consumes webhooks yet (T50h), so neither case exists today.
 - **For the future.** `api/asyncapi_test.go` refuses a marked event whose
   payload has `supplier_name`, `partner_name`, `holder_name`,
   `bank_account_holder_name` or `counterparty_name`, the names the

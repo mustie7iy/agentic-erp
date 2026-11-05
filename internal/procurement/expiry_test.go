@@ -110,6 +110,10 @@ func TestContractExpiry(t *testing.T) {
 	if round.Expired != 0 {
 		t.Fatalf("second round: got %d expired, want 0", round.Expired)
 	}
+	webhookEvents(t, e, "contract_expired", events(t, e, "contract_expired"))
+	if n := len(events(t, e, "contract_expired")); n != 1 {
+		t.Errorf("ContractExpired events after the second round: got %d, want 1", n)
+	}
 	// An expired contract takes no new orders and cannot be terminated.
 	e.Problem(409, "procurement.invalid_status", "POST", pastPath+":terminate", `{"reason": "Late"}`, "*")
 	// Every statement and transaction failing in turn is reported: the
