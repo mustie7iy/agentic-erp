@@ -377,12 +377,13 @@ channels:
   closing:
     address: 'erp.{cell}.closing.{tenant}.{event}'
     title: Financial close events
-    description: Period closes, their checklists, sign-offs and variance comments (ADR-0058 §13).
+    description: Period closes, their checklists, sign-offs, accrual proposals and variance comments (ADR-0058 §13).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       PeriodCloseChanged: {$ref: '#/components/messages/PeriodCloseChanged'}
       PeriodCloseSignedOff: {$ref: '#/components/messages/PeriodCloseSignedOff'}
+      AccrualProposed: {$ref: '#/components/messages/AccrualProposed'}
       VarianceCommentChanged: {$ref: '#/components/messages/VarianceCommentChanged'}
   platform:
     address: 'erp.{cell}.platform.{tenant}.{event}'
@@ -611,6 +612,7 @@ operations:
     messages:
       - $ref: '#/channels/closing/messages/PeriodCloseChanged'
       - $ref: '#/channels/closing/messages/PeriodCloseSignedOff'
+      - $ref: '#/channels/closing/messages/AccrualProposed'
       - $ref: '#/channels/closing/messages/VarianceCommentChanged'
   publishPlatformEvents:
     action: send
@@ -3215,6 +3217,30 @@ components:
         - name: signed_off
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000802, source: /erp/eu-1/closing, type: com.example.erp.closing.period_close_signed_off.v1, subject: 0192a000-0000-7000-8000-000000000f01, time: '2026-11-05T16:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {period_close_id: 0192a000-0000-7000-8000-000000000f01, sign_off_id: 0192a000-0000-7000-8000-000000000f21, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2026, fiscal_period: 10, signed_by: 0192a000-0000-7000-8000-000000000101, note: null, periods: [{ledger_id: 0192a000-0000-7000-8000-000000000a01, ledger_code: 0L, fiscal_period_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41, locked: true}], status: signed_off, version: 9}
+    AccrualProposed:
+      name: AccrualProposed
+      x-webhook: true
+      title: Accrual proposed
+      summary: The close agent proposed an accrual for a period close, parked as a journal entry for a person to post.
+      description: |
+        Emitted by `accrual-proposals` (POST) (ADR-0058 §8, T64e): the
+        close agent proposed one expense of the close's period, and the
+        ledger parked its entry (published by the ledger as
+        ParkedJournalEntryChanged) for a person to post, edit or cancel.
+        A retried proposal, answered as it is, is not published again.
+        `GET /v1/accrual-proposals/{id}` returns the proposal at `version`.
+        Subject is the accrual proposal id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.closing.accrual_proposed.v1}
+      payload: {$ref: '#/components/schemas/AccrualProposedV1'}
+      examples:
+        - name: proposed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000804, source: /erp/eu-1/closing, type: com.example.erp.closing.accrual_proposed.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-03T14:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
+          payload: {accrual_proposal_id: 0192a000-0000-7000-8000-000000000f41, period_close_id: 0192a000-0000-7000-8000-000000000f01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2026, fiscal_period: 10, session_id: 0192a000-0000-7000-8000-000000000d01, account_id: 0192a000-0000-7000-8000-000000000402, accrual_account_id: 0192a000-0000-7000-8000-000000000403, cost_center_id: 0192a000-0000-7000-8000-000000000501, profit_center_id: null, supplier_id: 0192a000-0000-7000-8000-000000000301, amount: {amount: '1200.00', currency: CAD}, evidence: [{kind: supplier_invoice, document_id: 0192a000-0000-7000-8000-000000000611}], parked_entry_id: 0192a000-0000-7000-8000-000000000c51, posting_date: '2026-10-31', status: proposed, version: 1}
     VarianceCommentChanged:
       name: VarianceCommentChanged
       x-webhook: true
@@ -3826,6 +3852,35 @@ components:
         check_passed: {type: [boolean, 'null'], description: "Whether the task's check passed (T64c); null for any change but task_checked. `GET /v1/period-closes/{id}` shows what it found."}
         status: {type: string, description: "The close's status after the change. Open enum: open, signed_off."}
         version: {type: integer, description: "The close's version after the change."}
+    AccrualProposedV1:
+      type: object
+      required: [accrual_proposal_id, period_close_id, legal_entity_id, fiscal_year, fiscal_period, session_id, account_id, accrual_account_id, cost_center_id, profit_center_id, supplier_id, amount, evidence, parked_entry_id, posting_date, status, version]
+      properties:
+        accrual_proposal_id: {$ref: '#/components/schemas/Uuid', description: '`closing.accrual_proposal.id`.'}
+        period_close_id: {$ref: '#/components/schemas/Uuid', description: '`closing.period_close.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        fiscal_year: {type: integer}
+        fiscal_period: {type: integer, description: The regular period (1-12).}
+        session_id: {$ref: '#/components/schemas/Uuid', description: "The agent's session it was proposed in."}
+        account_id: {$ref: '#/components/schemas/Uuid', description: The expense account, debited.}
+        accrual_account_id: {$ref: '#/components/schemas/Uuid', description: "The company's accrual account, credited."}
+        cost_center_id: {$ref: '#/components/schemas/NullableUuid', description: "The expense line's cost center; null without one."}
+        profit_center_id: {$ref: '#/components/schemas/NullableUuid', description: The profit center of both lines; null without one.}
+        supplier_id: {$ref: '#/components/schemas/NullableUuid', description: The supplier the expense is for; null without one.}
+        amount: {$ref: '#/components/schemas/Money', description: "The expense, in the company's local currency."}
+        evidence:
+          type: array
+          description: What it rests on, in the order given.
+          items:
+            type: object
+            required: [kind, document_id]
+            properties:
+              kind: {type: string, description: 'Open enum: supplier_invoice, purchase_order, journal_entry.'}
+              document_id: {$ref: '#/components/schemas/Uuid'}
+        parked_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.parked_entry.id`: the entry parked for it.'}
+        posting_date: {$ref: '#/components/schemas/Date', description: "The parked entry's posting date, the period's last day."}
+        status: {type: string, description: "The proposal's status. Open enum: proposed."}
+        version: {type: integer, description: "The proposal's version."}
     VarianceCommentChangedV1:
       type: object
       required: [variance_comment_id, period_close_id, legal_entity_id, fiscal_year, fiscal_period, basis, account_id, change, author_kind, edited, reason, status, version]

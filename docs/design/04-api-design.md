@@ -637,8 +637,14 @@ close's variance in its session, citing the journal entries the row's
 figures are made of (ADR-0058 §10, T64i: `proposeVarianceComment`,
 `x-autonomy: propose`; a person takes it up with
 `acceptVarianceComment`, its text as it is or replaced, or turns it down
-with `rejectVarianceComment`, `x-agent: false`); free-text advice is a
-recommendation. Bank statements reach agents with the accounts masked to
+with `rejectVarianceComment`, `x-agent: false`), and it proposes an accrual
+of an expense of a close's period resting on posted supplier invoices,
+released purchase orders or posted journal entries (ADR-0058 §8, T64e:
+`proposeAccrual`, `x-autonomy: propose`, with `ledger.entry.park` as
+`x-also-permissions`), whose journal entry the closing context parks as
+the agent's for a person to post, edit or cancel with the ledger's own
+parked-entry operations (`postParkedJournalEntry`, `x-agent: false`);
+free-text advice is a recommendation. Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation
 (`getBankReconciliation`, ADR-0047, T49h: its statements' balances against

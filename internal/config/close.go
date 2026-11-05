@@ -254,9 +254,12 @@ func reaches(byCode map[string]*CloseTask, from []string, target string, seen ma
 }
 
 // CompanyClose is how a company's period close works (ADR-0058 §3): the
-// variance report's settings (T64h); nil Variance, no basis configured.
+// account its accruals are credited to (T64e; empty: none, so no accrual
+// is proposed) and the variance report's settings (T64h; nil Variance, no
+// basis configured).
 type CompanyClose struct {
-	Variance *CloseVariance `yaml:"variance,omitempty" json:"variance,omitempty"`
+	AccrualAccount string         `yaml:"accrual_account,omitempty" json:"accrual_account,omitempty"`
+	Variance       *CloseVariance `yaml:"variance,omitempty" json:"variance,omitempty"`
 }
 
 // CloseVariance is a company's variance report (ADR-0058 §9): the bases it
@@ -299,13 +302,15 @@ func (co *Company) Variance(basis string) *CloseVariance {
 	return nil
 }
 
-// companyClose checks a company's close settings: the variance report's
-// bases known and each once, its amount threshold positive in the
-// company's currency, its percent threshold, if any, positive with at
-// most two places (the report's percents have two), and a plan category
-// and kind of center exactly when plan is a basis. Whether the category
-// exists is controlling's, checked by the closing context's section.
+// companyClose checks a company's close settings: its accrual account
+// (accrualAccount), the variance report's bases known and each once, its
+// amount threshold positive in the company's currency, its percent
+// threshold, if any, positive with at most two places (the report's
+// percents have two), and a plan category and kind of center exactly when
+// plan is a basis. Whether the category exists is controlling's, checked
+// by the closing context's section.
 func (v *validator) companyClose(p string, co *Company, exp int, known bool) {
+	v.accrualAccount(p+".close.accrual_account", co)
 	cv := co.Close.Variance
 	if cv == nil {
 		return
@@ -339,6 +344,28 @@ func (v *validator) companyClose(p string, co *Company, exp int, known bool) {
 		}
 	}
 	v.variancePlan(p, cv)
+}
+
+// accrualAccount checks the account a company's accruals are credited to
+// (ADR-0058 §3): a liability of its chart of accounts, posted by hand, so
+// no reconciliation account of any kind (a supplier's, an asset's, the
+// down payments' or the GR/IR account, which only their own postings
+// reach).
+func (v *validator) accrualAccount(ap string, co *Company) {
+	number := co.Close.AccrualAccount
+	if number == "" {
+		return
+	}
+	a := co.Account(number)
+	ad := co.AccountDetermination
+	switch {
+	case a == nil:
+		v.err(ap, "account %s is not in the chart of accounts", number)
+	case a.Type != Liability:
+		v.err(ap, "account %s is of type %q; accruals are credited to a liability", number, a.Type)
+	case a.VendorReconciliation, a.AssetReconciliation, number == ad.GRIR, number == ad.DownPayment:
+		v.err(ap, "account %s is a reconciliation account, posted only through its own postings; accruals are credited to one posted by hand", number)
+	}
 }
 
 // variancePlan checks the plan basis's settings: a category code and cost

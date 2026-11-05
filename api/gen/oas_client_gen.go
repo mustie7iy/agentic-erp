@@ -1044,6 +1044,14 @@ type Invoker interface {
 	//
 	// GET /v1/accounts/{id}
 	GetAccount(ctx context.Context, params GetAccountParams) (GetAccountRes, error)
+	// GetAccrualProposal invokes getAccrualProposal operation.
+	//
+	// One accrual proposal (ADR-0058 §8, T64e), as `listAccrualProposals` shows it. A proposal of a close
+	// of a legal entity the caller cannot act in is not found. Besides `closing.close.read` the caller
+	// needs `ledger.entry.read` (`x-also-permissions`).
+	//
+	// GET /v1/accrual-proposals/{id}
+	GetAccrualProposal(ctx context.Context, params GetAccrualProposalParams) (GetAccrualProposalRes, error)
 	// GetAgentSession invokes getAgentSession operation.
 	//
 	// Returns one agent session.
@@ -1956,6 +1964,18 @@ type Invoker interface {
 	//
 	// GET /v1/accounts
 	ListAccounts(ctx context.Context, params ListAccountsParams) (ListAccountsRes, error)
+	// ListAccrualProposals invokes listAccrualProposals operation.
+	//
+	// The accrual proposals of the period closes of the legal entities the caller may act in (ADR-0058
+	// §8, T64e), oldest first (sortable by `created_at`, the default), each with its company, its
+	// accounts and centers named, its supplier, its amount with its currency, its evidence and its parked
+	// entry. Filters: the close, the company, the agent's session and the parked entry. A supplier's
+	// number and name, the proposal's and each evidence item's, are shown only to a caller who may read
+	// business partners (`partner.supplier.read`); the ids are always shown. Besides `closing.close.read`
+	// the caller needs `ledger.entry.read`, since a proposal shows a ledger entry (`x-also-permissions`).
+	//
+	// GET /v1/accrual-proposals
+	ListAccrualProposals(ctx context.Context, params ListAccrualProposalsParams) (ListAccrualProposalsRes, error)
 	// ListAgentSessions invokes listAgentSessions operation.
 	//
 	// Agent sessions, newest first. Sortable by: `started_at`.
@@ -3229,6 +3249,38 @@ type Invoker interface {
 	//
 	// POST /v1/revaluation-runs/preview
 	PreviewRevaluation(ctx context.Context, request *RevaluationPreviewRequest, params PreviewRevaluationParams) (PreviewRevaluationRes, error)
+	// ProposeAccrual invokes proposeAccrual operation.
+	//
+	// The close agent proposes one expense the close's period bore and the ledger does not show yet
+	// (ADR-0058 §8, T64e): the close, an expense account (a profit and loss account of the company, set
+	// up and postable in it, no reconciliation account: 422 `closing.accrual_account_invalid` on
+	// `account_id`) with its cost and profit center, an optional supplier (any business partner of the
+	// tenant; 422 `request.reference_not_found` on `supplier_id` for no business partner), the amount in
+	// the company's local currency, more than zero (422 `request.invalid_amount`), a description, a
+	// reason, and 1-10 evidence items: supplier invoices of the company that are posted, purchase orders
+	// of the company that are released and journal entries of the company posted in the leading ledger
+	// (422 `closing.evidence_unknown` on `evidence[i]` otherwise). Made in the agent's running session
+	// (`session_id`; another's or an ended one is refused as `proposeMemoRecord` refuses it); agents only
+	// (403 `agents.not_an_agent`). Under a lock on the close, it refuses a close whose company configures
+	// no accrual account (`companies[].close.accrual_account`; 409 `closing.accrual_account_missing`) and
+	// a duplicate: a proposal of the same close, expense account, cost center and supplier that is not
+	// rejected is 409 `closing.accrual_duplicate`, naming it, with its `Location`, unless it is this
+	// session's with the same content (account, centers, supplier, amount, description, reason and
+	// evidence), which answers 200 with it: a retried proposal. Else it parks a journal entry as the agent
+	// (`parkJournalEntry`'s checks and problems, the centers checked as a posting checks them), dated on
+	// the period's last day (document and posting date), in local currency, its header text naming the
+	// proposal: Dr the expense account with the centers, Cr the accrual account with the expense line's
+	// profit center (the one given, or the one a posting of the expense line derives: its cost center's,
+	// or the company's default), each line's text the description. A person posts it
+	// (`postParkedJournalEntry`, within their approval limit), edits it or cancels it; the agent never
+	// posts it. A signed-off close whose covered periods are all locked refuses the proposal (409
+	// `closing.close_signed_off`), and once one of them was unlocked it sets the close open again first
+	// (PeriodCloseChanged `reopened`, ADR-0058 §7). Since it parks a ledger entry, besides
+	// `closing.accrual.propose` the caller needs `ledger.entry.park` (`x-also-permissions`). Audited, and
+	// published as AccrualProposed (and ParkedJournalEntryChanged for the entry).
+	//
+	// POST /v1/accrual-proposals
+	ProposeAccrual(ctx context.Context, request *AccrualProposalInput, params ProposeAccrualParams) (ProposeAccrualRes, error)
 	// ProposeBankStatementLine invokes proposeBankStatementLine operation.
 	//
 	// The reconciliation agent proposes (ADR-0047, T49g), for a line the rules left `unmatched` or open
@@ -17463,6 +17515,139 @@ func (c *Client) sendGetAccount(ctx context.Context, params GetAccountParams) (r
 	return result, nil
 }
 
+// GetAccrualProposal invokes getAccrualProposal operation.
+//
+// One accrual proposal (ADR-0058 §8, T64e), as `listAccrualProposals` shows it. A proposal of a close
+// of a legal entity the caller cannot act in is not found. Besides `closing.close.read` the caller
+// needs `ledger.entry.read` (`x-also-permissions`).
+//
+// GET /v1/accrual-proposals/{id}
+func (c *Client) GetAccrualProposal(ctx context.Context, params GetAccrualProposalParams) (GetAccrualProposalRes, error) {
+	res, err := c.sendGetAccrualProposal(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetAccrualProposal(ctx context.Context, params GetAccrualProposalParams) (res GetAccrualProposalRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAccrualProposal"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/accrual-proposals/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAccrualProposalOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/accrual-proposals/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAccrualProposalOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAccrualProposalResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetAgentSession invokes getAgentSession operation.
 //
 // Returns one agent session.
@@ -30221,6 +30406,248 @@ func (c *Client) sendListAccounts(ctx context.Context, params ListAccountsParams
 
 	stage = "DecodeResponse"
 	result, err := decodeListAccountsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListAccrualProposals invokes listAccrualProposals operation.
+//
+// The accrual proposals of the period closes of the legal entities the caller may act in (ADR-0058
+// §8, T64e), oldest first (sortable by `created_at`, the default), each with its company, its
+// accounts and centers named, its supplier, its amount with its currency, its evidence and its parked
+// entry. Filters: the close, the company, the agent's session and the parked entry. A supplier's
+// number and name, the proposal's and each evidence item's, are shown only to a caller who may read
+// business partners (`partner.supplier.read`); the ids are always shown. Besides `closing.close.read`
+// the caller needs `ledger.entry.read`, since a proposal shows a ledger entry (`x-also-permissions`).
+//
+// GET /v1/accrual-proposals
+func (c *Client) ListAccrualProposals(ctx context.Context, params ListAccrualProposalsParams) (ListAccrualProposalsRes, error) {
+	res, err := c.sendListAccrualProposals(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListAccrualProposals(ctx context.Context, params ListAccrualProposalsParams) (res ListAccrualProposalsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listAccrualProposals"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/accrual-proposals"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListAccrualProposalsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/accrual-proposals"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "close_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "close_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CloseID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "session_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "session_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.SessionID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "parked_entry_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "parked_entry_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ParkedEntryID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListAccrualProposalsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListAccrualProposalsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -56661,6 +57088,162 @@ func (c *Client) sendPreviewRevaluation(ctx context.Context, request *Revaluatio
 
 	stage = "DecodeResponse"
 	result, err := decodePreviewRevaluationResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ProposeAccrual invokes proposeAccrual operation.
+//
+// The close agent proposes one expense the close's period bore and the ledger does not show yet
+// (ADR-0058 §8, T64e): the close, an expense account (a profit and loss account of the company, set
+// up and postable in it, no reconciliation account: 422 `closing.accrual_account_invalid` on
+// `account_id`) with its cost and profit center, an optional supplier (any business partner of the
+// tenant; 422 `request.reference_not_found` on `supplier_id` for no business partner), the amount in
+// the company's local currency, more than zero (422 `request.invalid_amount`), a description, a
+// reason, and 1-10 evidence items: supplier invoices of the company that are posted, purchase orders
+// of the company that are released and journal entries of the company posted in the leading ledger
+// (422 `closing.evidence_unknown` on `evidence[i]` otherwise). Made in the agent's running session
+// (`session_id`; another's or an ended one is refused as `proposeMemoRecord` refuses it); agents only
+// (403 `agents.not_an_agent`). Under a lock on the close, it refuses a close whose company configures
+// no accrual account (`companies[].close.accrual_account`; 409 `closing.accrual_account_missing`) and
+// a duplicate: a proposal of the same close, expense account, cost center and supplier that is not
+// rejected is 409 `closing.accrual_duplicate`, naming it, with its `Location`, unless it is this
+// session's with the same content (account, centers, supplier, amount, description, reason and
+// evidence), which answers 200 with it: a retried proposal. Else it parks a journal entry as the agent
+// (`parkJournalEntry`'s checks and problems, the centers checked as a posting checks them), dated on
+// the period's last day (document and posting date), in local currency, its header text naming the
+// proposal: Dr the expense account with the centers, Cr the accrual account with the expense line's
+// profit center (the one given, or the one a posting of the expense line derives: its cost center's,
+// or the company's default), each line's text the description. A person posts it
+// (`postParkedJournalEntry`, within their approval limit), edits it or cancels it; the agent never
+// posts it. A signed-off close whose covered periods are all locked refuses the proposal (409
+// `closing.close_signed_off`), and once one of them was unlocked it sets the close open again first
+// (PeriodCloseChanged `reopened`, ADR-0058 §7). Since it parks a ledger entry, besides
+// `closing.accrual.propose` the caller needs `ledger.entry.park` (`x-also-permissions`). Audited, and
+// published as AccrualProposed (and ParkedJournalEntryChanged for the entry).
+//
+// POST /v1/accrual-proposals
+func (c *Client) ProposeAccrual(ctx context.Context, request *AccrualProposalInput, params ProposeAccrualParams) (ProposeAccrualRes, error) {
+	res, err := c.sendProposeAccrual(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendProposeAccrual(ctx context.Context, request *AccrualProposalInput, params ProposeAccrualParams) (res ProposeAccrualRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("proposeAccrual"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/accrual-proposals"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ProposeAccrualOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/accrual-proposals"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeProposeAccrualRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ProposeAccrualOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeProposeAccrualResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

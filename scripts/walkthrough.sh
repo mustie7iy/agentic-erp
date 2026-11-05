@@ -418,7 +418,8 @@ start() {
   say "    treasury connector over SFTP and its webhook; step 36 the forecast across companies in group currency; step 37 the"
   say "    actuals in analytics, step 38 the forecast, its variance and accuracy in analytics"
   say "  - cost center postings, reports and planning (T56d-T56j)"
-  say "  - accounts receivable, the period close's accruals and its close agent (T64e-T64g, T64j), consolidation (T68)"
+  say "  - accounts receivable, the decisions on the period close's accrual proposals and its close agent (T64f, T64g,"
+  say "    T64j), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
   # ERP_EVAL_CELL: the close agent's principal runs at level 1 before its
@@ -3063,8 +3064,9 @@ step_asset_depreciation() {
 # the process owner approves; Carla reads the year's close calendar, each
 # period's planned first and last due dates on the company's business days.
 # Then the close's checklist (T64b), its depreciation check (T64k), its
-# other checks (T64c), its variances (T64h) and their comments (T64i)
-# and, last, its sign-off (T64d), which locks the period.
+# other checks (T64c), its accrual proposals (T64e), its variances (T64h)
+# and their comments (T64i) and, last, its sign-off (T64d), which locks
+# the period.
 step_close() {
   heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off"
   as ada
@@ -3117,6 +3119,7 @@ step_close() {
   close_checklist
   close_depreciation
   close_checks
+  close_accruals
   close_variances
   close_comments
   close_sign_off
@@ -3296,6 +3299,108 @@ step_cash_snapshot() {
   passed
 }
 
+# close_accruals is T64e's part of step_close (ADR-0058 §8, §12): Ada
+# names the company's accrual account, a new liability, through a governed
+# change, and sets up the close agent, a level-1 agent principal. Alex
+# enters the courier's invoice of last month's deliveries; the agent, as
+# it will (T64g), proposes this month's accrual citing it, parked as its
+# entry dated the period's last day, and may not post it. Carla reads the
+# proposal with its evidence and posts its parked entry; a person's
+# proposal is refused.
+close_accruals() {
+  local period close end base cr request role agent session last invoice body proposal entry
+  period=$((10#${TODAY:5:2}))
+  as ada
+  say "Ada names the account $CC's accruals are credited to (ADR-0058 §3): a new liability, 2195 Accrued"
+  say "liabilities, posted by hand. The accrual account decides what the accrual proposals' entries post (tier 3), and"
+  say "a new account changes the chart, so the change is tier 4: the invoices of the last year are replayed under it."
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Accrual account 2195\", rationale: \"The close agent's accrual proposals (T64e)\", base_version: $base,
+    proposed: (.items[0].document | .companies |= map(if .code == \"$CC\" then .chart_of_accounts += [{number: \"2195\", name: \"Accrued liabilities\",
+      type: \"liability\"}] | .close.accrual_account = \"2195\" else . end))}" "$WORK/last.json" >"$WORK/accrual.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @accrual.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[] | "\(.path) (tier \(.tier))"] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 4
+  expect "the accrual account's tier" "$(field "[.items[] | select(.path == \"companies[$CC].close.accrual_account\") | .tier] | join(\" \")")" 3
+  QUIET=1 api 201 '' createRegressionSuite -body '{"name": "Before the accrual account", "window_days": 366}'
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
+  expect "status after the evidence" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve sam "$request" "A new liability for accruals, unposted"
+  approve carla "$request" "The account the close agent's accruals are credited to"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  say "Ada sets up the close agent (ADR-0058 §12): an agent principal at autonomy level 1, which proposes and decides"
+  say "nothing; its role reads closes and the ledger and proposes accruals in its sessions, parking their entries."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "close_agent", "name": "Close agent"}'
+  role=$(field .id)
+  printf '%s' "$role" >"$WORK/close_agent_role"
+  grant "$role" closing.close.read closing.accrual.propose ledger.entry.park ledger.entry.read agents.session.record
+  api 201 '"\(.kind) \(.display_name), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' createPrincipal \
+    -body '{"kind": "agent", "external_subject": "close-agent", "display_name": "Close agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "model": "erp-default", "description": "Proposes accruals and variance comments for people to decide (ADR-0058)"}}'
+  agent=$(field .id)
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$agent\", \"role_id\": \"$role\"}"
+  token close-agent "Close agent"
+  printf '%s\tClose agent\n' "$agent" >>"$WORK/names"
+  last=$(date_add "${TODAY:0:8}01" -1)
+  as alex
+  say "Tyrell invoices its courier deliveries monthly. Alex enters last month's invoice, dated $last, CAD 300.00"
+  say "plus 15.00 GST, and posts it:"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference) of \(.invoice_date): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' \
+    createSupplierInvoice -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"COURIER-${last:0:7}\", \"invoice_date\": \"$last\", \"gross_amount\": {\"amount\": \"315.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"15.00\", \"currency\": \"CAD\"}, \"items\": [{\"account_id\": \"$(account 6000)\", \"description\": \"Courier deliveries of ${last:0:7}\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}]}"
+  invoice=$(field .id)
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  as carla
+  QUIET=1 api 200 '' listPeriodCloses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  close=$(field ".items[] | select(.fiscal_period == $period) | .id")
+  end=$(field ".items[] | select(.fiscal_period == $period) | .period_end")
+  as close-agent
+  say "The agent starts a session. This month's deliveries are not invoiced yet, so it proposes their accrual at"
+  say "last month's amount, citing that invoice: the closing context parks the entry as the agent, Dr 6000 and Cr"
+  say "the accrual account 2195, dated the period's last day, for a person to post."
+  api 201 '"session \(.id[0:8])…: \(.status)"' startAgentSession -body '{"purpose": "Propose the accruals of the close", "model": "erp-default"}'
+  session=$(field .id)
+  body="{\"session_id\": \"$session\", \"close_id\": \"$close\", \"account_id\": \"$(account 6000)\", \"supplier_id\": \"$SUPPLIER\", \"amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"description\": \"Courier deliveries of ${TODAY:0:7}, not invoiced yet\", \"reason\": \"Tyrell invoices its deliveries monthly; last month's invoice was 300.00 and this month's has not arrived.\", \"evidence\": [{\"kind\": \"supplier_invoice\", \"document_id\": \"$invoice\"}]}"
+  api 201 '"  proposal \(.id[0:8])…: \(.status), Dr \(.account_number) \(.account_name) Cr \(.accrual_account_number) \(.accrual_account_name) \(.amount.amount) \(.amount.currency) on \(.posting_date), parked entry \(.parked_entry_id[0:8])…"' \
+    proposeAccrual -body "$body"
+  proposal=$(field .id)
+  entry=$(field .parked_entry_id)
+  expect "the proposal" "$(field .status)" proposed
+  expect "the accrual account" "$(field .accrual_account_number)" 2195
+  say "Retried, the same proposal answers as it is, and parks nothing more:"
+  api 200 '"  proposal \(.id[0:8])…: \(.status)"' proposeAccrual -body "$body"
+  expect "the retried proposal" "$(field .id)" "$proposal"
+  say "Proposing is all it may do: posting its entry is a person's."
+  QUIET=1 api 200 '' getParkedJournalEntry -p "id=$entry"
+  expect "who parked the entry" "$(field .created_by_kind)" agent
+  refused 403 identity.agent_not_allowed postParkedJournalEntry -p "id=$entry" -if-match "$ETAG" -body '{}'
+  QUIET=1 api 200 '' endAgentSession -p "id=$session" -if-match '*' -body '{"status": "completed", "input_tokens": 0, "output_tokens": 0}'
+  as carla
+  say "Carla reads the proposal with its evidence, each document named, and the close's proposals:"
+  api 200 '"  \(.company_code) \(.fiscal_year)/\(.fiscal_period) by \(.agent_name): \(.description), \(.amount.amount) \(.amount.currency) for \(.supplier_name // .supplier_id)", "  because: \(.reason)",
+    (.evidence[] | "  evidence \(.kind) \(.document_number) of \(.supplier_name // .supplier_id)")' getAccrualProposal -p "id=$proposal"
+  expect "the evidence, last month's invoice" "$(field '[.evidence[] | .kind] | join(" ")')" supplier_invoice
+  expect "the cited invoice" "$(field '.evidence[0].document_id')" "$invoice"
+  api 200 '(.items[] | "  \(.id[0:8])… \(.account_number) \(.amount.amount) \(.amount.currency): \(.status)")' listAccrualProposals -p "close_id=$close"
+  expect "the close's proposals" "$(field '[.items[].id] | join(" ")')" "$proposal"
+  say "Its parked entry, the agent's, waits for a person. Carla reads it and posts it (postParkedJournalEntry):"
+  api 200 '"  parked entry by \(.created_by_kind) on \(.posting_date): \(.header_text)", (.lines[] | "    \(.amount.amount) \(.amount.currency) on \(.account_id[0:8])…: \(.line_text)")' \
+    getParkedJournalEntry -p "id=$entry"
+  expect "the parked entry's date, the period's last day" "$(field .posting_date)" "$end"
+  QUIET=1 api 200 '' getParkedJournalEntry -p "id=$entry"
+  api 200 '"  parked entry: \(.status), journal entry \(.journal_entry_id)"' postParkedJournalEntry -p "id=$entry" -if-match "$ETAG" -body '{}'
+  expect "the accrual's entry" "$(field .status)" posted
+  say "A person's proposal is refused: a person parks an entry herself (parkJournalEntry)."
+  refused 403 agents.not_an_agent proposeAccrual -body "$body"
+}
+
 # close_variances is T64h's part of step_close (ADR-0058 §9): Ada sets the
 # company's variance thresholds through a tier 2 change; Carla reads the
 # period's variances against the prior period, the rows past the
@@ -3360,27 +3465,19 @@ close_variances() {
 }
 
 # close_comments is T64i's part of step_close (ADR-0058 §10): the close
-# agent, a level-1 agent principal, proposes a comment on a flagged row
+# agent (set up in close_accruals), its role now proposing variance
+# comments too, proposes a comment on a flagged row
 # citing the entry behind it, as the agent will (T64j); a citation of an
 # entry with no line on the row's account is refused. Carla accepts the
 # proposal and explains the other flagged rows herself; the report shows
 # each row's accepted comment, the unexplained filter and the rows
 # explained, and the variances check passes.
 close_comments() {
-  local period close role agent session row account entry other comment tag basis n
+  local period close session row account entry other comment tag basis n
   period=$((10#${TODAY:5:2}))
   as ada
-  say "Ada sets up the close agent (ADR-0058 §12): an agent principal at autonomy level 1, which proposes and"
-  say "decides nothing; its role reads closes and the ledger, and proposes variance comments in its sessions."
-  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "close_agent", "name": "Close agent"}'
-  role=$(field .id)
-  grant "$role" closing.close.read closing.variance.propose ledger.entry.read agents.session.record
-  api 201 '"\(.kind) \(.display_name), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' createPrincipal \
-    -body '{"kind": "agent", "external_subject": "close-agent", "display_name": "Close agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "model": "erp-default", "description": "Proposes accruals and variance comments for people to decide (ADR-0058)"}}'
-  agent=$(field .id)
-  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$agent\", \"role_id\": \"$role\"}"
-  token close-agent "Close agent"
-  printf '%s\tClose agent\n' "$agent" >>"$WORK/names"
+  say "Ada lets the close agent propose variance comments in its sessions too."
+  grant "$(cat "$WORK/close_agent_role")" closing.variance.propose
   as carla
   QUIET=1 api 200 '' listPeriodCloses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
   close=$(field ".items[] | select(.fiscal_period == $period) | .id")

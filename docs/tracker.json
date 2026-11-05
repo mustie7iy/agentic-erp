@@ -1686,7 +1686,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Accrual proposals: companies[].close.accrual_account (tier 3); ledger.ParkedEntries.Park as the request's principal; accrual_proposal and accrual_evidence; POST /v1/accrual-proposals (agents only, in session, x-autonomy propose, ledger.entry.park also; evidence of supplier invoices, orders and entries checked; duplicate and retry rules; the parked entry Dr expense / Cr accrual account dated the period's last day); GET and list with names, evidence and the parked entry; AccrualProposed; closing.accrual.propose; the walkthrough's first agent principal at level 1; walkthrough: the agent principal proposes an accrual citing last month's invoice, Carla posts its parked entry, a person's proposal refused with agents.not_an_agent",
         "r": "ADR-0058 · T64e",
         "src": "adr:ADR-0058",

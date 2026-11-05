@@ -207,7 +207,7 @@ func TestClosePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "closing.close.manage closing.close.read closing.close.sign_off closing.variance.comment closing.variance.propose"
+	want := "closing.accrual.propose closing.close.manage closing.close.read closing.close.sign_off closing.variance.comment closing.variance.propose"
 	if got := strings.Join(codes, " "); got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
@@ -445,6 +445,182 @@ func TestVarianceCommentRules(t *testing.T) {
 			if err := tx.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM closing.variance_comment) + (SELECT count(*) FROM closing.variance_citation)`).
 				Scan(&n); err != nil || n != 0 {
 				t.Errorf("another tenant's comments and citations: got %d (%v), want none", n, err)
+			}
+			return nil
+		})
+	})
+}
+
+// Accrual proposals (T64e, migration 000216): a proposal starts proposed
+// and moves only to rejected, with who decided, when and why set exactly
+// then; nothing else of it changes, and it is never deleted. Its amount is
+// more than zero, a center's code and name are kept exactly with it, and
+// one proposal names a parked entry. Its evidence, 1-10 documents each
+// once, a journal entry with its fiscal year and no supplier, an invoice
+// or an order with its supplier and no fiscal year, is never updated or
+// deleted. Another tenant sees neither.
+func TestAccrualProposalRules(t *testing.T) {
+	need(t)
+	const (
+		closeRow = `INSERT INTO closing.period_close (tenant_id, id, legal_entity_id, fiscal_year, fiscal_period, period_end, config_version,
+			created_by, updated_by) VALUES ($1, $2, gen_random_uuid(), 2026, 1, '2026-01-31', 1, $3, $3)`
+		proposalRow = `INSERT INTO closing.accrual_proposal (tenant_id, id, close_id, session_id, agent_id, account_id, account_number, account_name,
+			accrual_account_id, accrual_account_number, accrual_account_name, cost_center_id, cost_center_code, cost_center_name, currency, amount,
+			description, reason, parked_entry_id, posting_date, status, created_by, updated_by)
+			VALUES ($1, $2, $3, gen_random_uuid(), $4, gen_random_uuid(), '6000', 'Courier', gen_random_uuid(), '2190', 'Accrued liabilities',
+				$5, $6, $7, 'CAD', $8, 'Courier of January', 'Monthly invoices', $9, '2026-01-31', $10, $4, $4)`
+		evidenceRow = `INSERT INTO closing.accrual_evidence (tenant_id, proposal_id, seq, kind, document_id, document_number, fiscal_year, supplier_id)
+			VALUES ($1, $2, $3, $4, gen_random_uuid(), '5100000001', $5, $6)`
+	)
+	type scene struct{ tenant, actor, close, proposal uuid.UUID }
+	open := func(s scene) stmt { return step(closeRow, s.tenant, s.close, s.actor) }
+	propose := func(s scene, proposal uuid.UUID, amount int, status string) stmt {
+		return step(proposalRow, s.tenant, proposal, s.close, s.actor, nil, nil, nil, amount, id(), status)
+	}
+	set := func(sql string, args ...any) stmt {
+		return step(`UPDATE closing.accrual_proposal SET `+sql+`, version = version + 1 WHERE id = $1`, args...)
+	}
+	invoice := func(s scene, seq int) stmt {
+		return step(evidenceRow, s.tenant, s.proposal, seq, "supplier_invoice", nil, id())
+	}
+	cases := []struct {
+		name string
+		run  func(tx pgx.Tx, s scene) error
+		want string // empty: allowed
+	}{
+		{"a proposal with its evidence, rejected", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), propose(s, s.proposal, 120000, "proposed"), invoice(s, 1),
+				step(evidenceRow, s.tenant, s.proposal, 2, "journal_entry", 2026, nil), step(evidenceRow, s.tenant, s.proposal, 3, "purchase_order", nil, id()),
+				set(`status = 'rejected', decided_by = updated_by, decided_at = now(), decision_reason = 'Invoiced already'`, s.proposal))
+		}, ""},
+		{"a proposal with its centers", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(proposalRow, s.tenant, s.proposal, s.close, s.actor, id(), "ADMIN", "Administration", 100, id(), "proposed"))
+		}, ""},
+		{"a cost center without its code", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(proposalRow, s.tenant, s.proposal, s.close, s.actor, id(), nil, "Administration", 100, id(), "proposed"))
+		}, "accrual_proposal_centers"},
+		{"an empty cost center code", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(proposalRow, s.tenant, s.proposal, s.close, s.actor, id(), " ", "Administration", 100, id(), "proposed"))
+		}, "accrual_proposal_cost_center_code"},
+		{"an empty profit center code", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(strings.Replace(proposalRow, "cost_center_id, cost_center_code, cost_center_name", "profit_center_id, profit_center_code, profit_center_name", 1),
+				s.tenant, s.proposal, s.close, s.actor, id(), "", "Region", 100, id(), "proposed"))
+		}, "accrual_proposal_profit_center_code"},
+		{"a code without its cost center", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(proposalRow, s.tenant, s.proposal, s.close, s.actor, nil, "ADMIN", nil, 100, id(), "proposed"))
+		}, "accrual_proposal_centers"},
+		{"an amount of zero", func(tx pgx.Tx, s scene) error { return all(tx, open(s), propose(s, s.proposal, 0, "proposed")) }, "accrual_proposal_amount"},
+		{"a negative amount", func(tx pgx.Tx, s scene) error { return all(tx, open(s), propose(s, s.proposal, -1, "proposed")) }, "accrual_proposal_amount"},
+		{"a proposal created rejected", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(`INSERT INTO closing.accrual_proposal (tenant_id, id, close_id, session_id, agent_id, account_id, account_number,
+				account_name, accrual_account_id, accrual_account_number, accrual_account_name, currency, amount, description, reason, parked_entry_id,
+				posting_date, status, decided_by, decided_at, decision_reason, created_by, updated_by) VALUES ($1, $2, $3, gen_random_uuid(), $4,
+				gen_random_uuid(), '6000', 'Courier', gen_random_uuid(), '2190', 'Accrued', 'CAD', 100, 'A', 'B', gen_random_uuid(), '2026-01-31',
+				'rejected', $4, now(), 'No', $4, $4)`, s.tenant, s.proposal, s.close, s.actor))
+		}, "starts proposed"},
+		{"a proposal of an unknown status", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), propose(s, s.proposal, 100, "posted"))
+		}, "starts proposed"},
+		{"a rejection without a reason", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), propose(s, s.proposal, 100, "proposed"), set(`status = 'rejected', decided_by = updated_by, decided_at = now()`, s.proposal))
+		}, "accrual_proposal_decided"},
+		{"a decision while proposed", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), propose(s, s.proposal, 100, "proposed"), set(`decided_by = updated_by, decided_at = now(), decision_reason = 'No'`, s.proposal))
+		}, "does not move from proposed to proposed"},
+		{"a rejected proposal proposed again", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), propose(s, s.proposal, 100, "proposed"),
+				set(`status = 'rejected', decided_by = updated_by, decided_at = now(), decision_reason = 'No'`, s.proposal),
+				set(`status = 'proposed', decided_by = NULL, decided_at = NULL, decision_reason = NULL`, s.proposal))
+		}, "does not move from rejected to proposed"},
+		{"a rejected proposal's reason changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), propose(s, s.proposal, 100, "proposed"),
+				set(`status = 'rejected', decided_by = updated_by, decided_at = now(), decision_reason = 'No'`, s.proposal),
+				set(`decision_reason = 'Later'`, s.proposal))
+		}, "does not move from rejected to rejected"},
+		{"a proposal's amount changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), propose(s, s.proposal, 100, "proposed"), set(`amount = 200`, s.proposal))
+		}, "changes only its status and decision"},
+		{"a proposal changed without its version", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), propose(s, s.proposal, 100, "proposed"), step(`UPDATE closing.accrual_proposal SET status = 'rejected',
+				decided_by = updated_by, decided_at = now(), decision_reason = 'No'`))
+		}, "optimistic lock"},
+		{"two proposals of one parked entry", func(tx pgx.Tx, s scene) error {
+			entry := id()
+			return all(tx, open(s), step(proposalRow, s.tenant, s.proposal, s.close, s.actor, nil, nil, nil, 100, entry, "proposed"),
+				step(proposalRow, s.tenant, id(), s.close, s.actor, nil, nil, nil, 100, entry, "proposed"))
+		}, "accrual_proposal_parked_once"},
+		{"an empty description", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(strings.Replace(proposalRow, "'Courier of January'", "' '", 1), s.tenant, s.proposal, s.close, s.actor, nil, nil, nil,
+				100, id(), "proposed"))
+		}, "accrual_proposal_description_check"},
+		{"a description too long", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(strings.Replace(proposalRow, "'Courier of January'", "repeat('d', 201)", 1), s.tenant, s.proposal, s.close, s.actor,
+				nil, nil, nil, 100, id(), "proposed"))
+		}, "accrual_proposal_description_check"},
+		{"a proposal of no close", func(tx pgx.Tx, s scene) error {
+			return all(tx, propose(s, s.proposal, 100, "proposed"))
+		}, "accrual_proposal_tenant_id_close_id_fkey"},
+		{"a proposal deleted", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), propose(s, s.proposal, 100, "proposed"), step(`DELETE FROM closing.accrual_proposal`))
+		}, "permission denied"},
+		{"a document cited twice", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), propose(s, s.proposal, 100, "proposed"), step(`INSERT INTO closing.accrual_evidence (tenant_id, proposal_id, seq, kind,
+				document_id, document_number, supplier_id) SELECT $1, $2, n, 'supplier_invoice', '0192a000-0000-7000-8000-000000000611', '5100000001', $3
+				FROM generate_series(1, 2) n`, s.tenant, s.proposal, id()))
+		}, "accrual_evidence_once"},
+		{"an 11th document", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), propose(s, s.proposal, 100, "proposed"), invoice(s, 11))
+		}, "accrual_evidence_seq_check"},
+		{"a document of an unknown kind", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), propose(s, s.proposal, 100, "proposed"), step(evidenceRow, s.tenant, s.proposal, 1, "goods_receipt", nil, id()))
+		}, "accrual_evidence_kind_check"},
+		{"a journal entry without its fiscal year", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), propose(s, s.proposal, 100, "proposed"), step(evidenceRow, s.tenant, s.proposal, 1, "journal_entry", nil, nil))
+		}, "accrual_evidence_kind_keys"},
+		{"a journal entry with a supplier", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), propose(s, s.proposal, 100, "proposed"), step(evidenceRow, s.tenant, s.proposal, 1, "journal_entry", 2026, id()))
+		}, "accrual_evidence_kind_keys"},
+		{"an invoice without its supplier", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), propose(s, s.proposal, 100, "proposed"), step(evidenceRow, s.tenant, s.proposal, 1, "supplier_invoice", nil, nil))
+		}, "accrual_evidence_kind_keys"},
+		{"an order with a fiscal year", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), propose(s, s.proposal, 100, "proposed"), step(evidenceRow, s.tenant, s.proposal, 1, "purchase_order", 2026, id()))
+		}, "accrual_evidence_kind_keys"},
+		{"evidence of no proposal", func(tx pgx.Tx, s scene) error { return all(tx, invoice(s, 1)) }, "accrual_evidence_tenant_id_proposal_id_fkey"},
+		{"evidence changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), propose(s, s.proposal, 100, "proposed"), invoice(s, 1), step(`UPDATE closing.accrual_evidence SET document_number = '9'`))
+		}, "permission denied"},
+		{"evidence deleted", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), propose(s, s.proposal, 100, "proposed"), invoice(s, 1), step(`DELETE FROM closing.accrual_evidence`))
+		}, "permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), actor: id(), close: id(), proposal: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+	t.Run("evidence changed by the owner", func(t *testing.T) {
+		s := scene{tenant: id(), actor: id(), close: id(), proposal: id()}
+		mustApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, open(s), propose(s, s.proposal, 100, "proposed"), invoice(s, 1)) })
+		_, err := testDB.Exec(context.Background(), `UPDATE closing.accrual_evidence SET document_number = '9' WHERE tenant_id = $1`, s.tenant)
+		failsWith(t, err, "insert-only")
+	})
+	t.Run("another tenant's", func(t *testing.T) {
+		a, b := scene{tenant: id(), actor: id(), close: id(), proposal: id()}, id()
+		mustApp(t, a.tenant, func(tx pgx.Tx) error { return all(tx, open(a), propose(a, a.proposal, 100, "proposed"), invoice(a, 1)) })
+		mustApp(t, b, func(tx pgx.Tx) error {
+			var n int
+			if err := tx.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM closing.accrual_proposal) + (SELECT count(*) FROM closing.accrual_evidence)`).
+				Scan(&n); err != nil || n != 0 {
+				t.Errorf("another tenant's proposals and evidence: got %d (%v), want none", n, err)
 			}
 			return nil
 		})
