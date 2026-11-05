@@ -1,14 +1,22 @@
 package cash_test
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/cash"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // docsOf reads the documents behind Maple's variance with the query.
@@ -187,6 +195,7 @@ func TestVarianceDocuments(t *testing.T) {
 	want(t, "an item and the unclassified row", fmt.Sprint(p["errors"].([]any)[0].(map[string]any)["field"]), "unclassified")
 	e.Problem(409, "cash.snapshot_not_taken", "GET", "/v1/liquidity-forecast-variance/documents?legal_entity_id="+e.le.String()+
 		"&from=2026-04-17&to=2026-05-21", "", "")
+	e.cancelledTwice(t, a, names)
 	// A match naming one payment twice, which the contract refuses
 	// (uniqueItems) but no constraint does, gives two entries of one key:
 	// refused, never paged wrongly.
@@ -285,6 +294,61 @@ func (e varianceEnv) twoLinesOfOneEntry(t *testing.T, a actualsEnv, names map[st
 			listedOnce(t, "listed once", all, seen)
 			want(t, "and nothing else", len(seen), len(all))
 		})
+	}
+}
+
+// cancelledTwice: a match naming twice one payment whose items cancel out
+// is one part of its line, known by the payment once.
+func (e varianceEnv) cancelledTwice(t *testing.T, a actualsEnv, names map[string]string) {
+	t.Helper()
+	p := a.paid(t, e.Supplier, 1000, nil)
+	in, out := e.item(t, e.Supplier, "2026-05-01", "CAD", -500, nil), e.item(t, e.Supplier, "2026-05-01", "CAD", 500, nil)
+	e.exec(t, `INSERT INTO payments.payment_item (tenant_id, payment_id, item_fiscal_year, item_entry_id, item_line_no, amount, due_date)
+		VALUES ($1, $2, 2026, $3, 1, 500, '2026-05-13'), ($1, $2, 2026, $4, 1, -500, '2026-05-13')`, e.Tenant.ID, p, in, out)
+	s := e.statement(t, e.main, "CAD", "2026-05-13", "2026-05-13", 0, 0, nil, "imported")
+	a.actualLine(t, s, 1, "2026-05-13", -1000, "posted", "matched", target{payments: []uuid.UUID{p, p}})
+	var got []string
+	for _, l := range entryLines(e.docsOf(t, "&from=2026-04-17&to=2026-05-21&lag=0&side=actual"), names) {
+		if strings.Contains(l, "2026-05-13") {
+			_, docs, _ := strings.Cut(l, ": ")
+			got = append(got, docs)
+		}
+	}
+	want(t, "the payment named twice, cited once", got, []string{"payment ?#, bank_statement ?# of 2 #1 B to BP90000001"})
+}
+
+// TestVarianceDocumentsFailures: the documents fail with each database
+// statement, with the suppliers' names, and refuse a page size of none.
+func TestVarianceDocumentsFailures(t *testing.T) {
+	e := setupVariance(t)
+	e.Tenant.Grant(t, "payments.statement.read", e.Tenant.Human)
+	endpoints := func() *cash.Endpoints { return app.Cash(app.Config{Now: func() time.Time { return varianceAt }}) }
+	q := cash.DocsQuery{VarianceQuery: cash.VarianceQuery{LegalEntity: e.le, From: time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC),
+		To: time.Date(2026, 5, 21, 0, 0, 0, 0, time.UTC)}, PageSize: 50}
+	read := func(ctx context.Context) error {
+		_, err := endpoints().VarianceDocuments(ctx, q)
+		return err
+	}
+	if err := read(context.Background()); !errors.Is(err, reqctx.ErrOutsideRequest) {
+		t.Errorf("outside a unit of work: got %v, want reqctx.ErrOutsideRequest", err)
+	}
+	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "documents", read)
+	failing := endpoints()
+	failing.Partners = failingPartners{}
+	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		_, err := failing.VarianceDocuments(ctx, q)
+		return err
+	})
+	if err == nil || !strings.Contains(err.Error(), "names of the forecast's suppliers") {
+		t.Errorf("the suppliers' names not read: got %v, want the read failed", err)
+	}
+	err = apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		_, err := endpoints().ListForecastVarianceDocuments(ctx, gen.ListForecastVarianceDocumentsParams{LegalEntityID: e.le, From: q.From, To: q.To,
+			PageSize: gen.NewOptInt32(0)})
+		return err
+	})
+	if err == nil || !strings.Contains(err.Error(), "page_size") {
+		t.Errorf("a page size of none: got %v, want it refused", err)
 	}
 }
 
