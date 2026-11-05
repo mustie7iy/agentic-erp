@@ -641,7 +641,10 @@ released purchase orders or posted journal entries (ADR-0058 §8, T64e:
 `proposeAccrual`, `x-autonomy: propose`, with `ledger.entry.park` as
 `x-also-permissions`), whose journal entry the closing context parks as
 the agent's for a person to post, edit or cancel with the ledger's own
-parked-entry operations (`postParkedJournalEntry`, `x-agent: false`);
+parked-entry operations (`postParkedJournalEntry`, `x-agent: false`).
+The close agent (`erp agent close-accruals -close ID`, agent type `close`
+on the alias `erp-close`, T64g) finds those accruals itself through read
+tools and `proposeAccrual`, in one session per close;
 free-text advice is a recommendation. Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

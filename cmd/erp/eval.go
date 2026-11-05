@@ -17,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/agent"
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/closeagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/configagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/migrationagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/testagent"
@@ -28,7 +29,7 @@ import (
 // evalAgents are the adapters of the agents a suite may evaluate, by agent
 // type (ADR-0039).
 var evalAgents = map[string]eval.Agent{"analytics": analyticsEval, "ap_exceptions": apExceptions, "capture": captureEval,
-	"configuration": configurationEval, "migration": migrationEval, "reconciliation": reconciliationEval, "test": testEval}
+	"close": closeEval, "configuration": configurationEval, "migration": migrationEval, "reconciliation": reconciliationEval, "test": testEval}
 
 // analyticsEval asks the task's question as erp ask does, its session
 // reading what the API gives the agent principal and no more. Its reply
@@ -152,6 +153,22 @@ func reconciliationEval(ctx context.Context, env eval.Env) error {
 	if len(res.Errors) > 0 {
 		return fmt.Errorf("reconciliation: %s", strings.Join(res.Errors, "; "))
 	}
+	return nil
+}
+
+// closeEval has the close agent propose the task's close's accruals as
+// erp agent close-accruals does; what it proposed, and what it left, is
+// the checks' to judge, and its reply theirs too ($reply.text).
+func closeEval(ctx context.Context, env eval.Env) error {
+	t, err := tasked(env, "close")
+	if err != nil {
+		return err
+	}
+	res, err := (&closeagent.Agent{LLM: env.LLM, API: env.Agent}).Accruals(ctx, t["close"])
+	if err != nil {
+		return fmt.Errorf("close: %w", err)
+	}
+	env.Reply(map[string]any{"text": res.Reply, "proposals": len(res.Proposals), "refused": res.Refused})
 	return nil
 }
 

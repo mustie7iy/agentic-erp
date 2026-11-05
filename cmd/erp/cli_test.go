@@ -415,7 +415,7 @@ func TestAgentErrors(t *testing.T) {
 	t.Chdir(t.TempDir())
 	model(t)
 	fakeAPI(t, routes{})
-	fails(t, "agent invoices | config | migration | test | reconcile", "agent")
+	fails(t, "agent invoices | config | migration | test | reconcile | close-accruals", "agent")
 	fails(t, "unknown agent", "agent", "bogus")
 	fails(t, "flag provided", "agent", "config", "-x")
 	fails(t, "say what to change", "agent", "config")
@@ -436,11 +436,54 @@ func TestAgentErrors(t *testing.T) {
 	}
 	printFails(t, "agent", "reconcile", "-statement", "s")
 	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
-	for _, a := range []string{"config", "migration", "test", "reconcile"} {
-		t.Run(a+" without a token", func(t *testing.T) {
-			fails(t, "ERP_AGENT_TOKEN is not set", "agent", a, "do", "it")
+	for _, a := range [][]string{{"config", "do", "it"}, {"migration", "do", "it"}, {"test", "do", "it"}, {"reconcile", "do", "it"}, {"close-accruals", "-close", "c"}} {
+		t.Run(a[0]+" without a token", func(t *testing.T) {
+			fails(t, "ERP_AGENT_TOKEN is not set", append([]string{"agent"}, a...)...)
 		})
 	}
+}
+
+// TestAgentCloseAccruals: erp agent close-accruals needs -close, reads the
+// close, runs the close agent's session on erp-close unless
+// ERP_AGENT_MODEL names an alias, and prints what it proposed and the
+// model's reply (ADR-0058 §12, T64g).
+func TestAgentCloseAccruals(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	fails(t, "flag provided", "agent", "close-accruals", "-x")
+	fails(t, "-close names the period close", "agent", "close-accruals")
+	fails(t, "404", "agent", "close-accruals", "-close", "c")
+	closed := routes{"GET /v1/period-closes/c": {ok(`{"id": "c", "company_code": "2000", "fiscal_year": 2026, "fiscal_period": 6}`)},
+		"POST /v1/agent-sessions": {ok(`{"id": "s1", "autonomy_level": 1}`)}, "POST /v1/agent-sessions/s1:end": {ok(`{}`)},
+		"POST /v1/agent-sessions/s1/tool-calls": {{201, `{}`}}, "POST /v1/accrual-proposals": {{201, `{"id": "p1", "parked_entry_id": "e1"}`}}}
+	for _, c := range []struct{ name, alias, model string }{
+		{"on erp-close", "", "erp-close"},
+		{"on the alias ERP_AGENT_MODEL names", "erp-default", "erp-default"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			srv := llmtest.New(t, llmtest.Tool("proposeAccrual", map[string]any{"body": map[string]any{"close_id": "c"}}), llmtest.Final("Nothing more recurs uninvoiced."))
+			newRunner = func(*apitools.Client) *llm.Runner { return srv.Runner() }
+			t.Cleanup(func() { newRunner = gatewayRunner })
+			fakeAPI(t, closed, "ERP_AGENT_MODEL", c.alias)
+			got := must(t, "agent", "close-accruals", "-close", "c")
+			for _, want := range []string{"Session s1: proposals made 1, refused 0.", "  proposal p1, parked entry e1", "Nothing more recurs uninvoiced."} {
+				if !strings.Contains(got, want) {
+					t.Errorf("output: got\n%s\nwant it to contain %q", got, want)
+				}
+			}
+			if want := `"model":"` + c.model + `"`; !strings.Contains(srv.Requests[0], want) {
+				t.Errorf("model: got %s, want %s", srv.Requests[0], want)
+			}
+		})
+	}
+	model(t)
+	fakeAPI(t, closed)
+	// A failed run still names its session, then fails.
+	fails(t, "Session s1: proposals made 0, refused 0.", "agent", "close-accruals", "-close", "c")
+	fails(t, "500", "agent", "close-accruals", "-close", "c")
+	model(t, llmtest.Final("Nothing."))
+	printFails(t, "agent", "close-accruals", "-close", "c")
 }
 
 // answer is erp-server's answer to an analytics query: invoices and

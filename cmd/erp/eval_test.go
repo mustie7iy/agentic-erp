@@ -352,6 +352,8 @@ func TestAdapterFailures(t *testing.T) {
 		"test without a change request":      testEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
 		"reconciliation without a statement": reconciliationEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
 		"reconciliation without its API":     reconciliationEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"statement": "s"}}),
+		"close without a close":              closeEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
+		"close without its API":              closeEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"close": "c"}}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err == nil {

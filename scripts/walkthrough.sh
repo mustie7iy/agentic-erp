@@ -398,9 +398,12 @@ start() {
   say "erp-server is up (development, development issuer on): API $ERP_API_URL, admin $ERP_ADMIN_URL."
 }
 
-# model_stub starts the stand-in for the model provider (step 18's capture)
-# and points erp-server's model gateway at it. It answers every call with
-# the text of model-answer.json, which step 18 writes.
+# model_stub starts the stand-in for the model provider (step 18's capture,
+# the close agent's run in step_close) and points erp-server's model
+# gateway at it. While model-script.json exists it answers each call with
+# its next turn (the close agent's, which close_accrual_agent writes and
+# removes); otherwise with the text of model-answer.json, which step 18
+# writes.
 model_stub() {
   local stub="$BIN/modelstub"
   if [ ! -x "$stub" ]; then
@@ -411,7 +414,7 @@ model_stub() {
     fail "something already listens on $MODEL_ADDR: set WALKTHROUGH_MODEL_ADDR"
   fi
   echo '{}' >"$WORK/model-answer.json"
-  "$stub" -addr "$MODEL_ADDR" -answer "$WORK/model-answer.json" >"$WORK/model.log" 2>&1 &
+  "$stub" -addr "$MODEL_ADDR" -answer "$WORK/model-answer.json" -script "$WORK/model-script.json" >"$WORK/model.log" 2>&1 &
   MODEL_PID=$!
   export ERP_MODEL_API_KEY=walkthrough ERP_MODEL_ENDPOINT="http://$MODEL_ADDR"
 }
@@ -3226,9 +3229,10 @@ close_accruals() {
   api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "close_agent", "name": "Close agent"}'
   role=$(field .id)
   printf '%s' "$role" >"$WORK/close_agent_role"
-  grant "$role" closing.close.read closing.accrual.propose ledger.entry.park ledger.entry.read agents.session.record
-  api 201 '"\(.kind) \(.display_name), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' createPrincipal \
-    -body '{"kind": "agent", "external_subject": "close-agent", "display_name": "Close agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "model": "erp-default", "description": "Proposes accruals and variance comments for people to decide (ADR-0058)"}}'
+  grant "$role" closing.close.read closing.accrual.propose ledger.entry.park ledger.entry.read agents.session.record \
+    agents.session.read agents.model.invoke ledger.account.read payables.invoice.read procurement.order.read partner.supplier.read
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' createPrincipal \
+    -body '{"kind": "agent", "external_subject": "close-agent", "display_name": "Close agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "close", "model": "erp-close", "description": "Proposes accruals and variance comments for people to decide (ADR-0058)"}}'
   agent=$(field .id)
   QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$agent\", \"role_id\": \"$role\"}"
   token close-agent "Close agent"
@@ -3249,7 +3253,7 @@ close_accruals() {
   say "The agent starts a session. This month's deliveries are not invoiced yet, so it proposes their accrual at"
   say "last month's amount, citing that invoice: the closing context parks the entry as the agent, Dr 6000 and Cr"
   say "the accrual account 2195, dated the period's last day, for a person to post."
-  api 201 '"session \(.id[0:8])…: \(.status)"' startAgentSession -body '{"purpose": "Propose the accruals of the close", "model": "erp-default"}'
+  api 201 '"session \(.id[0:8])…: \(.status)"' startAgentSession -body '{"purpose": "Propose the accruals of the close", "model": "erp-close"}'
   session=$(field .id)
   body="{\"session_id\": \"$session\", \"close_id\": \"$close\", \"account_id\": \"$(account 6000)\", \"supplier_id\": \"$SUPPLIER\", \"amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"description\": \"Courier deliveries of ${TODAY:0:7}, not invoiced yet\", \"reason\": \"Tyrell invoices its deliveries monthly; last month's invoice was 300.00 and this month's has not arrived.\", \"evidence\": [{\"kind\": \"supplier_invoice\", \"document_id\": \"$invoice\"}]}"
   api 201 '"  proposal \(.id[0:8])…: \(.status), Dr \(.account_number) \(.account_name) Cr \(.accrual_account_number) \(.accrual_account_name) \(.amount.amount) \(.amount.currency) on \(.posting_date), parked entry \(.parked_entry_id[0:8])…"' \
@@ -3283,6 +3287,103 @@ close_accruals() {
   expect "the accrual's entry" "$(field .status)" posted
   say "A person's proposal is refused: a person parks an entry herself (parkJournalEntry)."
   refused 403 agents.not_an_agent proposeAccrual -body "$body"
+  close_accrual_agent "$close"
+}
+
+# close_accrual_agent is T64g's part of step_close (ADR-0058 §12): the
+# close agent itself, erp agent close-accruals on the close, through the
+# model stand-in answering from a script of turns (its suite's replay,
+# evals/close). Rideau IT Services invoiced 6100 in each of the three
+# months before the close's and not in it; Laurentian Paper invoiced 6000
+# in those months and in this one. The agent proposes Rideau's accrual of
+# its last invoice's net amount citing the three, and nothing for
+# Laurentian; Carla posts the proposal's parked entry, so the close stays
+# ready to sign off.
+close_accrual_agent() {
+  local close=$1 m1 m2 m3 rideau laurentian fees office ids=() inv n day net tax gross proposal entry got session
+  m1=$(date_add "${TODAY:0:8}01" -1)
+  m2=$(date_add "${m1:0:8}01" -1)
+  m3=$(date_add "${m2:0:8}01" -1)
+  as alex
+  QUIET=1 api 200 '' listBusinessPartners -p "name_prefix=Rideau IT"
+  rideau=$(field '.items[0].id')
+  QUIET=1 api 200 '' listBusinessPartners -p "name_prefix=Laurentian"
+  laurentian=$(field '.items[0].id')
+  if [ -z "$rideau" ] || [ "$rideau" = null ] || [ -z "$laurentian" ] || [ "$laurentian" = null ]; then
+    fail "the migrated suppliers Rideau IT Services and Laurentian Paper are not there"
+  fi
+  fees=$(account 6100)
+  office=$(account 6000)
+  say "Rideau IT Services invoices its support monthly on 6100 Professional fees; its invoices of ${m3:0:7}, ${m2:0:7} and"
+  say "${m1:0:7} arrive together and Alex posts them today, dated in their months. Laurentian Paper invoices its paper"
+  say "monthly on 6000, this month's included. (Each net amount plus 5 % GST, V1.)"
+  for n in "$m3 400.00 20.00 420.00" "$m2 420.00 21.00 441.00" "$m1 450.00 22.50 472.50"; do
+    read -r day net tax gross <<<"$n"
+    QUIET=1 api 201 '' createSupplierInvoice -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$rideau\", \"supplier_reference\": \"RIT-${day:0:7}\", \"invoice_date\": \"$day\", \"gross_amount\": {\"amount\": \"$gross\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"$tax\", \"currency\": \"CAD\"}, \"items\": [{\"account_id\": \"$fees\", \"description\": \"IT support of ${day:0:7}\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"$net\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}]}"
+    inv=$(field .id)
+    api 200 '"  \(.document_number) \(.supplier_reference) of \(.invoice_date): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' \
+      postSupplierInvoice -p "id=$inv" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+    ids+=("$inv")
+  done
+  for n in "$m3 180.00 9.00 189.00" "$m2 190.00 9.50 199.50" "$m1 200.00 10.00 210.00" "$TODAY 210.00 10.50 220.50"; do
+    read -r day net tax gross <<<"$n"
+    QUIET=1 api 201 '' createSupplierInvoice -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$laurentian\", \"supplier_reference\": \"LP-${day:0:7}\", \"invoice_date\": \"$day\", \"gross_amount\": {\"amount\": \"$gross\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"$tax\", \"currency\": \"CAD\"}, \"items\": [{\"account_id\": \"$office\", \"description\": \"Copy paper of ${day:0:7}\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"$net\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}]}"
+    inv=$(field .id)
+    api 200 '"  \(.document_number) \(.supplier_reference) of \(.invoice_date): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' \
+      postSupplierInvoice -p "id=$inv" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  done
+  say "The close agent runs: erp agent close-accruals starts a session on erp-close, reads through its tools what"
+  say "the close's company invoiced, proposed and parked, and proposes. The model is the stand-in, answering from a"
+  say "script of turns as the agent's evaluation suite replays them (evals/close): it reads the close, the invoices"
+  say "of the last three months and this one, the close's proposals and the parked entries, and proposes Rideau's"
+  say "accrual of ${m1:0:7}'s 450.00 citing the three invoices; Laurentian has invoiced this month, so nothing."
+  jq -n --arg close "$close" --arg le "$LE" --arg from "${m3:0:8}01" --arg to "$TODAY" --arg acct "$fees" --arg sup "$rideau" \
+    --arg month "${TODAY:0:7}" --arg i1 "${ids[0]}" --arg i2 "${ids[1]}" --arg i3 "${ids[2]}" '{
+    vars: {session: "session id is ([0-9a-f-]{36})"},
+    turns: [
+      {tool: "getPeriodClose", input: {id: $close}},
+      {tool: "listSupplierInvoices", input: {legal_entity_id: $le, invoice_date_from: $from, invoice_date_to: $to}},
+      {tool: "listAccrualProposals", input: {close_id: $close}},
+      {tool: "listParkedJournalEntries", input: {legal_entity_id: $le, status: "parked"}},
+      {tool: "proposeAccrual", input: {body: {session_id: "{{session}}", close_id: $close, account_id: $acct, supplier_id: $sup,
+        amount: {amount: "450.00", currency: "CAD"}, description: "IT support of \($month), not invoiced yet",
+        reason: "Rideau IT Services invoiced 400.00, 420.00 and 450.00 on 6100 in the last three months and not this one; the last, 450.00, is accrued.",
+        evidence: [{kind: "supplier_invoice", document_id: $i1}, {kind: "supplier_invoice", document_id: $i2}, {kind: "supplier_invoice", document_id: $i3}]}}},
+      {final: "Proposed Rideau IT Services accrual of 450.00. Laurentian Paper has invoiced this month, so nothing is accrued for it."}]}' \
+    >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent close-accruals -close "$close"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/close-agent") "$ERP" agent close-accruals -close "$close" 2>"$WORK/stderr") ||
+    fail "erp agent close-accruals failed ($(cat "$WORK/stderr"))"
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "proposals made 1, refused 0."
+  proposal=$(printf '%s\n' "$got" | sed -nE 's/^  proposal ([0-9a-f-]{36}), parked entry ([0-9a-f-]{36})$/\1/p')
+  entry=$(printf '%s\n' "$got" | sed -nE 's/^  proposal ([0-9a-f-]{36}), parked entry ([0-9a-f-]{36})$/\2/p')
+  as carla
+  say "Carla reads the close's proposals: the agent's, with its three invoices, and none for Laurentian:"
+  api 200 '(.items[] | "  \(.id[0:8])… by \(.agent_name) for \(.supplier_name // .supplier_id): \(.account_number) \(.amount.amount) \(.amount.currency), evidence \([.evidence[].document_number] | join(", "))")' \
+    listAccrualProposals -p "close_id=$close"
+  expect "Rideau's proposals" "$(field "[.items[] | select(.supplier_id == \"$rideau\")] | length")" 1
+  expect "Rideau's amount, its last invoice's net" "$(field ".items[] | select(.supplier_id == \"$rideau\") | .amount.amount")" 450.00
+  expect "on 6100" "$(field ".items[] | select(.supplier_id == \"$rideau\") | .account_number")" 6100
+  expect "citing the three invoices" "$(field ".items[] | select(.supplier_id == \"$rideau\") | [.evidence[].document_id] | sort | join(\" \")")" \
+    "$(printf '%s\n' "${ids[@]}" | sort | paste -sd' ' -)"
+  expect "nothing for Laurentian, already invoiced" "$(field "[.items[] | select(.supplier_id == \"$laurentian\")] | length")" 0
+  expect "the proposal the agent printed, Rideau's" "$(field ".items[] | select(.supplier_id == \"$rideau\") | .id")" "$proposal"
+  expect "its parked entry" "$(field ".items[] | select(.id == \"$proposal\") | .parked_entry_id")" "$entry"
+  expect "made in the session it printed" "$(field ".items[] | select(.id == \"$proposal\") | .session_id")" "$session"
+  as close-agent
+  say "The agent's session, which the command named, records each tool call:"
+  api 200 '"  session \(.id[0:8])… \(.status) on \(.model): \(.purpose)"' getAgentSession -p "id=$session"
+  expect "the session" "$(field .status)" completed
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "getPeriodClose listSupplierInvoices listAccrualProposals listParkedJournalEntries proposeAccrual"
+  as carla
+  say "Carla posts the parked entry of the agent's proposal ${proposal:0:8}…, as she posted the first:"
+  QUIET=1 api 200 '' getParkedJournalEntry -p "id=$entry"
+  api 200 '"  parked entry: \(.status), journal entry \(.journal_entry_id)"' postParkedJournalEntry -p "id=$entry" -if-match "$ETAG" -body '{}'
+  expect "the agent's accrual" "$(field .status)" posted
 }
 
 # close_variances is T64h's part of step_close (ADR-0058 §9): Ada sets the

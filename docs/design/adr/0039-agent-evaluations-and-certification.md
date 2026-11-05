@@ -38,7 +38,10 @@ the suites set.
   recommendation per change request), migration, analytics and
   reconciliation (T49g: proposals for bank statement lines, never a match,
   exclusion or posting; a line nothing explains left to a person, graded
-  as right). A setup call may post a multipart `form` of values instead of
+  as right) and close (ADR-0058 §12, T64g: the accrual cases, one accrual
+  of a monthly supplier not invoiced in the close's period and none for a
+  supplier invoiced, goods on GR/IR, a one-off invoice, an expense already
+  proposed or parked, or a planted instruction; never a posting). A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The
   migration agent rehearses only, its own guard refusing a real load
