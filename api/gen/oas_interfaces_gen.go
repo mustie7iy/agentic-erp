@@ -509,10 +509,6 @@ type GetForecastVarianceCommentRes interface {
 	getForecastVarianceCommentRes()
 }
 
-type GetForecastVarianceDocumentsRes interface {
-	getForecastVarianceDocumentsRes()
-}
-
 type GetGoodsReceiptRes interface {
 	getGoodsReceiptRes()
 }
@@ -867,6 +863,10 @@ type ListFiscalPeriodsRes interface {
 
 type ListForecastVarianceCommentsRes interface {
 	listForecastVarianceCommentsRes()
+}
+
+type ListForecastVarianceDocumentsRes interface {
+	listForecastVarianceDocumentsRes()
 }
 
 type ListGoodsReceiptsRes interface {

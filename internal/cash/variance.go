@@ -243,12 +243,14 @@ func snapshotOn(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, date time
 
 // keptLine is a snapshot's line as the variance reads it.
 type keptLine struct {
+	lineNo   int32
 	date     time.Time
 	end      *time.Time
 	currency string
 	item     string
 	amount   money.Minor
 	payment  *uuid.UUID
+	supplier *uuid.UUID
 	doc      *Document
 }
 
@@ -258,17 +260,18 @@ type keptLine struct {
 // suppliers were owed: the forecast's totals did not count them
 // (ADR-0051 §9, T53e2), so neither does the variance.
 func keptLines(ctx context.Context, tx pgx.Tx, snapshot uuid.UUID, last time.Time) ([]keptLine, error) {
-	rows, _ := tx.Query(ctx, `SELECT f.value_date, f.bucket_end, f.currency, coalesce(f.liquidity_item, ''), f.amount, f.payment_id,
-			f.document_kind, f.document_id
+	rows, _ := tx.Query(ctx, `SELECT f.line_no, f.value_date, f.bucket_end, f.currency, coalesce(f.liquidity_item, ''), f.amount, f.payment_id,
+			f.supplier_id, f.document_kind, f.document_id, coalesce(f.document_number, '')
 		FROM cash.snapshot_flow f WHERE f.snapshot_id = $1 AND f.source <> 'payable_blocked'
 			AND (f.bucket_end IS NULL OR f.value_date <= $2) ORDER BY f.line_no`, snapshot, last)
 	lines, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (keptLine, error) {
 		var l keptLine
 		var kind *string
 		var id *uuid.UUID
-		err := r.Scan(&l.date, &l.end, &l.currency, &l.item, &l.amount, &l.payment, &kind, &id)
+		var number string
+		err := r.Scan(&l.lineNo, &l.date, &l.end, &l.currency, &l.item, &l.amount, &l.payment, &l.supplier, &kind, &id, &number)
 		if id != nil {
-			l.doc = &Document{Kind: *kind, ID: *id}
+			l.doc = &Document{Kind: *kind, ID: *id, Number: number}
 		}
 		return l, errs.Wrapf(err, "scan cash snapshot line")
 	})

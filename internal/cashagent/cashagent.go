@@ -43,7 +43,7 @@ var Proposers = []string{"proposeForecastVarianceComment", "proposeMemoRecord"}
 
 // Tools are the operations the agent may call (ADR-0051 §13): reads, and
 // the two that propose.
-var Tools = append([]string{"getLiquidityForecastVariance", "getForecastVarianceDocuments", "listForecastVarianceComments", "getLiquidityForecast",
+var Tools = append([]string{"getLiquidityForecastVariance", "listForecastVarianceDocuments", "listForecastVarianceComments", "getLiquidityForecast",
 	"listLiquidityForecastFlows", "getCashActuals", "listCashActualLines", "getCashSnapshot", "listCashSnapshotFlows", "listMemoRecords",
 	"getMemoRecord", "listPaymentRuns", "listPayments", "listOpenItems", "listSupplierInvoices", "getSupplierInvoice", "listPurchaseOrders",
 	"listBankStatements", "getBankStatement", "getBusinessPartner", "runAnalyticsQuery"}, Proposers...)
@@ -53,7 +53,7 @@ const system = `You explain a company's liquidity forecast variance for a period
 The variance (getLiquidityForecastVariance) compares what a snapshot of the forecast, taken lag days before the period,
 expected with what the bank statements show, per currency and liquidity item, and attributes it: timing (a document paid in
 another bucket than forecast), amount (paid in its bucket at another amount), new (paid and not forecast), missing (forecast
-and not paid) and unclassified (a statement line not matched yet). getForecastVarianceDocuments lists the documents behind
+and not paid) and unclassified (a statement line not matched yet). listForecastVarianceDocuments lists the documents behind
 each attributed figure: payments, journal entries, supplier invoices, purchase orders, down payment requests, memo records and
 bank statements with their line numbers. Read further as you need: the actuals (getCashActuals, listCashActualLines), the
 snapshot and its lines (getCashSnapshot, listCashSnapshotFlows), the forecast (getLiquidityForecast,
@@ -68,7 +68,7 @@ proposeForecastVarianceComment once, with the session id you are given, the comp
 are given, the row (liquidity_item, or unclassified true for what no rule assigns), a text of one to three sentences naming
 the documents and the figures ("Kurier Express's invoice of EUR 300.00 was forecast for the 7th and paid on the 14th: the run
 of the 7th was released a week late"), and as citations the documents behind the attributed variance that the text names,
-each as getForecastVarianceDocuments lists it for that row. Propose nothing for a row whose variance is zero, a row already
+each as listForecastVarianceDocuments lists it for that row. Propose nothing for a row whose variance is zero, a row already
 explained by a comment, or a row you cannot explain from the documents: list such a row in your answer as "not explained".
 Never guess a reason.
 

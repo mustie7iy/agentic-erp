@@ -44,13 +44,14 @@ type Handler interface {
 	AcceptBankStatementLineProposal(ctx context.Context, req OptStatementLineProposalAccept, params AcceptBankStatementLineProposalParams) (AcceptBankStatementLineProposalRes, error)
 	// AcceptForecastVarianceCommentProposal implements acceptForecastVarianceCommentProposal operation.
 	//
-	// A person accepts the forecast agent's `proposed` comment on the forecast variance as it stands
-	// (ADR-0051 §13, T53i; 409 `cash.variance_comment_not_proposed` otherwise): it becomes `accepted`,
-	// decided by the person, and keeps its text, session and citations. Audited, and published as
+	// A person accepts the forecast agent's `proposed` comment on the forecast variance (ADR-0051 §13,
+	// T53i; 409 `cash.variance_comment_not_proposed` otherwise), as it stands or with their own `text` (1
+	// to 2,000 characters, not blank), the agent's then kept as `proposed_text`: it becomes `accepted`,
+	// decided by the person, and keeps its session and citations. Audited, and published as
 	// VarianceCommentDecided.
 	//
 	// POST /v1/liquidity-forecast-variance/comments/{id}:acceptProposal
-	AcceptForecastVarianceCommentProposal(ctx context.Context, params AcceptForecastVarianceCommentProposalParams) (AcceptForecastVarianceCommentProposalRes, error)
+	AcceptForecastVarianceCommentProposal(ctx context.Context, req OptForecastVarianceCommentAccept, params AcceptForecastVarianceCommentProposalParams) (AcceptForecastVarianceCommentProposalRes, error)
 	// AcceptMemoRecordProposal implements acceptMemoRecordProposal operation.
 	//
 	// A person accepts an agent's `proposed` memo record (409 `cash.memo_record_not_proposed` otherwise):
@@ -1437,31 +1438,6 @@ type Handler interface {
 	//
 	// GET /v1/liquidity-forecast-variance/comments/{id}
 	GetForecastVarianceComment(ctx context.Context, params GetForecastVarianceCommentParams) (GetForecastVarianceCommentRes, error)
-	// GetForecastVarianceDocuments implements getForecastVarianceDocuments operation.
-	//
-	// The documents behind the attribution of a legal entity's forecast variance (ADR-0051 §11, §13,
-	// T53i), as `getLiquidityForecastVariance` attributes it for the same `from`, `to`, `lag` and `grain`,
-	// computed at the read from one database state: one entry per contribution in the days kept per
-	// document (from `from` to the earlier of `to` and the snapshot's `document_level_until`), each a
-	// forecast line of the snapshot (`side` `forecast`) or the part of a statement line one document
-	// behind it pays, per liquidity item (`side` `actual`), with its attribution (`timing`, `amount`,
-	// `new`, `missing` or `unclassified`), currency, liquidity item, value date, the bucket it falls in,
-	// its signed amount, and the documents it is known by: a payment, a supplier item's journal entry, the
-	// supplier invoice it was posted for, the purchase order that invoice was entered on, a down payment
-	// request, a memo record (a series' occurrence with its `occurrence_date`), and, for a statement line,
-	// its bank statement and `line_no`. These are the documents the forecast agent's comment proposals may
-	// cite (`proposeForecastVarianceComment`). Of one row with `liquidity_item` (the item and its
-	// descendants) or `unclassified` (what no rule assigns), not both (422); of every row without either.
-	// Each document is shown only to a caller who may use its context's read permission (a payment
-	// `payments.run.read`, a bank statement `payments.statement.read`, a journal entry
-	// `ledger.entry.read`, an invoice or down payment request `payables.invoice.read`, an order
-	// `procurement.order.read`, a memo record `cash.memo.read`), as the snapshot's lines and the actuals'
-	// lines show them, and otherwise left out (`document_count` counts them all); no supplier is named.
-	// Refused as the variance is: 409 `cash.snapshot_not_taken`, 422 for a lag, period or grain the
-	// variance refuses, 404 for a legal entity the caller cannot act in.
-	//
-	// GET /v1/liquidity-forecast-variance/documents
-	GetForecastVarianceDocuments(ctx context.Context, params GetForecastVarianceDocumentsParams) (GetForecastVarianceDocumentsRes, error)
 	// GetGoodsReceipt implements getGoodsReceipt operation.
 	//
 	// Returns one goods receipt.
@@ -2341,8 +2317,9 @@ type Handler interface {
 	ListFiscalPeriods(ctx context.Context, params ListFiscalPeriodsParams) (ListFiscalPeriodsRes, error)
 	// ListForecastVarianceComments implements listForecastVarianceComments operation.
 	//
-	// The comments people wrote on the forecast variance of the legal entities the caller may act in
-	// (ADR-0051 §11, T53f4), newest first: each explains one row of a company's variance
+	// The comments on the forecast variance of the legal entities the caller may act in (ADR-0051 §11,
+	// T53f4), newest first: those people wrote and the forecast agent's proposals (T53i; `status=proposed`
+	// lists those waiting for a person); each explains one row of a company's variance
 	// (`getLiquidityForecastVariance`), a liquidity item or what no rule assigns (`unclassified`), over a
 	// period at a lag, against the snapshot that variance compares with. Filters: the legal entity, the
 	// liquidity item or the unclassified row (not both, 422), the lag, the status, and the periods that
@@ -2350,6 +2327,35 @@ type Handler interface {
 	//
 	// GET /v1/liquidity-forecast-variance/comments
 	ListForecastVarianceComments(ctx context.Context, params ListForecastVarianceCommentsParams) (ListForecastVarianceCommentsRes, error)
+	// ListForecastVarianceDocuments implements listForecastVarianceDocuments operation.
+	//
+	// The documents behind the attribution of a legal entity's forecast variance (ADR-0051 §11, §13,
+	// T53i), as `getLiquidityForecastVariance` attributes it for the same `from`, `to`, `lag` and `grain`,
+	// computed at the read from one database state: one entry per contribution in the days kept per
+	// document (from `from` to the earlier of `to` and the snapshot's `document_level_until`), each a
+	// forecast line of the snapshot (`side` `forecast`) or the part of a statement line one document
+	// behind it pays, per liquidity item (`side` `actual`), with its attribution (`timing`, `amount`,
+	// `new`, `missing` or `unclassified`), currency, liquidity item, value date, the bucket it falls in,
+	// its signed amount, and the documents it is known by: a payment, a supplier item's journal entry, the
+	// supplier invoice it was posted for, the purchase order that invoice was entered on, a down payment
+	// request, a memo record (a series' occurrence with its `occurrence_date`), and, for a statement line,
+	// its bank statement and `line_no`. These are the documents the forecast agent's comment proposals may
+	// cite (`proposeForecastVarianceComment`). Of one row with `liquidity_item` (the item and its
+	// descendants) or `unclassified` (what no rule assigns), not both (422); of every row without either;
+	// narrowed by `side`, `attribution` and `currency`. Each document is shown, with its number (a
+	// document's number as the snapshot kept it, a run's number for a payment, a statement's reference),
+	// only to a caller who may use its context's read permission (a payment `payments.run.read`, a bank
+	// statement `payments.statement.read` (and with it the line's number and bank reference), a journal
+	// entry `ledger.entry.read`, an invoice or down payment request `payables.invoice.read`, an order
+	// `procurement.order.read`, a memo record `cash.memo.read`), and the supplier a contribution pays only
+	// with `partner.supplier.read`, as the snapshot's lines and the actuals' lines show them, and
+	// otherwise left out (`document_count` counts them all). Ordered by side (the forecast's first), value
+	// date, then a digest of the line, so the page token names no document; `count` counts the entries of
+	// every page. Refused as the variance is: 409 `cash.snapshot_not_taken`, 422 for a lag, period or
+	// grain the variance refuses, 404 for a legal entity the caller cannot act in.
+	//
+	// GET /v1/liquidity-forecast-variance/documents
+	ListForecastVarianceDocuments(ctx context.Context, params ListForecastVarianceDocumentsParams) (ListForecastVarianceDocumentsRes, error)
 	// ListGoodsReceipts implements listGoodsReceipts operation.
 	//
 	// Goods receipts and their reversals. Sortable by: `posting_date`, `document_number`.
@@ -3269,14 +3275,13 @@ type Handler interface {
 	// refused as `createRecommendation` refuses it): the row, period and lag as
 	// `createForecastVarianceComment` names and checks them, the text, and the documents behind the
 	// attributed variance it explains (`citations`, 1 to 50, each a kind and id), checked against the
-	// attribution: every document it cites must be one `getForecastVarianceDocuments` lists, as the caller
-	// may see it, for that row (the item and its descendants, or what no rule assigns) over the period at
-	// the lag, else 422 `cash.citation_not_attributed` naming each (`citations[N]`). The comment is
-	// `proposed` and names the session and its citations until a person accepts it (`:acceptProposal`) or
-	// rejects it with a reason (`:rejectProposal`); a person who would word it otherwise rejects it and
-	// writes their own (`createForecastVarianceComment`), so what the agent said stays as it said it.
-	// Agents never write, accept or reject a comment otherwise. Audited, and published as
-	// VarianceCommentProposed.
+	// attribution: every document it cites must be one `listForecastVarianceDocuments` lists, as the
+	// caller may see it, for that row (the item and its descendants, or what no rule assigns) over the
+	// period at the lag, else 422 `cash.citation_not_attributed` naming each (`citations[N]`). The comment
+	// is `proposed` and names the session and its citations until a person accepts it (`:acceptProposal`),
+	// as it stands or in their own words (the agent's kept as `proposed_text`), or rejects it with a
+	// reason (`:rejectProposal`), kept as evidence of what the agent said. Agents never write, accept or
+	// reject a comment otherwise. Audited, and published as VarianceCommentProposed.
 	//
 	// POST /v1/liquidity-forecast-variance/comment-proposals
 	ProposeForecastVarianceComment(ctx context.Context, req *ForecastVarianceCommentProposal, params ProposeForecastVarianceCommentParams) (ProposeForecastVarianceCommentRes, error)

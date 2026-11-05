@@ -82,6 +82,7 @@ type VarianceComment struct {
 	Session         *uuid.UUID // the agent's session a proposal was made in
 	Citations       []Citation // the documents a proposal cites
 	DecisionReason  *string    // why a person rejected a proposal
+	ProposedText    *string    // the agent's text, when a person accepted it in their own words
 	Version         int32
 }
 
@@ -97,13 +98,13 @@ type Citation struct {
 const commentSelect = `SELECT c.id, c.legal_entity_id, c.period_from, c.period_to, c.lag, c.liquidity_item,
 		(SELECT i.name FROM cash.liquidity_item i WHERE i.code = c.liquidity_item),
 		c.snapshot_id, (SELECT s.snapshot_date FROM cash.snapshot s WHERE s.id = c.snapshot_id),
-		c.text, c.status, c.decided_by, c.decided_at, c.created_at, c.created_by, c.session_id, c.citations, c.decision_reason, c.version
+		c.text, c.status, c.decided_by, c.decided_at, c.created_at, c.created_by, c.session_id, c.citations, c.decision_reason, c.proposed_text, c.version
 	FROM cash.variance_comment c`
 
 func scanComment(r pgx.Row) (VarianceComment, error) {
 	var c VarianceComment
 	err := r.Scan(&c.ID, &c.LegalEntity, &c.From, &c.To, &c.Lag, &c.Item, &c.ItemName, &c.Snapshot, &c.SnapshotDate, &c.Text, &c.Status,
-		&c.DecidedBy, &c.DecidedAt, &c.CreatedAt, &c.CreatedBy, &c.Session, &c.Citations, &c.DecisionReason, &c.Version)
+		&c.DecidedBy, &c.DecidedAt, &c.CreatedAt, &c.CreatedBy, &c.Session, &c.Citations, &c.DecisionReason, &c.ProposedText, &c.Version)
 	return c, errs.Wrapf(err, "scan variance comment")
 }
 
@@ -232,6 +233,9 @@ func decided(ctx context.Context, c VarianceComment, action string) error {
 	detail := map[string]any{"text": c.Text}
 	if c.DecisionReason != nil {
 		detail["reason"] = *c.DecisionReason
+	}
+	if c.ProposedText != nil {
+		detail["proposed_text"] = *c.ProposedText
 	}
 	for k, v := range payload {
 		detail[k] = v

@@ -66305,9 +66305,15 @@ func (s *ForecastVarianceComment) encodeFields(e *jx.Encoder) {
 			s.DecisionReason.Encode(e)
 		}
 	}
+	{
+		if s.ProposedText.Set {
+			e.FieldStart("proposed_text")
+			s.ProposedText.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfForecastVarianceComment = [20]string{
+var jsonFieldsNameOfForecastVarianceComment = [21]string{
 	0:  "id",
 	1:  "legal_entity_id",
 	2:  "company_code",
@@ -66328,6 +66334,7 @@ var jsonFieldsNameOfForecastVarianceComment = [20]string{
 	17: "session_id",
 	18: "citations",
 	19: "decision_reason",
+	20: "proposed_text",
 }
 
 // Decode decodes ForecastVarianceComment from json.
@@ -66573,6 +66580,16 @@ func (s *ForecastVarianceComment) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"decision_reason\"")
 			}
+		case "proposed_text":
+			if err := func() error {
+				s.ProposedText.Reset()
+				if err := s.ProposedText.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"proposed_text\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -66627,6 +66644,69 @@ func (s *ForecastVarianceComment) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *ForecastVarianceComment) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *ForecastVarianceCommentAccept) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *ForecastVarianceCommentAccept) encodeFields(e *jx.Encoder) {
+	{
+		if s.Text.Set {
+			e.FieldStart("text")
+			s.Text.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfForecastVarianceCommentAccept = [1]string{
+	0: "text",
+}
+
+// Decode decodes ForecastVarianceCommentAccept from json.
+func (s *ForecastVarianceCommentAccept) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ForecastVarianceCommentAccept to nil")
+	}
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "text":
+			if err := func() error {
+				s.Text.Reset()
+				if err := s.Text.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"text\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode ForecastVarianceCommentAccept")
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ForecastVarianceCommentAccept) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ForecastVarianceCommentAccept) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -67254,19 +67334,33 @@ func (s *ForecastVarianceDocument) encodeFields(e *jx.Encoder) {
 			s.LineNo.Encode(e)
 		}
 	}
+	{
+		if s.BankReference.Set {
+			e.FieldStart("bank_reference")
+			s.BankReference.Encode(e)
+		}
+	}
+	{
+		if s.Supplier.Set {
+			e.FieldStart("supplier")
+			s.Supplier.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfForecastVarianceDocument = [10]string{
-	0: "side",
-	1: "attribution",
-	2: "currency",
-	3: "liquidity_item",
-	4: "value_date",
-	5: "bucket_start",
-	6: "amount",
-	7: "documents",
-	8: "document_count",
-	9: "line_no",
+var jsonFieldsNameOfForecastVarianceDocument = [12]string{
+	0:  "side",
+	1:  "attribution",
+	2:  "currency",
+	3:  "liquidity_item",
+	4:  "value_date",
+	5:  "bucket_start",
+	6:  "amount",
+	7:  "documents",
+	8:  "document_count",
+	9:  "line_no",
+	10: "bank_reference",
+	11: "supplier",
 }
 
 // Decode decodes ForecastVarianceDocument from json.
@@ -67398,6 +67492,26 @@ func (s *ForecastVarianceDocument) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"line_no\"")
 			}
+		case "bank_reference":
+			if err := func() error {
+				s.BankReference.Reset()
+				if err := s.BankReference.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"bank_reference\"")
+			}
+		case "supplier":
+			if err := func() error {
+				s.Supplier.Reset()
+				if err := s.Supplier.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"supplier\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -67473,6 +67587,12 @@ func (s *ForecastVarianceDocumentRef) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.ID)
 	}
 	{
+		if s.Number.Set {
+			e.FieldStart("number")
+			s.Number.Encode(e)
+		}
+	}
+	{
 		if s.OccurrenceDate.Set {
 			e.FieldStart("occurrence_date")
 			s.OccurrenceDate.Encode(e, json.EncodeDate)
@@ -67480,10 +67600,11 @@ func (s *ForecastVarianceDocumentRef) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfForecastVarianceDocumentRef = [3]string{
+var jsonFieldsNameOfForecastVarianceDocumentRef = [4]string{
 	0: "kind",
 	1: "id",
-	2: "occurrence_date",
+	2: "number",
+	3: "occurrence_date",
 }
 
 // Decode decodes ForecastVarianceDocumentRef from json.
@@ -67518,6 +67639,16 @@ func (s *ForecastVarianceDocumentRef) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"id\"")
+			}
+		case "number":
+			if err := func() error {
+				s.Number.Reset()
+				if err := s.Number.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"number\"")
 			}
 		case "occurrence_date":
 			if err := func() error {
@@ -67650,9 +67781,19 @@ func (s *ForecastVarianceDocuments) encodeFields(e *jx.Encoder) {
 		}
 		e.ArrEnd()
 	}
+	{
+		e.FieldStart("count")
+		e.Int32(s.Count)
+	}
+	{
+		if s.NextPageToken.Set {
+			e.FieldStart("next_page_token")
+			s.NextPageToken.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfForecastVarianceDocuments = [12]string{
+var jsonFieldsNameOfForecastVarianceDocuments = [14]string{
 	0:  "legal_entity_id",
 	1:  "company_code",
 	2:  "from",
@@ -67665,6 +67806,8 @@ var jsonFieldsNameOfForecastVarianceDocuments = [12]string{
 	9:  "snapshot_date",
 	10: "document_level_until",
 	11: "items",
+	12: "count",
+	13: "next_page_token",
 }
 
 // Decode decodes ForecastVarianceDocuments from json.
@@ -67822,6 +67965,28 @@ func (s *ForecastVarianceDocuments) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"items\"")
 			}
+		case "count":
+			requiredBitSet[1] |= 1 << 4
+			if err := func() error {
+				v, err := d.Int32()
+				s.Count = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"count\"")
+			}
+		case "next_page_token":
+			if err := func() error {
+				s.NextPageToken.Reset()
+				if err := s.NextPageToken.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"next_page_token\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -67833,7 +67998,7 @@ func (s *ForecastVarianceDocuments) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b00111111,
-		0b00001111,
+		0b00011111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -72473,158 +72638,6 @@ func (s *GetForecastVarianceCommentNotFound) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *GetForecastVarianceCommentNotFound) UnmarshalJSON(data []byte) error {
-	d := jx.DecodeBytes(data)
-	return s.Decode(d)
-}
-
-// Encode encodes GetForecastVarianceDocumentsBadRequest as json.
-func (s *GetForecastVarianceDocumentsBadRequest) Encode(e *jx.Encoder) {
-	unwrapped := (*Problem)(s)
-
-	unwrapped.Encode(e)
-}
-
-// Decode decodes GetForecastVarianceDocumentsBadRequest from json.
-func (s *GetForecastVarianceDocumentsBadRequest) Decode(d *jx.Decoder) error {
-	if s == nil {
-		return errors.New("invalid: unable to decode GetForecastVarianceDocumentsBadRequest to nil")
-	}
-	var unwrapped Problem
-	if err := func() error {
-		if err := unwrapped.Decode(d); err != nil {
-			return err
-		}
-		return nil
-	}(); err != nil {
-		return errors.Wrap(err, "alias")
-	}
-	*s = GetForecastVarianceDocumentsBadRequest(unwrapped)
-	return nil
-}
-
-// MarshalJSON implements stdjson.Marshaler.
-func (s *GetForecastVarianceDocumentsBadRequest) MarshalJSON() ([]byte, error) {
-	e := jx.Encoder{}
-	s.Encode(&e)
-	return e.Bytes(), nil
-}
-
-// UnmarshalJSON implements stdjson.Unmarshaler.
-func (s *GetForecastVarianceDocumentsBadRequest) UnmarshalJSON(data []byte) error {
-	d := jx.DecodeBytes(data)
-	return s.Decode(d)
-}
-
-// Encode encodes GetForecastVarianceDocumentsForbidden as json.
-func (s *GetForecastVarianceDocumentsForbidden) Encode(e *jx.Encoder) {
-	unwrapped := (*Problem)(s)
-
-	unwrapped.Encode(e)
-}
-
-// Decode decodes GetForecastVarianceDocumentsForbidden from json.
-func (s *GetForecastVarianceDocumentsForbidden) Decode(d *jx.Decoder) error {
-	if s == nil {
-		return errors.New("invalid: unable to decode GetForecastVarianceDocumentsForbidden to nil")
-	}
-	var unwrapped Problem
-	if err := func() error {
-		if err := unwrapped.Decode(d); err != nil {
-			return err
-		}
-		return nil
-	}(); err != nil {
-		return errors.Wrap(err, "alias")
-	}
-	*s = GetForecastVarianceDocumentsForbidden(unwrapped)
-	return nil
-}
-
-// MarshalJSON implements stdjson.Marshaler.
-func (s *GetForecastVarianceDocumentsForbidden) MarshalJSON() ([]byte, error) {
-	e := jx.Encoder{}
-	s.Encode(&e)
-	return e.Bytes(), nil
-}
-
-// UnmarshalJSON implements stdjson.Unmarshaler.
-func (s *GetForecastVarianceDocumentsForbidden) UnmarshalJSON(data []byte) error {
-	d := jx.DecodeBytes(data)
-	return s.Decode(d)
-}
-
-// Encode encodes GetForecastVarianceDocumentsNotFound as json.
-func (s *GetForecastVarianceDocumentsNotFound) Encode(e *jx.Encoder) {
-	unwrapped := (*Problem)(s)
-
-	unwrapped.Encode(e)
-}
-
-// Decode decodes GetForecastVarianceDocumentsNotFound from json.
-func (s *GetForecastVarianceDocumentsNotFound) Decode(d *jx.Decoder) error {
-	if s == nil {
-		return errors.New("invalid: unable to decode GetForecastVarianceDocumentsNotFound to nil")
-	}
-	var unwrapped Problem
-	if err := func() error {
-		if err := unwrapped.Decode(d); err != nil {
-			return err
-		}
-		return nil
-	}(); err != nil {
-		return errors.Wrap(err, "alias")
-	}
-	*s = GetForecastVarianceDocumentsNotFound(unwrapped)
-	return nil
-}
-
-// MarshalJSON implements stdjson.Marshaler.
-func (s *GetForecastVarianceDocumentsNotFound) MarshalJSON() ([]byte, error) {
-	e := jx.Encoder{}
-	s.Encode(&e)
-	return e.Bytes(), nil
-}
-
-// UnmarshalJSON implements stdjson.Unmarshaler.
-func (s *GetForecastVarianceDocumentsNotFound) UnmarshalJSON(data []byte) error {
-	d := jx.DecodeBytes(data)
-	return s.Decode(d)
-}
-
-// Encode encodes GetForecastVarianceDocumentsUnprocessableEntity as json.
-func (s *GetForecastVarianceDocumentsUnprocessableEntity) Encode(e *jx.Encoder) {
-	unwrapped := (*Problem)(s)
-
-	unwrapped.Encode(e)
-}
-
-// Decode decodes GetForecastVarianceDocumentsUnprocessableEntity from json.
-func (s *GetForecastVarianceDocumentsUnprocessableEntity) Decode(d *jx.Decoder) error {
-	if s == nil {
-		return errors.New("invalid: unable to decode GetForecastVarianceDocumentsUnprocessableEntity to nil")
-	}
-	var unwrapped Problem
-	if err := func() error {
-		if err := unwrapped.Decode(d); err != nil {
-			return err
-		}
-		return nil
-	}(); err != nil {
-		return errors.Wrap(err, "alias")
-	}
-	*s = GetForecastVarianceDocumentsUnprocessableEntity(unwrapped)
-	return nil
-}
-
-// MarshalJSON implements stdjson.Marshaler.
-func (s *GetForecastVarianceDocumentsUnprocessableEntity) MarshalJSON() ([]byte, error) {
-	e := jx.Encoder{}
-	s.Encode(&e)
-	return e.Bytes(), nil
-}
-
-// UnmarshalJSON implements stdjson.Unmarshaler.
-func (s *GetForecastVarianceDocumentsUnprocessableEntity) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -96245,6 +96258,158 @@ func (s *ListForecastVarianceCommentsUnprocessableEntity) UnmarshalJSON(data []b
 	return s.Decode(d)
 }
 
+// Encode encodes ListForecastVarianceDocumentsBadRequest as json.
+func (s *ListForecastVarianceDocumentsBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ListForecastVarianceDocumentsBadRequest from json.
+func (s *ListForecastVarianceDocumentsBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ListForecastVarianceDocumentsBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ListForecastVarianceDocumentsBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ListForecastVarianceDocumentsBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ListForecastVarianceDocumentsBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ListForecastVarianceDocumentsForbidden as json.
+func (s *ListForecastVarianceDocumentsForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ListForecastVarianceDocumentsForbidden from json.
+func (s *ListForecastVarianceDocumentsForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ListForecastVarianceDocumentsForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ListForecastVarianceDocumentsForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ListForecastVarianceDocumentsForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ListForecastVarianceDocumentsForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ListForecastVarianceDocumentsNotFound as json.
+func (s *ListForecastVarianceDocumentsNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ListForecastVarianceDocumentsNotFound from json.
+func (s *ListForecastVarianceDocumentsNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ListForecastVarianceDocumentsNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ListForecastVarianceDocumentsNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ListForecastVarianceDocumentsNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ListForecastVarianceDocumentsNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ListForecastVarianceDocumentsUnprocessableEntity as json.
+func (s *ListForecastVarianceDocumentsUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ListForecastVarianceDocumentsUnprocessableEntity from json.
+func (s *ListForecastVarianceDocumentsUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ListForecastVarianceDocumentsUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ListForecastVarianceDocumentsUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ListForecastVarianceDocumentsUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ListForecastVarianceDocumentsUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes ListGoodsReceiptsBadRequest as json.
 func (s *ListGoodsReceiptsBadRequest) Encode(e *jx.Encoder) {
 	unwrapped := (*Problem)(s)
@@ -111600,6 +111765,39 @@ func (s OptExtensions) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *OptExtensions) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ForecastVarianceCommentAccept as json.
+func (o OptForecastVarianceCommentAccept) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes ForecastVarianceCommentAccept from json.
+func (o *OptForecastVarianceCommentAccept) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptForecastVarianceCommentAccept to nil")
+	}
+	o.Set = true
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptForecastVarianceCommentAccept) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptForecastVarianceCommentAccept) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

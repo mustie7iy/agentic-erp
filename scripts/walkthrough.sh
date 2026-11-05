@@ -4194,9 +4194,10 @@ step_cash_forecast_agent() {
   api 201 '.statements[] | "statement \(.statement_ref): \(.line_count) lines, closing \(.closing_balance.amount) \(.closing_balance.currency)"' \
     importBankStatements -body "{\"house_bank_id\": \"$musd\", \"format\": \"camt.053\"}" -file file=@camt053-musd.xml
   history=$(field '.statements[0].id')
-  say "The documents behind today's attributed variance (getForecastVarianceDocuments, lag 0), as Tom may see them:"
-  api 200 '.items[] | "  \(.side) \(.attribution) \(.currency) \(.liquidity_item // "unclassified") \(.value_date) \(.amount.amount): \([.documents[] | .kind] | join(", "))"' \
-    getForecastVarianceDocuments -p "legal_entity_id=$LE" -p "from=$TODAY" -p "to=$TODAY" -p lag=0
+  say "The documents behind today's attributed variance (listForecastVarianceDocuments, lag 0), as Tom may see them:"
+  api 200 '.items[] | "  \(.side) \(.attribution) \(.currency) \(.liquidity_item // "unclassified") \(.value_date) \(.amount.amount): \([.documents[] | "\(.kind) \(.number // "-")"] | join(", "))"' \
+    listForecastVarianceDocuments -p "legal_entity_id=$LE" -p "from=$TODAY" -p "to=$TODAY" -p lag=0 -p page_size=500
+  expect "every document behind the day's variance on one page" "$(field '.count')" "$(field '.items | length')"
   docs="$WORK/forecast-documents.json"
   cp "$WORK/last.json" "$docs"
   row=$(jq -r --arg m "$memo" '[.items[] | select(.side == "actual" and any(.documents[]; .id == $m))][0].liquidity_item // ""' "$docs")
@@ -4304,7 +4305,7 @@ cash_agent_script() {
     {vars: {session: "session id is ([0-9a-f-]{36})"},
      turns: ([
       {tool: "getLiquidityForecastVariance", input: $v},
-      {tool: "getForecastVarianceDocuments", input: $v},
+      {tool: "listForecastVarianceDocuments", input: $v},
       {tool: "listMemoRecords", input: {legal_entity_id: $le}},
       {tool: "listBankStatements", input: {house_bank_id: $musd}},
       {tool: "getBankStatement", input: {id: $hist}}]

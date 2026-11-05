@@ -117,7 +117,7 @@ func client(t *testing.T, a *api) *apitools.Client {
 func TestExplain(t *testing.T) {
 	a := &api{}
 	model := llmtest.New(t,
-		llmtest.Tool("getForecastVarianceDocuments", map[string]any{"legal_entity_id": le, "from": "2026-04-17", "to": "2026-04-17", "lag": 0}),
+		llmtest.Tool("listForecastVarianceDocuments", map[string]any{"legal_entity_id": le, "from": "2026-04-17", "to": "2026-04-17", "lag": 0}),
 		llmtest.ToolFn("proposeForecastVarianceComment", comment("c1", nil)),
 		llmtest.ToolFn("proposeForecastVarianceComment", comment("c1", nil)),
 		llmtest.ToolFn("proposeForecastVarianceComment", comment("refuse", nil)),

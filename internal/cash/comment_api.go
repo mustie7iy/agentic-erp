@@ -42,8 +42,8 @@ func (e *Endpoints) ProposeForecastVarianceComment(ctx context.Context, req *gen
 }
 
 // AcceptForecastVarianceCommentProposal implements POST /v1/liquidity-forecast-variance/comments/{id}:acceptProposal.
-func (e *Endpoints) AcceptForecastVarianceCommentProposal(ctx context.Context, params gen.AcceptForecastVarianceCommentProposalParams) (gen.AcceptForecastVarianceCommentProposalRes, error) {
-	c, err := e.AcceptComment(ctx, params.ID, etag.IfMatch(params.IfMatch))
+func (e *Endpoints) AcceptForecastVarianceCommentProposal(ctx context.Context, req gen.OptForecastVarianceCommentAccept, params gen.AcceptForecastVarianceCommentProposalParams) (gen.AcceptForecastVarianceCommentProposalRes, error) {
+	c, err := e.AcceptComment(ctx, params.ID, etag.IfMatch(params.IfMatch), apitypes.Ptr[string](req.Value.Text))
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func commentToAPI(c VarianceComment) gen.ForecastVarianceComment {
 	out := gen.ForecastVarianceComment{ID: c.ID, LegalEntityID: c.LegalEntity, CompanyCode: c.CompanyCode, From: c.From, To: c.To, Lag: int32(c.Lag),
 		LiquidityItem: apitypes.OptString(c.Item), LiquidityItemName: apitypes.OptString(c.ItemName), Unclassified: c.Item == nil,
 		SnapshotID: c.Snapshot, SnapshotDate: c.SnapshotDate, Text: c.Text, Status: c.Status, DecidedBy: apitypes.OptUUID(c.DecidedBy),
-		CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy, SessionID: apitypes.OptUUID(c.Session), DecisionReason: apitypes.OptString(c.DecisionReason),
+		CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy, SessionID: apitypes.OptUUID(c.Session), DecisionReason: apitypes.OptString(c.DecisionReason), ProposedText: apitypes.OptString(c.ProposedText),
 		Citations: make([]gen.ForecastVarianceCitation, len(c.Citations))}
 	if c.DecidedAt != nil {
 		out.DecidedAt.SetTo(*c.DecidedAt)

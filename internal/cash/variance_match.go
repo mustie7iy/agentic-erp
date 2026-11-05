@@ -146,6 +146,7 @@ type matching struct {
 	kept           []keptLine
 	keys           []string // kept's keys
 	pieces         []matchedPiece
+	numbers        map[string]string // a document's number as the snapshot kept it, by kind and id; a run's payment by the run's
 }
 
 // matchedPiece is a piece of a statement line with the key it was matched
@@ -178,10 +179,16 @@ func mark(in map[string]map[int]bool, key string, b int) {
 // bucket) to the actuals' pieces; a line naming no document is kept, and
 // counts as missing.
 func newMatching(bs []Bucket, lines []keptLine, actuals []actual, series map[uuid.UUID]bool, realised map[lineRef][]string) *matching {
-	m := &matching{bs: bs, forecast: map[string]map[int]bool{}, paid: map[string]map[int]bool{}}
+	m := &matching{bs: bs, forecast: map[string]map[int]bool{}, paid: map[string]map[int]bool{}, numbers: map[string]string{}}
 	for _, l := range lines {
 		if l.end != nil {
 			continue
+		}
+		if l.doc != nil && l.doc.Number != "" {
+			m.numbers[docKey(l.doc.Kind, l.doc.ID)] = l.doc.Number
+			if l.payment != nil {
+				m.numbers[paymentKey(*l.payment)] = l.doc.Number
+			}
 		}
 		k := keptKey(l, series)
 		m.kept, m.keys = append(m.kept, l), append(m.keys, k)

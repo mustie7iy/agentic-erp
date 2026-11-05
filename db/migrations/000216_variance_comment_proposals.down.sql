@@ -8,11 +8,13 @@ DROP FUNCTION cash.check_variance_comment_decision();
 -- the previous version reads is a person's comment.
 DELETE FROM cash.variance_comment WHERE session_id IS NOT NULL;
 ALTER TABLE cash.variance_comment
+  DROP CONSTRAINT variance_comment_edited,
   DROP CONSTRAINT variance_comment_version,
   DROP CONSTRAINT variance_comment_rejected,
   DROP CONSTRAINT variance_comment_citations,
   DROP CONSTRAINT variance_comment_session,
   DROP COLUMN version,
+  DROP COLUMN proposed_text,
   DROP COLUMN decision_reason,
   DROP COLUMN citations,
   DROP COLUMN session_id;

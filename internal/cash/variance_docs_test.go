@@ -52,6 +52,9 @@ func entryLines(d map[string]any, names map[string]string) []string {
 			if !ok {
 				name = "?"
 			}
+			if _, ok := ref["number"]; ok {
+				name += "#"
+			}
 			if on, ok := ref["occurrence_date"]; ok {
 				name += "@" + fmt.Sprint(on)
 			}
@@ -60,7 +63,10 @@ func entryLines(d map[string]any, names map[string]string) []string {
 		line := fmt.Sprintf("%v %v %v %v %v (%v) %s: %s of %v", en["side"], en["attribution"], en["currency"], en["liquidity_item"], en["value_date"],
 			en["bucket_start"], strings.Fields(amount(en["amount"]))[0], strings.Join(refs, ", "), en["document_count"])
 		if no, ok := en["line_no"]; ok {
-			line += fmt.Sprint(" #", no)
+			line += fmt.Sprint(" #", no, " ", en["bank_reference"])
+		}
+		if s, ok := en["supplier"].(map[string]any); ok {
+			line += fmt.Sprint(" to ", s["name"])
 		}
 		out = append(out, line)
 	}
@@ -86,45 +92,70 @@ func TestVarianceDocuments(t *testing.T) {
 	got := entryLines(d, names)
 	sort.Strings(got)
 	want(t, "entries", got, []string{
-		"actual amount CAD OP_SUPPLIERS 2026-04-17 (2026-04-17) -800.00: payment run's payment, journal_entry ?, supplier_invoice ?, bank_statement CAD statement of 4 #1",
-		"actual amount CAD OP_SUPPLIERS 2026-04-28 (2026-04-24) -250.00: payment ?, down_payment_request request, bank_statement CAD statement of 3 #10",
-		"actual amount CAD OP_SUPPLIERS 2026-04-30 (2026-04-24) -1000.00: payment ?, journal_entry item, supplier_invoice ?, bank_statement CAD statement of 4 #5",
-		"actual amount CAD OP_SUPPLIERS 2026-05-07 (2026-05-01) -300.00: payment ?, journal_entry ?, supplier_invoice parked, bank_statement CAD statement of 4 #8",
-		"actual amount CAD REC_CUSTOMERS 2026-04-23 (2026-04-17) 1900.00: memo_record receipt, bank_statement CAD statement of 2 #2",
+		"actual amount CAD OP_SUPPLIERS 2026-04-17 (2026-04-17) -800.00: payment run's payment#, journal_entry ?, supplier_invoice ?, bank_statement CAD statement# of 4 #1 B to BP90000001",
+		"actual amount CAD OP_SUPPLIERS 2026-04-28 (2026-04-24) -250.00: payment ?#, down_payment_request request#, bank_statement CAD statement# of 3 #10 B to BP90000001",
+		"actual amount CAD OP_SUPPLIERS 2026-04-30 (2026-04-24) -1000.00: payment ?#, journal_entry item#, supplier_invoice ?, bank_statement CAD statement# of 4 #5 B to BP90000001",
+		"actual amount CAD OP_SUPPLIERS 2026-05-07 (2026-05-01) -300.00: payment ?#, journal_entry ?, supplier_invoice parked#, bank_statement CAD statement# of 4 #8 B to BP90000001",
+		"actual amount CAD REC_CUSTOMERS 2026-04-23 (2026-04-17) 1900.00: memo_record receipt#, bank_statement CAD statement# of 2 #2 B",
 		// The series' occurrence by its override, then by the series and the day.
-		"actual amount CAD REC_CUSTOMERS 2026-04-24 (2026-04-24) 100.00: memo_record ?, memo_record series@2026-04-24, bank_statement CAD statement of 3 #3",
-		"actual amount USD OP_SUPPLIERS 2026-04-17 (2026-04-17) -300.00: payment transit, bank_statement USD statement of 2 #1",
-		"actual new CAD OP_SUPPLIERS 2026-05-05 (2026-05-01) -400.00: payment ?, journal_entry ?, supplier_invoice ?, bank_statement CAD statement of 4 #6",
+		"actual amount CAD REC_CUSTOMERS 2026-04-24 (2026-04-24) 100.00: memo_record ?, memo_record series@2026-04-24, bank_statement CAD statement# of 3 #3 B",
+		"actual amount USD OP_SUPPLIERS 2026-04-17 (2026-04-17) -300.00: payment transit#, bank_statement USD statement# of 2 #1 B to BP90000001",
+		"actual new CAD OP_SUPPLIERS 2026-05-05 (2026-05-01) -400.00: payment ?#, journal_entry ?, supplier_invoice ?, bank_statement CAD statement# of 4 #6 B to BP90000001",
 		// The second run's payment a week late, one part per item it paid.
-		"actual timing CAD OP_SUPPLIERS 2026-04-29 (2026-04-24) -100.00: payment run2's payment, journal_entry ?, supplier_invoice ?, bank_statement CAD statement of 4 #4",
-		"actual timing CAD OP_SUPPLIERS 2026-04-29 (2026-04-24) -200.00: payment run2's payment, journal_entry ?, supplier_invoice ?, bank_statement CAD statement of 4 #4",
-		"actual unclassified CAD REC_CUSTOMERS 2026-05-06 (2026-05-01) 500.00: bank_statement CAD statement of 1 #7",
-		"forecast amount CAD OP_SUPPLIERS 2026-04-17 (2026-04-17) -800.00: payment run's payment of 1",
-		"forecast amount CAD OP_SUPPLIERS 2026-04-28 (2026-04-24) -250.00: down_payment_request request of 1",
-		"forecast amount CAD OP_SUPPLIERS 2026-04-30 (2026-04-24) -1000.00: journal_entry item of 1",
-		"forecast amount CAD OP_SUPPLIERS 2026-05-07 (2026-05-01) -300.00: supplier_invoice parked of 1",
-		"forecast amount CAD REC_CUSTOMERS 2026-04-23 (2026-04-17) 2000.00: memo_record receipt of 1",
+		"actual timing CAD OP_SUPPLIERS 2026-04-29 (2026-04-24) -100.00: payment run2's payment#, journal_entry ?, supplier_invoice ?, bank_statement CAD statement# of 4 #4 B to BP90000001",
+		"actual timing CAD OP_SUPPLIERS 2026-04-29 (2026-04-24) -200.00: payment run2's payment#, journal_entry ?, supplier_invoice ?, bank_statement CAD statement# of 4 #4 B to BP90000001",
+		"actual unclassified CAD REC_CUSTOMERS 2026-05-06 (2026-05-01) 500.00: bank_statement CAD statement# of 1 #7 B",
+		"forecast amount CAD OP_SUPPLIERS 2026-04-17 (2026-04-17) -800.00: payment run's payment# of 1 to BP90000001",
+		"forecast amount CAD OP_SUPPLIERS 2026-04-28 (2026-04-24) -250.00: down_payment_request request# of 1 to BP90000001",
+		"forecast amount CAD OP_SUPPLIERS 2026-04-30 (2026-04-24) -1000.00: journal_entry item# of 1 to BP90000001",
+		"forecast amount CAD OP_SUPPLIERS 2026-05-07 (2026-05-01) -300.00: supplier_invoice parked# of 1 to BP90000001",
+		"forecast amount CAD REC_CUSTOMERS 2026-04-23 (2026-04-17) 2000.00: memo_record receipt# of 1",
 		"forecast amount CAD REC_CUSTOMERS 2026-04-24 (2026-04-24) 100.00: memo_record series@2026-04-24 of 1",
-		"forecast amount USD OP_SUPPLIERS 2026-04-17 (2026-04-17) -300.00: payment transit of 1",
-		"forecast missing CAD OP_SUPPLIERS 2026-04-30 (2026-04-24) 100.00: journal_entry credit of 1",
+		"forecast amount USD OP_SUPPLIERS 2026-04-17 (2026-04-17) -300.00: payment transit# of 1 to BP90000001",
+		"forecast missing CAD OP_SUPPLIERS 2026-04-30 (2026-04-24) 100.00: journal_entry credit# of 1 to BP90000001",
 		"forecast missing CAD OP_SUPPLIERS 2026-05-12 (2026-05-08) -500.00: memo_record ? of 1",
 		"forecast missing USD OP_SUPPLIERS 2026-04-22 (2026-04-17) -0.02: memo_record ? of 1",
 		"forecast missing USD OP_SUPPLIERS 2026-04-24 (2026-04-24) -0.02: memo_record ? of 1",
-		"forecast timing CAD OP_SUPPLIERS 2026-04-22 (2026-04-17) -300.00: payment run2's payment of 1",
+		"forecast timing CAD OP_SUPPLIERS 2026-04-22 (2026-04-17) -300.00: payment run2's payment# of 1 to BP90000001",
 	})
 	row := entryLines(e.docsOf(t, "&from=2026-04-17&to=2026-05-21&lag=0&grain=week&liquidity_item=REC_CUSTOMERS"), names)
 	want(t, "the receipts' row, the forecast's then the actuals', by day", row, []string{
-		"forecast amount CAD REC_CUSTOMERS 2026-04-23 (2026-04-17) 2000.00: memo_record receipt of 1",
+		"forecast amount CAD REC_CUSTOMERS 2026-04-23 (2026-04-17) 2000.00: memo_record receipt# of 1",
 		"forecast amount CAD REC_CUSTOMERS 2026-04-24 (2026-04-24) 100.00: memo_record series@2026-04-24 of 1",
-		"actual amount CAD REC_CUSTOMERS 2026-04-23 (2026-04-17) 1900.00: memo_record receipt, bank_statement CAD statement of 2 #2",
-		"actual amount CAD REC_CUSTOMERS 2026-04-24 (2026-04-24) 100.00: memo_record ?, memo_record series@2026-04-24, bank_statement CAD statement of 3 #3",
-		"actual unclassified CAD REC_CUSTOMERS 2026-05-06 (2026-05-01) 500.00: bank_statement CAD statement of 1 #7",
+		"actual amount CAD REC_CUSTOMERS 2026-04-23 (2026-04-17) 1900.00: memo_record receipt#, bank_statement CAD statement# of 2 #2 B",
+		"actual amount CAD REC_CUSTOMERS 2026-04-24 (2026-04-24) 100.00: memo_record ?, memo_record series@2026-04-24, bank_statement CAD statement# of 3 #3 B",
+		"actual unclassified CAD REC_CUSTOMERS 2026-05-06 (2026-05-01) 500.00: bank_statement CAD statement# of 1 #7 B",
 	})
 	want(t, "the unclassified row", entryLines(e.docsOf(t, "&from=2026-04-17&to=2026-05-21&lag=0&unclassified=true"), names), []string(nil))
 	parent := entryLines(e.docsOf(t, "&from=2026-04-17&to=2026-05-21&lag=0&grain=week&liquidity_item=OPERATING"), names)
 	sort.Strings(parent)
 	want(t, "a parent's row, its descendants'", parent, got)
 	want(t, "an item of no entries", entryLines(e.docsOf(t, "&from=2026-04-17&to=2026-05-21&lag=0&liquidity_item=TAX"), names), []string(nil))
+	receipt := e.docsOf(t, "&from=2026-04-17&to=2026-04-23&lag=0&side=actual&attribution=amount&currency=CAD&liquidity_item=REC_CUSTOMERS")
+	want(t, "narrowed to the receipt's line", fmt.Sprint(receipt["count"], " ", len(receipt["items"].([]any))), "1 1")
+	en := receipt["items"].([]any)[0].(map[string]any)
+	docs := en["documents"].([]any)
+	var ref string
+	pgtest.Scan(t, `SELECT statement_ref FROM payments.bank_statement WHERE id = $1`, []any{docs[1].(map[string]any)["id"]}, &ref)
+	want(t, "the numbers: the memo record's reference, the statement's", fmt.Sprint(docs[0].(map[string]any)["number"], " ", docs[1].(map[string]any)["number"],
+		" ", en["bank_reference"]), "CUST-1 "+ref+" B")
+	var seen []string
+	query := "&from=2026-04-17&to=2026-05-21&lag=0&grain=week&page_size=7"
+	for pages := 0; ; pages++ {
+		page := e.docsOf(t, query)
+		seen = append(seen, entryLines(page, names)...)
+		want(t, "count over every page", page["count"], float64(len(got)))
+		next, ok := page["next_page_token"]
+		if !ok {
+			want(t, "pages", pages, 3)
+			break
+		}
+		query = "&from=2026-04-17&to=2026-05-21&lag=0&grain=week&page_size=7&page_token=" + fmt.Sprint(next)
+	}
+	sort.Strings(seen)
+	want(t, "the pages, every entry once", seen, got)
+	e.Problem(400, "request.invalid_page_token", "GET", "/v1/liquidity-forecast-variance/documents?legal_entity_id="+e.le.String()+
+		"&from=2026-04-17&to=2026-05-21&lag=0&page_token=nope", "", "")
 	p := e.Problem(422, "request.validation_failed", "GET", "/v1/liquidity-forecast-variance/documents?legal_entity_id="+e.le.String()+
 		"&from=2026-04-17&to=2026-05-21&lag=0&liquidity_item=OPERATING&unclassified=true", "", "")
 	want(t, "an item and the unclassified row", fmt.Sprint(p["errors"].([]any)[0].(map[string]any)["field"]), "unclassified")
@@ -143,12 +174,12 @@ func TestVarianceDocumentsGated(t *testing.T) {
 	// Lines of one day are in the snapshot's order, by a digest of ids.
 	sorted := func(l []string) []string { sort.Strings(l); return l }
 	want(t, "no statement read, nor its line", sorted(entryLines(e.docsOf(t, query), names)), []string{
-		"actual amount CAD OP_SUPPLIERS 2026-04-17 (2026-04-17) -800.00: payment run's payment, journal_entry ?, supplier_invoice ? of 4",
-		"actual amount USD OP_SUPPLIERS 2026-04-17 (2026-04-17) -300.00: payment transit of 2",
-		"forecast amount CAD OP_SUPPLIERS 2026-04-17 (2026-04-17) -800.00: payment run's payment of 1",
-		"forecast amount USD OP_SUPPLIERS 2026-04-17 (2026-04-17) -300.00: payment transit of 1",
+		"actual amount CAD OP_SUPPLIERS 2026-04-17 (2026-04-17) -800.00: payment run's payment#, journal_entry ?, supplier_invoice ? of 4 to BP90000001",
+		"actual amount USD OP_SUPPLIERS 2026-04-17 (2026-04-17) -300.00: payment transit# of 2 to BP90000001",
+		"forecast amount CAD OP_SUPPLIERS 2026-04-17 (2026-04-17) -800.00: payment run's payment# of 1 to BP90000001",
+		"forecast amount USD OP_SUPPLIERS 2026-04-17 (2026-04-17) -300.00: payment transit# of 1 to BP90000001",
 		"forecast missing USD OP_SUPPLIERS 2026-04-22 (2026-04-22) -0.02: memo_record ? of 1",
-		"forecast timing CAD OP_SUPPLIERS 2026-04-22 (2026-04-22) -300.00: payment run2's payment of 1",
+		"forecast timing CAD OP_SUPPLIERS 2026-04-22 (2026-04-22) -300.00: payment run2's payment# of 1 to BP90000001",
 	})
 	for _, p := range drillPerms {
 		e.Tenant.Revoke(t, p, e.Tenant.Human)

@@ -2335,10 +2335,13 @@ reconciliation and close agents leave it open):
   which redacts IBANs as for every agent (ADR-0036).
 - **The documents behind the attribution.** `GET
   /v1/liquidity-forecast-variance/documents`
-  (`getForecastVarianceDocuments`, `cash.forecast.read`, `x-slo-class:
+  (`listForecastVarianceDocuments`, `cash.forecast.read`, `x-slo-class:
   report`, `x-snapshot: true`), the listing §11's known limits left to
   this step: the variance's request (refused as it is) and a row (an item
-  and its descendants, or `unclassified`; not both, 422), and one entry
+  and its descendants, or `unclassified`; not both, 422), narrowed by
+  side, attribution and currency, paged by a cursor of the side, value
+  date and a digest of the line (the token names no document, as the
+  drill-downs'; `count` over every page; review round 1), and one entry
   per contribution in the days kept per document: a snapshot line
   (`forecast`) or a statement line's part per liquidity item (`actual`),
   with its attribution, currency, item, value date, bucket and signed
@@ -2346,13 +2349,17 @@ reconciliation and close agents leave it open):
   (a payment, the item's journal entry, the invoice it was posted for,
   its order, a down payment request, a memo record, a series' occurrence
   with its day) and, for a statement line, its bank statement and line
-  number. No migration: computed at the read from the variance's own
+  number and bank reference; each document with its number where the
+  snapshot kept one (a run's payment its run's number, a statement its
+  reference), and the supplier a contribution pays (a snapshot line's, a
+  payment's), so the agent names documents without reading each (review
+  round 1). Computed at the read from the variance's own
   matching (`readVariance`, which the variance now calls too). Each
   document is shown only with its context's read permission, as the
   snapshot's and the actuals' lines show them (T53e4's rule, not widened:
   a payment `payments.run.read`, a statement `payments.statement.read`,
-  a line number only with its statement), and counted either way; no
-  supplier is named.
+  a line number and bank reference only with its statement, the supplier
+  only with `partner.supplier.read`), and counted either way.
 - **Comment proposals.** `POST
   /v1/liquidity-forecast-variance/comment-proposals`
   (`proposeForecastVarianceComment`, `cash.variance.propose`, `x-autonomy:
@@ -2369,25 +2376,27 @@ reconciliation and close agents leave it open):
   published as `VarianceCommentProposed` (new, §15 names none for a
   proposal; it carries the row, period, lag, snapshot, session and the
   citations' count, not the text).
-- **Decisions.** `:acceptProposal` and `:rejectProposal` (with a reason)
+- **Decisions.** `:acceptProposal` (as it stands, or with the person's
+  own `text`, the agent's then kept as `proposed_text`, as the close
+  agent's comments keep theirs, ADR-0058 §10; review round 1: §13's
+  "accepts, edits") and `:rejectProposal` (with a reason)
   on a comment (`cash.variance.comment`, `x-agent: false`, If-Match on
   the comment's version, now its ETag, read `FOR UPDATE`): once, from
   `proposed` (409 `cash.variance_comment_not_proposed` otherwise),
   published as `VarianceCommentDecided` (its `status` and `decided_by`,
-  the person). A proposal is accepted as it stands: a person who would
-  word it otherwise rejects it and writes their own comment, so what the
-  agent said, and cited, is kept as it said it (§11's evidence, T53f4's
-  insert-only spirit); §13's "edits" is that, for comments. Memo record
-  proposals are T53d's, unchanged: a person may change one before
-  accepting it.
+  the person). A rejected proposal is kept with its text and citations,
+  and an edited one with the agent's text, so what the agent said is
+  evidence (§11). Memo record proposals are T53d's, unchanged: a person
+  may change one before accepting it.
 - **Migration 000216** (expand only): `cash.variance_comment` gains
-  `session_id`, `citations` (a JSON list of at most 50), `decision_reason`
-  and `version`; a proposal names its session and only an agent's
+  `session_id`, `citations` (a JSON list of at most 50), `decision_reason`,
+  `proposed_text` (`variance_comment_edited`) and `version`; a proposal names its session and only an agent's
   comment cites (`variance_comment_session`), a reason exactly when
   rejected (`variance_comment_rejected`); a trigger lets a comment be
   decided once, from `proposed`, by another than its author, raising the
-  version by one (`cash.check_variance_comment_decision`); the
-  application may update only those columns; permission
+  version by one, its text changed only by an accepted edit keeping the
+  agent's (`cash.check_variance_comment_decision`); the application may
+  update only the decision's columns and the text; permission
   `cash.variance.propose`.
 - **What it never does.** It never confirms, changes or closes a memo
   record, writes, accepts or rejects a comment, changes configuration,
@@ -2407,9 +2416,15 @@ reconciliation and close agents leave it open):
   agent called its own tools only. The evaluation cell runs no payment
   workers, so "the run" is the one that would have paid the invoice due
   today; a run paid a week late is the walkthrough's and
-  `TestVarianceDocuments`'s. Every forecast falls on a business day, so
-  the replay cell's clock steps back from a weekend to the Friday before;
-  a live certification runs on a business day of company 2000.
+  `TestVarianceDocuments`'s. Each case compares one day, so no case
+  attributes `timing` (a known limit of the cell: a timing variance needs
+  a snapshot of an earlier day, which a fresh tenant cannot have; the
+  walkthrough and `TestVarianceDocuments` cover it). Every forecast falls
+  on a business day, so the replay cell's clock steps back from a weekend
+  to the Friday before (the cell's clock then runs up to two days behind
+  the database's; the suite was run with the clock two days back and
+  passed, review round 1); a live certification runs on a business day
+  of company 2000.
 - **The model stand-in.** `modelstub -script` answers from a script of
   turns, as an evaluation suite's replay (the close agent's, T64g, built
   in the same batch; one change).

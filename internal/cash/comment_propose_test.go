@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/cash"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // proposals is the path the forecast agent proposes comments at.
@@ -79,6 +80,15 @@ func TestProposeVarianceComment(t *testing.T) {
 	rejected, _ := e.Must(200, "POST", commentAt(r, "rejectProposal"), `{"reason": "The receipt was short by the bank's fee."}`, `"1"`)
 	want(t, "rejected", fmt.Sprint(rejected["status"], " ", rejected["decision_reason"], " ", rejected["decided_by"]),
 		fmt.Sprint("rejected The receipt was short by the bank's fee. ", e.Tenant.Human.ID))
+	// A person accepts another in their own words; the agent's is kept.
+	edited, _ := agent.Must(201, "POST", proposals, e.proposal(session, `"liquidity_item": "OP_SUPPLIERS"`, cite("payment", run2)), "")
+	e.Problem(400, "request.invalid_body", "POST", commentAt(edited, "acceptProposal"), `{"text": " "}`, `"1"`)
+	got, _ = e.Must(200, "POST", commentAt(edited, "acceptProposal"), `{"text": "The run of the 22nd waited a week for its approver."}`, `"1"`)
+	want(t, "accepted in the person's words", fmt.Sprint(got["status"], " | ", got["text"], " | ", got["proposed_text"]),
+		"accepted | The run of the 22nd waited a week for its approver. | The run of the 22nd was released a week late.")
+	same, _ := agent.Must(201, "POST", proposals, e.proposal(session, `"liquidity_item": "OP_SUPPLIERS"`, cite("payment", run2)), "")
+	got, _ = e.Must(200, "POST", commentAt(same, "acceptProposal"), `{"text": "The run of the 22nd was released a week late."}`, `"1"`)
+	want(t, "the same words, accepted as it stands", fmt.Sprint(got["status"], " ", got["proposed_text"]), "accepted <nil>")
 	other := e.Reader(t, "reader of 1000", e.US)
 	e.As(other).Problem(404, "request.not_found", "POST", commentAt(r, "acceptProposal"), ``, `"2"`)
 
@@ -86,9 +96,9 @@ func TestProposeVarianceComment(t *testing.T) {
 	for _, ev := range apitest.Published(t, e.Tenant, outbox.Event{Context: "cash", Name: "variance_comment_decided"}) {
 		decided[fmt.Sprint(ev["status"], " by ", ev["decided_by"])]++
 	}
-	want(t, "decisions published", decided, map[string]int{"accepted by " + e.Tenant.Human.ID.String(): 1, "rejected by " + e.Tenant.Human.ID.String(): 1})
+	want(t, "decisions published", decided, map[string]int{"accepted by " + e.Tenant.Human.ID.String(): 3, "rejected by " + e.Tenant.Human.ID.String(): 1})
 	evs := apitest.Published(t, e.Tenant, outbox.Event{Context: "cash", Name: "variance_comment_proposed"})
-	want(t, "proposals published", len(evs), 2)
+	want(t, "proposals published", len(evs), 4)
 	want(t, "a proposal's event", fmt.Sprint(evs[0]["session_id"], " ", evs[0]["citation_count"], " ", evs[0]["liquidity_item"]), session+" 1 OP_SUPPLIERS")
 }
 
@@ -138,6 +148,8 @@ func TestProposeVarianceCommentRefusals(t *testing.T) {
 	agent.Problem(422, "request.reference_not_found", "POST", proposals, e.proposal(uuid.NewString(), `"liquidity_item": "OP_SUPPLIERS"`, cite("payment", run2)), "")
 	agent.Problem(422, "request.validation_failed", "POST", proposals, e.proposal(session, `"liquidity_item": "NOPE"`, cite("payment", run2)), "")
 	agent.Problem(422, "request.validation_failed", "POST", proposals, strings.Replace(e.proposal(session, `"liquidity_item": "OP_SUPPLIERS"`,
+		cite("payment", run2)), `"lag": 0`, `"lag": 5`, 1), "")
+	agent.Problem(422, "request.validation_failed", "POST", proposals, strings.Replace(e.proposal(session, `"liquidity_item": "OP_SUPPLIERS"`,
 		cite("payment", run2)), `"to": "2026-05-21"`, `"to": "2026-05-23"`, 1), "")
 	agent.Problem(409, "cash.snapshot_not_taken", "POST", proposals, strings.Replace(e.proposal(session, `"liquidity_item": "OP_SUPPLIERS"`,
 		cite("payment", run2)), `"lag": 0`, `"lag": 7`, 1), "")
@@ -173,7 +185,8 @@ func TestProposeVarianceCommentFailures(t *testing.T) {
 	written := uuid.MustParse(id(c))
 	for name, fn := range map[string]func(ctx context.Context) error{
 		"accept": func(ctx context.Context) error {
-			_, err := endpoints().AcceptComment(ctx, written, func(int32) error { return nil })
+			text := "In my words."
+			_, err := endpoints().AcceptComment(ctx, written, func(int32) error { return nil }, &text)
 			return err
 		},
 		"reject": func(ctx context.Context) error {
@@ -188,10 +201,17 @@ func TestProposeVarianceCommentFailures(t *testing.T) {
 			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, fn)
 		})
 	}
+	blank := " \n"
+	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		_, err := endpoints().AcceptComment(ctx, written, func(int32) error { return nil }, &blank)
+		return err
+	}); problem.From(err).Code != "request.validation_failed" {
+		t.Errorf("a blank text: got %v, want it refused", err)
+	}
 	ce := endpoints()
 	ce.LegalEntities = failingEntities{}
 	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-		_, err := ce.AcceptComment(ctx, written, func(int32) error { return nil })
+		_, err := ce.AcceptComment(ctx, written, func(int32) error { return nil }, nil)
 		return err
 	})
 	if err == nil || !strings.Contains(err.Error(), "directory down") {

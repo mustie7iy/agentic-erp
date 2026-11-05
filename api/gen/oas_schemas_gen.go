@@ -18384,7 +18384,6 @@ func (*ConflictHeaders) fileTaxReturnRes()                         {}
 func (*ConflictHeaders) getAnalyticsModelRes()                     {}
 func (*ConflictHeaders) getBankFileContentRes()                    {}
 func (*ConflictHeaders) getCloseCalendarRes()                      {}
-func (*ConflictHeaders) getForecastVarianceDocumentsRes()          {}
 func (*ConflictHeaders) getLegalEntityTodayRes()                   {}
 func (*ConflictHeaders) getLiquidityForecastVarianceRes()          {}
 func (*ConflictHeaders) getPeriodCloseRes()                        {}
@@ -18395,6 +18394,7 @@ func (*ConflictHeaders) grantRolePermissionRes()                   {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()                   {}
 func (*ConflictHeaders) importBankStatementsRes()                  {}
 func (*ConflictHeaders) listCloseTasksRes()                        {}
+func (*ConflictHeaders) listForecastVarianceDocumentsRes()         {}
 func (*ConflictHeaders) listPeriodCloseVariancesRes()              {}
 func (*ConflictHeaders) listPeriodClosesRes()                      {}
 func (*ConflictHeaders) listTaxPeriodsRes()                        {}
@@ -25966,7 +25966,7 @@ func (s *FiscalPeriodPage) SetTotalEstimate(val OptInt64) {
 func (*FiscalPeriodPage) listFiscalPeriodsRes() {}
 
 // A document a variance comment cites: one the attribution of the variance it explains lists
-// (`getForecastVarianceDocuments`).
+// (`listForecastVarianceDocuments`).
 // Ref: #/components/schemas/ForecastVarianceCitation
 type ForecastVarianceCitation struct {
 	// The document's kind: `payment`, `journal_entry`, `supplier_invoice`, `purchase_order`,
@@ -26045,6 +26045,8 @@ type ForecastVarianceComment struct {
 	Citations []ForecastVarianceCitation `json:"citations"`
 	// Why a person rejected the proposal; present when `rejected`.
 	DecisionReason OptString `json:"decision_reason"`
+	// The agent's text, when a person accepted the proposal with their own (`text`); absent otherwise.
+	ProposedText OptString `json:"proposed_text"`
 }
 
 // GetID returns the value of ID.
@@ -26147,6 +26149,11 @@ func (s *ForecastVarianceComment) GetDecisionReason() OptString {
 	return s.DecisionReason
 }
 
+// GetProposedText returns the value of ProposedText.
+func (s *ForecastVarianceComment) GetProposedText() OptString {
+	return s.ProposedText
+}
+
 // SetID sets the value of ID.
 func (s *ForecastVarianceComment) SetID(val uuid.UUID) {
 	s.ID = val
@@ -26245,6 +26252,30 @@ func (s *ForecastVarianceComment) SetCitations(val []ForecastVarianceCitation) {
 // SetDecisionReason sets the value of DecisionReason.
 func (s *ForecastVarianceComment) SetDecisionReason(val OptString) {
 	s.DecisionReason = val
+}
+
+// SetProposedText sets the value of ProposedText.
+func (s *ForecastVarianceComment) SetProposedText(val OptString) {
+	s.ProposedText = val
+}
+
+// A person's acceptance of the forecast agent's proposed comment: as it stands, or with their own
+// text.
+// Ref: #/components/schemas/ForecastVarianceCommentAccept
+type ForecastVarianceCommentAccept struct {
+	// The person's text in place of the agent's, which is kept as `proposed_text`; absent: accepted as it
+	// stands.
+	Text OptString `json:"text"`
+}
+
+// GetText returns the value of Text.
+func (s *ForecastVarianceCommentAccept) GetText() OptString {
+	return s.Text
+}
+
+// SetText sets the value of Text.
+func (s *ForecastVarianceCommentAccept) SetText(val OptString) {
+	s.Text = val
 }
 
 // A person's comment on one row of a legal entity's forecast variance (ADR-0051 §11): a liquidity
@@ -26441,7 +26472,7 @@ type ForecastVarianceCommentProposal struct {
 	// The proposing agent's running session.
 	SessionID uuid.UUID `json:"session_id"`
 	// The documents behind the attributed variance the text explains, each one
-	// `getForecastVarianceDocuments` lists for the row.
+	// `listForecastVarianceDocuments` lists for the row.
 	Citations []ForecastVarianceCitation `json:"citations"`
 }
 
@@ -26562,6 +26593,10 @@ type ForecastVarianceDocument struct {
 	DocumentCount int32 `json:"document_count"`
 	// The statement line's number in its bank statement; present when the statement is shown.
 	LineNo OptInt32 `json:"line_no"`
+	// The statement line's reference at the bank; present when the statement is shown and the bank gave
+	// one.
+	BankReference OptString      `json:"bank_reference"`
+	Supplier      OptPartnerName `json:"supplier"`
 }
 
 // GetSide returns the value of Side.
@@ -26614,6 +26649,16 @@ func (s *ForecastVarianceDocument) GetLineNo() OptInt32 {
 	return s.LineNo
 }
 
+// GetBankReference returns the value of BankReference.
+func (s *ForecastVarianceDocument) GetBankReference() OptString {
+	return s.BankReference
+}
+
+// GetSupplier returns the value of Supplier.
+func (s *ForecastVarianceDocument) GetSupplier() OptPartnerName {
+	return s.Supplier
+}
+
 // SetSide sets the value of Side.
 func (s *ForecastVarianceDocument) SetSide(val string) {
 	s.Side = val
@@ -26664,6 +26709,16 @@ func (s *ForecastVarianceDocument) SetLineNo(val OptInt32) {
 	s.LineNo = val
 }
 
+// SetBankReference sets the value of BankReference.
+func (s *ForecastVarianceDocument) SetBankReference(val OptString) {
+	s.BankReference = val
+}
+
+// SetSupplier sets the value of Supplier.
+func (s *ForecastVarianceDocument) SetSupplier(val OptPartnerName) {
+	s.Supplier = val
+}
+
 // A document behind a contribution to the variance.
 // Ref: #/components/schemas/ForecastVarianceDocumentRef
 type ForecastVarianceDocumentRef struct {
@@ -26673,6 +26728,9 @@ type ForecastVarianceDocumentRef struct {
 	Kind string `json:"kind"`
 	// The document.
 	ID uuid.UUID `json:"id"`
+	// Its number where known: a document's number as the snapshot kept it (a memo record's reference), a
+	// payment's run number, a bank statement's reference.
+	Number OptString `json:"number"`
 	// A memo series' occurrence: the day the snapshot forecast it.
 	OccurrenceDate OptDate `json:"occurrence_date"`
 }
@@ -26685,6 +26743,11 @@ func (s *ForecastVarianceDocumentRef) GetKind() string {
 // GetID returns the value of ID.
 func (s *ForecastVarianceDocumentRef) GetID() uuid.UUID {
 	return s.ID
+}
+
+// GetNumber returns the value of Number.
+func (s *ForecastVarianceDocumentRef) GetNumber() OptString {
+	return s.Number
 }
 
 // GetOccurrenceDate returns the value of OccurrenceDate.
@@ -26700,6 +26763,11 @@ func (s *ForecastVarianceDocumentRef) SetKind(val string) {
 // SetID sets the value of ID.
 func (s *ForecastVarianceDocumentRef) SetID(val uuid.UUID) {
 	s.ID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *ForecastVarianceDocumentRef) SetNumber(val OptString) {
+	s.Number = val
 }
 
 // SetOccurrenceDate sets the value of OccurrenceDate.
@@ -26733,9 +26801,12 @@ type ForecastVarianceDocuments struct {
 	SnapshotDate time.Time `json:"snapshot_date"`
 	// The last day the snapshot kept per document: entries are of days up to it and `to`.
 	DocumentLevelUntil time.Time `json:"document_level_until"`
-	// The contributions, the forecast's then the actuals', each by value date; within a day in the
-	// snapshot's or the statements' order.
+	// The page's contributions, the forecast's then the actuals', each by value date.
 	Items []ForecastVarianceDocument `json:"items"`
+	// The contributions of every page.
+	Count int32 `json:"count"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -26798,6 +26869,16 @@ func (s *ForecastVarianceDocuments) GetItems() []ForecastVarianceDocument {
 	return s.Items
 }
 
+// GetCount returns the value of Count.
+func (s *ForecastVarianceDocuments) GetCount() int32 {
+	return s.Count
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ForecastVarianceDocuments) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *ForecastVarianceDocuments) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -26858,7 +26939,17 @@ func (s *ForecastVarianceDocuments) SetItems(val []ForecastVarianceDocument) {
 	s.Items = val
 }
 
-func (*ForecastVarianceDocuments) getForecastVarianceDocumentsRes() {}
+// SetCount sets the value of Count.
+func (s *ForecastVarianceDocuments) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ForecastVarianceDocuments) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ForecastVarianceDocuments) listForecastVarianceDocumentsRes() {}
 
 type GetAccountBadRequest Problem
 
@@ -27825,22 +27916,6 @@ func (s *GetForecastVarianceCommentOKHeaders) SetResponse(val ForecastVarianceCo
 }
 
 func (*GetForecastVarianceCommentOKHeaders) getForecastVarianceCommentRes() {}
-
-type GetForecastVarianceDocumentsBadRequest Problem
-
-func (*GetForecastVarianceDocumentsBadRequest) getForecastVarianceDocumentsRes() {}
-
-type GetForecastVarianceDocumentsForbidden Problem
-
-func (*GetForecastVarianceDocumentsForbidden) getForecastVarianceDocumentsRes() {}
-
-type GetForecastVarianceDocumentsNotFound Problem
-
-func (*GetForecastVarianceDocumentsNotFound) getForecastVarianceDocumentsRes() {}
-
-type GetForecastVarianceDocumentsUnprocessableEntity Problem
-
-func (*GetForecastVarianceDocumentsUnprocessableEntity) getForecastVarianceDocumentsRes() {}
 
 type GetGoodsReceiptBadRequest Problem
 
@@ -36174,6 +36249,22 @@ type ListForecastVarianceCommentsUnprocessableEntity Problem
 
 func (*ListForecastVarianceCommentsUnprocessableEntity) listForecastVarianceCommentsRes() {}
 
+type ListForecastVarianceDocumentsBadRequest Problem
+
+func (*ListForecastVarianceDocumentsBadRequest) listForecastVarianceDocumentsRes() {}
+
+type ListForecastVarianceDocumentsForbidden Problem
+
+func (*ListForecastVarianceDocumentsForbidden) listForecastVarianceDocumentsRes() {}
+
+type ListForecastVarianceDocumentsNotFound Problem
+
+func (*ListForecastVarianceDocumentsNotFound) listForecastVarianceDocumentsRes() {}
+
+type ListForecastVarianceDocumentsUnprocessableEntity Problem
+
+func (*ListForecastVarianceDocumentsUnprocessableEntity) listForecastVarianceDocumentsRes() {}
+
 type ListGoodsReceiptsBadRequest Problem
 
 func (*ListGoodsReceiptsBadRequest) listGoodsReceiptsRes() {}
@@ -42329,6 +42420,52 @@ func (o OptExtensions) Get() (v Extensions, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptExtensions) Or(d Extensions) Extensions {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptForecastVarianceCommentAccept returns new OptForecastVarianceCommentAccept with value set to v.
+func NewOptForecastVarianceCommentAccept(v ForecastVarianceCommentAccept) OptForecastVarianceCommentAccept {
+	return OptForecastVarianceCommentAccept{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptForecastVarianceCommentAccept is optional ForecastVarianceCommentAccept.
+type OptForecastVarianceCommentAccept struct {
+	Value ForecastVarianceCommentAccept
+	Set   bool
+}
+
+// IsSet returns true if OptForecastVarianceCommentAccept was set.
+func (o OptForecastVarianceCommentAccept) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptForecastVarianceCommentAccept) Reset() {
+	var v ForecastVarianceCommentAccept
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptForecastVarianceCommentAccept) SetTo(v ForecastVarianceCommentAccept) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptForecastVarianceCommentAccept) Get() (v ForecastVarianceCommentAccept, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptForecastVarianceCommentAccept) Or(d ForecastVarianceCommentAccept) ForecastVarianceCommentAccept {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -61904,7 +62041,6 @@ func (*TooManyRequestsHeaders) getEntryTemplateRes()                      {}
 func (*TooManyRequestsHeaders) getExchangeRateRes()                       {}
 func (*TooManyRequestsHeaders) getFiscalPeriodRes()                       {}
 func (*TooManyRequestsHeaders) getForecastVarianceCommentRes()            {}
-func (*TooManyRequestsHeaders) getForecastVarianceDocumentsRes()          {}
 func (*TooManyRequestsHeaders) getGoodsReceiptRes()                       {}
 func (*TooManyRequestsHeaders) getGrIrClearingRes()                       {}
 func (*TooManyRequestsHeaders) getGroupLiquidityForecastRes()             {}
@@ -61994,6 +62130,7 @@ func (*TooManyRequestsHeaders) listEntryTemplatesRes()                    {}
 func (*TooManyRequestsHeaders) listExchangeRatesRes()                     {}
 func (*TooManyRequestsHeaders) listFiscalPeriodsRes()                     {}
 func (*TooManyRequestsHeaders) listForecastVarianceCommentsRes()          {}
+func (*TooManyRequestsHeaders) listForecastVarianceDocumentsRes()         {}
 func (*TooManyRequestsHeaders) listGoodsReceiptsRes()                     {}
 func (*TooManyRequestsHeaders) listGrIrBalancesRes()                      {}
 func (*TooManyRequestsHeaders) listGrIrClearingsRes()                     {}
@@ -62331,7 +62468,6 @@ func (*UnauthorizedHeaders) getEntryTemplateRes()                      {}
 func (*UnauthorizedHeaders) getExchangeRateRes()                       {}
 func (*UnauthorizedHeaders) getFiscalPeriodRes()                       {}
 func (*UnauthorizedHeaders) getForecastVarianceCommentRes()            {}
-func (*UnauthorizedHeaders) getForecastVarianceDocumentsRes()          {}
 func (*UnauthorizedHeaders) getGoodsReceiptRes()                       {}
 func (*UnauthorizedHeaders) getGrIrClearingRes()                       {}
 func (*UnauthorizedHeaders) getGroupLiquidityForecastRes()             {}
@@ -62421,6 +62557,7 @@ func (*UnauthorizedHeaders) listEntryTemplatesRes()                    {}
 func (*UnauthorizedHeaders) listExchangeRatesRes()                     {}
 func (*UnauthorizedHeaders) listFiscalPeriodsRes()                     {}
 func (*UnauthorizedHeaders) listForecastVarianceCommentsRes()          {}
+func (*UnauthorizedHeaders) listForecastVarianceDocumentsRes()         {}
 func (*UnauthorizedHeaders) listGoodsReceiptsRes()                     {}
 func (*UnauthorizedHeaders) listGrIrBalancesRes()                      {}
 func (*UnauthorizedHeaders) listGrIrClearingsRes()                     {}

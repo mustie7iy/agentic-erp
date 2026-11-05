@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -22,8 +24,8 @@ import (
 // proposes an explanation of a row of the variance in its running session,
 // citing the documents behind the attributed variance it explains, each
 // checked against the attribution (VarianceDocuments) as the agent may see
-// it; a person accepts it as it stands or rejects it with a reason, once.
-// A person who would word it otherwise rejects it and writes their own,
+// it; a person accepts it, as it stands or in their own words (the
+// agent's kept as its proposed text), or rejects it with a reason, once,
 // so what the agent said is kept as it said it.
 
 // Statuses of a proposal and its decisions (CommentAccepted is the third).
@@ -51,8 +53,11 @@ func (e *Endpoints) ProposeComment(ctx context.Context, in CommentInput, session
 	// The month's grain admits every period a comment may name; which
 	// documents a row lists does not depend on the grain, only how each
 	// is attributed.
-	docs, err := e.VarianceDocuments(ctx, DocsQuery{VarianceQuery: VarianceQuery{LegalEntity: in.LegalEntity, From: from, To: to, Lag: in.Lag,
+	docs, err := e.varianceEntries(ctx, DocsQuery{VarianceQuery: VarianceQuery{LegalEntity: in.LegalEntity, From: from, To: to, Lag: in.Lag,
 		Grain: config.GrainMonth}, Item: in.Item, Unclassified: in.Unclassified})
+	if err == nil {
+		err = e.showEntries(ctx, docs.Entries)
+	}
 	if err != nil {
 		return VarianceComment{}, err
 	}
@@ -80,7 +85,7 @@ func (e *Endpoints) ProposeComment(ctx context.Context, in CommentInput, session
 
 // checkCitations refuses each citation the documents do not list.
 func checkCitations(docs VarianceDocs, citations []Citation) error {
-	listed := docs.cites()
+	listed := cites(docs.Entries)
 	var wrong []problem.FieldError
 	for i, c := range citations {
 		if !listed[c.Kind+":"+c.ID.String()] {
@@ -90,7 +95,7 @@ func checkCitations(docs VarianceDocs, citations []Citation) error {
 	}
 	if len(wrong) > 0 {
 		return problem.Unprocessable("cash.citation_not_attributed", "A proposal cites only documents behind the attributed variance of the row it "+
-			"explains, as getForecastVarianceDocuments lists them.", wrong...)
+			"explains, as listForecastVarianceDocuments lists them.", wrong...)
 	}
 	return nil
 }
@@ -110,22 +115,26 @@ func proposed(ctx context.Context, c VarianceComment) error {
 		outbox.Event{Context: "cash", Name: "variance_comment_proposed", AggregateType: "cash.variance_comment", AggregateID: c.ID, Payload: payload})
 }
 
-// AcceptComment accepts the agent's proposed comment as it stands, as the
-// person's decision.
-func (e *Endpoints) AcceptComment(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (VarianceComment, error) {
-	return e.decideComment(ctx, id, ifMatch, CommentAccepted, nil)
+// AcceptComment accepts the agent's proposed comment as the person's
+// decision: as it stands, or with the person's own text (nil: none), the
+// agent's then kept as its proposed text.
+func (e *Endpoints) AcceptComment(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, text *string) (VarianceComment, error) {
+	if text != nil && (strings.TrimSpace(*text) == "" || utf8.RuneCountInString(*text) > maxCommentText) {
+		return VarianceComment{}, textInvalid()
+	}
+	return e.decideComment(ctx, id, ifMatch, CommentAccepted, nil, text)
 }
 
 // RejectComment turns down the agent's proposed comment, with the
 // person's reason; it is kept as evidence of what the agent said.
 func (e *Endpoints) RejectComment(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reason string) (VarianceComment, error) {
-	return e.decideComment(ctx, id, ifMatch, CommentRejected, &reason)
+	return e.decideComment(ctx, id, ifMatch, CommentRejected, &reason, nil)
 }
 
 // decideComment decides a proposal of a legal entity the caller may act
 // in (any other is not found), read FOR UPDATE and guarded by its
 // version (ADR-0008); a comment not proposed is a conflict.
-func (e *Endpoints) decideComment(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, status string, reason *string) (VarianceComment, error) {
+func (e *Endpoints) decideComment(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, status string, reason, text *string) (VarianceComment, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return VarianceComment{}, err
@@ -147,9 +156,14 @@ func (e *Endpoints) decideComment(ctx context.Context, id uuid.UUID, ifMatch fun
 	if c.Status != CommentProposed {
 		return VarianceComment{}, problem.Conflict("cash.variance_comment_not_proposed", "The comment is "+c.Status+", not the forecast agent's proposal to decide.")
 	}
+	if text != nil && *text != c.Text {
+		proposedText := c.Text
+		c.ProposedText, c.Text = &proposedText, *text
+	}
 	var at time.Time
-	err = tx.QueryRow(ctx, `UPDATE cash.variance_comment SET status = $2, decided_by = $3, decided_at = now(), decision_reason = $4, version = version + 1
-		WHERE id = $1 AND version = $5 RETURNING decided_at`, id, status, p.ID, reason, c.Version).Scan(&at)
+	err = tx.QueryRow(ctx, `UPDATE cash.variance_comment SET status = $2, decided_by = $3, decided_at = now(), decision_reason = $4, text = $6,
+			proposed_text = $7, version = version + 1
+		WHERE id = $1 AND version = $5 RETURNING decided_at`, id, status, p.ID, reason, c.Version, c.Text, c.ProposedText).Scan(&at)
 	if err != nil {
 		return VarianceComment{}, fmt.Errorf("cash: decide variance comment %s: %w", id, err)
 	}

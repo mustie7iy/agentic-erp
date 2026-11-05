@@ -6,6 +6,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 )
 
 // GetLiquidityForecastVariance implements GET /v1/liquidity-forecast-variance.
@@ -76,31 +77,45 @@ func variancePercent(variance, forecast money.Minor) gen.OptDecimal {
 	return gen.NewOptDecimal(gen.Decimal(money.AbsPercentOf(variance, forecast)))
 }
 
-// GetForecastVarianceDocuments implements GET /v1/liquidity-forecast-variance/documents.
-func (e *Endpoints) GetForecastVarianceDocuments(ctx context.Context, params gen.GetForecastVarianceDocumentsParams) (gen.GetForecastVarianceDocumentsRes, error) {
+// ListForecastVarianceDocuments implements GET /v1/liquidity-forecast-variance/documents.
+func (e *Endpoints) ListForecastVarianceDocuments(ctx context.Context, params gen.ListForecastVarianceDocumentsParams) (gen.ListForecastVarianceDocumentsRes, error) {
+	size, err := pagination.Size(params.PageSize.Value, params.PageSize.Set)
+	if err != nil {
+		return nil, err
+	}
 	d, err := e.VarianceDocuments(ctx, DocsQuery{VarianceQuery: VarianceQuery{LegalEntity: params.LegalEntityID, From: params.From, To: params.To,
-		Lag: int(params.Lag.Or(DefaultLag)), Grain: params.Grain.Value}, Item: params.LiquidityItem.Value, Unclassified: params.Unclassified.Value})
+		Lag: int(params.Lag.Or(DefaultLag)), Grain: params.Grain.Value}, Item: params.LiquidityItem.Value, Unclassified: params.Unclassified.Value,
+		Side: params.Side.Value, Attribution: params.Attribution.Value, Currency: params.Currency.Value, PageSize: size, PageToken: params.PageToken.Value})
 	if err != nil {
 		return nil, err
 	}
 	s := d.Snapshot
 	out := gen.ForecastVarianceDocuments{LegalEntityID: d.LegalEntity, CompanyCode: d.CompanyCode, From: d.From, To: d.To, Lag: int32(d.Lag), Grain: d.Grain,
 		LiquidityItem: apitypes.OptText(d.Item), Unclassified: gen.NewOptBool(d.Unclassified), SnapshotID: s.ID, SnapshotDate: s.Date,
-		DocumentLevelUntil: s.DocumentLevelUntil(), Items: make([]gen.ForecastVarianceDocument, len(d.Entries))}
+		DocumentLevelUntil: s.DocumentLevelUntil(), Count: int32(d.Count), NextPageToken: apitypes.OptText(d.Next),
+		Items: make([]gen.ForecastVarianceDocument, len(d.Entries))}
 	for i, en := range d.Entries {
-		item := gen.ForecastVarianceDocument{Side: en.Side, Attribution: en.Attribution, Currency: en.Currency, LiquidityItem: apitypes.OptText(en.Item),
-			ValueDate: en.ValueDate, BucketStart: en.Bucket, Amount: apitypes.Money(en.Amount, en.Currency, en.Exponent),
-			Documents: make([]gen.ForecastVarianceDocumentRef, len(en.Docs)), DocumentCount: int32(en.DocCount)}
-		if en.LineNo != nil {
-			item.LineNo.SetTo(*en.LineNo)
-		}
-		for j, r := range en.Docs {
-			item.Documents[j] = gen.ForecastVarianceDocumentRef{Kind: r.Kind, ID: r.ID}
-			if r.Occurrence != nil {
-				item.Documents[j].OccurrenceDate.SetTo(*r.Occurrence)
-			}
-		}
-		out.Items[i] = item
+		out.Items[i] = entryToAPI(en)
 	}
 	return &out, nil
+}
+
+// entryToAPI shows a contribution and what the caller may see of it.
+func entryToAPI(en VarianceEntry) gen.ForecastVarianceDocument {
+	item := gen.ForecastVarianceDocument{Side: en.Side, Attribution: en.Attribution, Currency: en.Currency, LiquidityItem: apitypes.OptText(en.Item),
+		ValueDate: en.ValueDate, BucketStart: en.Bucket, Amount: apitypes.Money(en.Amount, en.Currency, en.Exponent),
+		Documents: make([]gen.ForecastVarianceDocumentRef, len(en.Docs)), DocumentCount: int32(en.DocCount), BankReference: apitypes.OptText(en.BankReference)}
+	if en.LineNo != nil {
+		item.LineNo.SetTo(*en.LineNo)
+	}
+	if s := en.Supplier; s != nil {
+		item.Supplier.SetTo(gen.PartnerName{ID: s.ID, Number: s.Number, Name: s.Name})
+	}
+	for j, r := range en.Docs {
+		item.Documents[j] = gen.ForecastVarianceDocumentRef{Kind: r.Kind, ID: r.ID, Number: apitypes.OptText(r.Number)}
+		if r.Occurrence != nil {
+			item.Documents[j].OccurrenceDate.SetTo(*r.Occurrence)
+		}
+	}
+	return item
 }

@@ -1,7 +1,10 @@
 package cash
 
 import (
+	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"slices"
 	"strings"
@@ -20,10 +23,10 @@ import (
 // document level, a forecast line or the part of a statement line one
 // document behind it pays per liquidity item, with the documents it is
 // known by (the keys the matching uses, and a statement line's bank
-// statement). They are what the forecast agent's comment proposals may
-// cite. Each document is shown only to a caller who may use its context's
-// read permission, as the snapshot's lines and the actuals' lines show
-// them; no supplier is named.
+// statement) and the supplier it pays. They are what the forecast agent's
+// comment proposals may cite. Each document, and the supplier, is shown
+// only to a caller who may use its context's read permission, as the
+// snapshot's lines and the actuals' lines show them.
 
 // Sides of a contribution: a forecast line of the snapshot, or a
 // statement line's part.
@@ -42,19 +45,23 @@ const (
 // attributions name the attributions as the contract does.
 var attributions = map[int]string{attrTiming: "timing", attrAmount: "amount", attrNew: "new", attrMissing: "missing", attrUnclassified: "unclassified"}
 
-// DocRef is a document behind a contribution; Occurrence is a memo
-// series' occurrence's day, as the snapshot forecast it.
+// DocRef is a document behind a contribution, with its number where known
+// (a document's number as the snapshot kept it, a payment's run number, a
+// statement's reference); Occurrence is a memo series' occurrence's day,
+// as the snapshot forecast it.
 type DocRef struct {
 	Kind       string
 	ID         uuid.UUID
+	Number     string
 	Occurrence *time.Time
 }
 
 // VarianceEntry is one contribution to an attributed variance: its side,
 // attribution, currency (and its exponent), liquidity item ("" for what
 // no rule assigns), value date, the start of its bucket, its signed
-// amount, the documents shown of the DocCount it is known by, and a
-// statement line's number when its statement is shown.
+// amount, the documents shown of the DocCount it is known by, a statement
+// line's number and bank reference when its statement is shown, and the
+// supplier it pays when the caller may read suppliers.
 type VarianceEntry struct {
 	Side, Attribution string
 	Currency          string
@@ -65,30 +72,75 @@ type VarianceEntry struct {
 	Docs              []DocRef
 	DocCount          int
 	LineNo            *int32
+	BankReference     string
+	Supplier          *PartnerName
+	supplier          *uuid.UUID
+	key               string // the side, value date and a digest of the line: the order, and the page cursor
 }
 
 // VarianceDocs are the documents behind a variance: the variance's
-// request (its figures not computed), the row asked for, and the entries.
+// request (its figures not computed), the row asked for, a page of the
+// entries, how many there are over every page, and the next page's token
+// ("" on the last).
 type VarianceDocs struct {
 	Variance
 	Item         string
 	Unclassified bool
 	Entries      []VarianceEntry
+	Count        int
+	Next         string
 }
 
-// DocsQuery is a variance's request and the row whose documents are
-// listed: a liquidity item and its descendants, what no rule assigns
-// (Unclassified), or every row.
+// DocsQuery is a variance's request, the row whose documents are listed
+// (a liquidity item and its descendants, what no rule assigns, or every
+// row), the side, attribution and currency they are narrowed to ("" for
+// any), and a page of PageSize after the page token's.
 type DocsQuery struct {
 	VarianceQuery
-	Item         string
-	Unclassified bool
+	Item                        string
+	Unclassified                bool
+	Side, Attribution, Currency string
+	PageSize                    int
+	PageToken                   string
 }
 
-// VarianceDocuments lists the documents behind the legal entity's
-// attributed variance, refused as Variance refuses its request; both an
-// item and the unclassified row are refused.
+// VarianceDocuments lists a page of the documents behind the legal
+// entity's attributed variance, refused as Variance refuses its request;
+// both an item and the unclassified row are refused.
 func (e *Endpoints) VarianceDocuments(ctx context.Context, q DocsQuery) (VarianceDocs, error) {
+	scope := fmt.Sprintf("listForecastVarianceDocuments|%s|%s|%s|%d|%s|%s|%t|%s|%s|%s", q.LegalEntity, dayText(&q.From), dayText(&q.To), q.Lag, q.Grain,
+		q.Item, q.Unclassified, q.Side, q.Attribution, q.Currency)
+	var c flowCursor
+	if q.PageToken != "" {
+		if err := e.Pages.Decode(scope, q.PageToken, &c); err != nil {
+			return VarianceDocs{}, err
+		}
+	}
+	d, err := e.varianceEntries(ctx, q)
+	if err != nil {
+		return VarianceDocs{}, err
+	}
+	d.Entries = slices.DeleteFunc(d.Entries, func(en VarianceEntry) bool {
+		return q.Side != "" && en.Side != q.Side || q.Attribution != "" && en.Attribution != q.Attribution || q.Currency != "" && en.Currency != q.Currency
+	})
+	d.Count = len(d.Entries)
+	start, found := slices.BinarySearchFunc(d.Entries, c.After, func(en VarianceEntry, after string) int { return cmp.Compare(en.key, after) })
+	if found {
+		start++
+	}
+	size := max(q.PageSize, 1)
+	page := d.Entries[start:min(start+size, len(d.Entries))]
+	if start+size < len(d.Entries) {
+		// Safe to ignore: a cursor of one string always encodes.
+		d.Next, _ = e.Pages.Encode(scope, flowCursor{After: page[len(page)-1].key})
+	}
+	d.Entries = page
+	return d, e.showEntries(ctx, d.Entries)
+}
+
+// varianceEntries are every entry behind the variance's row, in their
+// order, none shown yet.
+func (e *Endpoints) varianceEntries(ctx context.Context, q DocsQuery) (VarianceDocs, error) {
 	if q.Item != "" && q.Unclassified {
 		return VarianceDocs{}, problem.Unprocessable("request.validation_failed", "A liquidity item and the row of what no rule assigns are two different rows.",
 			problem.FieldError{Field: "unclassified", Code: "invalid", Message: "not with liquidity_item"})
@@ -99,7 +151,7 @@ func (e *Endpoints) VarianceDocuments(ctx context.Context, q DocsQuery) (Varianc
 	}
 	in := inRow(vr.ar.r.doc.Cash.LiquidityItems, q.Item, q.Unclassified)
 	entries := slices.Concat(vr.m.forecastEntries(in), vr.m.actualEntries(in))
-	may := mayUse(ctx)
+	slices.SortStableFunc(entries, func(a, b VarianceEntry) int { return cmp.Compare(a.key, b.key) })
 	exponents := map[string]int{}
 	for i := range entries {
 		en := &entries[i]
@@ -109,9 +161,6 @@ func (e *Endpoints) VarianceDocuments(ctx context.Context, q DocsQuery) (Varianc
 			}
 		}
 		en.Exponent = exponents[en.Currency]
-		if err := en.show(may); err != nil {
-			return VarianceDocs{}, err
-		}
 	}
 	return VarianceDocs{Variance: vr.v, Item: q.Item, Unclassified: q.Unclassified, Entries: entries}, nil
 }
@@ -149,8 +198,15 @@ func inRow(items []config.LiquidityItem, item string, unclassified bool) func(st
 	}
 }
 
+// entryKey orders the entries: the side, the value date, then a digest of
+// what tells the line apart, so a page token names no document.
+func entryKey(side int, day time.Time, parts ...any) string {
+	h := sha256.Sum256(fmt.Append(nil, parts...))
+	return fmt.Sprintf("%d|%s|%s", side, day.Format(time.DateOnly), hex.EncodeToString(h[:])[:32])
+}
+
 // forecastEntries are the snapshot's document lines in the period's
-// buckets whose item is in the row, by value date.
+// buckets whose item is in the row.
 func (m *matching) forecastEntries(in func(string) bool) []VarianceEntry {
 	var out []VarianceEntry
 	for i, l := range m.kept {
@@ -159,43 +215,57 @@ func (m *matching) forecastEntries(in func(string) bool) []VarianceEntry {
 			continue
 		}
 		en := VarianceEntry{Side: SideForecast, Attribution: attributions[m.forecastAttribution(m.keys[i], b)], Currency: l.currency, Item: l.item,
-			ValueDate: l.date, Bucket: m.bs[b].Start, Amount: l.amount}
+			ValueDate: l.date, Bucket: m.bs[b].Start, Amount: l.amount, supplier: l.supplier, key: entryKey(0, l.date, l.lineNo)}
 		if ref, ok := refOf(m.keys[i]); ok {
+			ref.Number = m.numbers[ref.Kind+":"+ref.ID.String()]
 			en.Docs = []DocRef{ref}
 		}
 		out = append(out, en)
 	}
-	slices.SortStableFunc(out, func(a, b VarianceEntry) int { return a.ValueDate.Compare(b.ValueDate) })
 	return out
 }
 
 // actualEntries are the statement lines' parts in the period's buckets,
-// one per share whose item is in the row, by value date.
+// one per share whose item is in the row.
 func (m *matching) actualEntries(in func(string) bool) []VarianceEntry {
 	var out []VarianceEntry
-	for _, p := range m.pieces {
+	for n, p := range m.pieces {
 		b := m.bucket(p.a.ValueDate)
 		if b < 0 {
 			continue
 		}
-		docs := make([]DocRef, 0, len(p.keys)+1)
-		for _, k := range p.keys {
-			if ref, ok := refOf(k); ok && !slices.ContainsFunc(docs, func(d DocRef) bool { return sameRef(d, ref) }) {
-				docs = append(docs, ref)
-			}
-		}
-		docs = append(docs, DocRef{Kind: DocBankStatement, ID: p.a.StatementID})
+		docs, supplier := m.pieceDocs(p)
 		for _, sh := range p.shares {
 			if !in(sh.Item) {
 				continue
 			}
 			no := p.a.LineNo
 			out = append(out, VarianceEntry{Side: SideActual, Attribution: attributions[m.actualAttribution(p, b)], Currency: p.a.Currency, Item: sh.Item,
-				ValueDate: p.a.ValueDate, Bucket: m.bs[b].Start, Amount: sh.Amount, Docs: slices.Clone(docs), LineNo: &no})
+				ValueDate: p.a.ValueDate, Bucket: m.bs[b].Start, Amount: sh.Amount, Docs: slices.Clone(docs), LineNo: &no, BankReference: p.a.BankReference,
+				supplier: supplier, key: entryKey(1, p.a.ValueDate, p.a.StatementID, p.a.LineNo, n, sh.Item)})
 		}
 	}
-	slices.SortStableFunc(out, func(a, b VarianceEntry) int { return a.ValueDate.Compare(b.ValueDate) })
 	return out
+}
+
+// pieceDocs are the documents a piece is known by, each once with its
+// number where known, its line's statement last, and the supplier of its
+// payment.
+func (m *matching) pieceDocs(p matchedPiece) ([]DocRef, *uuid.UUID) {
+	docs := make([]DocRef, 0, len(p.keys)+1)
+	var supplier *uuid.UUID
+	for _, k := range p.keys {
+		ref, ok := refOf(k)
+		if !ok || slices.ContainsFunc(docs, func(d DocRef) bool { return sameRef(d, ref) }) {
+			continue
+		}
+		ref.Number = m.numbers[ref.Kind+":"+ref.ID.String()]
+		if i := slices.IndexFunc(p.a.Payments, func(pay Payment) bool { return ref.Kind == DocPayment && pay.ID == ref.ID }); i >= 0 {
+			ref.Number, supplier = p.a.Payments[i].RunNumber, &p.a.Payments[i].SupplierID
+		}
+		docs = append(docs, ref)
+	}
+	return append(docs, DocRef{Kind: DocBankStatement, ID: p.a.StatementID, Number: p.a.StatementRef}), supplier
 }
 
 // sameRef reports whether two references name the same document (and
@@ -206,23 +276,16 @@ func sameRef(a, b DocRef) bool {
 }
 
 // refOf is the document a matching key names (paymentKey, docKey, a
-// series' occurrence as keptKey writes it); false for none.
+// series' occurrence as keptKey writes it); false for a key naming none.
 func refOf(key string) (DocRef, bool) {
-	kind, rest, ok := strings.Cut(key, ":")
-	if !ok {
-		return DocRef{}, false
-	}
+	kind, rest, _ := strings.Cut(key, ":")
 	idText, day, series := strings.Cut(rest, "@")
 	id, err := uuid.Parse(idText)
 	if err != nil {
 		return DocRef{}, false
 	}
 	ref := DocRef{Kind: kind, ID: id}
-	if series {
-		on, err := time.Parse(time.DateOnly, day)
-		if err != nil {
-			return DocRef{}, false
-		}
+	if on, err := time.Parse(time.DateOnly, day); series && err == nil {
 		ref.Occurrence = &on
 	}
 	return ref, true
@@ -239,8 +302,38 @@ func docPermission(kind string) string {
 	return documentReadPermissions[kind]
 }
 
+// showEntries keeps of each entry what the caller may see: the documents
+// of the permissions they may use, a line's number and bank reference
+// with its statement, the supplier with partner.supplier.read; the
+// permissions are read once, the names only of entries naming suppliers.
+func (e *Endpoints) showEntries(ctx context.Context, entries []VarianceEntry) error {
+	may := mayUse(ctx)
+	var suppliers []uuid.UUID
+	for _, en := range entries {
+		if en.supplier != nil && !slices.Contains(suppliers, *en.supplier) {
+			suppliers = append(suppliers, *en.supplier)
+		}
+	}
+	names, err := e.partnerNames(ctx, suppliers, may)
+	if err != nil {
+		return err
+	}
+	for i := range entries {
+		en := &entries[i]
+		if en.supplier != nil {
+			if n, ok := names[*en.supplier]; ok {
+				en.Supplier = &n
+			}
+		}
+		if err := en.show(may); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // show keeps the entry's documents the caller may see, counting them all;
-// a line's number goes with its statement.
+// a line's number and bank reference go with its statement.
 func (en *VarianceEntry) show(may func(string) (bool, error)) error {
 	en.DocCount = len(en.Docs)
 	shown := make([]DocRef, 0, len(en.Docs))
@@ -257,16 +350,16 @@ func (en *VarianceEntry) show(may func(string) (bool, error)) error {
 	}
 	en.Docs = shown
 	if !statement {
-		en.LineNo = nil
+		en.LineNo, en.BankReference = nil, ""
 	}
 	return nil
 }
 
 // cites is the documents of the entries, as "kind:id", that a citation
 // may name.
-func (d VarianceDocs) cites() map[string]bool {
+func cites(entries []VarianceEntry) map[string]bool {
 	out := map[string]bool{}
-	for _, en := range d.Entries {
+	for _, en := range entries {
 		for _, r := range en.Docs {
 			out[r.Kind+":"+r.ID.String()] = true
 		}

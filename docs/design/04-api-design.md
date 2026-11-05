@@ -642,8 +642,8 @@ with `rejectVarianceComment`, `x-agent: false`), and the forecast agent
 explaining a row of a company's liquidity forecast variance in its
 session, citing documents its attribution lists (ADR-0051 §13, T53i:
 `proposeForecastVarianceComment`, `x-autonomy: propose`, each citation
-checked against `getForecastVarianceDocuments` as the agent may see it; a
-person takes it up as it stands with
+checked against `listForecastVarianceDocuments` as the agent may see it; a
+person takes it up, as it stands or in their own words, with
 `acceptForecastVarianceCommentProposal` or turns it down with
 `rejectForecastVarianceCommentProposal`, `x-agent: false`); free-text
 advice is a recommendation. Bank statements reach agents with the accounts masked to

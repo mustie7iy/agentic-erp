@@ -20,15 +20,15 @@ func commentRow(f fixture, sid uuid.UUID, set map[string]any) stmt {
 func commentRowID(f fixture, sid, cid uuid.UUID, set map[string]any) stmt {
 	row := map[string]any{"legal_entity_id": f.entity, "period_from": "2026-04-17", "period_to": "2026-04-23", "lag": 0, "liquidity_item": "PAY",
 		"text": "The run was released a week late.", "status": "accepted", "decided_by": f.actor, "decided_at": "2026-04-24T10:00:00Z",
-		"session_id": nil, "citations": "[]", "decision_reason": nil, "version": 1}
+		"session_id": nil, "citations": "[]", "decision_reason": nil, "version": 1, "proposed_text": nil}
 	for k, v := range set {
 		row[k] = v
 	}
 	return step(`INSERT INTO cash.variance_comment (tenant_id, id, legal_entity_id, period_from, period_to, lag, liquidity_item, snapshot_id, text, status,
-			decided_by, decided_at, created_by, session_id, citations, decision_reason, version)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16, $17)`,
+			decided_by, decided_at, created_by, session_id, citations, decision_reason, version, proposed_text)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16, $17, $18)`,
 		f.tenant, cid, row["legal_entity_id"], row["period_from"], row["period_to"], row["lag"], row["liquidity_item"], sid, row["text"], row["status"],
-		row["decided_by"], row["decided_at"], f.actor, row["session_id"], row["citations"], row["decision_reason"], row["version"])
+		row["decided_by"], row["decided_at"], f.actor, row["session_id"], row["citations"], row["decision_reason"], row["version"], row["proposed_text"])
 }
 
 // proposalOf are the columns of an agent's proposal, undecided, citing a
@@ -46,8 +46,9 @@ func proposalOf() map[string]any {
 // on the agent's proposals (T53i, 000216): a proposal names its session,
 // only an agent's comment cites, a list of at most 50 citations, a reason
 // exactly when rejected, a version from 1; a proposal decided once, by
-// another than its author, its version raised by one; what a comment
-// says never changed, and none deleted.
+// another than its author, its version raised by one, its text changed
+// only by an accepted edit that keeps the agent's (proposed_text); what a
+// comment explains never changed, and none deleted.
 func TestCashVarianceCommentRules(t *testing.T) {
 	need(t)
 	for _, c := range []struct {
@@ -158,8 +159,34 @@ func TestCashVarianceCommentRules(t *testing.T) {
 			cid := id()
 			return []stmt{commentRowID(f, sid, cid, proposalOf()), decide(cid, "'accepted'", "version + 1", f.actor)}
 		}, "its author does not decide its own proposal"},
+		{"a proposal accepted edited, keeping the agent's", func(f fixture, sid uuid.UUID) []stmt {
+			cid := id()
+			return []stmt{commentRowID(f, sid, cid, proposalOf()), step(`UPDATE cash.variance_comment SET status = 'accepted', version = version + 1,
+				decided_by = $2, decided_at = now(), text = 'Mine.', proposed_text = text WHERE id = $1`, cid, id())}
+		}, ""},
+		{"an edit losing the agent's text", func(f fixture, sid uuid.UUID) []stmt {
+			cid := id()
+			return []stmt{commentRowID(f, sid, cid, proposalOf()), step(`UPDATE cash.variance_comment SET status = 'accepted', version = version + 1,
+				decided_by = $2, decided_at = now(), text = 'Mine.' WHERE id = $1`, cid, id())}
+		}, "only an accepted edit changes the text"},
+		{"a rejection editing", func(f fixture, sid uuid.UUID) []stmt {
+			cid := id()
+			return []stmt{commentRowID(f, sid, cid, proposalOf()), step(`UPDATE cash.variance_comment SET status = 'rejected', version = version + 1,
+				decided_by = $2, decided_at = now(), decision_reason = 'No.', text = 'Mine.', proposed_text = text WHERE id = $1`, cid, id())}
+		}, "only an accepted edit changes the text"},
+		{"a proposed text kept unedited", func(f fixture, sid uuid.UUID) []stmt {
+			cid := id()
+			return []stmt{commentRowID(f, sid, cid, proposalOf()), step(`UPDATE cash.variance_comment SET status = 'accepted', version = version + 1,
+				decided_by = $2, decided_at = now(), proposed_text = 'Other.' WHERE id = $1`, cid, id())}
+		}, "only an accepted edit changes the text"},
+		{"a person's comment with a proposed text", func(f fixture, sid uuid.UUID) []stmt {
+			return []stmt{commentRow(f, sid, map[string]any{"proposed_text": "Other."})}
+		}, "variance_comment_edited"},
 		{"a comment changed", func(f fixture, sid uuid.UUID) []stmt {
 			return []stmt{commentRow(f, sid, nil), step(`UPDATE cash.variance_comment SET text = 'Other.' WHERE snapshot_id = $1`, sid)}
+		}, "only a proposal is decided, once"},
+		{"what a comment explains changed", func(f fixture, sid uuid.UUID) []stmt {
+			return []stmt{commentRow(f, sid, nil), step(`UPDATE cash.variance_comment SET lag = 7 WHERE snapshot_id = $1`, sid)}
 		}, "permission denied"},
 		{"a comment deleted", func(f fixture, sid uuid.UUID) []stmt {
 			return []stmt{commentRow(f, sid, nil), step(`DELETE FROM cash.variance_comment WHERE snapshot_id = $1`, sid)}
@@ -221,7 +248,9 @@ func TestCashVarianceCommentPrivileges(t *testing.T) {
 		{`has_column_privilege('erp_app', 'cash.variance_comment', 'status', 'UPDATE')`, true},
 		{`has_column_privilege('erp_app', 'cash.variance_comment', 'decision_reason', 'UPDATE')`, true},
 		{`has_column_privilege('erp_app', 'cash.variance_comment', 'version', 'UPDATE')`, true},
-		{`has_column_privilege('erp_app', 'cash.variance_comment', 'text', 'UPDATE')`, false},
+		{`has_column_privilege('erp_app', 'cash.variance_comment', 'text', 'UPDATE')`, true},
+		{`has_column_privilege('erp_app', 'cash.variance_comment', 'proposed_text', 'UPDATE')`, true},
+		{`has_column_privilege('erp_app', 'cash.variance_comment', 'lag', 'UPDATE')`, false},
 		{`has_column_privilege('erp_app', 'cash.variance_comment', 'citations', 'UPDATE')`, false},
 		{`has_column_privilege('erp_app', 'cash.variance_comment', 'session_id', 'UPDATE')`, false},
 		{`has_table_privilege('erp_app', 'cash.variance_comment', 'DELETE')`, false},
