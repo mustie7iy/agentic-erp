@@ -8,7 +8,7 @@
     "ph": 0,
     "c": [
      {
-      "s": "D",
+      "s": "P",
       "t": "Double-entry journal posting",
       "r": "internal/ledger · ledger.Postings",
       "c": [
@@ -233,7 +233,7 @@
        {
         "s": "T",
         "t": "Point-in-time recovery",
-        "r": "ADR-0040 · T41b (35 days in production) · T41d (restore verified)",
+        "r": "ADR-0040 · T41b (35 days in production) · T41d (restore verified) · the first restore drills on AWS staging are their own pilot leaf (Pre-pilot: the first restore drills on AWS staging, waiting on the AWS staging account)",
         "src": "baseline",
         "pilot": "po:2026-10-31 · adr:ADR-0040",
         "c": []
@@ -487,7 +487,7 @@
       "c": []
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Down payments",
       "r": "T46",
       "c": [
@@ -1123,7 +1123,7 @@
     "ph": 2,
     "c": [
      {
-      "s": "P",
+      "s": "D",
       "t": "Asset accounting designed (ADR-0057, decided by default under ADR-0053 d): a leaf assets context; classes and asset accounts in configuration; acquisitions settling an asset clearing account's lines; depreciation per ledger as planned less booked by a Temporal run; retirements and transfers per ledger; the history sheet from movements",
       "r": "ADR-0057 · T57 (split T57a-T57i)",
       "c": [
@@ -1249,9 +1249,9 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Asset master and classes",
-      "r": "T57 · ADR-0057 §3, §5 · T57a, T57b",
+      "r": "T57 · ADR-0057 §3, §5 · T57a, T57b · done by T57a and T57b under Asset accounting designed",
       "src": "baseline",
       "c": []
      },
@@ -1263,9 +1263,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Depreciation runs (straight-line, declining balance)",
-      "r": "T57 · ADR-0057 §7 · T57e, T57f",
+      "r": "T57 · ADR-0057 §7 · T57e, T57f · done by T57e, T57f and T57f2 under Asset accounting designed",
       "src": "baseline",
       "c": []
      },
@@ -1611,16 +1611,16 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Daily cash position",
-      "r": "T53a · T53c",
+      "r": "T53a · T53c · done by T53c's cash position (GET /v1/cash-position per bank, currency and day) under Cash position and liquidity forecast decided",
       "src": "baseline",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Liquidity forecast from open items and orders",
-      "r": "T53e · T53g",
+      "r": "T53e · T53g · done by T53e (the forecast from payables and payments, P5) and T53g (from procurement, P7) under Cash position and liquidity forecast decided",
       "src": "baseline",
       "c": []
      },
@@ -1737,9 +1737,9 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Close calendar and checklist",
-      "r": "T64 · ADR-0058 §3, §6 · T64a, T64b, T64c, T64k",
+      "r": "T64 · ADR-0058 §3, §6 · T64a, T64b, T64c, T64k · done by T64a (the close template and calendar), T64b (the period close and its manual checklist), T64c (the automatic checks) and T64k (the depreciation check) under Financial close designed",
       "src": "baseline",
       "c": []
      },
@@ -1758,9 +1758,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Period lock after sign-off",
-      "r": "T64 · ADR-0058 §7 · T64d",
+      "r": "T64 · ADR-0058 §7 · T64d · done by T64d (sign-off locks the period through T32) under Financial close designed",
       "src": "baseline",
       "c": []
      }
@@ -2320,9 +2320,9 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "Treasury system connector",
-      "r": "T53h",
+      "r": "T53h · done by T53h's treasury connector (P8) under Cash management and liquidity forecast, Cash position and liquidity forecast decided",
       "src": "baseline",
       "c": []
      }
@@ -2557,9 +2557,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Cost center reports",
-      "r": "T56f",
+      "r": "T56f · done by T56f's actual reports (GET /v1/cost-center-balances) under Cost and profit center accounting decided",
       "src": "baseline",
       "c": []
      }
@@ -2571,16 +2571,16 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "Profit center derivation",
-      "r": "T56a · T56d",
+      "r": "T56a · T56d · done by T56a (a cost center period's profit center) and T56d (derivation at posting, every posting path) under Cost center accounting, Cost and profit center accounting decided; the commit-time check is its own leaf (T56d3)",
       "src": "baseline",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Profit center reporting",
-      "r": "T56f",
+      "r": "T56f · done by T56f's actual reports (GET /v1/profit-center-balances, per profit center, node and segment) under Cost center accounting, Cost and profit center accounting decided",
       "src": "baseline",
       "c": []
      }
@@ -2948,7 +2948,7 @@
       "c": []
      },
      {
-      "s": "D",
+      "s": "P",
       "t": "Expiry and renewal alerts",
       "r": "contracts/{id}:renew · procurement.ContractExpirer · migration 000066 · T47g",
       "c": [
@@ -5666,7 +5666,7 @@
       "c": []
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Model routing, cost per agent, spend caps, kill switch",
       "r": "internal/agents · agents.Gateway (api/model.yaml) · T42",
       "c": [
@@ -5749,9 +5749,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Agents offered only the tools their autonomy level allows",
-        "r": "internal/apitools · T42 follow-up (post-pilot, PO 2026-10-21)",
+        "r": "internal/apitools · T42 follow-up (post-pilot, PO 2026-10-21) · done by T43f (Quality engineering, Model evaluations: agents are offered only the tools their autonomy level performs)",
         "src": "baseline",
         "c": []
        },

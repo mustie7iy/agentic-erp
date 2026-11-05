@@ -1686,6 +1686,19 @@ reviewed diff naming the product owner's decision. As with `baseline`, the
 count cannot tell a tag moved from one leaf to another in the same change;
 review does, with the tagged leaves that changed listed at each batch.
 
+A summary item (one with a status and children) takes its status from its
+children: done (`D`) when every child is done, to do (`T`) when every child is
+still to do, partly done (`P`) otherwise; a group carries no status. So a
+summary never reads as done while a child is open (a review finding added
+under a done summary reopens it), and is marked done in the change that
+finishes its last child. `TestTrackerSummaryStatus` refuses a summary whose
+status disagrees with its children, or one with a child without a status or
+with an unknown one. A leaf the tracker held before its step was split into
+more detailed leaves (a module's "Daily cash position" beside the cash
+design's leaves) is set by hand: it is marked done, its reference naming the
+leaves that did it, once they cover all it names; one naming work no leaf
+covers keeps its status.
+
 ## 7.6 After the transition: completing Phase 1 (T30–T47)
 
 T1–T29 moved Phase 1 onto the foundation. These steps finish what Phase 1 still
