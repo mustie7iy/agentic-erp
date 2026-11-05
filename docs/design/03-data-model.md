@@ -612,6 +612,10 @@ erDiagram
     numeric discount2_pct }
 ```
 
+Planned, not built (ADR-0059 §4, T68c): `business_partner.group_company_id`,
+the tenant's legal entity a partner is, from which the ledger derives the
+trading partner of the lines it posts for that partner.
+
 One business partner can be both supplier and customer (SAP business partner
 model). Company-specific supplier data lives in `supplier_company`. Bank
 accounts are effective-dated; a change creates a new row with `valid_from`,
@@ -2714,6 +2718,9 @@ line or reservation. An agent's budget is identity's
 | T030 | `ledger.account_determination` (VST, BNK, WRX, PRD, SKE) |
 | AGR_* | `identity.role`, `role_permission`, `principal_role` |
 | NRIV | `config.number_range` |
+| Group Reporting FS items, consolidation groups and units (from memory, for an SAP specialist) (planned, ADR-0059) | configuration `consolidation.accounts`, `consolidation.groups`, `companies[].chart_of_accounts[].group_account` (not built) |
+| Trading partner (LFA1-VBUND, ACDOCA-RASSC; from memory, for an SAP specialist) (planned, ADR-0059) | `partner.business_partner.group_company_id`, `ledger.journal_line.trading_partner_id` (not built) |
+| ACDOCU consolidation journal (from memory, for an SAP specialist) (planned, ADR-0059) | `consolidation.run_entry` + `run_entry_line` (not built) |
 
 ## 3.18 Cash management (`cash`)
 
@@ -3429,3 +3436,27 @@ Saved reports, and the analytical store's bookkeeping in PostgreSQL
 | `analytics.snapshot` | The pointer to a tenant's current manifest (T55b, 000114), one row per tenant, so all of its datasets are swapped together and a reader never sees two runs mixed: the manifest's key, named by its watermark and a digest of what it lists (`snapshot_manifest_key_check`, T55c, 000115), the watermark (the cutoff of the run that wrote the manifest), `as_of`, `published_at`, and `checked_at` (T55c, 000115): the snapshot time of the last run that read every dataset and left no journal entry above its watermark, on which freshness is judged. A run publishes by moving the pointer, guarded by the manifest it read. Derived data: rebuilt after a restore or a move |
 | `analytics.extract_due` | The tenants due an extract (T55c, 000115), one row per tenant: the outbox relay marks a tenant changed (`changed_at`) in the transaction that publishes its events, once per batch; the scheduler claims a due tenant at most once per interval (`started_at`) and records the start of the last run that finished (`done_at`, never after the claim: `extract_due_done_at_claim`), so a change after it is still due; `claimed_lsn` (T55f, 000116) is the primary's WAL position at the claim, and the run reads on the replica only once it has replayed past it |
 | `analytics.superseded` | The manifests a publication replaced (T55f, 000116), kept seven days so a running query never loses a file, each with the keys it listed that its successor does not (`dropped`), which the lifecycle then deletes, but for what the current manifest or a later supersession lists, without reading other manifests. Bookkeeping of derived data: no audit record |
+
+## 3.24 Consolidation (`consolidation`)
+
+Planned, not built (ADR-0059, T68a-T68h). Consolidation is a leaf context:
+it reads tenancy, the configuration and the ledger through ports the
+composition root adapts, and no context reads it. The group chart, the
+mapping of each company's accounts (`companies[].chart_of_accounts[].group_account`),
+the eliminations and the groups are configuration (T68a, ADR-0059 §3).
+The ledger gains, in T68b, `journal_line.trading_partner_id` (the legal
+entity on the other side of an intercompany line, nullable, no foreign key)
+and the projection `ledger.trading_partner_balance`, maintained as
+`assignment_balance` is; partner gains `business_partner.group_company_id`
+in T68c (ADR-0059 §4). The schema `consolidation` is created by the slices
+that write it, from T68d (ADR-0059 §5):
+
+| Table | Purpose |
+|---|---|
+| `consolidation.run` | A run of a group, fiscal year and regular period (T68d): its configuration version, group currency and rate type, status (queued, running, computed, failed, final, superseded, discarded; a trigger keeps the transitions), its Operation, problem when failed, finalizer and the final run superseding it. One run of a group queued or running at a time and one final per group and period (partial unique indexes) |
+| `consolidation.run_member` | Each company a run consolidates (T68d): parent or member, ownership, first period, local currency, closing rate and its validity, the status and version of the run's period in its leading ledger when the run read its figures, and when it was translated |
+| `consolidation.run_balance` | A member's translated figures (T68d, insert-only): per company account and trading partner, the local, booked group and translated amounts on its group account, plus the prior results and translation difference rows, which make each member's rows sum to zero |
+| `consolidation.run_entry`, `consolidation.run_entry_line` | The run's eliminations (T68f, T68h; insert-only): intercompany, investment and non-controlling interest entries, each line on a group account with its company, company account, trading partner and component; each entry sums to zero (a deferred constraint trigger) |
+| `consolidation.run_difference` | The intercompany pairs a run matched (T68f): per elimination and pair of members, both amounts, the difference and the tolerance; matched, within tolerance, open, accepted (T68g, with who, when and why), outside the group, or without a trading partner (per company) |
+| `consolidation.run_acquisition` | A member's acquisition figures as a run computed them (T68h): net assets, closing rate, investment, goodwill, non-controlling interest, and whether they were frozen |
+| `consolidation.acquisition`, `consolidation.acquisition_equity` | A member's acquisition figures frozen by its first final run (T68h; insert-only, one per group and member), and its acquisition equity per group account; later runs read them and refuse a changed ownership, first period, investment account or investment |
