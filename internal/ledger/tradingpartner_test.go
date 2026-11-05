@@ -522,6 +522,7 @@ func TestTradingPartnerOnClearingDifferences(t *testing.T) {
 		want string
 	}{
 		"a down payment transfer": {func(t *testing.T) ledger.Entry {
+			t.Helper()
 			v1, a := "V1", "A"
 			paid := post(t, "EUR", nil, ledger.PostingLine{AccountID: dp, Amount: 10000, PartnerID: &e.supplier, SpecialGL: &a, TradingPartner: &us},
 				ledger.PostingLine{AccountID: tax, Amount: 1900, TaxCode: &v1}, ledger.PostingLine{AccountID: bank, Amount: -11900})
@@ -532,6 +533,7 @@ func TestTradingPartnerOnClearingDifferences(t *testing.T) {
 			})
 		}, "dp:us tax:- ap:-"},
 		"a settlement with a cash discount and a gain": {func(t *testing.T) ledger.Entry {
+			t.Helper()
 			item := invoice(t, &us)
 			return in(t, func(ctx context.Context) (ledger.Entry, error) {
 				s := settlementOf(t, e, e.de, "2000", "USD", "2026-04-15", item)
@@ -540,12 +542,14 @@ func TestTradingPartnerOnClearingDifferences(t *testing.T) {
 			})
 		}, "ap:us bank:- revenue:us revenue:us revenue:us"}, // the discount, the gain in local and in group currency
 		"a settlement of items with different trading partners": {func(t *testing.T) ledger.Entry {
+			t.Helper()
 			first, second := invoice(t, &us), invoice(t, &other)
 			return in(t, func(ctx context.Context) (ledger.Entry, error) {
 				return postings().Settle(ctx, settlementOf(t, e, e.de, "2000", "USD", "2026-04-15", first, second))
 			})
 		}, "ap:us ap:other bank:- revenue:- revenue:-"},
 		"a bank statement line with a gain": {func(t *testing.T) ledger.Entry {
+			t.Helper()
 			paid := post(t, "USD", &us, ledger.PostingLine{AccountID: expense, Amount: 10000}, ledger.PostingLine{AccountID: clearingAccount, Amount: -10000})
 			return in(t, func(ctx context.Context) (ledger.Entry, error) {
 				return postings().PostBank(ctx, ledger.BankPosting{LegalEntityID: e.de, DocumentType: "SA", PostingDate: date("2026-04-15"), Currency: "USD",
