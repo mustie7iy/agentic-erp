@@ -22,7 +22,7 @@ import (
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
-var perms = []string{"closing.close.read", "closing.close.manage", "closing.accrual.propose", "ledger.entry.read", "ledger.entry.park",
+var perms = []string{"closing.close.read", "closing.close.manage", "closing.accrual.propose", "closing.variance.propose", "ledger.entry.read", "ledger.entry.park",
 	"ledger.account.read", "payables.invoice.read", "payables.invoice.capture", "payables.invoice.post", "procurement.order.read",
 	"partner.supplier.read", "agents.session.read", "agents.session.record"}
 
@@ -32,20 +32,23 @@ var (
 )
 
 // withAccruals gives the tenant a close template of one task and company
-// 2000 an accrual account, 219500 (ADR-0058 §3).
+// 2000 an accrual account, 219500, and its variances against the prior
+// period and year from 50.00 (ADR-0058 §3).
 func withAccruals(doc *config.Config) {
 	doc.Close.Tasks = []config.CloseTask{{Code: "ACCRUALS", Name: "Accruals decided", Kind: config.CloseManual, DueDay: 2}}
 	co := doc.Company("2000")
 	co.ChartOfAccounts = append(co.ChartOfAccounts, config.Account{Number: "219500", Name: "Accrued liabilities", Type: config.Liability})
 	co.Close.AccrualAccount = "219500"
+	co.Close.Variance = &config.CloseVariance{Bases: []string{config.BasisPriorPeriod, config.BasisPriorYear}, ThresholdAmount: "50.00"}
 }
 
 // accruing is company 2000's close of March 2026, a posted invoice of the
-// supplier to cite, and the agent's client of the API.
+// supplier to cite, its journal entry, and the agent's client of the API.
 type accruing struct {
 	fixture.Env
 	close   string
 	invoice uuid.UUID
+	entry   string
 	api     *apitools.Client
 }
 
@@ -56,10 +59,10 @@ func setup(t *testing.T) accruing {
 	c, _ := f.Must(201, "POST", "/v1/period-closes", fmt.Sprintf(`{"legal_entity_id": %q, "fiscal_year": 2026, "fiscal_period": 3}`, f.DE), "")
 	inv := f.SupplierInvoice(t, f.Supplier, "COURIER-02", "119.00", "19.00", f.AccountItem(t, "Courier of February", "100.00"))
 	_, tag := f.Must(200, "GET", "/v1/supplier-invoices/"+inv.String(), "", "")
-	f.Must(200, "POST", "/v1/supplier-invoices/"+inv.String()+":post", `{"posting_date": "2026-03-12"}`, tag)
+	posted, _ := f.Must(200, "POST", "/v1/supplier-invoices/"+inv.String()+":post", `{"posting_date": "2026-03-12"}`, tag)
 	srv := httptest.NewServer(f.API.Handler)
 	t.Cleanup(srv.Close)
-	return accruing{Env: f, close: apitest.String(t, c, "id"), invoice: inv,
+	return accruing{Env: f, close: apitest.String(t, c, "id"), invoice: inv, entry: apitest.String(t, posted, "journal_entry_id"),
 		api: &apitools.Client{BaseURL: srv.URL, Token: f.API.Issuer.Token(t, f.Tenant.ID, f.Tenant.Agent.Subject, nil)}}
 }
 

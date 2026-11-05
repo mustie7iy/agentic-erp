@@ -156,15 +156,24 @@ func reconciliationEval(ctx context.Context, env eval.Env) error {
 	return nil
 }
 
-// closeEval has the close agent propose the task's close's accruals as
-// erp agent close-accruals does; what it proposed, and what it left, is
-// the checks' to judge, and its reply theirs too ($reply.text).
+// closeEval has the close agent run on the task's close as erp agent
+// close-accruals does or, when the task's run is variances, as erp agent
+// close-variances does (against the task's basis, or every one the company
+// configures); what it proposed, and what it left, is the checks' to
+// judge, and its reply theirs too ($reply.text).
 func closeEval(ctx context.Context, env eval.Env) error {
 	t, err := tasked(env, "close")
 	if err != nil {
 		return err
 	}
-	res, err := (&closeagent.Agent{LLM: env.LLM, API: env.Agent}).Accruals(ctx, t["close"])
+	a := &closeagent.Agent{LLM: env.LLM, API: env.Agent}
+	var res closeagent.Result
+	if run, _ := env.Task["run"].(string); run == "variances" { // a task without a run is the accruals'
+		basis, _ := env.Task["basis"].(string) // no basis: every one the company configures
+		res, err = a.Variances(ctx, t["close"], basis)
+	} else {
+		res, err = a.Accruals(ctx, t["close"])
+	}
 	if err != nil {
 		return fmt.Errorf("close: %w", err)
 	}

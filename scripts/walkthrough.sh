@@ -401,9 +401,9 @@ start() {
 # model_stub starts the stand-in for the model provider (step 18's capture,
 # the close agent's run in step_close) and points erp-server's model
 # gateway at it. While model-script.json exists it answers each call with
-# its next turn (the close agent's, which close_accrual_agent writes and
-# removes); otherwise with the text of model-answer.json, which step 18
-# writes.
+# its next turn (the close agent's, which close_accrual_agent and
+# close_variance_agent write and remove); otherwise with the text of
+# model-answer.json, which step 18 writes.
 model_stub() {
   local stub="$BIN/modelstub"
   if [ ! -x "$stub" ]; then
@@ -3009,6 +3009,7 @@ step_close() {
   close_accruals
   close_variances
   close_comments
+  close_variance_agent
   close_sign_off
   passed
 }
@@ -3518,6 +3519,113 @@ close_comments() {
   QUIET=1 api 200 '' getPeriodClose -p "id=$close"
   api 200 '"  \(.code) \(.status): \(.check_result.summary)"' checkCloseTask -p "id=$close" -p code=VARIANCES -if-match "$ETAG"
   expect "the check's verdict" "$(field '.check_result.passed')" true
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  expect "every task done" "$(field '.tasks_done == .tasks_total')" true
+}
+
+# close_variance_agent is T64j's part of step_close (ADR-0058 §12): the
+# close agent itself, erp agent close-variances on the close, through the
+# model stand-in answering from a script of turns (its suite's replay,
+# evals/close). Every flagged row is explained (close_comments) when Alex
+# posts a large travel invoice of the period on 6300, an account with no
+# figure before, so its row is flagged against both bases and has no
+# comment. The agent proposes one comment per basis on that row, citing
+# the invoice's entry, and none on the rows below the thresholds; the
+# variances check fails on the row until Carla accepts both, and then
+# passes, so the close stays ready to sign off.
+close_variance_agent() {
+  local period close travel inv entry got session basis comment
+  period=$((10#${TODAY:5:2}))
+  as ada
+  say "Ada lets the close agent read the plan against actual by cost center too, the last of its variance tools."
+  grant "$(cat "$WORK/close_agent_role")" controlling.plan.read
+  as carla
+  QUIET=1 api 200 '' listPeriodCloses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  close=$(field ".items[] | select(.fiscal_period == $period) | .id")
+  travel=$(account 6300)
+  for basis in prior_period prior_year; do
+    QUIET=1 api 200 '' listPeriodCloseVariances -p "id=$close" -p "basis=$basis" -p page_size=500
+    expect "no row of 6300 Travel against $basis yet" "$(field '[.items[] | select(.account_number == "6300")] | length')" 0
+  done
+  as alex
+  say "Alex posts a travel invoice of the period: the team's trip to a customer's site, CAD 3,000.00 plus 150.00 GST,"
+  say "on 6300 Travel, which had no figure in this period, the prior one or the prior year's."
+  QUIET=1 api 201 '' createSupplierInvoice -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TRAVEL-${TODAY:0:7}\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"3150.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"150.00\", \"currency\": \"CAD\"}, \"items\": [{\"account_id\": \"$travel\", \"description\": \"Team travel to the customer's site\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"3000.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}]}"
+  inv=$(field .id)
+  api 200 '"  \(.document_number) \(.supplier_reference) of \(.invoice_date): \(.status), journal entry \(.journal_entry_id[0:8])…"' \
+    postSupplierInvoice -p "id=$inv" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  entry=$(field .journal_entry_id)
+  as carla
+  say "The row is flagged against both bases, and it alone needs a comment:"
+  for basis in prior_period prior_year; do
+    api 200 "\"  against $basis: \\([.items[] | \"\\(.account_number) \\(.account_name) \\(.variance.amount)\"] | join(\", \"))\"" \
+      listPeriodCloseVariances -p "id=$close" -p "basis=$basis" -p requires_comment=true -p unexplained=true -p page_size=500
+    expect "the unexplained flagged rows against $basis" "$(field '[.items[].account_number] | join(" ")')" 6300
+  done
+  say "The close agent runs: erp agent close-variances starts a session on erp-close, reads through its tools the"
+  say "close's variance report against each basis $CC configures and the entries behind the rows that need a comment,"
+  say "and proposes. The model is the stand-in, answering from a script of turns as the agent's evaluation suite"
+  say "replays them (evals/close): it reads the close, the unexplained flagged rows against each basis and the"
+  say "entries on 6300, and proposes a comment on the row against each basis citing the invoice's entry. The rows"
+  say "below the thresholds, and those Carla has explained, get none."
+  jq -n --arg close "$close" --arg le "$LE" --argjson year "$YEAR" --argjson period "$period" --arg acct "$travel" --arg entry "$entry" '{
+    vars: {session: "session id is ([0-9a-f-]{36})"},
+    turns: ([
+      {tool: "getPeriodClose", input: {id: $close}},
+      {tool: "listPeriodCloseVariances", input: {id: $close, basis: "prior_period", requires_comment: true, unexplained: true}},
+      {tool: "listPeriodCloseVariances", input: {id: $close, basis: "prior_year", requires_comment: true, unexplained: true}},
+      {tool: "listJournalEntries", input: {legal_entity_id: $le, fiscal_year: $year, fiscal_period: $period, account_id: $acct}}]
+      + ([["prior_period", "the prior period"], ["prior_year", "the same period of the prior year"]] | map(
+      {tool: "proposeVarianceComment", input: {body: {session_id: "{{session}}", close_id: $close, basis: .[0], account_id: $acct,
+        text: "Travel is 3,000.00 this period against 0.00 in \(.[1]): the entry cited, the supplier invoice for the team travel to a customer site.",
+        citations: [$entry]}}}))
+      + [{final: "Proposed comments on 6300 Travel against the prior period and the prior year, citing its entry; every other row is explained or below the thresholds."}])}' \
+    >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent close-variances -close "$close"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/close-agent") "$ERP" agent close-variances -close "$close" 2>"$WORK/stderr") ||
+    fail "erp agent close-variances failed ($(cat "$WORK/stderr"))"
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "proposals made 2, refused 0."
+  expect "the comments it printed" "$(printf '%s\n' "$got" | sed -nE 's/^  comment [0-9a-f-]{36} on (.*)$/\1/p' | paste -sd',' -)" \
+    "6300 against prior_period,6300 against prior_year"
+  as carla
+  say "Carla reads the session's comments: on the flagged row alone, against each basis, each citing the invoice's entry:"
+  api 200 '(.items[] | "  \(.basis) \(.account_number) \(.account_name): \(.status) by \(.author_name), citing \([.citations[].document_number] | join(", "))", "    \(.text)")' \
+    listVarianceComments -p "session_id=$session"
+  expect "the session's comments" "$(field '[.items[] | "\(.account_number) \(.basis)"] | join(",")')" "6300 prior_period,6300 prior_year"
+  expect "each citing the invoice's entry" "$(field "[.items[] | [.citations[].journal_entry_id] == [\"$entry\"]] | all")" true
+  expect "each waiting for a person" "$(field '[.items[].status == "proposed"] | all')" true
+  say "None on the rows below the thresholds:"
+  for basis in prior_period prior_year; do
+    api 200 "\"  against $basis: \\(.items | length) rows below the thresholds, \\([.items[] | select(.proposed_comments > 0)] | length) with a proposal\"" \
+      listPeriodCloseVariances -p "id=$close" -p "basis=$basis" -p requires_comment=false -p page_size=500
+    expect "rows below the thresholds against $basis" "$(field '.items | length > 0')" true
+    expect "proposals on them against $basis" "$(field '[.items[] | select(.proposed_comments > 0)] | length')" 0
+  done
+  as close-agent
+  say "The agent's session, which the command named, records each tool call:"
+  api 200 '"  session \(.id[0:8])… \(.status) on \(.model): \(.purpose)"' getAgentSession -p "id=$session"
+  expect "the session" "$(field .status)" completed
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" \
+    "getPeriodClose listPeriodCloseVariances listPeriodCloseVariances listJournalEntries proposeVarianceComment proposeVarianceComment"
+  as carla
+  say "Until a person accepts them, the variances check fails on the row:"
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  api 200 '"  \(.code) \(.status): \(.check_result.summary)"' checkCloseTask -p "id=$close" -p code=VARIANCES -if-match "$ETAG"
+  expect "the check's verdict before" "$(field '.check_result.passed')" false
+  say "Carla accepts both comments:"
+  QUIET=1 api 200 '' listVarianceComments -p "session_id=$session"
+  for comment in $(field '.items[].id'); do
+    QUIET=1 api 200 '' getVarianceComment -p "id=$comment"
+    api 200 '"  \(.basis) \(.account_number): \(.status) by \(.decided_by_name), proposed by \(.author_name) (\(.author_kind))"' \
+      acceptVarianceComment -p "id=$comment" -if-match "$ETAG" -body '{}'
+  done
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  api 200 '"  \(.code) \(.status): \(.check_result.summary)"' checkCloseTask -p "id=$close" -p code=VARIANCES -if-match "$ETAG"
+  expect "the check's verdict after" "$(field '.check_result.passed')" true
   QUIET=1 api 200 '' getPeriodClose -p "id=$close"
   expect "every task done" "$(field '.tasks_done == .tasks_total')" true
 }

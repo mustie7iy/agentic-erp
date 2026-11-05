@@ -1700,7 +1700,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The close agent, variances: erp agent close-variances -close ID, the variance tools and prompt, the variance cases of ADR-0058 §12 in evals/close; walkthrough: the agent through the stand-in proposes a comment for the flagged row citing its entry and none for rows below the threshold",
         "r": "ADR-0058 · T64j",
         "src": "adr:ADR-0058",
