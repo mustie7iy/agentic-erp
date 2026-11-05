@@ -74,8 +74,9 @@ const baselineItems = 949
 // the tag (96). 97 since T62f: the UAE pack's sign-off by the tax
 // specialist, in the approved scope, split from it, inheriting the tag.
 // 98 since T61k: the VAT 201's sign-off by the tax specialist, in the
-// approved scope, split from it, inheriting the tag.
-const pilotItems = 98
+// approved scope, split from it, inheriting the tag. 99 since T61k's
+// review: the emirate guard the sign-off waits for, inheriting the tag.
+const pilotItems = 99
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

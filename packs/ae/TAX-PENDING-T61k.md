@@ -94,9 +94,12 @@ The boxes:
    (Abu Dhabi, Dubai, Sharjah, Ajman, Umm Al Quwain, Ras Al Khaimah,
    Fujairah). Their ISO 3166-2 codes, which the sales lines name, are
    written from memory (AE-AZ, AE-DU, AE-SH, AE-AJ, AE-UQ, AE-RK, AE-FU;
-   the repository's tests already used AE-DU and AE-AZ): a line naming
-   another subdivision of AE is on no box, and its item stays unreported
-   (the ledger checks only that it is a subdivision of AE).
+   the repository's tests already used AE-DU and AE-AZ), and each box 1
+   label says the code is pending. A line naming another subdivision of AE
+   is on no box and its item stays unreported, as the ledger checks only
+   that it is a subdivision of AE: a guard refusing an emirate the pack
+   does not list is a tracker leaf of its own (review:T61k), which lands
+   before the sign-off.
 
 How the tenant's codes reach the boxes (the pack's mapping, decided by
 default in ADR-0049 §11 As built, T61k):
@@ -111,9 +114,12 @@ default in ADR-0049 §11 As built, T61k):
    be split without a component of their own.
 7. Box 6 takes import VAT from a customs declaration's entry (IM5, the
    declared value its amount); box 10 takes the part recovered of both
-   the reverse charge's and an import's claim (ADR-0049 records box 10
-   for the reverse charge and "output and input" for box 6, not where
-   an import's input goes).
+   the reverse charge's and an import's claim (ADR-0049 Context, Reverse
+   charge: imported services and goods, "Box 3/6 output, Box 10 input").
+   A customs entry reversed in a later period is a negative box 6 item of
+   its period (or its amendment's), not box 7: the step's plan has box 7
+   "from import entries", but an entry of an import code is box 6's, so
+   box 7 takes a manual adjustment code (item 9), decided by default.
 8. Box 9 takes standard-rated purchases (V5 and VB5): VB5's blocked VAT
    recovers nothing, so it adds its amount and no VAT. Whether a blocked
    expense's amount belongs in box 9 is the specialist's.

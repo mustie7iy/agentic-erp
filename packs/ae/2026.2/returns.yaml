@@ -23,7 +23,8 @@
 # the totals 8, 11, 12 and 13, written from memory. The letters a-g follow
 # the order in which ADR-0049 lists the emirates; their ISO 3166-2 codes,
 # which the sales lines name (ADR-0049 §7 As built), are written from
-# memory but for AE-DU and AE-AZ, which the ledger's tests already use.
+# memory (the ledger's tests already used AE-DU and AE-AZ), and each
+# box 1 label says the code is pending.
 #
 # Which items a box sums is the pack's mapping (decided by default in
 # ADR-0049 §11 As built, T61k), for the tax specialist to confirm:
@@ -35,7 +36,9 @@
 #   DR5 and IM5. Box 3 takes the reverse charge's (RC5, and DR5, the
 #   domestic reverse charge, as ADR-0049 §9 As built reports it), box 6 an
 #   import's (IM5, from a customs declaration's entry), box 10 the part
-#   either claim recovers.
+#   either claim recovers (Context: imported services and goods, "Box 3/6
+#   output, Box 10 input"). A customs entry reversed later is a negative
+#   box 6 item, not box 7; box 7 takes a manual adjustment code.
 # - Adjustments are manual entries of a code of kind adjustment (§11, as
 #   T61j built them), which the tenant adds: an output code of component
 #   vat levying the line's emirate (box 1's adjustment column), an input
@@ -51,67 +54,67 @@ returns:
     prior_period_threshold: "10000"
     boxes:
       - code: "1a_amount"
-        label: "1a Standard-rated supplies in Abu Dhabi (AE-AZ): amount"
+        label: "1a Standard-rated supplies in Abu Dhabi (AE-AZ): amount (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-AZ], account_keys: [output], measure: base, negate: true}
       - code: "1a_vat"
-        label: "1a Standard-rated supplies in Abu Dhabi (AE-AZ): VAT"
+        label: "1a Standard-rated supplies in Abu Dhabi (AE-AZ): VAT (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-AZ], account_keys: [output], measure: tax, negate: true}
       - code: "1a_adjustment"
-        label: "1a Standard-rated supplies in Abu Dhabi (AE-AZ): adjustment"
+        label: "1a Standard-rated supplies in Abu Dhabi (AE-AZ): adjustment (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [adjustment], components: [vat], jurisdictions: [AE-AZ], measure: tax, negate: true}
       - code: "1b_amount"
-        label: "1b Standard-rated supplies in Dubai (AE-DU): amount"
+        label: "1b Standard-rated supplies in Dubai (AE-DU): amount (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-DU], account_keys: [output], measure: base, negate: true}
       - code: "1b_vat"
-        label: "1b Standard-rated supplies in Dubai (AE-DU): VAT"
+        label: "1b Standard-rated supplies in Dubai (AE-DU): VAT (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-DU], account_keys: [output], measure: tax, negate: true}
       - code: "1b_adjustment"
-        label: "1b Standard-rated supplies in Dubai (AE-DU): adjustment"
+        label: "1b Standard-rated supplies in Dubai (AE-DU): adjustment (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [adjustment], components: [vat], jurisdictions: [AE-DU], measure: tax, negate: true}
       - code: "1c_amount"
-        label: "1c Standard-rated supplies in Sharjah (AE-SH): amount"
+        label: "1c Standard-rated supplies in Sharjah (AE-SH): amount (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-SH], account_keys: [output], measure: base, negate: true}
       - code: "1c_vat"
-        label: "1c Standard-rated supplies in Sharjah (AE-SH): VAT"
+        label: "1c Standard-rated supplies in Sharjah (AE-SH): VAT (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-SH], account_keys: [output], measure: tax, negate: true}
       - code: "1c_adjustment"
-        label: "1c Standard-rated supplies in Sharjah (AE-SH): adjustment"
+        label: "1c Standard-rated supplies in Sharjah (AE-SH): adjustment (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [adjustment], components: [vat], jurisdictions: [AE-SH], measure: tax, negate: true}
       - code: "1d_amount"
-        label: "1d Standard-rated supplies in Ajman (AE-AJ): amount"
+        label: "1d Standard-rated supplies in Ajman (AE-AJ): amount (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-AJ], account_keys: [output], measure: base, negate: true}
       - code: "1d_vat"
-        label: "1d Standard-rated supplies in Ajman (AE-AJ): VAT"
+        label: "1d Standard-rated supplies in Ajman (AE-AJ): VAT (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-AJ], account_keys: [output], measure: tax, negate: true}
       - code: "1d_adjustment"
-        label: "1d Standard-rated supplies in Ajman (AE-AJ): adjustment"
+        label: "1d Standard-rated supplies in Ajman (AE-AJ): adjustment (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [adjustment], components: [vat], jurisdictions: [AE-AJ], measure: tax, negate: true}
       - code: "1e_amount"
-        label: "1e Standard-rated supplies in Umm Al Quwain (AE-UQ): amount"
+        label: "1e Standard-rated supplies in Umm Al Quwain (AE-UQ): amount (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-UQ], account_keys: [output], measure: base, negate: true}
       - code: "1e_vat"
-        label: "1e Standard-rated supplies in Umm Al Quwain (AE-UQ): VAT"
+        label: "1e Standard-rated supplies in Umm Al Quwain (AE-UQ): VAT (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-UQ], account_keys: [output], measure: tax, negate: true}
       - code: "1e_adjustment"
-        label: "1e Standard-rated supplies in Umm Al Quwain (AE-UQ): adjustment"
+        label: "1e Standard-rated supplies in Umm Al Quwain (AE-UQ): adjustment (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [adjustment], components: [vat], jurisdictions: [AE-UQ], measure: tax, negate: true}
       - code: "1f_amount"
-        label: "1f Standard-rated supplies in Ras Al Khaimah (AE-RK): amount"
+        label: "1f Standard-rated supplies in Ras Al Khaimah (AE-RK): amount (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-RK], account_keys: [output], measure: base, negate: true}
       - code: "1f_vat"
-        label: "1f Standard-rated supplies in Ras Al Khaimah (AE-RK): VAT"
+        label: "1f Standard-rated supplies in Ras Al Khaimah (AE-RK): VAT (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-RK], account_keys: [output], measure: tax, negate: true}
       - code: "1f_adjustment"
-        label: "1f Standard-rated supplies in Ras Al Khaimah (AE-RK): adjustment"
+        label: "1f Standard-rated supplies in Ras Al Khaimah (AE-RK): adjustment (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [adjustment], components: [vat], jurisdictions: [AE-RK], measure: tax, negate: true}
       - code: "1g_amount"
-        label: "1g Standard-rated supplies in Fujairah (AE-FU): amount"
+        label: "1g Standard-rated supplies in Fujairah (AE-FU): amount (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-FU], account_keys: [output], measure: base, negate: true}
       - code: "1g_vat"
-        label: "1g Standard-rated supplies in Fujairah (AE-FU): VAT"
+        label: "1g Standard-rated supplies in Fujairah (AE-FU): VAT (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-FU], account_keys: [output], measure: tax, negate: true}
       - code: "1g_adjustment"
-        label: "1g Standard-rated supplies in Fujairah (AE-FU): adjustment"
+        label: "1g Standard-rated supplies in Fujairah (AE-FU): adjustment (its ISO code pending the tax specialist)"
         select: {direction: output, kinds: [adjustment], components: [vat], jurisdictions: [AE-FU], measure: tax, negate: true}
       - code: "2_vat"
         label: "2 Tourist refunds: VAT (column pending the tax specialist)"

@@ -1399,20 +1399,26 @@ companies (all in the tenant, under RLS). A registration change is financial
     establishments; the step table's "the registration's fixed
     establishment" would allow one emirate per registration only). The
     emirates' ISO 3166-2 codes are written from memory but for AE-DU and
-    AE-AZ; a line naming another subdivision of AE is on no box and its
-    item stays unreported (the ledger checks only the country).
+    AE-AZ, and each box 1 label says the code is pending; a line naming
+    another subdivision of AE is on no box and its item stays unreported
+    (the ledger checks only the country). A guard refusing an emirate the
+    pack does not list is its own tracker leaf (review:T61k), to land
+    before the sign-off.
   - **The mapping.** Box 3 takes the owed part (`vat_due`, `self_output`)
     of reverse-charge codes, RC5 and DR5, as §9 As built reports the
     domestic reverse charge in box 3 (the Context lists imports only);
     box 6 an import's (IM5, the declared value its amount, from a customs
     declaration's entry, §9 As built); box 10 the part recovered of both
-    claims (`vat`, `self_input`; the Context places an import's input
-    nowhere); box 9 standard-rated purchases, VB5's blocked VAT adding its
+    claims (`vat`, `self_input`; the Context's "Box 3/6 output, Box 10
+    input" for imported services and goods); box 9 standard-rated purchases, VB5's blocked VAT adding its
     amount and no VAT. Adjustments are codes of kind `adjustment` the
     tenant adds (T61j): output, component `vat`, levying the line's emirate
     (box 1's adjustment column), input `vat` (box 9's), output
-    `tourist_refund` (box 2) and `import_adjustment` (box 7). OS is on no
-    box.
+    `tourist_refund` (box 2) and `import_adjustment` (box 7). The step's
+    plan has box 7 "from import entries", but an import code's entry is
+    box 6's, so a customs entry reversed later is a negative box 6 item of
+    its period or its amendment, and box 7 takes the manual code alone
+    (decided by default, pending the specialist). OS is on no box.
   - **Not signed off.** 2026.2 carries no `sign_off`; the specialist
     confirms the boxes, columns, sums, letters and codes, and the mapping,
     listed in `packs/ae/TAX-PENDING-T61k.md`, which `TestUAEPackVAT201`

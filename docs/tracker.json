@@ -2170,9 +2170,17 @@
        {
         "s": "T",
         "t": "VAT 201 signed off by the tax specialist before the pilot: a new UAE pack version with sign_off (a released version never changes; one version with T62f's sign-off), after the specialist confirms 2026.2's boxes against EmaraTax's labels, the columns of boxes 2-7, the totals 8, 11, 12 and 13 written from memory, the emirates' letters and ISO codes, and how the tenant's codes map to the boxes (packs/ae/TAX-PENDING-T61k.md)",
-        "r": "after T61k · ADR-0049 §11 As built (T61k) · ADR-0048 As built (T61k)",
+        "r": "after T61k and the emirate guard below · ADR-0049 §11 As built (T61k) · ADR-0048 As built (T61k)",
         "src": "split:T61k · adr:ADR-0049",
         "pilot": "po:2026-10-31 · adr:ADR-0048",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Emirate guard: a tax code component that levies its lines' subdivision lists the subdivisions it accepts (the UAE pack's seven emirates, their ISO 3166-2 codes confirmed by the tax specialist), and the ledger refuses a line naming another with 422 ledger.jurisdiction_not_levied, so a mistyped emirate cannot leave a sale's output VAT off the VAT 201's boxes 1a-1g unreported (today the ledger checks only the country prefix); a schema or ledger test",
+        "r": "after T61k · before the VAT 201's sign-off · ADR-0049 §7 and §11 As built (T61k)",
+        "src": "review:T61k",
+        "pilot": "po:2026-10-31 · adr:ADR-0049",
         "c": []
        },
        {
