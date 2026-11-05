@@ -110,7 +110,7 @@ func transferLines(ctx context.Context, tx pgx.Tx, in DownPaymentClearing, items
 			return nil, err
 		}
 		add(Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, SpecialGL: &special, Text: in.HeaderText,
-			TradingPartnerID: it.tradingPartner})
+			TradingPartnerID: it.tradingPartner, offsets: true})
 	}
 	seen := map[uuid.UUID]bool{}
 	for _, it := range items {

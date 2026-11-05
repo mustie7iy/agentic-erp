@@ -1110,3 +1110,73 @@ default, for the product owner to overrule:
   do not carry the item's trading partner (the run groups its totals per
   account, currency and direction), so they would show as
   `no_trading_partner` until that leaf groups them by trading partner too.
+
+**T68c (trading partner from the business partner).** Built as §4 and
+§4a say, in `internal/partner` (the group company) and
+`internal/ledger/tradingpartner.go` (`deriveTradingPartners`), migration
+000219 (`partner.business_partner.group_company_id`, a nullable legal
+entity id without a foreign key, 02 §2.1). Decided by default, for the
+product owner to overrule:
+- **Setting it.** `createBusinessPartner` takes `group_company_id`, and an
+  `update` partner change (`createPartnerChange`, the API's update path;
+  there is no `updateBusinessPartner`) sets it or, with null, unlinks it,
+  applied on the change's approval as every master data change is (the
+  partner's own permissions, `partner.supplier.create` and
+  `partner.supplier.change`, and its approval and audit). It must be a
+  legal entity tenancy knows in the tenant, whatever its status and the
+  caller's access to it, as T68b's trading partner check: 422
+  `partner.group_company_unknown` on `group_company_id` or
+  `payload.group_company_id`. The partner shows `group_company_id` and
+  `group_company` (id, company code and name as they are now, each company
+  read once per response, whatever the caller's access, as T68b names
+  trading partners; the open question on names stays open); the partner's
+  ETag is its version, so renaming a company changes none.
+  `BusinessPartnerCreated` carries it when set, `BusinessPartnerUpdated`
+  when changed (`changed_fields` names `group_company_id`, null when
+  unlinked): §13's `BusinessPartnerChanged` is these two events, the
+  partner context's own. The create's audit record names it; an update's
+  is the change's request and apply records, as for every field.
+- **Deriving it, in one place.** `ledger.Partners.GroupCompany` (adapted
+  by `partner.Postings`, as `PostingBlock` is) is asked once per partner
+  per posting, in `postAll`, beside the centers' derivation, for every
+  posting but a reversal (which copies its original's): manual, parked
+  (when posted, not when parked, as the centers are), template and
+  recurring entries, the posting port (supplier invoices, GR/IR invoices,
+  down payments, the migration), clearings, settlements (payments), bank
+  postings, down payment transfers and revaluations. A line naming a
+  partner linked to a company takes it; a partner linked to the posting
+  company itself gives none (not an intercompany line); a line naming one
+  of its own keeps it when it is the partner's or the partner is linked to
+  none, and is refused otherwise (422 `ledger.trading_partner_conflict`
+  on `lines[i].trading_partner_id`, code `conflict`). Lines offsetting
+  open items (a clearing's, a settlement's, a bank posting's, a down
+  payment transfer's) keep their items' trading partner, none included,
+  and are not asked about: a clearing nets each item's even when its
+  partner was linked or unlinked since (ADR-0006).
+- **Propagation.** When every line naming a partner names the same trading
+  partner, the entry's other lines that name none, and offset no item,
+  take it: an invoice's expense, tax and GR/IR lines (§4 says every
+  other line, so T68b's exclusion of the GR/IR lines from
+  `Posting.TradingPartner` does not hold for the propagation), a
+  settlement's bank and withholding lines, a down payment's tax and bank
+  lines. When partner lines name different ones, or one names none,
+  nothing propagates. What this leaves for T68f's matching: a goods
+  receipt names no partner, so its GR/IR line carries no trading partner
+  while the invoice's GR/IR line carries its supplier's, and the GR/IR
+  account's balance per trading partner does not net even when the
+  account does; likewise a down payment transfer after its partner was
+  linked or unlinked keeps the item's on the offset and derives the
+  current one on the payables line.
+- **Cost.** One primary key read per distinct partner per posting, only
+  for lines naming a partner that offset no item; GR/IR receipts,
+  depreciation, revaluations and bank postings ask nothing.
+- **Walkthrough.** `step_trading_partner` goes on (still step 39, for
+  integration to fold into `step_consolidation`): Ben creates Maple's
+  business partner record of Acme Corp US, a supplier of Maple's linked
+  to company 1000; Carla approves it; Alex posts its USD 1,500.00 invoice
+  dated the month's first day through payables, naming no trading
+  partner, and both lines of its entry carry 1000 Acme Corp US. The
+  leaf as first written (Maple Industries Canada as a supplier of Acme Corp US,
+  posted at Acme Corp US) needs Acme Corp US's chart, payables set-up and
+  number ranges, which no step has yet; the coordinator's brief chose the
+  direction built.

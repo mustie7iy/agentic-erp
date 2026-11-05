@@ -25721,9 +25721,21 @@ func (s *BusinessPartner) encodeFields(e *jx.Encoder) {
 		e.FieldStart("extensions")
 		s.Extensions.Encode(e)
 	}
+	{
+		if s.GroupCompanyID.Set {
+			e.FieldStart("group_company_id")
+			s.GroupCompanyID.Encode(e)
+		}
+	}
+	{
+		if s.GroupCompany.Set {
+			e.FieldStart("group_company")
+			s.GroupCompany.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfBusinessPartner = [18]string{
+var jsonFieldsNameOfBusinessPartner = [20]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -25742,6 +25754,8 @@ var jsonFieldsNameOfBusinessPartner = [18]string{
 	15: "addresses",
 	16: "tax_identifiers",
 	17: "extensions",
+	18: "group_company_id",
+	19: "group_company",
 }
 
 // Decode decodes BusinessPartner from json.
@@ -25987,6 +26001,26 @@ func (s *BusinessPartner) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"extensions\"")
 			}
+		case "group_company_id":
+			if err := func() error {
+				s.GroupCompanyID.Reset()
+				if err := s.GroupCompanyID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"group_company_id\"")
+			}
+		case "group_company":
+			if err := func() error {
+				s.GroupCompany.Reset()
+				if err := s.GroupCompany.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"group_company\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -26118,9 +26152,15 @@ func (s *BusinessPartnerChanges) encodeFields(e *jx.Encoder) {
 			s.Extensions.Encode(e)
 		}
 	}
+	{
+		if s.GroupCompanyID.Set {
+			e.FieldStart("group_company_id")
+			s.GroupCompanyID.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfBusinessPartnerChanges = [8]string{
+var jsonFieldsNameOfBusinessPartnerChanges = [9]string{
 	0: "name",
 	1: "legal_name",
 	2: "language",
@@ -26129,6 +26169,7 @@ var jsonFieldsNameOfBusinessPartnerChanges = [8]string{
 	5: "addresses",
 	6: "tax_identifiers",
 	7: "extensions",
+	8: "group_company_id",
 }
 
 // Decode decodes BusinessPartnerChanges from json.
@@ -26249,6 +26290,16 @@ func (s *BusinessPartnerChanges) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"extensions\"")
 			}
+		case "group_company_id":
+			if err := func() error {
+				s.GroupCompanyID.Reset()
+				if err := s.GroupCompanyID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"group_company_id\"")
+			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
 		}
@@ -26361,12 +26412,18 @@ func (s *BusinessPartnerCreate) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.GroupCompanyID.Set {
+			e.FieldStart("group_company_id")
+			s.GroupCompanyID.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("reason")
 		e.Str(s.Reason)
 	}
 }
 
-var jsonFieldsNameOfBusinessPartnerCreate = [12]string{
+var jsonFieldsNameOfBusinessPartnerCreate = [13]string{
 	0:  "kind",
 	1:  "name",
 	2:  "legal_name",
@@ -26378,7 +26435,8 @@ var jsonFieldsNameOfBusinessPartnerCreate = [12]string{
 	8:  "tax_identifiers",
 	9:  "bank_accounts",
 	10: "extensions",
-	11: "reason",
+	11: "group_company_id",
+	12: "reason",
 }
 
 // Decode decodes BusinessPartnerCreate from json.
@@ -26544,8 +26602,18 @@ func (s *BusinessPartnerCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"extensions\"")
 			}
+		case "group_company_id":
+			if err := func() error {
+				s.GroupCompanyID.Reset()
+				if err := s.GroupCompanyID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"group_company_id\"")
+			}
 		case "reason":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.Reason = string(v)
@@ -26567,7 +26635,7 @@ func (s *BusinessPartnerCreate) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b00101011,
-		0b00001000,
+		0b00010000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -79314,6 +79382,136 @@ func (s *GrantRolePermissionUnprocessableEntity) UnmarshalJSON(data []byte) erro
 }
 
 // Encode implements json.Marshaler.
+func (s *GroupCompany) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *GroupCompany) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("id")
+		json.EncodeUUID(e, s.ID)
+	}
+	{
+		e.FieldStart("code")
+		e.Str(s.Code)
+	}
+	{
+		e.FieldStart("name")
+		e.Str(s.Name)
+	}
+}
+
+var jsonFieldsNameOfGroupCompany = [3]string{
+	0: "id",
+	1: "code",
+	2: "name",
+}
+
+// Decode decodes GroupCompany from json.
+func (s *GroupCompany) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GroupCompany to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.ID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"id\"")
+			}
+		case "code":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Code = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"code\"")
+			}
+		case "name":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.Name = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"name\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode GroupCompany")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfGroupCompany) {
+					name = jsonFieldsNameOfGroupCompany[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GroupCompany) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GroupCompany) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
 func (s *GroupLiquidityForecast) Encode(e *jx.Encoder) {
 	e.ObjStart()
 	s.encodeFields(e)
@@ -110291,6 +110489,39 @@ func (s OptGrIrClearingEntry) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *OptGrIrClearingEntry) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GroupCompany as json.
+func (o OptGroupCompany) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes GroupCompany from json.
+func (o *OptGroupCompany) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptGroupCompany to nil")
+	}
+	o.Set = true
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptGroupCompany) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptGroupCompany) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

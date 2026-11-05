@@ -229,6 +229,19 @@ taken, so renaming a company changes no entry's ETag); `GET
 JournalEntryPosted's lines carry it. Every operation that posts can answer
 the refusal, as the database's check of a line's own company maps to it.
 
+A business partner takes a `group_company_id` (T68c, ADR-0059 §4) on
+`createBusinessPartner` and in an `update` partner change (null unlinks
+it; applied on approval): any legal entity of the tenant, else 422
+`partner.group_company_unknown`. The partner shows it with `group_company`
+(id, company code and name as they are now; the ETag is the partner's
+version), and BusinessPartnerCreated and BusinessPartnerUpdated carry it.
+The ledger derives each posted line's trading partner from it: a line
+naming the partner takes the company, the entry's other lines take the one
+all its partner lines share, and a line naming another than its partner's
+is refused with 422 `ledger.trading_partner_conflict` on
+`lines[i].trading_partner_id` (field error code `conflict`), which every
+operation that posts can answer.
+
 Requisition and purchase order items take `account_assignment` (`none` or
 `cost_center`; left out: `cost_center` when a `cost_center_id` is given)
 and `cost_center_id` (T56e): 422 `procurement.invalid_account_assignment`

@@ -11178,6 +11178,12 @@ type BusinessPartner struct {
 	TaxIdentifiers []TaxIdentifier `json:"tax_identifiers"`
 	// Custom fields.
 	Extensions Extensions `json:"extensions"`
+	// The legal entity of the tenant this partner is, when it is one of the group's companies (ADR-0059
+	// §4): the trading partner the ledger gives the lines that name the partner from then on. Absent:
+	// none.
+	GroupCompanyID OptUUID `json:"group_company_id"`
+	// `group_company_id` by its company code and its name as they are now; absent with it.
+	GroupCompany OptGroupCompany `json:"group_company"`
 }
 
 // GetID returns the value of ID.
@@ -11270,6 +11276,16 @@ func (s *BusinessPartner) GetExtensions() Extensions {
 	return s.Extensions
 }
 
+// GetGroupCompanyID returns the value of GroupCompanyID.
+func (s *BusinessPartner) GetGroupCompanyID() OptUUID {
+	return s.GroupCompanyID
+}
+
+// GetGroupCompany returns the value of GroupCompany.
+func (s *BusinessPartner) GetGroupCompany() OptGroupCompany {
+	return s.GroupCompany
+}
+
 // SetID sets the value of ID.
 func (s *BusinessPartner) SetID(val uuid.UUID) {
 	s.ID = val
@@ -11360,6 +11376,16 @@ func (s *BusinessPartner) SetExtensions(val Extensions) {
 	s.Extensions = val
 }
 
+// SetGroupCompanyID sets the value of GroupCompanyID.
+func (s *BusinessPartner) SetGroupCompanyID(val OptUUID) {
+	s.GroupCompanyID = val
+}
+
+// SetGroupCompany sets the value of GroupCompany.
+func (s *BusinessPartner) SetGroupCompany(val OptGroupCompany) {
+	s.GroupCompany = val
+}
+
 // Changes to business partner master data (merge-patch semantics), applied when the partner change is
 // approved. Bank details change through `POST /v1/business-partners/{id}/bank-accounts`.
 // Ref: #/components/schemas/BusinessPartnerChanges
@@ -11380,6 +11406,10 @@ type BusinessPartnerChanges struct {
 	TaxIdentifiers []TaxIdentifierInput `json:"tax_identifiers"`
 	// Custom fields.
 	Extensions OptExtensions `json:"extensions"`
+	// The legal entity of the tenant this partner is, when it is one of the group's companies (ADR-0059
+	// §4; 422 `partner.group_company_unknown` for one that is not). Send null to unlink. Applies to
+	// postings from approval on; posted lines keep their trading partner.
+	GroupCompanyID OptNilUUID `json:"group_company_id"`
 }
 
 // GetName returns the value of Name.
@@ -11422,6 +11452,11 @@ func (s *BusinessPartnerChanges) GetExtensions() OptExtensions {
 	return s.Extensions
 }
 
+// GetGroupCompanyID returns the value of GroupCompanyID.
+func (s *BusinessPartnerChanges) GetGroupCompanyID() OptNilUUID {
+	return s.GroupCompanyID
+}
+
 // SetName sets the value of Name.
 func (s *BusinessPartnerChanges) SetName(val OptString) {
 	s.Name = val
@@ -11462,6 +11497,11 @@ func (s *BusinessPartnerChanges) SetExtensions(val OptExtensions) {
 	s.Extensions = val
 }
 
+// SetGroupCompanyID sets the value of GroupCompanyID.
+func (s *BusinessPartnerChanges) SetGroupCompanyID(val OptNilUUID) {
+	s.GroupCompanyID = val
+}
+
 // Request a new business partner. Duplicate tax identifiers or bank accounts are reported as warnings
 // on the partner change.
 // Ref: #/components/schemas/BusinessPartnerCreate
@@ -11489,6 +11529,11 @@ type BusinessPartnerCreate struct {
 	BankAccounts []BankAccountInput `json:"bank_accounts"`
 	// Custom fields.
 	Extensions OptExtensions `json:"extensions"`
+	// The legal entity of the tenant this partner is, when it is one of the group's companies (ADR-0059
+	// §4); any legal entity of the tenant, whatever the caller's access to it (422
+	// `partner.group_company_unknown` otherwise). The ledger derives the trading partner of the lines
+	// naming the partner from it.
+	GroupCompanyID OptUUID `json:"group_company_id"`
 	// Why the partner is needed; recorded on the partner change.
 	Reason string `json:"reason"`
 }
@@ -11546,6 +11591,11 @@ func (s *BusinessPartnerCreate) GetBankAccounts() []BankAccountInput {
 // GetExtensions returns the value of Extensions.
 func (s *BusinessPartnerCreate) GetExtensions() OptExtensions {
 	return s.Extensions
+}
+
+// GetGroupCompanyID returns the value of GroupCompanyID.
+func (s *BusinessPartnerCreate) GetGroupCompanyID() OptUUID {
+	return s.GroupCompanyID
 }
 
 // GetReason returns the value of Reason.
@@ -11606,6 +11656,11 @@ func (s *BusinessPartnerCreate) SetBankAccounts(val []BankAccountInput) {
 // SetExtensions sets the value of Extensions.
 func (s *BusinessPartnerCreate) SetExtensions(val OptExtensions) {
 	s.Extensions = val
+}
+
+// SetGroupCompanyID sets the value of GroupCompanyID.
+func (s *BusinessPartnerCreate) SetGroupCompanyID(val OptUUID) {
+	s.GroupCompanyID = val
 }
 
 // SetReason sets the value of Reason.
@@ -29865,6 +29920,48 @@ type GrantRolePermissionUnprocessableEntity Problem
 
 func (*GrantRolePermissionUnprocessableEntity) grantRolePermissionRes() {}
 
+// The company of the group a business partner is (ADR-0059 §4): a legal entity of the tenant, by id,
+// company code and its name as it is now.
+// Ref: #/components/schemas/GroupCompany
+type GroupCompany struct {
+	// The legal entity.
+	ID uuid.UUID `json:"id"`
+	// Its company code.
+	Code string `json:"code"`
+	// Its name, as it is now: renaming the company changes no partner's ETag.
+	Name string `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *GroupCompany) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCode returns the value of Code.
+func (s *GroupCompany) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *GroupCompany) GetName() string {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *GroupCompany) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCode sets the value of Code.
+func (s *GroupCompany) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *GroupCompany) SetName(val string) {
+	s.Name = val
+}
+
 // The liquidity forecast across the companies the caller may act in (ADR-0051 §9, §10, §15; T53e5):
 // per currency, and summed in the tenant's group currency. Amounts are signed: a payment out is
 // negative.
@@ -41827,6 +41924,52 @@ func (o OptGrIrClearingEntry) Get() (v GrIrClearingEntry, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptGrIrClearingEntry) Or(d GrIrClearingEntry) GrIrClearingEntry {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptGroupCompany returns new OptGroupCompany with value set to v.
+func NewOptGroupCompany(v GroupCompany) OptGroupCompany {
+	return OptGroupCompany{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptGroupCompany is optional GroupCompany.
+type OptGroupCompany struct {
+	Value GroupCompany
+	Set   bool
+}
+
+// IsSet returns true if OptGroupCompany was set.
+func (o OptGroupCompany) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptGroupCompany) Reset() {
+	var v GroupCompany
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptGroupCompany) SetTo(v GroupCompany) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptGroupCompany) Get() (v GroupCompany, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptGroupCompany) Or(d GroupCompany) GroupCompany {
 	if v, ok := o.Get(); ok {
 		return v
 	}

@@ -101,6 +101,19 @@ func OptNilDate(s gen.OptNilDate) **time.Time {
 	return &v
 }
 
+// OptNilUUID maps a merge-patch id: absent → nil, null → pointer to nil,
+// a value → pointer to a pointer to it.
+func OptNilUUID(s gen.OptNilUUID) **uuid.UUID {
+	if !s.Set {
+		return nil
+	}
+	var v *uuid.UUID
+	if !s.Null {
+		v = &s.Value
+	}
+	return &v
+}
+
 // DecodeObject decodes a free-form JSON object from a request, such as
 // custom fields (ADR-0009, gen.Extensions): nil when there was none.
 func DecodeObject(x map[string]jx.Raw) map[string]any {

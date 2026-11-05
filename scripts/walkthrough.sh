@@ -4138,10 +4138,14 @@ name_actors() {
 # intercompany receivable against revenue, names company 1000 on both
 # lines; the entry reads back with the company's code and name, the
 # journal lists it by trading partner, and a line naming Maple itself is
-# refused. ADR-0059 places this in step_consolidation (T68a), which is not
-# on this lane's base: integration moves it there.
+# refused. Then the trading partner derived from the business partner
+# (T68c): Maple's business partner record of Acme Corp US, a supplier of
+# Maple's, is linked to company 1000, and its USD invoice, posted through
+# payables without naming a trading partner, carries 1000 on every line.
+# ADR-0059 places this in step_consolidation (T68a), which is not on this
+# lane's base: integration moves it there.
 step_trading_partner() {
-  heading "Step 39 — The trading partner on journal lines: Maple invoices its US sister, and the entry names the company"
+  heading "Step 39 — The trading partner on journal lines: Maple invoices its US sister by hand, and its sister's invoice takes it from the business partner"
   as ada
   local first="${TODAY:0:7}-01" base cr request us receivable sales je body
   say "Maple's chart has no account for what its group companies owe it. Ada adds one, 1250 Intercompany receivable,"
@@ -4191,7 +4195,44 @@ step_trading_partner() {
   say "A trading partner is another company of the group: a line naming Maple itself is refused on that line."
   refused 422 ledger.trading_partner_invalid postJournalEntry -body "${body%\"$us\"\}\]\}}\"$LE\"}]}"
   expect "the refused line" "$(field '[.errors[] | "\(.field) \(.code)"] | join(", ")')" "lines[1].trading_partner_id own_company"
+  trading_partner_derived "$us" "$first"
   passed
+}
+
+# trading_partner_derived US FIRST is T68c (ADR-0059 §4): Ben creates
+# Maple's business partner record of Acme Corp US (company US), a supplier
+# set up in Maple as Tyrell is, linked to the company; Carla approves it;
+# Alex posts its USD invoice of day FIRST through payables without naming
+# a trading partner, and every line of its entry carries company 1000.
+trading_partner_derived() {
+  local us=$1 first=$2 recon term partner invoice entry item
+  as ben
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$SUPPLIER"
+  recon=$(field ".supplier_companies[] | select(.legal_entity_id == \"$LE\") | .reconciliation_account_id")
+  term=$(field ".supplier_companies[] | select(.legal_entity_id == \"$LE\") | .payment_term_code")
+  say "Acme Corp US also invoices Maple, for engineering it does for its sister. Ben creates its business partner"
+  say "record as a supplier of Maple and links it to company 1000, the group company it is (ADR-0059 §4):"
+  api 201 '"business partner \(.number) \(.name): \(.status), group company \(.group_company.code) \(.group_company.name)"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Acme Corp US\", \"country_code\": \"US\", \"roles\": [\"supplier\"], \"supplier_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"$recon\", \"payment_term_code\": \"$term\"}], \"group_company_id\": \"$us\", \"reason\": \"Our US sister invoices engineering to Maple\"}"
+  partner=$(field .id)
+  expect "the partner's group company" "$(field '"\(.group_company_id) \(.group_company.code) \(.group_company.name)"')" "$us 1000 Acme Corp US"
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$partner" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Our own US company, checked against the group's companies"
+  as alex
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$partner"
+  expect "the partner's status" "$(field .status)" active
+  say "Alex posts its invoice, USD 1,500.00 of engineering on 6100 dated $first, naming no trading partner:"
+  item="{\"account_id\": \"$(account 6100)\", \"description\": \"Engineering services\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"1500.00\", \"currency\": \"USD\"}}"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$partner\", \"supplier_reference\": \"ACME-US-7\", \"invoice_date\": \"$first\", \"gross_amount\": {\"amount\": \"1500.00\", \"currency\": \"USD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"USD\"}, \"items\": [$item]}"
+  invoice=$(field .id)
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$first\"}"
+  entry=$(field .journal_entry_id)
+  say "The ledger took the trading partner from the business partner: the supplier line, and the expense line with it."
+  api 200 '.lines[] | "  line \(.line_no): \(.account_id | acct) \(.amount.amount) \(.amount.currency), trading partner \(.trading_partner.code) \(.trading_partner.name)"' \
+    getJournalEntry -p "id=$entry"
+  expect "the invoice's lines' trading partners" "$(field '[.lines[] | "\(.trading_partner.code) \(.trading_partner.name)"] | unique | join(", ")')" "1000 Acme Corp US"
+  expect "the invoice's lines" "$(field '.lines | length')" 2
 }
 
 STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_trading_partner step_close'

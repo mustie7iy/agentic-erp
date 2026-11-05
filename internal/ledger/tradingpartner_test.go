@@ -318,15 +318,15 @@ func TestTradingPartnerThroughThePostingPort(t *testing.T) {
 			t.Errorf("error: got %s (%v), want ledger.trading_partner_invalid", got, err)
 		}
 	})
-	t.Run("a settlement offsets the item with its trading partner, and its exchange difference takes it", func(t *testing.T) {
+	t.Run("a settlement offsets the item with its trading partner, and its bank line and exchange difference take it", func(t *testing.T) {
 		err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
 			entry, err := postings().Settle(ctx, settlementOf(t, e, e.us, "1000", "USD", "2026-04-15", item))
 			if err != nil {
 				return err
 			}
-			// The item's offset, the bank line, the gain.
-			if got := partners(entry); got != "de - de" {
-				t.Errorf("lines: got %q, want %q", got, "de - de")
+			// The item's offset, the bank line (its partner line's, T68c), the gain.
+			if got := partners(entry); got != "de de de" {
+				t.Errorf("lines: got %q, want %q", got, "de de de")
 			}
 			return nil
 		})
@@ -353,15 +353,14 @@ func TestTradingPartnerOnGRIRPostings(t *testing.T) {
 			t.Errorf("error: got %s (%v), want ledger.trading_partner_invalid", got, err)
 		}
 	})
-	t.Run("its own lines carry it", func(t *testing.T) {
+	t.Run("its own lines carry it, and the GR/IR line its partner line's", func(t *testing.T) {
 		in := invoice
 		in.TradingPartner = &g.us
 		entry := g.post(t, in)
-		if got := entry.Lines[0].TradingPartnerID; got == nil || *got != g.us {
-			t.Errorf("payables line: got %v, want %s", got, g.us)
-		}
-		if got := entry.Lines[1].TradingPartnerID; got != nil {
-			t.Errorf("GR/IR line: got %v, want none", *got)
+		for i, l := range entry.Lines {
+			if got := l.TradingPartnerID; got == nil || *got != g.us {
+				t.Errorf("line %d: got %v, want %s (the GR/IR line's from its partner line, T68c)", i+1, got, g.us)
+			}
 		}
 	})
 }
@@ -456,7 +455,9 @@ func TestTradingPartnerDatabaseFailures(t *testing.T) {
 // a settlement's and a bank statement line's offsets take each item's
 // trading partner; their exchange difference and cash discount lines take
 // the items' when they all name the same one, and none when they differ;
-// bank, tax and payables lines take none (ADR-0059 As built, T68b).
+// a bank line takes its partner lines' when they all name the same one
+// (T68c), and tax and payables lines of a transfer whose payables line
+// names none take none (ADR-0059 As built, T68b, T68c).
 func TestTradingPartnerOnClearingDifferences(t *testing.T) {
 	e := setup(t)
 	downPayments(t, e)
@@ -541,7 +542,7 @@ func TestTradingPartnerOnClearingDifferences(t *testing.T) {
 				s.Discounts = []money.Minor{300}
 				return postings().Settle(ctx, s)
 			})
-		}, "ap:us bank:- revenue:us revenue:us revenue:us"}, // the discount, the gain in local and in group currency
+		}, "ap:us bank:us revenue:us revenue:us revenue:us"}, // the bank line its partner line's (T68c); the discount, the gain in local and in group currency
 		"a settlement of items with different trading partners": {func(t *testing.T) ledger.Entry {
 			t.Helper()
 			first, second := invoice(t, &us), invoice(t, &other)

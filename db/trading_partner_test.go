@@ -182,3 +182,59 @@ func TestTradingPartnerBalance(t *testing.T) {
 		})
 	})
 }
+
+// TestBusinessPartnerGroupCompany: a business partner's group company
+// (000219, T68c) is a legal entity id, nullable, written and cleared by
+// the partner context in the tenant's own rows, and another tenant reads
+// none of them (the table's row-level security).
+func TestBusinessPartnerGroupCompany(t *testing.T) {
+	need(t)
+	f := newPartners(t)
+	set := func(v any) error {
+		return asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE partner.business_partner SET group_company_id = $2, version = version + 1 WHERE id = $1`, f.supplier, v)
+		})
+	}
+	read := func(t *testing.T) *uuid.UUID {
+		t.Helper()
+		var got *uuid.UUID
+		mustApp(t, f.tenant, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(), `SELECT group_company_id FROM partner.business_partner WHERE id = $1`, f.supplier).Scan(&got)
+		})
+		return got
+	}
+	t.Run("a partner created before is linked to none", func(t *testing.T) {
+		if got := read(t); got != nil {
+			t.Errorf("group company: got %v, want none", *got)
+		}
+	})
+	t.Run("set to a company of the tenant", func(t *testing.T) {
+		if err := set(f.partner); err != nil {
+			t.Fatal(err)
+		}
+		if got := read(t); got == nil || *got != f.partner {
+			t.Errorf("group company: got %v, want %s", got, f.partner)
+		}
+	})
+	t.Run("another tenant reads none", func(t *testing.T) {
+		other := newFixture(t)
+		mustApp(t, other.tenant, func(tx pgx.Tx) error {
+			var n int
+			if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM partner.business_partner WHERE group_company_id IS NOT NULL`).Scan(&n); err != nil {
+				return err
+			}
+			if n != 0 {
+				t.Errorf("linked partners another tenant reads: got %d, want 0", n)
+			}
+			return nil
+		})
+	})
+	t.Run("cleared", func(t *testing.T) {
+		if err := set(nil); err != nil {
+			t.Fatal(err)
+		}
+		if got := read(t); got != nil {
+			t.Errorf("group company: got %v, want none", *got)
+		}
+	})
+}

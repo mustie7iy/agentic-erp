@@ -3471,6 +3471,7 @@ components:
         roles: {type: array, items: {type: string, description: 'Open enum: supplier, customer.'}}
         status: {type: string, description: 'Open enum: pending, active, blocked, inactive.'}
         partner_change_id: {$ref: '#/components/schemas/Uuid'}
+        group_company_id: {$ref: '#/components/schemas/Uuid', description: "The legal entity of the tenant the partner is, when it is one of the group's companies (ADR-0059 §4); absent for none. Added within v1 (T68c); consumers ignore it if absent."}
     SupplierApprovedV1:
       type: object
       required: [partner_id, number, partner_change_id, status]
@@ -5019,6 +5020,7 @@ components:
         country_code: {"$ref": "#/components/schemas/CountryCode"}
         language: {"type": ["string", "null"], "pattern": "^[a-z]{2}$"}
         roles: {"type": "array", "items": {"type": "string", "description": "Open enum: supplier, customer."}}
+        group_company_id: {"$ref": "#/components/schemas/NullableUuid", "description": "The group company the partner is linked to, null when unlinked, present when `changed_fields` names `group_company_id` (ADR-0059 §4). Added within v1 (T68c)."}
     RequisitionApprovedV1:
       type: object
       required: ["requisition_id", "document_number", "legal_entity_id", "previous_status", "status"]

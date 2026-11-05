@@ -132,6 +132,11 @@ type Line struct {
 	// line, given by a posting context, or copied from the line a reversal
 	// or a clearing offsets.
 	TradingPartnerID *uuid.UUID `json:"trading_partner_id"`
+	// offsets: the line offsets an open item and keeps the item's trading
+	// partner, none included, which the derivation leaves as it is
+	// (deriveTradingPartners): a clearing's, a settlement's, a bank
+	// posting's and a down payment transfer's.
+	offsets bool
 	// keptLC is a local amount the posting keeps rather than converts
 	// (PostingLine.LC).
 	keptLC *money.Minor
@@ -350,12 +355,16 @@ func (e *Endpoints) postAll(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 		return nil, err
 	}
 	// Derived once for the posting group: every ledger's copy carries the
-	// same assignment (ADR-0050 §5); a reversal carries its original's. The
+	// same assignment (ADR-0050 §5) and trading partners (ADR-0059 §4); a
+	// reversal carries its original's. The
 	// centers are locked after the period statuses and before the number
 	// range, which every posting of the company waits for.
 	if d.reversalOf == nil {
 		d.lines = slices.Clone(d.lines)
 		if err := assign(ctx, tx, d.entity.ID, year, d.postingDate, d.lines, true); err != nil {
+			return nil, err
+		}
+		if err := e.deriveTradingPartners(ctx, d.entity.ID, d.lines); err != nil {
 			return nil, err
 		}
 	}

@@ -186,7 +186,8 @@ func clearingLines(items []item, legalEntity uuid.UUID, text *string) ([]Line, e
 			return nil, err
 		}
 		sums.add(*it.partner, it.tc, it.lc, it.gc)
-		lines[i] = Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: text, TradingPartnerID: it.tradingPartner}
+		lines[i] = Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: text, TradingPartnerID: it.tradingPartner,
+			offsets: true}
 	}
 	if partner, ok := sums.unbalanced(); ok {
 		return nil, problem.Unprocessable("ledger.clearing_not_balanced",

@@ -65,6 +65,76 @@ func (e *Endpoints) checkTradingPartners(ctx context.Context, le uuid.UUID, line
 	return nil
 }
 
+// deriveTradingPartners gives the lines of an entry about to be posted
+// their trading partners from their business partners (ADR-0059 §4,
+// T68c), in the one place every posting but a reversal passes (postAll):
+// a line naming a partner that is a group company takes that company,
+// unless it is the posting company le (no intercompany transaction); a
+// line naming another trading partner than its partner's group company is
+// refused (422 ledger.trading_partner_conflict); a line that names one of
+// its own, matching or with a partner linked to none, keeps it (T68b).
+// Lines offsetting open items keep their items' (Line.offsets), so a
+// clearing still nets each item's trading partner when its partner was
+// linked or unlinked since. Then, when every partner line names the same
+// trading partner, the entry's other lines that name none take it too, so
+// an intercompany invoice's expense and tax lines carry its supplier
+// line's. Each partner is asked once.
+func (e *Endpoints) deriveTradingPartners(ctx context.Context, le uuid.UUID, lines []Line) error {
+	groups := map[uuid.UUID]*uuid.UUID{}
+	for i := range lines {
+		l := &lines[i]
+		if l.PartnerID == nil || l.offsets {
+			continue
+		}
+		group, seen := groups[*l.PartnerID]
+		if !seen {
+			var err error
+			if group, err = e.Partners.GroupCompany(ctx, *l.PartnerID); err != nil {
+				return fmt.Errorf("ledger: group company of partner %s on line %d: %w", *l.PartnerID, i+1, err)
+			}
+			groups[*l.PartnerID] = group
+		}
+		switch {
+		case group == nil:
+		case l.TradingPartnerID == nil:
+			if *group != le {
+				l.TradingPartnerID = group
+			}
+		case *l.TradingPartnerID != *group:
+			return problem.Unprocessable("ledger.trading_partner_conflict",
+				fmt.Sprintf("Line %d names a trading partner other than the company its business partner is; leave it out to take the partner's.", i+1),
+				problem.FieldError{Field: fmt.Sprintf("lines[%d].trading_partner_id", i), Code: "conflict",
+					Message: "the business partner's group company, or none"})
+		}
+	}
+	propagateTradingPartner(lines)
+	return nil
+}
+
+// propagateTradingPartner gives the lines naming no partner and no
+// trading partner, and offsetting no item, the trading partner every
+// partner line names, when they all name the same one (ADR-0059 §4).
+func propagateTradingPartner(lines []Line) {
+	var shared *uuid.UUID
+	for _, l := range lines {
+		switch {
+		case l.PartnerID == nil:
+		case l.TradingPartnerID == nil, shared != nil && *shared != *l.TradingPartnerID:
+			return
+		default:
+			shared = l.TradingPartnerID
+		}
+	}
+	if shared == nil {
+		return
+	}
+	for i := range lines {
+		if lines[i].PartnerID == nil && lines[i].TradingPartnerID == nil && !lines[i].offsets {
+			lines[i].TradingPartnerID = shared
+		}
+	}
+}
+
 // tradingPartnerInvalid refuses the trading partner in field: the entry's
 // own company (own), or none of the tenant's.
 func tradingPartnerInvalid(field, detail string, own bool) *problem.Problem {

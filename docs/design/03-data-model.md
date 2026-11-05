@@ -573,6 +573,7 @@ erDiagram
     text name
     char country_code
     text status
+    uuid group_company_id "tenancy; T68c"
     int version }
   partner_role { uuid partner_id PK
     text role PK "supplier | customer" }
@@ -612,9 +613,14 @@ erDiagram
     numeric discount2_pct }
 ```
 
-Planned, not built (ADR-0059 §4, T68c): `business_partner.group_company_id`,
-the tenant's legal entity a partner is, from which the ledger derives the
-trading partner of the lines it posts for that partner.
+`business_partner.group_company_id` (T68c, ADR-0059 §4, migration 000219)
+is the tenant's legal entity a partner is, when it is one of the group's
+companies (SAP's trading partner on the business partner), from which the
+ledger derives the trading partner of the lines naming the partner. A
+legal entity id without a foreign key (02 §2.1), nullable, NULL on
+partners created before; partner checks it is a legal entity of the tenant
+when it is set on creation or an update change is requested (422
+`partner.group_company_unknown`).
 
 One business partner can be both supplier and customer (SAP business partner
 model). Company-specific supplier data lives in `supplier_company`. Bank
@@ -1353,7 +1359,13 @@ entry's and a template's lines keep the trading partner entered
 checked again when the entry is posted. A reversal copies each line's; a
 clearing's lines take the items they offset, and a settlement's or bank
 posting's exchange difference and cash discount lines the items' when they
-all name the same one. `trading_partner_balance` holds, per ledger,
+all name the same one. Since T68c the ledger also derives it, in the one
+place every posting but a reversal passes: a line naming a partner linked
+to a group company (`partner.business_partner.group_company_id`) takes that
+company (none when it is the posting company), a line naming another is
+refused (422 `ledger.trading_partner_conflict`), the entry's other lines
+take the one all its partner lines share, and lines offsetting open items
+keep their items'. `trading_partner_balance` holds, per ledger,
 company, account, trading partner, year, period and transaction currency,
 the totals of the lines that name one, never the company's own
 (`trading_partner_balance_partner`); like `assignment_balance` it is
@@ -2756,7 +2768,7 @@ line or reservation. An agent's budget is identity's
 | AGR_* | `identity.role`, `role_permission`, `principal_role` |
 | NRIV | `config.number_range` |
 | Group Reporting FS items, consolidation groups and units (from memory, for an SAP specialist) (planned, ADR-0059) | configuration `consolidation.accounts`, `consolidation.groups`, `companies[].chart_of_accounts[].group_account` (not built) |
-| Trading partner (LFA1-VBUND, ACDOCA-RASSC; from memory, for an SAP specialist) (planned, ADR-0059) | `partner.business_partner.group_company_id`, `ledger.journal_line.trading_partner_id` (not built) |
+| Trading partner (LFA1-VBUND, ACDOCA-RASSC; from memory, for an SAP specialist) (planned, ADR-0059) | `partner.business_partner.group_company_id` (T68c), `ledger.journal_line.trading_partner_id` (T68b) |
 | ACDOCU consolidation journal (from memory, for an SAP specialist) (planned, ADR-0059) | `consolidation.run_entry` + `run_entry_line` (not built) |
 
 ## 3.18 Cash management (`cash`)
@@ -3484,8 +3496,8 @@ the eliminations and the groups are configuration (T68a, ADR-0059 §3).
 The ledger gained, in T68b, `journal_line.trading_partner_id` (the legal
 entity on the other side of an intercompany line, nullable, no foreign key)
 and the projection `ledger.trading_partner_balance`, maintained as
-`assignment_balance` is (§3.7); partner gains `business_partner.group_company_id`
-in T68c (ADR-0059 §4). The schema `consolidation` is created by the slices
+`assignment_balance` is (§3.7); partner gained `business_partner.group_company_id`
+in T68c, from which the ledger derives it (ADR-0059 §4). The schema `consolidation` is created by the slices
 that write it, from T68d (ADR-0059 §5):
 
 | Table | Purpose |

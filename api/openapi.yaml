@@ -3043,6 +3043,7 @@ paths:
         - partner.duplicate_payment_method
         - partner.duplicate_tax_scheme
         - partner.duplicate_withholding_tax_code
+        - partner.group_company_unknown
         - partner.invalid_account_number
         - partner.invalid_end
         - partner.invalid_iban
@@ -3544,6 +3545,7 @@ paths:
         - partner.duplicate_payment_method
         - partner.duplicate_tax_scheme
         - partner.duplicate_withholding_tax_code
+        - partner.group_company_unknown
         - partner.invalid_end
         - partner.invalid_reconciliation_account
         - partner.invalid_status
@@ -5955,6 +5957,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
@@ -6158,6 +6161,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unknown_unit
       parameters:
@@ -6672,6 +6676,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
@@ -7277,6 +7282,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unknown_unit
       parameters:
@@ -7395,6 +7401,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - request.version_mismatch
@@ -8736,6 +8743,7 @@ paths:
         - ledger.special_gl_account
         - ledger.special_gl_item
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unknown_unit
       parameters:
@@ -10592,6 +10600,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
@@ -10734,6 +10743,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
@@ -11458,6 +11468,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
@@ -11733,6 +11744,7 @@ paths:
         - ledger.special_gl_account
         - ledger.special_gl_item
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - payables.down_payment_already_cleared
@@ -11883,6 +11895,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - payables.already_captured
@@ -12765,6 +12778,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - payments.statement_amount_differs
@@ -12925,6 +12939,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - payments.statement_amount_differs
@@ -13324,6 +13339,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - payments.statement_amount_differs
@@ -15385,6 +15401,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
@@ -15514,6 +15531,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - request.version_mismatch
@@ -15690,6 +15708,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
@@ -15817,6 +15836,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - request.version_mismatch
@@ -15998,6 +16018,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
@@ -16125,6 +16146,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - request.version_mismatch
@@ -18854,6 +18876,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
@@ -20450,6 +20473,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
@@ -20470,6 +20494,7 @@ paths:
         - partner.duplicate_payment_method
         - partner.duplicate_tax_scheme
         - partner.duplicate_withholding_tax_code
+        - partner.group_company_unknown
         - partner.invalid_account_number
         - partner.invalid_end
         - partner.invalid_iban
@@ -25352,6 +25377,15 @@ components:
               $ref: "#/components/schemas/Extensions"
               description: Custom fields.
               readOnly: true
+            group_company_id:
+              type: string
+              format: uuid
+              description: "The legal entity of the tenant this partner is, when it is one of the group's companies (ADR-0059 §4): the trading partner the ledger gives the lines that name the partner from then on. Absent: none."
+              readOnly: true
+            group_company:
+              $ref: "#/components/schemas/GroupCompany"
+              description: "`group_company_id` by its company code and its name as they are now; absent with it."
+              readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"
           version: 1
@@ -25382,6 +25416,36 @@ components:
               value_last4: "6789"
           extensions:
             cost_object_hint: MKT-2026
+          group_company_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc0"
+          group_company:
+            id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc0"
+            code: "2000"
+            name: Muster Holding GmbH
+    GroupCompany:
+      type: object
+      description: "The company of the group a business partner is (ADR-0059 §4): a legal entity of the tenant, by id, company code and its name as it is now."
+      required:
+        - id
+        - code
+        - name
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The legal entity.
+          readOnly: true
+        code:
+          type: string
+          description: Its company code.
+          readOnly: true
+        name:
+          type: string
+          description: "Its name, as it is now: renaming the company changes no partner's ETag."
+          readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc0"
+          code: "2000"
+          name: Muster Holding GmbH
     BusinessPartnerCreate:
       type: object
       description: Request a new business partner. Duplicate tax identifiers or bank accounts are reported as warnings on the partner change.
@@ -25454,6 +25518,10 @@ components:
         extensions:
           $ref: "#/components/schemas/Extensions"
           description: Custom fields.
+        group_company_id:
+          type: string
+          format: uuid
+          description: "The legal entity of the tenant this partner is, when it is one of the group's companies (ADR-0059 §4); any legal entity of the tenant, whatever the caller's access to it (422 `partner.group_company_unknown` otherwise). The ledger derives the trading partner of the lines naming the partner from it."
         reason:
           type: string
           description: "Why the partner is needed; recorded on the partner change."
@@ -25520,6 +25588,12 @@ components:
         extensions:
           $ref: "#/components/schemas/Extensions"
           description: Custom fields.
+        group_company_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: "The legal entity of the tenant this partner is, when it is one of the group's companies (ADR-0059 §4; 422 `partner.group_company_unknown` for one that is not). Send null to unlink. Applies to postings from approval on; posted lines keep their trading partner."
       additionalProperties: false
       examples:
         - name: Muster Industrie GmbH

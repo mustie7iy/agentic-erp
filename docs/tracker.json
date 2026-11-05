@@ -1791,8 +1791,8 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Trading partner from the business partner: partner.business_partner.group_company_id (partner.group_company_unknown, BusinessPartnerChanged, audit); ledger.Partners.GroupCompany and the ledger's one derivation on every posting path, propagated to the entry's other lines (ledger.trading_partner_conflict), a test per posting path; walkthrough: the business partner Maple Industries Canada created as a supplier of Acme Corp US and linked to company 3000, Tom posts its USD invoice at Acme Corp US and every line carries trading partner 3000",
+        "s": "D",
+        "t": "Trading partner from the business partner: partner.business_partner.group_company_id (partner.group_company_unknown, BusinessPartnerCreated/Updated, audit); ledger.Partners.GroupCompany and the ledger's one derivation on every posting path, propagated to the entry's other lines (ledger.trading_partner_conflict), a test per posting path; walkthrough: Maple's business partner record of Acme Corp US created as a supplier of Maple and linked to company 1000, Alex posts its USD invoice through payables and every line carries trading partner 1000",
         "r": "ADR-0059 · T68c",
         "src": "adr:ADR-0059",
         "c": []
