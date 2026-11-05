@@ -59,7 +59,7 @@ The architecture must reach these numbers by adding capacity
 | Consolidated statement of one run, every page (ADR-0059, T68e) | 1 s | 3 s |
 | Payment proposal over 100,000 open items | async, < 60 s | < 120 s |
 | Depreciation run over 100,000 assets of one company and ledger (ADR-0057) | async, < 120 s | < 240 s |
-| Consolidation run of a group of 100 companies, each with 1,000 accounts and 1,000 trading partner balances (ADR-0059, T68d) | async, < 120 s | < 240 s |
+| Consolidation run of a group of 100 companies, each with 1,000 accounts and 1,000 trading partner balances (ADR-0059, T68d; `TestConsolidationRunBudget`, 13-14 s on a development machine, 2026-11-05) | async, < 120 s | < 240 s |
 
 ### Availability and recovery
 

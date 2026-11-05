@@ -145,7 +145,7 @@ func (e *Endpoints) PrepareConsolidationRun(ctx context.Context, id uuid.UUID) (
 
 // prepare sets a queued run running with its companies.
 func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run) error {
-	doc, err := e.Settings.Version(ctx, r.ConfigVersion)
+	doc, err := e.version(ctx, r.ConfigVersion)
 	if err != nil {
 		return fmt.Errorf("consolidation: configuration version %d of run %s: %w", r.ConfigVersion, r.ID, err)
 	}
@@ -226,7 +226,7 @@ func (e *Endpoints) TranslateMember(ctx context.Context, id, company uuid.UUID) 
 
 // figuresOf reads what a company's translation needs (figures).
 func (e *Endpoints) figuresOf(ctx context.Context, tx pgx.Tx, r Run, m Member) (figures, error) {
-	doc, err := e.Settings.Version(ctx, r.ConfigVersion)
+	doc, err := e.version(ctx, r.ConfigVersion)
 	if err != nil {
 		return figures{}, fmt.Errorf("consolidation: configuration version %d of run %s: %w", r.ConfigVersion, r.ID, err)
 	}

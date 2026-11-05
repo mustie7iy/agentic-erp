@@ -1333,7 +1333,16 @@ Decided by default, for the product owner to overrule:
   run with `ERP_MEASURE_BUDGETS=1`) seeds 100 companies with 1,000
   accounts with balances and 1,000 trading partner balances each and a
   configuration naming them, and measures a run from its start to
-  computed, carried out in process.
+  computed, carried out in process: 14.2 s at ERP_BUDGET_SCALE=1 and
+  13.4 s at 2 (load averages 9-50, 2026-11-05). Its first measurement,
+  4 min 9 s, found the cost: each step parsed the run's configuration
+  version, a 9 MB document of 100,000 accounts taking about 5 s to parse.
+  The context therefore keeps the parsed documents of the last four
+  (tenant, version) pairs its runs read in the process, each keyed by its
+  tenant (`versionCache`):
+  an activated version never changes (`config_version` is insert-only),
+  and the first read of each goes through `Settings.Version` in the
+  request's transaction under row-level security.
 - **Walkthrough.** `step_consolidation` gains `consolidation_run`: Carla
   opens Acme Corp US's period of today; Ben records Maple Industries
   Canada as a supplier of Acme Corp US on 225000, linked to company 3000,

@@ -138,6 +138,8 @@ type Endpoints struct {
 	Ledger    Ledger
 	Runs      Runs
 	Pages     *pagination.Codec
+
+	versions versionCache // the configuration versions runs read, parsed
 }
 
 // groupUnknown is the answer for a group that does not exist or that the

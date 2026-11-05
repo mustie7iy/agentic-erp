@@ -297,6 +297,9 @@ func TestConsolidationDatabaseFailures(t *testing.T) {
 	sameCalendar(t, e)
 	figures(t, e)
 	h := app.Consolidation(app.Config{})
+	// fresh is the context with no configuration version kept, so each
+	// failing call reads the run's version too (versionCache).
+	fresh := func() *consolidation.Endpoints { return app.Consolidation(app.Config{}) }
 	ctx := context.Background()
 	start := &gen.ConsolidationRunStart{GroupCode: "ACME", FiscalYear: 2026, Period: 11}
 	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "create", func(ctx context.Context) error {
@@ -327,25 +330,25 @@ func TestConsolidationDatabaseFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range companies {
-		every("translate", func(ctx context.Context) error { return h.TranslateMember(ctx, run, c) })
+		every("translate", func(ctx context.Context) error { return fresh().TranslateMember(ctx, run, c) })
 	}
 	every("eliminate", func(ctx context.Context) error { return h.EliminateConsolidationRun(ctx, run) })
 	every("complete", func(ctx context.Context) error { return h.CompleteConsolidationRun(ctx, run) })
 	reads := map[string]func(ctx context.Context) error{
 		"get": func(ctx context.Context) error {
-			_, err := h.GetConsolidationRun(ctx, gen.GetConsolidationRunParams{ID: run})
+			_, err := fresh().GetConsolidationRun(ctx, gen.GetConsolidationRunParams{ID: run})
 			return err
 		},
 		"list": func(ctx context.Context) error {
-			_, err := h.ListConsolidationRuns(ctx, gen.ListConsolidationRunsParams{})
+			_, err := fresh().ListConsolidationRuns(ctx, gen.ListConsolidationRunsParams{})
 			return err
 		},
 		"balances": func(ctx context.Context) error {
-			_, err := h.ListConsolidationBalances(ctx, gen.ListConsolidationBalancesParams{ID: run})
+			_, err := fresh().ListConsolidationBalances(ctx, gen.ListConsolidationBalancesParams{ID: run})
 			return err
 		},
 		"discard": func(ctx context.Context) error {
-			_, err := h.DiscardConsolidationRun(ctx, gen.DiscardConsolidationRunParams{ID: run, IfMatch: `"3"`})
+			_, err := fresh().DiscardConsolidationRun(ctx, gen.DiscardConsolidationRunParams{ID: run, IfMatch: `"3"`})
 			return err
 		},
 	}

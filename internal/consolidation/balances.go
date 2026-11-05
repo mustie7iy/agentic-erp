@@ -119,7 +119,7 @@ type names struct {
 
 // namesOf reads the names of a page of a run's translated balances.
 func (e *Endpoints) namesOf(ctx context.Context, tx pgx.Tx, r Run, page []storedBalance) (names, error) {
-	doc, err := e.Settings.Version(ctx, r.ConfigVersion)
+	doc, err := e.version(ctx, r.ConfigVersion)
 	if err != nil {
 		return names{}, fmt.Errorf("consolidation: configuration version %d of run %s: %w", r.ConfigVersion, r.ID, err)
 	}

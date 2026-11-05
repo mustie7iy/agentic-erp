@@ -37,7 +37,7 @@ func (e *Endpoints) viewOf(ctx context.Context, tx pgx.Tx, rs []Run) (runView, e
 		if _, ok := v.docs[r.ConfigVersion]; ok {
 			continue
 		}
-		doc, err := e.Settings.Version(ctx, r.ConfigVersion)
+		doc, err := e.version(ctx, r.ConfigVersion)
 		if err != nil {
 			return runView{}, fmt.Errorf("consolidation: configuration version %d: %w", r.ConfigVersion, err)
 		}
