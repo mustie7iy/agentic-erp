@@ -340,6 +340,7 @@ channels:
     messages:
       MemoRecordChanged: {$ref: '#/components/messages/MemoRecordChanged'}
       CashSnapshotTaken: {$ref: '#/components/messages/CashSnapshotTaken'}
+      VarianceCommentProposed: {$ref: '#/components/messages/VarianceCommentProposed'}
       VarianceCommentDecided: {$ref: '#/components/messages/VarianceCommentDecided'}
       CashExportDelivered: {$ref: '#/components/messages/CashExportDelivered'}
   controlling:
@@ -576,6 +577,7 @@ operations:
     messages:
       - $ref: '#/channels/cash/messages/MemoRecordChanged'
       - $ref: '#/channels/cash/messages/CashSnapshotTaken'
+      - $ref: '#/channels/cash/messages/VarianceCommentProposed'
       - $ref: '#/channels/cash/messages/VarianceCommentDecided'
       - $ref: '#/channels/cash/messages/CashExportDelivered'
   publishControllingEvents:
@@ -2888,6 +2890,31 @@ components:
         - name: daily
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000601, source: /erp/eu-1/cash, type: com.example.erp.cash.cash_snapshot_taken.v1, subject: 0192a000-0000-7000-8000-000000000e01, time: '2026-10-21T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {cash_snapshot_id: 0192a000-0000-7000-8000-000000000e01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: '3000', kind: daily, snapshot_date: '2026-10-21', line_count: 42}
+    VarianceCommentProposed:
+      name: VarianceCommentProposed
+      title: Variance comment proposed
+      summary: The forecast agent proposed a comment on a row of a company's forecast variance.
+      description: |
+        Emitted by `liquidity-forecast-variance/comment-proposals` (POST):
+        the forecast agent proposed, in its session, an explanation of a
+        row of a company's variance citing the documents behind its
+        attribution, for a person to accept or reject (ADR-0051 §13, §15,
+        T53i). It names the row (the liquidity item, null for what no rule
+        assigns), period, lag, snapshot and session, and how many
+        documents it cites; the text and citations are
+        `GET /v1/liquidity-forecast-variance/comments/{id}`. Subject is the
+        comment id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.cash.variance_comment_proposed.v1}
+      payload: {$ref: '#/components/schemas/VarianceCommentProposedV1'}
+      examples:
+        - name: proposed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000622, source: /erp/eu-1/cash, type: com.example.erp.cash.variance_comment_proposed.v1, subject: 0192a000-0000-7000-8000-000000000e22, time: '2026-05-04T13:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000a11}
+          payload: {variance_comment_id: 0192a000-0000-7000-8000-000000000e22, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: '3000', from: '2026-04-24', to: '2026-04-30', lag: 7, liquidity_item: PAY_SUPPLIERS, snapshot_id: 0192a000-0000-7000-8000-000000000e01, session_id: 0192a000-0000-7000-8000-000000000a01, citation_count: 1}
     VarianceCommentDecided:
       name: VarianceCommentDecided
       title: Variance comment decided
@@ -2895,7 +2922,9 @@ components:
       description: |
         Emitted by `liquidity-forecast-variance/comments` (POST): a person's
         comment is decided as it is written (`accepted`, decided by its
-        author) (ADR-0051 §11, §15). It names the row the comment explains
+        author) (ADR-0051 §11, §15); and by `:acceptProposal` and
+        `:rejectProposal`, when a person decides the forecast agent's
+        proposal (`accepted` or `rejected`, decided by that person; T53i). It names the row the comment explains
         (the liquidity item, null for what no rule assigns), its period and
         lag, and the snapshot that variance compares with; the comment
         itself is `GET /v1/liquidity-forecast-variance/comments/{id}`.
@@ -3696,6 +3725,20 @@ components:
         file_name: {type: string, description: 'cash-<company code>-<snapshot date>-<sha256>.<format>.'}
         sha256: {type: string, description: "The file content's SHA-256, in hexadecimal."}
         resend: {type: boolean, description: Whether the channel had been delivered this file before.}
+    VarianceCommentProposedV1:
+      type: object
+      required: [variance_comment_id, legal_entity_id, company_code, from, to, lag, liquidity_item, snapshot_id, session_id, citation_count]
+      properties:
+        variance_comment_id: {$ref: '#/components/schemas/Uuid', description: '`cash.variance_comment.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        company_code: {type: string, description: "The legal entity's company code."}
+        from: {$ref: '#/components/schemas/Date'}
+        to: {$ref: '#/components/schemas/Date'}
+        lag: {type: integer, description: "The variance's lag in days: 0, 7 or 30."}
+        liquidity_item: {type: [string, 'null'], description: "The liquidity item's code; null for the row of what no rule assigns."}
+        snapshot_id: {$ref: '#/components/schemas/Uuid', description: The snapshot the variance compares with.}
+        session_id: {$ref: '#/components/schemas/Uuid', description: "The forecast agent's session it was proposed in."}
+        citation_count: {type: integer, minimum: 1, description: How many documents it cites.}
     VarianceCommentDecidedV1:
       type: object
       required: [variance_comment_id, legal_entity_id, company_code, from, to, lag, liquidity_item, snapshot_id, status, decided_by]
@@ -4911,7 +4954,7 @@ components:
         change: {"type": "string", "description": "Open enum: created, updated."}
         changed_fields: {"type": "array", "items": {"type": "string"}, "description": "Profile fields that changed (all fields on created)."}
         autonomy_level: {"type": "integer", "minimum": 0, "maximum": 3}
-        agent_type: {"type": ["string", "null"], "description": "The agent's type, whose certification bounds its level (ADR-0039); null: none named. Open enum: ap_exceptions, configuration, migration, test, analytics."}
+        agent_type: {"type": ["string", "null"], "description": "The agent's type, whose certification bounds its level (ADR-0039); null: none named. Open enum: ap_exceptions, configuration, migration, test, analytics, reconciliation, cash_forecast."}
         model: {"type": "string"}
         monthly_budget: {"oneOf": [{"$ref": "#/components/schemas/Money"}, {"type": "null"}], "description": "Null when unlimited."}
         description: {"type": "string"}

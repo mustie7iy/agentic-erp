@@ -392,13 +392,13 @@ start() {
   say "  - the tax specialist's sign-off of the GST34's lines (T61j: Canada $CA_PACK is not signed off), the FPZ-500 for a"
   say "    Quebec registrant, the UAE's VAT 201 and the tax agent (T61k-T61l): step 11 prepares, approves and files the"
   say "    GST/HST returns in order with the pack's lines"
-  say "  - the liquidity forecast's agent, forecast analytics and SAP migration (T53i-T53k): step 13 shows the"
+  say "  - the liquidity forecast's SAP migration (T53k): step 13 shows the"
   say "    daily cash position with a memo record and the forecast of the supplier open items, payment runs, parked"
   say "    invoices, down payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening,"
   say "    memo records and payments in transit, conversion and drill-down; step 26 its snapshots; step 27 the cash actuals;"
   say "    step 28 the forecast's variance, step 30 a person's comment on it; step 33 its purchase orders; step 35 its"
   say "    treasury connector over SFTP; step 36 the forecast across companies in group currency; step 37 the actuals in"
-  say "    analytics, step 38 the forecast, its variance and accuracy in analytics"
+  say "    analytics, step 38 the forecast, its variance and accuracy in analytics; step 39 its agent, through a model stand-in"
   say "  - a webhook delivered: the walkthrough runs without the event bus and never sends one to this machine"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - accounts receivable, the period close's accruals and its close agent (T64e-T64g, T64j), consolidation (T68)"
@@ -433,9 +433,11 @@ start() {
   say "erp-server is up (development, development issuer on): API $ERP_API_URL, admin $ERP_ADMIN_URL."
 }
 
-# model_stub starts the stand-in for the model provider (step 18's capture)
-# and points erp-server's model gateway at it. It answers every call with
-# the text of model-answer.json, which step 18 writes.
+# model_stub starts the stand-in for the model provider (step 18's capture,
+# the forecast agent's run in step 39) and points erp-server's model
+# gateway at it. While model-script.json exists it answers each call with
+# its next turn (the forecast agent's, which step 39 writes and removes);
+# otherwise with the text of model-answer.json, which step 18 writes.
 model_stub() {
   local stub="$BIN/modelstub"
   if [ ! -x "$stub" ]; then
@@ -446,7 +448,7 @@ model_stub() {
     fail "something already listens on $MODEL_ADDR: set WALKTHROUGH_MODEL_ADDR"
   fi
   echo '{}' >"$WORK/model-answer.json"
-  "$stub" -addr "$MODEL_ADDR" -answer "$WORK/model-answer.json" >"$WORK/model.log" 2>&1 &
+  "$stub" -addr "$MODEL_ADDR" -answer "$WORK/model-answer.json" -script "$WORK/model-script.json" >"$WORK/model.log" 2>&1 &
   MODEL_PID=$!
   export ERP_MODEL_API_KEY=walkthrough ERP_MODEL_ENDPOINT="http://$MODEL_ADDR"
 }
@@ -4132,7 +4134,193 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_close'
+# step_cash_forecast_agent is the forecast agent (T53i, ADR-0051 §13): erp
+# agent cash-variance on today's variance at lag 0, through the model
+# stand-in answering from a script of turns, as its evaluation suite
+# replays them (evals/cash). Northwind's receipt WT-1042, forecast for
+# three days on (step 13), arrives today on a new RBC statement, which Tom
+# realises it by; Lakeshore Rentals has paid USD 3,200.00 on the first of
+# each of the last three months at MUSD, which no memo record forecasts,
+# and an insurer refunded USD 900.00 once. The agent proposes a comment on
+# the row the receipt falls in, citing the memo record and the statement
+# the variance's documents list (a citation of a document not behind that
+# row is refused), and a memo record for Lakeshore's next receipt citing
+# its three lines; nothing for the one-off refund or for any other row.
+# Tom accepts both: the agent cannot. Run after the cash steps, since a
+# new statement line today changes the day's actuals that steps 27, 28 and
+# 37 compare.
+step_cash_forecast_agent() {
+  heading "Step 39 — The forecast agent: today's variance explained citing its documents, a monthly receipt proposed as a memo record, nothing else"
+  local role memo statement musd history p1 p2 p3 next docs row attribution got session comment record run_payment
+  as ada
+  say "Ada sets up the forecast agent (agent type cash_forecast, ADR-0051 §13): it reads the forecast, its variance and the"
+  say "documents behind it, the statements, memo records and payment runs, and proposes comments and memo records for"
+  say "people to decide. It holds no partner.supplier.read, so it names suppliers by their documents."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "forecast_agent", "name": "Forecast agent"}'
+  role=$(field .id)
+  grant "$role" tenancy.org.read cash.forecast.read cash.memo.read cash.memo.propose cash.variance.propose payments.statement.read \
+    payments.run.read agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model), budget \(.agent_profile.monthly_budget.amount) \(.agent_profile.monthly_budget.currency) a month"' createPrincipal \
+    -body '{"kind": "agent", "external_subject": "forecast-agent", "display_name": "Forecast agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "cash_forecast", "model": "erp-default", "description": "Explains the liquidity forecast variance for people to decide (ADR-0051 §13)", "monthly_budget": {"amount": "5.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token forecast-agent "Forecast agent"
+  as tom
+  QUIET=1 api 200 '' listMemoRecords -p "legal_entity_id=$LE" -p page_size=200
+  memo=$(field '[.items[] | select(.reference == "WT-1042")][0].id')
+  [ -n "$memo" ] && [ "$memo" != null ] || fail "step 13's memo record WT-1042 is not there"
+  say "Northwind's CAD 25,000.00 (WT-1042, step 13, expected on $(field '[.items[] | select(.reference == "WT-1042")][0].value_date')) arrives today. RBC's"
+  say "second statement of the day shows it; Tom imports it and realises the memo record by its line:"
+  rbc_receipt
+  api 201 '.statements[] | "statement \(.statement_ref): \(.line_count) line, closing \(.closing_balance.amount) \(.closing_balance.currency)"' \
+    importBankStatements -body "{\"house_bank_id\": \"$RBC\", \"format\": \"camt.053\"}" -file file=@camt053-receipt.xml
+  statement=$(field '.statements[0].id')
+  QUIET=1 api 200 '' getMemoRecord -p "id=$memo"
+  api 200 '"memo record \(.reference): \(.status), by line \(.realised_by.line_no // "-")"' realiseMemoRecord -p "id=$memo" -if-match "$ETAG" \
+    -body "{\"statement_id\": \"$statement\", \"line_no\": 1}"
+  expect "WT-1042 realised" "$(field .status)" realised
+  QUIET=1 api 200 '' listHouseBanks -p "legal_entity_id=$LE"
+  musd=$(field '.items[] | select(.code == "MUSD") | .id')
+  p1=$(date_add "${TODAY:0:8}01" -1)
+  p1=${p1:0:8}01
+  p2=$(date_add "$p1" -1)
+  p2=${p2:0:8}01
+  p3=$(date_add "$p2" -1)
+  p3=${p3:0:8}01
+  next=$(date_add "${TODAY:0:8}01" 32)
+  next=${next:0:8}01
+  say "MUSD's statement of the last three months: Lakeshore Rentals' sublease of USD 3,200.00 on $p3, $p2 and $p1, and"
+  say "an insurer's refund of USD 900.00 once. No memo record forecasts Lakeshore's next receipt."
+  musd_history "$p3" "$p2" "$p1"
+  api 201 '.statements[] | "statement \(.statement_ref): \(.line_count) lines, closing \(.closing_balance.amount) \(.closing_balance.currency)"' \
+    importBankStatements -body "{\"house_bank_id\": \"$musd\", \"format\": \"camt.053\"}" -file file=@camt053-musd.xml
+  history=$(field '.statements[0].id')
+  say "The documents behind today's attributed variance (getForecastVarianceDocuments, lag 0), as Tom may see them:"
+  api 200 '.items[] | "  \(.side) \(.attribution) \(.currency) \(.liquidity_item // "unclassified") \(.value_date) \(.amount.amount): \([.documents[] | .kind] | join(", "))"' \
+    getForecastVarianceDocuments -p "legal_entity_id=$LE" -p "from=$TODAY" -p "to=$TODAY" -p lag=0
+  docs="$WORK/forecast-documents.json"
+  cp "$WORK/last.json" "$docs"
+  row=$(jq -r --arg m "$memo" '[.items[] | select(.side == "actual" and any(.documents[]; .id == $m))][0].liquidity_item // ""' "$docs")
+  attribution=$(jq -r --arg m "$memo" '[.items[] | select(.side == "actual" and any(.documents[]; .id == $m))][0].attribution // ""' "$docs")
+  [ -n "$attribution" ] || fail "the receipt is not behind today's variance"
+  run_payment=$(jq -r '[.items[] | .documents[] | select(.kind == "payment") | .id][0] // ""' "$docs")
+  say "The receipt is $attribution in ${row:-the unclassified row}. The agent runs: erp agent cash-variance starts a session on"
+  say "erp-default, reads through its tools and proposes. The model is the stand-in, answering from a script of turns as the"
+  say "agent's evaluation suite replays them (evals/cash): it reads the variance, its documents, the memo records and"
+  say "MUSD's statements; cites a payment of the supplier row under the receipt's row (refused: not behind it); then"
+  say "proposes the comment citing WT-1042 and today's statement, and Lakeshore's next receipt on $next citing its lines."
+  cash_agent_script "$memo" "$statement" "$history" "$musd" "$row" "$attribution" "$next" "$run_payment"
+  show ERP_AGENT_TOKEN=… erp agent cash-variance -company "$CC" -period "$TODAY..$TODAY" -lag 0
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/forecast-agent") "$ERP" agent cash-variance -company "$CC" -period "$TODAY..$TODAY" -lag 0 2>"$WORK/stderr") ||
+    fail "erp agent cash-variance failed ($(cat "$WORK/stderr"))"
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" \
+    "comments proposed 1, memo records proposed 1, refused $([ -n "$run_payment" ] && echo 1 || echo 0)."
+  comment=$(printf '%s\n' "$got" | sed -nE 's/^  comment ([0-9a-f-]{36})$/\1/p')
+  record=$(printf '%s\n' "$got" | sed -nE 's/^  memo record ([0-9a-f-]{36})$/\1/p')
+  say "Tom reads the proposals: the comment, with its citations, and nothing on any other row of the day:"
+  api 200 '.items[] | "  \(.liquidity_item // "unclassified") \(.from) lag \(.lag): \(.status), citing \([.citations[].kind] | join(", "))\n    \"\(.text)\""' \
+    listForecastVarianceComments -p "legal_entity_id=$LE" -p status=proposed
+  expect "the day's proposals, the one comment" "$(field '[.items[].id] | join(" ")')" "$comment"
+  expect "on the receipt's row" "$(field '.items[0].liquidity_item // ""')" "$row"
+  expect "citing WT-1042 and today's statement" "$(field '[.items[0].citations[] | "\(.kind) \(.id)"] | sort | join(", ")')" \
+    "bank_statement $statement, memo_record $memo"
+  expect "in the session the agent named" "$(field '.items[0].session_id')" "$session"
+  api 200 '.items[] | "  memo record: \(.status), \(.amount.amount) \(.amount.currency) on \(.value_date) at \(.house_bank_code // "-"), \(.liquidity_item), evidence lines \([.evidence[].line_no] | join(", "))"' \
+    listMemoRecords -p "legal_entity_id=$LE" -p status=proposed
+  expect "the one memo record proposed, Lakeshore's next" "$(field '[.items[] | "\(.id) \(.amount.amount) \(.value_date) \([.evidence[].line_no] | join(","))"] | join(" ")')" \
+    "$record 3200.00 $next 1,2,4"
+  as forecast-agent
+  say "The agent may not decide its own proposal (x-agent: false):"
+  QUIET=1 api 200 '' getForecastVarianceComment -p "id=$comment"
+  refused 403 identity.agent_not_allowed acceptForecastVarianceCommentProposal -p "id=$comment" -if-match "$ETAG"
+  api 200 '"  session \(.id[0:8])… \(.status) on \(.model): \(.purpose)"' getAgentSession -p "id=$session"
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  as tom
+  say "Tom accepts both as they stand: the comment explains the row, and Lakeshore's receipt now counts."
+  QUIET=1 api 200 '' getForecastVarianceComment -p "id=$comment"
+  api 200 '"  comment: \(.status), decided by Tom"' acceptForecastVarianceCommentProposal -p "id=$comment" -if-match "$ETAG"
+  expect "the comment" "$(field .status)" accepted
+  QUIET=1 api 200 '' getMemoRecord -p "id=$record"
+  api 200 '"  memo record: \(.status)"' acceptMemoRecordProposal -p "id=$record" -if-match "$ETAG" -body '{}'
+  expect "the memo record" "$(field .status)" active
+  passed
+}
+
+# rbc_receipt writes RBC's second camt.053 statement of today: Northwind's
+# CAD 25,000.00, from step 8's closing balance.
+rbc_receipt() {
+  local closing
+  closing=$(amount $(($(cents "$CLOSING") + 2500000)))
+  {
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n'
+    printf '<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02"><BkToCstmrStmt>\n'
+    printf '<GrpHdr><MsgId>RBC-%s-2</MsgId><CreDtTm>%sT23:30:00</CreDtTm></GrpHdr>\n' "$TODAY" "$TODAY"
+    printf '<Stmt><Id>RBC-1000001-%s-2</Id><ElctrncSeqNb>2</ElctrncSeqNb><Acct><Id><Othr><Id>1000001</Id></Othr></Id><Ccy>CAD</Ccy></Acct>\n' "$TODAY"
+    printf '<Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="CAD">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$CLOSING" "$TODAY"
+    printf '<Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="CAD">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$closing" "$TODAY"
+    printf '<Ntry><Amt Ccy="CAD">25000.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts><BookgDt><Dt>%s</Dt></BookgDt><ValDt><Dt>%s</Dt></ValDt><BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd><NtryDtls><TxDtls><RltdPties><Dbtr><Nm>Northwind Traders</Nm></Dbtr></RltdPties><RmtInf><Ustrd>Invoice 1042</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry>\n' "$TODAY" "$TODAY"
+    printf '</Stmt></BkToCstmrStmt></Document>\n'
+  } >"$WORK/camt053-receipt.xml"
+}
+
+# musd_history P3 P2 P1 writes MUSD's camt.053 statement of the three
+# months: Lakeshore's sublease on each day, the insurer's refund on P2.
+musd_history() {
+  local d entry='<Ntry><Amt Ccy="USD">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts><BookgDt><Dt>%s</Dt></BookgDt><ValDt><Dt>%s</Dt></ValDt><BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd><NtryDtls><TxDtls><RltdPties><Dbtr><Nm>%s</Nm></Dbtr></RltdPties><RmtInf><Ustrd>%s</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry>\n'
+  {
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n'
+    printf '<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02"><BkToCstmrStmt>\n'
+    printf '<GrpHdr><MsgId>MUSD-%s</MsgId><CreDtTm>%sT23:00:00</CreDtTm></GrpHdr>\n' "$3" "$3"
+    printf '<Stmt><Id>MUSD-5012346-%s</Id><ElctrncSeqNb>1</ElctrncSeqNb><Acct><Id><Othr><Id>5012346</Id></Othr></Id><Ccy>USD</Ccy></Acct>\n' "$3"
+    printf '<Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="USD">0.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$1"
+    printf '<Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="USD">10500.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$3"
+    # shellcheck disable=SC2059 # the entry is the format
+    printf "$entry" 3200.00 "$1" "$1" "Lakeshore Rentals" "Sublease $1"
+    # shellcheck disable=SC2059
+    printf "$entry" 3200.00 "$2" "$2" "Lakeshore Rentals" "Sublease $2"
+    # shellcheck disable=SC2059
+    printf "$entry" 900.00 "$2" "$2" "Ontario Mutual Insurance" "Claim 7781 refund"
+    # shellcheck disable=SC2059
+    printf "$entry" 3200.00 "$3" "$3" "Lakeshore Rentals" "Sublease $3"
+    printf '</Stmt></BkToCstmrStmt></Document>\n'
+  } >"$WORK/camt053-musd.xml"
+}
+
+# cash_agent_script MEMO STATEMENT HISTORY MUSD ROW ATTRIBUTION NEXT
+# PAYMENT writes the stand-in's turns of the forecast agent's run: its
+# reads, a citation of a payment under the receipt's row (when the day
+# has one, refused: not behind that row), the comment and the memo
+# record.
+cash_agent_script() {
+  local item
+  item=$([ -n "$5" ] && printf '{"liquidity_item": "%s"}' "$5" || printf '{"unclassified": true}')
+  jq -n --arg le "$LE" --arg day "$TODAY" --arg memo "$1" --arg st "$2" --arg hist "$3" --arg musd "$4" --arg att "$6" --arg next "$7" \
+    --arg pay "$8" --argjson row "$item" '
+    {legal_entity_id: $le, from: $day, to: $day, lag: 0} as $v |
+    ({body: ($v + $row + {session_id: "{{session}}", citations: [{kind: "memo_record", id: $memo}, {kind: "bank_statement", id: $st}],
+      text: "Northwind Traders paid its invoice 1042, CAD 25,000.00, today (line 1 of RBC'"'"'s second statement), three days before memo record WT-1042 expected it: \($att) in this row."})}) as $comment |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: ([
+      {tool: "getLiquidityForecastVariance", input: $v},
+      {tool: "getForecastVarianceDocuments", input: $v},
+      {tool: "listMemoRecords", input: {legal_entity_id: $le}},
+      {tool: "listBankStatements", input: {house_bank_id: $musd}},
+      {tool: "getBankStatement", input: {id: $hist}}]
+      + (if $pay == "" then [] else [{tool: "proposeForecastVarianceComment",
+          input: ($comment | .body.citations = [{kind: "payment", id: $pay}])}] end)
+      + [{tool: "proposeForecastVarianceComment", input: $comment},
+      {tool: "proposeMemoRecord", input: {body: {session_id: "{{session}}", legal_entity_id: $le, house_bank_id: $musd,
+        amount: {amount: "3200.00", currency: "USD"}, value_date: $next, liquidity_item: "REC_CUSTOMERS", certainty: "expected",
+        description: "Lakeshore Rentals, sublease", reference: "LAKESHORE-NEXT",
+        reason: "Lakeshore Rentals paid USD 3,200.00 for its sublease on the first of each of the last three months; no memo record forecasts the next.",
+        evidence: [{statement_id: $hist, line_no: 1}, {statement_id: $hist, line_no: 2}, {statement_id: $hist, line_no: 4}]}}},
+      {final: "Proposed a comment on the receipt'"'"'s row and Lakeshore'"'"'s next sublease as a memo record. The insurer'"'"'s refund was once: nothing proposed. Every other row of the day is left to people."}])}' \
+    >"$WORK/model-script.json"
+}
+
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_close'
 
 main() {
   stop_unseen

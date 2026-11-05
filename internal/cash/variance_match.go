@@ -149,10 +149,11 @@ type matching struct {
 }
 
 // matchedPiece is a piece of a statement line with the key it was matched
-// to ("" for none).
+// to ("" for none) and every key it is known by.
 type matchedPiece struct {
 	a      actual
 	key    string
+	keys   []string // every key it is known by, the memo records its line realised last
 	shares []Share
 }
 
@@ -197,7 +198,7 @@ func newMatching(bs []Bucket, lines []keptLine, actuals []actual, series map[uui
 				key = keys[i]
 				mark(m.paid, key, m.bucket(a.ValueDate))
 			}
-			m.pieces = append(m.pieces, matchedPiece{a: a, key: key, shares: p.shares})
+			m.pieces = append(m.pieces, matchedPiece{a: a, key: key, keys: keys, shares: p.shares})
 		}
 	}
 	return m
@@ -252,9 +253,9 @@ func beyondOf(lines []keptLine, docEnd, last time.Time) *Period {
 	return &Period{From: docEnd.AddDate(0, 0, 1), To: end}
 }
 
-// compare is the variance per currency of the snapshot's lines and the
-// actuals over the period's buckets and the days beyond them.
-func (e *Endpoints) compare(ctx context.Context, ar actualsRead, s Snapshot, bs []Bucket, last time.Time) ([]VarianceCurrency, *Period, error) {
+// matched is the snapshot's lines and their matching to the actuals'
+// pieces over the period's buckets, up to the last day.
+func matched(ctx context.Context, ar actualsRead, s Snapshot, bs []Bucket, last time.Time) ([]keptLine, *matching, error) {
 	lines, err := keptLines(ctx, ar.tx, s.ID, last)
 	if err != nil {
 		return nil, nil, err
@@ -265,15 +266,19 @@ func (e *Endpoints) compare(ctx context.Context, ar actualsRead, s Snapshot, bs 
 	if err != nil {
 		return nil, nil, err
 	}
-	docEnd := s.DocumentLevelUntil()
-	m := newMatching(bs, lines, ar.lines, series, realised)
-	beyond := beyondOf(lines, docEnd, last)
-	t := newVarianceTable(ar.r, len(bs))
-	m.attribute(t)
+	return lines, newMatching(bs, lines, ar.lines, series, realised), nil
+}
+
+// compare is the variance per currency of the snapshot's lines and the
+// actuals over the period's buckets and the days beyond them.
+func (vr varianceRead) compare(ctx context.Context) ([]VarianceCurrency, *Period, error) {
+	beyond := beyondOf(vr.lines, vr.v.Snapshot.DocumentLevelUntil(), vr.v.To)
+	t := newVarianceTable(vr.ar.r, len(vr.v.Buckets))
+	vr.m.attribute(t)
 	if beyond != nil {
-		m.beyond(t, lines, *beyond)
+		vr.m.beyond(t, vr.lines, *beyond)
 	}
-	out, err := t.currencies(ctx, ar.tx)
+	out, err := t.currencies(ctx, vr.ar.tx)
 	return out, beyond, err
 }
 

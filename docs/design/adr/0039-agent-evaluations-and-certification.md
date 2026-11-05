@@ -38,7 +38,14 @@ the suites set.
   recommendation per change request), migration, analytics and
   reconciliation (T49g: proposals for bank statement lines, never a match,
   exclusion or posting; a line nothing explains left to a person, graded
-  as right). A setup call may post a multipart `form` of values instead of
+  as right) and cash_forecast (ADR-0051 §13, T53i: comments on a
+  company's forecast variance citing the documents behind its
+  attribution, a memo record for a receipt the statements show monthly,
+  never a confirmation, acceptance or posting; a late run, a discount not
+  taken, an unforecast receipt, an instruction planted in a statement
+  ignored and a variance nothing explains left "not explained"; replayed
+  on a business day, since every forecast falls on one: the replay cell's
+  clock steps back from a weekend). A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The
   migration agent rehearses only, its own guard refusing a real load

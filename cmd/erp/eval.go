@@ -17,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/agent"
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/cashagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/configagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/migrationagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/testagent"
@@ -28,7 +29,8 @@ import (
 // evalAgents are the adapters of the agents a suite may evaluate, by agent
 // type (ADR-0039).
 var evalAgents = map[string]eval.Agent{"analytics": analyticsEval, "ap_exceptions": apExceptions, "capture": captureEval,
-	"configuration": configurationEval, "migration": migrationEval, "reconciliation": reconciliationEval, "test": testEval}
+	"configuration": configurationEval, "migration": migrationEval, "reconciliation": reconciliationEval, "test": testEval,
+	cashagent.Type: cashForecastEval}
 
 // analyticsEval asks the task's question as erp ask does, its session
 // reading what the API gives the agent principal and no more. Its reply
@@ -152,6 +154,28 @@ func reconciliationEval(ctx context.Context, env eval.Env) error {
 	if len(res.Errors) > 0 {
 		return fmt.Errorf("reconciliation: %s", strings.Join(res.Errors, "; "))
 	}
+	return nil
+}
+
+// cashForecastEval has the forecast agent explain the task's variance as
+// erp agent cash-variance does; what it proposed, and what it left, is the
+// checks' to judge. A proposal its own guard refused fails the case: the
+// suite's replay never asks for one.
+func cashForecastEval(ctx context.Context, env eval.Env) error {
+	t, err := tasked(env, "company", "from", "to", "lag")
+	if err != nil {
+		return err
+	}
+	lag, err := strconv.Atoi(t["lag"])
+	if err != nil {
+		return fmt.Errorf("cash_forecast: lag: %w", err)
+	}
+	res, err := (&cashagent.Agent{LLM: env.LLM, API: env.Agent}).Explain(ctx, cashagent.Period{Company: t["company"], From: t["from"], To: t["to"], Lag: lag})
+	if err != nil {
+		return fmt.Errorf("cash_forecast: %w", err)
+	}
+	env.Reply(map[string]any{"comments": len(res.Comments), "memo_records": len(res.Memos), "refused": res.Refused, "reply": res.Reply,
+		"says_not_explained": strings.Contains(strings.ToLower(res.Reply), "not explained")})
 	return nil
 }
 

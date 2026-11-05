@@ -9,6 +9,10 @@ type AcceptBankStatementLineProposalRes interface {
 	acceptBankStatementLineProposalRes()
 }
 
+type AcceptForecastVarianceCommentProposalRes interface {
+	acceptForecastVarianceCommentProposalRes()
+}
+
 type AcceptMemoRecordProposalRes interface {
 	acceptMemoRecordProposalRes()
 }
@@ -503,6 +507,10 @@ type GetFiscalPeriodRes interface {
 
 type GetForecastVarianceCommentRes interface {
 	getForecastVarianceCommentRes()
+}
+
+type GetForecastVarianceDocumentsRes interface {
+	getForecastVarianceDocumentsRes()
 }
 
 type GetGoodsReceiptRes interface {
@@ -1177,6 +1185,10 @@ type ProposeBankStatementLineRes interface {
 	proposeBankStatementLineRes()
 }
 
+type ProposeForecastVarianceCommentRes interface {
+	proposeForecastVarianceCommentRes()
+}
+
 type ProposeMemoRecordRes interface {
 	proposeMemoRecordRes()
 }
@@ -1219,6 +1231,10 @@ type RejectApprovalRequestRes interface {
 
 type RejectBankStatementLineProposalRes interface {
 	rejectBankStatementLineProposalRes()
+}
+
+type RejectForecastVarianceCommentProposalRes interface {
+	rejectForecastVarianceCommentProposalRes()
 }
 
 type RejectMemoRecordProposalRes interface {

@@ -17217,6 +17217,149 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/liquidity-forecast-variance/documents:
+    get:
+      operationId: getForecastVarianceDocuments
+      tags:
+        - cash
+      summary: Get the documents behind a company's attributed forecast variance
+      description: "The documents behind the attribution of a legal entity's forecast variance (ADR-0051 §11, §13, T53i), as `getLiquidityForecastVariance` attributes it for the same `from`, `to`, `lag` and `grain`, computed at the read from one database state: one entry per contribution in the days kept per document (from `from` to the earlier of `to` and the snapshot's `document_level_until`), each a forecast line of the snapshot (`side` `forecast`) or the part of a statement line one document behind it pays, per liquidity item (`side` `actual`), with its attribution (`timing`, `amount`, `new`, `missing` or `unclassified`), currency, liquidity item, value date, the bucket it falls in, its signed amount, and the documents it is known by: a payment, a supplier item's journal entry, the supplier invoice it was posted for, the purchase order that invoice was entered on, a down payment request, a memo record (a series' occurrence with its `occurrence_date`), and, for a statement line, its bank statement and `line_no`. These are the documents the forecast agent's comment proposals may cite (`proposeForecastVarianceComment`). Of one row with `liquidity_item` (the item and its descendants) or `unclassified` (what no rule assigns), not both (422); of every row without either. Each document is shown only to a caller who may use its context's read permission (a payment `payments.run.read`, a bank statement `payments.statement.read`, a journal entry `ledger.entry.read`, an invoice or down payment request `payables.invoice.read`, an order `procurement.order.read`, a memo record `cash.memo.read`), as the snapshot's lines and the actuals' lines show them, and otherwise left out (`document_count` counts them all); no supplier is named. Refused as the variance is: 409 `cash.snapshot_not_taken`, 422 for a lag, period or grain the variance refuses, 404 for a legal entity the caller cannot act in."
+      x-permission: cash.forecast.read
+      x-slo-class: report
+      x-snapshot: true
+      x-problem-codes:
+        - cash.snapshot_not_taken
+        - config.not_bootstrapped
+        - request.validation_failed
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: true
+          description: "The period's first day."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: "The period's last day, as the variance's `to`."
+          schema:
+            type: string
+            format: date
+        - name: lag
+          in: query
+          required: false
+          description: "How many days before `from` the snapshot compared against was taken: 0, 7 (default) or 30."
+          schema:
+            type: integer
+            format: int32
+            default: 7
+        - name: grain
+          in: query
+          required: false
+          description: "The buckets' length, as the variance's `grain`: whether a document paid in another bucket than forecast is `timing` or `amount` depends on it."
+          schema:
+            type: string
+            description: "A bucket's length. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [day, week, month]
+        - name: liquidity_item
+          in: query
+          required: false
+          description: "Only the row of this liquidity item (its code) and its descendants."
+          schema:
+            type: string
+        - name: unclassified
+          in: query
+          required: false
+          description: "Only the row of what no rule assigns; not with `liquidity_item`."
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: The documents behind the attributed variance.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForecastVarianceDocuments"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/liquidity-forecast-variance/comment-proposals:
+    post:
+      operationId: proposeForecastVarianceComment
+      tags:
+        - cash
+      summary: Propose a comment on a row of the forecast variance
+      description: "The forecast agent proposes an explanation of one row of a legal entity's forecast variance (ADR-0051 §11, §13, T53i) in its running session (`session_id`; another's or an ended one is refused as `createRecommendation` refuses it): the row, period and lag as `createForecastVarianceComment` names and checks them, the text, and the documents behind the attributed variance it explains (`citations`, 1 to 50, each a kind and id), checked against the attribution: every document it cites must be one `getForecastVarianceDocuments` lists, as the caller may see it, for that row (the item and its descendants, or what no rule assigns) over the period at the lag, else 422 `cash.citation_not_attributed` naming each (`citations[N]`). The comment is `proposed` and names the session and its citations until a person accepts it (`:acceptProposal`) or rejects it with a reason (`:rejectProposal`); a person who would word it otherwise rejects it and writes their own (`createForecastVarianceComment`), so what the agent said stays as it said it. Agents never write, accept or reject a comment otherwise. Audited, and published as VarianceCommentProposed."
+      x-permission: cash.variance.propose
+      x-autonomy: propose
+      x-slo-class: report
+      x-problem-codes:
+        - agents.not_your_session
+        - agents.session_ended
+        - cash.citation_not_attributed
+        - cash.snapshot_not_taken
+        - config.not_bootstrapped
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The proposal.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForecastVarianceCommentProposal"
+      responses:
+        "201":
+          description: "Proposed; the comment, `proposed`."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForecastVarianceComment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/liquidity-forecast-variance/comments:
     get:
       operationId: listForecastVarianceComments
@@ -17350,7 +17493,7 @@ paths:
       tags:
         - cash
       summary: Get a comment on the forecast variance
-      description: "One comment on a legal entity's forecast variance (ADR-0051 §11, T53f4). A comment on a legal entity the caller cannot act in is not found."
+      description: "One comment on a legal entity's forecast variance (ADR-0051 §11, T53f4), its version the ETag that a decision on a proposal names (`If-Match`). A comment on a legal entity the caller cannot act in is not found."
       x-permission: cash.forecast.read
       x-problem-codes: []
       parameters:
@@ -17358,6 +17501,9 @@ paths:
       responses:
         "200":
           description: The comment.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
           content:
             application/json:
               schema:
@@ -17372,6 +17518,111 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/liquidity-forecast-variance/comments/{id}:acceptProposal":
+    post:
+      operationId: acceptForecastVarianceCommentProposal
+      tags:
+        - cash
+      summary: Accept the forecast agent's proposed variance comment
+      description: "A person accepts the forecast agent's `proposed` comment on the forecast variance as it stands (ADR-0051 §13, T53i; 409 `cash.variance_comment_not_proposed` otherwise): it becomes `accepted`, decided by the person, and keeps its text, session and citations. Audited, and published as VarianceCommentDecided."
+      x-permission: cash.variance.comment
+      x-agent: false
+      x-problem-codes:
+        - cash.snapshot_not_taken
+        - cash.variance_comment_not_proposed
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The comment, `accepted`."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForecastVarianceComment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/liquidity-forecast-variance/comments/{id}:rejectProposal":
+    post:
+      operationId: rejectForecastVarianceCommentProposal
+      tags:
+        - cash
+      summary: Reject the forecast agent's proposed variance comment
+      description: "A person rejects the forecast agent's `proposed` comment on the forecast variance, with a reason (ADR-0051 §13, T53i; 409 `cash.variance_comment_not_proposed` otherwise): it becomes `rejected`, decided by the person, and is kept with its text and citations as evidence of what the agent said, and its snapshot with it. Audited, and published as VarianceCommentDecided."
+      x-permission: cash.variance.comment
+      x-agent: false
+      x-problem-codes:
+        - cash.snapshot_not_taken
+        - cash.variance_comment_not_proposed
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Why it is rejected.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "200":
+          description: "The comment, `rejected`."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForecastVarianceComment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/memo-records:
     get:
       operationId: listMemoRecords
@@ -23189,6 +23440,7 @@ components:
             - test
             - analytics
             - reconciliation
+            - cash_forecast
           maxLength: 50
         model:
           type: string
@@ -39827,7 +40079,7 @@ components:
     ForecastVarianceComment:
       type: object
       description: "A comment on one row of a legal entity's forecast variance (ADR-0051 §11, T53f4), with the snapshot that variance compares with, which is kept as long as the comment."
-      required: [id, legal_entity_id, company_code, from, to, lag, unclassified, snapshot_id, snapshot_date, text, status, created_at, created_by]
+      required: [id, legal_entity_id, company_code, from, to, lag, unclassified, snapshot_id, snapshot_date, text, status, created_at, created_by, citations]
       properties:
         id: {type: string, format: uuid, description: Comment id., readOnly: true}
         legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
@@ -39849,7 +40101,14 @@ components:
         decided_by: {type: string, format: uuid, description: "The person who decided it: a person's comment, its author; absent while proposed.", readOnly: true}
         decided_at: {type: string, format: date-time, description: "When it was decided; absent while proposed.", readOnly: true}
         created_at: {type: string, format: date-time, description: When it was written., readOnly: true}
-        created_by: {type: string, format: uuid, description: "Its author.", readOnly: true}
+        created_by: {type: string, format: uuid, description: "Its author: a person, or the agent that proposed it.", readOnly: true}
+        session_id: {type: string, format: uuid, description: "The forecast agent's session it was proposed in; absent on a person's comment.", readOnly: true}
+        citations:
+          type: array
+          items: {$ref: "#/components/schemas/ForecastVarianceCitation"}
+          description: "The documents behind the attributed variance a proposal cites, checked against it when proposed; empty on a person's comment."
+          readOnly: true
+        decision_reason: {type: string, description: "Why a person rejected the proposal; present when `rejected`.", readOnly: true}
       examples:
         - id: 0192a000-0000-7000-8000-000000000e21
           legal_entity_id: 0192a000-0000-7000-8000-000000000201
@@ -39868,6 +40127,145 @@ components:
           decided_at: "2026-05-04T14:00:00Z"
           created_at: "2026-05-04T14:00:00Z"
           created_by: 0192a000-0000-7000-8000-000000000101
+          citations: []
+    ForecastVarianceCommentProposal:
+      type: object
+      description: "The forecast agent's proposed comment on one row of a legal entity's forecast variance (ADR-0051 §13): the row, period and lag as a person's comment names them, the session it is proposed in, and the documents behind the attributed variance it cites."
+      required: [legal_entity_id, from, to, text, session_id, citations]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The legal entity whose variance it explains."}
+        from: {type: string, format: date, description: "The period's first day, as the variance's `from`."}
+        to: {type: string, format: date, description: "The period's last day, as the variance's `to`."}
+        lag: {type: integer, format: int32, default: 7, description: "The variance's lag: 0, 7 (default) or 30 days."}
+        liquidity_item: {type: string, minLength: 1, description: "The code of the liquidity item whose row it explains; absent with `unclassified`."}
+        unclassified: {type: boolean, default: false, description: "True: it explains the row of what no rule assigns, and names no `liquidity_item`."}
+        text: {type: string, minLength: 1, maxLength: 2000, pattern: '\S', description: "The explanation, naming the documents behind it, such as \"Kurier Express's invoice KE-7 of EUR 300.00 was forecast for today and not paid: no payment run was released.\""}
+        session_id: {type: string, format: uuid, description: "The proposing agent's running session."}
+        citations:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: {$ref: "#/components/schemas/ForecastVarianceCitation"}
+          description: "The documents behind the attributed variance the text explains, each one `getForecastVarianceDocuments` lists for the row."
+      examples:
+        - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          from: "2026-04-24"
+          to: "2026-04-30"
+          lag: 7
+          liquidity_item: PAY_SUPPLIERS
+          text: "Kurier Express's invoice of EUR 300.00 was forecast on the 24th and paid on 1 May: the run of the 24th was released a week late."
+          session_id: 0192a000-0000-7000-8000-000000000a01
+          citations:
+            - {kind: payment, id: 0192a000-0000-7000-8000-000000000c01}
+    ForecastVarianceCitation:
+      type: object
+      description: "A document a variance comment cites: one the attribution of the variance it explains lists (`getForecastVarianceDocuments`)."
+      required: [kind, id]
+      properties:
+        kind:
+          type: string
+          description: "The document's kind: `payment`, `journal_entry`, `supplier_invoice`, `purchase_order`, `down_payment_request`, `memo_record` or `bank_statement`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [payment, journal_entry, supplier_invoice, purchase_order, down_payment_request, memo_record, bank_statement]
+        id: {type: string, format: uuid, description: The document.}
+      additionalProperties: false
+      examples:
+        - {kind: supplier_invoice, id: 0192a000-0000-7000-8000-000000000c11}
+    ForecastVarianceDocuments:
+      type: object
+      description: "The documents behind a legal entity's attributed forecast variance (ADR-0051 §11, §13): one entry per contribution in the days kept per document, of one row or of every row."
+      required: [legal_entity_id, company_code, from, to, lag, grain, snapshot_id, snapshot_date, document_level_until, items]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        company_code: {type: string, description: "The legal entity's company code.", readOnly: true}
+        from: {type: string, format: date, description: "The period's first day.", readOnly: true}
+        to: {type: string, format: date, description: "The period's last day.", readOnly: true}
+        lag: {type: integer, format: int32, description: "The variance's lag in days.", readOnly: true}
+        grain: {type: string, description: "The buckets' length. Open enumeration: values may be added within /v1.", x-extensible-enum: [day, week, month], readOnly: true}
+        liquidity_item: {type: string, description: "The row asked for, its liquidity item's code; absent for every row or the unclassified row.", readOnly: true}
+        unclassified: {type: boolean, description: "True: the row of what no rule assigns was asked for.", readOnly: true}
+        snapshot_id: {type: string, format: uuid, description: "The snapshot the variance compares with.", readOnly: true}
+        snapshot_date: {type: string, format: date, description: "The snapshot's date.", readOnly: true}
+        document_level_until: {type: string, format: date, description: "The last day the snapshot kept per document: entries are of days up to it and `to`.", readOnly: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ForecastVarianceDocument"}
+          description: "The contributions, the forecast's then the actuals', each by value date; within a day in the snapshot's or the statements' order."
+          readOnly: true
+      examples:
+        - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "3000"
+          from: "2026-04-24"
+          to: "2026-04-30"
+          lag: 7
+          grain: week
+          liquidity_item: OP_SUPPLIERS
+          unclassified: false
+          snapshot_id: 0192a000-0000-7000-8000-000000000e01
+          snapshot_date: "2026-04-17"
+          document_level_until: "2026-05-17"
+          items:
+            - side: forecast
+              attribution: timing
+              currency: CAD
+              liquidity_item: OP_SUPPLIERS
+              value_date: "2026-04-24"
+              bucket_start: "2026-04-24"
+              amount: {amount: "-300.00", currency: CAD}
+              documents:
+                - {kind: payment, id: 0192a000-0000-7000-8000-000000000c01}
+              document_count: 1
+            - side: actual
+              attribution: timing
+              currency: CAD
+              liquidity_item: OP_SUPPLIERS
+              value_date: "2026-05-01"
+              bucket_start: "2026-04-24"
+              amount: {amount: "-300.00", currency: CAD}
+              documents:
+                - {kind: payment, id: 0192a000-0000-7000-8000-000000000c01}
+                - {kind: journal_entry, id: 0192a000-0000-7000-8000-000000000c02}
+                - {kind: bank_statement, id: 0192a000-0000-7000-8000-000000000c03}
+              document_count: 3
+              line_no: 4
+    ForecastVarianceDocument:
+      type: object
+      description: "One contribution to an attributed variance: a forecast line of the snapshot, or the part of a statement line that one document behind it pays, in one liquidity item."
+      required: [side, attribution, currency, value_date, bucket_start, amount, documents, document_count]
+      properties:
+        side:
+          type: string
+          description: "`forecast` (a line of the snapshot) or `actual` (a statement line's part). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [forecast, actual]
+          readOnly: true
+        attribution:
+          type: string
+          description: "Its part of the variance: `timing`, `amount`, `new`, `missing` or `unclassified`, as the variance attributes it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [timing, amount, new, missing, unclassified]
+          readOnly: true
+        currency: {type: string, description: The currency (ISO 4217)., readOnly: true}
+        liquidity_item: {type: string, description: "The liquidity item it is classified in; absent for what no rule assigns.", readOnly: true}
+        value_date: {type: string, format: date, description: "The day it was forecast for, or the statement line's value date.", readOnly: true}
+        bucket_start: {type: string, format: date, description: "The first day of the bucket it falls in.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money"}
+        documents:
+          type: array
+          items: {$ref: "#/components/schemas/ForecastVarianceDocumentRef"}
+          description: "The documents it is known by that the caller may see, most specific first; a statement line's bank statement last."
+          readOnly: true
+        document_count: {type: integer, format: int32, minimum: 0, description: "How many documents it is known by, shown or not.", readOnly: true}
+        line_no: {type: integer, format: int32, description: "The statement line's number in its bank statement; present when the statement is shown.", readOnly: true}
+    ForecastVarianceDocumentRef:
+      type: object
+      description: "A document behind a contribution to the variance."
+      required: [kind, id]
+      properties:
+        kind:
+          type: string
+          description: "`payment`, `journal_entry`, `supplier_invoice`, `purchase_order`, `down_payment_request`, `memo_record` or `bank_statement`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [payment, journal_entry, supplier_invoice, purchase_order, down_payment_request, memo_record, bank_statement]
+          readOnly: true
+        id: {type: string, format: uuid, description: The document., readOnly: true}
+        occurrence_date: {type: string, format: date, description: "A memo series' occurrence: the day the snapshot forecast it.", readOnly: true}
     ForecastVarianceCommentPage:
       type: object
       description: One page of comments on the forecast variance.

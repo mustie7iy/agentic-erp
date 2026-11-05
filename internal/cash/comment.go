@@ -64,7 +64,8 @@ type CommentInput struct {
 
 // VarianceComment is a comment as stored, with its company's code, its
 // item's name and its snapshot's date. Item is nil for the row of what no
-// rule assigns; DecidedBy and DecidedAt are nil while it is proposed.
+// rule assigns; DecidedBy and DecidedAt are nil while it is proposed; a
+// person's comment has no session and cites nothing.
 type VarianceComment struct {
 	ID, LegalEntity uuid.UUID
 	CompanyCode     string
@@ -78,6 +79,16 @@ type VarianceComment struct {
 	DecidedAt       *time.Time
 	CreatedAt       time.Time
 	CreatedBy       uuid.UUID
+	Session         *uuid.UUID // the agent's session a proposal was made in
+	Citations       []Citation // the documents a proposal cites
+	DecisionReason  *string    // why a person rejected a proposal
+	Version         int32
+}
+
+// Citation is a document a proposal cites, by its kind and id.
+type Citation struct {
+	Kind string    `json:"kind"`
+	ID   uuid.UUID `json:"id"`
 }
 
 // commentSelect reads comments with their item's name and snapshot's date.
@@ -86,13 +97,13 @@ type VarianceComment struct {
 const commentSelect = `SELECT c.id, c.legal_entity_id, c.period_from, c.period_to, c.lag, c.liquidity_item,
 		(SELECT i.name FROM cash.liquidity_item i WHERE i.code = c.liquidity_item),
 		c.snapshot_id, (SELECT s.snapshot_date FROM cash.snapshot s WHERE s.id = c.snapshot_id),
-		c.text, c.status, c.decided_by, c.decided_at, c.created_at, c.created_by
+		c.text, c.status, c.decided_by, c.decided_at, c.created_at, c.created_by, c.session_id, c.citations, c.decision_reason, c.version
 	FROM cash.variance_comment c`
 
 func scanComment(r pgx.Row) (VarianceComment, error) {
 	var c VarianceComment
 	err := r.Scan(&c.ID, &c.LegalEntity, &c.From, &c.To, &c.Lag, &c.Item, &c.ItemName, &c.Snapshot, &c.SnapshotDate, &c.Text, &c.Status,
-		&c.DecidedBy, &c.DecidedAt, &c.CreatedAt, &c.CreatedBy)
+		&c.DecidedBy, &c.DecidedAt, &c.CreatedAt, &c.CreatedBy, &c.Session, &c.Citations, &c.DecisionReason, &c.Version)
 	return c, errs.Wrapf(err, "scan variance comment")
 }
 
@@ -119,7 +130,7 @@ func (e *Endpoints) CommentVariance(ctx context.Context, in CommentInput) (Varia
 		return VarianceComment{}, err
 	}
 	c := VarianceComment{ID: uuid.Must(uuid.NewV7()), LegalEntity: in.LegalEntity, CompanyCode: co.Code, From: from, To: to, Lag: in.Lag,
-		Snapshot: s.ID, SnapshotDate: s.Date, Text: in.Text, Status: CommentAccepted, DecidedBy: &p.ID, CreatedBy: p.ID}
+		Snapshot: s.ID, SnapshotDate: s.Date, Text: in.Text, Status: CommentAccepted, DecidedBy: &p.ID, CreatedBy: p.ID, Citations: []Citation{}, Version: 1}
 	if !in.Unclassified {
 		if c.ItemName, err = itemName(ctx, tx, in.Item); err != nil {
 			return VarianceComment{}, err
@@ -219,6 +230,9 @@ func decided(ctx context.Context, c VarianceComment, action string) error {
 		"from": c.From.Format(time.DateOnly), "to": c.To.Format(time.DateOnly), "lag": c.Lag, "liquidity_item": c.Item,
 		"snapshot_id": c.Snapshot, "status": c.Status, "decided_by": c.DecidedBy}
 	detail := map[string]any{"text": c.Text}
+	if c.DecisionReason != nil {
+		detail["reason"] = *c.DecisionReason
+	}
 	for k, v := range payload {
 		detail[k] = v
 	}

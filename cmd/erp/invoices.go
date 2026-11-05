@@ -13,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/agent"
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/cashagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/configagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/migrationagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/testagent"
@@ -270,7 +271,7 @@ func agentInvoices(ctx context.Context) error {
 // agentCmd runs a delivery agent with the agents' token.
 func agentCmd(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("agent invoices | config | migration | test | reconcile")
+		return errors.New("agent invoices | config | migration | test | reconcile | cash-variance")
 	}
 	switch args[0] {
 	case "invoices":
@@ -283,6 +284,8 @@ func agentCmd(ctx context.Context, args []string) error {
 		return agentTest(ctx, args[1:])
 	case "reconcile":
 		return agentReconcile(ctx, args[1:])
+	case "cash-variance":
+		return agentCashVariance(ctx, args[1:])
 	}
 	return fmt.Errorf("unknown agent %q", args[0])
 }
@@ -384,4 +387,44 @@ func agentReconcile(ctx context.Context, args []string) error {
 		return fmt.Errorf("agent reconcile: %s", strings.Join(res.Errors, "; "))
 	}
 	return nil
+}
+
+// agentCashVariance has the forecast agent explain a company's forecast
+// variance over a period (ADR-0051 §13, T53i): it proposes comments citing
+// the documents behind the attribution and memo records for flows the
+// statements show recurring, and prints its session, each proposal and
+// its reply; a person accepts or rejects each.
+func agentCashVariance(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent cash-variance", flag.ContinueOnError)
+	company := fs.String("company", "", "company code")
+	period := fs.String("period", "", "the period, FROM..TO (YYYY-MM-DD..YYYY-MM-DD)")
+	lag := fs.Int("lag", cashagent.DefaultLag, "the snapshot's lag in days: 0, 7 or 30")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	from, to, ok := strings.Cut(*period, "..")
+	if *company == "" || !ok || from == "" || to == "" {
+		return errors.New("agent cash-variance: want -company CODE -period FROM..TO [-lag 7]")
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := (&cashagent.Agent{LLM: newRunner(c), API: c}).Explain(ctx, cashagent.Period{Company: *company, From: from, To: to, Lag: *lag})
+	if res.Session != "" {
+		out := fmt.Sprintf("Session %s: comments proposed %d, memo records proposed %d, refused %d.\n", res.Session, len(res.Comments), len(res.Memos), res.Refused)
+		for _, id := range res.Comments {
+			out += "  comment " + id + "\n"
+		}
+		for _, id := range res.Memos {
+			out += "  memo record " + id + "\n"
+		}
+		if res.Reply != "" {
+			out += res.Reply + "\n"
+		}
+		if err := printf("agent cash-variance", "%s", out); err != nil {
+			return errors.Join(runErr, err)
+		}
+	}
+	return runErr
 }

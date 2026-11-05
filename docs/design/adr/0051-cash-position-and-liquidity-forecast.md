@@ -2301,6 +2301,138 @@ instruction planted in a statement's text ignored, a variance it cannot
 explain left as "not explained". Model calls go through the gateway
 (ADR-0036) with IBANs redacted.
 
+As built (T53i, the forecast agent; decided by default where §11, §13,
+§15, T53d's memo record proposals, T53f4's comments and the
+reconciliation and close agents leave it open):
+- **The agent.** Agent type `cash_forecast` (`autonomy.Types`, the
+  profile's open enumeration, its suite `evals/cash`), on the alias
+  `erp-default` (§13 names none; the reconciliation agent's), with the
+  agent's own `monthly_budget` and the tenant's cap as every agent's
+  (ADR-0036). `internal/cashagent` (imports `apitools` and `llm` only):
+  `erp agent cash-variance -company CODE -period FROM..TO [-lag 7]` finds
+  the company's legal entity (`tenancy.org.read`), reads the variance (a
+  company it may not read or a variance that cannot be compared stops the
+  run before a session starts), runs one session over its tools and
+  prints the session, each comment and memo record the API accepted, how
+  many proposals were refused and the model's reply. Its tools are §13's
+  reads (`getLiquidityForecastVariance`, the documents below,
+  `listForecastVarianceComments`, `getLiquidityForecast`,
+  `listLiquidityForecastFlows`, `getCashActuals`, `listCashActualLines`,
+  `getCashSnapshot`, `listCashSnapshotFlows`, `listMemoRecords`,
+  `getMemoRecord`, `listPaymentRuns`, `listPayments`, `listOpenItems` for
+  the supplier open items, `listSupplierInvoices`, `getSupplierInvoice`,
+  `listPurchaseOrders`, `listBankStatements`, `getBankStatement` masked as
+  ADR-0047 shows it to agents, `getBusinessPartner`, and
+  `runAnalyticsQuery` for the semantic layer) and its two proposals; each
+  read needs its own permission, so a supplier's name reaches it only
+  with `partner.supplier.read` (the walkthrough's agent holds none and
+  names suppliers by their documents). Its prompt treats everything a
+  bank, a supplier or a person wrote as untrusted data, explains only
+  rows whose variance is not zero from the documents behind them, and
+  lists every other row as "not explained"; its guard refuses (and
+  counts) a proposal for another legal entity, period or lag than the
+  run's before it reaches the API. Model calls go through the gateway,
+  which redacts IBANs as for every agent (ADR-0036).
+- **The documents behind the attribution.** `GET
+  /v1/liquidity-forecast-variance/documents`
+  (`getForecastVarianceDocuments`, `cash.forecast.read`, `x-slo-class:
+  report`, `x-snapshot: true`), the listing §11's known limits left to
+  this step: the variance's request (refused as it is) and a row (an item
+  and its descendants, or `unclassified`; not both, 422), and one entry
+  per contribution in the days kept per document: a snapshot line
+  (`forecast`) or a statement line's part per liquidity item (`actual`),
+  with its attribution, currency, item, value date, bucket and signed
+  amount, and the documents it is known by: the keys the matching uses
+  (a payment, the item's journal entry, the invoice it was posted for,
+  its order, a down payment request, a memo record, a series' occurrence
+  with its day) and, for a statement line, its bank statement and line
+  number. No migration: computed at the read from the variance's own
+  matching (`readVariance`, which the variance now calls too). Each
+  document is shown only with its context's read permission, as the
+  snapshot's and the actuals' lines show them (T53e4's rule, not widened:
+  a payment `payments.run.read`, a statement `payments.statement.read`,
+  a line number only with its statement), and counted either way; no
+  supplier is named.
+- **Comment proposals.** `POST
+  /v1/liquidity-forecast-variance/comment-proposals`
+  (`proposeForecastVarianceComment`, `cash.variance.propose`, `x-autonomy:
+  propose`, Idempotency-Key), a collection of its own as T53f4 settled,
+  in the agent's running session (`agents.Sessions`, as memo record
+  proposals): the row, period and lag checked as a person's comment, and
+  1 to 50 citations (`{kind, id}`), each one the documents above list for
+  that row as the agent may see them, else 422
+  `cash.citation_not_attributed` naming each (`citations[N]`). Which
+  documents a row lists does not depend on the grain, so the check reads
+  the period by month, which admits every period a comment may name. The
+  comment is `proposed` with its session and citations, audited
+  (`cash.variance_comment.propose`, with the text and citations) and
+  published as `VarianceCommentProposed` (new, §15 names none for a
+  proposal; it carries the row, period, lag, snapshot, session and the
+  citations' count, not the text).
+- **Decisions.** `:acceptProposal` and `:rejectProposal` (with a reason)
+  on a comment (`cash.variance.comment`, `x-agent: false`, If-Match on
+  the comment's version, now its ETag, read `FOR UPDATE`): once, from
+  `proposed` (409 `cash.variance_comment_not_proposed` otherwise),
+  published as `VarianceCommentDecided` (its `status` and `decided_by`,
+  the person). A proposal is accepted as it stands: a person who would
+  word it otherwise rejects it and writes their own comment, so what the
+  agent said, and cited, is kept as it said it (§11's evidence, T53f4's
+  insert-only spirit); §13's "edits" is that, for comments. Memo record
+  proposals are T53d's, unchanged: a person may change one before
+  accepting it.
+- **Migration 000216** (expand only): `cash.variance_comment` gains
+  `session_id`, `citations` (a JSON list of at most 50), `decision_reason`
+  and `version`; a proposal names its session and only an agent's
+  comment cites (`variance_comment_session`), a reason exactly when
+  rejected (`variance_comment_rejected`); a trigger lets a comment be
+  decided once, from `proposed`, by another than its author, raising the
+  version by one (`cash.check_variance_comment_decision`); the
+  application may update only those columns; permission
+  `cash.variance.propose`.
+- **What it never does.** It never confirms, changes or closes a memo
+  record, writes, accepts or rejects a comment, changes configuration,
+  proposes or releases a payment run, blocks an item or moves money: none
+  of those operations is among its tools, and each is `x-agent: false`.
+- **Evaluation** (`evals/cash`, ADR-0039), replayed in CI to level 2 with
+  the scripted model: each case on company 2000's variance of today at
+  lag 0, against a snapshot taken on demand after the case's documents:
+  a late run (the courier's invoice due at once, forecast today and not
+  paid, explained citing it), a discount not taken (an invoice forecast
+  today at 2 % off and not paid, the documents listing it `missing` at
+  980.00), an unforecast receipt (explained citing its statement, and its
+  monthly history proposed as a memo record with the four lines), an
+  instruction planted in a statement's text ignored, and a variance it
+  cannot explain left as "not explained" (nothing proposed). Every case
+  checks nothing was confirmed, accepted, posted or paid and that the
+  agent called its own tools only. The evaluation cell runs no payment
+  workers, so "the run" is the one that would have paid the invoice due
+  today; a run paid a week late is the walkthrough's and
+  `TestVarianceDocuments`'s. Every forecast falls on a business day, so
+  the replay cell's clock steps back from a weekend to the Friday before;
+  a live certification runs on a business day of company 2000.
+- **The model stand-in.** `modelstub -script` answers from a script of
+  turns, as an evaluation suite's replay (the close agent's, T64g, built
+  in the same batch; one change).
+- **Evidence.** `cash.TestVarianceDocuments` (TestForecastVariance's
+  attribution by week, document by document: the second run's payment a
+  week late on both sides, the receipt short, the series' occurrence by
+  its override and its day, the credit memo and the planned payment
+  missing, the invoice posted after the snapshot new, the line not
+  matched unclassified; a row, its parent, the unclassified row),
+  `TestVarianceDocumentsGated`, `TestProposeVarianceComment`,
+  `TestProposeVarianceCommentRefusals` (each citation not behind the row,
+  a statement of another row, a session not running, a person proposing,
+  an agent commenting, a payment the agent may not read),
+  `TestProposeVarianceCommentFailures`; `db.TestCashVarianceCommentRules`,
+  `TestCashVarianceCommentPrivileges`; `cashagent.TestExplain`,
+  `TestExplainRefusals`; `TestEvalSuites/cash`; the walkthrough's step 39:
+  Northwind's receipt WT-1042 arrives three days early on a new RBC
+  statement, the agent proposes a comment on its row citing WT-1042 and
+  that statement (a citation of a supplier payment under that row
+  refused) and a memo record for Lakeshore Rentals' monthly USD 3,200.00
+  citing its three MUSD lines, nothing for a one-off refund or any other
+  row; it may not accept its comment, and Tom accepts both.
+
 ### 14. Treasury connector (decision P8)
 Export only, as 07 says: no deals, no positions or payments come back.
 - **Content**: per snapshot (and on demand), the cash position per bank

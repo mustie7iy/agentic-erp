@@ -415,7 +415,7 @@ func TestAgentErrors(t *testing.T) {
 	t.Chdir(t.TempDir())
 	model(t)
 	fakeAPI(t, routes{})
-	fails(t, "agent invoices | config | migration | test | reconcile", "agent")
+	fails(t, "agent invoices | config | migration | test | reconcile | cash-variance", "agent")
 	fails(t, "unknown agent", "agent", "bogus")
 	fails(t, "flag provided", "agent", "config", "-x")
 	fails(t, "say what to change", "agent", "config")
@@ -435,7 +435,30 @@ func TestAgentErrors(t *testing.T) {
 		t.Errorf("agent reconcile: got %s", got)
 	}
 	printFails(t, "agent", "reconcile", "-statement", "s")
+	fails(t, "flag provided", "agent", "cash-variance", "-x")
+	fails(t, "want -company CODE -period FROM..TO", "agent", "cash-variance", "-company", "3000", "-period", "2026-04-17")
+	fails(t, "want -company CODE -period FROM..TO", "agent", "cash-variance", "-period", "2026-04-17..2026-04-17")
+	fails(t, "404", "agent", "cash-variance", "-company", "3000", "-period", "2026-04-17..2026-04-17")
+	fakeAPI(t, routes{"GET /v1/legal-entities": {ok(`{"items": [{"id": "le", "code": "3000"}]}`)}, "GET /v1/liquidity-forecast-variance": {ok(`{}`)},
+		"POST /v1/agent-sessions": {reply{201, `{"id": "01a1aa00-0000-7000-8000-000000000a01", "autonomy_level": 1}`}},
+		"POST /v1/agent-sessions/01a1aa00-0000-7000-8000-000000000a01:end":        {ok(`{}`)},
+		"POST /v1/agent-sessions/01a1aa00-0000-7000-8000-000000000a01/tool-calls": {reply{201, `{}`}},
+		"POST /v1/liquidity-forecast-variance/comment-proposals":                  {reply{201, `{"id": "c1"}`}},
+		"POST /v1/memo-record-proposals":                                          {reply{201, `{"id": "m1"}`}}})
+	model(t, llmtest.Tool("proposeForecastVarianceComment", map[string]any{"body": map[string]any{"legal_entity_id": "le", "from": "2026-04-17",
+		"to": "2026-04-17", "lag": 7}}), llmtest.Tool("proposeMemoRecord", map[string]any{"body": map[string]any{"legal_entity_id": "le"}}),
+		llmtest.Final("OP_SUPPLIERS: proposed."))
+	got := must(t, "agent", "cash-variance", "-company", "3000", "-period", "2026-04-17..2026-04-17")
+	if want := "Session 01a1aa00-0000-7000-8000-000000000a01: comments proposed 1, memo records proposed 1, refused 0.\n  comment c1\n  memo record m1\n" +
+		"OP_SUPPLIERS: proposed.\n"; got != want {
+		t.Errorf("agent cash-variance: got %q, want %q", got, want)
+	}
+	model(t, llmtest.Final("Nothing to explain."))
+	printFails(t, "agent", "cash-variance", "-company", "3000", "-period", "2026-04-17..2026-04-17")
+	model(t)
+	fails(t, "500", "agent", "cash-variance", "-company", "3000", "-period", "2026-04-17..2026-04-17")
 	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
+	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "cash-variance", "-company", "3000", "-period", "2026-04-17..2026-04-17")
 	for _, a := range []string{"config", "migration", "test", "reconcile"} {
 		t.Run(a+" without a token", func(t *testing.T) {
 			fails(t, "ERP_AGENT_TOKEN is not set", "agent", a, "do", "it")

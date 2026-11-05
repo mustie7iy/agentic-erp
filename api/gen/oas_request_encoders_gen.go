@@ -1443,6 +1443,20 @@ func encodeProposeBankStatementLineRequest(
 	return nil
 }
 
+func encodeProposeForecastVarianceCommentRequest(
+	req *ForecastVarianceCommentProposal,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeProposeMemoRecordRequest(
 	req *MemoRecordProposal,
 	r *http.Request,
@@ -1562,6 +1576,20 @@ func encodeRejectApprovalRequestRequest(
 }
 
 func encodeRejectBankStatementLineProposalRequest(
+	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeRejectForecastVarianceCommentProposalRequest(
 	req *ReasonInput,
 	r *http.Request,
 ) error {

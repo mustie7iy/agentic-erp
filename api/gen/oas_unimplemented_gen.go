@@ -53,6 +53,18 @@ func (UnimplementedHandler) AcceptBankStatementLineProposal(ctx context.Context,
 	return r, ht.ErrNotImplemented
 }
 
+// AcceptForecastVarianceCommentProposal implements acceptForecastVarianceCommentProposal operation.
+//
+// A person accepts the forecast agent's `proposed` comment on the forecast variance as it stands
+// (ADR-0051 §13, T53i; 409 `cash.variance_comment_not_proposed` otherwise): it becomes `accepted`,
+// decided by the person, and keeps its text, session and citations. Audited, and published as
+// VarianceCommentDecided.
+//
+// POST /v1/liquidity-forecast-variance/comments/{id}:acceptProposal
+func (UnimplementedHandler) AcceptForecastVarianceCommentProposal(ctx context.Context, params AcceptForecastVarianceCommentProposalParams) (r AcceptForecastVarianceCommentProposalRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // AcceptMemoRecordProposal implements acceptMemoRecordProposal operation.
 //
 // A person accepts an agent's `proposed` memo record (409 `cash.memo_record_not_proposed` otherwise):
@@ -1802,11 +1814,40 @@ func (UnimplementedHandler) GetFiscalPeriod(ctx context.Context, params GetFisca
 
 // GetForecastVarianceComment implements getForecastVarianceComment operation.
 //
-// One comment on a legal entity's forecast variance (ADR-0051 §11, T53f4). A comment on a legal
-// entity the caller cannot act in is not found.
+// One comment on a legal entity's forecast variance (ADR-0051 §11, T53f4), its version the ETag that
+// a decision on a proposal names (`If-Match`). A comment on a legal entity the caller cannot act in is
+// not found.
 //
 // GET /v1/liquidity-forecast-variance/comments/{id}
 func (UnimplementedHandler) GetForecastVarianceComment(ctx context.Context, params GetForecastVarianceCommentParams) (r GetForecastVarianceCommentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetForecastVarianceDocuments implements getForecastVarianceDocuments operation.
+//
+// The documents behind the attribution of a legal entity's forecast variance (ADR-0051 §11, §13,
+// T53i), as `getLiquidityForecastVariance` attributes it for the same `from`, `to`, `lag` and `grain`,
+// computed at the read from one database state: one entry per contribution in the days kept per
+// document (from `from` to the earlier of `to` and the snapshot's `document_level_until`), each a
+// forecast line of the snapshot (`side` `forecast`) or the part of a statement line one document
+// behind it pays, per liquidity item (`side` `actual`), with its attribution (`timing`, `amount`,
+// `new`, `missing` or `unclassified`), currency, liquidity item, value date, the bucket it falls in,
+// its signed amount, and the documents it is known by: a payment, a supplier item's journal entry, the
+// supplier invoice it was posted for, the purchase order that invoice was entered on, a down payment
+// request, a memo record (a series' occurrence with its `occurrence_date`), and, for a statement line,
+// its bank statement and `line_no`. These are the documents the forecast agent's comment proposals may
+// cite (`proposeForecastVarianceComment`). Of one row with `liquidity_item` (the item and its
+// descendants) or `unclassified` (what no rule assigns), not both (422); of every row without either.
+// Each document is shown only to a caller who may use its context's read permission (a payment
+// `payments.run.read`, a bank statement `payments.statement.read`, a journal entry
+// `ledger.entry.read`, an invoice or down payment request `payables.invoice.read`, an order
+// `procurement.order.read`, a memo record `cash.memo.read`), as the snapshot's lines and the actuals'
+// lines show them, and otherwise left out (`document_count` counts them all); no supplier is named.
+// Refused as the variance is: 409 `cash.snapshot_not_taken`, 422 for a lag, period or grain the
+// variance refuses, 404 for a legal entity the caller cannot act in.
+//
+// GET /v1/liquidity-forecast-variance/documents
+func (UnimplementedHandler) GetForecastVarianceDocuments(ctx context.Context, params GetForecastVarianceDocumentsParams) (r GetForecastVarianceDocumentsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -4114,6 +4155,27 @@ func (UnimplementedHandler) ProposeBankStatementLine(ctx context.Context, req *S
 	return r, ht.ErrNotImplemented
 }
 
+// ProposeForecastVarianceComment implements proposeForecastVarianceComment operation.
+//
+// The forecast agent proposes an explanation of one row of a legal entity's forecast variance
+// (ADR-0051 §11, §13, T53i) in its running session (`session_id`; another's or an ended one is
+// refused as `createRecommendation` refuses it): the row, period and lag as
+// `createForecastVarianceComment` names and checks them, the text, and the documents behind the
+// attributed variance it explains (`citations`, 1 to 50, each a kind and id), checked against the
+// attribution: every document it cites must be one `getForecastVarianceDocuments` lists, as the caller
+// may see it, for that row (the item and its descendants, or what no rule assigns) over the period at
+// the lag, else 422 `cash.citation_not_attributed` naming each (`citations[N]`). The comment is
+// `proposed` and names the session and its citations until a person accepts it (`:acceptProposal`) or
+// rejects it with a reason (`:rejectProposal`); a person who would word it otherwise rejects it and
+// writes their own (`createForecastVarianceComment`), so what the agent said stays as it said it.
+// Agents never write, accept or reject a comment otherwise. Audited, and published as
+// VarianceCommentProposed.
+//
+// POST /v1/liquidity-forecast-variance/comment-proposals
+func (UnimplementedHandler) ProposeForecastVarianceComment(ctx context.Context, req *ForecastVarianceCommentProposal, params ProposeForecastVarianceCommentParams) (r ProposeForecastVarianceCommentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ProposeMemoRecord implements proposeMemoRecord operation.
 //
 // An agent proposes a memo record in its running session (`session_id`; another's or an ended one is
@@ -4292,6 +4354,18 @@ func (UnimplementedHandler) RejectApprovalRequest(ctx context.Context, req *Comm
 //
 // POST /v1/bank-statements/{id}/lines/{line_no}:rejectProposal
 func (UnimplementedHandler) RejectBankStatementLineProposal(ctx context.Context, req *ReasonInput, params RejectBankStatementLineProposalParams) (r RejectBankStatementLineProposalRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RejectForecastVarianceCommentProposal implements rejectForecastVarianceCommentProposal operation.
+//
+// A person rejects the forecast agent's `proposed` comment on the forecast variance, with a reason
+// (ADR-0051 §13, T53i; 409 `cash.variance_comment_not_proposed` otherwise): it becomes `rejected`,
+// decided by the person, and is kept with its text and citations as evidence of what the agent said,
+// and its snapshot with it. Audited, and published as VarianceCommentDecided.
+//
+// POST /v1/liquidity-forecast-variance/comments/{id}:rejectProposal
+func (UnimplementedHandler) RejectForecastVarianceCommentProposal(ctx context.Context, req *ReasonInput, params RejectForecastVarianceCommentProposalParams) (r RejectForecastVarianceCommentProposalRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

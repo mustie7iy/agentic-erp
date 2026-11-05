@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	capturepkg "github.com/mustie7iy/agentic-erp/internal/capture"
+	"github.com/mustie7iy/agentic-erp/internal/cashagent"
 	"github.com/mustie7iy/agentic-erp/internal/controlplane"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
@@ -54,7 +56,7 @@ func (s *swapExtractor) Extract(ctx context.Context, pdf []byte) (*capturepkg.Ex
 	return (&capturepkg.ClaudeExtractor{LLM: r}).Extract(ctx, pdf)
 }
 
-func newReplayCell(t *testing.T) replayCell {
+func newReplayCell(t *testing.T, now func() time.Time) replayCell {
 	t.Helper()
 	// The suites cap their tenants' AI; a cap's routes need priced models.
 	pgtest.Exec(t, `INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by)
@@ -66,7 +68,7 @@ func newReplayCell(t *testing.T) replayCell {
 	}
 	objects := blobstoretest.New(t).Store()         // the reconciliation suite's statement files
 	api := apitest.NewWith(t, func(c *app.Config) { // an evaluation cell (ADR-0039)
-		c.Extractor, c.ExtractDir, c.EvalCell, c.Objects = extract, extracts, true, objects
+		c.Extractor, c.ExtractDir, c.EvalCell, c.Objects, c.Now = extract, extracts, true, objects, now
 	})
 	is := api.Issuer
 	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
@@ -169,7 +171,7 @@ func echo(ctx context.Context, env eval.Env) error {
 // and API, here with the scripted model in place of the gateway, and
 // writes its report; every suite of the repository replays the same way.
 func TestEvalReplay(t *testing.T) {
-	c := newReplayCell(t)
+	c := newReplayCell(t, time.Now)
 	evalAgents["echo"] = echo
 	t.Cleanup(func() { delete(evalAgents, "echo") })
 	vars := map[string]string{"ERP_CONTROL_URL": c.control.URL, "ERP_API_URL": c.api.URL}
@@ -226,14 +228,14 @@ func TestEvalSuites(t *testing.T) {
 	}
 	for _, path := range suites {
 		t.Run(filepath.Base(filepath.Dir(path)), func(t *testing.T) {
-			c := newReplayCell(t)
-			vars := map[string]string{"ERP_CONTROL_URL": c.control.URL, "ERP_API_URL": c.api.URL}
-			getenv = func(k string) string { return vars[k] }
-			t.Cleanup(func() { getenv = os.Getenv })
 			s, err := eval.Load(path)
 			if err != nil {
 				t.Fatal(err)
 			}
+			c := newReplayCell(t, cellClock(t, s.Agent))
+			vars := map[string]string{"ERP_CONTROL_URL": c.control.URL, "ERP_API_URL": c.api.URL}
+			getenv = func(k string) string { return vars[k] }
+			t.Cleanup(func() { getenv = os.Getenv })
 			models, mint := evalModels, evalMint
 			evalModels = func(string) eval.Models { return newReplay(t, s, c) }
 			evalMint = func(string) eval.Mint { return c.mint }
@@ -248,6 +250,41 @@ func TestEvalSuites(t *testing.T) {
 				t.Errorf("replay: got %s, want level 2", got)
 			}
 		})
+	}
+}
+
+// cellClock is the replay cell's clock for a suite: the forecast agent's
+// steps back from a weekend in company 2000's zone to the Friday before,
+// since its cases leave unpaid what was forecast for today, and every
+// forecast falls on a business day (evals/cash); every other suite's is
+// the time.
+func cellClock(t *testing.T, agent string) func() time.Time {
+	t.Helper()
+	if agent != cashagent.Type {
+		return time.Now
+	}
+	berlin, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return func() time.Time { return businessDay(time.Now().In(berlin)) }
+}
+
+// businessDay is the time on the last weekday on or before it.
+func businessDay(at time.Time) time.Time {
+	for at.Weekday() == time.Saturday || at.Weekday() == time.Sunday {
+		at = at.AddDate(0, 0, -1)
+	}
+	return at
+}
+
+// TestBusinessDay: a weekend steps back to its Friday, a weekday stays.
+func TestBusinessDay(t *testing.T) {
+	for in, want := range map[string]string{"2026-11-07": "2026-11-06", "2026-11-08": "2026-11-06", "2026-11-09": "2026-11-09"} {
+		at, _ := time.Parse(time.DateOnly, in)
+		if got := businessDay(at).Format(time.DateOnly); got != want {
+			t.Errorf("%s: got %s, want %s", in, got, want)
+		}
 	}
 }
 
@@ -352,6 +389,10 @@ func TestAdapterFailures(t *testing.T) {
 		"test without a change request":      testEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
 		"reconciliation without a statement": reconciliationEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
 		"reconciliation without its API":     reconciliationEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"statement": "s"}}),
+		"cash_forecast without a lag":        cashForecastEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"company": "c", "from": "f", "to": "t"}}),
+		"cash_forecast, a lag no number":     cashForecastEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"company": "c", "from": "f", "to": "t", "lag": "x"}}),
+		"cash_forecast without its API": cashForecastEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{},
+			Task: map[string]any{"company": "c", "from": "f", "to": "t", "lag": 0}}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err == nil {

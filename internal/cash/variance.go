@@ -126,42 +126,67 @@ func errVarianceTooLarge() *problem.Problem {
 // grain's limit, is refused; a period whose snapshot was not taken is a
 // conflict.
 func (e *Endpoints) Variance(ctx context.Context, q VarianceQuery) (Variance, error) {
-	from, to, grain := clock.Day(q.From), clock.Day(q.To), cmp.Or(q.Grain, config.GrainDay)
-	if err := checkLag(q.Lag); err != nil {
+	vr, err := e.readVariance(ctx, q)
+	if err != nil {
 		return Variance{}, err
 	}
-	if _, err := actualBuckets(from, to, grain); err != nil {
+	v := vr.v
+	if v.Currencies, v.Beyond, err = vr.compare(ctx); err != nil {
 		return Variance{}, err
+	}
+	if vr.ar.r.sums.overflow {
+		return Variance{}, errVarianceTooLarge()
+	}
+	return v, nil
+}
+
+// varianceRead is what a variance compares, read and matched: the
+// variance's request as checked (its figures not yet computed), the
+// actuals, the snapshot's lines and their matching to the actuals' pieces.
+type varianceRead struct {
+	v     Variance
+	ar    actualsRead
+	lines []keptLine
+	m     *matching
+}
+
+// readVariance reads and matches what the variance of q compares,
+// refusing q as Variance does.
+func (e *Endpoints) readVariance(ctx context.Context, q VarianceQuery) (varianceRead, error) {
+	from, to, grain := clock.Day(q.From), clock.Day(q.To), cmp.Or(q.Grain, config.GrainDay)
+	if err := checkLag(q.Lag); err != nil {
+		return varianceRead{}, err
+	}
+	if _, err := actualBuckets(from, to, grain); err != nil {
+		return varianceRead{}, err
 	}
 	taken := from.AddDate(0, 0, -q.Lag)
 	docEnd := taken.AddDate(0, 0, documentLevelDays)
 	ar, err := e.readActuals(ctx, q.LegalEntity, taken, maxDay(to, docEnd))
 	if err != nil {
-		return Variance{}, err
+		return varianceRead{}, err
 	}
 	if err := checkPassed(to, ar.r.read); err != nil {
-		return Variance{}, err
+		return varianceRead{}, err
 	}
 	s, err := snapshotOn(ctx, ar.tx, q.LegalEntity, taken)
 	if err != nil {
-		return Variance{}, err
+		return varianceRead{}, err
 	}
 	s.CompanyCode = ar.co.Code
 	if err := checkHorizon(to, s); err != nil {
-		return Variance{}, err
+		return varianceRead{}, err
 	}
 	v := Variance{LegalEntity: q.LegalEntity, CompanyCode: ar.co.Code, ReadDate: ar.r.read, TimeZone: ar.zone, From: from, To: to, Lag: q.Lag,
 		Grain: grain, Snapshot: s}
 	// Safe to ignore: the period's buckets were checked above, and these end
 	// no later.
 	v.Buckets, _ = actualBuckets(from, minDay(to, docEnd), grain)
-	if v.Currencies, v.Beyond, err = e.compare(ctx, ar, s, v.Buckets, to); err != nil {
-		return Variance{}, err
+	vr := varianceRead{v: v, ar: ar}
+	if vr.lines, vr.m, err = matched(ctx, ar, s, v.Buckets, to); err != nil {
+		return varianceRead{}, err
 	}
-	if ar.r.sums.overflow {
-		return Variance{}, errVarianceTooLarge()
-	}
-	return v, nil
+	return vr, nil
 }
 
 // checkLag refuses a lag a variance does not compare at.

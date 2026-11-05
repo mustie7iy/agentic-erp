@@ -637,8 +637,16 @@ close's variance in its session, citing the journal entries the row's
 figures are made of (ADR-0058 §10, T64i: `proposeVarianceComment`,
 `x-autonomy: propose`; a person takes it up with
 `acceptVarianceComment`, its text as it is or replaced, or turns it down
-with `rejectVarianceComment`, `x-agent: false`); free-text advice is a
-recommendation. Bank statements reach agents with the accounts masked to
+with `rejectVarianceComment`, `x-agent: false`), and the forecast agent
+(`erp agent cash-variance`, agent type `cash_forecast`) proposes a comment
+explaining a row of a company's liquidity forecast variance in its
+session, citing documents its attribution lists (ADR-0051 §13, T53i:
+`proposeForecastVarianceComment`, `x-autonomy: propose`, each citation
+checked against `getForecastVarianceDocuments` as the agent may see it; a
+person takes it up as it stands with
+`acceptForecastVarianceCommentProposal` or turns it down with
+`rejectForecastVarianceCommentProposal`, `x-agent: false`); free-text
+advice is a recommendation. Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation
 (`getBankReconciliation`, ADR-0047, T49h: its statements' balances against
