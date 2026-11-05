@@ -3498,19 +3498,22 @@ required on every account of a company in a group), the eliminations
 parent, members with ownership, first period and investment account) are
 configuration, built in T68a (ADR-0059 §3, As built T68a): they keep no
 table, and migration 000220 adds the permission `consolidation.read`.
-T68b and T68c are built; what follows is planned, not built (T68d-T68h).
+T68b, T68c and T68d are built; the tables marked T68e-T68h below are
+planned, not built.
 The ledger gained, in T68b, `journal_line.trading_partner_id` (the legal
 entity on the other side of an intercompany line, nullable, no foreign key)
 and the projection `ledger.trading_partner_balance`, maintained as
 `assignment_balance` is (§3.7); partner gained `business_partner.group_company_id`
-in T68c, from which the ledger derives it (ADR-0059 §4). The schema `consolidation` is created by the slices
-that write it, from T68d (ADR-0059 §5):
+in T68c, from which the ledger derives it (ADR-0059 §4). Migration 000221
+creates the schema `consolidation` (with its outbox, for
+`ConsolidationRunChanged`), its first three tables below and the permission
+`consolidation.run.manage` (T68d, ADR-0059 §5, As built T68d):
 
 | Table | Purpose |
 |---|---|
-| `consolidation.run` | A run of a group, fiscal year and regular period (T68d): its configuration version, group currency and rate type, status (queued, running, computed, failed, final, superseded, discarded; a trigger keeps the transitions), its Operation, problem when failed, finalizer and the final run superseding it. One run of a group queued or running at a time and one final per group and period (partial unique indexes) |
-| `consolidation.run_member` | Each company a run consolidates (T68d): parent or member, ownership, first period, local currency, closing rate and its validity, the status and version of the run's period in its leading ledger when the run read its figures, and when it was translated |
-| `consolidation.run_balance` | A member's translated figures (T68d, insert-only): per company account and trading partner, the local, booked group and translated amounts on its group account, plus the prior results and translation difference rows, which make each member's rows sum to zero |
+| `consolidation.run` | A run of a group, fiscal year and regular period (T68d): its parent and every company of its group as its configuration version has them (`companies`, which a caller must all be allowed to act in to see the run), the parent's period dates, its configuration version, group currency and rate type, status (queued, running, computed, failed, final, superseded, discarded; a trigger keeps the transitions and what the run consolidates), its Operation, problem when failed (kept when discarded), when computed, finalizer and the final run superseding it. One run of a group queued or running at a time and one final per group and period (partial unique indexes `consolidation_run_one_at_a_time`, `consolidation_run_one_final`) |
+| `consolidation.run_member` | Each company a run consolidates (T68d), written when it starts running: its code as read, parent or member, ownership and first period (a member's), local currency, closing rate (numeric(28,12)) and the date it is valid from (none in the group currency), the status and version of the run's period in its leading ledger when the run read its figures, and when it was translated, recorded once (a trigger; the only columns `erp_app` may update) |
+| `consolidation.run_balance` | A company's translated figures (T68d, insert-only, written while the run runs): per company account and trading partner (`balance`), the local, booked group and translated amounts on its group account, plus the earlier results (`prior_results`, on the retained earnings account) and translation difference (`cta`, a group amount alone) rows, which make each company's rows sum to zero; numbered per company by group account, company account, trading partner code and kind |
 | `consolidation.run_entry`, `consolidation.run_entry_line` | The run's eliminations (T68f, T68h; insert-only): intercompany, investment and non-controlling interest entries, each line on a group account with its company, company account, trading partner and component; each entry sums to zero (a deferred constraint trigger) |
 | `consolidation.run_difference` | The intercompany pairs a run matched (T68f): per elimination and pair of members, both amounts, the difference and the tolerance; matched, within tolerance, open, accepted (T68g, with who, when and why), outside the group, or without a trading partner (per company) |
 | `consolidation.run_acquisition` | A member's acquisition figures as a run computed them (T68h): net assets, closing rate, investment, goodwill, non-controlling interest, and whether they were frozen |

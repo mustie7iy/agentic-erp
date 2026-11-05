@@ -804,6 +804,9 @@ func (s *server) startOperations(runCtx context.Context) {
 	snapshots := &workflows.Snapshots{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Cash: app.Cash(apiCfg)}
 	// Depreciation runs (ADR-0057 §7) act as the person who started them.
 	depreciations := &workflows.Depreciations{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Runs: app.Assets(apiCfg), Actors: identity.Actors{}}
+	// Consolidation runs (ADR-0059 §6) too.
+	consolidations := &workflows.Consolidations{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Runs: app.Consolidation(apiCfg),
+		Actors: identity.Actors{}}
 	if engine == nil {
 		recurrer := &workflows.Recurrer{Recurrences: recurrences, Log: log}
 		s.spawn("recurring entries", func() { recurrer.Run(runCtx) })
@@ -815,6 +818,8 @@ func (s *server) startOperations(runCtx context.Context) {
 		s.spawn("releaser", func() { releaser.Run(runCtx) })
 		depreciator := &workflows.Depreciator{Depreciations: depreciations, Log: log}
 		s.spawn("depreciator", func() { depreciator.Run(runCtx) })
+		consolidator := &workflows.Consolidator{Consolidations: consolidations, Log: log}
+		s.spawn("consolidator", func() { consolidator.Run(runCtx) })
 		return
 	}
 	activities := &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)}
@@ -824,7 +829,7 @@ func (s *server) startOperations(runCtx context.Context) {
 		return engine.Worker(runCtx, cfg.Temporal.TaskQueue, func(r workflow.Registry) {
 			workflows.Register(r, activities, &workflows.Simulations{Worker: s.simulator}, &workflows.Migrations{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Integration(apiCfg), Actors: identity.Actors{}},
 				&workflows.Approvals{Pool: pool, AppRole: cfg.AppRole}, &workflows.Statements{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)},
-				recurrences, snapshots, depreciations)
+				recurrences, snapshots, depreciations, consolidations)
 		})
 	})
 	dispatcher := &workflows.Dispatcher{Deadline: cfg.Temporal.EscalateAfter, Escalations: cfg.Temporal.Escalations, Pool: pool, WorkerRole: cfg.WorkerRole, Client: engine, Queue: cfg.Temporal.TaskQueue, Interval: dispatchInterval, Statements: cfg.Temporal.StatementFetch, Recurring: recurrences, Snapshots: snapshots, Log: log}

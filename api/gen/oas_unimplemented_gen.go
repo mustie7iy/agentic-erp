@@ -739,6 +739,44 @@ func (UnimplementedHandler) CreateConnector(ctx context.Context, req *ConnectorC
 	return r, ht.ErrNotImplemented
 }
 
+// CreateConsolidationRun implements createConsolidationRun operation.
+//
+// Starts the consolidation run of a group for a regular period (ADR-0059 §6, T68d; SAP's
+// consolidation monitor): the run is written `queued` with the active configuration's version and its
+// Operation (kind `consolidation.run`, its `resource` the run), and carried out as a workflow, or in
+// process in a cell without a workflow engine. It includes the parent and every member whose first
+// period is on or before the run's, reads each one's leading-ledger balances through the period
+// (balance sheet accounts over every fiscal year, profit and loss accounts per fiscal year, per
+// account and trading partner) and translates them into the group currency (§7): assets and
+// liabilities at the closing rate, the latest of the configuration's `consolidation.rate_type` from
+// the company's local currency into the group currency valid on the period's last day; income,
+// expenses and equity at their booked group amounts; earlier fiscal years' results, and for a member
+// in the fiscal year of its first period those of the periods before it, as one row on the group
+// chart's `retained_earnings` account; and the translation difference, which makes each company's
+// translated rows sum to zero, as one row on its `cta` account. The method is to be confirmed by an
+// accounting specialist (ADR-0059, question 1). A run may be made for any period, open or not: a draft
+// shows the figures as they stand. Refused when the group is unknown to the caller (404
+// `consolidation.group_unknown`: one that does not exist, or whose parent or a member the caller may
+// not act in), for a special period (422 `consolidation.special_period`), a period the parent's
+// leading ledger does not have (422 `consolidation.period_unknown`), a member included on another
+// fiscal calendar (422 `consolidation.calendar_mismatch`, naming it), a parent whose local currency is
+// not the group currency (422 `consolidation.parent_currency`), a company currency without a closing
+// rate of the period (422 `consolidation.rate_missing`) or with one valid from before the period's
+// first day (422 `consolidation.rate_stale`, ADR-0042's rule), each naming the pair and the date; and
+// while another run of the group is queued or running (409 `consolidation.run_in_progress`, whose
+// detail and `Location` name it). A business problem while the run is carried out (a rate recorded
+// since, a company account with a balance and no group account, `consolidation.account_unmapped`, a
+// member's period gone, its requester blocked since) fails the run and its Operation with the problem.
+// Cancelling the Operation (`POST /v1/operations/{id}:cancel`) fails the run at its next step with
+// `consolidation.run_cancelled`, the Operation staying `cancelled`. A step failing on an error of the
+// machinery is tried five times; one that outlasts them fails the run with `platform.internal`. Each
+// change of the run's status is published as ConsolidationRunChanged and audited. Human-only.
+//
+// POST /v1/consolidation-runs
+func (UnimplementedHandler) CreateConsolidationRun(ctx context.Context, req *ConsolidationRunStart, params CreateConsolidationRunParams) (r CreateConsolidationRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateContract implements createContract operation.
 //
 // Creates a draft contract.
@@ -1166,6 +1204,20 @@ func (UnimplementedHandler) DeleteWebhookSubscription(ctx context.Context, param
 //
 // POST /v1/connectors/{id}:disable
 func (UnimplementedHandler) DisableConnector(ctx context.Context, req *ReasonInput, params DisableConnectorParams) (r DisableConnectorRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// DiscardConsolidationRun implements discardConsolidationRun operation.
+//
+// Discards a computed or failed consolidation run (ADR-0059 §6, §10): a draft no longer wanted. Its
+// figures stay readable, and it is `discarded` from then on; a final run is never discarded, and a
+// queued, running, superseded or discarded run is refused (409 `consolidation.run_not_discardable`).
+// `If-Match` is the run's ETag (412 `request.version_mismatch` when it moved since). Published as
+// ConsolidationRunChanged and audited. A run of a group whose parent or a member the caller may not
+// act in is not found (404), as a run that does not exist. Human-only.
+//
+// POST /v1/consolidation-runs/{id}:discard
+func (UnimplementedHandler) DiscardConsolidationRun(ctx context.Context, params DiscardConsolidationRunParams) (r DiscardConsolidationRunRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1727,6 +1779,23 @@ func (UnimplementedHandler) GetConnector(ctx context.Context, params GetConnecto
 //
 // GET /v1/consolidation-groups/{code}
 func (UnimplementedHandler) GetConsolidationGroup(ctx context.Context, params GetConsolidationGroupParams) (r GetConsolidationGroupRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetConsolidationRun implements getConsolidationRun operation.
+//
+// One consolidation run (ADR-0059 §6, T68d): its group by code and name, its period with its dates,
+// its status and the problem that failed it, the configuration version it read, the group currency and
+// the closing rate type, and its companies, the parent first and the members by company code, each
+// with its local currency, closing rate and the date it is valid from, its role, ownership and first
+// period, and the status and version of its leading ledger's period when the run read its figures. A
+// run of a group whose parent or a member the caller may not act in is not found (404), as a run that
+// does not exist, so neither its existence nor its companies leak (ADR-0059 §12). Besides
+// `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). Read from one
+// database state (a repeatable-read snapshot).
+//
+// GET /v1/consolidation-runs/{id}
+func (UnimplementedHandler) GetConsolidationRun(ctx context.Context, params GetConsolidationRunParams) (r GetConsolidationRunRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -2838,6 +2907,30 @@ func (UnimplementedHandler) ListConnectors(ctx context.Context, params ListConne
 	return r, ht.ErrNotImplemented
 }
 
+// ListConsolidationBalances implements listConsolidationBalances operation.
+//
+// A consolidation run's translated balances (ADR-0059 §7, T68d), by company code and line: per
+// company, one row per company account and trading partner (`balance`, with the local amount, the
+// booked group amount and the translated group amount, and the closing rate where one applied: on
+// asset and liability accounts), the results of earlier fiscal years on the `retained_earnings`
+// account (`prior_results`, translated at their booked group amounts) and the translation difference
+// on the `cta` account (`cta`, a group amount alone), each with the company's code and name, the group
+// account's number and name, the company account's number and name and the trading partner's code and
+// name. Within a company the rows follow the group account's number, the company account's (none
+// first), the trading partner's code (none first) and the kind, so two runs of the same figures number
+// them alike. With totals over the filter: the local amounts per local currency, and the booked and
+// translated group amounts in the group currency (each company's translated rows sum to zero).
+// Filters: company, group account, company account, trading partner and kind. A run still queued shows
+// none, a running one those of the companies translated so far. Besides `consolidation.read` the
+// caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member
+// the caller may not act in is not found (404), as a run that does not exist. Read from one database
+// state (a repeatable-read snapshot), so its page and totals agree.
+//
+// GET /v1/consolidation-runs/{id}/balances
+func (UnimplementedHandler) ListConsolidationBalances(ctx context.Context, params ListConsolidationBalancesParams) (r ListConsolidationBalancesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListConsolidationGroups implements listConsolidationGroups operation.
 //
 // The consolidation groups of the active configuration (ADR-0059 §3, T68a), in code order: each
@@ -2855,6 +2948,19 @@ func (UnimplementedHandler) ListConnectors(ctx context.Context, params ListConne
 //
 // GET /v1/consolidation-groups
 func (UnimplementedHandler) ListConsolidationGroups(ctx context.Context, params ListConsolidationGroupsParams) (r ListConsolidationGroupsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListConsolidationRuns implements listConsolidationRuns operation.
+//
+// The consolidation runs of the groups whose parent and every member the caller may act in (ADR-0059
+// §6, §12), newest first, each as `getConsolidationRun` gives it. Filters: group, fiscal year,
+// period and status. Besides `consolidation.read` the caller needs `ledger.entry.read`
+// (`x-also-permissions`). Read from one database state (a repeatable-read snapshot), so each run's
+// status and members agree whatever the workflow writes meanwhile.
+//
+// GET /v1/consolidation-runs
+func (UnimplementedHandler) ListConsolidationRuns(ctx context.Context, params ListConsolidationRunsParams) (r ListConsolidationRunsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

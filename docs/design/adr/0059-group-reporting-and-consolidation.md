@@ -2,7 +2,8 @@
 
 **Status:** accepted (T68 design step, 2026-11-04; decided by default under
 ADR-0053 d; `go-reviewer` approved in round 3 with no blocking finding; the
-five questions for the product owner stay open). The decisions taken by default and the questions for the
+five questions for the product owner answered as recommended,
+po:2026-11-05). The decisions taken by default and the questions for the
 product owner are listed at the end; the slices T68a-T68h are in the
 tracker.
 
@@ -953,6 +954,9 @@ evidence) and this ADR's "As built".
    repository records only IAS 21.23 and 21.16, through ADR-0042) before
    T68d; a period
    average rate would be a new rate type and a change to §7 only.
+   **Answered po:2026-11-05:** as recommended: build as designed; an
+   accounting specialist confirms the method against IAS 21 before T68d
+   ships (a tracker leaf).
 2. **Non-controlling interests and goodwill** (accounting rules).
    Designed: the interest measured at its proportionate share of the
    subsidiary's book net assets; no fair value adjustments of acquired
@@ -967,6 +971,8 @@ evidence) and this ADR's "As built".
    not recorded in the repository) before T68h;
    treat a negative residual as an error for the pilot unless its group
    has one.
+   **Answered po:2026-11-05:** as recommended; a specialist confirms against
+   IFRS 3 and IFRS 10 before T68h ships.
 3. **Group structures beyond the design** (new scope): holdings through
    another subsidiary, changes in ownership or capital after first
    consolidation, disposals, acquisitions during a period, members on
@@ -975,6 +981,7 @@ evidence) and this ADR's "As built".
    none for the pilot unless its group needs one; each its own design
    leaf when asked. This needs the pilot's group structure (a pilot fact:
    which companies, who holds whom, at what percentage).
+   **Answered po:2026-11-05:** as recommended: none now.
 4. **Opening consolidation at go-live** (scope and migration): migrated
    equity's group amounts are at the migration date's rate, so the
    translation reserve starts at zero at go-live, and a migrated line
@@ -985,10 +992,14 @@ evidence) and this ADR's "As built".
    lines (and, if the pilot's auditors need continuity, its historical
    equity amounts) once an SAP specialist confirms the extract carries
    them.
+   **Answered po:2026-11-05:** as recommended.
 5. **Segregation of duties on finalization** (security posture). Built:
    any person holding `consolidation.run.finalize` finalizes, including
    one who accepted the run's differences. Recommendation: keep it for the
    pilot, as ADR-0058's sign-off; add the rule if the pilot's auditors ask.
+   **Answered po:2026-11-05:** as recommended for the pilot, the finalizer
+   recorded; "finalizer is not the preparer" is added before go-live with
+   the close sign-off's rule (T64l).
 
 ## Gaps (out of scope, not built, no question asked)
 Neither the roadmap entry nor a PO decision asks for these; each becomes a
@@ -1251,3 +1262,83 @@ its part `consolidation_trading_partner`, after the group's reads: the
 governed change adding 1250 was dropped, since T68a's change adds Maple's
 1250 Intercompany receivables and 4250 Intercompany revenue, and Carla's
 manual invoice to Acme Corp US now credits 4250 rather than 4000.
+
+**T68d (the consolidation run and currency translation).** Built as §5,
+§6 and §7 say, with the method of §7 as designed (question 1, answered
+po:2026-11-05: to confirm against IAS 21 with an accounting specialist
+before T68d ships, a tracker leaf). Migration 000221 creates the schema `consolidation` with its
+outbox, `run`, `run_member` and `run_balance` with §5's rules and their
+schema tests (`db/consolidation_test.go`), and `consolidation.run.manage`.
+The ledger publishes `ConsolidationReads` (§4a): `LeadingLedger`,
+`PeriodOf`, `AccountsOf` (§4a's `Accounts`; `ledger.Accounts` names
+another type), `BalancesThrough` (the period and trading partner
+balances plus the lines not projected yet, in one statement, as
+`balanceRows`) and `RateOn` (`rateOfType`). The context answers
+`createConsolidationRun`, `getConsolidationRun`, `listConsolidationRuns`,
+`discardConsolidationRun` and `listConsolidationBalances`; the workflow
+`ConsolidationRun` (`internal/workflows/consolidation.go`) runs
+`PrepareConsolidationRun`, `TranslateMember`, `EliminateConsolidationRun`,
+`CompleteConsolidationRun` and `FailConsolidationRun` through
+`workflows.Consolidation`, the dispatcher starting it from the queued
+`consolidation.run` Operation and the `Consolidator` running the same
+steps in a cell without an engine; each step has a run-twice test.
+Decided by default, for the product owner to overrule:
+- **Visibility.** A run records `companies`, its group's parent and every
+  member in the configuration version it read, so the reads filter it in
+  SQL; a run whose companies the caller may not all act in is answered
+  404 `request.not_found`, as a run that does not exist, so its existence
+  and its group's code do not leak (§12's rule; `consolidation.group_unknown`
+  names a code the caller gave, at creation).
+- **Cancellation.** A cancelled Operation fails the run at its next step
+  with `consolidation.run_cancelled` (a run's failure, not a response),
+  its Operation staying `cancelled`, and a requester blocked since the
+  start fails it with `identity.principal_blocked` (PO 2026-11-03), as a
+  depreciation run does (ADR-0057 §7); a step's error outlasting five
+  tries fails it with `platform.internal`.
+- **The steps.** Preparation checks again, under the configuration
+  version the run recorded, everything creation checked (group, period,
+  calendars, closing rates), so a run queued before a rate went stale
+  fails with the problem. Every company of the run is translated by
+  `TranslateMember`, the parent included, in company code order; it
+  reads the period's status and version before the balances, so the
+  version recorded is never newer than the figures read.
+  `EliminateConsolidationRun` is in the workflow already and writes
+  nothing until T68f, so T68f adds no command to the workflow's history.
+  The Operation reports the companies translated of all.
+- **The closing rate** is recorded and applied in the 12-decimal form a
+  journal entry records rates, the reciprocal's rounding when only the
+  other direction is maintained, so a run's figures follow from its rows;
+  one whose 12-decimal form is zero is `consolidation.rate_missing`. The
+  check of the period before a member's first (§6, §9) is T68h's, which
+  needs it.
+- **Balances through the period.** In the run's fiscal year a balance is
+  of its periods up to the run's: the special periods (13-16) of that
+  year are not included; those of earlier years are. `BalancesThrough`
+  gives the profit and loss accounts of the run's year per period (§4a
+  says per fiscal year) so that a member's results of the periods before
+  its first one go to `prior_results`. The lines naming no trading
+  partner are an account's total less its trading partner balances.
+  Rows that are zero in both local and booked group amounts are not
+  written; `prior_results` and `cta` only when not zero.
+- **Reads.** A run shows its members (the parent first, then by code)
+  with the closing rate as a plain decimal, its problem, the
+  configuration version and the rate type; `stale`, the difference counts
+  and the finalizer come with T68f and T68g. The balances list gives the
+  closing rate on asset and liability rows (the company account's type),
+  and its totals the local amounts only for the currencies of rows that
+  have one. `:discard` takes no body. Each status change is audited as
+  `consolidation.run.<status>` and published as `ConsolidationRunChanged`
+  with the status before.
+- **Budget (§14, 01 §1.3).** `TestConsolidationRunBudget` (workflows,
+  run with `ERP_MEASURE_BUDGETS=1`) seeds 100 companies with 1,000
+  accounts with balances and 1,000 trading partner balances each and a
+  configuration naming them, and measures a run from its start to
+  computed, carried out in process.
+- **Walkthrough.** `step_consolidation` gains `consolidation_run`: Carla
+  opens Acme Corp US's period of today; Ben records Maple Industries
+  Canada as a supplier of Acme Corp US on 225000, linked to company 3000,
+  and Carla approves it; Alex posts its USD 2,000.00 invoice at Acme Corp
+  US on the month's first day (at 1.35); Carla runs MAPLE for today's
+  period: computed, Acme Corp US's payable at the closing 1.40
+  (-2,800.00 CAD), its expense at the booked 1.35 (2,700.00 CAD), 100.00
+  on the reserve; Maple at rate 1 with no translation difference.

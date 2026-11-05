@@ -13892,6 +13892,289 @@ paths:
           $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/consolidation-runs:
+    post:
+      operationId: createConsolidationRun
+      tags:
+        - consolidation
+      summary: Start a consolidation run
+      description: "Starts the consolidation run of a group for a regular period (ADR-0059 §6, T68d; SAP's consolidation monitor): the run is written `queued` with the active configuration's version and its Operation (kind `consolidation.run`, its `resource` the run), and carried out as a workflow, or in process in a cell without a workflow engine. It includes the parent and every member whose first period is on or before the run's, reads each one's leading-ledger balances through the period (balance sheet accounts over every fiscal year, profit and loss accounts per fiscal year, per account and trading partner) and translates them into the group currency (§7): assets and liabilities at the closing rate, the latest of the configuration's `consolidation.rate_type` from the company's local currency into the group currency valid on the period's last day; income, expenses and equity at their booked group amounts; earlier fiscal years' results, and for a member in the fiscal year of its first period those of the periods before it, as one row on the group chart's `retained_earnings` account; and the translation difference, which makes each company's translated rows sum to zero, as one row on its `cta` account. The method is to be confirmed by an accounting specialist (ADR-0059, question 1). A run may be made for any period, open or not: a draft shows the figures as they stand. Refused when the group is unknown to the caller (404 `consolidation.group_unknown`: one that does not exist, or whose parent or a member the caller may not act in), for a special period (422 `consolidation.special_period`), a period the parent's leading ledger does not have (422 `consolidation.period_unknown`), a member included on another fiscal calendar (422 `consolidation.calendar_mismatch`, naming it), a parent whose local currency is not the group currency (422 `consolidation.parent_currency`), a company currency without a closing rate of the period (422 `consolidation.rate_missing`) or with one valid from before the period's first day (422 `consolidation.rate_stale`, ADR-0042's rule), each naming the pair and the date; and while another run of the group is queued or running (409 `consolidation.run_in_progress`, whose detail and `Location` name it). A business problem while the run is carried out (a rate recorded since, a company account with a balance and no group account, `consolidation.account_unmapped`, a member's period gone, its requester blocked since) fails the run and its Operation with the problem. Cancelling the Operation (`POST /v1/operations/{id}:cancel`) fails the run at its next step with `consolidation.run_cancelled`, the Operation staying `cancelled`. A step failing on an error of the machinery is tried five times; one that outlasts them fails the run with `platform.internal`. Each change of the run's status is published as ConsolidationRunChanged and audited. Human-only."
+      x-permission: consolidation.run.manage
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - consolidation.calendar_mismatch
+        - consolidation.group_unknown
+        - consolidation.parent_currency
+        - consolidation.period_unknown
+        - consolidation.rate_missing
+        - consolidation.rate_stale
+        - consolidation.run_in_progress
+        - consolidation.special_period
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The run to start.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConsolidationRunStart"
+            examples:
+              november:
+                summary: Consolidate the group MAPLE for November
+                value:
+                  group_code: MAPLE
+                  fiscal_year: 2026
+                  period: 11
+      responses:
+        "202":
+          description: "Accepted; the run continues as a long-running operation. Poll the Operation at `Location`; its `resource` is the run (`GET /v1/consolidation-runs/{id}`)."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Operation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    get:
+      operationId: listConsolidationRuns
+      tags:
+        - consolidation
+      summary: List consolidation runs
+      description: "The consolidation runs of the groups whose parent and every member the caller may act in (ADR-0059 §6, §12), newest first, each as `getConsolidationRun` gives it. Filters: group, fiscal year, period and status. Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). Read from one database state (a repeatable-read snapshot), so each run's status and members agree whatever the workflow writes meanwhile."
+      x-permission: consolidation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-snapshot: true
+      x-problem-codes:
+        - config.unknown_version
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: group_code
+          in: query
+          required: false
+          description: Only the runs of the group with this code.
+          schema:
+            type: string
+            pattern: "^[A-Z0-9_]{1,30}$"
+        - name: fiscal_year
+          in: query
+          required: false
+          description: Only the runs of this fiscal year.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: period
+          in: query
+          required: false
+          description: Only the runs of this period.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 12
+        - name: status
+          in: query
+          required: false
+          description: Only runs in this status.
+          schema:
+            type: string
+            description: "Consolidation run status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [queued, running, computed, failed, final, superseded, discarded]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of consolidation runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsolidationRunPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/consolidation-runs/{id}":
+    get:
+      operationId: getConsolidationRun
+      tags:
+        - consolidation
+      summary: Get a consolidation run
+      description: "One consolidation run (ADR-0059 §6, T68d): its group by code and name, its period with its dates, its status and the problem that failed it, the configuration version it read, the group currency and the closing rate type, and its companies, the parent first and the members by company code, each with its local currency, closing rate and the date it is valid from, its role, ownership and first period, and the status and version of its leading ledger's period when the run read its figures. A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist, so neither its existence nor its companies leak (ADR-0059 §12). Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). Read from one database state (a repeatable-read snapshot)."
+      x-permission: consolidation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-snapshot: true
+      x-problem-codes:
+        - config.unknown_version
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The run.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsolidationRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/consolidation-runs/{id}:discard":
+    post:
+      operationId: discardConsolidationRun
+      tags:
+        - consolidation
+      summary: Discard a consolidation run
+      description: "Discards a computed or failed consolidation run (ADR-0059 §6, §10): a draft no longer wanted. Its figures stay readable, and it is `discarded` from then on; a final run is never discarded, and a queued, running, superseded or discarded run is refused (409 `consolidation.run_not_discardable`). `If-Match` is the run's ETag (412 `request.version_mismatch` when it moved since). Published as ConsolidationRunChanged and audited. A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Human-only."
+      x-permission: consolidation.run.manage
+      x-agent: false
+      x-problem-codes:
+        - config.unknown_version
+        - consolidation.run_in_progress
+        - consolidation.run_not_discardable
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The run, discarded, with its new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsolidationRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/consolidation-runs/{id}/balances":
+    get:
+      operationId: listConsolidationBalances
+      tags:
+        - consolidation
+      summary: List a consolidation run's translated balances
+      description: "A consolidation run's translated balances (ADR-0059 §7, T68d), by company code and line: per company, one row per company account and trading partner (`balance`, with the local amount, the booked group amount and the translated group amount, and the closing rate where one applied: on asset and liability accounts), the results of earlier fiscal years on the `retained_earnings` account (`prior_results`, translated at their booked group amounts) and the translation difference on the `cta` account (`cta`, a group amount alone), each with the company's code and name, the group account's number and name, the company account's number and name and the trading partner's code and name. Within a company the rows follow the group account's number, the company account's (none first), the trading partner's code (none first) and the kind, so two runs of the same figures number them alike. With totals over the filter: the local amounts per local currency, and the booked and translated group amounts in the group currency (each company's translated rows sum to zero). Filters: company, group account, company account, trading partner and kind. A run still queued shows none, a running one those of the companies translated so far. Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
+      x-permission: consolidation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-snapshot: true
+      x-problem-codes:
+        - config.unknown_version
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: group_account
+          in: query
+          required: false
+          description: Only the rows on the group account with this number.
+          schema:
+            type: string
+            pattern: "^[0-9A-Z]{1,10}$"
+        - name: account_id
+          in: query
+          required: false
+          description: Only the rows of this company account.
+          schema:
+            type: string
+            format: uuid
+        - name: trading_partner_id
+          in: query
+          required: false
+          description: Only the rows naming this trading partner (a legal entity).
+          schema:
+            type: string
+            format: uuid
+        - name: kind
+          in: query
+          required: false
+          description: Only the rows of this kind.
+          schema:
+            type: string
+            description: "Translated balance kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [balance, prior_results, cta]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the run's translated balances, with the totals over the filter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsolidationBalancePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/close-calendar:
     get:
       operationId: getCloseCalendar
@@ -37631,6 +37914,173 @@ components:
           readOnly: true
         investment_account:
           $ref: "#/components/schemas/AssetAccountRef"
+    ConsolidationRunStart:
+      type: object
+      description: "The consolidation run to start: a group of the active configuration and a regular period of its parent's fiscal calendar."
+      required: [group_code, fiscal_year, period]
+      properties:
+        group_code: {type: string, pattern: "^[A-Z0-9_]{1,30}$", description: "The group's code.", example: MAPLE}
+        fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2999, description: The fiscal year.}
+        period: {type: integer, format: int32, minimum: 1, maximum: 16, description: "The period; a regular one (1-12)."}
+    ConsolidationRunPage:
+      type: object
+      description: One page of consolidation runs, newest first.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ConsolidationRun"}
+          description: The runs on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    ConsolidationRun:
+      type: object
+      description: "A consolidation run of a group for a regular period (ADR-0059 §6): its companies, each with the closing rate it was translated at and its period's status and version when the run read its figures. The translated figures are `GET /v1/consolidation-runs/{id}/balances`."
+      required: [id, group_code, group_name, fiscal_year, period, period_start, period_end, status, config_version, group_currency, rate_type, operation_id, members, version, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid, description: The run., readOnly: true}
+        group_code: {type: string, description: "The group's code.", readOnly: true}
+        group_name: {type: string, description: "The group's name, in the configuration version the run read.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: The fiscal year., readOnly: true}
+        period: {type: integer, format: int32, description: The regular period., readOnly: true}
+        period_start: {type: string, format: date, description: "The period's first day, in the parent's leading ledger.", readOnly: true}
+        period_end: {type: string, format: date, description: "The period's last day: the closing rate's date.", readOnly: true}
+        status:
+          type: string
+          x-extensible-enum: [queued, running, computed, failed, final, superseded, discarded]
+          description: "queued until its workflow starts it, running while its companies are translated, then computed, or failed with its problem; a computed or failed run may be discarded. final and superseded follow finalization (ADR-0059 §10). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        problem: {$ref: "#/components/schemas/ConsolidationRunProblem"}
+        config_version: {type: integer, format: int32, description: "The configuration version whose group, group chart and mapping the run read (`GET /v1/config-versions`).", readOnly: true}
+        group_currency: {type: string, pattern: "^[A-Z]{3}$", description: "The group currency (ISO 4217), every translated amount's.", readOnly: true}
+        rate_type: {type: string, description: "The rate type of the closing rates (`consolidation.rate_type`).", readOnly: true}
+        operation_id: {type: string, format: uuid, description: "Its Operation (`GET /v1/operations/{id}`).", readOnly: true}
+        members:
+          type: array
+          description: "Its companies, the parent first and then the members by company code, once the run started running (none while queued)."
+          items: {$ref: "#/components/schemas/ConsolidationRunMember"}
+          readOnly: true
+        computed_at: {type: string, format: date-time, description: "When it was computed; absent before.", readOnly: true}
+        version: {type: integer, format: int32, description: "The run's version (ETag).", readOnly: true}
+        created_at: {type: string, format: date-time, description: When it was started., readOnly: true}
+        updated_at: {type: string, format: date-time, description: When it last changed., readOnly: true}
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000c01
+          group_code: MAPLE
+          group_name: Maple group
+          fiscal_year: 2026
+          period: 11
+          period_start: "2026-11-01"
+          period_end: "2026-11-30"
+          status: computed
+          config_version: 12
+          group_currency: CAD
+          rate_type: average
+          operation_id: 0192a000-0000-7000-8000-000000000c02
+          members:
+            - {legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b, company_code: "3000", company_name: Maple Industries Canada, local_currency: CAD, role: parent, closing_rate: "1", period_status: open, period_version: 3, translated_at: "2026-11-20T10:00:01Z"}
+            - {legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c, company_code: "1000", company_name: Acme Corp US, local_currency: USD, role: member, ownership_percent: "80", first_fiscal_year: 2026, first_fiscal_period: 11, closing_rate: "1.4", rate_valid_from: "2026-11-30", period_status: open, period_version: 2, translated_at: "2026-11-20T10:00:01Z"}
+          computed_at: "2026-11-20T10:00:02Z"
+          version: 4
+          created_at: "2026-11-20T10:00:00Z"
+          updated_at: "2026-11-20T10:00:02Z"
+    ConsolidationRunProblem:
+      type: object
+      description: "The problem that failed a run: its code and detail, as its Operation's error gives them; `consolidation.run_cancelled` when its Operation was cancelled, which stays `cancelled` without an error, `identity.principal_blocked` when the person who started it was blocked or deprovisioned since, and `platform.internal` when a step's error outlasted its retries."
+      required: [code, detail]
+      properties:
+        code: {type: string, description: "The problem's code, such as `consolidation.rate_stale`.", readOnly: true}
+        detail: {type: string, description: "The problem's detail.", readOnly: true}
+    ConsolidationRunMember:
+      type: object
+      description: "A company of a consolidation run: the parent, or a member whose first period is on or before the run's, with the closing rate its assets and liabilities were translated at and its leading ledger's period as the run read it."
+      required: [legal_entity_id, company_code, company_name, local_currency, role, closing_rate]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company's legal entity.", readOnly: true}
+        company_code: {type: string, description: "The company code, as the run read it.", readOnly: true}
+        company_name: {type: string, description: "The company's name as it is now.", readOnly: true}
+        local_currency: {type: string, pattern: "^[A-Z]{3}$", description: "Its local currency (ISO 4217), its local amounts'.", readOnly: true}
+        role:
+          type: string
+          x-extensible-enum: [parent, member]
+          description: "Its role in the group. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        ownership_percent: {type: string, description: "A member's: the parent's ownership in percent, a plain decimal; absent for the parent.", readOnly: true}
+        first_fiscal_year: {type: integer, format: int32, description: "A member's: the fiscal year of its first consolidated period.", readOnly: true}
+        first_fiscal_period: {type: integer, format: int32, minimum: 1, maximum: 12, description: "A member's: its first consolidated period.", readOnly: true}
+        closing_rate: {type: string, description: "The closing rate from its local currency into the group currency, a plain decimal of up to 12 decimals; 1 for a company in the group currency.", readOnly: true}
+        rate_valid_from: {type: string, format: date, description: "The date the closing rate is valid from; absent for a company in the group currency.", readOnly: true}
+        period_status:
+          type: string
+          x-extensible-enum: [open, closed, locked]
+          description: "Its leading ledger's period's status when the run read its figures; absent until translated. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        period_version: {type: integer, format: int32, description: "That period's version when the run read its figures; absent until translated.", readOnly: true}
+        translated_at: {type: string, format: date-time, description: "When its figures were read and translated; absent before.", readOnly: true}
+    ConsolidationBalancePage:
+      type: object
+      description: "One page of a consolidation run's translated balances, with the totals over the filter."
+      required: [items, totals]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ConsolidationBalance"}
+          description: The rows on this page.
+        totals: {$ref: "#/components/schemas/ConsolidationBalanceTotals"}
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    ConsolidationBalanceTotals:
+      type: object
+      description: "The totals of every row the filter selects, over all pages: the local amounts per local currency (by currency code), and the booked and translated group amounts in the group currency."
+      required: [local, group_booked, group]
+      properties:
+        local:
+          type: array
+          items: {$ref: "#/components/schemas/Money"}
+          description: "The local amounts' sum per local currency, by currency code; the translation differences have none."
+        group_booked: {$ref: "#/components/schemas/Money", description: "The booked group amounts' sum; the translation differences have none."}
+        group: {$ref: "#/components/schemas/Money", description: "The translated group amounts' sum; zero over every row of a company."}
+    ConsolidationBalance:
+      type: object
+      description: "A translated balance of a consolidation run (ADR-0059 §7): a company account's balance with a trading partner or none (`balance`), a company's results of earlier fiscal years (`prior_results`), or its translation difference (`cta`). Amounts are debit positive."
+      required: [legal_entity_id, company_code, company_name, line_no, kind, group_account, amount_gc]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company's legal entity.", readOnly: true}
+        company_code: {type: string, description: "The company code, as the run read it.", readOnly: true}
+        company_name: {type: string, description: "The company's name as it is now.", readOnly: true}
+        line_no: {type: integer, format: int32, description: "The row's number within its company.", readOnly: true}
+        kind:
+          type: string
+          x-extensible-enum: [balance, prior_results, cta]
+          description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        group_account: {$ref: "#/components/schemas/GroupAccountRef"}
+        account_id: {type: string, format: uuid, description: "A `balance` row's company account.", readOnly: true}
+        account: {$ref: "#/components/schemas/AssetAccountRef"}
+        trading_partner: {$ref: "#/components/schemas/TradingPartner"}
+        amount_lc: {$ref: "#/components/schemas/Money", description: "The local amount, in the company's local currency; absent on a `cta` row."}
+        amount_gc_booked: {$ref: "#/components/schemas/Money", description: "The group amount as booked, each line at its posting date's rate; absent on a `cta` row."}
+        amount_gc: {$ref: "#/components/schemas/Money", description: "The translated group amount: the local amount at the closing rate for asset and liability accounts, rounded once half away from zero; the booked group amount otherwise; the translation difference on a `cta` row."}
+        closing_rate: {type: string, description: "The closing rate the row was translated at, where one applied (asset and liability accounts).", readOnly: true}
+      examples:
+        - legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c
+          company_code: "1000"
+          company_name: Acme Corp US
+          line_no: 3
+          kind: balance
+          group_account: {number: G2000, name: Liabilities}
+          account_id: 0192a000-0000-7000-8000-000000000402
+          account: {number: "211000", name: Accounts Payable - Domestic}
+          trading_partner: {id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b, code: "3000", name: Maple Industries Canada}
+          amount_lc: {amount: "-1500.00", currency: USD}
+          amount_gc_booked: {amount: "-2025.00", currency: CAD}
+          amount_gc: {amount: "-2100.00", currency: CAD}
+          closing_rate: "1.4"
+    GroupAccountRef:
+      type: object
+      description: "An account of the group chart, by number and name, in the configuration version a run read."
+      required: [number, name]
+      properties:
+        number: {type: string, description: "The group account's number.", readOnly: true}
+        name: {type: string, description: "The group account's name.", readOnly: true}
     GroupAccountPage:
       type: object
       description: One page of the group chart of accounts.

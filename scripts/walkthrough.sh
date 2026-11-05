@@ -401,7 +401,7 @@ start() {
   say "    analytics, step 38 the forecast, its variance and accuracy in analytics"
   say "  - a webhook delivered: the walkthrough runs without the event bus and never sends one to this machine"
   say "  - cost center postings, reports and planning (T56d-T56j)"
-  say "  - accounts receivable, the period close's accruals and its close agent (T64e-T64g, T64j), consolidation runs, trading partners and eliminations (T68b-T68h)"
+  say "  - accounts receivable, the period close's accruals and its close agent (T64e-T64g, T64j), the consolidated statements, eliminations and finalization (T68e-T68h)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
   # ERP_EVAL_CELL: the close agent's principal runs at level 1 before its
@@ -3051,7 +3051,7 @@ CONSOLIDATION_SETTINGS='(.consolidation = {
 # approved and activated; Carla reads the group with its companies named
 # and the group chart; Cory, who may act in Maple alone, sees no group.
 step_consolidation() {
-  heading "Step 39 — Group reporting: the group chart, the companies' mapping and the group MAPLE through a governed change"
+  heading "Step 39 — Group reporting: the group chart, the companies' mapping and the group MAPLE through a governed change, trading partners and a consolidation run"
   as ada
   local base settings first cr request
   first="$YEAR-${TODAY:5:2}"
@@ -3119,6 +3119,7 @@ step_consolidation() {
   expect "the groups Cory sees" "$(field '.items | length')" 0
   refused 404 consolidation.group_unknown getConsolidationGroup -p code=MAPLE
   consolidation_trading_partner
+  consolidation_run
   as tom
   passed
 }
@@ -3198,6 +3199,73 @@ trading_partner_derived() {
     getJournalEntry -p "id=$entry"
   expect "the invoice's lines' trading partners" "$(field '[.lines[] | "\(.trading_partner.code) \(.trading_partner.name)"] | unique | join(", ")')" "1000 Acme Corp US"
   expect "the invoice's lines" "$(field '.lines | length')" 2
+}
+
+# consolidation_run is the consolidation run and its currency translation
+# (T68d, ADR-0059 §6, §7), part of step_consolidation. Acme Corp US's
+# period of today opens; Ben records Maple Industries Canada as a supplier
+# of Acme Corp US, its intercompany payables account 225000 and linked to
+# company 3000; Alex posts Maple's USD 2,000.00 invoice for engineering at
+# Acme Corp US on the month's first day (at 1.35, step 9's rate). Carla
+# runs the group MAPLE for today's period: the run is computed; Acme Corp
+# US's payable at the closing rate 1.40 (step 9's rate from the month's
+# end, so any day of the month gives these figures), its expense at the
+# booked 1.35, the difference on the currency translation reserve; Maple,
+# in the group currency, at rate 1 with no difference.
+consolidation_run() {
+  local first="${TODAY:0:7}-01" period=$((10#${TODAY:5:2})) us p recon term partner item invoice run
+  as carla
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  us=$(field '.items[] | select(.code == "1000") | .id')
+  say "Acme Corp US's periods were set up closed (T68a). Carla opens today's period, $YEAR-$period, in its leading ledger"
+  say "for the sister's invoice:"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$us" -p "fiscal_year=$YEAR" -p "ledger_id=$LEADING" -p page_size=100
+  p=$(field ".items[] | select(.period == $period) | \"\(.id)/\(.version)\"")
+  api 200 '"period \(.fiscal_year)-\(.period) of Acme Corp US: \(.status)"' openFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  as ben
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$us" -p page_size=200
+  cp "$WORK/last.json" "$WORK/us-accounts.json"
+  recon=$(jq -r '.items[] | select(.number == "225000") | .id' "$WORK/us-accounts.json")
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$SUPPLIER"
+  term=$(field ".supplier_companies[] | select(.legal_entity_id == \"$LE\") | .payment_term_code")
+  say "Maple invoices its sister for engineering too. Ben records Maple Industries Canada as a supplier of Acme Corp US,"
+  say "on its intercompany payables account 225000, linked to company $CC, the group company it is (ADR-0059 §4):"
+  api 201 '"business partner \(.number) \(.name): \(.status), group company \(.group_company.code) \(.group_company.name)"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Maple Industries Canada\", \"country_code\": \"CA\", \"roles\": [\"supplier\"], \"supplier_companies\": [{\"legal_entity_id\": \"$us\", \"reconciliation_account_id\": \"$recon\", \"payment_term_code\": \"$term\"}], \"group_company_id\": \"$LE\", \"reason\": \"Our Canadian sister invoices engineering to Acme Corp US\"}"
+  partner=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$partner" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Our own Canadian company, checked against the group's companies"
+  as alex
+  say "Alex posts Maple's invoice at Acme Corp US, USD 2,000.00 of intercompany services on 525000 dated $first:"
+  item="{\"account_id\": \"$(jq -r '.items[] | select(.number == "525000") | .id' "$WORK/us-accounts.json")\", \"description\": \"Engineering services\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"2000.00\", \"currency\": \"USD\"}}"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$us\", \"supplier_id\": \"$partner\", \"supplier_reference\": \"MAPLE-CA-11\", \"invoice_date\": \"$first\", \"gross_amount\": {\"amount\": \"2000.00\", \"currency\": \"USD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"USD\"}, \"items\": [$item]}"
+  invoice=$(field .id)
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$first\"}"
+  as carla
+  say "Carla runs the group MAPLE for $YEAR-$period (ADR-0059 §6): a run of a group and period is a long-running operation"
+  say "that reads each company's leading-ledger balances through the period and translates them into the group currency,"
+  say "CAD (§7, a method to be confirmed by an accounting specialist): assets and liabilities at the closing rate, income,"
+  say "expenses and equity at their booked group amounts, earlier results on retained earnings, the rest on the reserve."
+  api 202 '"operation \(.kind) \(.status): \(.resource)"' createConsolidationRun -body "{\"group_code\": \"MAPLE\", \"fiscal_year\": $YEAR, \"period\": $period}"
+  run=$(field '.resource | split("/") | last')
+  wait_op
+  api 200 '"run of \(.group_code) \(.group_name) for \(.fiscal_year)-\(.period) (\(.period_start) to \(.period_end)): \(.status), in \(.group_currency) at \(.rate_type) rates, configuration version \(.config_version)",
+    (.members[] | "  \(.role) \(.company_code) \(.company_name) (\(.local_currency)): closing rate \(.closing_rate)\(if .rate_valid_from then " from \(.rate_valid_from)" else "" end), period \(.period_status) at version \(.period_version)")' \
+    getConsolidationRun -p "id=$run"
+  expect "the run" "$(field .status)" computed
+  expect "the closing rates" "$(field '[.members[] | "\(.company_code)=\(.closing_rate)"] | join(" ")')" "$CC=1 1000=1.4"
+  say "Acme Corp US's translated balances: its payable to Maple at the closing 1.40, its expense at the booked 1.35, and"
+  say "the difference on the currency translation reserve, so its translated figures sum to zero:"
+  api 200 '.items[] | "  \(.line_no) \(.kind) \(.group_account.number) \(.group_account.name)\(if .account then " / \(.account.number) \(.account.name)" else "" end)\(if .trading_partner then ", trading partner \(.trading_partner.code)" else "" end): \(if .amount_lc then "\(.amount_lc.amount) \(.amount_lc.currency), booked \(.amount_gc_booked.amount), " else "" end)translated \(.amount_gc.amount) \(.amount_gc.currency)\(if .closing_rate then " at \(.closing_rate)" else "" end)"' \
+    listConsolidationBalances -p "id=$run" -p "legal_entity_id=$us"
+  expect "Acme Corp US's rows" "$(field '[.items[] | "\(.kind) \(.account.number // "-") \(.amount_lc.amount // "-") \(.amount_gc.amount)"] | join(", ")')" \
+    "balance 225000 -2000.00 -2800.00, cta - - 100.00, balance 525000 2000.00 2700.00"
+  expect "Acme Corp US's translated total" "$(field .totals.group.amount)" 0.00
+  say "Maple keeps its books in the group currency: rate 1, and no translation difference:"
+  api 200 '"  Maple: \(.items | length) translation differences; its rows sum to \(.totals.group.amount) \(.totals.group.currency)"' \
+    listConsolidationBalances -p "id=$run" -p "legal_entity_id=$LE" -p kind=cta
+  expect "Maple's translation differences" "$(field '.items | length')" 0
 }
 
 # step_close is the financial close (ADR-0058), the story's last step: it

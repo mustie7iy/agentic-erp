@@ -18,26 +18,42 @@
 // document through the Settings and Companies ports. A group is visible
 // only to a caller who may act in its parent and every member (ADR-0059
 // §12): its figures are only meaningful whole, so a group outside that is
-// unknown, never shown in part. Runs, translation, the trading partner and
-// eliminations follow in T68b-T68h.
+// unknown, never shown in part.
+//
+// T68d adds runs and currency translation (ADR-0059 §5-§7): a run of a
+// group and regular period is queued by CreateConsolidationRun with its
+// Operation and carried out by the workflow ConsolidationRun (ADR-0012)
+// through the workflows.Consolidation port, which Endpoints implements:
+// PrepareConsolidationRun, TranslateMember per company,
+// EliminateConsolidationRun, CompleteConsolidationRun and
+// FailConsolidationRun, each idempotent. Each company's leading-ledger
+// balances are read through the Ledger port and translated into the group
+// currency (translate). Matching, eliminations, statements and
+// finalization follow in T68e-T68h.
 package consolidation
 
 import (
 	"context"
+	"math/big"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // Settings reads the active configuration (configuration context), whose
-// group chart and groups the context reads.
+// group chart and groups the context reads, and an activated version's,
+// which a run reads (the version it recorded).
 type Settings interface {
 	Document(ctx context.Context) (*config.Config, int32, error)
+	Version(ctx context.Context, number int32) (*config.Config, error)
 }
 
 // Company is a legal entity as the consolidation context reads it: its
@@ -58,10 +74,69 @@ type Companies interface {
 	GroupCurrency(ctx context.Context) (string, error)
 }
 
+// Period is a company's posting period in the leading ledger: its dates,
+// status and version (ADR-0059 §4a, PeriodOf).
+type Period struct {
+	Start, End time.Time
+	Status     string
+	Version    int32
+}
+
+// Account is a company's account: its number, name and type.
+type Account struct {
+	ID           uuid.UUID
+	Number, Name string
+	Type         config.AccountType
+}
+
+// Balance is a company's leading-ledger balance of an account through a
+// period, of the lines naming the trading partner or, nil, none, in local
+// currency and at its booked group amounts (ADR-0059 §4a,
+// BalancesThrough): a balance sheet account's over every fiscal year
+// (Period 0), a profit and loss account's per earlier fiscal year (Period
+// 0) and per period of the period's year.
+type Balance struct {
+	AccountID          uuid.UUID
+	TradingPartnerID   *uuid.UUID
+	FiscalYear, Period int16
+	LC, GC             money.Minor
+}
+
+// Rate is a rate valid on a date (ADR-0042's rule): the rate, its
+// 12-decimal form and the date it is valid from.
+type Rate struct {
+	Rate      *big.Rat
+	Shown     string
+	ValidFrom time.Time
+}
+
+// Ledger reads the ledger context's figures (ADR-0059 §4a), each in its
+// leading ledger, which consolidation reads alone (§1).
+type Ledger interface {
+	// PeriodOf is the company's period; ok is false when it has none.
+	PeriodOf(ctx context.Context, company uuid.UUID, year, period int16) (Period, bool, error)
+	Accounts(ctx context.Context, company uuid.UUID) ([]Account, error)
+	BalancesThrough(ctx context.Context, company uuid.UUID, year, period int16) ([]Balance, error)
+	// RateOn is the latest rate of the type valid on the date; ok is
+	// false when there is none.
+	RateOn(ctx context.Context, rateType, from, to string, date time.Time) (Rate, bool, error)
+}
+
+// Runs keeps a run's Operation (operations, 04 §4.8).
+type Runs interface {
+	Start(ctx context.Context, resource string, request any) (gen.Operation, error)
+	Report(ctx context.Context, id uuid.UUID, done, total int64) error
+	Cancelled(ctx context.Context, id uuid.UUID, lock bool) (bool, error)
+	Succeed(ctx context.Context, id uuid.UUID, resource string, result any) error
+	Fail(ctx context.Context, id uuid.UUID, p *problem.Problem) error
+}
+
 // Endpoints are the consolidation context's operations.
 type Endpoints struct {
 	Settings  Settings
 	Companies Companies
+	Ledger    Ledger
+	Runs      Runs
 	Pages     *pagination.Codec
 }
 

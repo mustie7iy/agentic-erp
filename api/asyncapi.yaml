@@ -99,6 +99,7 @@ info:
     - name: controlling
     - name: tax
     - name: closing
+    - name: consolidation
     - name: assets
     - name: platform
 
@@ -384,6 +385,14 @@ channels:
       PeriodCloseChanged: {$ref: '#/components/messages/PeriodCloseChanged'}
       PeriodCloseSignedOff: {$ref: '#/components/messages/PeriodCloseSignedOff'}
       VarianceCommentChanged: {$ref: '#/components/messages/VarianceCommentChanged'}
+  consolidation:
+    address: 'erp.{cell}.consolidation.{tenant}.{event}'
+    title: Consolidation events
+    description: Consolidation runs of groups and periods (ADR-0059 §13).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      ConsolidationRunChanged: {$ref: '#/components/messages/ConsolidationRunChanged'}
   platform:
     address: 'erp.{cell}.platform.{tenant}.{event}'
     title: Platform operation events
@@ -612,6 +621,12 @@ operations:
       - $ref: '#/channels/closing/messages/PeriodCloseChanged'
       - $ref: '#/channels/closing/messages/PeriodCloseSignedOff'
       - $ref: '#/channels/closing/messages/VarianceCommentChanged'
+  publishConsolidationEvents:
+    action: send
+    title: Consolidation publishes
+    channel: {$ref: '#/channels/consolidation'}
+    messages:
+      - $ref: '#/channels/consolidation/messages/ConsolidationRunChanged'
   publishPlatformEvents:
     action: send
     title: Platform publishes
@@ -3241,6 +3256,30 @@ components:
         - name: accepted
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000803, source: /erp/eu-1/closing, type: com.example.erp.closing.variance_comment_changed.v1, subject: 0192a000-0000-7000-8000-000000000f31, time: '2026-11-03T15:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {variance_comment_id: 0192a000-0000-7000-8000-000000000f31, period_close_id: 0192a000-0000-7000-8000-000000000f01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2026, fiscal_period: 10, basis: prior_period, account_id: 0192a000-0000-7000-8000-000000000402, change: accepted, author_kind: agent, edited: false, reason: null, status: accepted, version: 2}
+    ConsolidationRunChanged:
+      name: ConsolidationRunChanged
+      x-webhook: true
+      title: Consolidation run changed
+      summary: A consolidation run was queued, started running, computed, failed or discarded.
+      description: |
+        Emitted at each change of a consolidation run's status (ADR-0059
+        §6, T68d): `consolidation-runs` (POST, `queued`, status_before
+        null), its workflow's steps (`running`, `computed`, `failed` with
+        the problem) and `:discard` (`discarded`); finalization and
+        supersession follow in T68g. It says what changed;
+        `GET /v1/consolidation-runs/{id}` returns the run at `version`.
+        Subject is the run id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.consolidation.consolidation_run_changed.v1}
+      payload: {$ref: '#/components/schemas/ConsolidationRunChangedV1'}
+      examples:
+        - name: computed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000c01, source: /erp/eu-1/consolidation, type: com.example.erp.consolidation.consolidation_run_changed.v1, subject: 0192a000-0000-7000-8000-000000000c01, time: '2026-11-20T10:00:02Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {run_id: 0192a000-0000-7000-8000-000000000c01, group_code: MAPLE, fiscal_year: 2026, fiscal_period: 11, status: computed, status_before: running, problem: null, version: 3}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -3814,6 +3853,24 @@ components:
         status: {type: string, description: 'Open enum: rejected.'}
         released_items: {type: integer, description: The tax items released to the next return.}
         comment: {type: [string, 'null'], description: "The rejection's comment."}
+    ConsolidationRunChangedV1:
+      type: object
+      required: [run_id, group_code, fiscal_year, fiscal_period, status, status_before, problem, version]
+      properties:
+        run_id: {$ref: '#/components/schemas/Uuid', description: '`consolidation.run.id`.'}
+        group_code: {type: string, description: "The group's code."}
+        fiscal_year: {type: integer}
+        fiscal_period: {type: integer, description: The regular period (1-12).}
+        status: {type: string, description: "The run's status after the change. Open enum: queued, running, computed, failed, final, superseded, discarded."}
+        status_before: {type: [string, 'null'], description: "Its status before; null when it was queued."}
+        problem:
+          type: [object, 'null']
+          description: "What failed it, as the run shows it: set when it failed, and kept when a failed run is discarded; null otherwise."
+          required: [code, detail]
+          properties:
+            code: {type: string}
+            detail: {type: string}
+        version: {type: integer, description: "The run's version after the change."}
     PeriodCloseChangedV1:
       type: object
       required: [period_close_id, legal_entity_id, fiscal_year, fiscal_period, change, task_code, reason, status, version]

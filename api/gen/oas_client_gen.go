@@ -623,6 +623,41 @@ type Invoker interface {
 	//
 	// POST /v1/connectors
 	CreateConnector(ctx context.Context, request *ConnectorCreate, params CreateConnectorParams) (CreateConnectorRes, error)
+	// CreateConsolidationRun invokes createConsolidationRun operation.
+	//
+	// Starts the consolidation run of a group for a regular period (ADR-0059 §6, T68d; SAP's
+	// consolidation monitor): the run is written `queued` with the active configuration's version and its
+	// Operation (kind `consolidation.run`, its `resource` the run), and carried out as a workflow, or in
+	// process in a cell without a workflow engine. It includes the parent and every member whose first
+	// period is on or before the run's, reads each one's leading-ledger balances through the period
+	// (balance sheet accounts over every fiscal year, profit and loss accounts per fiscal year, per
+	// account and trading partner) and translates them into the group currency (§7): assets and
+	// liabilities at the closing rate, the latest of the configuration's `consolidation.rate_type` from
+	// the company's local currency into the group currency valid on the period's last day; income,
+	// expenses and equity at their booked group amounts; earlier fiscal years' results, and for a member
+	// in the fiscal year of its first period those of the periods before it, as one row on the group
+	// chart's `retained_earnings` account; and the translation difference, which makes each company's
+	// translated rows sum to zero, as one row on its `cta` account. The method is to be confirmed by an
+	// accounting specialist (ADR-0059, question 1). A run may be made for any period, open or not: a draft
+	// shows the figures as they stand. Refused when the group is unknown to the caller (404
+	// `consolidation.group_unknown`: one that does not exist, or whose parent or a member the caller may
+	// not act in), for a special period (422 `consolidation.special_period`), a period the parent's
+	// leading ledger does not have (422 `consolidation.period_unknown`), a member included on another
+	// fiscal calendar (422 `consolidation.calendar_mismatch`, naming it), a parent whose local currency is
+	// not the group currency (422 `consolidation.parent_currency`), a company currency without a closing
+	// rate of the period (422 `consolidation.rate_missing`) or with one valid from before the period's
+	// first day (422 `consolidation.rate_stale`, ADR-0042's rule), each naming the pair and the date; and
+	// while another run of the group is queued or running (409 `consolidation.run_in_progress`, whose
+	// detail and `Location` name it). A business problem while the run is carried out (a rate recorded
+	// since, a company account with a balance and no group account, `consolidation.account_unmapped`, a
+	// member's period gone, its requester blocked since) fails the run and its Operation with the problem.
+	// Cancelling the Operation (`POST /v1/operations/{id}:cancel`) fails the run at its next step with
+	// `consolidation.run_cancelled`, the Operation staying `cancelled`. A step failing on an error of the
+	// machinery is tried five times; one that outlasts them fails the run with `platform.internal`. Each
+	// change of the run's status is published as ConsolidationRunChanged and audited. Human-only.
+	//
+	// POST /v1/consolidation-runs
+	CreateConsolidationRun(ctx context.Context, request *ConsolidationRunStart, params CreateConsolidationRunParams) (CreateConsolidationRunRes, error)
 	// CreateContract invokes createContract operation.
 	//
 	// Creates a draft contract.
@@ -954,6 +989,17 @@ type Invoker interface {
 	//
 	// POST /v1/connectors/{id}:disable
 	DisableConnector(ctx context.Context, request *ReasonInput, params DisableConnectorParams) (DisableConnectorRes, error)
+	// DiscardConsolidationRun invokes discardConsolidationRun operation.
+	//
+	// Discards a computed or failed consolidation run (ADR-0059 §6, §10): a draft no longer wanted. Its
+	// figures stay readable, and it is `discarded` from then on; a final run is never discarded, and a
+	// queued, running, superseded or discarded run is refused (409 `consolidation.run_not_discardable`).
+	// `If-Match` is the run's ETag (412 `request.version_mismatch` when it moved since). Published as
+	// ConsolidationRunChanged and audited. A run of a group whose parent or a member the caller may not
+	// act in is not found (404), as a run that does not exist. Human-only.
+	//
+	// POST /v1/consolidation-runs/{id}:discard
+	DiscardConsolidationRun(ctx context.Context, params DiscardConsolidationRunParams) (DiscardConsolidationRunRes, error)
 	// EnableConnector invokes enableConnector operation.
 	//
 	// Allows the connector to exchange messages again. Requires status `disabled`.
@@ -1392,6 +1438,20 @@ type Invoker interface {
 	//
 	// GET /v1/consolidation-groups/{code}
 	GetConsolidationGroup(ctx context.Context, params GetConsolidationGroupParams) (GetConsolidationGroupRes, error)
+	// GetConsolidationRun invokes getConsolidationRun operation.
+	//
+	// One consolidation run (ADR-0059 §6, T68d): its group by code and name, its period with its dates,
+	// its status and the problem that failed it, the configuration version it read, the group currency and
+	// the closing rate type, and its companies, the parent first and the members by company code, each
+	// with its local currency, closing rate and the date it is valid from, its role, ownership and first
+	// period, and the status and version of its leading ledger's period when the run read its figures. A
+	// run of a group whose parent or a member the caller may not act in is not found (404), as a run that
+	// does not exist, so neither its existence nor its companies leak (ADR-0059 §12). Besides
+	// `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). Read from one
+	// database state (a repeatable-read snapshot).
+	//
+	// GET /v1/consolidation-runs/{id}
+	GetConsolidationRun(ctx context.Context, params GetConsolidationRunParams) (GetConsolidationRunRes, error)
 	// GetContract invokes getContract operation.
 	//
 	// Returns one contract.
@@ -2242,6 +2302,27 @@ type Invoker interface {
 	//
 	// GET /v1/connectors
 	ListConnectors(ctx context.Context, params ListConnectorsParams) (ListConnectorsRes, error)
+	// ListConsolidationBalances invokes listConsolidationBalances operation.
+	//
+	// A consolidation run's translated balances (ADR-0059 §7, T68d), by company code and line: per
+	// company, one row per company account and trading partner (`balance`, with the local amount, the
+	// booked group amount and the translated group amount, and the closing rate where one applied: on
+	// asset and liability accounts), the results of earlier fiscal years on the `retained_earnings`
+	// account (`prior_results`, translated at their booked group amounts) and the translation difference
+	// on the `cta` account (`cta`, a group amount alone), each with the company's code and name, the group
+	// account's number and name, the company account's number and name and the trading partner's code and
+	// name. Within a company the rows follow the group account's number, the company account's (none
+	// first), the trading partner's code (none first) and the kind, so two runs of the same figures number
+	// them alike. With totals over the filter: the local amounts per local currency, and the booked and
+	// translated group amounts in the group currency (each company's translated rows sum to zero).
+	// Filters: company, group account, company account, trading partner and kind. A run still queued shows
+	// none, a running one those of the companies translated so far. Besides `consolidation.read` the
+	// caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member
+	// the caller may not act in is not found (404), as a run that does not exist. Read from one database
+	// state (a repeatable-read snapshot), so its page and totals agree.
+	//
+	// GET /v1/consolidation-runs/{id}/balances
+	ListConsolidationBalances(ctx context.Context, params ListConsolidationBalancesParams) (ListConsolidationBalancesRes, error)
 	// ListConsolidationGroups invokes listConsolidationGroups operation.
 	//
 	// The consolidation groups of the active configuration (ADR-0059 §3, T68a), in code order: each
@@ -2259,6 +2340,16 @@ type Invoker interface {
 	//
 	// GET /v1/consolidation-groups
 	ListConsolidationGroups(ctx context.Context, params ListConsolidationGroupsParams) (ListConsolidationGroupsRes, error)
+	// ListConsolidationRuns invokes listConsolidationRuns operation.
+	//
+	// The consolidation runs of the groups whose parent and every member the caller may act in (ADR-0059
+	// §6, §12), newest first, each as `getConsolidationRun` gives it. Filters: group, fiscal year,
+	// period and status. Besides `consolidation.read` the caller needs `ledger.entry.read`
+	// (`x-also-permissions`). Read from one database state (a repeatable-read snapshot), so each run's
+	// status and members agree whatever the workflow writes meanwhile.
+	//
+	// GET /v1/consolidation-runs
+	ListConsolidationRuns(ctx context.Context, params ListConsolidationRunsParams) (ListConsolidationRunsRes, error)
 	// ListContracts invokes listContracts operation.
 	//
 	// Purchasing contracts. Sortable by: `valid_from`, `document_number`.
@@ -11350,6 +11441,165 @@ func (c *Client) sendCreateConnector(ctx context.Context, request *ConnectorCrea
 	return result, nil
 }
 
+// CreateConsolidationRun invokes createConsolidationRun operation.
+//
+// Starts the consolidation run of a group for a regular period (ADR-0059 §6, T68d; SAP's
+// consolidation monitor): the run is written `queued` with the active configuration's version and its
+// Operation (kind `consolidation.run`, its `resource` the run), and carried out as a workflow, or in
+// process in a cell without a workflow engine. It includes the parent and every member whose first
+// period is on or before the run's, reads each one's leading-ledger balances through the period
+// (balance sheet accounts over every fiscal year, profit and loss accounts per fiscal year, per
+// account and trading partner) and translates them into the group currency (§7): assets and
+// liabilities at the closing rate, the latest of the configuration's `consolidation.rate_type` from
+// the company's local currency into the group currency valid on the period's last day; income,
+// expenses and equity at their booked group amounts; earlier fiscal years' results, and for a member
+// in the fiscal year of its first period those of the periods before it, as one row on the group
+// chart's `retained_earnings` account; and the translation difference, which makes each company's
+// translated rows sum to zero, as one row on its `cta` account. The method is to be confirmed by an
+// accounting specialist (ADR-0059, question 1). A run may be made for any period, open or not: a draft
+// shows the figures as they stand. Refused when the group is unknown to the caller (404
+// `consolidation.group_unknown`: one that does not exist, or whose parent or a member the caller may
+// not act in), for a special period (422 `consolidation.special_period`), a period the parent's
+// leading ledger does not have (422 `consolidation.period_unknown`), a member included on another
+// fiscal calendar (422 `consolidation.calendar_mismatch`, naming it), a parent whose local currency is
+// not the group currency (422 `consolidation.parent_currency`), a company currency without a closing
+// rate of the period (422 `consolidation.rate_missing`) or with one valid from before the period's
+// first day (422 `consolidation.rate_stale`, ADR-0042's rule), each naming the pair and the date; and
+// while another run of the group is queued or running (409 `consolidation.run_in_progress`, whose
+// detail and `Location` name it). A business problem while the run is carried out (a rate recorded
+// since, a company account with a balance and no group account, `consolidation.account_unmapped`, a
+// member's period gone, its requester blocked since) fails the run and its Operation with the problem.
+// Cancelling the Operation (`POST /v1/operations/{id}:cancel`) fails the run at its next step with
+// `consolidation.run_cancelled`, the Operation staying `cancelled`. A step failing on an error of the
+// machinery is tried five times; one that outlasts them fails the run with `platform.internal`. Each
+// change of the run's status is published as ConsolidationRunChanged and audited. Human-only.
+//
+// POST /v1/consolidation-runs
+func (c *Client) CreateConsolidationRun(ctx context.Context, request *ConsolidationRunStart, params CreateConsolidationRunParams) (CreateConsolidationRunRes, error) {
+	res, err := c.sendCreateConsolidationRun(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateConsolidationRun(ctx context.Context, request *ConsolidationRunStart, params CreateConsolidationRunParams) (res CreateConsolidationRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createConsolidationRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/consolidation-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateConsolidationRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/consolidation-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateConsolidationRunRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateConsolidationRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateConsolidationRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateContract invokes createContract operation.
 //
 // Creates a draft contract.
@@ -15891,6 +16141,168 @@ func (c *Client) sendDisableConnector(ctx context.Context, request *ReasonInput,
 
 	stage = "DecodeResponse"
 	result, err := decodeDisableConnectorResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// DiscardConsolidationRun invokes discardConsolidationRun operation.
+//
+// Discards a computed or failed consolidation run (ADR-0059 §6, §10): a draft no longer wanted. Its
+// figures stay readable, and it is `discarded` from then on; a final run is never discarded, and a
+// queued, running, superseded or discarded run is refused (409 `consolidation.run_not_discardable`).
+// `If-Match` is the run's ETag (412 `request.version_mismatch` when it moved since). Published as
+// ConsolidationRunChanged and audited. A run of a group whose parent or a member the caller may not
+// act in is not found (404), as a run that does not exist. Human-only.
+//
+// POST /v1/consolidation-runs/{id}:discard
+func (c *Client) DiscardConsolidationRun(ctx context.Context, params DiscardConsolidationRunParams) (DiscardConsolidationRunRes, error) {
+	res, err := c.sendDiscardConsolidationRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendDiscardConsolidationRun(ctx context.Context, params DiscardConsolidationRunParams) (res DiscardConsolidationRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("discardConsolidationRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/consolidation-runs/{id}:discard"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, DiscardConsolidationRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/consolidation-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":discard"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, DiscardConsolidationRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeDiscardConsolidationRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -22079,6 +22491,145 @@ func (c *Client) sendGetConsolidationGroup(ctx context.Context, params GetConsol
 
 	stage = "DecodeResponse"
 	result, err := decodeGetConsolidationGroupResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetConsolidationRun invokes getConsolidationRun operation.
+//
+// One consolidation run (ADR-0059 §6, T68d): its group by code and name, its period with its dates,
+// its status and the problem that failed it, the configuration version it read, the group currency and
+// the closing rate type, and its companies, the parent first and the members by company code, each
+// with its local currency, closing rate and the date it is valid from, its role, ownership and first
+// period, and the status and version of its leading ledger's period when the run read its figures. A
+// run of a group whose parent or a member the caller may not act in is not found (404), as a run that
+// does not exist, so neither its existence nor its companies leak (ADR-0059 §12). Besides
+// `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). Read from one
+// database state (a repeatable-read snapshot).
+//
+// GET /v1/consolidation-runs/{id}
+func (c *Client) GetConsolidationRun(ctx context.Context, params GetConsolidationRunParams) (GetConsolidationRunRes, error) {
+	res, err := c.sendGetConsolidationRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetConsolidationRun(ctx context.Context, params GetConsolidationRunParams) (res GetConsolidationRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getConsolidationRun"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/consolidation-runs/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetConsolidationRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/consolidation-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetConsolidationRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetConsolidationRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -37205,6 +37756,276 @@ func (c *Client) sendListConnectors(ctx context.Context, params ListConnectorsPa
 	return result, nil
 }
 
+// ListConsolidationBalances invokes listConsolidationBalances operation.
+//
+// A consolidation run's translated balances (ADR-0059 §7, T68d), by company code and line: per
+// company, one row per company account and trading partner (`balance`, with the local amount, the
+// booked group amount and the translated group amount, and the closing rate where one applied: on
+// asset and liability accounts), the results of earlier fiscal years on the `retained_earnings`
+// account (`prior_results`, translated at their booked group amounts) and the translation difference
+// on the `cta` account (`cta`, a group amount alone), each with the company's code and name, the group
+// account's number and name, the company account's number and name and the trading partner's code and
+// name. Within a company the rows follow the group account's number, the company account's (none
+// first), the trading partner's code (none first) and the kind, so two runs of the same figures number
+// them alike. With totals over the filter: the local amounts per local currency, and the booked and
+// translated group amounts in the group currency (each company's translated rows sum to zero).
+// Filters: company, group account, company account, trading partner and kind. A run still queued shows
+// none, a running one those of the companies translated so far. Besides `consolidation.read` the
+// caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member
+// the caller may not act in is not found (404), as a run that does not exist. Read from one database
+// state (a repeatable-read snapshot), so its page and totals agree.
+//
+// GET /v1/consolidation-runs/{id}/balances
+func (c *Client) ListConsolidationBalances(ctx context.Context, params ListConsolidationBalancesParams) (ListConsolidationBalancesRes, error) {
+	res, err := c.sendListConsolidationBalances(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListConsolidationBalances(ctx context.Context, params ListConsolidationBalancesParams) (res ListConsolidationBalancesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listConsolidationBalances"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/consolidation-runs/{id}/balances"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListConsolidationBalancesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/consolidation-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/balances"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "group_account" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "group_account",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.GroupAccount.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "account_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "account_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.AccountID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "trading_partner_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "trading_partner_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.TradingPartnerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "kind" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Kind.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListConsolidationBalancesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListConsolidationBalancesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListConsolidationGroups invokes listConsolidationGroups operation.
 //
 // The consolidation groups of the active configuration (ADR-0059 §3, T68a), in code order: each
@@ -37360,6 +38181,229 @@ func (c *Client) sendListConsolidationGroups(ctx context.Context, params ListCon
 
 	stage = "DecodeResponse"
 	result, err := decodeListConsolidationGroupsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListConsolidationRuns invokes listConsolidationRuns operation.
+//
+// The consolidation runs of the groups whose parent and every member the caller may act in (ADR-0059
+// §6, §12), newest first, each as `getConsolidationRun` gives it. Filters: group, fiscal year,
+// period and status. Besides `consolidation.read` the caller needs `ledger.entry.read`
+// (`x-also-permissions`). Read from one database state (a repeatable-read snapshot), so each run's
+// status and members agree whatever the workflow writes meanwhile.
+//
+// GET /v1/consolidation-runs
+func (c *Client) ListConsolidationRuns(ctx context.Context, params ListConsolidationRunsParams) (ListConsolidationRunsRes, error) {
+	res, err := c.sendListConsolidationRuns(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListConsolidationRuns(ctx context.Context, params ListConsolidationRunsParams) (res ListConsolidationRunsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listConsolidationRuns"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/consolidation-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListConsolidationRunsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/consolidation-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "group_code" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "group_code",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.GroupCode.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalYear.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "period" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "period",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Period.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListConsolidationRunsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListConsolidationRunsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

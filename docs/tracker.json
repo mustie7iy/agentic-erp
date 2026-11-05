@@ -1798,10 +1798,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The consolidation run and currency translation: schema consolidation (run, run_member, run_balance; RLS, tenant_id first, state triggers, schema tests); POST/GET/list /v1/consolidation-runs (202 with the Operation), :discard; workflow ConsolidationRun (prepare, translate per member, complete, fail; run-twice tests; in process without an engine); assets and liabilities at the closing rate, income, expenses and equity at booked group amounts, prior results on retained earnings, the translation difference per member; GET .../balances with totals; consolidation.run.manage; ConsolidationRunChanged; audit; ledger.BalancesThrough reading trading_partner_balance with the lines not yet projected, exactly as balanceRows reads period_balance (ADR-0059 §4a); the run's budget; walkthrough: Carla runs MAPLE for today's period, Acme Corp US's balance sheet at 1.40, its expenses at 1.35, its translation difference on the reserve",
-        "r": "ADR-0059 · T68d",
+        "r": "db/migrations/000221 · consolidation.run · consolidation.run_member · consolidation.run_balance · POST/GET /v1/consolidation-runs · :discard · GET /v1/consolidation-runs/{id}/balances · workflow ConsolidationRun · ledger.ConsolidationReads · TestConsolidationRunBudget · ADR-0059 · T68d",
         "src": "adr:ADR-0059",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "An accounting specialist confirms the consolidation run's translation method (ADR-0059 §7: assets and liabilities at the closing rate, non-monetary ones included; income, expenses and equity at booked group amounts; prior results on retained earnings; the difference to the translation reserve per member) against IAS 21 before T68d ships",
+        "r": "ADR-0059 §7, question 1 · T68d",
+        "src": "po:2026-11-05 · adr:ADR-0059",
         "c": []
        },
        {
@@ -1856,7 +1863,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Currency translation",
       "r": "T68 · ADR-0059 §7 · T68d",
       "src": "baseline",
