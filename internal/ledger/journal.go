@@ -251,8 +251,9 @@ type target struct {
 // postingPeriod finds the open posting period of the posting date in each
 // ledger posted to, or the special period special when it is not 0 (its
 // maker checked it with specialPeriod first: a special period shares its
-// year's last regular period's dates): ledgers, the representative first, or every ledger the
-// company keeps, the leading one first, when nil (ADR-0045). It holds each
+// year's last regular period's dates): ledgers, the representative first,
+// or every ledger the company keeps, the leading one first, when nil
+// (ADR-0045). It holds each
 // period's status row FOR SHARE until the transaction ends, taking them
 // the leading ledger's first, then by ledger code, as a period close's
 // sign-off locks them (ADR-0058 §5). A close locks

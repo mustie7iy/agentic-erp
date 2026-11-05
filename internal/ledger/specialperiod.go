@@ -38,7 +38,8 @@ func checkSpecial(ctx context.Context, tx pgx.Tx, v prepared, in NewEntry) error
 // line carries a tax code (422 ledger.special_period_tax_code): tax
 // returns select their items by the tax period's dates, and the product
 // owner keeps the refusal until the tax specialist confirms how year-end
-// adjustments enter the returns (ADR-0059 question 2, 2026-11-05). Whether the period is open is postingPeriod's to say.
+// adjustments enter the returns (ADR-0059 question 2, 2026-11-05).
+// Whether the period is open is postingPeriod's to say.
 func specialPeriod(ctx context.Context, tx pgx.Tx, calendar uuid.UUID, date time.Time, n int16, lines []Line) error {
 	day := date.Format(time.DateOnly)
 	var year int16
