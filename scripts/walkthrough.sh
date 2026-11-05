@@ -1212,8 +1212,13 @@ step_procure() {
   as ben
   say "Tyrell quotes CAD 470.00 a chair, more than the approved CAD 450.00: the order exceeds its requisition,"
   say "so the release strategy asks for approval before it goes to the supplier. It pays 2% in 10 days, net 30."
-  api 201 '"purchase order \(.document_number // .id): \(.status), \(.total_amount.amount) \(.total_amount.currency), terms \(.payment_term_code)"' createPurchaseOrder \
-    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"2/10N30\", \"requisition_id\": \"$req\", \"items\": [${item/450.00/470.00}]}"
+  say "Tyrell can deliver in ten days, before the chairs are needed: the item carries that delivery date (T53g)."
+  DELIVERY=$(date_add "$TODAY" 10)
+  local ordered=${item/450.00/470.00}
+  ordered="${ordered%\}}, \"delivery_date\": \"$DELIVERY\"}"
+  api 201 '"purchase order \(.document_number // .id): \(.status), \(.total_amount.amount) \(.total_amount.currency), terms \(.payment_term_code)", (.items[] | "  item \(.item_no): delivery \(.delivery_date)")' createPurchaseOrder \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"2/10N30\", \"requisition_id\": \"$req\", \"items\": [$ordered]}"
+  expect "the item's delivery date" "$(field '.items[0].delivery_date')" "$DELIVERY"
   PO=$(field .id)
   api 200 '"\(.status): release request \(.release_request_id)"' releasePurchaseOrder -p "id=$PO" -if-match "$ETAG"
   expect "order status" "$(field .status)" pending_approval
@@ -1255,9 +1260,12 @@ order_document() {
   api 200 '' getPurchaseOrderDocument -p "id=$PO"
   sed 's/^/     /' "$WORK/last.json"
   local want
-  for want in "PURCHASE ORDER $number" "220 King Street West" "Payment terms: 2/10N30" "Needed by: $NEEDED_BY" "10 EA at 470.00 CAD per 1 EA" "Total 4700.00 CAD"; do
+  for want in "PURCHASE ORDER $number" "220 King Street West" "Payment terms: 2/10N30" "10 EA at 470.00 CAD per 1 EA" "Delivery date $DELIVERY" "Total 4700.00 CAD"; do
     grep -qF "$want" "$WORK/last.json" || fail "the order's document does not show '$want'"
   done
+  # The item's own date is printed, not the requisition's: no item is left
+  # to be delivered by it (ADR-0054 As built).
+  if grep -qF "Needed by" "$WORK/last.json"; then fail "the order's document prints the requisition's date beside the item's own"; fi
 }
 
 # order_change has Ben ask for Tyrell's dearer price on the released

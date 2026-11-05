@@ -16,7 +16,8 @@ What is held, and so what a document can show:
 - the order: document number, revision (ADR-0034), order date, currency,
   payment term, purchasing organisation, status, and its live items with
   description, quantity, unit, price per price unit and tax code; no
-  delivery date, delivery address or plant;
+  delivery date (when this was decided: T53g added an item's optional
+  one, As built below), delivery address or plant;
 - the requisition an order was made from, with the date its goods are
   needed by;
 - the buyer's legal entity: code, name and country, no postal address;
@@ -111,14 +112,37 @@ stored, or whether producing it is audited.
   it.
 - The document shows what is held. Missing from what a supplier usually
   needs, and not held anywhere: the buyer company's postal address and
-  tax registration, a delivery date and address per item, and a contact
-  person. Adding them is new master data, a product owner decision.
+  tax registration, a delivery address per item, and a contact person
+  (a delivery date per item is held since T53g and printed: As built).
+  Adding them is new master data, a product owner decision.
 - The contract an order is placed against, and a contract item's
   material key (often the supplier's own part number), are held but not
   printed: T72g's acceptance does not name them. Printing them is a small
   addition if suppliers ask for it.
 - A reprint after the supplier's address changed shows the new address;
   the order's own fields are its current revision.
+
+## As built
+
+- **An item's delivery date (podate, 2026-11-04; decided by default under
+  §3, which prints what is held).** Order items carry an optional
+  `delivery_date` since T53g (ADR-0051 As built, migration 000205), copied
+  from the requisition's needed-by date when the order is created from
+  one and the item names none. The document prints it under the item's
+  amount as `Delivery date YYYY-MM-DD`, in the item lines' wording (a
+  label and its value, no colon). The requisition's date stays in the
+  terms block for the items without a date of their own: `Needed by:
+  YYYY-MM-DD` as before when no item has one (an order written before
+  000205), `Needed by: YYYY-MM-DD, for the items without a delivery date
+  of their own` when some do, and not printed when every item has its
+  own, so a supplier never reads two dates for one item without being
+  told which applies. Dates are formatted by the renderer, not typed
+  text, so §6's escaping has nothing to add.
+- **No version of its own.** The document has no ETag and no cache
+  header: it is rendered on every read (§3). A released order's item
+  changes its delivery date only through an order change (ADR-0034),
+  whose application raises the order's revision, which the document
+  prints as replacing the one before; a draft has no document.
 
 ## What a PDF would need
 

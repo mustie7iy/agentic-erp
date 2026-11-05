@@ -45,7 +45,7 @@ func TestOrderDocument(t *testing.T) {
 	e.act(t, "/v1/requisitions/"+id(req), "submit", "")
 	e.Approve(t, id(req))
 	chairs := `{"description": "Chairs", "quantity": {"value": "2.5", "unit": "EA"}, "unit_price": {"amount": "470.00", "currency": "EUR"}, "price_unit": 10, "account_id": "` +
-		e.office + `", "tax_code": "V1"}`
+		e.office + `", "tax_code": "V1", "delivery_date": "2026-04-15"}`
 	o := e.order(t, items(item(e.office, "3", "EA", "12.00", "EUR", ""), chairs), fmt.Sprintf(`, "purchasing_org_id": %q, "requisition_id": %q`, org, id(req)))
 	path := "/v1/purchase-orders/" + id(o)
 
@@ -77,15 +77,16 @@ Supplier
   Country US
 
 Payment terms: NT30 Net 30 days
-Needed by: 2026-04-01
 
 Items
   Item 1: Paper
     3 EA at 12.00 EUR per 1 EA
     Amount 36.00 EUR
+    Delivery date 2026-04-01
   Item 2: Chairs
     2.5 EA at 470.00 EUR per 10 EA, tax code V1
     Amount 117.50 EUR
+    Delivery date 2026-04-15
 
 Total 153.50 EUR
 
@@ -95,6 +96,42 @@ Please quote purchase order %[1]s on your delivery documents and invoices.
 		t.Errorf("document:\n%s\nwant:\n%s", body, want)
 	}
 
+	t.Run("an item without a delivery date", func(t *testing.T) {
+		// A mixed order: item 1's date cleared, standing in for an order
+		// written before items carried dates (000205) that gained a dated
+		// item through a change; item 1 is delivered by the requisition's
+		// date.
+		e := e.in(t)
+		r := e.requisition(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), `, "needed_by": "2026-04-01"`)
+		e.act(t, "/v1/requisitions/"+id(r), "submit", "")
+		e.Approve(t, id(r))
+		m := e.order(t, items(item(e.office, "3", "EA", "12.00", "EUR", ""), chairs), fmt.Sprintf(`, "requisition_id": %q`, id(r)))
+		pgtest.Exec(t, `UPDATE procurement.purchase_order_item SET delivery_date = NULL WHERE tenant_id = $1 AND purchase_order_id = $2 AND item_no = 1`, e.Tenant.ID, id(m))
+		e.act(t, "/v1/purchase-orders/"+id(m), "release", "")
+		_, body, _ := e.document(t, id(m), e.Tenant.Human)
+		for _, s := range []string{"Needed by: 2026-04-01, for the items without a delivery date of their own\n",
+			"    Amount 36.00 EUR\n  Item 2: Chairs\n", "    Amount 117.50 EUR\n    Delivery date 2026-04-15\n"} {
+			if !strings.Contains(body, s) {
+				t.Errorf("document: got\n%s\nwant it to contain %q", body, s)
+			}
+		}
+	})
+	t.Run("a changed delivery date", func(t *testing.T) {
+		// Nothing caches the document: a released order's delivery date
+		// changes only through an order change, which the next revision
+		// prints.
+		e := e.in(t)
+		paper := item(e.office, "3", "EA", "12.00", "EUR", "")
+		if ch := e.submitted(t, path, items(paper, strings.Replace(chairs, "2026-04-15", "2026-04-22", 1))); ch["status"] != "applied" {
+			t.Fatalf("the change: got %v, want applied", ch["status"])
+		}
+		_, body, _ := e.document(t, id(o), e.Tenant.Human)
+		for _, s := range []string{"Revision 2 (replaces revision 1)", "    Amount 117.50 EUR\n    Delivery date 2026-04-22\n"} {
+			if !strings.Contains(body, s) {
+				t.Errorf("document: got\n%s\nwant it to contain %q", body, s)
+			}
+		}
+	})
 	t.Run("company access", func(t *testing.T) {
 		e := e.in(t)
 		outsider := e.Reader(t, "outsider", e.US)
