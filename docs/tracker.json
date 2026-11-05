@@ -7254,6 +7254,13 @@
         "r": "internal/integration/deliveries.go · api/openapi.yaml · db/migrations/000106 · T50g",
         "src": "baseline",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "No supplier's name in an event offered to webhooks (product owner 2026-11-05, security posture: a partner may be a person); a supplier's number may be given. ContractExpired and ContractExpiring gave supplier_name since review:batch27: their .v1 is no longer offered to webhooks and is published beside a new .v2 without the name (its later fields required) until 2027-11-05, as ADR-0041 has a breaking event change (eventcompat refuses a field removed within .v1). No other x-webhook event gave a partner's name; a test refuses supplier_name, partner_name, holder_name, bank_account_holder_name and counterparty_name in any",
+        "r": "secpost · api/asyncapi.yaml ContractExpiredV2, ContractExpiringV2 · internal/procurement expiry_names.go publish · api/asyncapi_test.go webhookExcludedFields · TestContractExpiry · TestContractExpiryAlerts · ADR-0041 As built · ADR-0034 As built · 03 §3.8",
+        "src": "po:2026-11-05 · adr:ADR-0041",
+        "c": []
        }
       ]
      },

@@ -11,7 +11,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
-	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -96,10 +95,7 @@ func alertContract(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now t
 	payload := map[string]any{"contract_id": d.ID, "document_number": c.DocumentNumber, "legal_entity_id": c.LegalEntityID, "supplier_id": c.SupplierID,
 		"valid_to": c.ValidTo.Format(time.DateOnly), "days_left": d.DaysLeft, "consumed_value": money.EventAmount(c.ConsumedValue, c.Currency, c.Exponent),
 		"target_value": money.EventAmount(c.TargetValue, c.Currency, c.Exponent), "alerted_on": day.date.Format(time.DateOnly), "time_zone": day.zone}
-	if err := names.name(ctx, c, day, payload); err != nil {
-		return false, err
-	}
-	if _, err := outbox.Write(ctx, tx, actor.TenantID, actor.ID, "", event("contract_expiring", "contract", d.ID, payload)); err != nil {
+	if err := names.publish(ctx, tx, actor, "contract_expiring", c, day, payload); err != nil {
 		return false, err
 	}
 	return true, audit.Write(ctx, tx, actor, "", now, audit.Entry{Action: "procurement.contract.alert_expiry", ObjectType: "procurement.contract", ObjectID: d.ID,
