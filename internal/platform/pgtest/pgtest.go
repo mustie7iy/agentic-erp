@@ -40,7 +40,9 @@ func Main(m *testing.M) {
 	// server may be at its connection limit or restarting for a moment;
 	// connecting and creating retry for a while before giving up.
 	var conn *pgx.Conn
-	name := fmt.Sprintf("erp_pkg_%d", time.Now().UnixNano())
+	// Random, not a clock reading: binaries started in the same clock tick
+	// (a microsecond on macOS) would name the same database.
+	name := "erp_pkg_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	var err error
 	for attempt := 1; ; attempt++ {
 		if conn, err = pgx.Connect(ctx, admin); err == nil {
@@ -84,7 +86,9 @@ func migrate(ctx context.Context, u string) error {
 		return fmt.Errorf("pgtest: connect: %w", err)
 	}
 	defer func() { _ = c.Close(ctx) }() // the work on it is done or has failed; closing loses nothing
-	_, err = db.Migrate(ctx, c)
+	// Every package's binary migrates a database of its own at once, and
+	// the roles they create are the server's (db.MigrateBeside).
+	_, err = db.MigrateBeside(ctx, c)
 	return err
 }
 

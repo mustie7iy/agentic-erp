@@ -9841,6 +9841,13 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "Test binaries started at once on a new PostgreSQL server no longer fail migrating their databases (PR #100's GitHub check: cmd/erp-router's 000001_foundation failed on pg_authid_rolname_index, 23505): roles are the server's, not a database's, and the migration lock is an advisory lock, scoped to one database, so two binaries' migrations both found erp_owner missing and both created it. db.MigrateBeside migrates again after a CREATE ROLE that another database's migration beat (unique_violation on pg_authid_rolname_index, or duplicate_object from CreateRole), as the role then exists, bounded at 20 tries; pgtest.Main and db's own TestMain migrate with it, and they and db's emptyDatabase name their databases at random, not by a clock reading two binaries can share (a microsecond on macOS); the migrations and Migrate are unchanged; proved on fresh postgres:17 containers with 16 binaries started at once: 4 of 5 runs failed before, 14 of 14 passed after",
+      "r": "db/rolerace.go MigrateBeside · db/rolerace_test.go TestMigrateBesideWinsARoleRace · internal/platform/pgtest Main · db/schema_test.go TestMain · db/migrate_test.go emptyDatabase",
+      "src": "ci:batch56",
+      "c": []
+     },
+     {
       "s": "P",
       "t": "Pin a pgbouncer image carrying apt ≥ 3.0.4 (the product owner allowed downloading it, 2026-11-05) and remove the .grype.yaml entry; by 2026-11-20 (batch 56's ci-local image scan failed on CVE-2026-109518, High, in apt and libapt-pkg7.0 3.0.3 of the pinned ghcr.io/cloudnative-pg/pgbouncer:1.26.0-trixie, fixed in Debian 13's 3.0.4, DSA-6607-1; the tag's current build of 2026-11-05 still carries 3.0.3, so the finding is accepted until then: nothing in the cell's use of the image runs apt or loads libapt-pkg)",
       "r": "deploy/images/upstream.txt · .grype.yaml · ADR-0032 As built",

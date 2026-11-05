@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -24,7 +25,7 @@ func emptyDatabase(t *testing.T) *pgx.Conn {
 	if err != nil {
 		t.Fatal(err)
 	}
-	name := fmt.Sprintf("erp_migrate_%d", time.Now().UnixNano())
+	name := "erp_migrate_" + strings.ReplaceAll(uuid.NewString(), "-", "") // another binary may create one in the same clock tick
 	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
 		t.Fatal(err)
 	}

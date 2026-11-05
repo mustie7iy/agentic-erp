@@ -33,7 +33,9 @@ func TestMain(m *testing.M) {
 	}
 	adminURL = admin
 	ctx := context.Background()
-	name := fmt.Sprintf("erp_test_%d", time.Now().UnixNano())
+	// Random, not a clock reading: binaries started in the same clock tick
+	// (a microsecond on macOS) would name the same database.
+	name := "erp_test_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	conn, err := pgx.Connect(ctx, admin)
 	if err != nil {
 		fmt.Println("connect:", err)
@@ -50,8 +52,9 @@ func TestMain(m *testing.M) {
 		fmt.Println("connect test database:", err)
 		os.Exit(1)
 	}
-	// As the server migrates: partitioned indexes are built per partition.
-	if _, err := migrate(ctx, testDB, Migrations()); err != nil {
+	// As the server migrates (partitioned indexes are built per partition),
+	// beside the other test binaries' databases (roles are the server's).
+	if _, err := MigrateBeside(ctx, testDB); err != nil {
 		fmt.Println("migrate:", err)
 		os.Exit(1)
 	}
