@@ -2351,7 +2351,8 @@ reconciliation and close agents leave it open):
   read between two pages would move (review rounds 2 and 3). Two entries
   of one key, which only a match naming one payment twice could give
   (the contract's `uniqueItems`, not a constraint, refuses that), are
-  refused as an internal error rather than paged wrongly. One entry
+  refused as an internal error rather than paged wrongly, and so is a
+  comment proposal, which reads the same entries. One entry
   per contribution in the days kept per document: a snapshot line
   (`forecast`) or a statement line's part per liquidity item (`actual`),
   with its attribution, currency, item, value date, bucket and signed

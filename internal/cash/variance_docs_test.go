@@ -187,6 +187,14 @@ func TestVarianceDocuments(t *testing.T) {
 	want(t, "an item and the unclassified row", fmt.Sprint(p["errors"].([]any)[0].(map[string]any)["field"]), "unclassified")
 	e.Problem(409, "cash.snapshot_not_taken", "GET", "/v1/liquidity-forecast-variance/documents?legal_entity_id="+e.le.String()+
 		"&from=2026-04-17&to=2026-05-21", "", "")
+	// A match naming one payment twice, which the contract refuses
+	// (uniqueItems) but no constraint does, gives two entries of one key:
+	// refused, never paged wrongly.
+	twice := a.paid(t, e.Supplier, 500, nil)
+	s := e.statement(t, e.main, "CAD", "2026-05-12", "2026-05-12", 0, 0, nil, "imported")
+	a.actualLine(t, s, 1, "2026-05-12", -1000, "posted", "matched", target{payments: []uuid.UUID{twice, twice}})
+	e.Problem(500, "platform.internal", "GET", "/v1/liquidity-forecast-variance/documents?legal_entity_id="+e.le.String()+
+		"&from=2026-04-17&to=2026-05-21&lag=0", "", "")
 }
 
 // allPages lists the entries of every page of the query at the page size,
