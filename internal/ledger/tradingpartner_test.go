@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
@@ -563,5 +564,18 @@ func TestTradingPartnerOnClearingDifferences(t *testing.T) {
 				t.Errorf("lines: got %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+// TestTradingPartnerConstraint: the database's refusal of a line naming
+// its own company (journal_line_trading_partner, 000216) is the same 422
+// as the ledger's own check.
+func TestTradingPartnerConstraint(t *testing.T) {
+	p := problem.From(&pgconn.PgError{Code: "23514", ConstraintName: "journal_line_trading_partner"})
+	if p.Status != 422 || p.Code != "ledger.trading_partner_invalid" {
+		t.Errorf("problem: got %d %s, want 422 ledger.trading_partner_invalid", p.Status, p.Code)
+	}
+	if got := fmt.Sprint(p.Errors); !strings.Contains(got, "lines.trading_partner_id own_company") {
+		t.Errorf("field errors: got %s, want lines.trading_partner_id own_company", got)
 	}
 }
