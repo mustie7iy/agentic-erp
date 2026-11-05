@@ -9839,6 +9839,13 @@
       "r": "internal/workflows/depreciation_budget_test.go · ADR-0057 As built",
       "src": "ci:batch56",
       "c": []
+     },
+     {
+      "s": "P",
+      "t": "Pin a pgbouncer image carrying apt ≥ 3.0.4 (the product owner allowed downloading it, 2026-11-05) and remove the .grype.yaml entry; by 2026-11-20 (batch 56's ci-local image scan failed on CVE-2026-109518, High, in apt and libapt-pkg7.0 3.0.3 of the pinned ghcr.io/cloudnative-pg/pgbouncer:1.26.0-trixie, fixed in Debian 13's 3.0.4, DSA-6607-1; the tag's current build of 2026-11-05 still carries 3.0.3, so the finding is accepted until then: nothing in the cell's use of the image runs apt or loads libapt-pkg)",
+      "r": "deploy/images/upstream.txt · .grype.yaml · ADR-0032 As built",
+      "src": "ci:batch56",
+      "c": []
      }
     ]
    },

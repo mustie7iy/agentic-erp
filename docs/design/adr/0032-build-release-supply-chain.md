@@ -348,6 +348,16 @@ exceptions.
   is fixed first by moving the pin to a fixed upstream release (a reviewed
   change to `upstream.txt`), and only accepted when nothing in the cell's
   use of the image reaches it.
+- **First upstream exception (2026-11-05, batch 56).** CVE-2026-109518
+  (High) in apt and libapt-pkg7.0 3.0.3 of the pinned PgBouncer image,
+  fixed in Debian 13's 3.0.4 (DSA-6607-1), is accepted until 2026-11-20:
+  the tag's current build still carries 3.0.3, so there is no fixed pin
+  to move to, and on the pinned linux/arm64 image nothing the chart runs
+  reaches it (PgBouncer's binary and its library closure, and the reload
+  sidecar's dash, cat, sha256sum and sleep, load no libapt-pkg; both
+  containers are non-root on a read-only root with no capabilities, and
+  the pod has no init container or hook). The `.grype.yaml` entry names
+  the evidence; the tracker item pins a fixed image and removes it.
 - **Checked by** `scripts/test-images.sh` with a fake grype: every pin,
   PgBouncer's and NATS's, scanned once by digest on `linux/arm64` with the
   threshold and `.grype.yaml`; a fixable high in a pin fails the scan; a
