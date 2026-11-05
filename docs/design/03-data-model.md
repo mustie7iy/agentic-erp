@@ -1325,9 +1325,11 @@ as the trial balance reads `period_balance`, through the partial indexes
 Year-end close: special-period postings and the balance carry-forward
 (ADR-0059, T64m1-T64m3) are **planned, not built**; no migration creates
 these yet. Special periods 13-16 take manual and parked entries and their
-reversals dated in the year's last regular period (no new table).
-`period_status` gains `opened_count` (only `OpenPeriod` adds one), by which
-a carry-forward is judged stale. A carry-forward run
+reversals dated in the year's last regular period; a parked entry keeps
+its special period (`parked_entry` gains a nullable `fiscal_period`, 13-16).
+`period_status` gains `opened_count` (a trigger adds one on every change
+to `open` and refuses any other change), by which a carry-forward is
+judged stale. A carry-forward run
 (`carry_forward_run`, one `current` per company, ledger and year, the
 previous one `superseded`) stores the opening balances of the next year as
 balances, never as journal lines: per account, kind (`balance`, or `result`

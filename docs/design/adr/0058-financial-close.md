@@ -815,7 +815,6 @@ proposals) and this ADR's "As built".
   profit and loss into retained earnings and carrying balances forward.
   None is in T64's leaves, and the ledger has no carry-forward today.
   Recommendation: its own design step before the pilots' first year end.
-  Decided (product owner, 2026-11-04): its own design, ADR-0059 (T64m).
 - **Automatic reversal of accruals** (new scope): reversing every posted
   accrual on the next period's first day by one action or run, instead of
   a person reversing each. Recommendation: a leaf after T64e if the pilots
