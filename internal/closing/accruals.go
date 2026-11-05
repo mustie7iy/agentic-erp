@@ -148,12 +148,15 @@ func (e *Endpoints) ProposeAccrual(ctx context.Context, req *gen.AccrualProposal
 }
 
 // accrualTarget is what a proposal is written against: its close and
-// company, the accounts it debits and credits, and the currency's digits.
+// company, the accounts it debits and credits, the currency's digits, and
+// the number of the supplier it is for, if any (checkAccrual), which
+// AccrualProposed names beside its id.
 type accrualTarget struct {
 	close            periodClose
 	company          Company
 	exp              int
 	expense, accrual Account
+	supplierNumber   *string
 }
 
 // writeAccrual writes the agent's proposal under the close's lock
@@ -182,7 +185,7 @@ func (e *Endpoints) writeAccrual(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	if err := e.accounts(ctx, &target, req.AccountID); err != nil {
 		return accrual{}, false, err
 	}
-	if err := e.checkAccrual(ctx, target, in); err != nil {
+	if err := e.checkAccrual(ctx, &target, in); err != nil {
 		return accrual{}, false, err
 	}
 	cited, err := e.citeEvidence(ctx, target, in)
@@ -323,8 +326,8 @@ func sameAccrual(a accrual, in accrualInput) bool {
 
 // checkAccrual refuses an expense account that is no profit and loss
 // account postable by hand in the company, and a supplier that is no
-// business partner.
-func (e *Endpoints) checkAccrual(ctx context.Context, t accrualTarget, in accrualInput) error {
+// business partner; it keeps the supplier's number on t.
+func (e *Endpoints) checkAccrual(ctx context.Context, t *accrualTarget, in accrualInput) error {
 	if x := t.expense; x.ID == uuid.Nil || x.BalanceSheet || !x.Postable {
 		return problem.Unprocessable("closing.accrual_account_invalid", "An accrual debits an expense: a profit and loss account set up and postable by "+
 			"hand in company "+t.company.Code+", no reconciliation account.",
@@ -338,9 +341,11 @@ func (e *Endpoints) checkAccrual(ctx context.Context, t accrualTarget, in accrua
 	if err != nil {
 		return fmt.Errorf("closing: supplier of an accrual of close %s: %w", t.close.ID, err)
 	}
-	if _, ok := found[*s]; !ok {
+	sup, ok := found[*s]
+	if !ok {
 		return problem.ReferenceNotFound("supplier_id", "business partner", "a business partner (GET /v1/business-partners)")
 	}
+	t.supplierNumber = &sup.Number
 	return nil
 }
 
@@ -438,7 +443,7 @@ func (e *Endpoints) parkAccrual(ctx context.Context, tx pgx.Tx, p reqctx.Princip
 	if err != nil {
 		return accrual{}, err
 	}
-	return a, recordAccrual(ctx, a, t.exp)
+	return a, recordAccrual(ctx, a, t)
 }
 
 // lineNames name the parked entry's lines in a refusal of the proposal.
@@ -498,8 +503,12 @@ func (e *Endpoints) centers(ctx context.Context, cost, profit *uuid.UUID) (cente
 	return found, nil
 }
 
-// recordAccrual audits a proposal and publishes it as AccrualProposed.
-func recordAccrual(ctx context.Context, a accrual, exp int) error {
+// recordAccrual audits a proposal and publishes it as AccrualProposed,
+// which names the company by its code and the supplier by its number
+// beside their ids, and never the supplier's name: the event is offered to
+// webhooks (ADR-0038 As built, review:batch28).
+func recordAccrual(ctx context.Context, a accrual, t accrualTarget) error {
+	exp := t.exp
 	cited := make([]map[string]any, len(a.Evidence))
 	for i, ev := range a.Evidence {
 		cited[i] = map[string]any{"kind": ev.Kind, "document_id": ev.DocumentID}
@@ -511,8 +520,9 @@ func recordAccrual(ctx context.Context, a accrual, exp int) error {
 		"posting_date": a.PostingDate.Format(time.DateOnly), "status": a.Status, "version": a.Version}
 	return audit.Record(ctx, "closing.accrual_proposal.propose", "closing.accrual_proposal", a.ID, detail,
 		outbox.Event{Context: "closing", Name: "accrual_proposed", AggregateType: "closing.accrual_proposal", AggregateID: a.ID,
-			Payload: map[string]any{"accrual_proposal_id": a.ID, "period_close_id": a.CloseID, "legal_entity_id": a.LegalEntityID, "fiscal_year": a.FiscalYear,
-				"fiscal_period": a.FiscalPeriod, "session_id": a.SessionID, "account_id": a.AccountID, "accrual_account_id": a.AccrualAccountID,
-				"cost_center_id": a.CostCenterID, "profit_center_id": a.ProfitCenterID, "supplier_id": a.SupplierID, "amount": amount, "evidence": cited,
+			Payload: map[string]any{"accrual_proposal_id": a.ID, "period_close_id": a.CloseID, "legal_entity_id": a.LegalEntityID,
+				"legal_entity_code": t.company.Code, "fiscal_year": a.FiscalYear, "fiscal_period": a.FiscalPeriod, "session_id": a.SessionID,
+				"account_id": a.AccountID, "accrual_account_id": a.AccrualAccountID, "cost_center_id": a.CostCenterID, "profit_center_id": a.ProfitCenterID,
+				"supplier_id": a.SupplierID, "supplier_number": t.supplierNumber, "amount": amount, "evidence": cited,
 				"parked_entry_id": a.ParkedEntryID, "posting_date": a.PostingDate.Format(time.DateOnly), "status": a.Status, "version": a.Version}})
 }

@@ -3240,7 +3240,7 @@ components:
       examples:
         - name: proposed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000804, source: /erp/eu-1/closing, type: com.example.erp.closing.accrual_proposed.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-03T14:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
-          payload: {accrual_proposal_id: 0192a000-0000-7000-8000-000000000f41, period_close_id: 0192a000-0000-7000-8000-000000000f01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2026, fiscal_period: 10, session_id: 0192a000-0000-7000-8000-000000000d01, account_id: 0192a000-0000-7000-8000-000000000402, accrual_account_id: 0192a000-0000-7000-8000-000000000403, cost_center_id: 0192a000-0000-7000-8000-000000000501, profit_center_id: null, supplier_id: 0192a000-0000-7000-8000-000000000301, amount: {amount: '1200.00', currency: CAD}, evidence: [{kind: supplier_invoice, document_id: 0192a000-0000-7000-8000-000000000611}], parked_entry_id: 0192a000-0000-7000-8000-000000000c51, posting_date: '2026-10-31', status: proposed, version: 1}
+          payload: {accrual_proposal_id: 0192a000-0000-7000-8000-000000000f41, period_close_id: 0192a000-0000-7000-8000-000000000f01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, fiscal_year: 2026, fiscal_period: 10, session_id: 0192a000-0000-7000-8000-000000000d01, account_id: 0192a000-0000-7000-8000-000000000402, accrual_account_id: 0192a000-0000-7000-8000-000000000403, cost_center_id: 0192a000-0000-7000-8000-000000000501, profit_center_id: null, supplier_id: 0192a000-0000-7000-8000-000000000301, supplier_number: BP-100231, amount: {amount: '1200.00', currency: CAD}, evidence: [{kind: supplier_invoice, document_id: 0192a000-0000-7000-8000-000000000611}], parked_entry_id: 0192a000-0000-7000-8000-000000000c51, posting_date: '2026-10-31', status: proposed, version: 1}
     VarianceCommentChanged:
       name: VarianceCommentChanged
       x-webhook: true
@@ -3854,11 +3854,12 @@ components:
         version: {type: integer, description: "The close's version after the change."}
     AccrualProposedV1:
       type: object
-      required: [accrual_proposal_id, period_close_id, legal_entity_id, fiscal_year, fiscal_period, session_id, account_id, accrual_account_id, cost_center_id, profit_center_id, supplier_id, amount, evidence, parked_entry_id, posting_date, status, version]
+      required: [accrual_proposal_id, period_close_id, legal_entity_id, legal_entity_code, fiscal_year, fiscal_period, session_id, account_id, accrual_account_id, cost_center_id, profit_center_id, supplier_id, supplier_number, amount, evidence, parked_entry_id, posting_date, status, version]
       properties:
         accrual_proposal_id: {$ref: '#/components/schemas/Uuid', description: '`closing.accrual_proposal.id`.'}
         period_close_id: {$ref: '#/components/schemas/Uuid', description: '`closing.period_close.id`.'}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
         fiscal_year: {type: integer}
         fiscal_period: {type: integer, description: The regular period (1-12).}
         session_id: {$ref: '#/components/schemas/Uuid', description: "The agent's session it was proposed in."}
@@ -3867,6 +3868,7 @@ components:
         cost_center_id: {$ref: '#/components/schemas/NullableUuid', description: "The expense line's cost center; null without one."}
         profit_center_id: {$ref: '#/components/schemas/NullableUuid', description: The profit center of both lines; null without one.}
         supplier_id: {$ref: '#/components/schemas/NullableUuid', description: The supplier the expense is for; null without one.}
+        supplier_number: {type: [string, 'null'], description: "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it; null without a supplier. The supplier's name is not given: the event is offered to webhooks (ADR-0038, as built)."}
         amount: {$ref: '#/components/schemas/Money', description: "The expense, in the company's local currency."}
         evidence:
           type: array

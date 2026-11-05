@@ -142,6 +142,9 @@ func TestAccrualProposals(t *testing.T) {
 	if len(events) != 1 || events[0]["accrual_proposal_id"] != id || events[0]["parked_entry_id"] != entry {
 		t.Errorf("AccrualProposed: got %v, want one of proposal %s and entry %s", events, id, entry)
 	}
+	if len(events) == 1 {
+		wantFields(t, "AccrualProposed", events[0], map[string]any{"legal_entity_code": "2000", "supplier_number": "BP90000001"})
+	}
 
 	again, _ := a.agent.Must(200, "POST", "/v1/accrual-proposals", a.proposal("100.00"), "")
 	if again["id"] != id {
@@ -184,7 +187,8 @@ func TestAccrualProposals(t *testing.T) {
 // released order and a posted journal entry of the company, each kept
 // with its number, an invoice or an order with its supplier, an entry
 // with its fiscal year; without a supplier or centers, the parked entry
-// carries none. A profit center is on both lines.
+// carries none, and AccrualProposed names no supplier. A profit center is
+// on both lines.
 func TestAccrualProposalEvidence(t *testing.T) {
 	a := newAccruing(t)
 	body := a.body(a.Account(t, "2000", "530000"), "50.00", a.session, [][2]string{{"journal_entry", a.entry.String()},
@@ -200,6 +204,11 @@ func TestAccrualProposalEvidence(t *testing.T) {
 	wantLines(t, "evidence", cited, want)
 	wantFields(t, "proposal without supplier or cost center", p, map[string]any{"supplier_id": nil, "cost_center_id": nil, "profit_center_code": "PC10",
 		"profit_center_name": "Profit center ten"})
+	events := apitest.Published(t, a.Tenant, outbox.Event{Context: "closing", Name: "accrual_proposed"})
+	if len(events) != 1 {
+		t.Fatalf("AccrualProposed: got %d, want 1", len(events))
+	}
+	wantFields(t, "AccrualProposed without supplier", events[0], map[string]any{"supplier_id": nil, "supplier_number": nil, "legal_entity_code": "2000"})
 	parked, _ := a.Must(200, "GET", "/v1/parked-journal-entries/"+apitest.String(t, p, "parked_entry_id"), "", "")
 	for i, x := range apitest.List(t, parked, "lines") {
 		if got := x.(map[string]any)["profit_center_id"]; got != a.centers.Profit.String() {

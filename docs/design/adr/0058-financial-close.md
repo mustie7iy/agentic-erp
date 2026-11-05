@@ -1230,6 +1230,14 @@ default, for the product owner to overrule:
   evidence item's, are read at the read and shown only to a caller holding
   `partner.supplier.read` (product owner 2026-11-02: a copy never crosses
   permissions), the ids always.
+- **`AccrualProposed` names the company and the supplier** (batch 56
+  integration): `legal_entity_code` beside `legal_entity_id`, and
+  `supplier_number` beside `supplier_id` (null without a supplier), as
+  the payments events name them (ADR-0038 As built, review:batch28); the
+  number is the one the supplier check read. The supplier's name is not
+  given: the event is offered to webhooks, and whether a supplier's name
+  may go into a webhook event is the product owner's open question
+  (ADR-0038 As built). Both fields are required, the event being new.
 - `accrual_proposal` has no `legal_entity_id` column (§5 lists one): the
   close names the company, as for variance comments. Its codes of centers
   are never blank, and a parked entry is named by one proposal
