@@ -389,9 +389,10 @@ func agentReconcile(ctx context.Context, args []string) error {
 	return nil
 }
 
-// agentTaxDraft has the tax agent explain a registration's draft return
-// of a period (ADR-0049 §13, T61l1): a person reads its recommendation
-// and prepares the return, or not.
+// agentTaxDraft has the tax agent review a registration's draft return
+// of a period (ADR-0049 §13, T61l1, T61l2): a person reads its
+// explanation and prepares the return, or not, decides its code
+// corrections, and posts or cancels the adjustment entries it parked.
 func agentTaxDraft(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("agent tax-draft", flag.ContinueOnError)
 	reg := fs.String("registration", "", "tax registration id or code")
@@ -410,12 +411,15 @@ func agentTaxDraft(ctx context.Context, args []string) error {
 	if res.Session == "" {
 		return runErr
 	}
-	// What the run recommended is printed even when it failed afterwards:
-	// its recommendations wait for a person either way.
+	// What the run proposed is printed even when it failed afterwards:
+	// its recommendations and parked entries wait for a person either way.
 	w := printer()
-	fmt.Fprintf(w, "Session %s: recommendations made %d, refused %d.\n", res.Session, len(res.Recommendations), res.Refused)
+	fmt.Fprintf(w, "Session %s: recommendations made %d, entries parked %d, refused %d.\n", res.Session, len(res.Recommendations), len(res.Parked), res.Refused)
 	for _, id := range res.Recommendations {
 		fmt.Fprintf(w, "  recommendation %s\n", id)
+	}
+	for _, id := range res.Parked {
+		fmt.Fprintf(w, "  parked entry %s\n", id)
 	}
 	if res.Reply != "" {
 		fmt.Fprintln(w, res.Reply)

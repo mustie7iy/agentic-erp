@@ -156,9 +156,9 @@ func reconciliationEval(ctx context.Context, env eval.Env) error {
 	return nil
 }
 
-// taxEval has the tax agent explain the task's registration's draft return
-// of its period as erp agent tax-draft does; what it recommended is the
-// checks' to judge, and its reply theirs too ($reply.text).
+// taxEval has the tax agent review the task's registration's draft return
+// of its period as erp agent tax-draft does; what it recommended and
+// parked is the checks' to judge, and its reply theirs too ($reply.text).
 func taxEval(ctx context.Context, env eval.Env) error {
 	t, err := tasked(env, "registration", "period")
 	if err != nil {
@@ -168,7 +168,7 @@ func taxEval(ctx context.Context, env eval.Env) error {
 	if err != nil {
 		return fmt.Errorf("tax: %w", err)
 	}
-	env.Reply(map[string]any{"text": res.Reply, "recommendations": len(res.Recommendations), "refused": res.Refused})
+	env.Reply(map[string]any{"text": res.Reply, "recommendations": len(res.Recommendations), "parked": len(res.Parked), "refused": res.Refused})
 	return nil
 }
 

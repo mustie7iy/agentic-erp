@@ -1425,7 +1425,57 @@ T43 grants. The return endpoints carry `x-autonomy: none` for the transitions.
     as the close agent's branch has it), so step 11 runs the agent
     before Carla prepares the return.
   - **Left to T61l2:** adjustment entries proposed by parking them, and
-    tax code corrections on captured and parked documents.
+    tax code corrections on captured and parked documents (below).
+- **As built (T61l2, no migration):** decided by default from this
+  section, ADR-0036 and the operations that already propose:
+  - **One run.** The agent of T61l1 proposes in the same session as it
+    explains (`erp agent tax-draft`, which now prints the entries it
+    parked as well): its proposals come from the same reading of the
+    period. It also reads `listParkedJournalEntries`,
+    `getParkedJournalEntry`, `listSupplierInvoices` and
+    `getSupplierInvoice`, and parks with `parkJournalEntry`; its role
+    adds `ledger.entry.park` and `payables.invoice.read`.
+  - **Adjustment entries are parked** through the existing
+    `parkJournalEntry` (`x-autonomy: propose`): an agent's parked entry
+    has no owner until a person takes it on, and posting it is
+    `x-agent: false`, so a person posts it or cancels it. The run's own
+    guard holds an entry to park to a company the registration covers
+    (its registrant and a tax group's members), a tax date within the
+    period (so the period's draft reports it once posted) and at least
+    one line with a tax code; the ledger checks the code when it parks.
+    The prompt asks for the adjustment §11 describes: a code of kind
+    `adjustment` on the tax account and a reversal of the uncoded line,
+    so the account's balance does not change.
+  - **A tax code correction is a recommendation on the document**, kind
+    `correct_tax_code`, object `parked_journal_entry` or
+    `supplier_invoice`. This section says agents propose codes on
+    captured and parked documents but not what they change; the
+    least-privileged path is taken: `updateParkedJournalEntry` lets an
+    agent change only an entry it parked itself, and
+    `updateSupplierInvoice` would overwrite a captured invoice a person
+    or the capture agent owns, while a recommendation changes nothing
+    until the person who decides it changes the document. The guard
+    admits a correction only of a parked document of the registration's
+    companies that the run read, and one per document.
+  - **Codes it names.** No operation lists a company's tax codes short
+    of the whole configuration (`config.version.read`), which the agent
+    is not given: the prompt has it name only codes it read on items or
+    entries, the ledger refuses an unknown one at parking, and a person
+    decides a correction.
+  - **Evaluation suite** `evals/tax` version 2 (cases from the tracker
+    leaf): an instalment entered without its code proposed as a parked
+    adjustment, not posted; a parked sale without its codes given a
+    proposed correction, the entry unchanged; a correct parked sale left
+    for a person to post and the return for a person to prepare; a
+    parked entry's planted instruction to post, park and recode not
+    followed and its claim not repeated. Replayed offline as T61l1's.
+  - **Walkthrough.** Step 11: Carla parks the adjustment decreasing the
+    net tax and posts the instalment, both without their codes; the
+    agent proposes GA on her parked entry and parks GI's adjustment for
+    the instalment; its own post is refused 403
+    `identity.agent_not_allowed`; Carla accepts both, puts GA on her
+    entry and posts it and the agent's, and lines 107 and 110 show them
+    before she prepares the return.
 
 ## Alternatives
 - **An external engine now (Avalara AvaTax, Vertex O Series).** Covers Canada
@@ -1479,7 +1529,7 @@ coverage 100%, reviewer) like every step.
 | T61o (done) | **Chosen tax dates held to open returns** (P6; product owner 2026-11-01) | A manual entry with tax, and a supplier invoice whose tax date a person set, dated in a period whose return is prepared, approved or filed is refused with 409 `ledger.tax_date_in_return` naming the period, return and status; dates the document decides are not held, so late items reach the amendment; a post racing a prepare serializes on the registration; walkthrough step 11 |
 | T61j (done, not signed off) | **GST/HST return for Canada** | The GST34 lines in the Canada pack's `returns.yaml` (101-115 incl. 205 and 405), golden tests from a worked set of invoices, entries and adjustments, signed off by the tax specialist; the FPZ-500 (GST/HST + QST) if P4 includes it |
 | T61k | **VAT 201 for the UAE** | Boxes 1a-14 in the UAE pack (with T62f), emirate by the registration's fixed establishment, Box 6/7 from import entries, golden tests, specialist sign-off; checked against the EmaraTax form labels |
-| T61l | **Tax agent** | Prepares draft returns, explains variances against the last period and the tax accounts, proposes adjustment entries (parked) and code corrections; evaluation suite (ADR-0039); never transitions a return. Split: T61l1 (done) drafts and explanations, T61l2 adjustment entries and code corrections (§13 As built) |
+| T61l (done) | **Tax agent** | Prepares draft returns, explains variances against the last period and the tax accounts, proposes adjustment entries (parked) and code corrections; evaluation suite (ADR-0039); never transitions a return. Split: T61l1 (done) drafts and explanations, T61l2 (done) adjustment entries and code corrections (§13 As built) |
 | T61m | **Engine connector port** (deferred unless P1 says otherwise) | Quote stored on parked documents, posting uses the stored quote, commit through the outbox; a fake engine in tests; provider recorded in this ADR when chosen |
 
 T61a-T61f and T61g-T61k are the pilot's must-haves (T61f's shape and T61j's
