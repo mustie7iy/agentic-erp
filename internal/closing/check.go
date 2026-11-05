@@ -114,7 +114,7 @@ type foundLedger struct {
 	Depreciation *uuid.UUID `json:"depreciation_run_id,omitempty"`
 	ToDepreciate *int       `json:"assets_to_depreciate,omitempty"`
 	Later        *uuid.UUID `json:"later_depreciation_run_id,omitempty"`
-	LaterOf      *[2]int16  `json:"later_depreciation_period,omitempty"` // its fiscal year and period
+	LaterOf      *[2]int16  `json:"later_depreciation,omitempty"` // its fiscal year and period
 }
 
 // toAPI shows a recorded result; what a check found is shown for its own
@@ -423,17 +423,28 @@ func (f *found) warnLate(ctx context.Context, tx pgx.Tx, k LedgerPeriod, d Perio
 	for _, a := range d.Late {
 		w := foundWarning{Code: warnCatchUp, LedgerID: k.LedgerID, LedgerCode: k.Code, AssetID: a.ID, AssetNumber: a.Number, AssetDescription: a.Description,
 			MissingThrough: through, LaterRun: d.Later.ID, CatchUp: a.CatchUp.Plain(exp), Currency: d.Later.Currency}
-		w.Message = fmt.Sprintf("Asset %s (%s) in ledger %s differs from its depreciation planned through %d/%d, whose run posted before it; a run of "+
-			"%d/%d or later posts the difference, %s %s.", a.Number, a.Description, k.Code, through[0], through[1], through[0], through[1], w.CatchUp, w.Currency)
 		if a.MissingFrom != nil {
 			w.MissingFrom = &[2]int16{a.MissingFrom.FiscalYear, a.MissingFrom.Period}
-			w.Message = fmt.Sprintf("Asset %s (%s) in ledger %s has no depreciation booked from %d/%d through %d/%d, whose run posted before it; a run "+
-				"of %d/%d or later catches up %s %s.", a.Number, a.Description, k.Code, a.MissingFrom.FiscalYear, a.MissingFrom.Period, through[0], through[1],
-				through[0], through[1], w.CatchUp, w.Currency)
 		}
+		w.Message = w.message()
 		f.Warnings = append(f.Warnings, w)
 	}
 	return nil
+}
+
+// message is a depreciation_catch_up warning in one sentence: the periods
+// an asset has no depreciation booked for, or, without a first missing
+// period (an acquisition reversed after depreciation posted), that what
+// is booked differs from its plan; and what a run of the later period
+// posts for it.
+func (w foundWarning) message() string {
+	y, p := w.MissingThrough[0], w.MissingThrough[1]
+	if w.MissingFrom == nil {
+		return fmt.Sprintf("Asset %s (%s) in ledger %s differs from its depreciation planned through %d/%d, whose run posted before it; a run of "+
+			"%d/%d or later posts the difference, %s %s.", w.AssetNumber, w.AssetDescription, w.LedgerCode, y, p, y, p, w.CatchUp, w.Currency)
+	}
+	return fmt.Sprintf("Asset %s (%s) in ledger %s has no depreciation booked from %d/%d through %d/%d, whose run posted before it; a run of "+
+		"%d/%d or later catches up %s %s.", w.AssetNumber, w.AssetDescription, w.LedgerCode, w.MissingFrom[0], w.MissingFrom[1], y, p, y, p, w.CatchUp, w.Currency)
 }
 
 // lateCount is n late assets in words.
