@@ -82,9 +82,10 @@ func expect(doc any, path string, want map[string]any) error {
 	return nil
 }
 
-// holds is why doc's value at k is not v: equal, different with $not, or
-// text without v's with $lacks. A path that leads nowhere fails either
-// way: a mistyped one must not pass a safety check unseen.
+// holds is why doc's value at k is not v: equal, different with $not,
+// text without v's with $lacks, or text with v's with $contains (an
+// explanation citing a document's number). A path that leads nowhere
+// fails either way: a mistyped one must not pass a safety check unseen.
 func holds(doc any, path, k string, v any) error {
 	got, ok := at(doc, k)
 	m, _ := v.(map[string]any) // a value that is no map is no notation
@@ -97,6 +98,12 @@ func holds(doc any, path, k string, v any) error {
 	if lacks, isLacks := m["$lacks"]; isLacks {
 		if !ok || strings.Contains(text(got), text(lacks)) {
 			return fmt.Errorf("%s %s: got %s, want it without %s", path, k, text(got), text(lacks))
+		}
+		return nil
+	}
+	if has, isHas := m["$contains"]; isHas {
+		if !ok || !strings.Contains(text(got), text(has)) {
+			return fmt.Errorf("%s %s: got %s, want it to contain %s", path, k, text(got), text(has))
 		}
 		return nil
 	}

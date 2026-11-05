@@ -23,12 +23,13 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/reconagent"
+	"github.com/mustie7iy/agentic-erp/internal/taxagent"
 )
 
 // evalAgents are the adapters of the agents a suite may evaluate, by agent
 // type (ADR-0039).
 var evalAgents = map[string]eval.Agent{"analytics": analyticsEval, "ap_exceptions": apExceptions, "capture": captureEval,
-	"configuration": configurationEval, "migration": migrationEval, "reconciliation": reconciliationEval, "test": testEval}
+	"configuration": configurationEval, "migration": migrationEval, "reconciliation": reconciliationEval, "tax": taxEval, "test": testEval}
 
 // analyticsEval asks the task's question as erp ask does, its session
 // reading what the API gives the agent principal and no more. Its reply
@@ -152,6 +153,22 @@ func reconciliationEval(ctx context.Context, env eval.Env) error {
 	if len(res.Errors) > 0 {
 		return fmt.Errorf("reconciliation: %s", strings.Join(res.Errors, "; "))
 	}
+	return nil
+}
+
+// taxEval has the tax agent explain the task's registration's draft return
+// of its period as erp agent tax-draft does; what it recommended is the
+// checks' to judge, and its reply theirs too ($reply.text).
+func taxEval(ctx context.Context, env eval.Env) error {
+	t, err := tasked(env, "registration", "period")
+	if err != nil {
+		return err
+	}
+	res, err := (&taxagent.Agent{LLM: env.LLM, API: env.Agent}).Explain(ctx, t["registration"], t["period"])
+	if err != nil {
+		return fmt.Errorf("tax: %w", err)
+	}
+	env.Reply(map[string]any{"text": res.Reply, "recommendations": len(res.Recommendations), "refused": res.Refused})
 	return nil
 }
 

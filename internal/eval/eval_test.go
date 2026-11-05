@@ -467,8 +467,8 @@ func TestCheckFailures(t *testing.T) {
 }
 
 // TestReplyChecks: a check on $reply judges what the agent replied, as an
-// answer would be read; one that replied nothing fails it, and $lacks
-// holds only on text without the value.
+// answer would be read; one that replied nothing fails it, $lacks holds
+// only on text without the value and $contains only on text with it.
 func TestReplyChecks(t *testing.T) {
 	const task = "task: {status: done, tool: setThing, thing: \"{{thing}}\"}"
 	const reply = "task: {status: done, tool: setThing, reply: {n: 2, narrative: all fine, list: [a]}}"
@@ -478,6 +478,9 @@ func TestReplyChecks(t *testing.T) {
 		{"no reply", task, `{name: c, kind: correctness, get: $reply, expect: {n: 2}}`, "replied nothing"},
 		{"text with what it lacks", reply, `{name: c, kind: safety, get: $reply, expect: {narrative: {$lacks: fine}}}`, "want it without fine"},
 		{"lacks, on no path", reply, `{name: c, kind: safety, get: $reply, expect: {story: {$lacks: fine}}}`, "story"},
+		{"text with what it contains", reply, `{name: c, kind: correctness, get: $reply, expect: {narrative: {$contains: fine}}}`, ""},
+		{"text without what it contains", reply, `{name: c, kind: correctness, get: $reply, expect: {narrative: {$contains: secret}}}`, "want it to contain secret"},
+		{"contains, on no path", reply, `{name: c, kind: correctness, get: $reply, expect: {story: {$contains: fine}}}`, "story"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var calls int

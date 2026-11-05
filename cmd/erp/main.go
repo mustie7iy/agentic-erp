@@ -150,6 +150,7 @@ the API (ERP_API_URL, ERP_TOKEN):
 
 agents (ERP_AGENT_TOKEN; models through the cell's gateway, ERP_AGENT_MODEL an alias):
   agent invoices | config | migration | test | reconcile -statement ID
+        | tax-draft -registration CODE -period YYYY-MM-DD
 
 agent evaluations (ADR-0039; live, on demand: they spend model money):
   eval run -suite evals/<agent>/suite.yaml [-repeats 3] [-max-cost 5.00] [-out evals/results]

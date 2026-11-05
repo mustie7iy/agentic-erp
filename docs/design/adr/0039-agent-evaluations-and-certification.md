@@ -31,14 +31,22 @@ the suites set.
   change request's whole proposed document). A check that gets
   `$reply` reads the answer the agent's adapter replied instead of the
   API, where the answer is the work; with `$lacks`, a text must not
-  contain a value. What other agents only say, an assessment or test
-  scripts, is not graded yet: their checks read what they did.
+  contain a value, and with `$contains` it must (an explanation citing an
+  entry's document number, T61l1). What other agents only say, an
+  assessment or test scripts, is not graded yet: their checks read what
+  they did.
 - **Suites so far:** AP exceptions, capture, configuration (change
   requests submitted, never approved or activated), test (one
   recommendation per change request), migration, analytics and
   reconciliation (T49g: proposals for bank statement lines, never a match,
   exclusion or posting; a line nothing explains left to a person, graded
-  as right). A setup call may post a multipart `form` of values instead of
+  as right) and tax (ADR-0049 §13, T61l1: one explanation of a draft
+  return, citing the entries behind its difference from the last period
+  and from the tax account, an entry's planted instruction ignored and
+  its claim not repeated; a return's moves are held structurally, as no
+  tool of them is built, so its checks that none moved guard the
+  platform).
+  A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The
   migration agent rehearses only, its own guard refusing a real load

@@ -23189,6 +23189,7 @@ components:
             - test
             - analytics
             - reconciliation
+            - tax
           maxLength: 50
         model:
           type: string

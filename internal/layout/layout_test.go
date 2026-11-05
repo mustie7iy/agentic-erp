@@ -112,6 +112,7 @@ var allowed = map[string][]string{
 	"provisioning":            {"config", "configuration", "identity", "tenancy"},
 	"reconagent":              {"apitools", "llm"},
 	"router":                  {"directory"},
+	"taxagent":                {"apitools", "llm"},
 	// Registrations from the configuration, companies from the directory
 	// (ADR-0049 §10); returns from the ledger's tax items through
 	// ledger.TaxItems and the country packs' returns.yaml (§11, T61h);
