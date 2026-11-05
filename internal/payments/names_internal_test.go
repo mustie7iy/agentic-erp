@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // payeePort is Payees under another name, so partners can embed it.
@@ -251,12 +254,154 @@ func TestNameTooLarge(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := &Endpoints{Payees: c.partners}
-			if got := e.nameTooLarge(context.Background(), c.err).Error(); got != c.want {
+			if got := e.nameRefusal(context.Background(), Run{}, c.err).Error(); got != c.want {
 				t.Errorf("got %q, want %q", got, c.want)
 			}
 		})
 	}
 	if got, want := (supplierTooLarge{supplier}).Error(), "payments: the open items of supplier "+supplier.String()+" add up to more than an amount can hold"; got != want {
 		t.Errorf("unnamed: got %q, want %q", got, want)
+	}
+}
+
+// openItemsPort is OpenItems under another name, so entryNumbers can
+// embed it.
+type openItemsPort = OpenItems
+
+// entryNumbers is a ledger that holds the entries' document numbers
+// given, and fails when told to; it answers nothing else.
+type entryNumbers struct {
+	openItemsPort
+	numbers map[uuid.UUID]string
+	err     error
+}
+
+func (n entryNumbers) Numbers(context.Context, []uuid.UUID) (map[uuid.UUID]string, error) {
+	return n.numbers, n.err
+}
+
+// TestNameWithholding: a withholding that takes all of what its item owes
+// fails the proposal naming each part as its consumer knows it, checked
+// one field at a time: the withholding, the discount and the amount owed
+// in the run's currency at its scale (a JPY run has none), the item by its
+// entry's document number, fiscal year and line with the entry's id, and
+// the supplier by number and name with its id. A supplier or an entry the
+// other context does not hold is named by its id (the run still fails);
+// either context failing is an error, so the job is retried.
+func TestNameWithholding(t *testing.T) {
+	supplier, entry := uuid.New(), uuid.New()
+	item := Item{FiscalYear: 2026, EntryID: entry, LineNo: 2, Amount: 97}
+	refused := withholdingTooLarge{supplier: supplier, item: item, discount: 3, withholding: 97}
+	named := partners{names: map[uuid.UUID]partner.Named{supplier: {Number: "BP1", Name: "Tyrell"}}}
+	numbered := entryNumbers{numbers: map[uuid.UUID]string{entry: "5100000007"}}
+	eur := Run{Currency: "EUR", Exponent: 2}
+	detail := func(e *Endpoints, r Run, err error) string {
+		t.Helper()
+		var p *problem.Problem
+		got := e.nameRefusal(context.Background(), r, err)
+		if !errors.As(got, &p) {
+			t.Fatalf("got %v, want a problem", got)
+		}
+		if p.Code != "payments.withholding_too_large" || p.Status != 422 {
+			t.Errorf("problem: got %s (%d), want payments.withholding_too_large (422)", p.Code, p.Status)
+		}
+		return p.Detail
+	}
+	got := detail(&Endpoints{Payees: named, OpenItems: numbered}, eur, fmt.Errorf("propose: %w", refused))
+	for field, want := range map[string]string{
+		"withholding": "withholding tax of 0.97 EUR",
+		"discount":    "cash discount of 0.03 EUR",
+		"amount owed": "all of the 0.97 EUR the item owes",
+		"document":    "line 2 of document 5100000007 (journal entry " + entry.String() + ") of fiscal year 2026",
+		"supplier":    "supplier BP1 Tyrell (" + supplier.String() + ")",
+	} {
+		t.Run(field, func(t *testing.T) {
+			if !strings.Contains(got, want) {
+				t.Errorf("detail: got %q, want it to contain %q", got, want)
+			}
+		})
+	}
+	t.Run("no raw minor units", func(t *testing.T) {
+		if strings.Contains(got, " 97 ") || strings.Contains(got, " 3 ") {
+			t.Errorf("detail: got %q, want no amount in raw minor units", got)
+		}
+	})
+	t.Run("a currency without minor units", func(t *testing.T) {
+		if got, want := detail(&Endpoints{Payees: named, OpenItems: numbered}, Run{Currency: "JPY"}, refused), "withholding tax of 97 JPY"; !strings.Contains(got, want) {
+			t.Errorf("detail: got %q, want it to contain %q", got, want)
+		}
+	})
+	t.Run("unknown supplier and entry", func(t *testing.T) {
+		got := detail(&Endpoints{Payees: partners{names: map[uuid.UUID]partner.Named{}}, OpenItems: entryNumbers{}}, eur, refused)
+		for _, want := range []string{"line 2 of journal entry " + entry.String() + " of fiscal year 2026", "(supplier " + supplier.String() + ")"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("detail: got %q, want it to contain %q", got, want)
+			}
+		}
+	})
+	down := errors.New("down")
+	for name, c := range map[string]struct {
+		e    *Endpoints
+		want string
+	}{
+		"the partner context failing": {&Endpoints{Payees: partners{err: down}, OpenItems: numbered}, "payments: name supplier " + supplier.String() + ": down"},
+		"the ledger failing":          {&Endpoints{Payees: named, OpenItems: entryNumbers{err: down}}, "payments: the document number of journal entry " + entry.String() + ": down"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := c.e.nameRefusal(context.Background(), eur, refused); got == nil || got.Error() != c.want {
+				t.Errorf("got %v, want %q", got, c.want)
+			}
+		})
+	}
+	if got, want := refused.Error(), fmt.Sprintf("payments: the withholding on item 2026/%s/2 of supplier %s takes all it owes", entry, supplier); got != want {
+		t.Errorf("unnamed: got %q, want %q", got, want)
+	}
+}
+
+// heldEntities is a tenancy context that holds the legal entities given,
+// and fails when told to.
+type heldEntities struct {
+	held map[uuid.UUID]tenancy.Entity
+	err  error
+}
+
+func (x heldEntities) Entity(_ context.Context, id uuid.UUID) (tenancy.Entity, bool, error) {
+	le, ok := x.held[id]
+	return le, ok, x.err
+}
+
+// TestEventCompany: an event names its company by code beside
+// legal_entity_id; for a legal entity the tenancy context no longer holds
+// the optional code is left out, and the event still goes out (a run
+// failing on its missing entity records its failure); the tenancy context
+// failing is an error.
+func TestEventCompany(t *testing.T) {
+	known, gone := uuid.New(), uuid.New()
+	down := errors.New("tenancy down")
+	for name, c := range map[string]struct {
+		entities heldEntities
+		id       uuid.UUID
+		want     map[string]any
+		err      string
+	}{
+		"named":   {heldEntities{held: map[uuid.UUID]tenancy.Entity{known: {Code: "2000"}}}, known, map[string]any{"legal_entity_id": known, "legal_entity_code": "2000"}, ""},
+		"missing": {heldEntities{}, gone, map[string]any{"legal_entity_id": gone}, ""},
+		"failing": {heldEntities{err: down}, known, nil, "payments: the company code of legal entity " + known.String() + ": tenancy down"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			code, err := (&Endpoints{LegalEntities: c.entities}).companyCode(context.Background(), c.id)
+			if c.err != "" {
+				if err == nil || err.Error() != c.err {
+					t.Fatalf("error: got %v, want %q", err, c.err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := withCompany(map[string]any{"legal_entity_id": c.id}, code); fmt.Sprint(got) != fmt.Sprint(c.want) {
+				t.Errorf("payload: got %v, want %v", got, c.want)
+			}
+		})
 	}
 }

@@ -152,3 +152,25 @@ func NeverPublished(tb testing.TB, ten pgtest.Tenant, boundedContext, value stri
 		tb.Errorf("%s outbox: got %d events carrying a masked value, want none", boundedContext, n)
 	}
 }
+
+// CompanyNamed checks that each payload giving a legal_entity_id also
+// gives that legal entity's company code as legal_entity_code (REVIEW.md,
+// an identifier without the name its consumer needs), as the tenancy
+// context holds it, and returns the payloads.
+func CompanyNamed(tb testing.TB, payloads []map[string]any) []map[string]any {
+	tb.Helper()
+	for _, p := range payloads {
+		id, ok := p["legal_entity_id"]
+		if !ok {
+			continue
+		}
+		var code string
+		if err := pgtest.Admin(tb).QueryRow(context.Background(), `SELECT code FROM tenancy.legal_entity WHERE id = $1`, id).Scan(&code); err != nil {
+			tb.Fatalf("the company code of legal entity %v: %v", id, err)
+		}
+		if got := p["legal_entity_code"]; got != code {
+			tb.Errorf("legal_entity_code of an event of legal entity %v: got %v, want %s (%v)", id, got, code, p)
+		}
+	}
+	return payloads
+}

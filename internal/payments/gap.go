@@ -26,7 +26,7 @@ import (
 // AcceptGap accepts the gap of a statement of a legal entity the caller may
 // access, whose version passes ifMatch, with the reason why, and returns
 // the statement with its lines.
-func AcceptGap(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reason string) (Statement, error) {
+func (e *Endpoints) AcceptGap(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reason string) (Statement, error) {
 	_, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Statement{}, err
@@ -52,13 +52,17 @@ func AcceptGap(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, rea
 	if err != nil {
 		return Statement{}, fmt.Errorf("payments: accept the gap of statement %s: %w", id, err)
 	}
+	company, err := e.companyCode(ctx, s.LegalEntityID)
+	if err != nil {
+		return Statement{}, err
+	}
 	payload := map[string]any{"bank_statement_id": id, "house_bank_id": s.HouseBankID, "legal_entity_id": s.LegalEntityID, "previous_statement_id": previous,
 		"opening_balance":          map[string]any{"amount": s.Opening.Plain(s.Exponent), "currency": s.Currency},
 		"previous_closing_balance": map[string]any{"amount": previousClosing.Plain(s.Exponent), "currency": s.Currency},
 		"reason":                   reason, "status": StatementImported}
 	if err := record(ctx, "payments.bank_statement.accept_gap", id, map[string]any{"previous_statement_id": previous, "reason": reason,
 		"opening_balance": s.Opening.Plain(s.Exponent), "previous_closing_balance": previousClosing.Plain(s.Exponent), "status": StatementImported},
-		outbox.Event{Context: "payments", Name: "bank_statement_gap_accepted", AggregateType: "payments.bank_statement", AggregateID: id, Payload: payload}); err != nil {
+		outbox.Event{Context: "payments", Name: "bank_statement_gap_accepted", AggregateType: "payments.bank_statement", AggregateID: id, Payload: withCompany(payload, company)}); err != nil {
 		return Statement{}, err
 	}
 	return GetStatement(ctx, id)

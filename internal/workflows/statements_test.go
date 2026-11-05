@@ -130,7 +130,7 @@ func (s *fetchScenario) otherBank(t *testing.T, iban string, sealed ...[]byte) u
 
 func (s *fetchScenario) count(t *testing.T, name string) int {
 	t.Helper()
-	return len(apitest.Published(t, s.e.Tenant, outbox.Event{Context: "payments", Name: name}))
+	return len(apitest.CompanyNamed(t, apitest.Published(t, s.e.Tenant, outbox.Event{Context: "payments", Name: name})))
 }
 
 // TestFetchStatements: the house bank's statements are fetched from its
@@ -445,7 +445,7 @@ func TestFetchDatabaseFailures(t *testing.T) {
 			_, err := h.ImportFetched(ctx, bank, "d.xml", []byte(camt))
 			return ignore(err, "payments.statement_unreadable")
 		},
-		"refuse": func(ctx context.Context) error { return payments.RefuseFetched(ctx, bank, "d.sta", sum[:], refusal) },
+		"refuse": func(ctx context.Context) error { return h.RefuseFetched(ctx, bank, "d.sta", sum[:], refusal) },
 		"no bank's": func(ctx context.Context) error {
 			_, err := h.ImportFetched(ctx, bank, "o.sta", []byte(strings.Replace(string(file), "DE89370400440532013000", "GB33BUKB20201555555555", 1)))
 			return ignore(err, "payments.statement_of_no_bank")
@@ -454,7 +454,7 @@ func TestFetchDatabaseFailures(t *testing.T) {
 			if _, err := h.ImportFetched(ctx, bank, "d.sta", file); err != nil {
 				return err
 			}
-			return payments.ChangedFetched(ctx, bank, sum[:], make([]byte, 32))
+			return h.ChangedFetched(ctx, bank, sum[:], make([]byte, 32))
 		},
 		"archive": func(ctx context.Context) error {
 			if _, err := h.ImportFetched(ctx, bank, "d.sta", file); err != nil {
@@ -471,18 +471,18 @@ func TestFetchDatabaseFailures(t *testing.T) {
 	}
 	for name, fn := range map[string]func(ctx context.Context) error{
 		"import again":           func(ctx context.Context) error { _, err := h.ImportFetched(ctx, bank, "d.sta", file); return err },
-		"refuse again":           func(ctx context.Context) error { return payments.RefuseFetched(ctx, bank, "d.sta", sum[:], refusal) },
+		"refuse again":           func(ctx context.Context) error { return h.RefuseFetched(ctx, bank, "d.sta", sum[:], refusal) },
 		"archive again":          func(ctx context.Context) error { return payments.ArchivedFetched(ctx, bank, sum[:]) },
-		"changed after archived": func(ctx context.Context) error { return payments.ChangedFetched(ctx, bank, sum[:], make([]byte, 32)) },
+		"changed after archived": func(ctx context.Context) error { return h.ChangedFetched(ctx, bank, sum[:], make([]byte, 32)) },
 	} {
 		apitest.EveryFailure(t, s.e.Tenant, s.e.Tenant.Human, name, fn)
 	}
 	for name, err := range map[string]error{
 		"channel": func() error { _, err := h.StatementChannel(ctx, bank); return err }(),
 		"import":  func() error { _, err := h.ImportFetched(ctx, bank, "d.sta", file); return err }(),
-		"refuse":  payments.RefuseFetched(ctx, bank, "d.sta", sum[:], refusal),
+		"refuse":  h.RefuseFetched(ctx, bank, "d.sta", sum[:], refusal),
 		"archive": payments.ArchivedFetched(ctx, bank, sum[:]),
-		"changed": payments.ChangedFetched(ctx, bank, sum[:], make([]byte, 32)),
+		"changed": h.ChangedFetched(ctx, bank, sum[:], make([]byte, 32)),
 	} {
 		t.Run(name, func(t *testing.T) { pgtest.WantErr(t, err, "") })
 	}

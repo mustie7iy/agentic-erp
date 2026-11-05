@@ -385,9 +385,12 @@ func id(m map[string]any) string { return m["id"].(string) }
 
 func uuidOf(s string) uuid.UUID { return uuid.MustParse(s) }
 
+// events are the payments events of the name the tenant published; each
+// names its company by code beside legal_entity_id (apitest.CompanyNamed),
+// so every test reading an event checks it.
 func events(t *testing.T, ten pgtest.Tenant, name string) []map[string]any {
 	t.Helper()
-	return apitest.Published(t, ten, outbox.Event{Context: "payments", Name: name})
+	return apitest.CompanyNamed(t, apitest.Published(t, ten, outbox.Event{Context: "payments", Name: name}))
 }
 
 var (

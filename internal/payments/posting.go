@@ -164,7 +164,7 @@ func (e *Endpoints) submit(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s
 		return err
 	}
 	if !needed {
-		return postMatch(ctx, tx, p, e.Postings, s, l, in, reason, nil)
+		return postMatch(ctx, tx, p, e.Postings, s, le.Code, l, in, reason, nil)
 	}
 	if err := e.Postings.Postable(ctx, s.LegalEntityID, date); err != nil {
 		return err
@@ -191,9 +191,10 @@ func setLineStatus(ctx context.Context, tx pgx.Tx, p reqctx.Principal, statement
 // postMatch posts the line, records the entry on its match, audits it and
 // publishes BankStatementLinePosted. Its callers hold the line FOR UPDATE
 // and found it matched or waiting for this request, so a match is posted
-// once; statement_match_journal_entry keeps one entry to one match.
-func postMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, postings Postings, s Statement, l postable, in ledger.BankPosting, reason string,
-	request *uuid.UUID) error {
+// once; statement_match_journal_entry keeps one entry to one match. The
+// event names the statement's company by company (companyCode).
+func postMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, postings Postings, s Statement, company string, l postable, in ledger.BankPosting,
+	reason string, request *uuid.UUID) error {
 	entry, err := postings.PostBank(ctx, in)
 	if err != nil {
 		return err
@@ -210,10 +211,10 @@ func postMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, postings Post
 	return record(ctx, "payments.statement_match.post", *l.MatchID, map[string]any{"bank_statement_id": s.ID, "line_no": l.LineNo,
 		"journal_entry_id": entry.ID, "document_number": entry.DocumentNumber, "posting_date": day, "reason": reason, "approval_request_id": request},
 		outbox.Event{Context: "payments", Name: "bank_statement_line_posted", AggregateType: "payments.statement_match", AggregateID: *l.MatchID,
-			Payload: map[string]any{"statement_match_id": *l.MatchID, "bank_statement_id": s.ID, "line_no": l.LineNo, "house_bank_id": s.HouseBankID,
+			Payload: withCompany(map[string]any{"statement_match_id": *l.MatchID, "bank_statement_id": s.ID, "line_no": l.LineNo, "house_bank_id": s.HouseBankID,
 				"legal_entity_id": s.LegalEntityID, "amount": money.EventAmount(l.Amount, s.Currency, s.Exponent), "posting_date": day,
 				"journal_entry_id": entry.ID, "journal_entry_year": entry.FiscalYear, "document_number": entry.DocumentNumber,
-				"cleared_payments": len(in.Entries), "approval_request_id": request}})
+				"cleared_payments": len(in.Entries), "approval_request_id": request}, company)})
 }
 
 // bankPosting is the ledger posting of the line on the date: the house
@@ -296,8 +297,8 @@ func (e *Endpoints) postingTargets(ctx context.Context, tx pgx.Tx, s Statement, 
 		paid += *t.Amount // a statement's payments, far below the overflow
 	}
 	if paid != -l.Amount {
-		return problem.Conflict("payments.statement_amount_differs", fmt.Sprintf("The payments matched to line %d pay %s; the line is %s. Match it again.",
-			l.LineNo, paid.Plain(s.Exponent), (-l.Amount).Plain(s.Exponent)))
+		return problem.Conflict("payments.statement_amount_differs", fmt.Sprintf("The payments matched to line %d pay %s %s; the line is %s %s. Match it again.",
+			l.LineNo, paid.Plain(s.Exponent), s.Currency, (-l.Amount).Plain(s.Exponent), s.Currency))
 	}
 	return nil
 }

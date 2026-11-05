@@ -110,15 +110,19 @@ func (e *Endpoints) ProposeLine(ctx context.Context, statement uuid.UUID, lineNo
 	if err != nil {
 		return Match{}, false, err
 	}
+	company, err := e.companyCode(ctx, s.LegalEntityID)
+	if err != nil {
+		return Match{}, false, err
+	}
 	d := openLine{p: p, tx: tx, s: s, lineNo: lineNo}
-	if err := rejectLive(ctx, tx, p, s, lineNo, rejection{}); err != nil { // a rule's open match: the proposal is the line's now
+	if err := rejectLive(ctx, tx, p, s, company, lineNo, rejection{}); err != nil { // a rule's open match: the proposal is the line's now
 		return Match{}, false, err
 	}
 	m := newMatch{kind: MatchAgent, reason: in.Reason, status: MatchOpen, session: &in.SessionID, proposal: new(in.what())}
 	if !in.Exclude {
 		m.candidates = [][]MatchTarget{targets}
 	}
-	id, err := writeMatch(ctx, tx, p, s, lineNo, m)
+	id, err := writeMatch(ctx, tx, p, s, company, lineNo, m)
 	if err != nil {
 		return Match{}, false, err
 	}
@@ -235,7 +239,11 @@ func (e *Endpoints) RejectProposal(ctx context.Context, statement uuid.UUID, lin
 	if d.live == nil || d.live.Kind != MatchAgent {
 		return Match{}, noProposal(lineNo)
 	}
-	if err := rejectLive(ctx, d.tx, d.p, d.s, lineNo, rejection{outcome: OutcomeRejected, reason: reason}); err != nil {
+	company, err := e.companyCode(ctx, d.s.LegalEntityID)
+	if err != nil {
+		return Match{}, err
+	}
+	if err := rejectLive(ctx, d.tx, d.p, d.s, company, lineNo, rejection{outcome: OutcomeRejected, reason: reason}); err != nil {
 		return Match{}, err
 	}
 	if err := unmatchLine(ctx, d.tx, d.p, statement, lineNo); err != nil {

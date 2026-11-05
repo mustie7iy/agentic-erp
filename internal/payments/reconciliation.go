@@ -146,14 +146,22 @@ func (e *Endpoints) reconcile(ctx context.Context, tx pgx.Tx, p reqctx.Principal
 			agreed[d.ID] = i
 		}
 	}
-	return reconcileStatements(ctx, tx, p, done, figs, agreed)
+	if len(agreed) == 0 {
+		return nil
+	}
+	company, err := e.companyCode(ctx, s.LegalEntityID)
+	if err != nil {
+		return err
+	}
+	return reconcileStatements(ctx, tx, p, done, figs, agreed, company)
 }
 
 // reconcileStatements sets the statements agreed reconciled, audits each
 // and publishes BankStatementReconciled, once: the update takes only a
 // statement still imported, so a statement reconciled before records
-// nothing again.
-func reconcileStatements(ctx context.Context, tx pgx.Tx, p reqctx.Principal, done []Statement, figs []Figures, agreed map[uuid.UUID]int) error {
+// nothing again. The house bank's statements are of one company, whose
+// code (companyCode) the events name.
+func reconcileStatements(ctx context.Context, tx pgx.Tx, p reqctx.Principal, done []Statement, figs []Figures, agreed map[uuid.UUID]int, company string) error {
 	ids := make([]uuid.UUID, 0, len(agreed))
 	for id := range agreed {
 		ids = append(ids, id)
@@ -166,7 +174,7 @@ func reconcileStatements(ctx context.Context, tx pgx.Tx, p reqctx.Principal, don
 	}
 	for _, id := range set {
 		i := agreed[id]
-		if err := recordReconciled(ctx, done[i], figs[i]); err != nil {
+		if err := recordReconciled(ctx, done[i], figs[i], company); err != nil {
 			return err
 		}
 	}
@@ -175,15 +183,15 @@ func reconcileStatements(ctx context.Context, tx pgx.Tx, p reqctx.Principal, don
 
 // recordReconciled audits the statement's reconciliation and publishes
 // BankStatementReconciled; agreed figures have a ledger balance.
-func recordReconciled(ctx context.Context, s Statement, f Figures) error {
+func recordReconciled(ctx context.Context, s Statement, f Figures, company string) error {
 	amount := func(m money.Minor) map[string]string { return money.EventAmount(m, s.Currency, s.Exponent) }
 	day := s.ClosingDate.Format(time.DateOnly)
 	return record(ctx, "payments.bank_statement.reconcile", s.ID, map[string]any{"closing_date": day, "closing_balance": amount(s.Closing),
 		"ledger_balance": amount(*f.Ledger), "excluded": amount(f.Excluded), "posted_later": amount(f.PostedLater)},
 		outbox.Event{Context: "payments", Name: "bank_statement_reconciled", AggregateType: "payments.bank_statement", AggregateID: s.ID,
-			Payload: map[string]any{"bank_statement_id": s.ID, "house_bank_id": s.HouseBankID, "legal_entity_id": s.LegalEntityID,
+			Payload: withCompany(map[string]any{"bank_statement_id": s.ID, "house_bank_id": s.HouseBankID, "legal_entity_id": s.LegalEntityID,
 				"closing_date": day, "closing_balance": amount(s.Closing), "ledger_balance": amount(*f.Ledger), "excluded": amount(f.Excluded),
-				"posted_later": amount(f.PostedLater), "line_count": s.LineCount, "status": StatementReconciled}})
+				"posted_later": amount(f.PostedLater), "line_count": s.LineCount, "status": StatementReconciled}, company)})
 }
 
 // lineStatuses are the statuses of statement lines.

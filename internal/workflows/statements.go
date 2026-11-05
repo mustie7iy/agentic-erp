@@ -157,7 +157,7 @@ func (s *Statements) ImportStatementFile(ctx context.Context, in FileInput) (pay
 	sum := sha256.Sum256(file)
 	f = payments.Fetched{SHA256: sum[:], Status: payments.FetchRefused}
 	return f, s.as(ctx, in.FetchInput, func(ctx context.Context) error {
-		return payments.RefuseFetched(ctx, in.HouseBankID, in.Name, f.SHA256, why)
+		return s.Endpoints.RefuseFetched(ctx, in.HouseBankID, in.Name, f.SHA256, why)
 	})
 }
 
@@ -180,7 +180,7 @@ func (s *Statements) ArchiveStatementFile(ctx context.Context, in FileInput) err
 	}
 	if now := sha256.Sum256(file); err == nil && !bytes.Equal(now[:], in.SHA256) {
 		return s.as(ctx, in.FetchInput, func(ctx context.Context) error {
-			return payments.ChangedFetched(ctx, in.HouseBankID, in.SHA256, now[:])
+			return s.Endpoints.ChangedFetched(ctx, in.HouseBankID, in.SHA256, now[:])
 		})
 	}
 	from, to := payments.StatementPaths(ep, in.Name, in.SHA256)

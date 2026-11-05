@@ -263,10 +263,32 @@ func (e *Endpoints) dropPayment(ctx context.Context, tx pgx.Tx, actor reqctx.Pri
 	if err := report(ctx, tx, r); err != nil {
 		return err
 	}
+	return e.recordExcluded(ctx, r, p, reason, freed.RowsAffected())
+}
+
+// recordExcluded records the payment dropped from run r and publishes
+// PaymentExcluded, naming the company by its code and the supplier by its
+// number beside supplier_id (REVIEW.md, an identifier without the name its
+// consumer needs). The supplier's name is not given: the event is offered
+// to webhooks, which reach no permission check, and ADR-0041 keeps partner
+// master data (a partner may be a person) out of them; whether a supplier's
+// name may go into an event delivered by webhook is a question of security
+// posture for the product owner (ADR-0038, as built). A supplier the
+// partner context does not hold is an error, as supplierNamed's.
+func (e *Endpoints) recordExcluded(ctx context.Context, r Run, p Payment, reason string, freed int64) error {
+	company, err := e.companyCode(ctx, r.LegalEntityID)
+	if err != nil {
+		return err
+	}
+	named, err := idref.Resolve(ctx, e.Payees.Names, []uuid.UUID{p.SupplierID}, supplierRef)
+	if err != nil {
+		return fmt.Errorf("payments: name supplier %s: %w", p.SupplierID, err)
+	}
 	return record(ctx, "payments.payment_run.drop_payment", r.ID, map[string]any{"payment_id": p.ID, "supplier_id": p.SupplierID,
-		"reason": reason, "freed_items": freed.RowsAffected()},
-		runEvent(r, "payment_excluded", map[string]any{"payment_id": p.ID, "supplier_id": p.SupplierID, "reason_code": reason,
-			"amount": money.EventAmount(p.Amount, r.Currency, r.Exponent), "released_item_count": freed.RowsAffected()}))
+		"reason": reason, "freed_items": freed},
+		runEvent(r, company, "payment_excluded", map[string]any{"payment_id": p.ID, "supplier_id": p.SupplierID,
+			"supplier_number": named[p.SupplierID].Number, "reason_code": reason,
+			"amount": money.EventAmount(p.Amount, r.Currency, r.Exponent), "released_item_count": freed}))
 }
 
 // paymentOf reads one payment of the run, dropped or not.
@@ -324,6 +346,10 @@ func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
 	if err != nil {
 		return Run{}, err
 	}
+	company, err := e.companyCode(ctx, r.LegalEntityID)
+	if err != nil {
+		return Run{}, err
+	}
 	// bank_file_id, the first file, stays for clients from before a run
 	// had a file per house bank and method (T45c).
 	ids := make([]uuid.UUID, len(files))
@@ -339,7 +365,7 @@ func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
 		return Run{}, err
 	}
 	return released, record(ctx, "payments.payment_run.complete", r.ID, map[string]any{"payments": len(pays), "bank_file_ids": ids},
-		append(events, runEvent(released, "payment_run_released", map[string]any{"house_bank_id": released.HouseBankID, "run_date": released.RunDate.Format(time.DateOnly),
+		append(events, runEvent(released, company, "payment_run_released", map[string]any{"house_bank_id": released.HouseBankID, "run_date": released.RunDate.Format(time.DateOnly),
 			"total_amount": money.EventAmount(released.Total, released.Currency, released.Exponent), "payment_count": len(pays), "workflow_request_id": requestOf(released, ReleaseApproved),
 			"released_at": released.DecidedAt.UTC().Format(time.RFC3339Nano)}))...)
 }
@@ -578,8 +604,12 @@ func (e *Endpoints) reject(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r
 	if err != nil {
 		return Run{}, err
 	}
+	company, err := e.companyCode(ctx, rejected.LegalEntityID)
+	if err != nil {
+		return Run{}, err
+	}
 	return rejected, record(ctx, "payments.payment_run.reject", run, map[string]any{"reason": reason, "released_items": tag.RowsAffected()},
-		runEvent(rejected, "payment_run_rejected", map[string]any{"workflow_request_id": requestOf(rejected, ReleaseWithdrawn, ReleaseRejected), "released_item_count": tag.RowsAffected()}))
+		runEvent(rejected, company, "payment_run_rejected", map[string]any{"workflow_request_id": requestOf(rejected, ReleaseWithdrawn, ReleaseRejected), "released_item_count": tag.RowsAffected()}))
 }
 
 // BankFile is a row of payments.bank_file with its run's legal entity.

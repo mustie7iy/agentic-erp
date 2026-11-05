@@ -703,7 +703,7 @@ func (e *Endpoints) MatchBankStatement(ctx context.Context, params gen.MatchBank
 
 // AcceptBankStatementGap implements POST /v1/bank-statements/{id}:acceptGap.
 func (e *Endpoints) AcceptBankStatementGap(ctx context.Context, req *gen.ReasonInput, params gen.AcceptBankStatementGapParams) (gen.AcceptBankStatementGapRes, error) {
-	s, err := AcceptGap(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
+	s, err := e.AcceptGap(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
 	if err != nil {
 		return nil, err
 	}
