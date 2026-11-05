@@ -1,7 +1,7 @@
 # ADR-0059: Year-end close
 
 **Status:** accepted (T64m design step, 2026-11-05; decided by default under
-ADR-0053 d; `go-reviewer` approved in round N with no blocking finding). The
+ADR-0053 d; `go-reviewer` approved in round 2 with no blocking finding). The
 decisions taken by default and the questions for the product owner are
 listed at the end; the slices T64m1-T64m6 are in the tracker under
 Financial close. The design leaf T64m itself is added by the product
@@ -371,8 +371,9 @@ refuses while a manual task is open or a check fails when re-run; then
 every regular period of each covered ledger must be `locked` (409
 `closing.year_periods_not_locked`, naming them: the period closes, or T32
 directly, lock them) and every special period `closed` or `locked` (409
-`closing.period_not_closed`); the special periods of every covered ledger
-are read `FOR UPDATE` in one statement in the project's one order (by
+`closing.period_not_closed`); the year's periods of every covered ledger,
+regular and special, are read `FOR UPDATE` in one statement, so no unlock
+slips in between the check and the commit, in the project's one order (by
 period, then the leading ledger first, then by code; 03 §3.7's entry
 locks) and each closed one is locked through `LockPeriod` in that order;
 the `year_sign_off` row records per ledger the periods it
@@ -552,8 +553,9 @@ configuration has no number range for it today (its ranges come from the
 mock extract's journal year, and `PREV` serves only prices and tax-rate
 dates), so T64m1's part sets `PREV` up through a change request (a number
 range per company) and posts the business the later parts carry forward:
-an expense and a revenue entry, and a USD bank posting with the USD rates
-on `PREV`'s last day that the year-end revaluation needs. No other step
+an expense and a revenue entry, a USD bank posting with the USD rates on
+`PREV`'s last day, and `PREV`'s year-end revaluation run, before any
+carry-forward (a run reopening period 12 later would make it stale). No other step
 posts into `PREV`, so locking it touches nothing another step reads. Each
 slice adds its part in order: special-period posting (T64m1),
 carry-forward (T64m2, T64m3), the year close (T64m4), its checks (T64m5),
