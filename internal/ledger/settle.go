@@ -335,8 +335,11 @@ func (e *Endpoints) paymentLines(ctx context.Context, tx pgx.Tx, in Settlement, 
 	}
 	taxItems := plan.taxItems(bank)
 	fx, err := exchangeDifferenceLines(ctx, le.ID, total.lc, total.gc, paid, in.HeaderText)
+	if err != nil {
+		return nil, settlementBank{}, nil, err
+	}
 	withTradingPartner(fx, sharedTradingPartner(items)) // a difference line takes the items' trading partner (ADR-0059 §4)
-	return append(append(lines, more...), fx...), bank, taxItems, err
+	return append(append(lines, more...), fx...), bank, taxItems, nil
 }
 
 // settlementDiscount is the total of the discounts taken on the items, in

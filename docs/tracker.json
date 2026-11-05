@@ -1785,7 +1785,7 @@
        },
        {
         "s": "D",
-        "t": "Trading partner on journal lines: ledger.journal_line.trading_partner_id, Posting/PostingLine.TradingPartner, trading_partner_id on manual, parked and template entry lines (ledger.trading_partner_invalid), copied by reversals and clearings; ledger.trading_partner_balance maintained as assignment_balance and read exactly; responses with trading_partner (id, code, name), listJournalEntries?trading_partner_id, events; walkthrough: Carla posts Maple's USD invoice to Acme Corp US with trading partner 1000, one naming Maple itself refused",
+        "t": "Trading partner on journal lines: ledger.journal_line.trading_partner_id, Posting/PostingLine.TradingPartner, trading_partner_id on manual, parked and template entry lines (ledger.trading_partner_invalid), copied by reversals and clearings; ledger.trading_partner_balance maintained as assignment_balance (its exact read is T68d's BalancesThrough); responses with trading_partner (id, code, name), listJournalEntries?trading_partner_id, events; walkthrough: Carla posts Maple's USD invoice to Acme Corp US with trading partner 1000, one naming Maple itself refused",
         "r": "ADR-0059 · T68b",
         "src": "adr:ADR-0059",
         "c": []
@@ -1799,7 +1799,7 @@
        },
        {
         "s": "T",
-        "t": "The consolidation run and currency translation: schema consolidation (run, run_member, run_balance; RLS, tenant_id first, state triggers, schema tests); POST/GET/list /v1/consolidation-runs (202 with the Operation), :discard; workflow ConsolidationRun (prepare, translate per member, complete, fail; run-twice tests; in process without an engine); assets and liabilities at the closing rate, income, expenses and equity at booked group amounts, prior results on retained earnings, the translation difference per member; GET .../balances with totals; consolidation.run.manage; ConsolidationRunChanged; audit; the run's budget; walkthrough: Carla runs MAPLE for today's period, Acme Corp US's balance sheet at 1.40, its expenses at 1.35, its translation difference on the reserve",
+        "t": "The consolidation run and currency translation: schema consolidation (run, run_member, run_balance; RLS, tenant_id first, state triggers, schema tests); POST/GET/list /v1/consolidation-runs (202 with the Operation), :discard; workflow ConsolidationRun (prepare, translate per member, complete, fail; run-twice tests; in process without an engine); assets and liabilities at the closing rate, income, expenses and equity at booked group amounts, prior results on retained earnings, the translation difference per member; GET .../balances with totals; consolidation.run.manage; ConsolidationRunChanged; audit; ledger.BalancesThrough reading trading_partner_balance with the lines not yet projected, exactly as balanceRows reads period_balance (ADR-0059 §4a); the run's budget; walkthrough: Carla runs MAPLE for today's period, Acme Corp US's balance sheet at 1.40, its expenses at 1.35, its translation difference on the reserve",
         "r": "ADR-0059 · T68d",
         "src": "adr:ADR-0059",
         "c": []
@@ -1830,6 +1830,13 @@
         "t": "Investment and equity elimination with non-controlling interests: run_acquisition, acquisition, acquisition_equity frozen at the first final run; the investment entry (acquisition equity, investment, goodwill, the interest at acquisition) and the NCI entry (profit, translation and other shares); consolidation.negative_goodwill, consolidation.acquisition_changed, consolidation.investment_changed; the profit and loss's attribution to owners and non-controlling interests; walkthrough: Maple's investment eliminated against Acme Corp US's equity at acquisition, goodwill and the 20% interest shown",
         "r": "ADR-0059 · T68h",
         "src": "adr:ADR-0059",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Revaluation of intercompany items by trading partner: a foreign currency revaluation's lines of open items and balances that name a trading partner carry it (grouped by account, currency, direction and trading partner), so revalued intercompany balances match by trading partner instead of showing as no_trading_partner",
+        "r": "ADR-0059 §4, §8 · ADR-0042 · before T68f",
+        "src": "review:T68b",
         "c": []
        }
       ]

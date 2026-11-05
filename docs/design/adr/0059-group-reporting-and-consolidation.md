@@ -1084,7 +1084,7 @@ default, for the product owner to overrule:
   entry's ETag (`JournalEntry`'s contract). `listJournalEntries` filters
   by `trading_partner_id` with an `EXISTS` of its own, added only when
   asked, as the `account_id` filter is, over the partial index
-  `journal_line_trading_partner` (company, trading partner, year,
+  `journal_line_by_trading_partner` (company, trading partner, year,
   period).
 - **Balances.** `ledger.trading_partner_balance` has a plain primary key
   (every part of its key is set) and a check that the trading partner is
@@ -1105,7 +1105,8 @@ default, for the product owner to overrule:
   both lines naming company 1000; reads it back with the company's code
   and name; lists Maple's entries by trading partner; and a line naming
   Maple is refused with `ledger.trading_partner_invalid`.
-- **Not built (a gap for T68f):** a revaluation's lines of a foreign
-  currency intercompany item (ADR-0042) do not carry the item's trading
-  partner, so they show as `no_trading_partner` until a slice gives them
-  the item's.
+- **Not built (a tracker leaf, src review:T68b, before T68f):** a
+  revaluation's lines of a foreign currency intercompany item (ADR-0042)
+  do not carry the item's trading partner (the run groups its totals per
+  account, currency and direction), so they would show as
+  `no_trading_partner` until that leaf groups them by trading partner too.

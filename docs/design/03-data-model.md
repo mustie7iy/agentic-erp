@@ -1346,7 +1346,7 @@ tenant before it posts or parks a line naming it (422
 line's trading partner is never its own company
 (`journal_line_trading_partner`, added `NOT VALID` and validated partition
 by partition; a partition created later gets it validated). The partial
-index `journal_line_trading_partner` (company, trading partner, year,
+index `journal_line_by_trading_partner` (company, trading partner, year,
 period) serves the journal list's `trading_partner_id` filter. A parked
 entry's and a template's lines keep the trading partner entered
 (`parked_entry_line.trading_partner_id`, `entry_template_line.trading_partner_id`),

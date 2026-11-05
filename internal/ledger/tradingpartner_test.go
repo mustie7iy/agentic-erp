@@ -11,6 +11,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -94,7 +95,8 @@ func TestTradingPartnerOnManualEntries(t *testing.T) {
 		for name, c := range map[string]struct {
 			partner string
 			want    []string
-		}{"the US company": {us, []string{id}}, "another": {uuid.NewString(), nil}} {
+		}{"the US company": {us, []string{id}}, "another": {uuid.NewString(), nil}, "the US company on the bank account": {us + "&account_id=" + bank, []string{id}},
+			"the US company on another account": {us + "&account_id=" + uuid.NewString(), nil}} {
 			t.Run(name, func(t *testing.T) {
 				page, _ := e.in(t).Must(200, "GET", "/v1/journal-entries?legal_entity_id="+e.de.String()+"&trading_partner_id="+c.partner, "", "")
 				var got []string
@@ -446,5 +448,116 @@ func TestTradingPartnerDatabaseFailures(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) { apitest.EveryFailure(t, e.ten, e.ten.Human, name, call) })
+	}
+}
+
+// TestTradingPartnerOnClearingDifferences: a down payment transfer's,
+// a settlement's and a bank statement line's offsets take each item's
+// trading partner; their exchange difference and cash discount lines take
+// the items' when they all name the same one, and none when they differ;
+// bank, tax and payables lines take none (ADR-0059 As built, T68b).
+func TestTradingPartnerOnClearingDifferences(t *testing.T) {
+	e := setup(t)
+	downPayments(t, e)
+	settleRate(t, e, "USD", "2026-03-01", "0.90")
+	settleRate(t, e, "USD", "2026-04-01", "0.80")
+	dp, bank, ap, tax := settleAccount(t, e, "2000", "159000"), settleAccount(t, e, "2000", "100000"), settleAccount(t, e, "2000", "211000"),
+		settleAccount(t, e, "2000", "140000")
+	expense, revenue, clearingAccount := settleAccount(t, e, "2000", "520000"), settleAccount(t, e, "2000", "400000"), settleAccount(t, e, "2000", "510000")
+	determine(t, e, e.de, "cash_discount", revenue)
+	determine(t, e, e.de, "fx_gain", revenue)
+	pgtest.Exec(t, `UPDATE ledger.company_account SET is_open_item_managed = true, version = version + 1 WHERE legal_entity_id = $1 AND account_id = $2`,
+		e.de, clearingAccount)
+	us, other := e.us, uuid.Must(uuid.NewV7())
+	pgtest.Exec(t, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
+		VALUES ($1, $2, '3000', 'Maple', 'CA', 'CAD', $3, 'active', $4, $4)`, e.ten.ID, other, e.usCal, e.ten.Human.ID)
+	name := func(id *uuid.UUID) string {
+		switch {
+		case id == nil:
+			return "-"
+		case *id == us:
+			return "us"
+		}
+		return "other"
+	}
+	// partners is each line's account (by role) and trading partner.
+	roles := map[uuid.UUID]string{dp: "dp", bank: "bank", ap: "ap", tax: "tax", expense: "expense", revenue: "revenue", clearingAccount: "clearing"}
+	partners := func(entry ledger.Entry) string {
+		var out []string
+		for _, l := range entry.Lines {
+			out = append(out, roles[l.AccountID]+":"+name(l.TradingPartnerID))
+		}
+		return strings.Join(out, " ")
+	}
+	post := func(t *testing.T, currency string, partner *uuid.UUID, lines ...ledger.PostingLine) ledger.Entry {
+		t.Helper()
+		var entry ledger.Entry
+		if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
+			entry, err = postings().Post(ctx, ledger.Posting{LegalEntityID: e.de, DocumentType: "SA", DocumentDate: date("2026-03-01"), PostingDate: date("2026-03-01"),
+				Currency: currency, SourceContext: "payments", SourceDocumentID: uuid.New(), Lines: lines, TradingPartner: partner})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return entry
+	}
+	invoice := func(t *testing.T, partner *uuid.UUID) ledger.ItemRef {
+		t.Helper()
+		entry := post(t, "USD", partner, ledger.PostingLine{AccountID: expense, Amount: 10000}, ledger.PostingLine{AccountID: ap, Amount: -10000, PartnerID: &e.supplier})
+		return ledger.ItemRef{FiscalYear: entry.FiscalYear, EntryID: entry.ID, LineNo: 2}
+	}
+	in := func(t *testing.T, call func(ctx context.Context) (ledger.Entry, error)) ledger.Entry {
+		t.Helper()
+		var entry ledger.Entry
+		if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
+			entry, err = call(ctx)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return entry
+	}
+	for name, c := range map[string]struct {
+		call func(t *testing.T) ledger.Entry
+		want string
+	}{
+		"a down payment transfer": {func(t *testing.T) ledger.Entry {
+			v1, a := "V1", "A"
+			paid := post(t, "EUR", nil, ledger.PostingLine{AccountID: dp, Amount: 10000, PartnerID: &e.supplier, SpecialGL: &a, TradingPartner: &us},
+				ledger.PostingLine{AccountID: tax, Amount: 1900, TaxCode: &v1}, ledger.PostingLine{AccountID: bank, Amount: -11900})
+			return in(t, func(ctx context.Context) (ledger.Entry, error) {
+				return postings().ClearDownPayments(ctx, ledger.DownPaymentClearing{LegalEntityID: e.de, SupplierID: e.supplier, APAccountID: ap, DocumentType: "SA",
+					PostingDate: date("2026-03-20"), Currency: "EUR", Items: []ledger.ItemRef{{FiscalYear: paid.FiscalYear, EntryID: paid.ID, LineNo: 1}},
+					SourceContext: "payables", SourceDocumentID: uuid.New()})
+			})
+		}, "dp:us tax:- ap:-"},
+		"a settlement with a cash discount and a gain": {func(t *testing.T) ledger.Entry {
+			item := invoice(t, &us)
+			return in(t, func(ctx context.Context) (ledger.Entry, error) {
+				s := settlementOf(t, e, e.de, "2000", "USD", "2026-04-15", item)
+				s.Discounts = []money.Minor{300}
+				return postings().Settle(ctx, s)
+			})
+		}, "ap:us bank:- revenue:us revenue:us revenue:us"}, // the discount, the gain in local and in group currency
+		"a settlement of items with different trading partners": {func(t *testing.T) ledger.Entry {
+			first, second := invoice(t, &us), invoice(t, &other)
+			return in(t, func(ctx context.Context) (ledger.Entry, error) {
+				return postings().Settle(ctx, settlementOf(t, e, e.de, "2000", "USD", "2026-04-15", first, second))
+			})
+		}, "ap:us ap:other bank:- revenue:- revenue:-"},
+		"a bank statement line with a gain": {func(t *testing.T) ledger.Entry {
+			paid := post(t, "USD", &us, ledger.PostingLine{AccountID: expense, Amount: 10000}, ledger.PostingLine{AccountID: clearingAccount, Amount: -10000})
+			return in(t, func(ctx context.Context) (ledger.Entry, error) {
+				return postings().PostBank(ctx, ledger.BankPosting{LegalEntityID: e.de, DocumentType: "SA", PostingDate: date("2026-04-15"), Currency: "USD",
+					BankAccountID: bank, Amount: -10000, ClearingAccountID: clearingAccount, Entries: []ledger.ItemRef{{FiscalYear: paid.FiscalYear, EntryID: paid.ID}},
+					SourceContext: "payments", SourceDocumentID: uuid.New()})
+			})
+		}, "clearing:us bank:- revenue:us revenue:us"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := partners(c.call(t)); got != c.want {
+				t.Errorf("lines: got %q, want %q", got, c.want)
+			}
+		})
 	}
 }

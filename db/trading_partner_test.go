@@ -90,11 +90,11 @@ func TestJournalLineTradingPartner(t *testing.T) {
 	t.Run("the lines are indexed by trading partner", func(t *testing.T) {
 		var valid bool
 		if err := testDB.QueryRow(context.Background(), `SELECT i.indisvalid FROM pg_index i
-				WHERE i.indexrelid = 'ledger.journal_line_trading_partner'::regclass`).Scan(&valid); err != nil {
+				WHERE i.indexrelid = 'ledger.journal_line_by_trading_partner'::regclass`).Scan(&valid); err != nil {
 			t.Fatal(err)
 		}
 		if !valid {
-			t.Error("journal_line_trading_partner: got invalid, want valid")
+			t.Error("journal_line_by_trading_partner: got invalid, want valid")
 		}
 	})
 }
