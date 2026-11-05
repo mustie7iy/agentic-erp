@@ -65,9 +65,9 @@ func TestCloseTasks(t *testing.T) {
 		"task_completed REPORT <nil> 4", "task_reopened AP_CUTOFF A late invoice arrived 5", "task_assigned AP_CUTOFF <nil> 6"})
 }
 
-// TestCloseTaskRefusals: a task is assigned to an active person of the
-// tenant only; an unknown task or close is not found; a change needs
-// If-Match; agents do not work the checklist.
+// TestCloseTaskRefusals: a task is assigned only to an active person of
+// the tenant who may act in the close's company; an unknown task or close
+// is not found; a change needs If-Match; agents do not work the checklist.
 func TestCloseTaskRefusals(t *testing.T) {
 	e := fixture.NewWith(t, nil, withTemplate, closePermissions...)
 	got, tag := open(t, e.Client, e.US, 1, "")
@@ -75,7 +75,7 @@ func TestCloseTaskRefusals(t *testing.T) {
 	blocked := e.Person(t, "blocked")
 	pgtest.Exec(t, `UPDATE identity.principal SET status = 'blocked', version = version + 1 WHERE id = $1`, blocked.ID)
 	for name, id := range map[string]uuid.UUID{"an agent": e.Tenant.Agent.ID, "a service": e.Tenant.Service.ID, "a blocked person": blocked.ID,
-		"an unknown principal": uuid.New()} {
+		"an unknown principal": uuid.New(), "a person of another company": e.Reader(t, "reader of 2000", e.DE).ID} {
 		t.Run(name, func(t *testing.T) {
 			p := e.Client.In(t).Problem(422, "closing.assignee_invalid", "PATCH", base+"REVIEW", fmt.Sprintf(`{"assignee_id": %q}`, id), tag)
 			if errs, _ := p["errors"].([]any); len(errs) != 1 || errs[0].(map[string]any)["field"] != "assignee_id" {

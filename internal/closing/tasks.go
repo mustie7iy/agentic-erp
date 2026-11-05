@@ -11,6 +11,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -92,7 +93,7 @@ func (e *Endpoints) UpdateCloseTask(ctx context.Context, req *gen.CloseTaskUpdat
 		var assignee *uuid.UUID
 		if !req.AssigneeID.Null {
 			assignee = &req.AssigneeID.Value
-			if err := e.person(ctx, *assignee); err != nil {
+			if err := e.person(ctx, *assignee, t.LegalEntityID); err != nil {
 				return change{}, false, err
 			}
 		}
@@ -105,18 +106,32 @@ func (e *Endpoints) UpdateCloseTask(ctx context.Context, req *gen.CloseTaskUpdat
 	})
 }
 
-// person refuses an assignee that is not an active person of the tenant:
-// tasks are people's work (ADR-0058 §6).
-func (e *Endpoints) person(ctx context.Context, id uuid.UUID) error {
+// person refuses an assignee that is not an active person of the tenant
+// who may act in the close's company: tasks are people's work, and a
+// person without the company's access would be assigned a task they
+// cannot see (ADR-0058 §6; product owner 2026-11-04).
+func (e *Endpoints) person(ctx context.Context, id, legalEntity uuid.UUID) error {
 	named, err := e.People.Named(ctx, []uuid.UUID{id})
 	if err != nil {
 		return fmt.Errorf("closing: assignee %s: %w", id, err)
 	}
 	if n, ok := named[id]; !ok || n.Kind != "human" || n.Status != "active" {
-		return problem.Unprocessable("closing.assignee_invalid", "A task is assigned to an active person of the tenant, not to an agent, a service, "+
-			"a blocked or an unknown principal.", problem.FieldError{Field: "assignee_id", Code: "invalid", Message: "an active person of the tenant"})
+		return assigneeInvalid()
+	}
+	access, err := authz.CompaniesOf(ctx, id)
+	if err != nil {
+		return fmt.Errorf("closing: assignee %s: %w", id, err)
+	}
+	if !access.Allows(legalEntity) {
+		return assigneeInvalid()
 	}
 	return nil
+}
+
+func assigneeInvalid() error {
+	return problem.Unprocessable("closing.assignee_invalid", "A task is assigned to an active person of the tenant who may act in the close's "+
+		"company, not to an agent, a service, a blocked or an unknown principal, or a person without the company's access.",
+		problem.FieldError{Field: "assignee_id", Code: "invalid", Message: "an active person of the tenant with access to the close's company"})
 }
 
 // CompleteCloseTask implements POST

@@ -52,7 +52,7 @@ The architecture must reach these numbers by adding capacity
 | Trial balance for one company and period | 1 s | 3 s |
 | Ledger reconciliation of two ledgers of one company and year, every page | 1 s | 3 s |
 | Daily cash position of one company, 31 days (ADR-0051) | 2 s | 4 s |
-| Liquidity forecast of one company over 100,000 open items, and its drill-down (ADR-0051, T53e4) | 3 s | 6 s |
+| Liquidity forecast of one company over 100,000 open items, and its drill-down (ADR-0051, T53e4; product owner, 2026-11-04: computed on read, no stored flow table) | 3 s | 6 s |
 | Group liquidity forecast across the caller's companies over 100,000 open items in total (ADR-0051 §9, T53e5; product owner, 2026-11-04) | 3 s | 6 s |
 | Asset history sheet of one company, ledger and fiscal year (ADR-0057) | 1 s | 3 s |
 | Depreciation run preview over 100,000 assets of one company and ledger, every page (ADR-0057) | 1 s | 3 s |

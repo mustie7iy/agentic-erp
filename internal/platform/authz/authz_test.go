@@ -489,6 +489,37 @@ func TestCompanies(t *testing.T) {
 	}
 }
 
+// TestCompaniesOf: another principal's access is read as its own requests
+// read it; outside a request, or of an unknown principal, it is an error.
+func TestCompaniesOf(t *testing.T) {
+	ten := pgtest.NewTenant(t)
+	le := uuid.New()
+	pgtest.Exec(t, `INSERT INTO identity.company_access (tenant_id, id, principal_id, legal_entity_id, valid_from, created_by)
+		VALUES ($1, gen_random_uuid(), $2, $3, current_date, $2)`, ten.ID, ten.Agent.ID, le)
+	as(t, ten, ten.Human, func(ctx context.Context) {
+		a, err := authz.CompaniesOf(ctx, ten.Agent.ID)
+		if err != nil {
+			t.Errorf("the agent's access: %v", err)
+			return
+		}
+		if a.All {
+			t.Error("the agent's access to all companies: got true, want false")
+		}
+		if !a.Allows(le) {
+			t.Error("the agent's granted company: got denied, want allowed")
+		}
+		if a.Allows(uuid.New()) {
+			t.Error("another company: got allowed, want denied")
+		}
+		if _, err := authz.CompaniesOf(ctx, uuid.New()); err == nil {
+			t.Error("an unknown principal's access: got no error, want one")
+		}
+	})
+	if _, err := authz.CompaniesOf(context.Background(), ten.Agent.ID); err == nil {
+		t.Error("another's access outside a request: got no error, want one")
+	}
+}
+
 // TestVisible: a missing row and a row in a company outside the caller's
 // access are the same notFound; other read errors are wrapped with context;
 // an accessible row is no error.

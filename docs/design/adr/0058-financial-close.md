@@ -333,7 +333,8 @@ tasks across closes with their close's company and period, cursor-paged
 by (due date, close, code): a person's worklist.
 
 **Manual tasks.** `PATCH /v1/period-closes/{id}/tasks/{code}` (If-Match:
-the close's ETag) sets the assignee (a person of the tenant; 422
+the close's ETag) sets the assignee (a person of the tenant who may act
+in the close's company, product owner 2026-11-04; 422
 `closing.assignee_invalid` otherwise). `:complete` (If-Match; an optional
 note) marks a manual task done, refused while a task it depends on is
 open (409 `closing.task_blocked`, naming them) and for a check task (409
@@ -702,6 +703,16 @@ cursor-paged with filters, 04 §4.5):
 - The close agent proposes only. Until its type is certified on a tenant's
   routed model it stays at level 0 there, and the people do the close
   without it.
+- Close scope (product owner 2026-11-04): the year-end close (special
+  periods 13-16, profit and loss into retained earnings, the balance
+  carry-forward) is a design of its own (T64m), not a slice of T64;
+  accruals are reversed by a person one by one, an automatic reversal
+  coming only if the pilots ask; accrued revenue and accruals in a foreign
+  currency come in phase 3, with receivables. A task is assigned only to
+  a person who may act in the close's company.
+- Sign-off (product owner 2026-11-04): the pilot runs without separation
+  of duties on sign-off; the rule that the signer differs from the
+  preparer is added before go-live (T64l).
 
 ## Boundaries with the other steps
 - **T32 (period lock)**: sign-off calls its lock (§7); unlocking stays an
@@ -811,16 +822,20 @@ proposals) and this ADR's "As built".
   Should the signer be someone other than the people who completed the
   close's tasks, or should sign-off be an approval request? Recommendation:
   keep it as built for the pilot; add the rule if the pilots' auditors ask.
+  Answered 2026-11-04: as built for the pilot, who signed recorded; the
+  signer must differ from the preparer before go-live (T64l).
 - **Year-end close** (new scope): special periods 13-16, closing the
   profit and loss into retained earnings and carrying balances forward.
   None is in T64's leaves, and the ledger has no carry-forward today.
   Recommendation: its own design step before the pilots' first year end.
+  Answered 2026-11-04: its own design (T64m).
 - **Automatic reversal of accruals** (new scope): reversing every posted
   accrual on the next period's first day by one action or run, instead of
   a person reversing each. Recommendation: a leaf after T64e if the pilots
-  ask.
+  ask. Answered 2026-11-04: only if the pilots ask (no leaf until then).
 - **Accrued revenue and foreign-currency accruals** (new scope).
-  Recommendation: with receivables (phase 3).
+  Recommendation: with receivables (phase 3). Answered 2026-11-04: in
+  phase 3.
 
 ## Gaps (out of scope, not built, no question asked)
 Neither the roadmap entry nor a PO decision asks for these; each becomes a
@@ -949,9 +964,11 @@ to overrule:
   takes an optional note (at most 2,000 characters).
 - An assignee is an active human principal of the tenant (422
   `closing.assignee_invalid` for an agent, a service, a blocked or an
-  unknown principal); `null` unassigns. Whether the assignee may act in the
-  close's company is not checked: a person without access is assigned
-  but does not see the task.
+  unknown principal); `null` unassigns. As first built, whether the
+  assignee may act in the close's company was not checked (a person
+  without access was assigned but did not see the task); since the
+  product owner's decision of 2026-11-04 it is (see "Product owner
+  2026-11-04" at the end of As built).
 - A task action answers the task with the close's new ETag. Every task
   carries its close's id and version (`close_version`, the `If-Match` of
   its actions), company code and name, fiscal year and period, and
@@ -1338,3 +1355,35 @@ the other checks. Decided by default, for the product owner to overrule:
   depreciation run and passes after it", per covered ledger, without
   reordering the story. The template gains the check task `DEPRECIATED`
   (due day 2, no dependency).
+
+**Product owner 2026-11-04 (sign-off and close scope; src po:2026-11-04).**
+- *Sign-off without separation of duties for the pilot.* As built in
+  T64d: any person holding `closing.close.sign_off`, `ledger.period.lock`
+  and `ledger.entry.read` signs off, one who completed the close's tasks
+  included. Who signed is recorded, checked in the code as it stands:
+  `closing.sign_off.signed_by` and `signed_at` (insert-only, migration
+  000199), the close's `signed_off_by` and `signed_off_by_name`, each of
+  its `sign_offs` with `signed_by` and `signed_by_name`
+  (`TestSignOff`'s checks), the audit record
+  `closing.period_close.sign_off` and `PeriodCloseSignedOff`. The rule
+  that the signer differs from the preparer is added before go-live
+  (tracker T64l).
+- *Close scope.* The year-end close is its own design (tracker T64m);
+  automatic reversal of accruals only if the pilots ask; accrued revenue
+  and foreign-currency accruals in phase 3 (Consequences).
+- *A task's assignee has the close's company.* `PATCH
+  /v1/period-closes/{id}/tasks/{code}` now also refuses an active person
+  who may not act in the close's company, with the same 422
+  `closing.assignee_invalid` on `assignee_id` (no new problem code: the
+  field is equally wrong, and its message now names the company access).
+  The access is read as the person's own requests read it, all companies
+  or a company access grant valid on the database's date, through the new
+  `authz.CompaniesOf` (`authz.Companies` is it for the caller), so the
+  closing context reads no identity table of its own and needs no new
+  port. An assignment made before, to a person without access, stays as
+  it is until the task is assigned again; the access later ended does not
+  unassign a task either: the worklist simply does not show it to them,
+  as before. Evidence: `closing.TestCloseTaskRefusals` ("a person of
+  another company"), `authz.TestCompaniesOf`, and
+  `TestCloseDatabaseFailures`, which fails the new read in turn (tracker
+  T64n).
