@@ -217,10 +217,14 @@ func TestExplainRefusals(t *testing.T) {
 	model := llmtest.New(t)
 	twice := `{"id": "a", "code": "GSTHST"}, {"id": "b", "code": "GSTHST"}`
 	fake := func(a *fakeAPI) func(*testing.T) *apitools.Client {
-		return func(t *testing.T) *apitools.Client { return client(t, a) }
+		return func(t *testing.T) *apitools.Client {
+			t.Helper()
+			return client(t, a)
+		}
 	}
 	gone := func(*testing.T) *apitools.Client { return &apitools.Client{BaseURL: "http://127.0.0.1:1", Token: "t"} }
 	noDraft := func(t *testing.T) *apitools.Client {
+		t.Helper()
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/v1/tax-registrations" {
 				_, _ = w.Write([]byte(`{"items": [{"id": "` + reg + `", "code": "GSTHST"}]}`)) // a test's answer
