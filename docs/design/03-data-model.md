@@ -1322,6 +1322,22 @@ as the trial balance reads `period_balance`, through the partial indexes
 `assignment_balance_cost_center` and `assignment_balance_profit_center`
 (company, ledger, year, period, center).
 
+Year-end close: special-period postings and the balance carry-forward
+(ADR-0059, T64m1-T64m3) are **planned, not built**; no migration creates
+these yet. Special periods 13-16 take manual and parked entries and their
+reversals dated in the year's last regular period (no new table).
+`period_status` gains `opened_count` (only `OpenPeriod` adds one), by which
+a carry-forward is judged stale. A carry-forward run
+(`carry_forward_run`, one `current` per company, ledger and year, the
+previous one `superseded`) stores the opening balances of the next year as
+balances, never as journal lines: per account, kind (`balance`, or `result`
+on the retained earnings account for the profit and loss carried) and
+transaction currency, in transaction, local and group currency
+(`carry_forward_balance`, insert-only), with the opened count of every
+period it read (`carry_forward_period`, insert-only). The retained earnings
+account is configuration (`companies[].year_end.retained_earnings_account`,
+tier 3). ADR-0059 §14 lists the planned columns and rules.
+
 ## 3.8 Procurement (`procurement`)
 
 ```mermaid
@@ -3417,6 +3433,15 @@ first. The report and the check read a close's comments of a basis
 (`variance_comment_by_created`). The account, entries, session and
 principals are other contexts', by id, without foreign keys. Schema
 tests: `db/closing_test.go` (`TestVarianceCommentRules`).
+
+The year close (ADR-0059 §8, T64m4-T64m6) is **planned, not built**: a
+company's close of a fiscal year, stored apart from period closes in
+`year_close` (unique per company and year), `year_close_ledger`,
+`year_close_task` and `year_sign_off`, with the same columns and rules as
+`period_close`, `close_ledger`, `close_task` and `sign_off` but for the
+period; its template is the configuration's `close.year_tasks`. Its
+sign-off needs every regular period of each covered ledger locked and
+locks the special periods.
 
 ## 3.23 Analytics (`analytics`)
 

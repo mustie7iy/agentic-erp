@@ -1738,6 +1738,55 @@
      },
      {
       "s": "T",
+      "t": "Year-end close designed (ADR-0059, product owner 2026-11-04, T64m): special periods 13-16 take manual entries; a retained earnings account per company; the balance carry-forward per company, ledger and year stored as balances, chained, stale when a period is opened, re-run by a person; a year close in closing whose sign-off locks the year",
+      "r": "ADR-0059 · T64m (split T64m1-T64m6)",
+      "c": [
+       {
+        "s": "T",
+        "t": "Postings into special periods: fiscal_period 13 up to the calendar's last special period on postJournalEntry, parkJournalEntry (kept and checked again at postParkedJournalEntry) and reverseJournalEntry, dated in the year's last regular period (ledger.special_period_date), the special period open in every ledger posted to and read FOR SHARE in the postings' order; tax codes refused there (ledger.special_period_tax_code, until the product owner answers ADR-0059 question 2); walkthrough step_year_end: an audit adjustment posted into period 13 of the year before today's and read in the trial balance, a posting dated in period 11 naming period 13 refused",
+        "r": "ADR-0059 §3 · T64m1",
+        "src": "adr:ADR-0059",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Retained earnings and the carry-forward run: companies[].year_end.retained_earnings_account (equity, postable, no reconciliation, not open-item managed; tier 3); ledger.carry_forward_run, carry_forward_balance and carry_forward_period; POST /v1/balance-carry-forwards per ledger (chained from the previous year's current run or from every year; the year and earlier years closed or locked, the next year set up, a retained earnings account; advisory lock per company, ledger and year; the previous run superseded); GET one run with its totals per currency; BalanceCarriedForward; audit; ledger.carry_forward.run; rows summing to zero per currency, chained equal to from every year, the chained budget; walkthrough: the year carried forward in every ledger, its result equal to the year's profit and loss",
+        "r": "ADR-0059 §4, §5, §7 · T64m2",
+        "src": "adr:ADR-0059",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Reading the carry-forward, staleness and re-runs: opened_count on ledger.period_status (OpenPeriod only; trigger and schema test); stale with the periods opened since on every read of a run; GET /v1/balance-carry-forwards (list) and /{id}/balances (names, kinds, totals with every page); a chained run refusing a stale predecessor (ledger.carry_forward_stale); the from-every-year and page budgets; walkthrough: a late posting into period 13 makes the run stale, re-running supersedes it and carries the adjustment",
+        "r": "ADR-0059 §6, §7 · T64m3",
+        "src": "adr:ADR-0059",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The year close and its checklist: close.year_tasks in the configuration (year checks only); closing.year_close, year_close_ledger and year_close_task (RLS, rules, schema tests); POST/GET/list /v1/year-closes and the task operations (PATCH, :complete, :reopen, :check) sharing the period close's code; checks no_parked_entries over the year and revaluation_posted on the year's last day; YearCloseChanged; audit; walkthrough: year tasks added through a change request, the year close opened, a manual task completed, the revaluation check passing",
+        "r": "ADR-0059 §8 · T64m4",
+        "src": "adr:ADR-0059",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Year-close checks, depreciation and carry-forward: depreciation_year_posted (T64k's check for every regular period and covered ledger) and carry_forward_current (a current run from the year, not stale) through closing.Ledger's new read, results naming the ledgers and periods; walkthrough: carry_forward_current failing after a late posting and passing after the re-run, depreciation_year_posted passing",
+        "r": "ADR-0059 §8, §11 · T64m5",
+        "src": "adr:ADR-0059",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Year-close sign-off locks the year: :sign-off needing every task done, checks passing when re-run, every regular period of each covered ledger locked (closing.year_periods_not_locked) and every special period closed or locked (closing.period_not_closed); LockPeriod on each closed special period in the postings' order; year_sign_off; YearCloseSignedOff; reopening after an unlock and a second sign-off; a concurrency test with a posting into a special period; walkthrough: sign-off refused while a regular period is unlocked, then signed off, every period of the year locked and a posting into period 13 refused",
+        "r": "ADR-0059 §8 · T64m6",
+        "src": "adr:ADR-0059",
+        "c": []
+       }
+      ]
+     },
+     {
+      "s": "T",
       "t": "Close calendar and checklist",
       "r": "T64 · ADR-0058 §3, §6 · T64a, T64b, T64c, T64k",
       "src": "baseline",

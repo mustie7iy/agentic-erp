@@ -40,7 +40,7 @@ pointing its schema at a separate database. Callers do not change.
 | **identity** | Users, agents, roles, permissions, SoD rules, company access | `RoleAssigned`, `AccessRevoked` |
 | **configuration** (schema `config`) | Configuration versions, change requests, evidence | `ConfigurationActivated` |
 | **partner** | Business partners, roles (supplier, customer), addresses, bank accounts, tax ids | `SupplierApproved`, `BankAccountChanged` |
-| **ledger** | Chart of accounts, fiscal calendars, periods, currencies, exchange rates, journal entries, open items, clearing, balances | `JournalEntryPosted`, `PeriodClosed` |
+| **ledger** | Chart of accounts, fiscal calendars, periods, currencies, exchange rates, journal entries, open items, clearing, balances; planned, not built: balance carry-forward runs (ADR-0059) | `JournalEntryPosted`, `PeriodClosed`; planned: `BalanceCarriedForward` |
 | **procurement** | Requisitions, purchase orders, contracts, goods receipts | `PurchaseOrderReleased`, `GoodsReceived` |
 | **payables** | Supplier invoices, matching results, invoice holds | `SupplierInvoicePosted`, `InvoiceHeld` |
 | **payments** | Payment proposals, payments, bank files, bank statements | `PaymentRunReleased` |
@@ -50,7 +50,7 @@ pointing its schema at a separate database. Callers do not change.
 | **analytics** | Read models, semantic layer, saved reports, dataset contracts (ADR-0044) | — (consumes events) |
 | **agents** | Agent sessions, tool calls, recommendations, costs | `RecommendationMade` |
 | **assets** (ADR-0057, a leaf) | Asset classes' use (the classes and accounts are configuration), assets, movements, acquisitions, retirements, transfers, depreciation runs | `AssetChanged`, `AssetMovementPosted`, `DepreciationRunCompleted` |
-| **closing** (ADR-0058, a leaf) | The close calendar (the close template and company weekends are configuration), period closes and their checklists, sign-offs, the variance report, accrual proposals, variance comments | `PeriodCloseChanged`, `PeriodCloseSignedOff`, `AccrualProposed`, `AccrualProposalRejected`, `VarianceCommentChanged` |
+| **closing** (ADR-0058, a leaf) | The close calendar (the close template and company weekends are configuration), period closes and their checklists, sign-offs, the variance report, accrual proposals, variance comments; planned, not built: year closes (ADR-0059) | `PeriodCloseChanged`, `PeriodCloseSignedOff`, `AccrualProposed`, `AccrualProposalRejected`, `VarianceCommentChanged`; planned: `YearCloseChanged`, `YearCloseSignedOff` |
 
 Later phases add `sales`, `receivables`, `inventory`, `manufacturing`,
 `maintenance`, `projects` and `hr` with the same rules.
