@@ -20376,15 +20376,23 @@ paths:
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
         - ledger.automatic_account
+        - ledger.center_change_pending
         - ledger.clearing_not_balanced
+        - ledger.cost_center_category_invalid
+        - ledger.cost_center_exists
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
+        - ledger.default_center_in_use
         - ledger.entry_reversed
         - ledger.gr_ir_currency_mismatch
         - ledger.gr_ir_position_exists
+        - ledger.hierarchy_change_invalid
+        - ledger.hierarchy_exists
+        - ledger.invalid_center_status
         - ledger.invalid_clearing_entry
         - ledger.invalid_tax_code
+        - ledger.invalid_validity
         - ledger.item_already_cleared
         - ledger.item_reserved
         - ledger.jurisdiction_not_levied
@@ -20399,18 +20407,26 @@ paths:
         - ledger.no_gr_ir_account
         - ledger.no_tax_rate
         - ledger.not_an_open_item
+        - ledger.nothing_to_change
         - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
+        - ledger.profit_center_exists
+        - ledger.profit_center_in_use
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.profit_center_period_in_use
+        - ledger.profit_center_posted_after
         - ledger.rate_not_recordable
+        - ledger.segment_exists
+        - ledger.segment_in_use
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_item
         - ledger.special_gl_required
+        - ledger.standard_hierarchy_exists
         - ledger.tax_base_inconsistent
         - ledger.tax_base_mismatch
         - ledger.tax_base_not_import
@@ -26833,7 +26849,7 @@ components:
               code: RETAIL
               name: Retail
     CenterChange:
-      description: "A requested change to a cost or profit center, or to a hierarchy's tree (ADR-0050 §11), decided on its `center_change` approval request (`workflow_request_id`): applied when it is approved, rejected when it is rejected, cancelled when its requester withdraws it."
+      description: "A requested change to a cost or profit center, or to a hierarchy's tree (ADR-0050 §11), decided on its `center_change` approval request (`workflow_request_id`): applied when it is approved, rejected when it is rejected, cancelled when its requester withdraws it. A center an SAP migration run created, or a profit center it assigned to more companies, has its change recorded `applied` at once, without an approval request (the run is its approval, ADR-0050 §10): its reason names the run, its payload the periods (and companies) the run created."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -26895,7 +26911,7 @@ components:
             workflow_request_id:
               type: string
               format: uuid
-              description: Approval request (workflow context).
+              description: "Approval request (workflow context); absent for a change a migration run applied (ADR-0050 §10)."
               readOnly: true
             requested_by:
               type: string
@@ -42098,6 +42114,13 @@ components:
         - agr_define
         - agr_tcodes
         - agr_users
+        - csks
+        - cskt
+        - cepc
+        - cepct
+        - cepc_bukrs
+        - fagl_segm
+        - fagl_segmt
       properties:
         t001:
           type: integer
@@ -42179,6 +42202,34 @@ components:
           type: integer
           minimum: 0
           description: "Rows of SAP table AGR_USERS (role assignments)."
+        csks:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table CSKS (cost center master data, a row per time slice; ADR-0050 §10, T56h)."
+        cskt:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table CSKT (cost center texts; ADR-0050 §10, T56h)."
+        cepc:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table CEPC (profit center master data, a row per time slice; ADR-0050 §10, T56h)."
+        cepct:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table CEPCT (profit center texts; ADR-0050 §10, T56h)."
+        cepc_bukrs:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table CEPC_BUKRS (profit centers' company code assignments; ADR-0050 §10, T56h)."
+        fagl_segm:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table FAGL_SEGM (segments; ADR-0050 §10, T56h)."
+        fagl_segmt:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table FAGL_SEGMT (segment texts; ADR-0050 §10, T56h)."
     MigrationLoadedCounts:
       type: object
       description: "What a migration run's load created, by kind; a kind it created none of is absent. A rehearsal, and a load with an `error` refusal, are rolled back: their counts are what the load created before the rollback, and nothing of it stays. A kept load counts only what no earlier kept run loaded, so a run of the same extract again counts nothing."
@@ -42231,6 +42282,22 @@ components:
           type: integer
           minimum: 1
           description: "Order items whose GR/IR position, taken over by an earlier run, this run topped up to SAP's balance and open quantity, in an entry per order."
+        segments:
+          type: integer
+          minimum: 1
+          description: "Segments (FAGL_SEGM, FAGL_SEGMT) the scope's profit centers name (ADR-0050 §10, T56h)."
+        profit_centers:
+          type: integer
+          minimum: 1
+          description: "Profit centers assigned to the scope's company codes (CEPC, CEPCT, CEPC_BUKRS), active at once with their time slices as periods: the run is their approval (ADR-0050 §10)."
+        profit_centers_extended:
+          type: integer
+          minimum: 1
+          description: "Profit centers an earlier run created that this run assigned to more company codes (CEPC_BUKRS)."
+        cost_centers:
+          type: integer
+          minimum: 1
+          description: "Cost centers of the scope's company codes (CSKS, CSKT), active at once with their time slices as periods, at the standard hierarchy's UNASSIGNED leaf: the run is their approval (ADR-0050 §10)."
     MigrationIssue:
       type: object
       description: A finding of the quality gate, the load or the reconciliation on a row of the extract.
@@ -42294,10 +42361,10 @@ components:
           description: SAP company code (T001 BUKRS).
         key:
           type: string
-          description: "What differs: an account number, `vendor <LIFNR>`, `down payments of vendor <LIFNR>`, `partner <id> (<name>)` or `down payments of partner <id> (<name>)` (a platform supplier that is no migrated vendor, by its id and name), `bank account of vendor <LIFNR>`, `order item <EBELN>/<EBELP>`, `GR/IR of order item <EBELN>/<EBELP>`, `open items of vendor <LIFNR>` or `open items of partner <id> (<name>)` (the number of open payable items), or `<currency> items of vendor <LIFNR>` or `<currency> items of partner <id> (<name>)` (the open items in a foreign document currency, in it)."
+          description: "What differs: an account number, `vendor <LIFNR>`, `down payments of vendor <LIFNR>`, `partner <id> (<name>)` or `down payments of partner <id> (<name>)` (a platform supplier that is no migrated vendor, by its id and name), `bank account of vendor <LIFNR>`, `order item <EBELN>/<EBELP>`, `GR/IR of order item <EBELN>/<EBELP>`, `open items of vendor <LIFNR>` or `open items of partner <id> (<name>)` (the number of open payable items), `<currency> items of vendor <LIFNR>` or `<currency> items of partner <id> (<name>)` (the open items in a foreign document currency, in it), or `cost center <KOKRS>/<KOSTL>` or `profit center <KOKRS>/<PRCTR>` (a center's periods, ADR-0050 §10)."
         sap:
           type: string
-          description: "SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a count of open items, a GR/IR position as its balance and quantity (`750.00 EUR, quantity 5`), or a bank account as the load writes it."
+          description: "SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a count of open items, a GR/IR position as its balance and quantity (`750.00 EUR, quantity 5`), a bank account as the load writes it, or a center's periods (`2020-01-01 to 2026-06-30: ADMIN, profit center P3100; from 2026-07-01: ADMIN, profit center P3200`, a profit center's with its segment; `none` for a center one side lacks, `unreadable` for SAP's slices that do not read)."
         platform:
           type: string
           description: The platform's value, in the same form.

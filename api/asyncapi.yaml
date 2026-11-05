@@ -4555,6 +4555,10 @@ components:
         clearings: {type: integer, minimum: 1, description: Clearings SAP made of vendor items (ACDOCA AUGBL).}
         gr_ir_positions: {type: integer, minimum: 1, description: Order items whose open GR/IR position this run took over.}
         gr_ir_top_ups: {type: integer, minimum: 1, description: Order items whose GR/IR position, taken over by an earlier run, this run topped up.}
+        segments: {type: integer, minimum: 1, description: 'Segments (FAGL_SEGM, FAGL_SEGMT) the scope''s profit centers name.'}
+        profit_centers: {type: integer, minimum: 1, description: 'Profit centers (CEPC, CEPCT, CEPC_BUKRS) created active, the run their approval.'}
+        profit_centers_extended: {type: integer, minimum: 1, description: Profit centers an earlier run created that this run assigned to more company codes (CEPC_BUKRS).}
+        cost_centers: {type: integer, minimum: 1, description: 'Cost centers (CSKS, CSKT) created active, the run their approval.'}
 
     # --------------------------------------------------------------- agents
     RecommendationMadeV1:

@@ -2505,10 +2505,34 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "SAP migration: CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), CSKB categories, OKB9 defaults, sets 0101/0106 with ranges expanded; ACDOCA RCNTR/PRCTR/SEGMENT; quality-gate issues; mock generator extended; reconciliation of migrated center totals",
-        "r": "T56h",
+        "s": "D",
+        "t": "SAP migration, first slice (T56h split into T56h1-T56h4 for size): cost and profit centers and segments with their texts loaded by every migration run, CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T) in the extract (fields pending the SAP specialist) and the mock's company 3000 (a segment, two profit centers, four cost centers); created through the ledger's operations (ledger.CenterMigration), active at once with SAP's time slices as periods, each an applied center change naming the run without an approval request of its own (the run is their approval, ADR-0050 §10), at the standard hierarchy's UNASSIGNED leaf; a later run keeps what is loaded and assigns a loaded profit center to its companies; quality-gate issues (codes, categories not configured, no person responsible or name, slices that do not read or adjoin, a cost center in two companies, a profit center's segments differing or unknown, a profit center code in two controlling areas, an unknown, unassigned or invalid profit center, another currency warned); reconciliation of cost and profit centers per company (count and periods); report counts (extract tables, segments, profit_centers, profit_centers_extended, cost_centers)",
+        "r": "internal/sap types.go, source.go (filterCenters), mock.go (centers) · internal/ledger centermigration.go · internal/integration centers.go, centerquality.go, centerload.go, centerreconcile.go · api/openapi.yaml, api/asyncapi.yaml (MigrationExtractCounts, MigrationLoadedCounts, MigrationDiff) · docs/migration.md · walkthrough step 3 (migrated_centers), step 12 in the migrated standard hierarchies · ADR-0050 §10 as built · T56h · T56h1",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SAP migration: hierarchies and cost element categories (split from T56h): sets 0101/0106 (SETHEADER/SETNODE/SETLEAF) with value ranges expanded against the migrated centers, the standard hierarchy from TKA01-KHINR, centers placed at their leaf (KHINR), alternative hierarchies; CSKB-KATYP onto the accounts' cost_element; quality-gate issues (a center not in exactly one standard leaf, a range matching nothing); mock generator extended; the OData mapping of the controlling tables T56h1 loads and this step adds (the cost and profit center read APIs, their names from the pilot's $metadata)",
+        "r": "T56h2",
+        "src": "split:T56h · adr:ADR-0050",
+        "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SAP migration: default account assignments (split from T56h): OKB9 (TKA3A and its detail tables) onto the companies' default_assignments through a configuration change; quality-gate issues (a default cost center not migrated, an account not in the chart); mock generator extended",
+        "r": "T56h3",
+        "src": "split:T56h · adr:ADR-0050",
+        "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SAP migration: assignments on migrated journal lines and the reconciliation of center totals (split from T56h): ACDOCA RCNTR/PRCTR/SEGMENT on the documents a run loads (documents mode), checked by the posting's derivation and validation; quality-gate issues (a center not migrated, a segment that is not the profit center's); reconciliation of migrated totals per cost center, profit center and segment against the center reports; mock generator extended",
+        "r": "T56h4",
+        "src": "split:T56h · adr:ADR-0050",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },

@@ -674,7 +674,8 @@ step_migrate() {
     'Open payable items' 'Open payable items: vendors with differences' 'Parked supplier invoices' 'Parked supplier credit memos' 'Parked subsequent debits' 'Parked subsequent credits' \
     'Vendor bank accounts: vendors with differences' 'Quantities invoiced in SAP: order items with differences' \
     'Open down payments total' 'Open down payments: vendors with differences' 'Open items in USD total' 'Open items in USD: vendors with differences' \
-    'Open GR/IR total' 'Open GR/IR in USD total' 'Open GR/IR: order items with differences'; do
+    'Open GR/IR total' 'Open GR/IR in USD total' 'Open GR/IR: order items with differences' \
+    'Cost centers' 'Cost centers: centers with differences' 'Profit centers' 'Profit centers: centers with differences'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
   delta_migration "$connector"
@@ -722,11 +723,54 @@ step_migrate() {
       postSupplierInvoice -p "id=$doc" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
     expect "the migrated $kind's status" "$(field .status)" posted
   done
+  migrated_centers
   migrated_down_payment
   migrated_foreign_item
   migrated_grir
   migrated_foreign_grir
   passed
+}
+
+# migrated_centers shows SAP's controlling master data as the load brought
+# it over (ADR-0050 §10, T56h1): segment SEG-CAN, profit centers P3100 and
+# P3200 (locked from 1 October) and four cost centers, active at once with
+# SAP's time slices as their periods, each created by an applied center
+# change naming the run, with no approval request of its own (the run is
+# their approval), at the standard hierarchy's UNASSIGNED leaf until SAP's
+# hierarchies are migrated (T56h2). The reconciliation compared them per
+# center. Step 12 builds its structure in that standard hierarchy.
+migrated_centers() {
+  say "SAP's cost and profit centers and its segment came over first (CSKS, CEPC, FAGL_SEGM with their texts;"
+  say "ADR-0050 §10): each SAP time slice a period. Cost center 3120 moved to profit center P3200 on 1 July:"
+  jq -r --arg cc "$CC" '.CSKS[] | select(.BUKRS == $cc and .KOSTL == "3120") | "     CSKS \(.KOKRS)/\(.KOSTL) \(.DATAB)-\(.DATBI): \(.KOSAR), profit center \(.PRCTR)"' \
+    "$WORK/data/extract.json"
+  grep -E 'Cost centers|Profit centers' "$WORK/migrate.out" | sed 's/^/     /'
+  as carla
+  api 200 '.items[] | "segment \(.code) \(.name)"' listSegments -p code=SEG-CAN
+  expect "the migrated segment" "$(field '.items | length')" 1
+  api 200 '.items[] | "profit center \(.code) \(.name), responsible \(.responsible): \(.status), \([.periods[] | "\(.valid_from)..\(.valid_to // "") \(if .locked then "locked" else "open" end)"] | join(", "))"' \
+    listProfitCenters -p status=active
+  expect "the migrated profit centers" "$(field '[.items[] | select(.code | startswith("P3")) | .code] | sort | join(" ")')" "P3100 P3200"
+  expect "P3200's lock from 1 October" "$(field '.items[] | select(.code == "P3200") | [.periods[] | "\(.valid_from) \(.locked)"] | join(", ")')" \
+    "2020-01-01 false, $YEAR-10-01 true"
+  api 200 '.items[] | "cost center \(.code) \(.name), responsible \(.responsible): \(.status), \([.periods[] | "\(.valid_from)..\(.valid_to // "") \(.category)"] | join(", "))"' \
+    listCostCenters -p "legal_entity_id=$LE"
+  expect "the migrated cost centers" "$(field '[.items[] | .code] | sort | join(" ")')" "3100 3120 3200 3300"
+  expect "cost center 3100's name, its English text (CSKT)" "$(field '.items[] | select(.code == "3100") | .name')" Finance
+  local cc3120 pc3200
+  cc3120=$(field '.items[] | select(.code == "3120") | .id')
+  api 200 '"cost center \(.code): \([.periods[] | "\(.valid_from)..\(.valid_to // "") profit center \(.profit_center_id | .[0:8])..."] | join(", "))"' getCostCenter -p "id=$cc3120"
+  QUIET=1 api 200 '' listProfitCenters -p code=P3200
+  pc3200=$(field '.items[0].id')
+  QUIET=1 api 200 '' getCostCenter -p "id=$cc3120"
+  expect "3120's profit center from 1 July" "$(field '.periods[1] | "\(.valid_from) \(.profit_center_id)"')" "$YEAR-07-01 $pc3200"
+  say "Its creation is a center change applied by the run, with no approval request of its own:"
+  api 200 '.items[] | "center change \(.kind): \(.status), approval request \(.workflow_request_id // "none"); \(.reason)"' \
+    listCenterChanges -p "cost_center_id=$cc3120"
+  expect "the migrated cost center's change" "$(field '.items[0] | "\(.kind) \(.status) \(.workflow_request_id // "none")"')" "create applied none"
+  api 200 '.items[] | "\(.hierarchy_code): \([.nodes[].code] | join(" > ")) > 3120"' listCostCenterPaths -p "id=$cc3120"
+  expect "3120's place until SAP's hierarchies are migrated" "$(field '.items[0].nodes[-1].code')" UNASSIGNED
+  as ada
 }
 
 # migrated_foreign_item shows SAP's open invoice in USD of the CAD company
@@ -2080,9 +2124,11 @@ step_centers() {
   api 201 '"segment \(.code) \(.name)"' createSegment -body '{"code": "CA", "name": "Canada"}'
   local segment pch cch pc cc
   segment=$(field .id)
-  api 201 '"hierarchy \(.kind) \(.code), standard: \(.is_standard)"' createHierarchy \
-    -body '{"kind": "profit_center", "code": "PC-STD", "name": "Profit centers", "is_standard": true}'
-  pch=$(field .id)
+  say "The migration (step 3) placed SAP's centers in the standard hierarchies, at their UNASSIGNED leaf, until"
+  say "SAP's own hierarchies are migrated (T56h2); Sam builds the pilot's structure in them."
+  api 200 '.items[] | "hierarchy \(.kind) \(.code), standard: \(.is_standard)"' listHierarchies -p kind=profit_center -p is_standard=true
+  pch=$(field '.items[0].id')
+  QUIET=1 api 200 '' getHierarchy -p "id=$pch"
   add_node "$pch" "$(field .root_node_id)" EAST "Eastern Canada"
   api 201 '"profit center \(.code) \(.name): \(.status)"' createProfitCenter \
     -body "{\"code\": \"PC-MTL\", \"name\": \"Montreal office\", \"responsible\": \"Carla Controller\", \"segment_id\": \"$segment\", \"legal_entity_ids\": [\"$LE\"], \"valid_from\": \"$YEAR-01-01\", \"standard_node_id\": \"$NODE\", \"reason\": \"The pilot's office\"}"
@@ -2090,9 +2136,9 @@ step_centers() {
   center_approved sam
   api 200 '"profit center \(.code): \(.status) from \(.periods[0].valid_from)"' getProfitCenter -p "id=$pc"
   expect "profit center status" "$(field .status)" active
-  api 201 '"hierarchy \(.kind) \(.code), standard: \(.is_standard)"' createHierarchy \
-    -body '{"kind": "cost_center", "code": "CC-STD", "name": "Cost centers", "is_standard": true}'
-  cch=$(field .id)
+  api 200 '.items[] | "hierarchy \(.kind) \(.code), standard: \(.is_standard)"' listHierarchies -p kind=cost_center -p is_standard=true
+  cch=$(field '.items[0].id')
+  QUIET=1 api 200 '' getHierarchy -p "id=$cch"
   add_node "$cch" "$(field .root_node_id)" ADMIN Administration
   api 201 '"cost center \(.code) \(.name): \(.status)"' createCostCenter \
     -body "{\"legal_entity_id\": \"$LE\", \"code\": \"CC-1100\", \"name\": \"Finance office\", \"responsible\": \"Carla Controller\", \"category\": \"ADMIN\", \"profit_center_id\": \"$pc\", \"valid_from\": \"$YEAR-01-01\", \"standard_node_id\": \"$NODE\", \"reason\": \"The pilot's finance office\"}"

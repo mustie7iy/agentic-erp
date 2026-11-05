@@ -104191,9 +104191,37 @@ func (s *MigrationExtractCounts) encodeFields(e *jx.Encoder) {
 		e.FieldStart("agr_users")
 		e.Int(s.AgrUsers)
 	}
+	{
+		e.FieldStart("csks")
+		e.Int(s.Csks)
+	}
+	{
+		e.FieldStart("cskt")
+		e.Int(s.Cskt)
+	}
+	{
+		e.FieldStart("cepc")
+		e.Int(s.Cepc)
+	}
+	{
+		e.FieldStart("cepct")
+		e.Int(s.Cepct)
+	}
+	{
+		e.FieldStart("cepc_bukrs")
+		e.Int(s.CepcBukrs)
+	}
+	{
+		e.FieldStart("fagl_segm")
+		e.Int(s.FaglSegm)
+	}
+	{
+		e.FieldStart("fagl_segmt")
+		e.Int(s.FaglSegmt)
+	}
 }
 
-var jsonFieldsNameOfMigrationExtractCounts = [20]string{
+var jsonFieldsNameOfMigrationExtractCounts = [27]string{
 	0:  "t001",
 	1:  "skb1",
 	2:  "lfa1",
@@ -104214,6 +104242,13 @@ var jsonFieldsNameOfMigrationExtractCounts = [20]string{
 	17: "agr_define",
 	18: "agr_tcodes",
 	19: "agr_users",
+	20: "csks",
+	21: "cskt",
+	22: "cepc",
+	23: "cepct",
+	24: "cepc_bukrs",
+	25: "fagl_segm",
+	26: "fagl_segmt",
 }
 
 // Decode decodes MigrationExtractCounts from json.
@@ -104221,7 +104256,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode MigrationExtractCounts to nil")
 	}
-	var requiredBitSet [3]uint8
+	var requiredBitSet [4]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -104465,6 +104500,90 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"agr_users\"")
 			}
+		case "csks":
+			requiredBitSet[2] |= 1 << 4
+			if err := func() error {
+				v, err := d.Int()
+				s.Csks = int(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"csks\"")
+			}
+		case "cskt":
+			requiredBitSet[2] |= 1 << 5
+			if err := func() error {
+				v, err := d.Int()
+				s.Cskt = int(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cskt\"")
+			}
+		case "cepc":
+			requiredBitSet[2] |= 1 << 6
+			if err := func() error {
+				v, err := d.Int()
+				s.Cepc = int(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cepc\"")
+			}
+		case "cepct":
+			requiredBitSet[2] |= 1 << 7
+			if err := func() error {
+				v, err := d.Int()
+				s.Cepct = int(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cepct\"")
+			}
+		case "cepc_bukrs":
+			requiredBitSet[3] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int()
+				s.CepcBukrs = int(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cepc_bukrs\"")
+			}
+		case "fagl_segm":
+			requiredBitSet[3] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int()
+				s.FaglSegm = int(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fagl_segm\"")
+			}
+		case "fagl_segmt":
+			requiredBitSet[3] |= 1 << 2
+			if err := func() error {
+				v, err := d.Int()
+				s.FaglSegmt = int(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fagl_segmt\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -104474,10 +104593,11 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [3]uint8{
+	for i, mask := range [4]uint8{
 		0b11111111,
 		0b11111111,
-		0b00001111,
+		0b11111111,
+		0b00000111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -104751,9 +104871,33 @@ func (s *MigrationLoadedCounts) encodeFields(e *jx.Encoder) {
 			s.GrIrTopUps.Encode(e)
 		}
 	}
+	{
+		if s.Segments.Set {
+			e.FieldStart("segments")
+			s.Segments.Encode(e)
+		}
+	}
+	{
+		if s.ProfitCenters.Set {
+			e.FieldStart("profit_centers")
+			s.ProfitCenters.Encode(e)
+		}
+	}
+	{
+		if s.ProfitCentersExtended.Set {
+			e.FieldStart("profit_centers_extended")
+			s.ProfitCentersExtended.Encode(e)
+		}
+	}
+	{
+		if s.CostCenters.Set {
+			e.FieldStart("cost_centers")
+			s.CostCenters.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfMigrationLoadedCounts = [12]string{
+var jsonFieldsNameOfMigrationLoadedCounts = [16]string{
 	0:  "suppliers",
 	1:  "suppliers_extended",
 	2:  "suppliers_blocked",
@@ -104766,6 +104910,10 @@ var jsonFieldsNameOfMigrationLoadedCounts = [12]string{
 	9:  "clearings",
 	10: "gr_ir_positions",
 	11: "gr_ir_top_ups",
+	12: "segments",
+	13: "profit_centers",
+	14: "profit_centers_extended",
+	15: "cost_centers",
 }
 
 // Decode decodes MigrationLoadedCounts from json.
@@ -104895,6 +105043,46 @@ func (s *MigrationLoadedCounts) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"gr_ir_top_ups\"")
+			}
+		case "segments":
+			if err := func() error {
+				s.Segments.Reset()
+				if err := s.Segments.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"segments\"")
+			}
+		case "profit_centers":
+			if err := func() error {
+				s.ProfitCenters.Reset()
+				if err := s.ProfitCenters.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"profit_centers\"")
+			}
+		case "profit_centers_extended":
+			if err := func() error {
+				s.ProfitCentersExtended.Reset()
+				if err := s.ProfitCentersExtended.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"profit_centers_extended\"")
+			}
+		case "cost_centers":
+			if err := func() error {
+				s.CostCenters.Reset()
+				if err := s.CostCenters.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cost_centers\"")
 			}
 		default:
 			return d.Skip()

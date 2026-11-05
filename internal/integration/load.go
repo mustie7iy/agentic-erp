@@ -157,7 +157,7 @@ func (l *loader) load(ctx context.Context) error {
 	l.downPayments = downPaymentDocs(l.ext)
 	l.foreign, _ = foreignDocuments(l.ext, l.t) // the quality gate refused the conflicts
 	l.grir, l.viaGRIR = grirPositions(l.ext, l.t), map[string]bool{}
-	for _, fn := range []func(context.Context) error{l.partners, l.orders, l.lockOrderItems, l.invoiced, l.receipts, l.takeOverGRIR, l.invoices, l.journal, l.clearings,
+	for _, fn := range []func(context.Context) error{l.centers, l.partners, l.orders, l.lockOrderItems, l.invoiced, l.receipts, l.takeOverGRIR, l.invoices, l.journal, l.clearings,
 		l.blocked} {
 		if err := fn(ctx); err != nil {
 			return err
