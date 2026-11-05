@@ -150,11 +150,8 @@ func (e *Endpoints) bankLines(ctx context.Context, tx pgx.Tx, in BankPosting, le
 			tc.Plain(bank.expTC), in.Amount.Plain(bank.expTC)))
 	}
 	fx, err := exchangeDifferenceLines(ctx, le.ID, lc, gc, bank, in.HeaderText)
-	if err != nil {
-		return bankEntry{}, err
-	}
-	withTradingPartner(fx, sharedTradingPartner(items)) // a difference line takes the items' trading partner (ADR-0059 §4)
-	return bankEntry{lines: append(append(lines, bankLine), fx...), items: items, bank: bank}, nil
+	withTradingPartner(fx, sharedTradingPartner(items)) // a difference line takes the items' trading partner (ADR-0059 §4); fx is nil on err
+	return bankEntry{lines: append(append(lines, bankLine), fx...), items: items, bank: bank}, err
 }
 
 // accountItems are the entries' lines on the account, which must be

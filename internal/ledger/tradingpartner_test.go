@@ -471,7 +471,7 @@ func TestTradingPartnerOnClearingDifferences(t *testing.T) {
 	us, other := e.us, uuid.Must(uuid.NewV7())
 	pgtest.Exec(t, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
 		VALUES ($1, $2, '3000', 'Maple', 'CA', 'CAD', $3, 'active', $4, $4)`, e.ten.ID, other, e.usCal, e.ten.Human.ID)
-	name := func(id *uuid.UUID) string {
+	partnerName := func(id *uuid.UUID) string {
 		switch {
 		case id == nil:
 			return "-"
@@ -485,7 +485,7 @@ func TestTradingPartnerOnClearingDifferences(t *testing.T) {
 	partners := func(entry ledger.Entry) string {
 		var out []string
 		for _, l := range entry.Lines {
-			out = append(out, roles[l.AccountID]+":"+name(l.TradingPartnerID))
+			out = append(out, roles[l.AccountID]+":"+partnerName(l.TradingPartnerID))
 		}
 		return strings.Join(out, " ")
 	}
