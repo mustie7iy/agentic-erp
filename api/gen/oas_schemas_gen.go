@@ -16832,8 +16832,8 @@ type CloseCheckResult struct {
 	// What it found, in one sentence.
 	Summary string `json:"summary"`
 	// `no_parked_entries`: how many parked entries of the company dated in the period (posting date from
-	// the leading ledger's period's first to its last day) are `parked` or `pending_approval`; absent for
-	// another check.
+	// the leading ledger's period's first to its last day) are `parked` or `pending_approval`, leaving out
+	// those parked for a special period (ADR-0059 §3); absent for another check.
 	ParkedEntriesCount OptInt32 `json:"parked_entries_count"`
 	// `no_parked_entries`: the first 20 of them by posting date (`parked_entries_count` says how many
 	// there are); absent for another check.
@@ -31592,6 +31592,16 @@ type JournalEntryCreate struct {
 	// refused at posting with 409 `ledger.tax_date_in_return`, naming the period, the return and its
 	// status (decision P6): such a period's late items go to its amendment or the next return.
 	TaxDate OptDate `json:"tax_date"`
+	// A special period for a year-end adjustment (ADR-0059 §3), 13 up to 12 plus the special periods of
+	// the company's fiscal calendar: the entry posts into it instead of the regular period of its posting
+	// date. The posting date must be in the year's last regular period, whose dates the special periods
+	// share (422 `ledger.special_period_date`); a special period the calendar does not have in the posting
+	// date's year is 422 `ledger.no_fiscal_period`; it must be open in every ledger posted to (409
+	// `ledger.period_not_open`). No line may carry a tax code (422 `ledger.special_period_tax_code`:
+	// refused until the tax specialist confirms how year-end adjustments enter the returns, product owner
+	// 2026-11-05, ADR-0059 question 2). Absent: the regular period of the posting date. A parked entry
+	// (`parkJournalEntry`) keeps it and is held to these rules again when it is posted.
+	FiscalPeriod OptInt32 `json:"fiscal_period"`
 	// Transaction currency; every line amount must use it.
 	Currency string `json:"currency"`
 	// External reference.
@@ -31635,6 +31645,11 @@ func (s *JournalEntryCreate) GetPostingDate() time.Time {
 // GetTaxDate returns the value of TaxDate.
 func (s *JournalEntryCreate) GetTaxDate() OptDate {
 	return s.TaxDate
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *JournalEntryCreate) GetFiscalPeriod() OptInt32 {
+	return s.FiscalPeriod
 }
 
 // GetCurrency returns the value of Currency.
@@ -31690,6 +31705,11 @@ func (s *JournalEntryCreate) SetPostingDate(val time.Time) {
 // SetTaxDate sets the value of TaxDate.
 func (s *JournalEntryCreate) SetTaxDate(val OptDate) {
 	s.TaxDate = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *JournalEntryCreate) SetFiscalPeriod(val OptInt32) {
+	s.FiscalPeriod = val
 }
 
 // SetCurrency sets the value of Currency.
@@ -31829,6 +31849,13 @@ func (*JournalEntryPage) listJournalEntriesRes() {}
 type JournalEntryReverse struct {
 	// Posting date of the reversal; defaults to the original posting date if that period is open.
 	PostingDate OptDate `json:"posting_date"`
+	// A special period for the reversal (ADR-0059 §3), by the rules of a manual entry's `fiscal_period`:
+	// its posting date, the original's unless `posting_date` is given, in the year's last regular period
+	// (422 `ledger.special_period_date`), a special period the calendar has (422
+	// `ledger.no_fiscal_period`), open in every ledger of the original's posting group (409
+	// `ledger.period_not_open`), and an original without tax codes (422 `ledger.special_period_tax_code`).
+	// Absent: the regular period of the reversal's posting date.
+	FiscalPeriod OptInt32 `json:"fiscal_period"`
 	// Header text of the reversal entry.
 	HeaderText OptString `json:"header_text"`
 }
@@ -31836,6 +31863,11 @@ type JournalEntryReverse struct {
 // GetPostingDate returns the value of PostingDate.
 func (s *JournalEntryReverse) GetPostingDate() OptDate {
 	return s.PostingDate
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *JournalEntryReverse) GetFiscalPeriod() OptInt32 {
+	return s.FiscalPeriod
 }
 
 // GetHeaderText returns the value of HeaderText.
@@ -31846,6 +31878,11 @@ func (s *JournalEntryReverse) GetHeaderText() OptString {
 // SetPostingDate sets the value of PostingDate.
 func (s *JournalEntryReverse) SetPostingDate(val OptDate) {
 	s.PostingDate = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *JournalEntryReverse) SetFiscalPeriod(val OptInt32) {
+	s.FiscalPeriod = val
 }
 
 // SetHeaderText sets the value of HeaderText.
@@ -44360,6 +44397,10 @@ type ParkedJournalEntry struct {
 	PostingDate time.Time `json:"posting_date"`
 	// Tax date the entry was parked with; absent: its posting date.
 	TaxDate OptDate `json:"tax_date"`
+	// The special period (ADR-0059 §3) it is to be posted into, held to a manual entry's rules for one
+	// when it is parked, changed and posted; absent: the regular period of its posting date. A period
+	// close's `no_parked_entries` check leaves an entry naming one out: it is the year's.
+	FiscalPeriod OptInt32 `json:"fiscal_period"`
 	// Transaction currency.
 	Currency string `json:"currency"`
 	// External reference.
@@ -44467,6 +44508,11 @@ func (s *ParkedJournalEntry) GetPostingDate() time.Time {
 // GetTaxDate returns the value of TaxDate.
 func (s *ParkedJournalEntry) GetTaxDate() OptDate {
 	return s.TaxDate
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *ParkedJournalEntry) GetFiscalPeriod() OptInt32 {
+	return s.FiscalPeriod
 }
 
 // GetCurrency returns the value of Currency.
@@ -44612,6 +44658,11 @@ func (s *ParkedJournalEntry) SetPostingDate(val time.Time) {
 // SetTaxDate sets the value of TaxDate.
 func (s *ParkedJournalEntry) SetTaxDate(val OptDate) {
 	s.TaxDate = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *ParkedJournalEntry) SetFiscalPeriod(val OptInt32) {
+	s.FiscalPeriod = val
 }
 
 // SetCurrency sets the value of Currency.
@@ -44787,6 +44838,9 @@ type ParkedJournalEntryUpdate struct {
 	// posting with 409 `ledger.tax_date_in_return`, naming the period, the return and its status (decision
 	// P6): such a period's late items go to its amendment or the next return.
 	TaxDate OptNilDate `json:"tax_date"`
+	// The special period to post into, by the rules of a manual entry's `fiscal_period` (ADR-0059 §3).
+	// Send null to remove it: the regular period of the posting date then.
+	FiscalPeriod OptNilInt32 `json:"fiscal_period"`
 	// Transaction currency; every line amount must use it, so a change of currency comes with the lines.
 	Currency OptString `json:"currency"`
 	// External reference. Send null to clear.
@@ -44815,6 +44869,11 @@ func (s *ParkedJournalEntryUpdate) GetPostingDate() OptDate {
 // GetTaxDate returns the value of TaxDate.
 func (s *ParkedJournalEntryUpdate) GetTaxDate() OptNilDate {
 	return s.TaxDate
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *ParkedJournalEntryUpdate) GetFiscalPeriod() OptNilInt32 {
+	return s.FiscalPeriod
 }
 
 // GetCurrency returns the value of Currency.
@@ -44855,6 +44914,11 @@ func (s *ParkedJournalEntryUpdate) SetPostingDate(val OptDate) {
 // SetTaxDate sets the value of TaxDate.
 func (s *ParkedJournalEntryUpdate) SetTaxDate(val OptNilDate) {
 	s.TaxDate = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *ParkedJournalEntryUpdate) SetFiscalPeriod(val OptNilInt32) {
+	s.FiscalPeriod = val
 }
 
 // SetCurrency sets the value of Currency.

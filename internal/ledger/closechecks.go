@@ -35,7 +35,9 @@ type OpenParked struct {
 // Parked returns how many parked entries of the legal entity with a
 // posting date from from to to are in one of the statuses, and the first
 // limit of them by posting date and id: none for a legal entity the
-// caller may not act in.
+// caller may not act in. An entry parked for a special period is left
+// out: dated in the year's last regular period, it would hold that
+// period's close for months, and it is the year close's (ADR-0059 §3).
 func (CloseChecks) Parked(ctx context.Context, legalEntity uuid.UUID, from, to time.Time, statuses []string, limit int) (int, []OpenParked, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -47,7 +49,7 @@ func (CloseChecks) Parked(ctx context.Context, legalEntity uuid.UUID, from, to t
 	}
 	total := 0
 	rows, _ := tx.Query(ctx, `SELECT id, document_type, posting_date, status, reference, header_text, created_by, created_by_kind, count(*) OVER ()
-		FROM ledger.parked_entry WHERE ($1 OR legal_entity_id = ANY($2)) AND legal_entity_id = $3 AND posting_date BETWEEN $4 AND $5
+		FROM ledger.parked_entry WHERE ($1 OR legal_entity_id = ANY($2)) AND legal_entity_id = $3 AND posting_date BETWEEN $4 AND $5 AND fiscal_period IS NULL
 			AND status = ANY($6)
 		ORDER BY posting_date, id LIMIT $7`, access.All, access.IDs, legalEntity, from, to, statuses, limit)
 	found, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (OpenParked, error) {

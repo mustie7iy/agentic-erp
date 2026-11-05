@@ -54,6 +54,7 @@ type ParkedEntry struct {
 	ApprovalRequestID *uuid.UUID
 	JournalFiscalYear *int16
 	JournalEntryID    *uuid.UUID
+	FiscalPeriod      *int16 // the special period it is to be posted into (ADR-0059 §3); nil: its posting date's
 	Lines             []Line
 	Debits            money.Minor // the debit total of Lines
 	Limit             *ParkLimit  // why the ERP parked it instead of posting it; nil: a principal parked it
@@ -106,7 +107,7 @@ var parkedSelect = `SELECT p.id, p.legal_entity_id, p.ledger_id, p.document_type
 		` + parkedLines.read("p") + `,
 		p.limit_kind, p.limit_debits, p.limit_debits_currency, (SELECT x.exponent FROM ref.currency x WHERE x.code = p.limit_debits_currency),
 		p.limit_amount, p.limit_currency, (SELECT x.exponent FROM ref.currency x WHERE x.code = p.limit_currency), p.template_id, p.occurrence_date,
-		(SELECT t.name FROM ledger.entry_template t WHERE t.tenant_id = p.tenant_id AND t.id = p.template_id)
+		(SELECT t.name FROM ledger.entry_template t WHERE t.tenant_id = p.tenant_id AND t.id = p.template_id), p.fiscal_period
 	FROM ledger.parked_entry p JOIN ref.currency c ON c.code = p.currency`
 
 func scanParked(row pgx.Row) (ParkedEntry, error) {
@@ -117,7 +118,7 @@ func scanParked(row pgx.Row) (ParkedEntry, error) {
 	err := row.Scan(&pe.ID, &pe.LegalEntityID, &pe.LedgerID, &pe.DocumentType, &pe.DocumentDate, &pe.PostingDate, &pe.TaxDate, &pe.Currency, &pe.Exp,
 		&pe.Reference, &pe.HeaderText, &pe.Status, &pe.CreatedByKind, &pe.OwnerID, &pe.ApprovalRequestID, &pe.JournalFiscalYear, &pe.JournalEntryID,
 		&pe.Version, &pe.CreatedAt, &pe.CreatedBy, &pe.UpdatedAt, &pe.UpdatedBy, &pe.LedgerSpecific, &pe.LedgerGroup, &pe.Lines, &pe.Debits,
-		&kind, &debits, &debitsCurrency, &debitsExp, &limit, &limitCurrency, &limitExp, &pe.TemplateID, &pe.OccurrenceDate, &pe.TemplateName)
+		&kind, &debits, &debitsCurrency, &debitsExp, &limit, &limitCurrency, &limitExp, &pe.TemplateID, &pe.OccurrenceDate, &pe.TemplateName, &pe.FiscalPeriod)
 	// The database holds the five together (parked_entry_limit_figures),
 	// and a currency it keeps has its exponent.
 	if err == nil && kind != nil {
@@ -160,6 +161,9 @@ func (e *Endpoints) parkEntry(ctx context.Context, in NewEntry) (ParkedEntry, er
 	}
 	v, err := e.prepare(ctx, tx, in)
 	if err != nil {
+		return ParkedEntry{}, err
+	}
+	if err := checkSpecial(ctx, tx, v, in); err != nil {
 		return ParkedEntry{}, err
 	}
 	return parkPrepared(ctx, tx, p, v, in, parking{})
@@ -207,11 +211,11 @@ func parkPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v prepared
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.parked_entry (tenant_id, id, legal_entity_id, ledger_id, document_type, document_date, posting_date,
 			currency, reference, header_text, created_by_kind, owner_id, created_by, updated_by, ledger_specific, ledger_group_id, tax_date,
-			limit_kind, limit_debits, limit_debits_currency, limit_amount, limit_currency, template_id, occurrence_date)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
+			limit_kind, limit_debits, limit_debits_currency, limit_amount, limit_currency, template_id, occurrence_date, fiscal_period)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
 		p.TenantID, id, v.le.ID, v.choice.ledger, in.DocumentType, in.DocumentDate, in.PostingDate, in.Currency, in.Reference, in.HeaderText,
 		p.Kind, how.ownerOf(p), p.ID, v.choice.specific, v.choice.group, in.TaxDate, kind, debits, debitsCurrency, amount, limitCurrency,
-		how.template, how.occurrence); err != nil {
+		how.template, how.occurrence, in.special); err != nil {
 		return ParkedEntry{}, fmt.Errorf("ledger: park entry %s: %w", id, err)
 	}
 	if err := putParkedLines(ctx, tx, p.TenantID, id, v.lines); err != nil {
@@ -359,6 +363,7 @@ type EntryChange struct {
 	DocumentType              *string
 	DocumentDate, PostingDate *time.Time
 	TaxDate                   **time.Time // a nil *time.Time clears it: the posting date
+	FiscalPeriod              **int16     // a nil *int16 removes the special period: the posting date's
 	Currency                  *string
 	Reference, HeaderText     **string
 	Lines                     []NewLine
@@ -422,7 +427,8 @@ func takenOn(owner *uuid.UUID, createdBy uuid.UUID, p reqctx.Principal) (after *
 // changed is the parked entry as a manual entry with the change applied.
 func changed(pe ParkedEntry, ch EntryChange) NewEntry {
 	in := NewEntry{LegalEntityID: pe.LegalEntityID, LedgerGroup: pe.LedgerGroup, DocumentType: pe.DocumentType, DocumentDate: pe.DocumentDate,
-		PostingDate: pe.PostingDate, TaxDate: pe.TaxDate, Currency: pe.Currency, Reference: pe.Reference, HeaderText: pe.HeaderText, Lines: ch.Lines}
+		PostingDate: pe.PostingDate, TaxDate: pe.TaxDate, Currency: pe.Currency, Reference: pe.Reference, HeaderText: pe.HeaderText, Lines: ch.Lines,
+		special: deref(ch.FiscalPeriod, pe.FiscalPeriod)}
 	if pe.LedgerSpecific {
 		in.LedgerID = &pe.LedgerID
 	}
@@ -480,9 +486,12 @@ func (e *Endpoints) changeEntry(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err := parkable(ctx, tx, v, in.PostingDate); err != nil {
 		return ParkedEntry{}, err
 	}
+	if err := checkSpecial(ctx, tx, v, in); err != nil {
+		return ParkedEntry{}, err
+	}
 	if _, err := tx.Exec(ctx, `UPDATE ledger.parked_entry SET ledger_id = $2, document_type = $3, document_date = $4, posting_date = $5, currency = $6,
-			reference = $7, header_text = $8, owner_id = $9, version = version + 1, updated_by = $10, tax_date = $11 WHERE id = $1`,
-		id, v.choice.ledger, in.DocumentType, in.DocumentDate, in.PostingDate, in.Currency, in.Reference, in.HeaderText, owner, p.ID, in.TaxDate); err != nil {
+			reference = $7, header_text = $8, owner_id = $9, version = version + 1, updated_by = $10, tax_date = $11, fiscal_period = $12 WHERE id = $1`,
+		id, v.choice.ledger, in.DocumentType, in.DocumentDate, in.PostingDate, in.Currency, in.Reference, in.HeaderText, owner, p.ID, in.TaxDate, in.special); err != nil {
 		return ParkedEntry{}, fmt.Errorf("ledger: change parked entry %s: %w", id, err)
 	}
 	if err := putParkedLines(ctx, tx, p.TenantID, id, v.lines); err != nil {
@@ -504,7 +513,7 @@ func (ch EntryChange) fields() []string {
 		name string
 		set  bool
 	}{{"document_type", ch.DocumentType != nil}, {"document_date", ch.DocumentDate != nil}, {"posting_date", ch.PostingDate != nil},
-		{"tax_date", ch.TaxDate != nil},
+		{"tax_date", ch.TaxDate != nil}, {"fiscal_period", ch.FiscalPeriod != nil},
 		{"currency", ch.Currency != nil}, {"reference", ch.Reference != nil}, {"header_text", ch.HeaderText != nil}, {"lines", ch.Lines != nil}} {
 		if f.set {
 			out = append(out, f.name)

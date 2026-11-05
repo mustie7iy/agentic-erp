@@ -2985,6 +2985,188 @@ step_asset_depreciation() {
 # Then the close's checklist (T64b), its depreciation check (T64k), its
 # other checks (T64c), its variances (T64h) and their comments (T64i)
 # and, last, its sign-off (T64d), which locks the period.
+# step_year_end is the year-end close of the fiscal year before today's,
+# PREV (ADR-0059): the walkthrough's configuration has no number range for
+# it until here, so no other step posts into it. Each slice of T64m adds
+# its part in order; T64m1's: PREV set up through a change request, the
+# business the later parts carry forward (an expense, a revenue, a USD
+# bank posting, the USD rates on PREV's last day and PREV's year-end
+# revaluation in every ledger), and an audit adjustment posted into
+# special period 13, dated the year's last day.
+step_year_end() {
+  heading "Step 39 — Year-end close of $PREV: the year set up, its business and year-end revaluation, an audit adjustment in special period 13"
+  year_end_setup
+  year_end_business
+  year_end_revaluation
+  year_end_adjustment
+  passed
+}
+
+# year_end_setup has Ada set up PREV through a change request: a journal
+# number range of the company for it, which creates its periods, closed,
+# in every ledger the company keeps (ADR-0045); Carla opens period 12.
+year_end_setup() {
+  as ada
+  say "Maple's books of $PREV were kept in SAP and its balances migrated (step 3); the auditors' adjustments to $PREV"
+  say "are entered here. Ada sets $PREV up: a journal number range of $CC for it, a change request like any other."
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  local base cr
+  base=$(field '.items[0].number')
+  jq "{title: \"Fiscal year $PREV\", rationale: \"The year-end close of $PREV (ADR-0059)\", base_version: $base,
+    proposed: (.items[0].document | .number_ranges += [.number_ranges[] | select(.company == \"$CC\" and .document_type == \"journal_sa\" and .fiscal_year == $YEAR)
+      | .fiscal_year = $PREV])}" "$WORK/last.json" >"$WORK/prev-year.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @prev-year.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change" "$(field '[.items[].path] | join(" ")')" "number_ranges[$CC/journal_sa/$PREV]"
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as carla
+  say "$PREV's periods exist now in each ledger, closed. Carla opens period 12, December, in each, for the year's"
+  say "last business and its revaluation:"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=100
+  expect "$PREV's periods in 0L and 2L, 12 regular and 4 special each" \
+    "$(field '"\([.items[] | select(.is_special | not)] | length) \([.items[] | select(.is_special)] | length) \([.items[].status] | unique | join(" "))"')" "24 8 closed"
+  local p
+  for p in $(field '.items[] | select(.period == 12) | "\(.id)/\(.version)"'); do
+    api 200 '"  period \(.fiscal_year)/\(.period) of ledger \(.ledger_id[0:8])…: \(.status)"' openFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+}
+
+# year_end_business posts PREV's last business in December, in every
+# ledger: a revenue, an expense, and USD 2,000.00 into the RBC USD account
+# at the month's rate.
+year_end_business() {
+  as tom
+  local bank usd_bank sales expense
+  bank=$(account 100000)
+  usd_bank=$(account 1030)
+  sales=$(account 4000)
+  expense=$(account 6000)
+  say "The Bank of Canada's USD rates of December $PREV: 1.36 from the 1st, 1.38 on the 31st."
+  api 201 '"\(.from_currency)/\(.to_currency) \(.rate) from \(.valid_from) (\(.source))"' createExchangeRate \
+    -body "{\"rate_type\": \"average\", \"from_currency\": \"USD\", \"to_currency\": \"CAD\", \"valid_from\": \"$PREV-12-01\", \"rate\": \"1.36\", \"source\": \"BOC\"}"
+  api 201 '"\(.from_currency)/\(.to_currency) \(.rate) from \(.valid_from) (\(.source))"' createExchangeRate \
+    -body "{\"rate_type\": \"average\", \"from_currency\": \"USD\", \"to_currency\": \"CAD\", \"valid_from\": \"$PREV-12-31\", \"rate\": \"1.38\", \"source\": \"BOC\"}"
+  say "December's business: a sale, the month's rent, and USD 2,000.00 into the RBC USD account at 1.36."
+  local filter='"journal entry \(.document_number) of \(.posting_date), period \(.fiscal_year)/\(.fiscal_period): \(.header_text)"'
+  api 201 "$filter" postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$PREV-12-05\", \"posting_date\": \"$PREV-12-05\", \"currency\": \"CAD\", \"header_text\": \"December sales\", \"lines\": [{\"account_id\": \"$bank\", \"amount\": {\"amount\": \"4000.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$sales\", \"amount\": {\"amount\": \"-4000.00\", \"currency\": \"CAD\"}}]}"
+  api 201 "$filter" postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$PREV-12-10\", \"posting_date\": \"$PREV-12-10\", \"currency\": \"CAD\", \"header_text\": \"December rent\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"1500.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-1500.00\", \"currency\": \"CAD\"}}]}"
+  api 201 '"journal entry \(.document_number) of \(.posting_date), period \(.fiscal_year)/\(.fiscal_period): \(.header_text), \([.lines[] | "\(.amount.amount) USD = \(.amount_lc.amount) CAD"] | join(" / "))"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$PREV-12-15\", \"posting_date\": \"$PREV-12-15\", \"currency\": \"USD\", \"header_text\": \"Fund the RBC USD account\", \"lines\": [{\"account_id\": \"$usd_bank\", \"amount\": {\"amount\": \"2000.00\", \"currency\": \"USD\"}}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-2000.00\", \"currency\": \"USD\"}}]}"
+  expect "the USD posting's local amount" "$(field '.lines[0].amount_lc.amount')" 2720.00
+}
+
+# year_end_revaluation is PREV's year-end revaluation in each ledger the
+# company keeps, keyed on PREV's last day: the RBC USD account's USD
+# 2,000.00 booked at 1.36 is worth 1.38, a gain of CAD 40.00. Its reset
+# entry is dated the next day, the first of this year, whose period must
+# be open in the run's ledger (ADR-0042): a return filed for this year's
+# first quarter in step 11 locked it in the leading ledger, from April to
+# September, so Carla has it unlocked through an approved request (T32),
+# opened, and closed and locked again after the run.
+year_end_revaluation() {
+  as carla
+  QUIET=1 api 200 '' listLedgers
+  local ledger code run first
+  say "Carla revalues the foreign-currency balances at $PREV-12-31 in each ledger: USD 2,000.00 booked at 1.36 is"
+  say "worth 1.38, a gain of CAD 40.00, and its reset is dated $YEAR-01-01."
+  for ledger in $(field '.items[] | "\(.code)=\(.id)"'); do
+    code=${ledger%%=*}
+    first=$(reset_period_open "${ledger#*=}")
+    as carla
+    api 201 '"  '"$code"': run \(.id[0:8])… at \(.key_date), \(.status), \(.item_count) items: \([.items[] | "account \(.account_id | acct) \(.direction) \(.difference_lc.amount)"] | join(", "))"' \
+      postRevaluationRun -body "{\"legal_entity_id\": \"$LE\", \"ledger_id\": \"${ledger#*=}\", \"key_date\": \"$PREV-12-31\"}"
+    run=$(field .id)
+    expect "$code's run" "$(field .status)" posted
+    expect "$code's revaluation of the RBC USD account" \
+      "$(jq -r --arg a "$(account 1030)" '.items[] | select(.account_id == $a) | "\(.direction) \(.difference_lc.amount)"' "$WORK/last.json")" "gain 40.00"
+    if [ -n "$first" ]; then relock_period "$first"; fi
+    printf '%s\t%s revaluation of %s\n' "$run" "$code" "$PREV" >>"$WORK/names"
+  done
+}
+
+# reset_period_open LEDGER makes sure the ledger's period 1 of this year is
+# open for a revaluation's reset entry, and prints its id/version when it
+# had to be unlocked and opened (to lock it again after), nothing when it
+# was open. A locked one is unlocked as T32 has it: Tom asks, Carla, the
+# controller, approves, and Tom opens it.
+reset_period_open() {
+  local ledger=$1 period status request
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "ledger_id=$ledger" -p page_size=100
+  period=$(field '.items[] | select(.period == 1) | .id')
+  status=$(field '.items[] | select(.period == 1) | .status')
+  case "$status" in
+  open) return 0 ;;
+  locked) ;;
+  *) fail "period $YEAR/1 of ledger $ledger is $status, neither open nor locked" ;;
+  esac
+  {
+    as tom
+    say "Period $YEAR/1 is locked by the return filed for its quarter; Tom asks for it to be unlocked for the reset entry:"
+    QUIET=1 api 200 '' getFiscalPeriod -p "id=$period"
+    api 200 '"  period \(.fiscal_year)/\(.period): \(.status), unlock request \(.unlock_request_id[0:8])…"' unlockFiscalPeriod -p "id=$period" -if-match "$ETAG" \
+      -body "{\"reason\": \"The reset of $PREV's year-end revaluation is dated $YEAR-01-01\"}"
+    request=$(field .unlock_request_id)
+    approve carla "$request" "For the year-end revaluation's reset only"
+    as tom
+    QUIET=1 api 200 '' getFiscalPeriod -p "id=$period"
+    api 200 '"  period \(.fiscal_year)/\(.period): \(.status)"' openFiscalPeriod -p "id=$period" -if-match "$ETAG"
+  } >&2
+  printf '%s' "$period"
+}
+
+# relock_period PERIOD closes and locks again the period reset_period_open
+# unlocked and opened.
+relock_period() {
+  as tom
+  QUIET=1 api 200 '' getFiscalPeriod -p "id=$1"
+  api 200 '"  period \(.fiscal_year)/\(.period): \(.status)"' closeFiscalPeriod -p "id=$1" -if-match "$ETAG"
+  api 200 '"  period \(.fiscal_year)/\(.period): \(.status) again"' lockFiscalPeriod -p "id=$1" -if-match "$ETAG"
+}
+
+# year_end_adjustment is T64m1's capability (ADR-0059 §3): Carla opens
+# special period 13 of PREV in each ledger and posts the auditors'
+# adjustment into it, dated the year's last day; the trial balance shows
+# it under period 13. A posting dated in period 11 naming period 13 is
+# refused: a special period shares the year's last regular period's dates.
+year_end_adjustment() {
+  as carla
+  local p bank expense
+  bank=$(account 100000)
+  expense=$(account 6000)
+  say "The auditors find a December bank charge of CAD 750.00 never booked. Carla opens special period 13 of $PREV,"
+  say "the first of the four year-end periods that share December's dates, in each ledger:"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=100
+  for p in $(field '.items[] | select(.period == 13) | "\(.id)/\(.version)"'); do
+    api 200 '"  period \(.fiscal_year)/\(.period) (special: \(.is_special)) of ledger \(.ledger_id[0:8])…: \(.status)"' openFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+  say "and posts the adjustment into it, dated $PREV-12-31 (fiscal_period 13):"
+  api 201 '"journal entry \(.document_number) of \(.posting_date), period \(.fiscal_year)/\(.fiscal_period): \(.header_text)"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$PREV-12-31\", \"posting_date\": \"$PREV-12-31\", \"fiscal_period\": 13, \"currency\": \"CAD\", \"header_text\": \"Audit adjustment: December bank charges\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"750.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-750.00\", \"currency\": \"CAD\"}}]}"
+  expect "the adjustment's period" "$(field '"\(.fiscal_year)/\(.fiscal_period)"')" "$PREV/13"
+  local adjustment
+  adjustment=$(field .document_number)
+  say "The trial balance of $PREV shows it under period 13, beside December's period 12:"
+  api 200 '.items[] | "  period \(.fiscal_period) account \(.account_id | acct): debit \(.debit.amount), credit \(.credit.amount) \(.currency)"' \
+    listBalances -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p "account_id=$expense" -p page_size=500
+  expect "the expense account's periods" "$(field '[.items[] | "\(.fiscal_period) \(.debit.amount)"] | sort | join(", ")')" "12 1500.00, 13 750.00"
+  say "Its copy in 2L is in period 13 too, with the same document number:"
+  QUIET=1 api 200 '' listLedgers
+  local l2
+  l2=$(field '.items[] | select(.code == "2L") | .id')
+  api 200 '.items[] | "  2L: entry \(.document_number), period \(.fiscal_year)/\(.fiscal_period)"' listJournalEntries \
+    -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p fiscal_period=13 -p "ledger_id=$l2"
+  expect "2L's copy" "$(field '[.items[] | "\(.document_number) \(.fiscal_period)"] | join(" ")')" "$adjustment 13"
+  say "A posting into period 13 dated in November is refused: the special periods share December's dates."
+  refused 422 ledger.special_period_date postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$PREV-11-30\", \"posting_date\": \"$PREV-11-30\", \"fiscal_period\": 13, \"currency\": \"CAD\", \"header_text\": \"November charges\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"50.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-50.00\", \"currency\": \"CAD\"}}]}"
+  expect "the refused field" "$(field '[.errors[].field] | join(" ")')" posting_date
+}
+
 step_close() {
   heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off"
   as ada
@@ -4132,7 +4314,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_year_end step_close'
 
 main() {
   stop_unseen

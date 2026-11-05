@@ -58,7 +58,11 @@ entry *is* posting it (`POST /v1/journal-entries`; there are no draft journal
 entries). Corrections are custom methods that create new documents:
 `journal-entries/{id}:reverse`, `supplier-invoices/{id}:reverse` (posts a
 reversal entry). `supplier-invoices/{id}:cancel` applies only to invoices not
-yet posted.
+yet posted. A posting's fiscal period follows from its posting date (the
+regular period it falls in); a request names a period only for a year-end
+adjustment, a special period 13-16 on a manual entry, a parked one or the
+API's reversal, dated in the year's last regular period (`fiscal_period`,
+ADR-0059 §3).
 
 **Effective-dated assignments** (role assignments, role permissions, company
 access, SoD rules) are created and then ended with `POST {id}:end`

@@ -27421,6 +27421,34 @@ func (s *JournalEntryCreate) Validate() error {
 		})
 	}
 	if err := func() error {
+		if value, ok := s.FiscalPeriod.Get(); ok {
+			if err := func() error {
+				if err := (validate.Int{
+					MinSet:        true,
+					Min:           13,
+					MaxSet:        true,
+					Max:           16,
+					MinExclusive:  false,
+					MaxExclusive:  false,
+					MultipleOfSet: false,
+					MultipleOf:    0,
+					Pattern:       nil,
+				}).Validate(int64(value)); err != nil {
+					return errors.Wrap(err, "int")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "fiscal_period",
+			Error: err,
+		})
+	}
+	if err := func() error {
 		if err := (validate.String{
 			MinLength:     0,
 			MinLengthSet:  false,
@@ -27703,6 +27731,34 @@ func (s *JournalEntryReverse) Validate() error {
 	}
 
 	var failures []validate.FieldError
+	if err := func() error {
+		if value, ok := s.FiscalPeriod.Get(); ok {
+			if err := func() error {
+				if err := (validate.Int{
+					MinSet:        true,
+					Min:           13,
+					MaxSet:        true,
+					Max:           16,
+					MinExclusive:  false,
+					MaxExclusive:  false,
+					MultipleOfSet: false,
+					MultipleOf:    0,
+					Pattern:       nil,
+				}).Validate(int64(value)); err != nil {
+					return errors.Wrap(err, "int")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "fiscal_period",
+			Error: err,
+		})
+	}
 	if err := func() error {
 		if value, ok := s.HeaderText.Get(); ok {
 			if err := func() error {
@@ -36833,6 +36889,34 @@ func (s *ParkedJournalEntry) Validate() error {
 		})
 	}
 	if err := func() error {
+		if value, ok := s.FiscalPeriod.Get(); ok {
+			if err := func() error {
+				if err := (validate.Int{
+					MinSet:        true,
+					Min:           13,
+					MaxSet:        true,
+					Max:           16,
+					MinExclusive:  false,
+					MaxExclusive:  false,
+					MultipleOfSet: false,
+					MultipleOf:    0,
+					Pattern:       nil,
+				}).Validate(int64(value)); err != nil {
+					return errors.Wrap(err, "int")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "fiscal_period",
+			Error: err,
+		})
+	}
+	if err := func() error {
 		if s.Lines == nil {
 			return errors.New("nil is invalid value")
 		}
@@ -37028,6 +37112,34 @@ func (s *ParkedJournalEntryUpdate) Validate() error {
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
 			Name:  "document_type",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if value, ok := s.FiscalPeriod.Get(); ok {
+			if err := func() error {
+				if err := (validate.Int{
+					MinSet:        true,
+					Min:           13,
+					MaxSet:        true,
+					Max:           16,
+					MinExclusive:  false,
+					MaxExclusive:  false,
+					MultipleOfSet: false,
+					MultipleOf:    0,
+					Pattern:       nil,
+				}).Validate(int64(value)); err != nil {
+					return errors.Wrap(err, "int")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "fiscal_period",
 			Error: err,
 		})
 	}

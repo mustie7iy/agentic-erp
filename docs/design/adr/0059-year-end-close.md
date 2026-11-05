@@ -156,8 +156,9 @@ ADR-0053).
   names its own date and optional special period by the same rules; without
   one it goes to the regular period of its date, as today.
 - **Tax.** A line with a tax code in a special period is refused (422
-  `ledger.special_period_tax_code`) until the product owner answers
-  question 2: tax returns select tax items by their tax period's dates, and
+  `ledger.special_period_tax_code`) until the tax specialist confirms how
+  year-end adjustments enter the returns (question 2, answered
+  po:2026-11-05): tax returns select tax items by their tax period's dates, and
   whether a year-end adjustment may carry tax is a tax rule.
 - **The period close's parked-entry check.** ADR-0058's
   `no_parked_entries` selects parked entries by date within the period
@@ -608,14 +609,22 @@ built".
 15. No workflow; the budgets of §13.
 
 ## Questions for the product owner
-1. **Retained earnings per company** (accounting rule). Built: one retained
+Both answered by the product owner on 2026-11-05 (po:2026-11-05), as
+recommended.
+
+1. **Retained earnings per company** (accounting rule). **Answered
+   po:2026-11-05: one retained earnings account per company for every
+   ledger, as recommended.** Built: one retained
    earnings account per company for every ledger. SAP allows several per
    chart (by P&L statement account type), and a local GAAP or tax ledger
    might carry its result to another account. Recommendation: one per
    company for the pilot (Canada and the UAE report under IFRS alone,
    ADR-0045's rollout note); add one per ledger if a pilot keeps a local
    ledger with its own equity account.
-2. **Tax codes on special-period postings** (tax rule). Built: refused
+2. **Tax codes on special-period postings** (tax rule). **Answered
+   po:2026-11-05: the refusal stays until the tax specialist (Musto
+   Ibrahim) confirms how year-end adjustments enter the GST34 and the VAT
+   201, as recommended.** Built: refused
    (`ledger.special_period_tax_code`), so no year-end adjustment changes a
    tax return. Recommendation: keep the refusal until the tax specialist
    says whether a pilot country's returns take year-end adjustments, and
@@ -666,3 +675,70 @@ item only when one does (07 §7.5).
 
 ## As built
 (Filled in by the slices T64m1-T64m6.)
+
+**T64m1, postings into special periods** (migrations 000216 and 000217).
+Built as §3 says; the choices taken by default (ADR-0053 d), for the
+product owner to overrule:
+1. *Where the rule is checked.* `fiscal_period` is checked
+   (`ledger.specialPeriod`: the calendar has the special period in the
+   posting date's fiscal year, else 422 `ledger.no_fiscal_period` on
+   `fiscal_period`; the posting date in its dates, else 422
+   `ledger.special_period_date`; no line with a tax code, else 422
+   `ledger.special_period_tax_code` on `lines[i].tax_code`) only on the
+   API's manual paths: `postJournalEntry` (before the approval or service
+   limit, which then read the special period's status), `parkJournalEntry`,
+   `updateParkedJournalEntry`, `postParkedJournalEntry` and its approval
+   (`ManualEntries.Approved`), and `reverseJournalEntry`. A parked entry is
+   checked when it is parked and changed as well as when it is posted, so a
+   date in no fiscal year naming a special period is refused when parked
+   (a regular one still is refused only when posted). Whether the period is
+   open is `postingPeriod`'s, unchanged but for the period number, `FOR
+   SHARE` in the postings' order.
+2. *Reversals.* The API's reversal (`reverseManually`) may name a special
+   period; the contexts' reversals (`Postings.Reverse`) and revaluation
+   cancellations go through the unchanged `reverseJournalEntry` and never
+   do. Any entry the API may reverse (manual, migrated, payments') may be
+   reversed into a special period: "their reversals" (decision 7) is read
+   as reversals a person posts, since a reversal is a manual correction.
+3. *Database backstop.* `ledger.check_entry_period` refuses an entry in a
+   special period that is neither `source_context` `ledger` nor a reversal;
+   the date rule needed nothing new (a special period's dates are its
+   year's last regular period's). The tax-code refusal is the
+   application's only: a line trigger would read the period per line.
+   `parked_entry.fiscal_period` is null or 13-16
+   (`parked_entry_fiscal_period_special`, added NOT VALID and validated by
+   000217); the contract bounds it too, so no problem is registered for it.
+4. *Events.* `JournalEntryPosted` already carries the entry's
+   `fiscal_period`; `ParkedJournalEntryChanged` is unchanged (the period is
+   on the representation).
+5. *The period close's check* (decision 14): `ledger.CloseChecks.Parked`
+   leaves out entries naming a special period (`fiscal_period IS NULL`);
+   T64m5 adds the year's read.
+6. *Walkthrough* (`step_year_end`, before `step_close`): Ada adds a
+   `journal_sa` number range of the company for `PREV` (a tier 1 change,
+   approved on submission), which creates `PREV`'s periods, closed, in 0L
+   and 2L; Carla opens period 12; Tom posts a sale, the rent and USD
+   2,000.00 into the RBC USD account at the 1 December rate (1.36), with
+   1.38 on 31 December; Carla revalues at `PREV`'s last day in each ledger
+   (the year close checks every covered ledger, §8), a gain of CAD 40.00.
+   The reset is dated this year's 1 January, whose period a return filed
+   in step 11 has locked in the leading ledger from April to September: the
+   step then has it unlocked through an approved request (T32), opened,
+   and closed and locked again after the run. Carla opens special period
+   13 in both ledgers, posts the auditors' adjustment into it dated `PREV`'s
+   last day, reads it in the trial balance under period 13 and its 2L copy,
+   and a posting dated in November naming period 13 is refused with
+   `ledger.special_period_date`. Every date is `PREV`'s or this year's 1
+   January, absolute, so a run crossing midnight, or 31 December, reads
+   the same.
+7. *A gate defect fixed on the way.* `api` `TestProblemCodes` looked
+   operations up by lower-cased method name on the API's handler, which
+   also has the ledger's unexported `postJournalEntry` and
+   `reverseJournalEntry` (the Postings paths): met after the operations'
+   methods, they took their place, so those two operations' codes were
+   derived from the wrong function (`ledger.approval_required` was missing
+   from `postJournalEntry`). The lookup now takes exported methods only;
+   the rewritten lists add codes to `postJournalEntry`,
+   `reverseJournalEntry`, `cancelAsset`, `cancelRequisition`,
+   `submitRequisition`, `updateRequisition`, `renewContract` and
+   `updateContract`, which other unexported twins had hidden.

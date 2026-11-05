@@ -1322,12 +1322,24 @@ as the trial balance reads `period_balance`, through the partial indexes
 `assignment_balance_cost_center` and `assignment_balance_profit_center`
 (company, ledger, year, period, center).
 
-Year-end close: special-period postings and the balance carry-forward
-(ADR-0059, T64m1-T64m3) are **planned, not built**; no migration creates
-these yet. Special periods 13-16 take manual and parked entries and their
-reversals dated in the year's last regular period; a parked entry keeps
-its special period (`parked_entry` gains a nullable `fiscal_period`, 13-16).
-`period_status` gains `opened_count` (a trigger adds one on every change
+Year-end close, special-period postings (ADR-0059 §3, T64m1, migrations
+000216 and 000217): special periods 13-16 take manual and parked entries
+and the API's reversals, dated in the year's last regular period, whose
+dates they share. A parked entry keeps the special period it names in a
+nullable `parked_entry.fiscal_period`, 13 to 16 or null
+(`parked_entry_fiscal_period_special`; null: the regular period of its
+posting date). `ledger.check_entry_period`, the journal entry's period
+trigger, refuses an entry in a special period dated outside its dates (as
+in any period) and one that is neither a manual entry (`source_context`
+`ledger`) nor a reversal; the ledger answers both first with problems
+(`ledger.special_period_date`; no other context's posting names a special
+period), and refuses a tax code on a special-period line
+(`ledger.special_period_tax_code`, application only). A period close's
+parked-entry check (`ledger.CloseChecks.Parked`) leaves out entries naming
+a special period.
+
+The balance carry-forward (ADR-0059, T64m2-T64m3) is **planned, not
+built**; no migration creates it yet. `period_status` gains `opened_count` (a trigger adds one on every change
 to `open` and refuses any other change), by which a carry-forward is
 judged stale. A carry-forward run
 (`carry_forward_run`, one `current` per company, ledger and year, the
@@ -3360,7 +3372,8 @@ check passed (`close_task_check_passed`): a pass sets it done (who ran it
 and when become its completion, unless it was done already) and a failure
 open; reopening it keeps the result. The checks read the ledger through
 its port (`ledger.CloseChecks`): parked entries of the company by posting
-date in the leading ledger's period (`ledger.parked_entry`) and posted
+date in the leading ledger's period (`ledger.parked_entry`), those naming a
+special period left out (ADR-0059 §3, T64m1), and posted
 revaluation runs per ledger and key date (`ledger.revaluation_run`);
 the depreciation check reads the assets context through its port
 (`assets.CloseChecks`): the latest `posted` run of the company, ledger,

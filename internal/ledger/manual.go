@@ -36,6 +36,9 @@ func (e *Endpoints) postParked(ctx context.Context, id uuid.UUID, ifMatch func(i
 	if err != nil {
 		return ParkedEntry{}, err
 	}
+	if err := checkSpecial(ctx, tx, v, in); err != nil {
+		return ParkedEntry{}, err
+	}
 	request, needed, err := e.Approvals.Open(ctx, approvals.NewRequest{ObjectType: approvals.ManualEntry, ObjectID: id, Title: title(pe),
 		Amount: &pe.Debits, Currency: &pe.Currency, LegalEntityID: v.le.ID, Company: v.le.Code, Date: pe.PostingDate})
 	if err != nil {
@@ -138,6 +141,9 @@ func (m ManualEntries) Approved(ctx context.Context, entry, request uuid.UUID) e
 	if err != nil {
 		return err
 	}
+	if err := checkSpecial(ctx, tx, v, in); err != nil {
+		return err
+	}
 	je, err := e.postPrepared(ctx, tx, p, v, in, nil)
 	if err != nil {
 		return err
@@ -204,7 +210,7 @@ func (e *Endpoints) postableEntity(ctx context.Context, id uuid.UUID) (tenancy.E
 func (e *Endpoints) withinLimit(ctx context.Context, tx pgx.Tx, v prepared, in NewEntry) error {
 	// A period that is not open refuses the posting first: an approval could
 	// not post it either. post reads the period again, FOR SHARE as here.
-	if _, _, _, err := postingPeriod(ctx, tx, v.le, v.choice.ledgers, in.PostingDate); err != nil {
+	if _, _, _, err := postingPeriod(ctx, tx, v.le, v.choice.ledgers, in.PostingDate, in.specialNumber()); err != nil {
 		return err
 	}
 	debits, err := debitTotal(v.lines)

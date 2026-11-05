@@ -1742,10 +1742,10 @@
       "r": "ADR-0059 · T64m (split T64m1-T64m6)",
       "c": [
        {
-        "s": "T",
-        "t": "Postings into special periods: fiscal_period 13 up to the calendar's last special period on postJournalEntry, parkJournalEntry (a nullable fiscal_period on ledger.parked_entry, changed by PATCH, shown on the representation, checked again at postParkedJournalEntry) and reverseJournalEntry, dated in the year's last regular period (ledger.special_period_date), the special period open in every ledger posted to and read FOR SHARE in the postings' order; tax codes refused there (ledger.special_period_tax_code, until the product owner answers ADR-0059 question 2); a period close's no_parked_entries leaving out entries parked for a special period; walkthrough step_year_end: the year before today's set up through a change request with its business posted, an audit adjustment posted into its period 13 and read in the trial balance, a posting dated in period 11 naming period 13 refused",
+        "s": "D",
+        "t": "Postings into special periods: fiscal_period 13 up to the calendar's last special period on postJournalEntry, parkJournalEntry (a nullable fiscal_period on ledger.parked_entry, changed by PATCH, shown on the representation, checked again at postParkedJournalEntry) and reverseJournalEntry, dated in the year's last regular period (ledger.special_period_date), the special period open in every ledger posted to and read FOR SHARE in the postings' order; tax codes refused there (ledger.special_period_tax_code, until the tax specialist confirms how year-end adjustments enter the returns: ADR-0059 question 2, product owner 2026-11-05); a period close's no_parked_entries leaving out entries parked for a special period; walkthrough step_year_end: the year before today's set up through a change request with its business posted, an audit adjustment posted into its period 13 and read in the trial balance, a posting dated in period 11 naming period 13 refused",
         "r": "ADR-0059 §3 · T64m1",
-        "src": "adr:ADR-0059",
+        "src": "adr:ADR-0059 · po:2026-11-05",
         "c": []
        },
        {

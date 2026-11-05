@@ -5912,9 +5912,11 @@ paths:
       x-permission: ledger.entry.post
       x-problem-codes:
         - config.no_number_range
+        - config.not_bootstrapped
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.approval_required
         - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
@@ -5942,6 +5944,8 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.special_period_date
+        - ledger.special_period_tax_code
         - ledger.tax_base_inconsistent
         - ledger.tax_base_mismatch
         - ledger.tax_base_not_import
@@ -5957,6 +5961,7 @@ paths:
         - ledger.zero_amount
         - ledger.zero_tax_base
         - request.invalid_amount
+        - workflow.no_policy
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -6150,7 +6155,10 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.special_period_date
+        - ledger.special_period_tax_code
         - ledger.unknown_unit
+        - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -6345,6 +6353,7 @@ paths:
         - ledger.ledger_or_group
         - ledger.ledger_specific_reconciliation
         - ledger.legal_entity_not_active
+        - ledger.no_fiscal_period
         - ledger.no_tax_rate
         - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
@@ -6355,6 +6364,8 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.special_period_date
+        - ledger.special_period_tax_code
         - ledger.tax_base_inconsistent
         - ledger.tax_base_mismatch
         - ledger.tax_base_not_import
@@ -6486,6 +6497,7 @@ paths:
         - ledger.ledger_or_group
         - ledger.ledger_specific_reconciliation
         - ledger.legal_entity_not_active
+        - ledger.no_fiscal_period
         - ledger.no_tax_rate
         - ledger.not_entry_owner
         - ledger.output_tax_mismatch
@@ -6497,6 +6509,8 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.special_period_date
+        - ledger.special_period_tax_code
         - ledger.tax_base_inconsistent
         - ledger.tax_base_mismatch
         - ledger.tax_base_not_import
@@ -6655,6 +6669,8 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.special_period_date
+        - ledger.special_period_tax_code
         - ledger.tax_base_inconsistent
         - ledger.tax_base_mismatch
         - ledger.tax_base_not_import
@@ -8970,6 +8986,7 @@ paths:
         - request.invalid_amount
         - request.invalid_extension
         - request.validation_failed
+        - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -9033,6 +9050,7 @@ paths:
         - procurement.amount_too_large
         - procurement.invalid_status
         - procurement.not_requester
+        - request.version_mismatch
         - workflow.no_policy
         - workflow.request_pending
         - workflow.unknown_role
@@ -9084,6 +9102,7 @@ paths:
       x-problem-codes:
         - procurement.invalid_status
         - procurement.not_requester
+        - request.version_mismatch
         - workflow.request_pending
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -10215,6 +10234,7 @@ paths:
         - procurement.invalid_validity
         - procurement.unknown_unit
         - request.invalid_amount
+        - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -10439,6 +10459,7 @@ paths:
         - procurement.unknown_currency
         - procurement.unknown_unit
         - request.invalid_amount
+        - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -14162,7 +14183,7 @@ paths:
       tags:
         - closing
       summary: Run a close task's check
-      description: "Runs a check task's check now and records its result on the task (ADR-0058 §6, T64c): `check_result` says whether it passed, when, who ran it and what it found, each with its id and name; the task is set done when it passed (who ran it and when become its completion; a task already done keeps its completion) and open when it did not. `no_parked_entries` passes when no parked entry of the company dated in the period (the leading ledger's period's first to last day) is `parked` or `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted` passes when each covered ledger has a posted revaluation run keyed on its period's last day, and names each ledger with its run; `depreciation_posted` (T64k) passes when each covered ledger has a posted depreciation run of the close's fiscal year and period (`GET /v1/depreciation-runs`; a failed or cancelled run, or one still queued or running, does not count) or has no asset a run of that period in that ledger would select (the selection `POST /v1/depreciation-runs/preview` shows), and names each ledger with its latest posted run or, without one, how many assets a run would select; `variances_explained` (T64i) passes when every row requiring a comment of each basis the company configures (`companies[].close.variance`; none configured fails) has an accepted comment that is not stale, and names the first 20 that have none, or only a stale one. A check is a statement about the moment it ran: run it again to refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_checked`, with `check_passed`). A signed-off close whose covered periods are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d)."
+      description: "Runs a check task's check now and records its result on the task (ADR-0058 §6, T64c): `check_result` says whether it passed, when, who ran it and what it found, each with its id and name; the task is set done when it passed (who ran it and when become its completion; a task already done keeps its completion) and open when it did not. `no_parked_entries` passes when no parked entry of the company dated in the period (the leading ledger's period's first to last day) is `parked` or `pending_approval`, an entry parked for a special period left out (the year close's, ADR-0059 §3), and names the first 20 with who parked them and their kind; `revaluation_posted` passes when each covered ledger has a posted revaluation run keyed on its period's last day, and names each ledger with its run; `depreciation_posted` (T64k) passes when each covered ledger has a posted depreciation run of the close's fiscal year and period (`GET /v1/depreciation-runs`; a failed or cancelled run, or one still queued or running, does not count) or has no asset a run of that period in that ledger would select (the selection `POST /v1/depreciation-runs/preview` shows), and names each ledger with its latest posted run or, without one, how many assets a run would select; `variances_explained` (T64i) passes when every row requiring a comment of each basis the company configures (`companies[].close.variance`; none configured fails) has an accepted comment that is not stale, and names the first 20 that have none, or only a stale one. A check is a statement about the moment it ran: run it again to refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_checked`, with `check_passed`). A signed-off close whose covered periods are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
@@ -14936,6 +14957,8 @@ paths:
       x-agent: false
       x-problem-codes:
         - assets.asset_not_planned
+        - config.not_bootstrapped
+        - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -18815,6 +18838,8 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.special_period_date
+        - ledger.special_period_tax_code
         - ledger.standard_hierarchy_exists
         - ledger.tax_base_inconsistent
         - ledger.tax_base_mismatch
@@ -28142,6 +28167,12 @@ components:
           type: string
           format: date
           description: "Tax date: the date the lines' tax codes must be valid on, whose rates apply and whose return reports their tax (ADR-0049 §4); defaults to the posting date. With a tax code on a line, a tax date in a period whose tax return is prepared, approved or filed, for a registration covering the company, is refused at posting with 409 `ledger.tax_date_in_return`, naming the period, the return and its status (decision P6): such a period's late items go to its amendment or the next return."
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 13
+          maximum: 16
+          description: "A special period for a year-end adjustment (ADR-0059 §3), 13 up to 12 plus the special periods of the company's fiscal calendar: the entry posts into it instead of the regular period of its posting date. The posting date must be in the year's last regular period, whose dates the special periods share (422 `ledger.special_period_date`); a special period the calendar does not have in the posting date's year is 422 `ledger.no_fiscal_period`; it must be open in every ledger posted to (409 `ledger.period_not_open`). No line may carry a tax code (422 `ledger.special_period_tax_code`: refused until the tax specialist confirms how year-end adjustments enter the returns, product owner 2026-11-05, ADR-0059 question 2). Absent: the regular period of the posting date. A parked entry (`parkJournalEntry`) keeps it and is held to these rules again when it is posted."
         currency:
           type: string
           description: "Transaction currency; every line amount must use it."
@@ -28185,6 +28216,12 @@ components:
           type: string
           format: date
           description: "Posting date of the reversal; defaults to the original posting date if that period is open."
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 13
+          maximum: 16
+          description: "A special period for the reversal (ADR-0059 §3), by the rules of a manual entry's `fiscal_period`: its posting date, the original's unless `posting_date` is given, in the year's last regular period (422 `ledger.special_period_date`), a special period the calendar has (422 `ledger.no_fiscal_period`), open in every ledger of the original's posting group (409 `ledger.period_not_open`), and an original without tax codes (422 `ledger.special_period_tax_code`). Absent: the regular period of the reversal's posting date."
         header_text:
           type: string
           description: Header text of the reversal entry.
@@ -28809,6 +28846,13 @@ components:
               format: date
               description: "Tax date the entry was parked with; absent: its posting date."
               readOnly: true
+            fiscal_period:
+              type: integer
+              format: int32
+              minimum: 13
+              maximum: 16
+              description: "The special period (ADR-0059 §3) it is to be posted into, held to a manual entry's rules for one when it is parked, changed and posted; absent: the regular period of its posting date. A period close's `no_parked_entries` check leaves an entry naming one out: it is the year's."
+              readOnly: true
             currency:
               type: string
               description: Transaction currency.
@@ -28934,6 +28978,14 @@ components:
             - "null"
           format: date
           description: "Tax date: the date the lines' tax codes' rates apply on and their tax is reported in (ADR-0049 §4). Send null to clear: the posting date then. With a tax code on a line, a tax date in a period whose tax return is prepared, approved or filed, for a registration covering the company, is refused at posting with 409 `ledger.tax_date_in_return`, naming the period, the return and its status (decision P6): such a period's late items go to its amendment or the next return."
+        fiscal_period:
+          type:
+            - integer
+            - "null"
+          format: int32
+          minimum: 13
+          maximum: 16
+          description: "The special period to post into, by the rules of a manual entry's `fiscal_period` (ADR-0059 §3). Send null to remove it: the regular period of the posting date then."
         currency:
           type: string
           description: "Transaction currency; every line amount must use it, so a change of currency comes with the lines."
@@ -36162,7 +36214,7 @@ components:
           type: integer
           format: int32
           minimum: 0
-          description: "`no_parked_entries`: how many parked entries of the company dated in the period (posting date from the leading ledger's period's first to its last day) are `parked` or `pending_approval`; absent for another check."
+          description: "`no_parked_entries`: how many parked entries of the company dated in the period (posting date from the leading ledger's period's first to its last day) are `parked` or `pending_approval`, leaving out those parked for a special period (ADR-0059 §3); absent for another check."
           readOnly: true
         parked_entries:
           type: array

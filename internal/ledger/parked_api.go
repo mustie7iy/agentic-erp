@@ -29,6 +29,9 @@ func parkedToAPI(pe ParkedEntry) gen.ParkedJournalEntry {
 	if pe.JournalFiscalYear != nil {
 		out.JournalFiscalYear.SetTo(int32(*pe.JournalFiscalYear))
 	}
+	if pe.FiscalPeriod != nil {
+		out.FiscalPeriod.SetTo(int32(*pe.FiscalPeriod))
+	}
 	if l := pe.Limit; l != nil {
 		out.LimitExceeded.SetTo(gen.ParkedEntryLimit{Kind: l.Kind, Debits: apitypes.Money(l.Debits, l.DebitsCurrency, l.DebitsExp),
 			Limit: apitypes.Money(l.Limit, l.LimitCurrency, l.LimitExp), Detail: l.Detail()})
@@ -157,7 +160,7 @@ func (e *Endpoints) UpdateParkedJournalEntry(ctx context.Context, req *gen.Parke
 	params gen.UpdateParkedJournalEntryParams) (gen.UpdateParkedJournalEntryRes, error) {
 	ch := EntryChange{DocumentType: apitypes.Ptr[string](req.DocumentType), DocumentDate: apitypes.Ptr[time.Time](req.DocumentDate),
 		PostingDate: apitypes.Ptr[time.Time](req.PostingDate), TaxDate: apitypes.OptNilDate(req.TaxDate), Currency: apitypes.Ptr[string](req.Currency),
-		Reference: apitypes.OptNilString(req.Reference), HeaderText: apitypes.OptNilString(req.HeaderText)}
+		Reference: apitypes.OptNilString(req.Reference), HeaderText: apitypes.OptNilString(req.HeaderText), FiscalPeriod: specialChange(req.FiscalPeriod)}
 	if req.Lines != nil {
 		ch.Lines = newEntry(&gen.JournalEntryCreate{Lines: req.Lines}).Lines
 	}

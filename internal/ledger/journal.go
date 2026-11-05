@@ -228,6 +228,9 @@ type draft struct {
 	// by the reversal's copy in that ledger.
 	reversedCopies map[uuid.UUID]uuid.UUID
 	lines          []Line
+	// special is the special period it posts into (ADR-0059 §3), checked
+	// by its maker (specialPeriod); 0: the regular period of postingDate.
+	special int16
 	// sourcedItems are the entry's tax items when they come from other
 	// entries' items (a reversal, a down payment transfer, a cash
 	// discount's tax correction); givenItems those a context calculated
@@ -246,7 +249,9 @@ type target struct {
 }
 
 // postingPeriod finds the open posting period of the posting date in each
-// ledger posted to: ledgers, the representative first, or every ledger the
+// ledger posted to, or the special period special when it is not 0 (its
+// maker checked it with specialPeriod first: a special period shares its
+// year's last regular period's dates): ledgers, the representative first, or every ledger the
 // company keeps, the leading one first, when nil (ADR-0045). It holds each
 // period's status row FOR SHARE until the transaction ends, taking them
 // the leading ledger's first, then by ledger code, as a period close's
@@ -256,9 +261,12 @@ type target struct {
 // postings under way: no entry lands in a period whose close committed
 // first. The lock comes after the entry buckets and before the number range
 // (03-data-model, entry locks); a close takes nothing else, so no cycle.
-func postingPeriod(ctx context.Context, tx pgx.Tx, e tenancy.Entity, ledgers []uuid.UUID, date time.Time) (int16, int16, []target, error) {
+func postingPeriod(ctx context.Context, tx pgx.Tx, e tenancy.Entity, ledgers []uuid.UUID, date time.Time, special int16) (int16, int16, []target, error) {
 	day := date.Format(time.DateOnly)
 	year, number, err := periodOn(ctx, tx, e.FiscalCalendarID, date)
+	if special != 0 {
+		number = special
+	}
 	var targets []target
 	if err == nil {
 		// FOR SHARE in a lateral subquery: it cannot lock the nullable side
@@ -340,7 +348,7 @@ func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d d
 // postAll posts the draft as post does and returns every entry of the
 // posting group, the first first.
 func (e *Endpoints) postAll(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d draft) ([]Entry, error) {
-	year, number, targets, err := postingPeriod(ctx, tx, d.entity, d.ledgers, d.postingDate)
+	year, number, targets, err := postingPeriod(ctx, tx, d.entity, d.ledgers, d.postingDate, d.special)
 	if err != nil {
 		return nil, err
 	}
@@ -580,6 +588,15 @@ type NewEntry struct {
 	// taxDateChosen: a person chose TaxDate (Posting.TaxDateChosen), so
 	// it is held to the open returns as a manual entry's is.
 	taxDateChosen bool
+	// special is the special period a manual entry names (ADR-0059 §3), or
+	// nil: the regular period of PostingDate. Only the API's manual entries
+	// set it, so no other context's posting reaches a special period.
+	special *int16
+}
+
+// specialNumber is the special period the entry names, or 0.
+func (in NewEntry) specialNumber() int16 {
+	return deref(in.special, 0)
 }
 
 // taxDay is the entry's tax date: the one it names, else its posting date.
@@ -1069,20 +1086,14 @@ func (e *Endpoints) prepareFor(ctx context.Context, tx pgx.Tx, le tenancy.Entity
 
 // postJournalEntry validates and posts an entry another context posts
 // through Postings: no approval limit applies to its documents' postings.
+// It validates and posts in the request's transaction tx, which its
+// callers have already taken.
 func (e *Endpoints) postJournalEntry(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in NewEntry) (Entry, error) {
-	return e.postEntry(ctx, tx, p, in, nil)
-}
-
-// postEntry validates and posts an entry in the request's transaction tx,
-// which its callers have already taken; check, when set, may refuse it
-// once it is converted, before anything is written.
-func (e *Endpoints) postEntry(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in NewEntry,
-	check func(context.Context, pgx.Tx, prepared, NewEntry) error) (Entry, error) {
 	v, err := e.prepare(ctx, tx, in)
 	if err != nil {
 		return Entry{}, err
 	}
-	return e.postPrepared(ctx, tx, p, v, in, check)
+	return e.postPrepared(ctx, tx, p, v, in, nil)
 }
 
 // postPrepared posts a prepared manual entry: local and group amounts are
@@ -1109,7 +1120,7 @@ func (e *Endpoints) postPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 		in.taxItems = items
 	}
 	posted, err := e.post(ctx, tx, p, draft{entity: v.le, ledgers: v.choice.ledgers, ledgerGroup: v.choice.group, documentType: in.DocumentType, documentDate: in.DocumentDate,
-		postingDate: in.PostingDate, taxDate: in.taxDay(), hold: e.holding(v.le.ID, in.heldTaxDate(), in.taxDay(), v.lines), currencyTC: in.Currency, currencyLC: v.le.LocalCurrency, currencyGC: v.group, rateTCLC: rateLC.shown,
+		postingDate: in.PostingDate, special: in.specialNumber(), taxDate: in.taxDay(), hold: e.holding(v.le.ID, in.heldTaxDate(), in.taxDay(), v.lines), currencyTC: in.Currency, currencyLC: v.le.LocalCurrency, currencyGC: v.group, rateTCLC: rateLC.shown,
 		rateLCGC: rateGC.shown, reference: in.Reference, headerText: in.HeaderText, sourceContext: cmp.Or(in.SourceContext, "ledger"),
 		sourceDocumentID: in.SourceDocumentID, lines: v.lines, givenItems: in.taxItems})
 	if err != nil {
@@ -1206,7 +1217,40 @@ func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMat
 	if err != nil {
 		return Entry{}, err
 	}
-	rev, err := e.postReversal(ctx, tx, p, orig, postingDate, headerText)
+	return e.reverse(ctx, tx, p, orig, postingDate, 0, headerText)
+}
+
+// reverseManually is the API's reverseJournalEntry, whose reversal may
+// name a special period (ADR-0059 §3): a person's year-end adjustment,
+// held to a manual entry's rules for one (specialPeriod). The contexts'
+// reversals (Postings.Reverse) stay in regular periods.
+func (e *Endpoints) reverseManually(ctx context.Context, id uuid.UUID, ifMatch func(Entry) error, postingDate *time.Time, special *int16,
+	headerText *string) (Entry, error) {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return Entry{}, err
+	}
+	orig, err := reversibleEntry(ctx, tx, id, ifMatch, uuid.Nil)
+	if err != nil {
+		return Entry{}, err
+	}
+	if special != nil {
+		le, err := e.legalEntity(ctx, orig.LegalEntityID, "legal_entity_id")
+		if err != nil {
+			return Entry{}, err
+		}
+		if err := specialPeriod(ctx, tx, le.FiscalCalendarID, deref(postingDate, orig.PostingDate), *special, orig.Lines); err != nil {
+			return Entry{}, err
+		}
+	}
+	return e.reverse(ctx, tx, p, orig, postingDate, deref(special, 0), headerText)
+}
+
+// reverse posts the reversal of orig, an entry reversibleEntry read, into
+// the special period special or, when it is 0, the regular period of its
+// posting date, links it and audits it.
+func (e *Endpoints) reverse(ctx context.Context, tx pgx.Tx, p reqctx.Principal, orig Entry, postingDate *time.Time, special int16, headerText *string) (Entry, error) {
+	rev, err := e.postReversal(ctx, tx, p, orig, postingDate, special, headerText)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -1244,10 +1288,11 @@ func reversibleEntry(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(
 }
 
 // postReversal posts the reversing entry of orig, on postingDate or the
-// original posting date, with headerText or "Reversal of" the original's
+// original posting date, into the special period special when it is not 0
+// (checked by the caller), with headerText or "Reversal of" the original's
 // number, in every ledger of orig's posting group: each copy is reversed
 // by the reversal's copy in its ledger.
-func (e *Endpoints) postReversal(ctx context.Context, tx pgx.Tx, p reqctx.Principal, orig Entry, postingDate *time.Time, headerText *string) (Entry, error) {
+func (e *Endpoints) postReversal(ctx context.Context, tx pgx.Tx, p reqctx.Principal, orig Entry, postingDate *time.Time, special int16, headerText *string) (Entry, error) {
 	ledgers, copies, err := groupCopies(ctx, tx, orig)
 	if err != nil {
 		return Entry{}, err
@@ -1282,7 +1327,7 @@ func (e *Endpoints) postReversal(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 		items = nil // an original without items (its codes post to no account): the reversal's lines give its own
 	}
 	revs, err := e.postAll(ctx, tx, p, draft{entity: le, ledgers: ledgers, ledgerGroup: orig.LedgerGroupID, documentType: orig.DocumentType, documentDate: orig.DocumentDate,
-		postingDate: date, taxDate: orig.taxDay(), sourcedItems: items, currencyTC: orig.CurrencyTC, currencyLC: orig.CurrencyLC, currencyGC: orig.CurrencyGC, rateTCLC: orig.RateTCLC,
+		postingDate: date, special: special, taxDate: orig.taxDay(), sourcedItems: items, currencyTC: orig.CurrencyTC, currencyLC: orig.CurrencyLC, currencyGC: orig.CurrencyGC, rateTCLC: orig.RateTCLC,
 		rateLCGC: orig.RateLCGC, reference: orig.Reference, headerText: headerText, sourceContext: orig.SourceContext,
 		sourceDocumentID: orig.SourceDocumentID, reversalOf: &orig, reversedCopies: copies, lines: lines})
 	if err != nil {
