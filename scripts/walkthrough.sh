@@ -401,7 +401,7 @@ start() {
   say "    analytics, step 38 the forecast, its variance and accuracy in analytics"
   say "  - a webhook delivered: the walkthrough runs without the event bus and never sends one to this machine"
   say "  - cost center postings, reports and planning (T56d-T56j)"
-  say "  - accounts receivable, the period close's accruals and its close agent (T64e-T64g, T64j), consolidation (T68)"
+  say "  - accounts receivable, the period close's accruals and its close agent (T64e-T64g, T64j), consolidation runs, trading partners and eliminations (T68b-T68h)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
   # ERP_EVAL_CELL: the close agent's principal runs at level 1 before its
@@ -2977,6 +2977,151 @@ step_asset_depreciation() {
   passed
 }
 
+# CONSOLIDATION_SETTINGS give the tenant group reporting (ADR-0059 §3,
+# T68a): the group chart, one account per type for what no elimination
+# holds, the intercompany accounts of the two eliminations, investments,
+# the four role accounts a run computes and the account differences go
+# to; company @CC@'s intercompany receivables and revenue and its
+# investment in Acme Corp US; Acme Corp US (1000, in USD, the legal entity
+# of step 36) in the configuration, its chart as SAP's company 1000 has it
+# with intercompany payables and expenses, in the leading ledger alone;
+# every account of both companies mapped to the group account of its type,
+# but the intercompany accounts and the investment, which have their own;
+# Acme Corp US's number ranges as Maple's this year, and its journal
+# entries' in the previous fiscal year too, whose periods it then has
+# (ADR-0059 §Steps); and the group MAPLE, Maple holding 80% of Acme Corp
+# US from period @FIRST@. @CC@, @YEAR@ and @FIRST@ are replaced.
+CONSOLIDATION_SETTINGS='(.consolidation = {
+  "accounts": [
+    {"number": "G1000", "name": "Other assets", "type": "asset"},
+    {"number": "G1250", "name": "Intercompany receivables", "type": "asset"},
+    {"number": "G1700", "name": "Investments in subsidiaries", "type": "asset"},
+    {"number": "G1900", "name": "Goodwill", "type": "asset", "role": "goodwill"},
+    {"number": "G2000", "name": "Liabilities", "type": "liability"},
+    {"number": "G2250", "name": "Intercompany payables", "type": "liability"},
+    {"number": "G3000", "name": "Equity", "type": "equity"},
+    {"number": "G3800", "name": "Retained earnings", "type": "equity", "role": "retained_earnings"},
+    {"number": "G3900", "name": "Currency translation reserve", "type": "equity", "role": "cta"},
+    {"number": "G3950", "name": "Non-controlling interests", "type": "equity", "role": "nci"},
+    {"number": "G4000", "name": "Revenue", "type": "revenue"},
+    {"number": "G4250", "name": "Intercompany revenue", "type": "revenue"},
+    {"number": "G5000", "name": "Expenses", "type": "expense"},
+    {"number": "G5250", "name": "Intercompany expenses", "type": "expense"},
+    {"number": "G6950", "name": "Intercompany differences", "type": "expense"}],
+  "eliminations": [
+    {"code": "IC_BALANCES", "name": "Intercompany receivables and payables", "accounts": ["G1250", "G2250"], "difference_account": "G6950", "tolerance": "10.00"},
+    {"code": "IC_RESULTS", "name": "Intercompany revenue and expenses", "accounts": ["G4250", "G5250"], "difference_account": "G6950", "tolerance": "1.00"}],
+  "groups": [{"code": "MAPLE", "name": "Maple group", "parent": "@CC@",
+    "members": [{"company": "1000", "ownership_percent": "80", "first_period": "@FIRST@", "investment_account": "1700"}]}]})
+| (.companies[] | select(.code == "@CC@") | .chart_of_accounts) += [
+    {"number": "1250", "name": "Intercompany receivables", "type": "asset"},
+    {"number": "1700", "name": "Investment in Acme Corp US", "type": "asset"},
+    {"number": "4250", "name": "Intercompany revenue", "type": "revenue"}]
+| .companies += [{"code": "1000", "name": "Acme Corp US", "currency": "USD", "country": "US", "fiscal_year_start_month": 1,
+    "time_zone": "America/New_York",
+    "chart_of_accounts": [
+      {"number": "100000", "name": "Bank - Operating", "type": "asset"},
+      {"number": "140000", "name": "Input Tax", "type": "asset"},
+      {"number": "211000", "name": "Accounts Payable - Domestic", "type": "liability", "vendor_reconciliation": true},
+      {"number": "225000", "name": "Intercompany payables", "type": "liability", "vendor_reconciliation": true},
+      {"number": "300000", "name": "Share Capital", "type": "equity"},
+      {"number": "400000", "name": "Sales Revenue", "type": "revenue"},
+      {"number": "480000", "name": "Purchase discounts received", "type": "revenue"},
+      {"number": "510000", "name": "Raw Materials Consumed", "type": "expense"},
+      {"number": "520000", "name": "Office Supplies", "type": "expense"},
+      {"number": "525000", "name": "Intercompany services", "type": "expense"},
+      {"number": "530000", "name": "IT Services", "type": "expense"}],
+    "account_determination": {"ap_reconciliation": "211000", "input_tax": "140000", "bank": "100000", "cash_discount": "480000"},
+    "tax_codes": [{"code": "V0", "description": "Input tax exempt", "rate_percent": "0", "account": "140000"}],
+    "invoice_tolerance": {"price_percent": 2, "price_absolute": "5.00"},
+    "auto_post_limit": "50000.00", "manual_entry_approval_limit": "10000.00", "gr_over_delivery_percent": 0,
+    "house_bank": {"name": "MAIN", "iban": "GB33BUKB20201555555555", "bic": "BUKBGB22"}}]
+| ({"1250": "G1250", "1700": "G1700", "4250": "G4250", "225000": "G2250", "525000": "G5250"}) as $own
+| ({"asset": "G1000", "liability": "G2000", "equity": "G3000", "revenue": "G4000", "expense": "G5000"}) as $type
+| (.companies[] | select(.code == "@CC@" or .code == "1000") | .chart_of_accounts[]) |= (.group_account = ($own[.number] // $type[.type]))
+| .number_ranges += ([.number_ranges[] | select(.company == "@CC@" and .fiscal_year == @YEAR@
+      and (.document_type | IN("asset", "journal_aa", "journal_af") | not)) | .company = "1000"]
+    + [.number_ranges[] | select(.company == "@CC@" and .fiscal_year == @YEAR@ and (.document_type | startswith("journal_"))
+      and (.document_type | IN("journal_aa", "journal_af") | not)) | .company = "1000" | .fiscal_year = @YEAR@ - 1])'
+
+# step_consolidation is group reporting's configuration (T68a, ADR-0059
+# §3, §12): Ada proposes the group chart, the mapping of both companies'
+# accounts, the eliminations and the group MAPLE, Maple holding 80% of
+# Acme Corp US from today's period, a tier 4 change with its evidence,
+# approved and activated; Carla reads the group with its companies named
+# and the group chart; Cory, who may act in Maple alone, sees no group.
+step_consolidation() {
+  heading "Step 39 — Group reporting: the group chart, the companies' mapping and the group MAPLE through a governed change"
+  as ada
+  local base settings first cr request
+  first="$YEAR-${TODAY:5:2}"
+  say "Maple holds 80% of Acme Corp US, its US sister of step 36. Ada proposes group reporting (ADR-0059 §3): a group"
+  say "chart of accounts, each account of both companies mapped to it, the eliminations of intercompany receivables and"
+  say "payables and of intercompany revenue and expenses, each with its tolerance in CAD, and the group MAPLE, Maple"
+  say "holding Acme Corp US from period $first. Acme Corp US joins the configuration with its chart, in the leading"
+  say "ledger alone, and Maple's chart gains its investment in it. The chart, the mapping and the group decide what the"
+  say "consolidated statements say: a structural change, tier 4."
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  settings=${CONSOLIDATION_SETTINGS//@YEAR@/$YEAR}
+  settings=${settings//@CC@/$CC}
+  settings=${settings//@FIRST@/$first}
+  jq "{title: \"Group reporting: the group MAPLE\", rationale: \"Consolidation of Maple and Acme Corp US (T68a)\", base_version: $base,
+    proposed: (.items[0].document | $settings)}" "$WORK/last.json" >"$WORK/consolidation.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @consolidation.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier) (structural): \(.items | length) changes, among them \([.items[] | select(.path | startswith("consolidation")) | "\(.path) (tier \(.tier))"] | join(", "))"' \
+    submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 4
+  expect "the group among the changes" "$(field '[.items[] | select(.path == "consolidation.groups[MAPLE]") | .tier] | join(" ")')" 4
+  expect "an elimination's tier" "$(field '[.items[] | select(.path == "consolidation.eliminations[IC_BALANCES]") | .tier] | join(" ")')" 3
+  say "The invoices of the last year are replayed under it, against a regression suite of the active version:"
+  api 201 '"regression suite \(.number): \(.case_count) cases"' createRegressionSuite -body '{"name": "Before group reporting", "window_days": 366}'
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
+  expect "status after the evidence" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve sam "$request" "Group chart and mapping checked"
+  approve carla "$request" "The group's structure is the shareholder register's"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as carla
+  say "Carla reads the group as the consolidation context gives it: its companies by code, name and currency, the"
+  say "ownership, the period Acme Corp US is first consolidated in and Maple's investment account, by number and name:"
+  api 200 '"group \(.code) \(.name), in \(.group_currency): parent \(.parent.company_code) \(.parent.company_name) (\(.parent.local_currency))",
+    (.members[] | "  member \(.company_code) \(.company_name) (\(.local_currency)): \(.ownership_percent)% from \(.first_fiscal_year)-\(.first_fiscal_period), investment \(.investment_account.number) \(.investment_account.name)")' \
+    getConsolidationGroup -p code=MAPLE
+  expect "the parent" "$(field '"\(.parent.company_code) \(.parent.company_name) \(.parent.legal_entity_id)"')" "$CC Maple Industries Canada $LE"
+  expect "the member" "$(field '.members[] | "\(.company_code) \(.company_name) \(.local_currency) \(.ownership_percent) \(.first_fiscal_year)-\(.first_fiscal_period)"')" \
+    "1000 Acme Corp US USD 80 $YEAR-$((10#${TODAY:5:2}))"
+  expect "the investment account" "$(field '.members[0].investment_account | "\(.number) \(.name)"')" "1700 Investment in Acme Corp US"
+  api 200 '"groups: \([.items[].code] | join(", "))"' listConsolidationGroups
+  expect "the groups Carla sees" "$(field '[.items[].code] | join(" ")')" MAPLE
+  say "The group chart: each account's type, the role a consolidation run gives it, the elimination it belongs to and"
+  say "how many company accounts map to it:"
+  api 200 '.items[] | "  \(.number) \(.name) (\(.type)\(if .role then ", role \(.role)" else "" end))\(if .elimination then ", elimination \(.elimination.code)" else "" end): \(.mapped_accounts) accounts"' \
+    listGroupAccounts
+  expect "the role accounts" "$(field '[.items[] | select(.role) | "\(.number)=\(.role)"] | join(" ")')" "G1900=goodwill G3800=retained_earnings G3900=cta G3950=nci"
+  expect "a role account takes no company account" "$(field '[.items[] | select(.role) | .mapped_accounts] | add')" 0
+  api 200 '.items[] | "  \(.number) \(.name): \(.elimination.name), \(.mapped_accounts) account"' listGroupAccounts -p elimination=IC_BALANCES
+  expect "the intercompany balances' accounts" "$(field '[.items[] | "\(.number):\(.mapped_accounts)"] | join(" ")')" "G1250:1 G2250:1"
+  as ada
+  say "Cory in reporting (step 36) is given the consolidation read and the ledger's entry read; he may act in Maple"
+  say "alone. A group's figures are only meaningful whole, so a group with a member he may not act in is unknown to"
+  say "him, never shown in part (ADR-0059 §12):"
+  grant "$(role cash_reporting)" consolidation.read ledger.entry.read
+  as cory
+  api 200 '"groups: \(.items | length)"' listConsolidationGroups
+  expect "the groups Cory sees" "$(field '.items | length')" 0
+  refused 404 consolidation.group_unknown getConsolidationGroup -p code=MAPLE
+  as tom
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -4132,7 +4277,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_consolidation step_close'
 
 main() {
   stop_unseen

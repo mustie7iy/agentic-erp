@@ -63,6 +63,8 @@ tags:
     description: "Asset accounting (ADR-0057): asset classes with their depreciation terms and accounts."
   - name: closing
     description: "Financial close (ADR-0058): the close template, each company's close calendar and its period closes."
+  - name: consolidation
+    description: "Group reporting and consolidation (ADR-0059): the consolidation groups and the group chart of accounts."
   - name: controlling
     description: "Controlling (ADR-0050): plan categories, plan lines by batch and plan against actual by cost center."
   - name: tax
@@ -13716,6 +13718,136 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/consolidation-groups:
+    get:
+      operationId: listConsolidationGroups
+      tags:
+        - consolidation
+      summary: List consolidation groups
+      description: "The consolidation groups of the active configuration (ADR-0059 §3, T68a), in code order: each group's parent company and its members, held directly by the parent, by legal entity id, company code, name and local currency, each member with the parent's ownership in percent, the fiscal year and regular period from whose first day it is consolidated, and the parent's account holding the investment in it (number and name); and the group currency, the tenant's, which the parent's local currency must be. Groups change only through the configuration's approval loop (`consolidation.groups`, tier 4). A group's figures are only meaningful whole, so a group is listed only when the caller may act in its parent and every member (ADR-0059 §12); one outside that is left out and none of its companies named. Besides `consolidation.read` the caller needs `ledger.entry.read`, as for every consolidation read naming a group's companies and, in later slices, their figures (ADR-0059 §12; `x-also-permissions`; 403 `identity.permission_missing` otherwise). At most 50 groups exist (ADR-0059 §3)."
+      x-permission: consolidation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of consolidation groups.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsolidationGroupPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/consolidation-groups/{code}":
+    get:
+      operationId: getConsolidationGroup
+      tags:
+        - consolidation
+      summary: Get a consolidation group
+      description: "One consolidation group of the active configuration by its code (ADR-0059 §3, T68a), as `listConsolidationGroups` gives it. A group that does not exist, or whose parent or any member the caller may not act in, is unknown to the caller (404 `consolidation.group_unknown`, ADR-0059 §12), so its existence and its companies do not leak. Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`)."
+      x-permission: consolidation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - consolidation.group_unknown
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: "The group's code: 1-30 upper-case letters, digits or underscores."
+          schema:
+            type: string
+            pattern: "^[A-Z0-9_]{1,30}$"
+          example: MAPLE
+      responses:
+        "200":
+          description: The consolidation group.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsolidationGroup"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/group-accounts:
+    get:
+      operationId: listGroupAccounts
+      tags:
+        - consolidation
+      summary: List the group chart of accounts
+      description: "The group chart of accounts of the active configuration (ADR-0059 §3, T68a; SAP's financial statement items), in number order: each account's number, name and type, its role if a consolidation run computes it (`cta`, the currency translation reserve; `retained_earnings`; `nci`, non-controlling interests; `goodwill`), the elimination whose intercompany balances it holds, if any, by code and name, and the number of company accounts mapped to it (`companies[].chart_of_accounts[].group_account`) in the companies the caller may act in, so a company outside the caller's access reaches no figure (ADR-0010). The group chart and the mapping change only through the configuration's approval loop (tier 4). Filters: `type`, `role`, `elimination` (an elimination's code)."
+      x-permission: consolidation.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: type
+          in: query
+          required: false
+          description: Only group accounts of this type.
+          schema:
+            type: string
+            description: "Account type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [asset, liability, equity, revenue, expense]
+        - name: role
+          in: query
+          required: false
+          description: Only the group account with this role.
+          schema:
+            type: string
+            description: "Group account role. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [cta, retained_earnings, nci, goodwill]
+        - name: elimination
+          in: query
+          required: false
+          description: Only the group accounts of the elimination with this code.
+          schema:
+            type: string
+            pattern: "^[A-Z0-9_]{1,30}$"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of group accounts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupAccountPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/close-calendar:
@@ -37213,6 +37345,218 @@ components:
       additionalProperties: false
       examples:
         - {note: "Last invoices entered on the 2nd."}
+    ConsolidationGroupPage:
+      type: object
+      description: One page of consolidation groups.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsolidationGroup"
+          description: The groups on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+    ConsolidationGroup:
+      type: object
+      description: "A consolidation group (ADR-0059 §3): a parent company and the subsidiaries it holds directly. From the active configuration."
+      required:
+        - code
+        - name
+        - group_currency
+        - parent
+        - members
+      properties:
+        code:
+          type: string
+          description: "The group's code: 1-30 upper-case letters, digits or underscores."
+          pattern: "^[A-Z0-9_]{1,30}$"
+          readOnly: true
+        name:
+          type: string
+          description: The group's name.
+          readOnly: true
+        group_currency:
+          type: string
+          description: "The currency the group is consolidated in: the tenant's group currency (ISO 4217), which the parent's local currency must be (ADR-0059 §3)."
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+        parent:
+          $ref: "#/components/schemas/ConsolidationCompany"
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsolidationMember"
+          description: "The subsidiaries, by company code."
+          readOnly: true
+      examples:
+        - code: MAPLE
+          name: Maple group
+          group_currency: CAD
+          parent:
+            legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+            company_code: "3000"
+            company_name: Maple Industries Canada
+            local_currency: CAD
+          members:
+            - legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c
+              company_code: "1000"
+              company_name: Acme Corp US
+              local_currency: USD
+              ownership_percent: "80"
+              first_fiscal_year: 2026
+              first_fiscal_period: 11
+              investment_account: {number: "1700", name: Investment in Acme Corp US}
+    ConsolidationCompany:
+      type: object
+      description: "A company of a consolidation group: its legal entity, company code, name and local currency."
+      required:
+        - legal_entity_id
+        - company_code
+        - company_name
+        - local_currency
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The company's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The company's name.
+          readOnly: true
+        local_currency:
+          type: string
+          description: The company's local currency (ISO 4217).
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+    ConsolidationMember:
+      type: object
+      description: "A subsidiary of a consolidation group (ADR-0059 §3): its company, the parent's ownership of it, the period it is first consolidated in and the parent's account holding the investment in it."
+      required:
+        - legal_entity_id
+        - company_code
+        - company_name
+        - local_currency
+        - ownership_percent
+        - first_fiscal_year
+        - first_fiscal_period
+        - investment_account
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The subsidiary's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The subsidiary's company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The subsidiary's name.
+          readOnly: true
+        local_currency:
+          type: string
+          description: The subsidiary's local currency (ISO 4217).
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+        ownership_percent:
+          type: string
+          description: "The parent's ownership in percent, a plain decimal above 0 and at most 100 with up to four decimals, as configured."
+          readOnly: true
+        first_fiscal_year:
+          type: integer
+          format: int32
+          description: The fiscal year of the period the subsidiary is first consolidated in.
+          readOnly: true
+        first_fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 12
+          description: "The regular period (1-12) from whose first day the subsidiary is consolidated."
+          readOnly: true
+        investment_account:
+          $ref: "#/components/schemas/AssetAccountRef"
+    GroupAccountPage:
+      type: object
+      description: One page of the group chart of accounts.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GroupAccount"
+          description: The group accounts on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+    GroupAccount:
+      type: object
+      description: "An account of the group chart (ADR-0059 §3; SAP's financial statement item). From the active configuration."
+      required:
+        - number
+        - name
+        - type
+        - mapped_accounts
+      properties:
+        number:
+          type: string
+          description: "The group account's number: 1-10 upper-case letters or digits."
+          pattern: "^[0-9A-Z]{1,10}$"
+          readOnly: true
+        name:
+          type: string
+          description: The group account's name.
+          readOnly: true
+        type:
+          type: string
+          description: "Account type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [asset, liability, equity, revenue, expense]
+          readOnly: true
+        role:
+          type: string
+          description: "The role a consolidation run gives the account, if any; no company account maps to one. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [cta, retained_earnings, nci, goodwill]
+          readOnly: true
+        elimination:
+          $ref: "#/components/schemas/EliminationRef"
+        mapped_accounts:
+          type: integer
+          format: int32
+          description: "The number of company accounts mapped to it, in the companies the caller may act in."
+          readOnly: true
+      examples:
+        - number: G1250
+          name: Intercompany receivables
+          type: asset
+          elimination: {code: IC_BALANCES, name: Intercompany receivables and payables}
+          mapped_accounts: 1
+    EliminationRef:
+      type: object
+      description: "An elimination of the configuration (ADR-0059 §8), by code and name."
+      required:
+        - code
+        - name
+      properties:
+        code:
+          type: string
+          description: "The elimination's code: 1-30 upper-case letters, digits or underscores."
+          readOnly: true
+        name:
+          type: string
+          description: The elimination's name.
+          readOnly: true
     AssetClassPage:
       type: object
       description: One page of asset classes.

@@ -18321,6 +18321,7 @@ func (*ConflictHeaders) fileTaxReturnRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                {}
 func (*ConflictHeaders) getBankFileContentRes()               {}
 func (*ConflictHeaders) getCloseCalendarRes()                 {}
+func (*ConflictHeaders) getConsolidationGroupRes()            {}
 func (*ConflictHeaders) getLegalEntityTodayRes()              {}
 func (*ConflictHeaders) getLiquidityForecastVarianceRes()     {}
 func (*ConflictHeaders) getPeriodCloseRes()                   {}
@@ -18331,6 +18332,8 @@ func (*ConflictHeaders) grantRolePermissionRes()              {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()              {}
 func (*ConflictHeaders) importBankStatementsRes()             {}
 func (*ConflictHeaders) listCloseTasksRes()                   {}
+func (*ConflictHeaders) listConsolidationGroupsRes()          {}
+func (*ConflictHeaders) listGroupAccountsRes()                {}
 func (*ConflictHeaders) listPeriodCloseVariancesRes()         {}
 func (*ConflictHeaders) listPeriodClosesRes()                 {}
 func (*ConflictHeaders) listTaxPeriodsRes()                   {}
@@ -18875,6 +18878,260 @@ func (s *ConnectorUpdateSettings) init() ConnectorUpdateSettings {
 		*s = m
 	}
 	return m
+}
+
+// A company of a consolidation group: its legal entity, company code, name and local currency.
+// Ref: #/components/schemas/ConsolidationCompany
+type ConsolidationCompany struct {
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The company's local currency (ISO 4217).
+	LocalCurrency string `json:"local_currency"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ConsolidationCompany) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ConsolidationCompany) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ConsolidationCompany) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetLocalCurrency returns the value of LocalCurrency.
+func (s *ConsolidationCompany) GetLocalCurrency() string {
+	return s.LocalCurrency
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ConsolidationCompany) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ConsolidationCompany) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ConsolidationCompany) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetLocalCurrency sets the value of LocalCurrency.
+func (s *ConsolidationCompany) SetLocalCurrency(val string) {
+	s.LocalCurrency = val
+}
+
+// A consolidation group (ADR-0059 §3): a parent company and the subsidiaries it holds directly. From
+// the active configuration.
+// Ref: #/components/schemas/ConsolidationGroup
+type ConsolidationGroup struct {
+	// The group's code: 1-30 upper-case letters, digits or underscores.
+	Code string `json:"code"`
+	// The group's name.
+	Name string `json:"name"`
+	// The currency the group is consolidated in: the tenant's group currency (ISO 4217), which the
+	// parent's local currency must be (ADR-0059 §3).
+	GroupCurrency string               `json:"group_currency"`
+	Parent        ConsolidationCompany `json:"parent"`
+	// The subsidiaries, by company code.
+	Members []ConsolidationMember `json:"members"`
+}
+
+// GetCode returns the value of Code.
+func (s *ConsolidationGroup) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *ConsolidationGroup) GetName() string {
+	return s.Name
+}
+
+// GetGroupCurrency returns the value of GroupCurrency.
+func (s *ConsolidationGroup) GetGroupCurrency() string {
+	return s.GroupCurrency
+}
+
+// GetParent returns the value of Parent.
+func (s *ConsolidationGroup) GetParent() ConsolidationCompany {
+	return s.Parent
+}
+
+// GetMembers returns the value of Members.
+func (s *ConsolidationGroup) GetMembers() []ConsolidationMember {
+	return s.Members
+}
+
+// SetCode sets the value of Code.
+func (s *ConsolidationGroup) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *ConsolidationGroup) SetName(val string) {
+	s.Name = val
+}
+
+// SetGroupCurrency sets the value of GroupCurrency.
+func (s *ConsolidationGroup) SetGroupCurrency(val string) {
+	s.GroupCurrency = val
+}
+
+// SetParent sets the value of Parent.
+func (s *ConsolidationGroup) SetParent(val ConsolidationCompany) {
+	s.Parent = val
+}
+
+// SetMembers sets the value of Members.
+func (s *ConsolidationGroup) SetMembers(val []ConsolidationMember) {
+	s.Members = val
+}
+
+func (*ConsolidationGroup) getConsolidationGroupRes() {}
+
+// One page of consolidation groups.
+// Ref: #/components/schemas/ConsolidationGroupPage
+type ConsolidationGroupPage struct {
+	// The groups on this page.
+	Items []ConsolidationGroup `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ConsolidationGroupPage) GetItems() []ConsolidationGroup {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ConsolidationGroupPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ConsolidationGroupPage) SetItems(val []ConsolidationGroup) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ConsolidationGroupPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ConsolidationGroupPage) listConsolidationGroupsRes() {}
+
+// A subsidiary of a consolidation group (ADR-0059 §3): its company, the parent's ownership of it, the
+// period it is first consolidated in and the parent's account holding the investment in it.
+// Ref: #/components/schemas/ConsolidationMember
+type ConsolidationMember struct {
+	// The subsidiary's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The subsidiary's company code.
+	CompanyCode string `json:"company_code"`
+	// The subsidiary's name.
+	CompanyName string `json:"company_name"`
+	// The subsidiary's local currency (ISO 4217).
+	LocalCurrency string `json:"local_currency"`
+	// The parent's ownership in percent, a plain decimal above 0 and at most 100 with up to four decimals,
+	// as configured.
+	OwnershipPercent string `json:"ownership_percent"`
+	// The fiscal year of the period the subsidiary is first consolidated in.
+	FirstFiscalYear int32 `json:"first_fiscal_year"`
+	// The regular period (1-12) from whose first day the subsidiary is consolidated.
+	FirstFiscalPeriod int32           `json:"first_fiscal_period"`
+	InvestmentAccount AssetAccountRef `json:"investment_account"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ConsolidationMember) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ConsolidationMember) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ConsolidationMember) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetLocalCurrency returns the value of LocalCurrency.
+func (s *ConsolidationMember) GetLocalCurrency() string {
+	return s.LocalCurrency
+}
+
+// GetOwnershipPercent returns the value of OwnershipPercent.
+func (s *ConsolidationMember) GetOwnershipPercent() string {
+	return s.OwnershipPercent
+}
+
+// GetFirstFiscalYear returns the value of FirstFiscalYear.
+func (s *ConsolidationMember) GetFirstFiscalYear() int32 {
+	return s.FirstFiscalYear
+}
+
+// GetFirstFiscalPeriod returns the value of FirstFiscalPeriod.
+func (s *ConsolidationMember) GetFirstFiscalPeriod() int32 {
+	return s.FirstFiscalPeriod
+}
+
+// GetInvestmentAccount returns the value of InvestmentAccount.
+func (s *ConsolidationMember) GetInvestmentAccount() AssetAccountRef {
+	return s.InvestmentAccount
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ConsolidationMember) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ConsolidationMember) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ConsolidationMember) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetLocalCurrency sets the value of LocalCurrency.
+func (s *ConsolidationMember) SetLocalCurrency(val string) {
+	s.LocalCurrency = val
+}
+
+// SetOwnershipPercent sets the value of OwnershipPercent.
+func (s *ConsolidationMember) SetOwnershipPercent(val string) {
+	s.OwnershipPercent = val
+}
+
+// SetFirstFiscalYear sets the value of FirstFiscalYear.
+func (s *ConsolidationMember) SetFirstFiscalYear(val int32) {
+	s.FirstFiscalYear = val
+}
+
+// SetFirstFiscalPeriod sets the value of FirstFiscalPeriod.
+func (s *ConsolidationMember) SetFirstFiscalPeriod(val int32) {
+	s.FirstFiscalPeriod = val
+}
+
+// SetInvestmentAccount sets the value of InvestmentAccount.
+func (s *ConsolidationMember) SetInvestmentAccount(val AssetAccountRef) {
+	s.InvestmentAccount = val
 }
 
 // Merged schema.
@@ -23897,6 +24154,35 @@ func (s *DownPaymentRequestPage) SetNextPageToken(val OptString) {
 
 func (*DownPaymentRequestPage) listDownPaymentRequestsRes() {}
 
+// An elimination of the configuration (ADR-0059 §8), by code and name.
+// Ref: #/components/schemas/EliminationRef
+type EliminationRef struct {
+	// The elimination's code: 1-30 upper-case letters, digits or underscores.
+	Code string `json:"code"`
+	// The elimination's name.
+	Name string `json:"name"`
+}
+
+// GetCode returns the value of Code.
+func (s *EliminationRef) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *EliminationRef) GetName() string {
+	return s.Name
+}
+
+// SetCode sets the value of Code.
+func (s *EliminationRef) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *EliminationRef) SetName(val string) {
+	s.Name = val
+}
+
 type EnableConnectorBadRequest Problem
 
 func (*EnableConnectorBadRequest) enableConnectorRes() {}
@@ -26929,6 +27215,18 @@ func (s *GetConnectorOKHeaders) SetResponse(val Connector) {
 
 func (*GetConnectorOKHeaders) getConnectorRes() {}
 
+type GetConsolidationGroupBadRequest Problem
+
+func (*GetConsolidationGroupBadRequest) getConsolidationGroupRes() {}
+
+type GetConsolidationGroupForbidden Problem
+
+func (*GetConsolidationGroupForbidden) getConsolidationGroupRes() {}
+
+type GetConsolidationGroupNotFound Problem
+
+func (*GetConsolidationGroupNotFound) getConsolidationGroupRes() {}
+
 type GetContractBadRequest Problem
 
 func (*GetContractBadRequest) getContractRes() {}
@@ -29864,6 +30162,117 @@ func (*GrantRolePermissionPreconditionRequired) grantRolePermissionRes() {}
 type GrantRolePermissionUnprocessableEntity Problem
 
 func (*GrantRolePermissionUnprocessableEntity) grantRolePermissionRes() {}
+
+// An account of the group chart (ADR-0059 §3; SAP's financial statement item). From the active
+// configuration.
+// Ref: #/components/schemas/GroupAccount
+type GroupAccount struct {
+	// The group account's number: 1-10 upper-case letters or digits.
+	Number string `json:"number"`
+	// The group account's name.
+	Name string `json:"name"`
+	// Account type. Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Type string `json:"type"`
+	// The role a consolidation run gives the account, if any; no company account maps to one. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Role        OptString         `json:"role"`
+	Elimination OptEliminationRef `json:"elimination"`
+	// The number of company accounts mapped to it, in the companies the caller may act in.
+	MappedAccounts int32 `json:"mapped_accounts"`
+}
+
+// GetNumber returns the value of Number.
+func (s *GroupAccount) GetNumber() string {
+	return s.Number
+}
+
+// GetName returns the value of Name.
+func (s *GroupAccount) GetName() string {
+	return s.Name
+}
+
+// GetType returns the value of Type.
+func (s *GroupAccount) GetType() string {
+	return s.Type
+}
+
+// GetRole returns the value of Role.
+func (s *GroupAccount) GetRole() OptString {
+	return s.Role
+}
+
+// GetElimination returns the value of Elimination.
+func (s *GroupAccount) GetElimination() OptEliminationRef {
+	return s.Elimination
+}
+
+// GetMappedAccounts returns the value of MappedAccounts.
+func (s *GroupAccount) GetMappedAccounts() int32 {
+	return s.MappedAccounts
+}
+
+// SetNumber sets the value of Number.
+func (s *GroupAccount) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetName sets the value of Name.
+func (s *GroupAccount) SetName(val string) {
+	s.Name = val
+}
+
+// SetType sets the value of Type.
+func (s *GroupAccount) SetType(val string) {
+	s.Type = val
+}
+
+// SetRole sets the value of Role.
+func (s *GroupAccount) SetRole(val OptString) {
+	s.Role = val
+}
+
+// SetElimination sets the value of Elimination.
+func (s *GroupAccount) SetElimination(val OptEliminationRef) {
+	s.Elimination = val
+}
+
+// SetMappedAccounts sets the value of MappedAccounts.
+func (s *GroupAccount) SetMappedAccounts(val int32) {
+	s.MappedAccounts = val
+}
+
+// One page of the group chart of accounts.
+// Ref: #/components/schemas/GroupAccountPage
+type GroupAccountPage struct {
+	// The group accounts on this page.
+	Items []GroupAccount `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *GroupAccountPage) GetItems() []GroupAccount {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *GroupAccountPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *GroupAccountPage) SetItems(val []GroupAccount) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *GroupAccountPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*GroupAccountPage) listGroupAccountsRes() {}
 
 // The liquidity forecast across the companies the caller may act in (ADR-0051 §9, §10, §15; T53e5):
 // per currency, and summed in the tenant's group currency. Amounts are signed: a payment out is
@@ -35401,6 +35810,14 @@ type ListConnectorsForbidden Problem
 
 func (*ListConnectorsForbidden) listConnectorsRes() {}
 
+type ListConsolidationGroupsBadRequest Problem
+
+func (*ListConsolidationGroupsBadRequest) listConsolidationGroupsRes() {}
+
+type ListConsolidationGroupsForbidden Problem
+
+func (*ListConsolidationGroupsForbidden) listConsolidationGroupsRes() {}
+
 type ListContractsBadRequest Problem
 
 func (*ListContractsBadRequest) listContractsRes() {}
@@ -35532,6 +35949,14 @@ func (*ListGrIrClearingsForbidden) listGrIrClearingsRes() {}
 type ListGrIrClearingsNotFound Problem
 
 func (*ListGrIrClearingsNotFound) listGrIrClearingsRes() {}
+
+type ListGroupAccountsBadRequest Problem
+
+func (*ListGroupAccountsBadRequest) listGroupAccountsRes() {}
+
+type ListGroupAccountsForbidden Problem
+
+func (*ListGroupAccountsForbidden) listGroupAccountsRes() {}
 
 type ListHierarchiesBadRequest Problem
 
@@ -41476,6 +41901,52 @@ func (o OptDepreciationRunError) Get() (v DepreciationRunError, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptDepreciationRunError) Or(d DepreciationRunError) DepreciationRunError {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptEliminationRef returns new OptEliminationRef with value set to v.
+func NewOptEliminationRef(v EliminationRef) OptEliminationRef {
+	return OptEliminationRef{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptEliminationRef is optional EliminationRef.
+type OptEliminationRef struct {
+	Value EliminationRef
+	Set   bool
+}
+
+// IsSet returns true if OptEliminationRef was set.
+func (o OptEliminationRef) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptEliminationRef) Reset() {
+	var v EliminationRef
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptEliminationRef) SetTo(v EliminationRef) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptEliminationRef) Get() (v EliminationRef, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptEliminationRef) Or(d EliminationRef) EliminationRef {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -61175,6 +61646,7 @@ func (*TooManyRequestsHeaders) getCloseCalendarRes()                 {}
 func (*TooManyRequestsHeaders) getCompanyAccessRes()                 {}
 func (*TooManyRequestsHeaders) getConfigVersionRes()                 {}
 func (*TooManyRequestsHeaders) getConnectorRes()                     {}
+func (*TooManyRequestsHeaders) getConsolidationGroupRes()            {}
 func (*TooManyRequestsHeaders) getContractRes()                      {}
 func (*TooManyRequestsHeaders) getCostCenterRes()                    {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()              {}
@@ -61261,6 +61733,7 @@ func (*TooManyRequestsHeaders) listCloseTasksRes()                   {}
 func (*TooManyRequestsHeaders) listCompanyAccessRes()                {}
 func (*TooManyRequestsHeaders) listConfigVersionsRes()               {}
 func (*TooManyRequestsHeaders) listConnectorsRes()                   {}
+func (*TooManyRequestsHeaders) listConsolidationGroupsRes()          {}
 func (*TooManyRequestsHeaders) listContractsRes()                    {}
 func (*TooManyRequestsHeaders) listCostCenterBalancesRes()           {}
 func (*TooManyRequestsHeaders) listCostCenterPathsRes()              {}
@@ -61276,6 +61749,7 @@ func (*TooManyRequestsHeaders) listForecastVarianceCommentsRes()     {}
 func (*TooManyRequestsHeaders) listGoodsReceiptsRes()                {}
 func (*TooManyRequestsHeaders) listGrIrBalancesRes()                 {}
 func (*TooManyRequestsHeaders) listGrIrClearingsRes()                {}
+func (*TooManyRequestsHeaders) listGroupAccountsRes()                {}
 func (*TooManyRequestsHeaders) listHierarchiesRes()                  {}
 func (*TooManyRequestsHeaders) listHouseBanksRes()                   {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()               {}
@@ -61598,6 +62072,7 @@ func (*UnauthorizedHeaders) getCloseCalendarRes()                 {}
 func (*UnauthorizedHeaders) getCompanyAccessRes()                 {}
 func (*UnauthorizedHeaders) getConfigVersionRes()                 {}
 func (*UnauthorizedHeaders) getConnectorRes()                     {}
+func (*UnauthorizedHeaders) getConsolidationGroupRes()            {}
 func (*UnauthorizedHeaders) getContractRes()                      {}
 func (*UnauthorizedHeaders) getCostCenterRes()                    {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()              {}
@@ -61684,6 +62159,7 @@ func (*UnauthorizedHeaders) listCloseTasksRes()                   {}
 func (*UnauthorizedHeaders) listCompanyAccessRes()                {}
 func (*UnauthorizedHeaders) listConfigVersionsRes()               {}
 func (*UnauthorizedHeaders) listConnectorsRes()                   {}
+func (*UnauthorizedHeaders) listConsolidationGroupsRes()          {}
 func (*UnauthorizedHeaders) listContractsRes()                    {}
 func (*UnauthorizedHeaders) listCostCenterBalancesRes()           {}
 func (*UnauthorizedHeaders) listCostCenterPathsRes()              {}
@@ -61699,6 +62175,7 @@ func (*UnauthorizedHeaders) listForecastVarianceCommentsRes()     {}
 func (*UnauthorizedHeaders) listGoodsReceiptsRes()                {}
 func (*UnauthorizedHeaders) listGrIrBalancesRes()                 {}
 func (*UnauthorizedHeaders) listGrIrClearingsRes()                {}
+func (*UnauthorizedHeaders) listGroupAccountsRes()                {}
 func (*UnauthorizedHeaders) listHierarchiesRes()                  {}
 func (*UnauthorizedHeaders) listHouseBanksRes()                   {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()               {}

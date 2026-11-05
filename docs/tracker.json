@@ -1777,9 +1777,9 @@
       "r": "ADR-0059 · T68 (split T68a-T68h)",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "Group chart, mapping and groups in configuration: consolidation.accounts (roles cta, retained_earnings, nci, goodwill), eliminations (accounts, difference account, tolerance) and groups (parent, members with ownership, first period and investment account), companies[].chart_of_accounts[].group_account required for every company in a group, validated with tiers; the consolidation leaf (internal/layout) and consolidation.Companies; GET /v1/consolidation-groups (and /{code}) and GET /v1/group-accounts, a group visible only with access to its parent and every member; consolidation.read; walkthrough step_consolidation: Ada configures the group MAPLE (Maple holding Acme Corp US at 80%), Carla reads it, Cory (consolidation.read, Maple alone) reads no group",
-        "r": "ADR-0059 · T68a",
+        "r": "db/migrations/000216 · consolidation.accounts · consolidation.eliminations · consolidation.groups · companies[].chart_of_accounts[].group_account · GET /v1/consolidation-groups · GET /v1/group-accounts · ADR-0059 · T68a",
         "src": "adr:ADR-0059",
         "c": []
        },

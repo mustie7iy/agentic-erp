@@ -51,7 +51,7 @@ pointing its schema at a separate database. Callers do not change.
 | **agents** | Agent sessions, tool calls, recommendations, costs | `RecommendationMade` |
 | **assets** (ADR-0057, a leaf) | Asset classes' use (the classes and accounts are configuration), assets, movements, acquisitions, retirements, transfers, depreciation runs | `AssetChanged`, `AssetMovementPosted`, `DepreciationRunCompleted` |
 | **closing** (ADR-0058, a leaf) | The close calendar (the close template and company weekends are configuration), period closes and their checklists, sign-offs, the variance report, accrual proposals, variance comments | `PeriodCloseChanged`, `PeriodCloseSignedOff`, `AccrualProposed`, `AccrualProposalRejected`, `VarianceCommentChanged` |
-| **consolidation** (ADR-0059, a leaf; planned, not built: T68a-T68h) | Consolidation runs per group and period, their translated balances, intercompany differences and eliminations, the frozen acquisition figures (the group chart, the mapping and the groups are configuration; trading partners are on the ledger's journal lines) | `ConsolidationRunChanged`, `IntercompanyDifferenceAccepted` |
+| **consolidation** (ADR-0059, a leaf) | The consolidation groups and the group chart as configured (T68a: the group chart, the mapping and the groups are configuration, read through its ports); consolidation runs per group and period, their translated balances, intercompany differences and eliminations, the frozen acquisition figures (planned, T68b-T68h; trading partners are on the ledger's journal lines) | `ConsolidationRunChanged`, `IntercompanyDifferenceAccepted` |
 
 Later phases add `sales`, `receivables`, `inventory`, `manufacturing`,
 `maintenance`, `projects` and `hr` with the same rules.

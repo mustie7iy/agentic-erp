@@ -74,6 +74,9 @@ var tierRules = []struct {
 	// (ADR-0050 §4). Turning cost or profit center accounting on is
 	// structural: from then on every year's P&L must be complete by center.
 	{rx(`^companies\[\*\]\.chart_of_accounts\[\*\]\.cost_element$`), TierPostingRelated},
+	// The mapping to the group chart decides what the consolidated
+	// statements say: structural (ADR-0059 §3).
+	{rx(`^companies\[\*\]\.chart_of_accounts\[\*\]\.group_account$`), TierStructural},
 	{rx(`^companies\[\*\]\.(default_assignments|default_profit_center)`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.(cost_center_accounting|profit_center_accounting)$`), TierStructural},
 	{rx(`^companies\[\*\]\.chart_of_accounts`), TierStructural},
@@ -154,6 +157,16 @@ var tierRules = []struct {
 	// report need a comment before sign-off and post nothing (ADR-0058 §3).
 	{rx(`^companies\[\*\]\.close\.variance(\.|$)`), TierOperational},
 	{rx(`^close(\.|$)`), TierOperational},
+	// Group reporting (ADR-0059 §3): names are cosmetic; the closing rate's
+	// type and the eliminations' tolerances operational; the eliminations'
+	// accounts and difference accounts posting-related; the group chart,
+	// its roles and the groups with their members structural, since they
+	// decide what the consolidated statements say.
+	{rx(`^consolidation\.(accounts|eliminations|groups)\[\*\]\.name$`), TierCosmetic},
+	{rx(`^consolidation\.rate_type$`), TierOperational},
+	{rx(`^consolidation\.eliminations\[\*\]\.tolerance$`), TierOperational},
+	{rx(`^consolidation\.eliminations`), TierPostingRelated},
+	{rx(`^consolidation(\.|$)`), TierStructural},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }
@@ -201,6 +214,9 @@ var listKeys = map[string]string{
 	"asset_classes": "code", "terms": "ledger", "asset_accounts": "class",
 	// The close template's tasks by code (ADR-0058 §3).
 	"tasks": "code",
+	// Group reporting (ADR-0059 §3): eliminations and groups by code, a
+	// group's members by company; an elimination's accounts are numbers.
+	"eliminations": "code", "groups": "code", "members": "company",
 }
 
 // pathKeys override listKeys for a list at one path, where its name is
@@ -211,6 +227,9 @@ var pathKeys = map[string]string{
 	"cash.derivation.accounts":        "",
 	"cash.derivation.planning_groups": "group",
 	"cash.derivation.posting_rules":   "rule",
+	// The group chart by number (ADR-0059 §3), not by the "account" key
+	// fx_valuation.accounts has.
+	"consolidation.accounts": "number",
 }
 
 // Diff lists every setting that differs from old to new, with its tier.
