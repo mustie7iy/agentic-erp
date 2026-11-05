@@ -26801,7 +26801,8 @@ type ForecastVarianceDocuments struct {
 	SnapshotDate time.Time `json:"snapshot_date"`
 	// The last day the snapshot kept per document: entries are of days up to it and `to`.
 	DocumentLevelUntil time.Time `json:"document_level_until"`
-	// The page's contributions, the forecast's then the actuals', each by value date.
+	// The page's contributions, the forecast's then the actuals', each by value date, within a day in a
+	// stable order (a digest of what each is).
 	Items []ForecastVarianceDocument `json:"items"`
 	// The contributions of every page.
 	Count int32 `json:"count"`

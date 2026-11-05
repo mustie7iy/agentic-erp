@@ -154,6 +154,30 @@ func TestVarianceDocuments(t *testing.T) {
 	}
 	sort.Strings(seen)
 	want(t, "the pages, every entry once", seen, got)
+	// A line read between two pages moves no other entry: every entry of
+	// the first read is listed once over the pages either side of it.
+	first := e.docsOf(t, "&from=2026-04-17&to=2026-05-21&lag=0&grain=week&page_size=7")
+	a := actualsEnv{forecastEnv: e.forecastEnv}
+	late := e.statement(t, e.main, "CAD", "2026-04-17", "2026-04-17", 0, 0, nil, "imported")
+	a.actualLine(t, late, 1, "2026-04-17", 4200, "unmatched", "", target{})
+	rest := entryLines(first, names)
+	for query := "&page_token=" + fmt.Sprint(first["next_page_token"]); ; {
+		page := e.docsOf(t, "&from=2026-04-17&to=2026-05-21&lag=0&grain=week&page_size=7"+query)
+		rest = append(rest, entryLines(page, names)...)
+		next, ok := page["next_page_token"]
+		if !ok {
+			break
+		}
+		query = "&page_token=" + fmt.Sprint(next)
+	}
+	counted := map[string]int{}
+	for _, l := range rest {
+		counted[l]++
+	}
+	for _, l := range got {
+		want(t, "listed once across a line read between pages: "+l, counted[l], 1)
+	}
+	want(t, "and the new line", len(rest), len(got)+1)
 	e.Problem(400, "request.invalid_page_token", "GET", "/v1/liquidity-forecast-variance/documents?legal_entity_id="+e.le.String()+
 		"&from=2026-04-17&to=2026-05-21&lag=0&page_token=nope", "", "")
 	p := e.Problem(422, "request.validation_failed", "GET", "/v1/liquidity-forecast-variance/documents?legal_entity_id="+e.le.String()+

@@ -135,7 +135,10 @@ func (e *Endpoints) VarianceDocuments(ctx context.Context, q DocsQuery) (Varianc
 		d.Next, _ = e.Pages.Encode(scope, flowCursor{After: page[len(page)-1].key})
 	}
 	d.Entries = page
-	return d, e.showEntries(ctx, d.Entries)
+	if err := showDocs(ctx, d.Entries); err != nil {
+		return VarianceDocs{}, err
+	}
+	return d, e.nameSuppliers(ctx, d.Entries)
 }
 
 // varianceEntries are every entry behind the variance's row, in their
@@ -199,9 +202,10 @@ func inRow(items []config.LiquidityItem, item string, unclassified bool) func(st
 }
 
 // entryKey orders the entries: the side, the value date, then a digest of
-// what tells the line apart, so a page token names no document.
-func entryKey(side int, day time.Time, parts ...any) string {
-	h := sha256.Sum256(fmt.Append(nil, parts...))
+// what the entry is (never its position among others, so a line read
+// between two pages moves no other), so a page token names no document.
+func entryKey(side int, day time.Time, what string) string {
+	h := sha256.Sum256([]byte(what))
 	return fmt.Sprintf("%d|%s|%s", side, day.Format(time.DateOnly), hex.EncodeToString(h[:])[:32])
 }
 
@@ -215,7 +219,7 @@ func (m *matching) forecastEntries(in func(string) bool) []VarianceEntry {
 			continue
 		}
 		en := VarianceEntry{Side: SideForecast, Attribution: attributions[m.forecastAttribution(m.keys[i], b)], Currency: l.currency, Item: l.item,
-			ValueDate: l.date, Bucket: m.bs[b].Start, Amount: l.amount, supplier: l.supplier, key: entryKey(0, l.date, l.lineNo)}
+			ValueDate: l.date, Bucket: m.bs[b].Start, Amount: l.amount, supplier: l.supplier, key: entryKey(0, l.date, fmt.Sprint(l.lineNo))}
 		if ref, ok := refOf(m.keys[i]); ok {
 			ref.Number = m.numbers[ref.Kind+":"+ref.ID.String()]
 			en.Docs = []DocRef{ref}
@@ -229,7 +233,7 @@ func (m *matching) forecastEntries(in func(string) bool) []VarianceEntry {
 // one per share whose item is in the row.
 func (m *matching) actualEntries(in func(string) bool) []VarianceEntry {
 	var out []VarianceEntry
-	for n, p := range m.pieces {
+	for _, p := range m.pieces {
 		b := m.bucket(p.a.ValueDate)
 		if b < 0 {
 			continue
@@ -242,7 +246,7 @@ func (m *matching) actualEntries(in func(string) bool) []VarianceEntry {
 			no := p.a.LineNo
 			out = append(out, VarianceEntry{Side: SideActual, Attribution: attributions[m.actualAttribution(p, b)], Currency: p.a.Currency, Item: sh.Item,
 				ValueDate: p.a.ValueDate, Bucket: m.bs[b].Start, Amount: sh.Amount, Docs: slices.Clone(docs), LineNo: &no, BankReference: p.a.BankReference,
-				supplier: supplier, key: entryKey(1, p.a.ValueDate, p.a.StatementID, p.a.LineNo, n, sh.Item)})
+				supplier: supplier, key: entryKey(1, p.a.ValueDate, fmt.Sprintf("%s|%d|%s|%s", p.a.StatementID, p.a.LineNo, strings.Join(p.keys, ","), sh.Item))})
 		}
 	}
 	return out
@@ -302,11 +306,21 @@ func docPermission(kind string) string {
 	return documentReadPermissions[kind]
 }
 
-// showEntries keeps of each entry what the caller may see: the documents
-// of the permissions they may use, a line's number and bank reference
-// with its statement, the supplier with partner.supplier.read; the
-// permissions are read once, the names only of entries naming suppliers.
-func (e *Endpoints) showEntries(ctx context.Context, entries []VarianceEntry) error {
+// showDocs keeps of each entry the documents the caller may see, the
+// permissions read once.
+func showDocs(ctx context.Context, entries []VarianceEntry) error {
+	may := mayUse(ctx)
+	for i := range entries {
+		if err := entries[i].show(may); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// nameSuppliers names the supplier of each entry paying one, to a caller
+// who may read suppliers.
+func (e *Endpoints) nameSuppliers(ctx context.Context, entries []VarianceEntry) error {
 	may := mayUse(ctx)
 	var suppliers []uuid.UUID
 	for _, en := range entries {
@@ -324,9 +338,6 @@ func (e *Endpoints) showEntries(ctx context.Context, entries []VarianceEntry) er
 			if n, ok := names[*en.supplier]; ok {
 				en.Supplier = &n
 			}
-		}
-		if err := en.show(may); err != nil {
-			return err
 		}
 	}
 	return nil

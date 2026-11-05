@@ -56,7 +56,7 @@ func (e *Endpoints) ProposeComment(ctx context.Context, in CommentInput, session
 	docs, err := e.varianceEntries(ctx, DocsQuery{VarianceQuery: VarianceQuery{LegalEntity: in.LegalEntity, From: from, To: to, Lag: in.Lag,
 		Grain: config.GrainMonth}, Item: in.Item, Unclassified: in.Unclassified})
 	if err == nil {
-		err = e.showEntries(ctx, docs.Entries)
+		err = showDocs(ctx, docs.Entries)
 	}
 	if err != nil {
 		return VarianceComment{}, err

@@ -40231,7 +40231,7 @@ components:
         items:
           type: array
           items: {$ref: "#/components/schemas/ForecastVarianceDocument"}
-          description: "The page's contributions, the forecast's then the actuals', each by value date."
+          description: "The page's contributions, the forecast's then the actuals', each by value date, within a day in a stable order (a digest of what each is)."
           readOnly: true
         count: {type: integer, format: int32, minimum: 0, description: "The contributions of every page.", readOnly: true}
         next_page_token: {type: string, description: "Opaque cursor for the next page; absent on the last page.", readOnly: true}
