@@ -247,6 +247,17 @@ settings cannot simply overwrite their document.
   rate (the ledger converts into the tenant's currency) and posts a
   supplier invoice of AED 12,600.00 without the supplier's TRN (warned)
   and one of AED 4,200.00 (none).
+- **As built (T61k): UAE 2026.2** is 2026.1 plus `returns.yaml`, the VAT
+  201 (ADR-0049 §11 As built, T61k): every other file is 2026.1's byte for
+  byte, and the manifest's two VAT 201 sources (the secondary summaries
+  ADR-0049 cites) name the boxes they now back (`TestUAEPack2026_2`). It
+  carries no `sign_off`, as 2026.1 does not, so production refuses both
+  until the specialist confirms T62f's items and the boxes and mapping of
+  `packs/ae/TAX-PENDING-T61k.md` (`TestUAEPackVAT201`); the sign-off is one
+  later version for both. **Decided by default**, as T61j did for Canada:
+  the return is a new version rather than a change to 2026.1, which is
+  released. It is the newest UAE version; the walkthrough's step 39
+  applies it.
 
 ## Consequences
 - A pack upgrade never silently overwrites a tenant's decision; reviewers

@@ -73,7 +73,9 @@ const baselineItems = 949
 // registrant (P4), in the approved scope, split from it, each inheriting
 // the tag (96). 97 since T62f: the UAE pack's sign-off by the tax
 // specialist, in the approved scope, split from it, inheriting the tag.
-const pilotItems = 97
+// 98 since T61k: the VAT 201's sign-off by the tax specialist, in the
+// approved scope, split from it, inheriting the tag.
+const pilotItems = 98
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

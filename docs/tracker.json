@@ -2160,11 +2160,19 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "VAT 201 for the UAE: boxes 1a-14 in the UAE pack, emirate by fixed establishment, import boxes from customs entries; golden tests, specialist sign-off",
-        "r": "T61k",
+        "s": "D",
+        "t": "VAT 201 for the UAE: boxes 1a-14 in the UAE pack (2026.2, returns.yaml: a box per column, 42 in one list whose order the stored return keeps), 1a-1g by the emirate each standard-rated sale names (that of the fixed establishment making it), box 6 from customs declarations' import entries, the prior-period threshold of AED 10,000 (P7); golden tests from a worked quarter, an amendment and the threshold; not signed off (the sign-off is a leaf of its own, split from T61k)",
+        "r": "packs/ae/2026.2 · packs/released.sha256 · packs/ae/TAX-PENDING-T61k.md · TestUAEPack2026_2 · TestUAEPackVAT201 · TestVAT201Golden · ADR-0049 §11 As built (T61k) · ADR-0048 As built (T61k) · walkthrough step 39 · T61k",
         "src": "baseline",
         "pilot": "po:2026-10-31 · adr:ADR-0049",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "VAT 201 signed off by the tax specialist before the pilot: a new UAE pack version with sign_off (a released version never changes; one version with T62f's sign-off), after the specialist confirms 2026.2's boxes against EmaraTax's labels, the columns of boxes 2-7, the totals 8, 11, 12 and 13 written from memory, the emirates' letters and ISO codes, and how the tenant's codes map to the boxes (packs/ae/TAX-PENDING-T61k.md)",
+        "r": "after T61k · ADR-0049 §11 As built (T61k) · ADR-0048 As built (T61k)",
+        "src": "split:T61k · adr:ADR-0049",
+        "pilot": "po:2026-10-31 · adr:ADR-0048",
         "c": []
        },
        {

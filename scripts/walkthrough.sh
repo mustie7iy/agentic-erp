@@ -115,6 +115,20 @@ tax_first() {
   printf '%s-%02d-01' "$y" "$m"
 }
 
+# uae_first is the UAE registration's first period (step 39, T61k): the
+# latest quarter ended on the UAE company's date in Dubai, its cutover, so
+# its return is the first the ERP files for it.
+uae_first() {
+  local today y m
+  today=$(ZONE=Asia/Dubai company_day)
+  y=${today:0:4} m=$((10#${today:5:2}))
+  m=$(((m - 1) / 3 * 3 + 1 - 3))
+  if [ "$m" -lt 1 ]; then
+    m=$((m + 12)) y=$((y - 1))
+  fi
+  printf '%s-%02d-01' "$y" "$m"
+}
+
 # month_end is the last day of this month.
 month_end() {
   local first="${TODAY:0:7}-01"
@@ -1962,15 +1976,16 @@ gst_adjustments() {
   api 201 "$entry" postJournalEntry -body "$(sale "GST/HST instalment paid" "$(line "$payable" 100.00 GI), $(line "$cash" -100.00)" "$end")"
 }
 
-# close_tax_periods START END BODY REGISTRATION closes the leading
-# ledger's open fiscal periods of the tax period START to END, which
-# preparing the return BODY asks for needs (T61i), once preparing has
-# been refused for them; LEADING is the leading ledger.
+# close_tax_periods START END BODY REGISTRATION [LE] closes the leading
+# ledger's open fiscal periods of the tax period START to END of legal
+# entity LE ($LE when not given), which preparing the return BODY needs
+# (T61i), once preparing has been refused for them; LEADING is the
+# leading ledger.
 close_tax_periods() {
-  local start=$1 end=$2 body=$3 registration=$4 open p
+  local start=$1 end=$2 body=$3 registration=$4 le=${5:-$LE} open p
   QUIET=1 api 200 '' listLedgers
   LEADING=$(field '.items[] | select(.is_leading) | .id')
-  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=${start%%-*}" -p "ledger_id=$LEADING" -p page_size=100
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$le" -p "fiscal_year=${start%%-*}" -p "ledger_id=$LEADING" -p page_size=100
   open=$(jq -r --arg s "$start" --arg e "$end" '[.items[] | select((.is_special | not) and .status == "open" and .start_date <= $e and .end_date >= $s)
     | "\(.id)/\(.version)"] | join(" ")' "$WORK/last.json")
   if [ -n "$open" ]; then
@@ -2984,8 +2999,10 @@ step_asset_depreciation() {
 # determination names (the cash discount account too, as the document's
 # payment terms grant discounts), named and typed as the pack names them so
 # that applying the pack keeps them without a conflict, its tolerances and
-# limits, and a house bank (the walkthrough's illustrative IBAN, as step 39
-# needs none to pay). @AE@ is replaced.
+# limits, a house bank (the walkthrough's illustrative IBAN, as step 39
+# needs none to pay), and its VAT registration with the FTA (T61k): the
+# number illustrative, the VAT 201 its return, quarterly from @FIRST@, the
+# latest quarter ended (uae_first). @AE@ and @FIRST@ are replaced.
 UAE_COMPANY='{"code": "@AE@", "name": "Maple Gulf Trading", "currency": "AED", "country": "AE", "fiscal_year_start_month": 1,
   "time_zone": "Asia/Dubai",
   "chart_of_accounts": [
@@ -2996,7 +3013,9 @@ UAE_COMPANY='{"code": "@AE@", "name": "Maple Gulf Trading", "currency": "AED", "
   "account_determination": {"ap_reconciliation": "2000", "input_tax": "1300", "bank": "1000", "cash_discount": "4800"},
   "invoice_tolerance": {"price_percent": 2, "price_absolute": "20.00"},
   "auto_post_limit": "50000.00", "manual_entry_approval_limit": "50000.00", "gr_over_delivery_percent": 0,
-  "house_bank": {"name": "MAIN", "iban": "GB33BUKB20201555555555", "bic": "BUKBGB22"}}'
+  "house_bank": {"name": "MAIN", "iban": "GB33BUKB20201555555555", "bic": "BUKBGB22"},
+  "tax_registrations": [{"code": "FTA_VAT", "authority": "FTA", "number": "100123456789003", "return_type": "VAT201", "frequency": "quarterly",
+    "first_period_start": "@FIRST@"}]}'
 
 # governed CR WHAT submits a structural change request, evidences it (a
 # regression suite of the last year's invoices, replayed under the
@@ -3026,18 +3045,20 @@ governed() {
 # applies the UAE pack to it, not signed off, so with a note; Alex posts a
 # UAE supplier's invoice above AED 10,000 and one below: the supplier has
 # no TRN on file, so the first carries the documentary warning of the
-# pack's tier, pending the tax specialist, and the second none.
+# pack's tier, pending the tax specialist, and the second none; the
+# company's VAT 201 of the latest quarter ended is computed, prepared,
+# approved and filed (T61k, uae_return).
 step_uae() {
-  heading "Step 39 — The UAE country pack: the UAE pilot company applies it; an invoice above AED 10,000 without the supplier's TRN is flagged"
+  heading "Step 39 — The UAE country pack: the UAE pilot company applies it; an invoice above AED 10,000 without the supplier's TRN is flagged; its VAT 201 is filed"
   as ada
-  local cal ae base cr p supplier expense recon item invoice
+  local cal ae base cr p supplier expense recon item invoice company=${UAE_COMPANY//@AE@/$AE}
   say "The second pilot is a UAE company (07 §7.6). The image holds the UAE pack (T62f): its VAT codes and tax"
   say "settings as ADR-0049 records them for the UAE, a starter chart, number ranges and payment terms; no holidays"
-  say "(no source is recorded) and no VAT 201 (T61k). Every UAE tax item waits for the tax specialist"
-  say "(packs/ae/TAX-PENDING-T62f.md), so the pack is not signed off and production refuses to apply it (409"
-  say "config.pack_not_signed_off); outside production it is applied with a note, as here."
+  say "(no source is recorded); 2026.2 adds the VAT 201's boxes (T61k). Every UAE tax item waits for the tax"
+  say "specialist (packs/ae/TAX-PENDING-T62f.md and TAX-PENDING-T61k.md), so the pack is not signed off and production"
+  say "refuses to apply it (409 config.pack_not_signed_off); outside production it is applied with a note, as here."
   api 200 '.items[] | select(.country == "AE") | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
-  expect "the UAE pack" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false"
+  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false"
   say "Ada creates the UAE company's legal entity, Maple Gulf Trading ($AE, in AED), and activates it."
   QUIET=1 api 200 '' getLegalEntity -p "id=$LE"
   cal=$(field .fiscal_calendar_id)
@@ -3047,17 +3068,19 @@ step_uae() {
   api 200 '"legal entity \(.code): \(.status)"' activateLegalEntity -p "id=$ae" -if-match "$ETAG"
   say "A pack is applied to a company of the configuration, so she first proposes the company: its currency,"
   say "country and time zone (Asia/Dubai), its house bank and the accounts its account determination needs, as"
-  say "the pack names them. A new company is a structural change, tier 4, with its evidence and two approvers."
+  say "the pack names them, and its VAT registration with the FTA (T61g), whose return is the VAT 201 and whose first"
+  say "period, the cutover, is the latest quarter ended. A new company is a structural change, tier 4, with its"
+  say "evidence and two approvers."
   api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
   base=$(field '.items[0].number')
   jq "{title: \"The UAE company $AE\", rationale: \"The UAE pilot company (T62f)\", base_version: $base,
-    proposed: (.items[0].document | .companies += [${UAE_COMPANY//@AE@/$AE}])}" "$WORK/last.json" >"$WORK/uae-company.json"
+    proposed: (.items[0].document | .companies += [${company//@FIRST@/$(uae_first)}])}" "$WORK/last.json" >"$WORK/uae-company.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-company.json
   governed "$(field .id)" "the UAE company"
-  say "Ada applies the UAE pack to $AE for $YEAR. The merge keeps the company's accounts, which are the"
-  say "pack's, and adds the rest; its notes for the reviewers say the pack is not signed off:"
+  say "Ada applies the latest UAE pack, 2026.2, to $AE for $YEAR. The merge keeps the company's accounts, which are"
+  say "the pack's, and adds the rest; its notes for the reviewers say the pack is not signed off:"
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
-    -body "{\"country\": \"AE\", \"version\": \"2026.1\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
+    -body "{\"country\": \"AE\", \"version\": \"2026.2\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
   cr=$(field .id)
   excerpt '.notes[] | "note \(.path): \(.message)"'
   expect "the note that the pack is not signed off" "$(field '[.notes[] | select(.path == "packs['"$AE"']" and (.message | contains("signed")))] | length')" 1
@@ -3113,7 +3136,102 @@ step_uae() {
     postSupplierInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
   expect "the smaller invoice's status" "$(field .status)" posted
   expect "the smaller invoice's documentary warnings" "$(field '.documentary_warnings | length')" 0
+  uae_return "$ae" "$supplier" "$expense"
   passed
+}
+
+# uae_return AE SUPPLIER EXPENSE is step 39's VAT 201 (T61k) of legal
+# entity AE's latest quarter ended: Carla posts its sales in Dubai and Abu
+# Dhabi, a zero-rated export, an exempt supply and the import VAT of a
+# customs declaration, and Alex the supplier's invoices of the domestic
+# reverse charge and of blocked VAT, each dated the quarter's last day;
+# Carla computes the draft and drills box 1b down, prepares the return,
+# Fiona approves it and Carla records it filed.
+uae_return() {
+  local ae=$1 supplier=$2 expense=$3 registration start end bank sales vat input ret request
+  as carla
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
+  bank=$(field '.items[] | select(.number == "1000") | .id')
+  sales=$(field '.items[] | select(.number == "4000") | .id')
+  vat=$(field '.items[] | select(.number == "2300") | .id')
+  input=$(field '.items[] | select(.number == "1300") | .id')
+  say "Maple Gulf Trading's VAT is filed under its FTA registration (the number illustrative), its return the VAT 201"
+  say "that UAE pack 2026.2 defines; its first period is the latest quarter ended, the one it files now:"
+  api 200 '.items[] | "registration \(.code): \(.authority), number ending \(.number_last4), return \(.return_type), \(.frequency) from \(.first_period_start), company \(.company_code)"' \
+    listTaxRegistrations -p "legal_entity_id=$ae"
+  expect "the UAE registration" "$(field '.items[0] | "\(.code) \(.return_type) \(.first_period_start)"')" "FTA_VAT VAT201 $(uae_first)"
+  registration=$(field '.items[0].id')
+  QUIET=1 api 200 '' listTaxPeriods -p "id=$registration"
+  start=$(field '.items[0].start_date')
+  end=$(field '.items[0].end_date')
+  expect "the time zone of its periods" "$(field .time_zone)" Asia/Dubai
+  # uae_entry TEXT LINES is a journal entry of AE in AED posted today,
+  # its document and tax date the quarter's last day.
+  uae_entry() {
+    printf '{"legal_entity_id": "%s", "document_date": "%s", "posting_date": "%s", "tax_date": "%s", "currency": "AED", "header_text": "%s", "lines": [%s]}' \
+      "$ae" "$end" "$TODAY" "$end" "$1" "$2"
+  }
+  # uae_line ACCOUNT AMOUNT [CODE [EMIRATE [DECLARED BASE]]] is a line of it.
+  uae_line() {
+    local base=''
+    if [ -n "${5:-}" ]; then base=", \"tax_base\": {\"amount\": \"$5\", \"currency\": \"AED\"}"; fi
+    printf '{"account_id": "%s", "amount": {"amount": "%s", "currency": "AED"}%s%s%s}' "$1" "$2" "${3:+, \"tax_code\": \"$3\"}" \
+      "${4:+, \"tax_jurisdiction\": \"$4\"}" "$base"
+  }
+  local entry='"journal entry \(.document_number), tax date \(.tax_date): \([.lines[] | "\(.amount.amount)\(if .tax_code then " \(.tax_code)" else "" end)\(if .tax_jurisdiction then "@\(.tax_jurisdiction)" else "" end)"] | join(" / "))"'
+  say "Its sales for $start to $end, entered today with the quarter's last day as their tax date (P6): standard-rated"
+  say "sales name the emirate of the establishment that made them (S5 levies the line's emirate, ADR-0049 §7), so the"
+  say "VAT 201 reports them by emirate (boxes 1a-1g); a zero-rated export (Z0) and an exempt supply (E0):"
+  api 201 "$entry" postJournalEntry -body "$(uae_entry "Sales of the Dubai branch" "$(uae_line "$bank" 10500.00), $(uae_line "$sales" -10000.00 S5 AE-DU), $(uae_line "$vat" -500.00 S5 AE-DU)")"
+  api 201 "$entry" postJournalEntry -body "$(uae_entry "Sales of the Abu Dhabi branch" "$(uae_line "$bank" 4200.00), $(uae_line "$sales" -4000.00 S5 AE-AZ), $(uae_line "$vat" -200.00 S5 AE-AZ)")"
+  api 201 "$entry" postJournalEntry -body "$(uae_entry "Export, zero-rated" "$(uae_line "$bank" 3000.00), $(uae_line "$sales" -3000.00 Z0)")"
+  api 201 "$entry" postJournalEntry -body "$(uae_entry "Exempt supply" "$(uae_line "$bank" 1500.00), $(uae_line "$sales" -1500.00 E0)")"
+  say "Goods imported through customs: the declaration's AED 10,000.00, its import VAT of 500.00 accounted for in the"
+  say "return, owed and recovered (IM5, ADR-0049 §9), an entry of tax lines that name the declared value:"
+  api 201 "$entry" postJournalEntry -body "$(uae_entry "Customs declaration: import VAT" "$(uae_line "$input" 500.00 IM5 "" 10000.00), $(uae_line "$vat" -500.00 IM5 "" 10000.00)")"
+  as alex
+  say "Alex posts the supplier's invoices of the quarter's last day: mobile phones bought for resale, AED 2,000.00 under"
+  say "the domestic reverse charge (DR5: Maple Gulf owes and recovers the 100.00), and staff entertainment, AED 1,000.00"
+  say "with 50.00 of VAT that is blocked (VB5, Executive Regulation Art. 53 as ADR-0049 records it):"
+  local ref amount gross tax code
+  for ref in "GOI-1003 2000.00 2000.00 0.00 DR5" "GOI-1004 1000.00 1050.00 50.00 VB5"; do
+    read -r ref amount gross tax code <<<"$ref"
+    api 201 '"\(.kind) \(.supplier_reference) of \(.invoice_date): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+      -body "{\"legal_entity_id\": \"$ae\", \"supplier_id\": \"$supplier\", \"supplier_reference\": \"$ref\", \"invoice_date\": \"$end\", \"gross_amount\": {\"amount\": \"$gross\", \"currency\": \"AED\"}, \"tax_amount\": {\"amount\": \"$tax\", \"currency\": \"AED\"}, \"items\": [{\"account_id\": \"$expense\", \"description\": \"$code purchase\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"$amount\", \"currency\": \"AED\"}, \"tax_code\": \"$code\"}]}"
+    api 200 '"\(.document_number): \(.status)"' postSupplierInvoice -p "id=$(field .id)" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  done
+  as carla
+  say "Carla computes the draft VAT 201 (ADR-0049 §11): each box sums the items the pack maps to it. The boxes are"
+  say "ADR-0049's record of the FTA's guide through secondary summaries; their columns and totals it does not record"
+  say "say so in their labels, and all wait for the tax specialist (packs/ae/TAX-PENDING-T61k.md). Boxes not zero:"
+  api 200 '"draft \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end), \(.currency), pack \(.pack.country) \(.pack.version): \(.item_count) items", (.boxes[] | select(.amount.amount != "0.00") | "  \(.code) \(.amount.amount): \(.label)")' \
+    getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
+  expect "the boxes in the pack's order" "$(field '[.boxes[].code] | .[0:3] + .[-3:] | join(" ")')" "1a_amount 1a_vat 1a_adjustment 12 13 14"
+  expect "boxes 1a and 1b, by emirate" "$(field '[.boxes[] | select(.code | test("^1[ab]_(amount|vat)$")) | .amount.amount] | join(" ")')" "4000.00 200.00 10000.00 500.00"
+  expect "boxes 3, 4, 5 and 6" "$(field '[.boxes[] | select(.code | test("^[3-6]_")) | .amount.amount] | join(" ")')" "2000.00 100.00 3000.00 1500.00 10000.00 500.00"
+  expect "boxes 9 and 10" "$(field '[.boxes[] | select(.code | test("^(9|10)_")) | .amount.amount] | join(" ")')" "1000.00 0.00 0.00 600.00"
+  expect "boxes 12, 13 and 14: due, recoverable and payable" "$(field '[.boxes[] | select(.code | test("^1[234]$")) | .amount.amount] | join(" ")')" "1300.00 600.00 700.00"
+  say "Box 1b drills down to the Dubai branch's sales:"
+  api 200 '.items[] | "  \(.tax_date) \(.tax_code)/\(.component) \(.jurisdiction // ""): adds \(.box_amount.amount), entry \(.document_number): \(.header_text // "")"' \
+    listTaxReturnDraftItems -p "id=$registration" -p "period_start=$start" -p box=1b_vat
+  expect "box 1b's items" "$(field '[.items[] | "\(.header_text) \(.box_amount.amount)"] | join(", ")')" "Sales of the Dubai branch 500.00"
+  local body="{\"period_start\": \"$start\"}"
+  say "Carla prepares the return once the quarter's fiscal periods are closed, which claims its items:"
+  close_tax_periods "$start" "$end" "$body" "$registration" "$ae"
+  api 201 '"return \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end): \(.status), \(.item_count) items", (.boxes[] | select(.amount.amount != "0.00") | "  \(.code) \(.amount.amount)")' \
+    prepareTaxReturn -p "id=$registration" -body "$body"
+  expect "the return's box 14" "$(field '.boxes[] | select(.code == "14") | .amount.amount')" "700.00"
+  ret=$(field .id)
+  request=$(field .approval_request_id)
+  approve fiona "$request" "Boxes agree with the VAT accounts"
+  as carla
+  say "Carla files it on EmaraTax herself (P3) and records the portal's confirmation, illustrative here:"
+  QUIET=1 api 200 '' getTaxReturn -p "id=$ret"
+  api 200 '"return \(.status): confirmation \(.filing.confirmation_number) of \(.filing.filed_on)"' fileTaxReturn -p "id=$ret" -if-match "$ETAG" \
+    -body "{\"confirmation_number\": \"WALKTHROUGH-AE-0001\", \"filed_on\": \"$TODAY\"}"
+  expect "the VAT 201's status" "$(field .status)" filed
+  QUIET=1 api 200 '' getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
+  expect "the quarter's draft after filing" "$(field .item_count)" 0
 }
 
 # step_close is the financial close (ADR-0058), the story's last step: it

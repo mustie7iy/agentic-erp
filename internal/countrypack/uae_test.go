@@ -128,7 +128,7 @@ func TestUAEPackTaxCodes(t *testing.T) {
 }
 
 // TestUAEPack: UAE 2026.1 is not signed off, holds no holidays and no
-// return, and states ADR-0049 §6 As built's documentary tier: above AED
+// return (2026.2 adds the VAT 201, T61k), and states ADR-0049 §6 As built's documentary tier: above AED
 // 10,000 (a total equal to it not in the tier), the supplier's TRN,
 // pending sign-off, under Art. 59; the average rate and rounding per
 // document. Applied to a UAE company on first adoption, the company gets
@@ -140,8 +140,8 @@ func TestUAEPack(t *testing.T) {
 		t.Fatalf("LoadAll(packs.FS): %v", err)
 	}
 	ae := lib.Get("AE", "2026.1")
-	if ae == nil || lib.Latest("AE") != ae {
-		t.Fatal("Get(AE, 2026.1): got none or not the latest, want the UAE pack")
+	if ae == nil {
+		t.Fatal("Get(AE, 2026.1): got none, want the UAE pack")
 	}
 	if ae.SignedOff() {
 		t.Error("SignedOff: got true, want false until the tax specialist signs it off")
@@ -179,5 +179,144 @@ func TestUAEPack(t *testing.T) {
 	}
 	if !hasNote(notes, "packs[1000]", "no tax specialist has signed this pack off") {
 		t.Errorf("notes: got %v, want the pack not signed off", notes)
+	}
+}
+
+// UAE 2026.2 is 2026.1 plus the VAT 201 (T61k): every file but pack.yaml
+// is 2026.1's byte for byte and returns.yaml is new; the manifest is
+// 2026.1's but for its version and the VAT 201 sources' titles (its
+// header comment aside), with no sign-off, as the tax specialist has not
+// confirmed the return. It is the latest UAE pack and defines the return
+// type VAT201.
+func TestUAEPack2026_2(t *testing.T) {
+	lib, err := LoadAll(packs.FS)
+	if err != nil {
+		t.Fatalf("LoadAll(packs.FS): %v", err)
+	}
+	prev, ae := lib.Get("AE", "2026.1"), lib.Get("AE", "2026.2")
+	if prev == nil || ae == nil {
+		t.Fatalf("Get(AE, 2026.1) and Get(AE, 2026.2): got %v and %v, want both", prev, ae)
+	}
+	if ae.SignedOff() {
+		t.Error("SignedOff: got true, want false until the tax specialist confirms the return")
+	}
+	if got := lib.Latest("AE"); got != ae {
+		t.Errorf("Latest(AE): got %s, want ae/2026.2", got.Dir())
+	}
+	if ae.Return("VAT201") == nil || len(prev.Returns.Returns) != 0 {
+		t.Errorf("returns: got %d in 2026.1 and VAT201 %v in 2026.2, want none and the return", len(prev.Returns.Returns), ae.Return("VAT201") != nil)
+	}
+	var urls []string
+	for _, s := range ae.Manifest.Sources {
+		urls = append(urls, s.URL)
+	}
+	for _, s := range prev.Manifest.Sources {
+		if !slices.Contains(urls, s.URL) {
+			t.Errorf("sources: got none for %s, want 2026.1's sources", s.URL)
+		}
+	}
+	same := *ae
+	same.Manifest.Version, same.Manifest.Sources, same.Returns = prev.Manifest.Version, prev.Manifest.Sources, prev.Returns
+	if len(ae.Manifest.Sources) != len(prev.Manifest.Sources) || !reflect.DeepEqual(&same, prev) {
+		t.Error("2026.2 without its version, its sources' titles and the return: got other than 2026.1, want it unchanged")
+	}
+	files, err := fs.ReadDir(packs.FS, "ae/2026.2")
+	if err != nil {
+		t.Fatalf("ReadDir(ae/2026.2): %v", err)
+	}
+	for _, f := range files {
+		if f.Name() == "pack.yaml" || f.Name() == "returns.yaml" {
+			continue
+		}
+		t.Run(f.Name(), func(t *testing.T) {
+			was, errWas := fs.ReadFile(packs.FS, "ae/2026.1/"+f.Name())
+			is, errIs := fs.ReadFile(packs.FS, "ae/2026.2/"+f.Name())
+			if errWas != nil || errIs != nil {
+				t.Fatalf("read: got %v and %v, want the file in both versions", errWas, errIs)
+			}
+			if string(was) != string(is) {
+				t.Error("got other bytes than 2026.1's, want the same file")
+			}
+		})
+	}
+}
+
+// vat201Row is a row of packs/ae/TAX-PENDING-T61k.md: the form's box, the
+// pack's code, what it computes and its basis.
+var vat201Row = regexp.MustCompile(`^\| ([0-9]{1,2}[a-g]?) \| ([0-9a-z_]+) \| ([^|]+) \| (ADR-0049|ADR-0049 box|memory) \|$`)
+
+// vat201Computed is what a box computes in the pending file's terms.
+func vat201Computed(b Box) string {
+	if b.Select == nil {
+		return "= " + b.Expression
+	}
+	s := b.Select
+	list := func(xs []string) string {
+		if len(xs) == 0 {
+			return "-"
+		}
+		return strings.Join(xs, ", ")
+	}
+	out := strings.Join([]string{s.Direction, list(s.Kinds), list(s.Components), list(s.Jurisdictions), list(s.AccountKeys), s.Measure}, " · ")
+	if s.Negate {
+		out += " · shown positive"
+	}
+	return out
+}
+
+// TestUAEPackVAT201: the VAT 201 of UAE 2026.2 has the boxes of
+// packs/ae/TAX-PENDING-T61k.md in its order, each coded, labelled with its
+// box and computed as the table says; a box whose column the ADR does not
+// record says so in its label, as does a total written from memory, which
+// is an expression; the threshold is P7's AED 10,000; the file links the
+// secondary sources the manifest cites for the VAT 201.
+func TestUAEPackVAT201(t *testing.T) {
+	lib, err := LoadAll(packs.FS)
+	if err != nil {
+		t.Fatalf("LoadAll(packs.FS): %v", err)
+	}
+	ae := lib.Get("AE", "2026.2")
+	if ae == nil || ae.Return("VAT201") == nil {
+		t.Fatal("Get(AE, 2026.2).Return(VAT201): got none, want the VAT 201")
+	}
+	def := ae.Return("VAT201")
+	if def.PriorPeriodThreshold != "10000" {
+		t.Errorf("prior-period threshold: got %q, want P7's 10000", def.PriorPeriodThreshold)
+	}
+	b, err := fs.ReadFile(packs.FS, "ae/TAX-PENDING-T61k.md")
+	if err != nil {
+		t.Fatalf("read the pending file: %v", err)
+	}
+	var rows [][]string
+	for _, line := range strings.Split(string(b), "\n") {
+		if m := vat201Row.FindStringSubmatch(line); m != nil {
+			rows = append(rows, m)
+		} else if strings.HasPrefix(line, "| ") && !strings.HasPrefix(line, "| Box ") {
+			t.Errorf("a table row the test cannot read: %q", line)
+		}
+	}
+	if len(rows) != len(def.Boxes) {
+		t.Fatalf("boxes: got %d in the file and %d in the pack, want the same", len(rows), len(def.Boxes))
+	}
+	for i, r := range rows {
+		box := def.Boxes[i]
+		t.Run(r[2], func(t *testing.T) {
+			if box.Code != r[2] || !strings.HasPrefix(box.Label, r[1]+" ") {
+				t.Errorf("box %d: got %s labelled %q, want %s of box %s", i, box.Code, box.Label, r[2], r[1])
+			}
+			if got := vat201Computed(box); got != strings.TrimSpace(r[3]) {
+				t.Errorf("computed as: got %q, want %q", got, strings.TrimSpace(r[3]))
+			}
+			memory := strings.Contains(box.Label, "from memory, pending the tax specialist")
+			column := strings.Contains(box.Label, "column pending the tax specialist")
+			if memory != (r[4] == "memory") || (memory && box.Select != nil) || column != (r[4] == "ADR-0049 box") {
+				t.Errorf("label %q and expression %v: got the basis %s, want a memory total marked and computed from others, a pending column marked", box.Label, box.Select == nil, r[4])
+			}
+		})
+	}
+	for _, u := range []string{"https://www.zoho.com/ae/books/vat/guides/vat-return.html", "https://cleartax.com/ae/vat-return-uae"} {
+		if !strings.Contains(string(b), u) || !slices.ContainsFunc(ae.Manifest.Sources, func(s Source) bool { return s.URL == u }) {
+			t.Errorf("source %s: got it missing from the pending file or the manifest, want both", u)
+		}
 	}
 }
