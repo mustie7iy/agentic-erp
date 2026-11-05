@@ -3408,6 +3408,25 @@ supplier, documents, parked entry, session and principals are other
 contexts', by id, without foreign keys. Schema tests:
 `db/closing_test.go` (`TestAccrualProposalRules`).
 
+Deciding them (T64f, migration 000217: the permission
+`closing.accrual.decide`; `AccrualProposalRejected`) stores nothing new.
+`status` keeps what the closing context decided (`rejected` by
+`:reject`, with who, when and why); every other status is derived at the
+read from the parked entry through the ledger's port
+(`ledger.ParkedEntries.Statuses`, one statement per read over
+`ledger.parked_entry`, `ledger.journal_entry` and `ledger.reversal`):
+`proposed` while it is parked, `pending_approval`, `posted` with its
+journal entry and the debit total posted in local currency (`modified`
+when it differs from `amount`), `reversed` once that entry is reversed,
+and `rejected` too when the ledger cancelled the entry or rejected its
+approval. The duplicate rule reads the close's proposals of the key under
+the close's lock (`accrual_proposal_by_close`) and skips those whose
+derived status is `rejected`, so a proposal whose entry was cancelled in
+the ledger no longer blocks a new one. A list's totals per status and
+currency read the whole filtered set's proposals and their entries' status
+in two statements. Schema test: `db/closing_test.go`
+(`TestClosePermissions`).
+
 The variance report (T64h) stores nothing. A company's settings are
 configuration (`companies[].close.variance`: bases, amount and percent
 thresholds, the plan category and its kind of center; tier 2), and

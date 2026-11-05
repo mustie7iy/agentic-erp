@@ -195,7 +195,8 @@ func TestPeriodCloseIsTheTenants(t *testing.T) {
 	failsWith(t, err, "close_task_tenant_id_close_id_fkey")
 }
 
-// TestClosePermissions: the close's permissions are seeded and are no
+// TestClosePermissions: the close's permissions (T64f's closing.accrual.decide,
+// migration 000217, included) are seeded and are no
 // approval permissions.
 func TestClosePermissions(t *testing.T) {
 	need(t)
@@ -207,7 +208,7 @@ func TestClosePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "closing.accrual.propose closing.close.manage closing.close.read closing.close.sign_off closing.variance.comment closing.variance.propose"
+	want := "closing.accrual.decide closing.accrual.propose closing.close.manage closing.close.read closing.close.sign_off closing.variance.comment closing.variance.propose"
 	if got := strings.Join(codes, " "); got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}

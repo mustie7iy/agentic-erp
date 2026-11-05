@@ -43,7 +43,13 @@
 // or posted journal entries (read through the payables, procurement and
 // ledger contexts' ports), parked through the ledger as the agent, debiting
 // the expense and crediting the company's accrual account on the period's
-// last day, for a person to post in the ledger.
+// last day, for a person to post in the ledger. T64f decides them
+// (ADR-0058 §6, §8): a proposal's status is derived at the read from its
+// parked entry (proposed, pending approval, posted and whether changed
+// before, reversed, rejected), read through the ledger's port; a person
+// rejects one, its entry cancelled under the ledger's owner rule; and two
+// checks find the close's proposals undecided and the previous close's
+// posted accruals not reversed.
 package closing
 
 import (
@@ -164,6 +170,19 @@ type ParkEntry struct {
 	Lines         []ParkLine
 }
 
+// EntryStatus is a parked entry as an accrual proposal's status is
+// derived from it: its status (parked, pending_approval, posted, rejected,
+// cancelled); its debit total in Currency, once posted its journal
+// entry's in local currency; once posted, its journal entry and document
+// number; once that is reversed, the reversal's id and document number.
+type EntryStatus struct {
+	Status                         string
+	Debits                         money.Minor
+	Currency                       string
+	JournalEntryID, ReversalID     *uuid.UUID
+	DocumentNumber, ReversalNumber *string
+}
+
 // Ledger reads the ledger context: the leading ledger's regular periods
 // of a legal entity in a fiscal year, by period; the ledgers it keeps with
 // their period of a fiscal year and period, the leading one first, then by
@@ -182,7 +201,10 @@ type ParkEntry struct {
 // date, as a posting derives and checks it, nil for none. Lock locks a closed period as the period lock does
 // (T32), refusing one whose version is no longer the one read. Park parks
 // an entry as the request's principal, as parkJournalEntry does (its
-// checks and problems), and returns its id.
+// checks and problems), and returns its id. Statuses reads the parked
+// entries among ids by id (one the caller may not see is absent); Cancel
+// cancels one as cancelParkedJournalEntry does, as the request's
+// principal, under the ledger's owner rule.
 type Ledger interface {
 	LeadingPeriods(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]Period, error)
 	PeriodsOf(ctx context.Context, legalEntity uuid.UUID, fiscalYear, period int16) ([]LedgerPeriod, error)
@@ -195,6 +217,8 @@ type Ledger interface {
 	Centers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Center, error)
 	ProfitCenter(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16, date time.Time, account uuid.UUID, costCenter, profitCenter *uuid.UUID) (*uuid.UUID, error)
 	Park(ctx context.Context, entry ParkEntry) (uuid.UUID, error)
+	Statuses(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]EntryStatus, error)
+	Cancel(ctx context.Context, id uuid.UUID, reason string) error
 }
 
 // Document is a supplier invoice or a purchase order as an accrual's

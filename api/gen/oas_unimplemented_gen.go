@@ -2465,12 +2465,19 @@ func (UnimplementedHandler) ListAccounts(ctx context.Context, params ListAccount
 // ListAccrualProposals implements listAccrualProposals operation.
 //
 // The accrual proposals of the period closes of the legal entities the caller may act in (ADR-0058
-// §8, T64e), oldest first (sortable by `created_at`, the default), each with its company, its
-// accounts and centers named, its supplier, its amount with its currency, its evidence and its parked
-// entry. Filters: the close, the company, the agent's session and the parked entry. A supplier's
-// number and name, the proposal's and each evidence item's, are shown only to a caller who may read
-// business partners (`partner.supplier.read`); the ids are always shown. Besides `closing.close.read`
-// the caller needs `ledger.entry.read`, since a proposal shows a ledger entry (`x-also-permissions`).
+// §8, T64e, T64f), oldest first (sortable by `created_at`, the default), each with its company, its
+// accounts and centers named, its supplier, its amount with its currency, its evidence, its parked
+// entry and its status derived from that entry (`proposed`, `pending_approval`, `posted` with the
+// journal entry's number and whether the amount posted differs, `reversed`, `rejected`). Filters: the
+// close, the company, the agent's session, the parked entry and the derived status. `totals` sum the
+// whole filtered set, on every page alike, per status and currency (the proposals' local currencies
+// are never summed together): how many, the amount proposed and, for those posted or reversed, the
+// amount posted and how many were changed before posting. Read from one database state (a
+// repeatable-read snapshot), so `totals`, the page and each proposal's status agree whatever is
+// proposed, posted or reversed meanwhile. A supplier's number and name, the proposal's and each
+// evidence item's, are shown only to a caller who may read business partners
+// (`partner.supplier.read`); the ids are always shown. Besides `closing.close.read` the caller needs
+// `ledger.entry.read`, since a proposal shows a ledger entry (`x-also-permissions`).
 //
 // GET /v1/accrual-proposals
 func (UnimplementedHandler) ListAccrualProposals(ctx context.Context, params ListAccrualProposalsParams) (r ListAccrualProposalsRes, _ error) {
@@ -4307,6 +4314,26 @@ func (UnimplementedHandler) RedateProfitCenter(ctx context.Context, req *CenterR
 //
 // POST /v1/webhook-subscriptions/{id}/deliveries/{delivery_id}:redeliver
 func (UnimplementedHandler) RedeliverWebhookDelivery(ctx context.Context, params RedeliverWebhookDeliveryParams) (r RedeliverWebhookDeliveryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RejectAccrualProposal implements rejectAccrualProposal operation.
+//
+// A person rejects the close agent's accrual proposal, with a reason (ADR-0058 §8, T64f): its parked
+// entry is cancelled in the ledger, as `cancelParkedJournalEntry` cancels it and under the ledger's
+// owner rule (the person rejecting an agent's entry no person has taken on becomes its owner for this;
+// an entry another person took on is theirs to cancel, 403 `ledger.not_entry_owner`), and the proposal
+// is `rejected` with who decided, when and why. Only a proposal whose parked entry is still `parked`
+// is rejected (409 `closing.accrual_not_open`, naming its status, for one pending approval, posted,
+// reversed or rejected; a posted one is reversed in the ledger). `If-Match` is the proposal's ETag.
+// Under a lock on the close; a signed-off close whose covered periods are all locked refuses it (409
+// `closing.close_signed_off`), and once one of them was unlocked it sets the close open again first.
+// People only. Since it cancels a ledger entry, besides `closing.accrual.decide` the caller needs
+// `ledger.entry.park` (`x-also-permissions`). Audited, and published as AccrualProposalRejected (and
+// ParkedJournalEntryChanged for the entry).
+//
+// POST /v1/accrual-proposals/{id}:rejectProposal
+func (UnimplementedHandler) RejectAccrualProposal(ctx context.Context, req *ReasonInput, params RejectAccrualProposalParams) (r RejectAccrualProposalRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

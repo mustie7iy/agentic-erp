@@ -25,8 +25,16 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// Statuses of an accrual proposal as stored (ADR-0058 §5, §8).
-const AccrualProposed = "proposed"
+// Statuses of an accrual proposal (ADR-0058 §5, §8): stored, proposed
+// until a person rejects it here; derived at the read from its parked
+// entry, every one of them.
+const (
+	AccrualProposed = "proposed"
+	AccrualPending  = "pending_approval"
+	AccrualPosted   = "posted"
+	AccrualReversed = "reversed"
+	AccrualRejected = "rejected"
+)
 
 // Kinds of an accrual proposal's evidence (ADR-0058 §8).
 const (
@@ -63,6 +71,9 @@ type accrual struct {
 	ParkedEntryID                                                  uuid.UUID
 	PostingDate                                                    time.Time
 	Status                                                         string
+	DecidedBy                                                      *uuid.UUID
+	DecidedAt                                                      *time.Time
+	DecisionReason                                                 *string
 	Version                                                        int32
 	CreatedAt, UpdatedAt                                           time.Time
 	Evidence                                                       []evidence
@@ -71,7 +82,7 @@ type accrual struct {
 const accrualSelect = `SELECT a.id, a.close_id, c.legal_entity_id, c.fiscal_year, c.fiscal_period, a.session_id, a.agent_id, a.account_id, a.account_number,
 		a.account_name, a.accrual_account_id, a.accrual_account_number, a.accrual_account_name, a.cost_center_id, a.profit_center_id, a.cost_center_code,
 		a.cost_center_name, a.profit_center_code, a.profit_center_name, a.supplier_id, a.currency, a.amount, a.description, a.reason, a.parked_entry_id,
-		a.posting_date, a.status, a.version, a.created_at, a.updated_at,
+		a.posting_date, a.status, a.decided_by, a.decided_at, a.decision_reason, a.version, a.created_at, a.updated_at,
 		coalesce((SELECT jsonb_agg(jsonb_build_object('kind', e.kind, 'document_id', e.document_id, 'document_number', e.document_number,
 			'fiscal_year', e.fiscal_year, 'supplier_id', e.supplier_id) ORDER BY e.seq)
 			FROM closing.accrual_evidence e WHERE e.tenant_id = a.tenant_id AND e.proposal_id = a.id), '[]')
@@ -82,7 +93,7 @@ func scanAccrual(r pgx.Row) (accrual, error) {
 	err := r.Scan(&a.ID, &a.CloseID, &a.LegalEntityID, &a.FiscalYear, &a.FiscalPeriod, &a.SessionID, &a.AgentID, &a.AccountID, &a.AccountNumber,
 		&a.AccountName, &a.AccrualAccountID, &a.AccrualAccountNumber, &a.AccrualAccountName, &a.CostCenterID, &a.ProfitCenterID, &a.CostCenterCode,
 		&a.CostCenterName, &a.ProfitCenterCode, &a.ProfitCenter, &a.SupplierID, &a.Currency, &a.Amount, &a.Description, &a.Reason, &a.ParkedEntryID,
-		&a.PostingDate, &a.Status, &a.Version, &a.CreatedAt, &a.UpdatedAt, &a.Evidence)
+		&a.PostingDate, &a.Status, &a.DecidedBy, &a.DecidedAt, &a.DecisionReason, &a.Version, &a.CreatedAt, &a.UpdatedAt, &a.Evidence)
 	return a, errs.Wrapf(err, "scan accrual proposal")
 }
 
@@ -176,7 +187,7 @@ func (e *Endpoints) writeAccrual(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	}
 	// A retried proposal answers as it is stored, whatever happened to the
 	// accounts since.
-	if a, found, err := proposedAlready(ctx, tx, in); found || err != nil {
+	if a, found, err := e.proposedAlready(ctx, tx, in); found || err != nil {
 		return a, false, err
 	}
 	if err := e.accounts(ctx, &target, req.AccountID); err != nil {
@@ -280,31 +291,35 @@ func (e *Endpoints) accounts(ctx context.Context, t *accrualTarget, expense uuid
 }
 
 // proposedAlready finds a proposal of the close for the same expense
-// account, cost center and supplier that is not rejected: the session's
-// with the same content answers again (a retry); any other is a
-// duplicate, refused naming it (ADR-0058 §8).
-func proposedAlready(ctx context.Context, tx pgx.Tx, in accrualInput) (accrual, bool, error) {
-	var id uuid.UUID
-	err := tx.QueryRow(ctx, `SELECT id FROM closing.accrual_proposal WHERE close_id = $1 AND account_id = $2 AND cost_center_id IS NOT DISTINCT FROM $3
-		AND supplier_id IS NOT DISTINCT FROM $4 AND status <> 'rejected' ORDER BY created_at, id LIMIT 1`, in.CloseID, in.AccountID, in.costCenter(),
-		in.supplier()).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return accrual{}, false, nil
-	}
+// account, cost center and supplier whose status, derived from its parked
+// entry, is not rejected: one rejected here, or whose entry was cancelled
+// or its approval rejected in the ledger, no longer counts (ADR-0058 §8,
+// T64f). The session's with the same content answers again (a retry); any
+// other is a duplicate, refused naming it.
+func (e *Endpoints) proposedAlready(ctx context.Context, tx pgx.Tx, in accrualInput) (accrual, bool, error) {
+	rows, _ := tx.Query(ctx, accrualSelect+` WHERE a.close_id = $1 AND a.account_id = $2 AND a.cost_center_id IS NOT DISTINCT FROM $3
+		AND a.supplier_id IS NOT DISTINCT FROM $4 AND a.status <> 'rejected' ORDER BY a.created_at, a.id`, in.CloseID, in.AccountID, in.costCenter(), in.supplier())
+	as, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (accrual, error) { return scanAccrual(r) })
 	if err != nil {
 		return accrual{}, false, fmt.Errorf("closing: accrual proposals of close %s: %w", in.CloseID, err)
 	}
-	a, err := readAccrual(ctx, tx, id)
+	statuses, err := e.statusesOf(ctx, as)
 	if err != nil {
 		return accrual{}, false, err
 	}
-	if a.SessionID != in.SessionID || !sameAccrual(a, in) {
-		p := problem.Conflict("closing.accrual_duplicate", "Accrual proposal "+a.ID.String()+" of this close is for the same expense account, cost center "+
-			"and supplier and is not rejected; one proposal per expense.")
-		p.Header = http.Header{"Location": {accrualPath(a.ID)}}
-		return accrual{}, false, p
+	for _, a := range as {
+		if statuses[a.ID].status == AccrualRejected {
+			continue
+		}
+		if a.SessionID != in.SessionID || !sameAccrual(a, in) {
+			p := problem.Conflict("closing.accrual_duplicate", "Accrual proposal "+a.ID.String()+" of this close is for the same expense account, cost center "+
+				"and supplier and is "+statuses[a.ID].status+"; one proposal per expense that is not rejected.")
+			p.Header = http.Header{"Location": {accrualPath(a.ID)}}
+			return accrual{}, false, p
+		}
+		return a, true, nil
 	}
-	return a, true, nil
+	return accrual{}, false, nil
 }
 
 // sameAccrual reports whether a stored proposal has the content of the

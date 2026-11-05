@@ -384,6 +384,7 @@ channels:
       PeriodCloseChanged: {$ref: '#/components/messages/PeriodCloseChanged'}
       PeriodCloseSignedOff: {$ref: '#/components/messages/PeriodCloseSignedOff'}
       AccrualProposed: {$ref: '#/components/messages/AccrualProposed'}
+      AccrualProposalRejected: {$ref: '#/components/messages/AccrualProposalRejected'}
       VarianceCommentChanged: {$ref: '#/components/messages/VarianceCommentChanged'}
   platform:
     address: 'erp.{cell}.platform.{tenant}.{event}'
@@ -613,6 +614,7 @@ operations:
       - $ref: '#/channels/closing/messages/PeriodCloseChanged'
       - $ref: '#/channels/closing/messages/PeriodCloseSignedOff'
       - $ref: '#/channels/closing/messages/AccrualProposed'
+      - $ref: '#/channels/closing/messages/AccrualProposalRejected'
       - $ref: '#/channels/closing/messages/VarianceCommentChanged'
   publishPlatformEvents:
     action: send
@@ -3241,6 +3243,31 @@ components:
         - name: proposed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000804, source: /erp/eu-1/closing, type: com.example.erp.closing.accrual_proposed.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-03T14:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
           payload: {accrual_proposal_id: 0192a000-0000-7000-8000-000000000f41, period_close_id: 0192a000-0000-7000-8000-000000000f01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2026, fiscal_period: 10, session_id: 0192a000-0000-7000-8000-000000000d01, account_id: 0192a000-0000-7000-8000-000000000402, accrual_account_id: 0192a000-0000-7000-8000-000000000403, cost_center_id: 0192a000-0000-7000-8000-000000000501, profit_center_id: null, supplier_id: 0192a000-0000-7000-8000-000000000301, amount: {amount: '1200.00', currency: CAD}, evidence: [{kind: supplier_invoice, document_id: 0192a000-0000-7000-8000-000000000611}], parked_entry_id: 0192a000-0000-7000-8000-000000000c51, posting_date: '2026-10-31', status: proposed, version: 1}
+    AccrualProposalRejected:
+      name: AccrualProposalRejected
+      x-webhook: true
+      title: Accrual proposal rejected
+      summary: A person rejected the close agent's accrual proposal, and its parked entry was cancelled.
+      description: |
+        Emitted by `accrual-proposals/{id}:rejectProposal` (ADR-0058 §8, T64f): a
+        person rejected an accrual proposal for a reason, and the ledger
+        cancelled its parked entry in the same transaction (published by
+        the ledger as ParkedJournalEntryChanged). A proposal whose entry
+        was cancelled or whose approval was rejected in the ledger reads
+        `rejected` too, without this event: the ledger's event says so.
+        `GET /v1/accrual-proposals/{id}` returns the proposal at `version`.
+        Subject is the accrual proposal id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.closing.accrual_proposal_rejected.v1}
+      payload: {$ref: '#/components/schemas/AccrualProposalRejectedV1'}
+      examples:
+        - name: rejected
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000805, source: /erp/eu-1/closing, type: com.example.erp.closing.accrual_proposal_rejected.v1, subject: 0192a000-0000-7000-8000-000000000f42, time: '2026-11-04T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {accrual_proposal_id: 0192a000-0000-7000-8000-000000000f42, period_close_id: 0192a000-0000-7000-8000-000000000f01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2026, fiscal_period: 10, account_id: 0192a000-0000-7000-8000-000000000404, supplier_id: null, amount: {amount: '80.00', currency: CAD}, parked_entry_id: 0192a000-0000-7000-8000-000000000c52, decided_by: 0192a000-0000-7000-8000-000000000101, reason: 'The office cleaning is invoiced quarterly; nothing is owed for this month.', status: rejected, version: 2}
     VarianceCommentChanged:
       name: VarianceCommentChanged
       x-webhook: true
@@ -3881,6 +3908,23 @@ components:
         posting_date: {$ref: '#/components/schemas/Date', description: "The parked entry's posting date, the period's last day."}
         status: {type: string, description: "The proposal's status. Open enum: proposed."}
         version: {type: integer, description: "The proposal's version."}
+    AccrualProposalRejectedV1:
+      type: object
+      required: [accrual_proposal_id, period_close_id, legal_entity_id, fiscal_year, fiscal_period, account_id, supplier_id, amount, parked_entry_id, decided_by, reason, status, version]
+      properties:
+        accrual_proposal_id: {$ref: '#/components/schemas/Uuid', description: '`closing.accrual_proposal.id`.'}
+        period_close_id: {$ref: '#/components/schemas/Uuid', description: '`closing.period_close.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        fiscal_year: {type: integer}
+        fiscal_period: {type: integer, description: The regular period (1-12).}
+        account_id: {$ref: '#/components/schemas/Uuid', description: The expense account.}
+        supplier_id: {$ref: '#/components/schemas/NullableUuid', description: The supplier the expense was for; null without one.}
+        amount: {$ref: '#/components/schemas/Money', description: "The expense proposed, in the company's local currency."}
+        parked_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.parked_entry.id`: the entry cancelled.'}
+        decided_by: {$ref: '#/components/schemas/Uuid', description: The person who rejected it.}
+        reason: {type: string, description: Why it was rejected.}
+        status: {type: string, description: "The proposal's status. Open enum: rejected."}
+        version: {type: integer, description: "The proposal's version after the rejection."}
     VarianceCommentChangedV1:
       type: object
       required: [variance_comment_id, period_close_id, legal_entity_id, fiscal_year, fiscal_period, basis, account_id, change, author_kind, edited, reason, status, version]

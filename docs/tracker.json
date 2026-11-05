@@ -1672,7 +1672,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Deciding accrual proposals: ledger.ParkedEntries.Statuses and Cancel (the ledger's owner rule); the status derived from the parked entry (proposed, pending_approval, posted, modified with the posted amount, reversed, rejected); totals per status and currency; :reject (closing.accrual.decide and ledger.entry.park; closing.accrual_not_open, ledger.not_entry_owner); checks accruals_decided and accruals_reversed; AccrualProposalRejected; walkthrough: the proposal reads posted with its entry's number, a second one rejected with a reason, the totals per status in CAD, accruals_decided passing",
         "r": "ADR-0058 · T64f",
         "src": "adr:ADR-0058",

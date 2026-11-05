@@ -641,7 +641,10 @@ released purchase orders or posted journal entries (ADR-0058 §8, T64e:
 `proposeAccrual`, `x-autonomy: propose`, with `ledger.entry.park` as
 `x-also-permissions`), whose journal entry the closing context parks as
 the agent's for a person to post, edit or cancel with the ledger's own
-parked-entry operations (`postParkedJournalEntry`, `x-agent: false`);
+parked-entry operations (`postParkedJournalEntry`, `x-agent: false`) or
+reject with `rejectAccrualProposal` (T64f, `x-agent: false`, which cancels
+the entry under the ledger's owner rule), the proposal's status derived
+from that entry;
 free-text advice is a recommendation. Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

@@ -26,6 +26,8 @@ const (
 	CheckRevaluation  = "revaluation_posted"
 	CheckVariances    = "variances_explained"
 	CheckDepreciation = "depreciation_posted"
+	CheckDecided      = "accruals_decided"
+	CheckReversed     = "accruals_reversed"
 )
 
 // maxNamed is how many parked entries a no_parked_entries result names,
@@ -49,6 +51,14 @@ type found struct {
 	Compared         bool            `json:"compared,omitempty"` // a basis was compared: the count is one
 	UnexplainedCount int             `json:"unexplained_rows_count,omitempty"`
 	Unexplained      []foundVariance `json:"unexplained_rows,omitempty"`
+	// accruals_decided and accruals_reversed (T64f): how many proposals are
+	// undecided, or posted and not reversed, the first of them, and for
+	// accruals_reversed the previous close looked at.
+	Accrual       bool           `json:"accrual,omitempty"` // an accrual check: the count is one
+	AccrualsCount int            `json:"accruals_count,omitempty"`
+	Accruals      []foundAccrual `json:"accruals,omitempty"`
+	PreviousClose *uuid.UUID     `json:"previous_close_id,omitempty"`
+	Previous      *[2]int16      `json:"previous_period,omitempty"` // its fiscal year and period
 }
 
 // foundVariance is a row a variances_explained check found unexplained,
@@ -116,6 +126,19 @@ func (f *found) toAPI(check string, passed bool, at time.Time, by uuid.UUID, byN
 		for i, u := range f.Unexplained {
 			out.UnexplainedRows[i] = gen.CloseCheckVariance{Basis: u.Basis, AccountID: u.AccountID, AccountNumber: u.AccountNumber, AccountName: u.AccountName,
 				Variance: gen.Money{Amount: u.Variance, Currency: u.Currency}, StaleComment: u.StaleComment}
+		}
+	case CheckDecided, CheckReversed:
+		if f.Accrual {
+			out.AccrualsCount.SetTo(int32(f.AccrualsCount)) // at most the proposals of one close
+		}
+		out.PreviousCloseID = apitypes.OptUUID(f.PreviousClose)
+		if f.Previous != nil {
+			out.PreviousFiscalYear.SetTo(int32(f.Previous[0]))
+			out.PreviousFiscalPeriod.SetTo(int32(f.Previous[1]))
+		}
+		out.Accruals = make([]gen.CloseCheckAccrual, len(f.Accruals))
+		for i, a := range f.Accruals {
+			out.Accruals[i] = a.toAPI()
 		}
 	}
 	return out
@@ -188,6 +211,10 @@ func (e *Endpoints) run(ctx context.Context, tx pgx.Tx, t task) (bool, found, er
 		return e.variancesExplained(ctx, tx, t)
 	case CheckDepreciation:
 		return e.depreciationPosted(ctx, t.LegalEntityID, t.FiscalYear, t.FiscalPeriod, covered)
+	case CheckDecided:
+		return e.accrualsDecided(ctx, tx, t)
+	case CheckReversed:
+		return e.accrualsReversed(ctx, tx, t)
 	}
 	return false, found{}, fmt.Errorf("closing: task %s of close %s runs check %q, which this build does not", t.Code, t.CloseID, *t.Check)
 }

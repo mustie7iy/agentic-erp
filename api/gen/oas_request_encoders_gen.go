@@ -1561,6 +1561,20 @@ func encodeRedateProfitCenterRequest(
 	return nil
 }
 
+func encodeRejectAccrualProposalRequest(
+	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeRejectApprovalRequestRequest(
 	req *CommentRequiredInput,
 	r *http.Request,

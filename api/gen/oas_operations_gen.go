@@ -312,6 +312,7 @@ const (
 	RedateCostCenterOperation                 OperationName = "RedateCostCenter"
 	RedateProfitCenterOperation               OperationName = "RedateProfitCenter"
 	RedeliverWebhookDeliveryOperation         OperationName = "RedeliverWebhookDelivery"
+	RejectAccrualProposalOperation            OperationName = "RejectAccrualProposal"
 	RejectApprovalRequestOperation            OperationName = "RejectApprovalRequest"
 	RejectBankStatementLineProposalOperation  OperationName = "RejectBankStatementLineProposal"
 	RejectMemoRecordProposalOperation         OperationName = "RejectMemoRecordProposal"

@@ -45,7 +45,8 @@ func (closingCompanies) Company(ctx context.Context, id uuid.UUID) (closing.Comp
 // what a close's checks read (parked entries and revaluation runs), the
 // period lock a sign-off takes, the variance report's profit and loss and
 // the journal entries its comments cite, and an accrual proposal's
-// accounts, centers and parked entry.
+// accounts, centers and parked entry, that entry's status and its
+// cancellation.
 type closingLedger struct {
 	parked ledger.ParkedEntries
 }
@@ -143,6 +144,20 @@ func (l closingLedger) Park(ctx context.Context, entry closing.ParkEntry) (uuid.
 	}
 	p, err := l.parked.Park(ctx, in)
 	return p.ID, err
+}
+
+func (l closingLedger) Statuses(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]closing.EntryStatus, error) {
+	ss, err := l.parked.Statuses(ctx, ids)
+	out := make(map[uuid.UUID]closing.EntryStatus, len(ss))
+	for id, s := range ss {
+		out[id] = closing.EntryStatus{Status: s.Status, Debits: s.Debits, Currency: s.Currency, JournalEntryID: s.JournalEntryID,
+			DocumentNumber: s.DocumentNumber, ReversalID: s.ReversalEntryID, ReversalNumber: s.ReversalNumber}
+	}
+	return out, err
+}
+
+func (l closingLedger) Cancel(ctx context.Context, id uuid.UUID, reason string) error {
+	return l.parked.Cancel(ctx, id, reason)
 }
 
 func closingPeriod(p ledger.Period) closing.Period {

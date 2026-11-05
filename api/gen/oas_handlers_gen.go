@@ -35311,12 +35311,19 @@ func (s *Server) handleListAccountsRequest(args [0]string, argsEscaped bool, w h
 // handleListAccrualProposalsRequest handles listAccrualProposals operation.
 //
 // The accrual proposals of the period closes of the legal entities the caller may act in (ADR-0058
-// §8, T64e), oldest first (sortable by `created_at`, the default), each with its company, its
-// accounts and centers named, its supplier, its amount with its currency, its evidence and its parked
-// entry. Filters: the close, the company, the agent's session and the parked entry. A supplier's
-// number and name, the proposal's and each evidence item's, are shown only to a caller who may read
-// business partners (`partner.supplier.read`); the ids are always shown. Besides `closing.close.read`
-// the caller needs `ledger.entry.read`, since a proposal shows a ledger entry (`x-also-permissions`).
+// §8, T64e, T64f), oldest first (sortable by `created_at`, the default), each with its company, its
+// accounts and centers named, its supplier, its amount with its currency, its evidence, its parked
+// entry and its status derived from that entry (`proposed`, `pending_approval`, `posted` with the
+// journal entry's number and whether the amount posted differs, `reversed`, `rejected`). Filters: the
+// close, the company, the agent's session, the parked entry and the derived status. `totals` sum the
+// whole filtered set, on every page alike, per status and currency (the proposals' local currencies
+// are never summed together): how many, the amount proposed and, for those posted or reversed, the
+// amount posted and how many were changed before posting. Read from one database state (a
+// repeatable-read snapshot), so `totals`, the page and each proposal's status agree whatever is
+// proposed, posted or reversed meanwhile. A supplier's number and name, the proposal's and each
+// evidence item's, are shown only to a caller who may read business partners
+// (`partner.supplier.read`); the ids are always shown. Besides `closing.close.read` the caller needs
+// `ledger.entry.read`, since a proposal shows a ledger entry (`x-also-permissions`).
 //
 // GET /v1/accrual-proposals
 func (s *Server) handleListAccrualProposalsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -35473,6 +35480,10 @@ func (s *Server) handleListAccrualProposalsRequest(args [0]string, argsEscaped b
 					Name: "parked_entry_id",
 					In:   "query",
 				}: params.ParkedEntryID,
+				{
+					Name: "status",
+					In:   "query",
+				}: params.Status,
 				{
 					Name: "page_size",
 					In:   "query",
@@ -63324,6 +63335,227 @@ func (s *Server) handleRedeliverWebhookDeliveryRequest(args [2]string, argsEscap
 	}
 
 	if err := encodeRedeliverWebhookDeliveryResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleRejectAccrualProposalRequest handles rejectAccrualProposal operation.
+//
+// A person rejects the close agent's accrual proposal, with a reason (ADR-0058 §8, T64f): its parked
+// entry is cancelled in the ledger, as `cancelParkedJournalEntry` cancels it and under the ledger's
+// owner rule (the person rejecting an agent's entry no person has taken on becomes its owner for this;
+// an entry another person took on is theirs to cancel, 403 `ledger.not_entry_owner`), and the proposal
+// is `rejected` with who decided, when and why. Only a proposal whose parked entry is still `parked`
+// is rejected (409 `closing.accrual_not_open`, naming its status, for one pending approval, posted,
+// reversed or rejected; a posted one is reversed in the ledger). `If-Match` is the proposal's ETag.
+// Under a lock on the close; a signed-off close whose covered periods are all locked refuses it (409
+// `closing.close_signed_off`), and once one of them was unlocked it sets the close open again first.
+// People only. Since it cancels a ledger entry, besides `closing.accrual.decide` the caller needs
+// `ledger.entry.park` (`x-also-permissions`). Audited, and published as AccrualProposalRejected (and
+// ParkedJournalEntryChanged for the entry).
+//
+// POST /v1/accrual-proposals/{id}:rejectProposal
+func (s *Server) handleRejectAccrualProposalRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("rejectAccrualProposal"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/accrual-proposals/{id}:rejectProposal"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), RejectAccrualProposalOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: RejectAccrualProposalOperation,
+			ID:   "rejectAccrualProposal",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, RejectAccrualProposalOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeRejectAccrualProposalParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeRejectAccrualProposalRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response RejectAccrualProposalRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    RejectAccrualProposalOperation,
+			OperationSummary: "Reject an accrual proposal",
+			OperationID:      "rejectAccrualProposal",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *ReasonInput
+			Params   = RejectAccrualProposalParams
+			Response = RejectAccrualProposalRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackRejectAccrualProposalParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.RejectAccrualProposal(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.RejectAccrualProposal(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeRejectAccrualProposalResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)

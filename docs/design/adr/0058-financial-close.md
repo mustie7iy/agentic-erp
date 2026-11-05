@@ -442,7 +442,7 @@ agent (`listParkedJournalEntries?created_by_kind=agent`), so the existing
 operations decide it: a person may edit it, posts it with
 `postParkedJournalEntry` (within the approval limit, or after a second
 person's approval above it, T35), or cancels it. `POST
-/v1/accrual-proposals/{id}:reject` (`closing.accrual.decide` and
+/v1/accrual-proposals/{id}:rejectProposal` (As built T64f; `closing.accrual.decide` and
 `ledger.entry.park` as `x-also-permissions`, `x-agent: false`, If-Match,
 a reason) cancels the parked entry through `ParkedEntries.Cancel`, under
 the ledger's own rules (the person rejecting an agent's entry no person
@@ -618,7 +618,7 @@ cursor-paged with filters, 04 §4.5):
 | listCloseTasks | `GET /v1/close-tasks` | `closing.close.read` and `ledger.entry.read` | read |
 | signOffPeriodClose | `POST /v1/period-closes/{id}:sign-off` | `closing.close.sign_off`, `ledger.period.lock` and `ledger.entry.read` (`closing.checks_failing` names what the checks found) | `x-agent: false` |
 | proposeAccrual | `POST /v1/accrual-proposals` | `closing.accrual.propose` and `ledger.entry.park` | `x-autonomy: propose` |
-| listAccrualProposals, getAccrualProposal, rejectAccrualProposal | `/v1/accrual-proposals`, `:reject` | reads `closing.close.read` and `ledger.entry.read`; `:reject` `closing.accrual.decide` and `ledger.entry.park` | read; `x-agent: false` |
+| listAccrualProposals, getAccrualProposal, rejectAccrualProposal | `/v1/accrual-proposals`, `:rejectProposal` (As built T64f) | reads `closing.close.read` and `ledger.entry.read`; `:rejectProposal` `closing.accrual.decide` and `ledger.entry.park` | read; `x-agent: false` |
 | listPeriodCloseVariances | `GET /v1/period-closes/{id}/variances` | `closing.close.read` and `ledger.entry.read` | read |
 | proposeVarianceComment | `POST /v1/variance-comment-proposals` | `closing.variance.propose` and `ledger.entry.read` | `x-autonomy: propose` |
 | createVarianceComment, acceptVarianceComment, rejectVarianceComment, listVarianceComments | `/v1/variance-comments`, `:accept`, `:reject` | `closing.variance.comment`; reads `closing.close.read`; every one also `ledger.entry.read` (the rows' figures and cited entries) | `x-agent: false`; read |
@@ -1175,7 +1175,8 @@ default, for the product owner to overrule:
   reason the duplicate rule counts a proposal that is not stored
   `rejected`: one whose parked entry was cancelled in the ledger still
   refuses a new proposal of the same expense until T64f derives it
-  `rejected`.
+  `rejected`. (Resolved by T64f, below: the rule now skips a proposal
+  whose derived status is `rejected`.)
 - **Duplicate and retry.** The key is the close, the expense account, the
   cost center and the supplier, an absent center or supplier equal to
   another absent one. The session's retry is the same content: the profit
@@ -1246,6 +1247,98 @@ default, for the product owner to overrule:
   dated the last day of the previous month and posted today: the previous period may be locked
   by step 11's filed return, which a story run on any day cannot avoid.
 - No performance budget: §8 asks for none.
+
+**T64f (deciding accrual proposals).** Built as §4, §6 and §8: the
+ledger's published `ledger.ParkedEntries` gains `Statuses` (the parked
+entries among ids, of the companies the caller may act in, in one
+statement: status; debit total, once posted the journal entry's in local
+currency, before that the lines' as they stand; once posted the journal
+entry and its document number, once reversed the reversal's id and
+number) and `Cancel` (`cancelParkedJournalEntry`'s own `cancelEntry`: the
+lock, the `parked` guard, the owner rule, the audit record and
+`ParkedJournalEntryChanged`), adapted in `internal/app` for
+`closing.Ledger`. A proposal's status is derived at every read from its
+parked entry (`proposed`, `pending_approval`, `posted`, `reversed`,
+`rejected`), with `modified`, `posted_amount`, the journal entry's id and
+number and the reversal's; `GET /v1/accrual-proposals` filters by it
+(`status`) and carries `totals` per status and currency. `POST
+/v1/accrual-proposals/{id}:rejectProposal` (`rejectAccrualProposal`, people only,
+`closing.accrual.decide` with `ledger.entry.park` as
+`x-also-permissions`; the permission added by migration 000217) reads the
+proposal, locks its close `FOR UPDATE`, reads it again, checks `If-Match`
+against its version and that the close takes writes (§7), refuses one
+whose derived status is not `proposed` (409 `closing.accrual_not_open`,
+naming the status), reopens a signed-off close after an unlock, cancels
+the entry through `Cancel` (403 `ledger.not_entry_owner` for an entry
+another person took on), sets the proposal `rejected` with who, when and
+why, and writes the audit record (`closing.accrual_proposal.reject`) and
+`AccrualProposalRejected`. The checks `accruals_decided` and
+`accruals_reversed` join `config.CloseChecks`. Walkthrough:
+`close_accrual_decisions`, called at the end of `close_accruals`, and the
+walkthrough's template gains the check task `ACCRUALS`. Decided by
+default, for the product owner to overrule:
+- **The action is `:rejectProposal`, not §8's `:reject`**: the contract's
+  path rule (`TestOperations`) keeps `approve` and `reject` for approval
+  requests, as T64i's `rejectVarianceComment` found.
+- **The duplicate rule uses the derived status** (T64e's gap): it reads
+  the close's proposals of the same expense account, cost center and
+  supplier not stored `rejected`, derives their statuses in one call, and
+  skips those `rejected`, so a proposal rejected here, or whose entry was
+  cancelled or its approval rejected in the ledger, no longer blocks a new
+  proposal of the same expense; one `pending_approval`, `posted` or
+  `reversed` still does (409 `closing.accrual_duplicate`, its detail now
+  naming the first one's status). Tested by `TestRejectAccrualProposal`.
+- **`modified` is a flag, not a status.** §8 states `posted` "with
+  `modified: true`"; the leaf lists it among the statuses. The proposal
+  carries `modified` (always present, false until posted) and
+  `posted_amount` beside `status`, and the totals count the changed ones
+  (`modified_count`), so "posted as proposed, changed or rejected" is read
+  from each row.
+- **The amount posted** is the journal entry's debit total in local
+  currency (the posting group's first entry, the one the parked entry
+  names), not the parked lines' in the entry's currency: a person who
+  changed the currency before posting shows as `modified`, and posted
+  amounts always sum with the proposals' in their row's currency. A
+  reversed proposal keeps its `posted_amount` and `modified`.
+- **Who rejected it.** `decided_by`, `decided_by_name`, `decided_at` and
+  `decision_reason` are shown for a proposal rejected here only; one whose
+  entry was cancelled or whose approval was rejected in the ledger reads
+  `rejected` without them (the ledger's parked entry and audit trail say
+  who), and only `:reject` publishes `AccrualProposalRejected`.
+- **`:reject`** takes the proposal's ETag (a derived status moves no
+  version); `Cancel` runs without the parked entry's version, since the
+  proposal's status, checked under the close's lock just before, stands
+  for it; the ledger's own lock and `parked` guard settle a race (409
+  `ledger.invalid_parked_status`). A proposal `pending_approval` is
+  `closing.accrual_not_open` too: the approval in flight is decided in the
+  ledger. The reason is `ReasonInput`'s (1-2,000 characters, not blank).
+- **Totals** are the whole filtered set's, the status filter included, the
+  same on every page: one row per status, in the order `proposed`,
+  `pending_approval`, `posted`, `reversed`, `rejected`, and currency, with
+  the count, the amount proposed, `posted_amount` for `posted` and
+  `reversed`, and `modified_count`. Since the status is derived, the list
+  reads every proposal of the filtered set (its id, entry, stored status,
+  currency and amount) and their entries' statuses, two statements, and
+  pages by the ids of the status asked for, all in one repeatable-read
+  snapshot (`x-snapshot: true`, as `getCashActuals`), so the totals, the
+  page and its statuses agree (review:T64f round 1). The set is a close's
+  or a company's proposals, tens per close; a list without a close or
+  company filter reads the tenant's proposals of every close it may see. No performance budget: §8 asks for
+  none.
+- **`accruals_decided`** fails while a proposal of the close is `proposed`
+  or `pending_approval`; **`accruals_reversed`** looks at the company's
+  close of the previous regular period (period 12 of the previous fiscal
+  year for period 1) and fails while one of its proposals is `posted` and
+  not reversed, wherever the reversal is dated (§6 asks that it is
+  reversed). Without such a close it passes, saying so. Each names the
+  first 20 proposals oldest first (`accruals`: account, amount, posted
+  once posted, status, parked entry, journal entry and number) and counts
+  them all (`accruals_count`); `accruals_reversed` names the close it
+  looked at (`previous_close_id`).
+- The walkthrough's template has `ACCRUALS` (`accruals_decided`) and no
+  `accruals_reversed` task: its close is the story's only one, so the
+  check would pass with nothing to show; `TestAccrualChecks` drives it
+  with a February accrual unreversed, then reversed.
 
 **T64h (the variance report).** Built as §9: `companies[].close.variance`
 (`bases`, `threshold_amount`, `threshold_percent`, `plan_category`,

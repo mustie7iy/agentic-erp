@@ -559,9 +559,9 @@ func (s *AccrualEvidenceInput) SetDocumentID(val uuid.UUID) {
 	s.DocumentID = val
 }
 
-// An accrual the close agent proposed for a period close (ADR-0058 §8, T64e): one expense of the
-// close's period, in the company's local currency, parked as a journal entry for a person to post,
-// with the evidence it rests on.
+// An accrual the close agent proposed for a period close (ADR-0058 §8, T64e, T64f): one expense of
+// the close's period, in the company's local currency, parked as a journal entry for a person to post,
+// with the evidence it rests on, and its status derived from that entry.
 // Ref: #/components/schemas/AccrualProposal
 type AccrualProposal struct {
 	// Identifier (UUIDv7).
@@ -624,13 +624,40 @@ type AccrualProposal struct {
 	// What it rests on, in the order given.
 	Evidence []AccrualEvidence `json:"evidence"`
 	// The journal entry parked for it (`GET /v1/parked-journal-entries/{id}`), which a person posts, edits
-	// or cancels; what was done with it is read there.
+	// or cancels; the proposal's status is derived from it.
 	ParkedEntryID uuid.UUID `json:"parked_entry_id"`
 	// The parked entry's posting and document date, the last day of the close's period.
 	PostingDate time.Time `json:"posting_date"`
-	// `proposed`: its parked entry waits for a person, who decides it in the ledger. Open enumeration:
+	// Derived at the read from its parked entry (ADR-0058 §8, T64f): `proposed`, the entry is parked and
+	// waits for a person; `pending_approval`, it was submitted for a second person's approval; `posted`,
+	// it was posted (`journal_entry_id`, `journal_entry_number`; `modified` when the amount posted differs
+	// from the one proposed); `reversed`, its journal entry was reversed (`reversal_entry_id`,
+	// `reversal_entry_number`); `rejected`, rejected here (`:rejectProposal`, with `decided_by` and
+	// `decision_reason`), or its entry cancelled or its approval rejected in the ledger. Open enumeration:
 	// clients must accept and preserve values not listed here; values may be added within /v1.
 	Status string `json:"status"`
+	// Whether a person changed the entry before posting it, so the amount posted (`posted_amount`) differs
+	// from the one proposed; false until it is posted.
+	Modified bool `json:"modified"`
+	// The parked entry's debit total as posted, with its currency; absent until it is posted.
+	PostedAmount OptMoney `json:"posted_amount"`
+	// The journal entry it was posted as (`GET /v1/journal-entries/{id}`); absent until it is posted.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// Its document number; absent as `journal_entry_id` is.
+	JournalEntryNumber OptString `json:"journal_entry_number"`
+	// The journal entry that reversed it (`reverseJournalEntry`); absent until it is reversed.
+	ReversalEntryID OptUUID `json:"reversal_entry_id"`
+	// Its document number; absent as `reversal_entry_id` is.
+	ReversalEntryNumber OptString `json:"reversal_entry_number"`
+	// The person who rejected it (`:rejectProposal`); absent otherwise, also when its entry was cancelled
+	// in the ledger.
+	DecidedBy OptUUID `json:"decided_by"`
+	// Their name; absent as `decided_by` is.
+	DecidedByName OptString `json:"decided_by_name"`
+	// When it was rejected; absent as `decided_by` is.
+	DecidedAt OptDateTime `json:"decided_at"`
+	// Why it was rejected; absent as `decided_by` is.
+	DecisionReason OptString `json:"decision_reason"`
 	// The proposal's version, its ETag.
 	Version int32 `json:"version"`
 	// When it was proposed.
@@ -797,6 +824,56 @@ func (s *AccrualProposal) GetPostingDate() time.Time {
 // GetStatus returns the value of Status.
 func (s *AccrualProposal) GetStatus() string {
 	return s.Status
+}
+
+// GetModified returns the value of Modified.
+func (s *AccrualProposal) GetModified() bool {
+	return s.Modified
+}
+
+// GetPostedAmount returns the value of PostedAmount.
+func (s *AccrualProposal) GetPostedAmount() OptMoney {
+	return s.PostedAmount
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *AccrualProposal) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *AccrualProposal) GetJournalEntryNumber() OptString {
+	return s.JournalEntryNumber
+}
+
+// GetReversalEntryID returns the value of ReversalEntryID.
+func (s *AccrualProposal) GetReversalEntryID() OptUUID {
+	return s.ReversalEntryID
+}
+
+// GetReversalEntryNumber returns the value of ReversalEntryNumber.
+func (s *AccrualProposal) GetReversalEntryNumber() OptString {
+	return s.ReversalEntryNumber
+}
+
+// GetDecidedBy returns the value of DecidedBy.
+func (s *AccrualProposal) GetDecidedBy() OptUUID {
+	return s.DecidedBy
+}
+
+// GetDecidedByName returns the value of DecidedByName.
+func (s *AccrualProposal) GetDecidedByName() OptString {
+	return s.DecidedByName
+}
+
+// GetDecidedAt returns the value of DecidedAt.
+func (s *AccrualProposal) GetDecidedAt() OptDateTime {
+	return s.DecidedAt
+}
+
+// GetDecisionReason returns the value of DecisionReason.
+func (s *AccrualProposal) GetDecisionReason() OptString {
+	return s.DecisionReason
 }
 
 // GetVersion returns the value of Version.
@@ -972,6 +1049,56 @@ func (s *AccrualProposal) SetPostingDate(val time.Time) {
 // SetStatus sets the value of Status.
 func (s *AccrualProposal) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetModified sets the value of Modified.
+func (s *AccrualProposal) SetModified(val bool) {
+	s.Modified = val
+}
+
+// SetPostedAmount sets the value of PostedAmount.
+func (s *AccrualProposal) SetPostedAmount(val OptMoney) {
+	s.PostedAmount = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *AccrualProposal) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *AccrualProposal) SetJournalEntryNumber(val OptString) {
+	s.JournalEntryNumber = val
+}
+
+// SetReversalEntryID sets the value of ReversalEntryID.
+func (s *AccrualProposal) SetReversalEntryID(val OptUUID) {
+	s.ReversalEntryID = val
+}
+
+// SetReversalEntryNumber sets the value of ReversalEntryNumber.
+func (s *AccrualProposal) SetReversalEntryNumber(val OptString) {
+	s.ReversalEntryNumber = val
+}
+
+// SetDecidedBy sets the value of DecidedBy.
+func (s *AccrualProposal) SetDecidedBy(val OptUUID) {
+	s.DecidedBy = val
+}
+
+// SetDecidedByName sets the value of DecidedByName.
+func (s *AccrualProposal) SetDecidedByName(val OptString) {
+	s.DecidedByName = val
+}
+
+// SetDecidedAt sets the value of DecidedAt.
+func (s *AccrualProposal) SetDecidedAt(val OptDateTime) {
+	s.DecidedAt = val
+}
+
+// SetDecisionReason sets the value of DecisionReason.
+func (s *AccrualProposal) SetDecisionReason(val OptString) {
+	s.DecisionReason = val
 }
 
 // SetVersion sets the value of Version.
@@ -1159,11 +1286,15 @@ func (s *AccrualProposalInput) SetEvidence(val []AccrualEvidenceInput) {
 	s.Evidence = val
 }
 
-// One page of accrual proposals.
+// One page of accrual proposals, with the totals of the whole filtered set.
 // Ref: #/components/schemas/AccrualProposalPage
 type AccrualProposalPage struct {
 	// The accrual proposals on this page.
 	Items []AccrualProposal `json:"items"`
+	// The filtered set's proposals summed per status and currency, by status (`proposed`,
+	// `pending_approval`, `posted`, `reversed`, `rejected`), then currency; the same on every page, and
+	// empty when none matches.
+	Totals []AccrualProposalTotal `json:"totals"`
 	// Opaque cursor for the next page; absent on the last page.
 	NextPageToken OptString `json:"next_page_token"`
 }
@@ -1171,6 +1302,11 @@ type AccrualProposalPage struct {
 // GetItems returns the value of Items.
 func (s *AccrualProposalPage) GetItems() []AccrualProposal {
 	return s.Items
+}
+
+// GetTotals returns the value of Totals.
+func (s *AccrualProposalPage) GetTotals() []AccrualProposalTotal {
+	return s.Totals
 }
 
 // GetNextPageToken returns the value of NextPageToken.
@@ -1183,12 +1319,97 @@ func (s *AccrualProposalPage) SetItems(val []AccrualProposal) {
 	s.Items = val
 }
 
+// SetTotals sets the value of Totals.
+func (s *AccrualProposalPage) SetTotals(val []AccrualProposalTotal) {
+	s.Totals = val
+}
+
 // SetNextPageToken sets the value of NextPageToken.
 func (s *AccrualProposalPage) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
 }
 
 func (*AccrualProposalPage) listAccrualProposalsRes() {}
+
+// The accrual proposals of one status and currency in a filtered set (ADR-0058 §8, T64f): how much of
+// what the agent proposed was posted as proposed, changed or rejected.
+// Ref: #/components/schemas/AccrualProposalTotal
+type AccrualProposalTotal struct {
+	// The proposals' derived status. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Status string `json:"status"`
+	// The proposals' currency, their companies' local currency.
+	Currency string `json:"currency"`
+	// How many proposals.
+	Count int32 `json:"count"`
+	// The sum of the amounts proposed.
+	Amount Money `json:"amount"`
+	// `posted` and `reversed`: the sum of the amounts posted; absent for another status.
+	PostedAmount OptMoney `json:"posted_amount"`
+	// How many of them were posted with an amount other than the one proposed (`modified`); 0 for a status
+	// not posted.
+	ModifiedCount int32 `json:"modified_count"`
+}
+
+// GetStatus returns the value of Status.
+func (s *AccrualProposalTotal) GetStatus() string {
+	return s.Status
+}
+
+// GetCurrency returns the value of Currency.
+func (s *AccrualProposalTotal) GetCurrency() string {
+	return s.Currency
+}
+
+// GetCount returns the value of Count.
+func (s *AccrualProposalTotal) GetCount() int32 {
+	return s.Count
+}
+
+// GetAmount returns the value of Amount.
+func (s *AccrualProposalTotal) GetAmount() Money {
+	return s.Amount
+}
+
+// GetPostedAmount returns the value of PostedAmount.
+func (s *AccrualProposalTotal) GetPostedAmount() OptMoney {
+	return s.PostedAmount
+}
+
+// GetModifiedCount returns the value of ModifiedCount.
+func (s *AccrualProposalTotal) GetModifiedCount() int32 {
+	return s.ModifiedCount
+}
+
+// SetStatus sets the value of Status.
+func (s *AccrualProposalTotal) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *AccrualProposalTotal) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetCount sets the value of Count.
+func (s *AccrualProposalTotal) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AccrualProposalTotal) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetPostedAmount sets the value of PostedAmount.
+func (s *AccrualProposalTotal) SetPostedAmount(val OptMoney) {
+	s.PostedAmount = val
+}
+
+// SetModifiedCount sets the value of ModifiedCount.
+func (s *AccrualProposalTotal) SetModifiedCount(val int32) {
+	s.ModifiedCount = val
+}
 
 type ActivateChangeRequestBadRequest Problem
 
@@ -17341,6 +17562,121 @@ func (s *CloseCalendarPeriod) SetClose(val OptCloseCalendarClose) {
 	s.Close = val
 }
 
+// An accrual proposal an `accruals_decided` check found undecided, or an `accruals_reversed` check
+// found posted and not reversed (`GET /v1/accrual-proposals/{id}`), as it was when the check ran.
+// Ref: #/components/schemas/CloseCheckAccrual
+type CloseCheckAccrual struct {
+	// The accrual proposal.
+	ID uuid.UUID `json:"id"`
+	// Its expense account.
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name, as it was when proposed.
+	AccountName string `json:"account_name"`
+	// The amount proposed, or the amount posted once posted.
+	Amount Money `json:"amount"`
+	// Its derived status then. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+	// Its parked entry (`GET /v1/parked-journal-entries/{id}`).
+	ParkedEntryID uuid.UUID `json:"parked_entry_id"`
+	// The journal entry it was posted as, to reverse (`reverseJournalEntry`); absent until posted.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// Its document number; absent as `journal_entry_id` is.
+	JournalEntryNumber OptString `json:"journal_entry_number"`
+}
+
+// GetID returns the value of ID.
+func (s *CloseCheckAccrual) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *CloseCheckAccrual) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *CloseCheckAccrual) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *CloseCheckAccrual) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetAmount returns the value of Amount.
+func (s *CloseCheckAccrual) GetAmount() Money {
+	return s.Amount
+}
+
+// GetStatus returns the value of Status.
+func (s *CloseCheckAccrual) GetStatus() string {
+	return s.Status
+}
+
+// GetParkedEntryID returns the value of ParkedEntryID.
+func (s *CloseCheckAccrual) GetParkedEntryID() uuid.UUID {
+	return s.ParkedEntryID
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *CloseCheckAccrual) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *CloseCheckAccrual) GetJournalEntryNumber() OptString {
+	return s.JournalEntryNumber
+}
+
+// SetID sets the value of ID.
+func (s *CloseCheckAccrual) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *CloseCheckAccrual) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *CloseCheckAccrual) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *CloseCheckAccrual) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *CloseCheckAccrual) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CloseCheckAccrual) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetParkedEntryID sets the value of ParkedEntryID.
+func (s *CloseCheckAccrual) SetParkedEntryID(val uuid.UUID) {
+	s.ParkedEntryID = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *CloseCheckAccrual) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *CloseCheckAccrual) SetJournalEntryNumber(val OptString) {
+	s.JournalEntryNumber = val
+}
+
 // A covered ledger as a `revaluation_posted` or a `depreciation_posted` check found it.
 // Ref: #/components/schemas/CloseCheckLedger
 type CloseCheckLedger struct {
@@ -17603,6 +17939,23 @@ type CloseCheckResult struct {
 	// `variances_explained`: the first 20 of them, by basis as the company configures them, then by
 	// account number; absent for another check.
 	UnexplainedRows []CloseCheckVariance `json:"unexplained_rows"`
+	// `accruals_reversed`: the fiscal year of the company's previous regular period, whose close it looked
+	// for; absent for another check.
+	PreviousFiscalYear OptInt32 `json:"previous_fiscal_year"`
+	// `accruals_reversed`: that period (12 of the previous fiscal year for period 1); absent for another
+	// check.
+	PreviousFiscalPeriod OptInt32 `json:"previous_fiscal_period"`
+	// `accruals_reversed`: the company's close of the previous regular period, whose posted accruals it
+	// looked at (`GET /v1/period-closes/{id}`); absent when there is none (the check passes), and for
+	// another check.
+	PreviousCloseID OptUUID `json:"previous_close_id"`
+	// `accruals_decided`: how many accrual proposals of this close are `proposed` or `pending_approval`;
+	// `accruals_reversed`: how many of the previous close's are `posted` and not reversed; absent for
+	// another check (T64f).
+	AccrualsCount OptInt32 `json:"accruals_count"`
+	// `accruals_decided` and `accruals_reversed`: the first 20 of them, oldest first; absent for another
+	// check.
+	Accruals []CloseCheckAccrual `json:"accruals"`
 }
 
 // GetCheck returns the value of Check.
@@ -17660,6 +18013,31 @@ func (s *CloseCheckResult) GetUnexplainedRows() []CloseCheckVariance {
 	return s.UnexplainedRows
 }
 
+// GetPreviousFiscalYear returns the value of PreviousFiscalYear.
+func (s *CloseCheckResult) GetPreviousFiscalYear() OptInt32 {
+	return s.PreviousFiscalYear
+}
+
+// GetPreviousFiscalPeriod returns the value of PreviousFiscalPeriod.
+func (s *CloseCheckResult) GetPreviousFiscalPeriod() OptInt32 {
+	return s.PreviousFiscalPeriod
+}
+
+// GetPreviousCloseID returns the value of PreviousCloseID.
+func (s *CloseCheckResult) GetPreviousCloseID() OptUUID {
+	return s.PreviousCloseID
+}
+
+// GetAccrualsCount returns the value of AccrualsCount.
+func (s *CloseCheckResult) GetAccrualsCount() OptInt32 {
+	return s.AccrualsCount
+}
+
+// GetAccruals returns the value of Accruals.
+func (s *CloseCheckResult) GetAccruals() []CloseCheckAccrual {
+	return s.Accruals
+}
+
 // SetCheck sets the value of Check.
 func (s *CloseCheckResult) SetCheck(val string) {
 	s.Check = val
@@ -17713,6 +18091,31 @@ func (s *CloseCheckResult) SetUnexplainedRowsCount(val OptInt32) {
 // SetUnexplainedRows sets the value of UnexplainedRows.
 func (s *CloseCheckResult) SetUnexplainedRows(val []CloseCheckVariance) {
 	s.UnexplainedRows = val
+}
+
+// SetPreviousFiscalYear sets the value of PreviousFiscalYear.
+func (s *CloseCheckResult) SetPreviousFiscalYear(val OptInt32) {
+	s.PreviousFiscalYear = val
+}
+
+// SetPreviousFiscalPeriod sets the value of PreviousFiscalPeriod.
+func (s *CloseCheckResult) SetPreviousFiscalPeriod(val OptInt32) {
+	s.PreviousFiscalPeriod = val
+}
+
+// SetPreviousCloseID sets the value of PreviousCloseID.
+func (s *CloseCheckResult) SetPreviousCloseID(val OptUUID) {
+	s.PreviousCloseID = val
+}
+
+// SetAccrualsCount sets the value of AccrualsCount.
+func (s *CloseCheckResult) SetAccrualsCount(val OptInt32) {
+	s.AccrualsCount = val
+}
+
+// SetAccruals sets the value of Accruals.
+func (s *CloseCheckResult) SetAccruals(val []CloseCheckAccrual) {
+	s.Accruals = val
 }
 
 // A variance report row a `variances_explained` check found unexplained: it requires a comment and has
@@ -19127,6 +19530,7 @@ func (*ConflictHeaders) recordAgentToolCallRes()              {}
 func (*ConflictHeaders) redateCostCenterRes()                 {}
 func (*ConflictHeaders) redateProfitCenterRes()               {}
 func (*ConflictHeaders) redeliverWebhookDeliveryRes()         {}
+func (*ConflictHeaders) rejectAccrualProposalRes()            {}
 func (*ConflictHeaders) rejectApprovalRequestRes()            {}
 func (*ConflictHeaders) rejectBankStatementLineProposalRes()  {}
 func (*ConflictHeaders) rejectMemoRecordProposalRes()         {}
@@ -54049,6 +54453,69 @@ func (s *RegressionSuitePage) SetNextPageToken(val OptString) {
 
 func (*RegressionSuitePage) listRegressionSuitesRes() {}
 
+type RejectAccrualProposalBadRequest Problem
+
+func (*RejectAccrualProposalBadRequest) rejectAccrualProposalRes() {}
+
+type RejectAccrualProposalForbidden Problem
+
+func (*RejectAccrualProposalForbidden) rejectAccrualProposalRes() {}
+
+type RejectAccrualProposalNotFound Problem
+
+func (*RejectAccrualProposalNotFound) rejectAccrualProposalRes() {}
+
+// RejectAccrualProposalOKHeaders wraps AccrualProposal with response headers.
+type RejectAccrualProposalOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           AccrualProposal
+}
+
+// GetETag returns the value of ETag.
+func (s *RejectAccrualProposalOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RejectAccrualProposalOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *RejectAccrualProposalOKHeaders) GetResponse() AccrualProposal {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *RejectAccrualProposalOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RejectAccrualProposalOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RejectAccrualProposalOKHeaders) SetResponse(val AccrualProposal) {
+	s.Response = val
+}
+
+func (*RejectAccrualProposalOKHeaders) rejectAccrualProposalRes() {}
+
+type RejectAccrualProposalPreconditionFailed Problem
+
+func (*RejectAccrualProposalPreconditionFailed) rejectAccrualProposalRes() {}
+
+type RejectAccrualProposalPreconditionRequired Problem
+
+func (*RejectAccrualProposalPreconditionRequired) rejectAccrualProposalRes() {}
+
+type RejectAccrualProposalUnprocessableEntity Problem
+
+func (*RejectAccrualProposalUnprocessableEntity) rejectAccrualProposalRes() {}
+
 type RejectApprovalRequestBadRequest Problem
 
 func (*RejectApprovalRequestBadRequest) rejectApprovalRequestRes() {}
@@ -57695,6 +58162,7 @@ func (*ServiceUnavailableHeaders) recordAgentToolCallRes()              {}
 func (*ServiceUnavailableHeaders) redateCostCenterRes()                 {}
 func (*ServiceUnavailableHeaders) redateProfitCenterRes()               {}
 func (*ServiceUnavailableHeaders) redeliverWebhookDeliveryRes()         {}
+func (*ServiceUnavailableHeaders) rejectAccrualProposalRes()            {}
 func (*ServiceUnavailableHeaders) rejectApprovalRequestRes()            {}
 func (*ServiceUnavailableHeaders) rejectBankStatementLineProposalRes()  {}
 func (*ServiceUnavailableHeaders) rejectMemoRecordProposalRes()         {}
@@ -62239,6 +62707,7 @@ func (*TooManyRequestsHeaders) recordAgentToolCallRes()              {}
 func (*TooManyRequestsHeaders) redateCostCenterRes()                 {}
 func (*TooManyRequestsHeaders) redateProfitCenterRes()               {}
 func (*TooManyRequestsHeaders) redeliverWebhookDeliveryRes()         {}
+func (*TooManyRequestsHeaders) rejectAccrualProposalRes()            {}
 func (*TooManyRequestsHeaders) rejectApprovalRequestRes()            {}
 func (*TooManyRequestsHeaders) rejectBankStatementLineProposalRes()  {}
 func (*TooManyRequestsHeaders) rejectMemoRecordProposalRes()         {}
@@ -62665,6 +63134,7 @@ func (*UnauthorizedHeaders) recordAgentToolCallRes()              {}
 func (*UnauthorizedHeaders) redateCostCenterRes()                 {}
 func (*UnauthorizedHeaders) redateProfitCenterRes()               {}
 func (*UnauthorizedHeaders) redeliverWebhookDeliveryRes()         {}
+func (*UnauthorizedHeaders) rejectAccrualProposalRes()            {}
 func (*UnauthorizedHeaders) rejectApprovalRequestRes()            {}
 func (*UnauthorizedHeaders) rejectBankStatementLineProposalRes()  {}
 func (*UnauthorizedHeaders) rejectMemoRecordProposalRes()         {}
