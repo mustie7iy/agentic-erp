@@ -1456,7 +1456,15 @@ T43 grants. The return endpoints carry `x-autonomy: none` for the transitions.
     or the capture agent owns, while a recommendation changes nothing
     until the person who decides it changes the document. The guard
     admits a correction only of a parked document of the registration's
-    companies that the run read, and one per document.
+    companies that the run read, of any date (a document parked in the
+    period is the prompt's concern, not the guard's), and one per
+    document. The model's runner executes one turn's tool calls
+    concurrently, so the tools that check or record the run's state
+    take one mutex for each call whole (`apitools` `Tool.Exclusive`):
+    two corrections of one document in a turn cannot both pass. The
+    guard holds one run: running the agent again for the period proposes
+    again, and a person cancels the entry or ignores the recommendation
+    it repeats.
   - **Codes it names.** No operation lists a company's tax codes short
     of the whole configuration (`config.version.read`), which the agent
     is not given: the prompt has it name only codes it read on items or

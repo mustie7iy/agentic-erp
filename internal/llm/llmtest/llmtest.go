@@ -29,6 +29,15 @@ type Step struct {
 	StopReason string
 	// Expect, if set, must appear in the request that this step answers.
 	Expect string
+	// Also are further tool calls of the same turn, as a model sends
+	// several at once (the runner executes them concurrently).
+	Also []Step
+}
+
+// Together is one turn of several tool calls: first's, then the others'.
+func Together(first Step, others ...Step) Step {
+	first.Also = others
+	return first
 }
 
 // Tool calls a tool with fixed input.
@@ -86,6 +95,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case st.Tool != "":
 		content = []map[string]any{{"type": "tool_use", "id": fmt.Sprintf("toolu_%d", n), "name": st.Tool, "input": st.Input(string(body))}}
+		for i, also := range st.Also {
+			content = append(content, map[string]any{"type": "tool_use", "id": fmt.Sprintf("toolu_%d_%d", n, i), "name": also.Tool, "input": also.Input(string(body))})
+		}
 		stop = "tool_use"
 	default:
 		content = []map[string]any{{"type": "text", "text": st.Text}}

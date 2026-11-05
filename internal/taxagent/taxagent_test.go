@@ -292,6 +292,35 @@ func TestPropose(t *testing.T) {
 	}
 }
 
+// TestProposeInOneTurn: the tool calls of one turn run concurrently, and
+// the run sees each whole: two documents read at once are both kept, and
+// of two corrections of one document, or two explanations, in one turn
+// only one reaches the API.
+func TestProposeInOneTurn(t *testing.T) {
+	a := &fakeAPI{}
+	const pe = "parked_journal_entry"
+	model := llmtest.New(t,
+		llmtest.Together(llmtest.Tool("getParkedJournalEntry", map[string]any{"id": "pe1"}), llmtest.Tool("getParkedJournalEntry", map[string]any{"id": "pe4"}),
+			llmtest.Tool("getSupplierInvoice", map[string]any{"id": "si1"})),
+		llmtest.Together(llmtest.ToolFn("createRecommendation", correct(pe, "pe1", "GO5.")), llmtest.ToolFn("createRecommendation", correct(pe, "pe1", "GO5 again.")),
+			llmtest.ToolFn("createRecommendation", correct(pe, "pe4", "GO5.")), llmtest.ToolFn("createRecommendation", correct("supplier_invoice", "si1", "GI.")),
+			llmtest.ToolFn("createRecommendation", explain(nil)), llmtest.ToolFn("createRecommendation", explain(nil))),
+		llmtest.Final("Done."))
+	res, err := (&taxagent.Agent{LLM: model.Runner(), API: client(t, a)}).Explain(context.Background(), "GSTHST", "2026-04-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(res.Recommendations); got != 4 {
+		t.Errorf("recommendations: got %d %v, want 4: one per object", got, res.Recommendations)
+	}
+	if res.Refused != 2 {
+		t.Errorf("refused: got %d, want 2: the second correction of pe1 and the second explanation", res.Refused)
+	}
+	if got := len(a.sent("recommendations")); got != 4 {
+		t.Errorf("recommendations sent: got %d, want 4", got)
+	}
+}
+
 // TestExplainByID: a registration is found by its id as by its code.
 func TestExplainByID(t *testing.T) {
 	model := llmtest.New(t, llmtest.ToolFn("createRecommendation", explain(nil)), llmtest.Final("Done."))

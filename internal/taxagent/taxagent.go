@@ -29,6 +29,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 
@@ -241,8 +242,13 @@ func (a *Agent) registration(ctx context.Context, reg string) (registration, err
 // run is what one run's guards hold the agent's proposals to: its
 // session, registration and draft, the companies the registration covers
 // (its registrant and a tax group's members), the parked documents of
-// theirs the run read, and the objects it has recommended on.
+// theirs the run read, and the objects it has recommended on. The tools
+// that check or record it run each call whole under mu (apitools
+// Exclusive): the runner executes one turn's tool calls concurrently, so
+// two corrections of one document in a turn would otherwise both pass
+// the check before either is recorded.
 type run struct {
+	mu          sync.Mutex
 	res         *Result
 	session     string
 	reg         registration
@@ -268,11 +274,14 @@ func (r *run) hold(tools []*apitools.Tool) {
 		case name == Proposer:
 			t.Guard(r.recommendation)
 			t.Observe(r.made)
+			t.Exclusive(&r.mu)
 		case name == Parker:
 			t.Guard(r.adjustment)
 			t.Observe(r.parked)
+			t.Exclusive(&r.mu)
 		case Documents[name] != "":
 			t.Observe(r.reading(Documents[name]))
+			t.Exclusive(&r.mu)
 		}
 	}
 }
