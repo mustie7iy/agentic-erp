@@ -9818,6 +9818,13 @@
       "r": "db/contract_test.go migrateBefore · migrationNamed · db/migrations_test.go TestMigrationTestsNameTheirMigration · the 18 call sites in db/*_test.go · 06 §6.4",
       "src": "review:batch54",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "TestWalkthrough gives every listener the walkthrough starts a free loopback port, the treasury connector's SFTP stand-in included (batch 56's ci-local stopped at step 35 when its default 127.0.0.1:18022 was taken by another lane's make walkthrough on the same machine: the stand-in exited at start, bind: address already in use); a source check keeps the test's list equal to every WALKTHROUGH_*_ADDR variable scripts/walkthrough.sh names, so a stand-in later configured through such a variable cannot fall back to a fixed port; a failed walkthrough now shows its output from a little before its first UNEXPECTED report (which names the step and the reason) to the end, the last answer and the server log included, not only the last 120 lines, which had held only the last answer's JSON",
+      "r": "cmd/erp/walkthrough_test.go TestWalkthrough, walkthroughListeners, TestWalkthroughListeners, failure",
+      "src": "ci:batch56",
+      "c": []
      }
     ]
    },
