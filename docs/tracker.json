@@ -2199,9 +2199,72 @@
     "ph": 2,
     "c": [
      {
+      "s": "P",
+      "t": "E-invoicing and statutory reports designed (ADR-0061, decided by default under ADR-0053 d): a leaf einvoicing context; the accredited provider as a port behind an einvoice_provider connector with a stand-in, polled, never pushed to; UAE suppliers' PINT AE e-invoices recorded once and acknowledged, validated, refused or entered by capture's rules without a model, tax codes from the lines' categories, every refusal of the entering a hold people resolve; the FTA Audit File in tax filing once specified; sending with phase 3's sales invoices",
+      "r": "ADR-0061 · T65 (split T65a-T65h)",
+      "c": [
+       {
+        "s": "T",
+        "t": "Fetching e-invoices on demand: connector kind einvoice_provider (adapter, https base_url, participants per company, format pint_ae, secret_ref; integration.adapter_not_certified for the stand-in in production); the einvoicing leaf (internal/layout) and schema einvoicing.einvoice (RLS, tenant_id first, unique per connector and provider message id, status trigger, schema tests); the Provider port, the loopback stand-in and the egress client's per-client response limit (10 MiB); FetchEInvoices's record activity run by POST /v1/e-invoices:fetch (an Operation counting what it recorded), bytes write-once in object storage, acknowledged after the commit (run-twice test); GET /v1/e-invoices (filters, cursor paging, company and supplier names, the entered invoice's number and reference) and /{id}; einvoicing.einvoice.read and manage; EInvoiceChanged; audit; walkthrough step_einvoice: Ada adds the UAE company AE01 and the connector, Alex fetches and finds the stand-in's e-invoice received under the fetch's operation, a second fetch counts it as already recorded",
+        "r": "ADR-0061 §2-§4, §11, §12, §15 · T65a",
+        "src": "adr:ADR-0061",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Scheduled e-invoice fetch, changed bytes and the original: the workflow dispatcher and ERP_EINVOICE_FETCH_INTERVAL; changed_hash set by an update guarded on the new hash, one audit record and event per change (run-twice test); the gauge erp_einvoices_unacknowledged; GET /v1/e-invoices/{id}/content (x-agent false); walkthrough: Alex downloads the e-invoice with the stand-in's hash, a redelivery with other bytes is counted as changed once",
+        "r": "ADR-0061 §4, §8 · T65b",
+        "src": "adr:ADR-0061",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "E-invoice validation and refusals: the process activity (FOR UPDATE, only from received); parsing without DTD or entities; the PINT AE fields read, citing the specification the specialist or provider supplies; decimals; lines summing to the net and net plus tax to the gross (no tax-rate check: P5 at posting); the buyer a company of the connector with its FTA registration's TRN; refused with einvoicing.unreadable, unsupported_document, missing_field, amount_precision, totals_inconsistent, not_addressed_to_company, document_too_large; a fuzz test of the parser; an nfr budget of the processing transaction; walkthrough: a malformed e-invoice and one addressed to another TRN refused with their reasons, the valid one still received",
+        "r": "ADR-0061 §4, §5, §14 · T65c",
+        "src": "adr:ADR-0061",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Received e-invoices entered as supplier invoices: payables.EInvoices.Enter sharing capture's code, source einvoice, the order from the order reference, the supplier's TRN checked by fingerprint, items by order line or position with the order item's unit and tax code, codes from each line's category and rate by capturedTax's rule (ambiguity holds the invoice), every problem of the entering a hold (held with its code) through a savepoint rolled back on the problem, tested with a constraint-raised refusal (supplier_invoice_no_duplicates), only infrastructure errors failing; the gauge erp_einvoices_held; credit notes left received until T65e; entered; the invoice's document the XML; no model call; walkthrough: the received e-invoice becomes a parked invoice of source einvoice on the next fetch, posts after the three-way match, its document is the XML; one without an order is held with payables.capture_needs_order",
+        "r": "ADR-0061 §6 · T65d",
+        "src": "adr:ADR-0061",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "E-invoice credit notes: entered as credit memos naming the invoice they cite by capture's rule (none, a posted invoice of the supplier, or on_hold naming the number); credit notes left received by T65d processed by the next fetch; walkthrough: a credit note citing the e-invoice of T65d entered as a credit memo referencing that invoice",
+        "r": "ADR-0061 §6 · T65e",
+        "src": "adr:ADR-0061",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Held e-invoices resolved by people: POST /v1/e-invoices/{id}:retry (held to held with the attempt's problem, answering the document), :link (payables.EInvoices.Attach; same company, supplier and reference, no document of its own; at most one e-invoice per invoice by a partial unique index with a schema test, einvoicing.invoice_already_linked; otherwise einvoicing.link_mismatch) and :dismiss with a reason; FOR UPDATE and einvoicing.einvoice_not_held; agents refused; walkthrough: Alex links a hand-entered invoice to the held e-invoice, a second link to it refused, another dismissed, an agent's dismiss refused",
+        "r": "ADR-0061 §7, §13 · T65f",
+        "src": "adr:ADR-0061",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "FTA Audit File, once the specialist supplies the FTA's specification: its contract, content and scope from that specification; tax.audit_file; generation as an Operation whose resource is the stored write-once file; read, download and a paged list per registration; tax.audit_file.generate and read; people only; TaxAuditFileGenerated; audit; golden test signed off by the specialist; nfr budget; walkthrough: Carla generates and downloads AE01's audit file, an agent refused",
+        "r": "ADR-0061 §10, §11 · T65g",
+        "src": "adr:ADR-0061",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Sending sales e-invoices (phase 3, after issuing sales invoices): rendered as PINT AE from the sales invoice's lines and tax items, checked before sending, given to the provider after the commit, the provider's and the authority's reports recorded as they come (to confirm with the provider and the specialist); sliced with phase 3's sales design",
+        "r": "ADR-0061 §9 · T65h",
+        "src": "adr:ADR-0061",
+        "c": []
+       }
+      ]
+     },
+     {
       "s": "T",
       "t": "Peppol network connector",
-      "r": "T65",
+      "r": "T65 · ADR-0061 §3-§7 (through the tenant's accredited provider, not a network connector of our own: 07 §7.6, phase 2 decisions; provider Q1) · T65a-T65f; sending T65h (phase 3)",
       "src": "baseline",
       "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0049",
       "c": []
@@ -2209,14 +2272,14 @@
      {
       "s": "T",
       "t": "Country formats (XRechnung, FatturaPA, ...)",
-      "r": "T65",
+      "r": "T65 · ADR-0061 §1, §3: PINT AE only in T65; another format is one more Format behind the provider port when a country pack needs one",
       "src": "baseline",
       "c": []
      },
      {
       "s": "T",
       "t": "SAF-T and statutory reports",
-      "r": "T65",
+      "r": "T65 · ADR-0061 §10 · T65g (the FTA Audit File); SAF-T for a later country pack; Canadian reports wait for Q4",
       "src": "baseline",
       "pilot": "po:2026-10-31 · design:07 §7.6",
       "c": []

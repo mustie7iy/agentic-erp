@@ -51,6 +51,7 @@ pointing its schema at a separate database. Callers do not change.
 | **agents** | Agent sessions, tool calls, recommendations, costs | `RecommendationMade` |
 | **assets** (ADR-0057, a leaf) | Asset classes' use (the classes and accounts are configuration), assets, movements, acquisitions, retirements, transfers, depreciation runs | `AssetChanged`, `AssetMovementPosted`, `DepreciationRunCompleted` |
 | **closing** (ADR-0058, a leaf) | The close calendar (the close template and company weekends are configuration), period closes and their checklists, sign-offs, the variance report, accrual proposals, variance comments | `PeriodCloseChanged`, `PeriodCloseSignedOff`, `AccrualProposed`, `AccrualProposalRejected`, `VarianceCommentChanged` |
+| **einvoicing** (ADR-0061, a leaf; planned, not built) | E-invoice documents received from (and, in phase 3, sent through) the tenant's accredited provider, their statuses and the provider port; the connector is integration's | `EInvoiceChanged` |
 
 Later phases add `sales`, `receivables`, `inventory`, `manufacturing`,
 `maintenance`, `projects` and `hr` with the same rules.

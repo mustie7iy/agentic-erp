@@ -192,6 +192,10 @@ e-invoices fed to capture) and produces statutory reports other than the sales
 tax return. T65 reads T61's tax items and codes; T61 never calls a transmission
 provider. Each UAE tax code carries its UN/CEFACT tax category (S, Z, E, O, AE)
 from T61a so T65 needs no second mapping.
+T65's design (ADR-0061 §1) reads "fed to capture" as capture's rules,
+not its operation: e-invoices are fetched from the provider and entered by
+payables with capture's matching, holds and tax code proposals, without a
+model.
 
 **Boundary with T71.** T61 defines the pack schema for tax codes, rates and
 return definitions; T71's agent proposes new pack versions in that schema
