@@ -95,7 +95,11 @@ const differenceSelect = `SELECT id, account_id, currency_tc, exponent, a_tc, b_
 WHERE (a_tc, a_lc, a_gc) <> (b_tc, b_lc, b_gc)`
 
 // trialBalanceSelect totals each ledger of $2 in its order; a ledger
-// without balances totals zero.
+// without balances totals zero. It runs planned per call
+// (pagination.PlanPerCall): PostgreSQL's generic plan for it cannot use
+// the period, when one is given, in the balances' index, and from a
+// cached statement's sixth run it took that plan (5,000 accounts in two
+// ledgers: a period's totals 26 ms to 50 ms, the year's 212 ms to 290 ms).
 const trialBalanceSelect = `SELECT u.ledger, coalesce(sum(debit_lc), 0)::bigint, coalesce(sum(credit_lc), 0)::bigint,
 		coalesce(sum(debit_gc), 0)::bigint, coalesce(sum(credit_gc), 0)::bigint
 	FROM unnest($2::uuid[]) WITH ORDINALITY u(ledger, n)
@@ -197,7 +201,7 @@ type ledgerTotals struct {
 // trialBalances checks that each ledger's trial balance nets to zero in
 // local and group currency, over the balances the trial balance reads.
 func (r reconciliation) trialBalances(ctx context.Context, tx pgx.Tx, ledgers []uuid.UUID, year int32, period *int32) ([]gen.LedgerTrialBalance, error) {
-	rows, _ := tx.Query(ctx, trialBalanceSelect, r.le.ID, ledgers, year, period, nil)
+	rows, _ := tx.Query(ctx, trialBalanceSelect, pagination.PlanPerCall, r.le.ID, ledgers, year, period, nil)
 	lc, gc := r.exps[r.le.LocalCurrency], r.exps[r.group]
 	totals, err := pgx.CollectRows(rows, pgx.RowToStructByPos[ledgerTotals])
 	if err != nil {

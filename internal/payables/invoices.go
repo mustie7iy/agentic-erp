@@ -451,10 +451,13 @@ func (Invoices) Invoiced(ctx context.Context, purchaseOrder uuid.UUID) (map[int3
 
 // InvoiceSource is what an asset acquisition shows of the supplier
 // invoice it came from (ADR-0057 §2, T57c): its number, the supplier's
-// reference and the supplier.
+// reference and the supplier; and what an accrual proposal checks of the
+// invoice it cites (ADR-0058 §8, T64e): its legal entity and status.
 type InvoiceSource struct {
 	DocumentNumber, SupplierReference string
 	SupplierID                        uuid.UUID
+	LegalEntityID                     uuid.UUID
+	Status                            string
 }
 
 // Sources reads the supplier invoices among ids, by id; an id of none is
@@ -464,11 +467,13 @@ func (Invoices) Sources(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Inv
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT id, document_number, supplier_reference, supplier_id FROM payables.supplier_invoice WHERE id = ANY($1)`, ids)
+	rows, _ := tx.Query(ctx, `SELECT id, document_number, supplier_reference, supplier_id, legal_entity_id, status FROM payables.supplier_invoice
+		WHERE id = ANY($1)`, ids)
 	out := map[uuid.UUID]InvoiceSource{}
 	var id uuid.UUID
 	var s InvoiceSource
-	_, err = pgx.ForEachRow(rows, []any{&id, &s.DocumentNumber, &s.SupplierReference, &s.SupplierID}, func() error { out[id] = s; return nil })
+	_, err = pgx.ForEachRow(rows, []any{&id, &s.DocumentNumber, &s.SupplierReference, &s.SupplierID, &s.LegalEntityID, &s.Status},
+		func() error { out[id] = s; return nil })
 	if err != nil {
 		return nil, fmt.Errorf("payables: sources of %d supplier invoices: %w", len(ids), err)
 	}

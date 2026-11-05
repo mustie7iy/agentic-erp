@@ -1,8 +1,6 @@
 package db
 
 import (
-	"slices"
-	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -96,11 +94,7 @@ func TestControllingRules(t *testing.T) {
 func TestControllingBackfill(t *testing.T) {
 	conn := emptyDatabase(t)
 	ctx := t.Context()
-	all := Migrations()
-	at := slices.IndexFunc(all, func(m Migration) bool { return strings.HasSuffix(m.Name, "_controlling_rules") })
-	if _, err := migrate(ctx, conn, all[:at]); err != nil {
-		t.Fatal(err)
-	}
+	migrateBefore(t, conn, "000140_controlling_rules")
 	tenant, actor, chart, entity, change := id(), id(), id(), id(), id()
 	cc1, cc2 := id(), id()
 	for _, s := range []struct {
@@ -123,7 +117,7 @@ func TestControllingBackfill(t *testing.T) {
 			t.Fatalf("%s: %v", s.sql[:40], err)
 		}
 	}
-	if _, err := migrate(ctx, conn, all[at:]); err != nil {
+	if _, err := migrate(ctx, conn, Migrations()); err != nil {
 		t.Fatal(err)
 	}
 	for sql, want := range map[string]string{

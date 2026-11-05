@@ -121,6 +121,9 @@ func (d orderDocument) render() (string, error) {
 		}
 		line(&b, "%s", qty)
 		line(&b, "    Amount %s", d.money(amount))
+		if it.DeliveryDate != nil {
+			line(&b, "    Delivery date %s", it.DeliveryDate.Format(time.DateOnly))
+		}
 	}
 	line(&b, "\nTotal %s", d.money(sum))
 	if o.Status == Closed {
@@ -165,7 +168,31 @@ func (d orderDocument) header(b *strings.Builder) {
 	}
 	b.WriteString("\n")
 	line(b, "Payment terms: %s %s", d.term.Code, d.term.Description)
-	if d.neededBy != nil {
+	d.neededByLine(b)
+}
+
+// neededByLine writes the requisition's needed-by date when an item has no
+// delivery date of its own to print instead (ADR-0054 As built, T53g's
+// dates): unqualified when no item has one, as before items carried dates,
+// and qualified when some do, so a supplier reads which date applies to
+// which item.
+func (d orderDocument) neededByLine(b *strings.Builder) {
+	if d.neededBy == nil {
+		return
+	}
+	var dated, undated bool
+	for _, it := range d.order.Items {
+		if it.DeliveryDate != nil {
+			dated = true
+		} else {
+			undated = true
+		}
+	}
+	switch {
+	case !undated:
+	case dated:
+		line(b, "Needed by: %s, for the items without a delivery date of their own", d.neededBy.Format(time.DateOnly))
+	default:
 		line(b, "Needed by: %s", d.neededBy.Format(time.DateOnly))
 	}
 }

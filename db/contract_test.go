@@ -7,7 +7,6 @@ package db
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -15,18 +14,40 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// migrateBefore applies every migration older than version to conn.
-func migrateBefore(t *testing.T, conn *pgx.Conn, version int) {
+// migrationNamed returns the migration whose files are name.up.sql and
+// name.down.sql, failing the test when there is none. A test names the
+// migration it is about by its file, not by its number: integration
+// renumbers a lane's migrations, and a number left behind still names
+// some migration (TestAssetTermsBookedBackfilled seeded before 000199
+// after its migration became 000211, and passed), while a stale name names
+// none.
+func migrationNamed(t *testing.T, name string) Migration {
 	t.Helper()
+	for _, m := range Migrations() {
+		if m.Name == name {
+			return m
+		}
+	}
+	t.Fatalf("migration %s: got no such file in db/migrations, want the migration the test is about", name)
+	return Migration{}
+}
+
+// migrateBefore applies to conn every migration older than the one named
+// (see migrationNamed) and returns that one, not applied.
+func migrateBefore(t *testing.T, conn *pgx.Conn, name string) Migration {
+	t.Helper()
+	target := migrationNamed(t, name)
+	version, _ := target.Version() // the names were checked by TestMigrationFiles
 	var before []Migration
 	for _, m := range Migrations() {
-		if v, _ := m.Version(); v < version { // the names were checked by TestMigrationFiles
+		if v, _ := m.Version(); v < version { // likewise
 			before = append(before, m)
 		}
 	}
 	if _, err := migrate(context.Background(), conn, before); err != nil {
 		t.Fatal(err)
 	}
+	return target
 }
 
 // inTenant runs fn in a committed transaction on conn, scoped to tenant,
@@ -184,7 +205,7 @@ func (p *payables) reservation(t *testing.T, owner, item uuid.UUID, since time.T
 // reservation is reserved for it.
 func TestReservationsReconciled(t *testing.T) {
 	conn := emptyDatabase(t)
-	migrateBefore(t, conn, 42)
+	migrateBefore(t, conn, "000042_reconcile_item_reservations")
 	p := newPayables(t, conn)
 	held, missing, rejected, posted, unposted, moved := p.item(t), p.item(t), p.item(t), p.item(t), p.item(t), p.item(t)
 	proposed := p.run(t, "PR1", "proposed", false)
@@ -258,7 +279,7 @@ func TestReservationsReconciled(t *testing.T) {
 // unreserved. The migration's other changes roll back with it.
 func TestReservationsReconcileFailsLoudly(t *testing.T) {
 	conn := emptyDatabase(t)
-	migrateBefore(t, conn, 42)
+	migrateBefore(t, conn, "000042_reconcile_item_reservations")
 	p := newPayables(t, conn)
 	item := p.item(t)
 	proposed := p.run(t, "PR1", "proposed", false)
@@ -284,18 +305,13 @@ func TestReservationsReconcileFailsLoudly(t *testing.T) {
 // TestTenantRowMigrationsRefuseRowSecurity: run by a role row-level
 // security applies to (erp_owner, which owns the tables), a migration that
 // changes tenant rows (000042 reconciling reservations, 000046 binding
-// principals) fails rather than see no tenant's rows and change nothing.
+// principals, 000093 backfilling house bank accounts) fails rather than see
+// no tenant's rows and change nothing.
 func TestTenantRowMigrationsRefuseRowSecurity(t *testing.T) {
-	for _, version := range []int{42, 46, 93} {
-		t.Run(fmt.Sprint(version), func(t *testing.T) {
+	for _, name := range []string{"000042_reconcile_item_reservations", "000046_principal_issuer_required", "000093_payments_per_bank"} {
+		t.Run(name, func(t *testing.T) {
 			conn := emptyDatabase(t)
-			migrateBefore(t, conn, version)
-			var up string
-			for _, m := range Migrations() {
-				if v, _ := m.Version(); v == version { // the names were checked by TestMigrationFiles
-					up = m.Up
-				}
-			}
+			up := migrateBefore(t, conn, name).Up
 			ctx := context.Background()
 			err := pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
 				if _, err := tx.Exec(ctx, "SET LOCAL ROLE erp_owner"); err != nil {
@@ -316,7 +332,7 @@ func TestTenantRowMigrationsRefuseRowSecurity(t *testing.T) {
 // next start retries.
 func TestReservationsReconcileHoldsWriters(t *testing.T) {
 	conn := emptyDatabase(t)
-	migrateBefore(t, conn, 42)
+	migrateBefore(t, conn, "000042_reconcile_item_reservations")
 	ctx := context.Background()
 	replica, err := pgx.ConnectConfig(ctx, conn.Config().Copy())
 	if err != nil {
@@ -369,7 +385,7 @@ func TestDeferredChecksValidated(t *testing.T) {
 // (F7, ADR-0010).
 func TestPrincipalIssuerRebound(t *testing.T) {
 	conn := emptyDatabase(t)
-	migrateBefore(t, conn, 46)
+	migrateBefore(t, conn, "000046_principal_issuer_required")
 	const idp = "https://idp.example.com"
 	tenant, admin, ann, bo, agent, svc, orphan := id(), id(), id(), id(), id(), id(), id()
 	self, cyA, cyB, bot, cal := id(), id(), id(), id(), id()
@@ -445,7 +461,7 @@ func TestPrincipalIssuerRebound(t *testing.T) {
 // 000098's constraint then refuses a second active bank on the account.
 func TestHouseBankAccountsBackfilled(t *testing.T) {
 	conn := emptyDatabase(t)
-	migrateBefore(t, conn, 93)
+	migrateBefore(t, conn, "000093_payments_per_bank")
 	p := newPayables(t, conn)
 	retired := id()
 	inTenant(t, conn, p.tenant, func(tx pgx.Tx) error {

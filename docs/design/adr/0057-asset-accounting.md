@@ -2438,6 +2438,27 @@ for the product owner to overrule:
 - **Tracker.** A leaf "The depreciation run's preview within the report
   class's p95" (T57f3, `review:T57f`), done with T57f3.
 
+**The preview's budget measured over twenty reads (fix forward, ci:batch56).**
+Batch 56's ci-local failed `TestDepreciationRunBudget` on one read: the
+next page's median was 518 ms and its p95, the worst of ten reads, 2.08 s
+against the 2 s of scale 2. The worst of ten is a p95 that one stalled read
+decides. The test now reads each page twenty times and takes the p95 as
+the load runs do (`nfr.Stats.Percentile`, the 19th of 20), logging the
+slowest beside it, so one stall is tolerated and two are not; the budget
+stays the report class's p95 of 1 s scaled by `ERP_BUDGET_SCALE`. It also
+forces a checkpoint after vacuuming the seed: on ci-local's database the
+seed's WAL started a checkpoint every five seconds or so, the last ending as
+the reads began. The 2.08 s read is not timed to the second in the logs, so
+that checkpoint is a likely cause, not a proven one; on the development
+machine a slowest read of 3.12 s was seen with the checkpoint forced, while
+other lanes' `CREATE DATABASE` forced checkpoints with fsyncs of 4 to 5 s
+on the shared server. Five runs at each scale (load 9 to 36): scale 1, p95
+0.46 s to 0.79 s, medians 0.45 s to 0.52 s; scale 2, p95 0.71 s to 1.05 s
+(budget 2 s), medians 0.55 s to 0.70 s; the run 16 s to 34 s. Decided by
+default, for the product owner to overrule. `TestAssetHistorySheetBudget`
+and the other read budgets that take the slowest of fewer than twenty-one
+reads as their p95 are unchanged.
+
 **The preview and the history sheet in one snapshot (review of T57f3).**
 The preview reads its selection with the depreciation booked (kept on the
 terms), then the selected assets' moves, then its page's names, each a

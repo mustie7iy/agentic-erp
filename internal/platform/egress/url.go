@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -39,14 +40,20 @@ func parse(rawURL string) (*url.URL, error) {
 // tenant registers it: the URL's form, and its host resolving to public
 // unicast addresses only. The client checks again on every address it
 // dials, since a name may later resolve elsewhere; this check lets the
-// tenant know at once that an endpoint can never be reached.
-func CheckURL(ctx context.Context, r Resolver, rawURL string) error {
+// tenant know at once that an endpoint can never be reached. receiver is
+// the walkthrough's receiver (WalkthroughReceiver), the zero AddrPort
+// without one: a URL naming exactly its address and port is accepted, any
+// other loopback URL still refused.
+func CheckURL(ctx context.Context, r Resolver, rawURL string, receiver netip.AddrPort) error {
 	u, err := parse(rawURL)
 	if err != nil {
 		return err
 	}
 	host := u.Hostname()
 	if ip, err := netip.ParseAddr(host); err == nil {
+		if receiver.IsValid() && isReceiver(u, ip, receiver) {
+			return nil
+		}
 		if !Public(ip) {
 			return fmt.Errorf("egress: host %s is not a public unicast address", ip)
 		}
@@ -62,4 +69,18 @@ func CheckURL(ctx context.Context, r Resolver, rawURL string) error {
 		}
 	}
 	return nil
+}
+
+// isReceiver tells whether the URL, whose host is the address ip, names
+// the receiver's address and port (443 when it names none, as https
+// dials).
+func isReceiver(u *url.URL, ip netip.Addr, receiver netip.AddrPort) bool {
+	port := uint64(443)
+	if p := u.Port(); p != "" {
+		var err error
+		if port, err = strconv.ParseUint(p, 10, 16); err != nil {
+			return false
+		}
+	}
+	return netip.AddrPortFrom(ip.Unmap(), uint16(port)) == netip.AddrPortFrom(receiver.Addr().Unmap(), receiver.Port())
 }

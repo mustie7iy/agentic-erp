@@ -113,6 +113,16 @@ func TestUnpayablePaymentIsDropped(t *testing.T) {
 	if dropped[0]["payment_id"] != payX.String() {
 		t.Errorf("payment_excluded payment: got %v, want %s", dropped[0]["payment_id"], payX)
 	}
+	// The supplier is named by its number beside its id; its name is left
+	// out of an event offered to webhooks (ADR-0038, as built).
+	var number string
+	pgtest.Scan(t, `SELECT number FROM partner.business_partner WHERE id = $1`, []any{e.Vendor}, &number)
+	if got := dropped[0]["supplier_number"]; got != number {
+		t.Errorf("payment_excluded supplier_number: got %v, want %s", got, number)
+	}
+	if got, ok := dropped[0]["supplier_name"]; ok {
+		t.Errorf("payment_excluded supplier_name: got %v, want none", got)
+	}
 	released := events(t, e.Tenant, "payment_run_released")
 	if len(released) != 1 {
 		t.Fatalf("payment_run_released events: got %d %v, want 1", len(released), released)

@@ -251,6 +251,50 @@ snapshot of the liquidity forecast and reads it through the API. Its
 payload names the snapshot and its company and carries no bank or
 personal data. `CashExportDelivered` is not offered.
 
+### As built: a webhook delivered in the walkthrough (T50i)
+The product owner decided on 2026-11-04 (security posture) that a
+development server delivers webhooks to its own machine only in the
+walkthrough, through an embedded event bus, with no general
+local-delivery setting. As built:
+- **The bus** is the embedded NATS JetStream the relay and fan-out tests
+  run (`natstest`), started by the walkthrough as a process of its own
+  (`natsstub`, loopback only) and named to erp-server by `ERP_NATS_URL`
+  as any development bus is. erp-server itself embeds no NATS server and
+  gains no bus setting: production still needs `tls://` servers and the
+  cell's certificate (ADR-0033). The walkthrough's events are therefore
+  relayed, fanned out and delivered as in production.
+- **The receiver** is the walkthrough's subscriber (`webhookstub`), an
+  HTTPS endpoint on one loopback port with a certificate it makes at
+  start. `ERP_WALKTHROUGH_RECEIVER` (that address and port) and
+  `ERP_WALKTHROUGH_RECEIVER_CA` (its certificate) name it, both or
+  neither. `config.Load` refuses either unless `ERP_ENV=development`, so
+  a production replica fails to start with them, as it does with
+  `ERP_DEV_ISSUER`. It also refuses an address that is not a loopback IP
+  literal with a port, and a file holding no certificate.
+- **The exception is one address and port.** `egress.WalkthroughReceiver`
+  lets the client dial exactly that address and port, besides public
+  ones, trusting only that certificate in place of the system roots (the
+  walkthrough registers no public endpoint). Another loopback port or
+  address, a private address and plain http stay refused. A host name is
+  refused when the URL is written; one that later resolves to the
+  receiver (DNS rebinding) is dialled and refused by TLS, the receiver's
+  certificate naming its IP address alone.
+  `egress.New` refuses the option with an address that is not loopback or
+  has no port, and together with `LoopbackForTests`. `egress.CheckURL`
+  takes the receiver too and accepts a subscription URL naming exactly
+  it. Without the setting the receiver is the zero value and every rule
+  of the Decision applies unchanged: `TestCheckURLReceiver`,
+  `TestWalkthroughReceiver` (egress) and `TestWebhookWalkthroughReceiver`
+  show the same URL refused there. `LoopbackForTests` keeps its rule and
+  still fails outside a test binary.
+- **Walkthrough step 35** subscribes the treasury system's endpoint to
+  `cash.*`, takes a snapshot, waits for its delivery to show `delivered`
+  through `listWebhookDeliveries`, and reads what the endpoint received:
+  the CloudEvent of `CashSnapshotTaken` naming the snapshot, under the
+  event's id as `webhook-id`, its signature verified with the
+  subscription's secret by `internal/platform/webhook`, and the same
+  signature refused over the body with one byte changed.
+
 ## Alternatives
 - **Versions in a header or media type:** keeps URLs stable but hides the
   version from logs, caches and gateways; paths are what 04 §4.2 already

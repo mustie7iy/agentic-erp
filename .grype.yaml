@@ -2,7 +2,34 @@
 # Each entry names the vulnerability and the package, says why it is
 # accepted and until when; an expired entry is removed, not extended
 # without a new reason. grype does not read the expiry: review does.
-#
-# None today: the last went with erp-analytics's move to a new runtime
-# base (ADR-0044 amendment of 2026-11-01).
-ignore: []
+ignore:
+  # apt and libapt-pkg7.0 3.0.3 in ghcr.io/cloudnative-pg/pgbouncer
+  # 1.26.0-trixie (deploy/images/upstream.txt, linux/arm64 digest
+  # sha256:01f76846...), whose tag's current build (image index
+  # sha256:5487ee7b..., pulled 2026-11-05) still carries 3.0.3; Debian 13 fixes
+  # CVE-2026-109518 in 3.0.4 (DSA-6607-1). Accepted because nothing in
+  # the cell's use of the image runs apt or loads libapt-pkg
+  # (deploy/helm/erp-cell/templates/pgbouncer.yaml; checked on the pinned
+  # image, 2026-11-05): the entrypoint /usr/bin/pgbouncer links to
+  # /usr/sbin/pgbouncer, whose NEEDED are libcares, libevent, libssl,
+  # libcrypto, libsystemd, libldap, libpam and libc, and whose ldd closure
+  # has no libapt-pkg; the pgbouncer package does not depend on apt; the
+  # reload sidecar runs dash, cat, sha256sum and sleep (kill is dash's
+  # builtin), none linking libapt-pkg; only apt's own programs and
+  # libapt-private do. Both containers run as uid 998 with a read-only
+  # root, no capabilities and no privilege escalation, and the pod has no
+  # init container or hook. Pinned to this version, so an image carrying
+  # another is scanned afresh; grype applies it to every image the scan
+  # covers, so a new pin or base carrying apt 3.0.3 needs its own check
+  # before it lands. Until 2026-11-20, or sooner once a
+  # pgbouncer image with apt >= 3.0.4 is pinned.
+  - vulnerability: CVE-2026-109518
+    package:
+      name: apt
+      type: deb
+      version: 3.0.3
+  - vulnerability: CVE-2026-109518
+    package:
+      name: libapt-pkg7.0
+      type: deb
+      version: 3.0.3

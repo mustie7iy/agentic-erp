@@ -90,6 +90,7 @@ type Config struct {
 	TLSMaterial     *tlsconf.Store  // TLS read when the configuration loads; nil without it (development)
 	TrustDomain     string          // ERP_TRUST_DOMAIN: the SPIFFE trust domain of the services' identities; set, the API serves the router alone and /control the global plane (ADR-0033)
 	AtRest          AtRest          // ERP_AT_REST: how each store encrypts at rest, stated per environment and checked at start (ADR-0033)
+	Walkthrough     Walkthrough     // ERP_WALKTHROUGH_RECEIVER and _CA: the walkthrough's webhook receiver, development only (ADR-0041)
 	// Secrets resolves references (env:, file:, vault:) for the settings that
 	// carry secrets and for connectors' secret_ref.
 	Secrets secrets.Resolver
@@ -262,6 +263,7 @@ func Load(getenv func(string) string) (Config, error) {
 	l.directory(&c)
 	l.server(&c)
 	c.Environment = l.getenv("ERP_ENV")
+	l.walkthrough(&c)
 	l.errs = append(l.errs, checkEnvironment(c)...)
 	return c, errors.Join(l.errs...)
 }

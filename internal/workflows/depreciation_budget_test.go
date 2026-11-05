@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"slices"
 	"testing"
 	"time"
 
@@ -24,7 +23,7 @@ import (
 // depreciation movements (about 5.8 million rows) and its year totals. The
 // rows are written straight into the tables, without the triggers and
 // checks a posting runs (as TestAssetHistorySheetBudget seeds them). The
-// preview of June's run is read ten times, its first page and the next;
+// preview of June's run is read twenty times, its first page and the next;
 // the run is measured once, from its start (POST) to posted, carried
 // out by the in-process runner (Depreciator) in 201 batches of 500, as
 // TestProposalBudget measures the payment proposal's single run.
@@ -90,8 +89,13 @@ func TestDepreciationRunBudget(t *testing.T) {
 			depreciation = c.depreciation + EXCLUDED.depreciation`)
 	exec(`RESET session_replication_role`)
 	// Vacuumed as autovacuum would have the insert-only movements, so the
-	// moves are read from their covering index alone (T57f3).
+	// moves are read from their covering index alone (T57f3). The seed and
+	// the vacuum write gigabytes of WAL, which start a checkpoint every
+	// half gigabyte or so (max_wal_size 1 GB); one forced here writes what
+	// they left, so none of theirs runs among the reads timed below
+	// (batch 56's ci-local: the seed's last ended as the reads began).
 	exec(`VACUUM (ANALYZE) assets.asset, assets.asset_terms, assets.asset_assignment, assets.movement, assets.year_total, assets.class_year_total`)
+	exec(`CHECKPOINT`)
 	t.Logf("seeded 100,000 assets with their movements and year totals in %v", time.Since(start))
 
 	// Booked: each seeded asset's months at 10,000; June adds 10,000 to
@@ -105,19 +109,20 @@ func TestDepreciationRunBudget(t *testing.T) {
 	first, _ := e.Must(200, "POST", "/v1/depreciation-runs/preview?page_size=500", body, "")
 	// Every page reads all the selected assets, as the totals need them
 	// (T57e), so the second page costs what the 200th does.
+	// Twenty reads each, p95 as nfr's load runs take it (the 19th of 20),
+	// so that one read the machine stalls does not decide the budget.
 	for name, query := range map[string]string{"first page": "?page_size=500", "the next page": "?page_size=500&page_token=" + first["next_page_token"].(string)} {
-		var times []time.Duration
-		for range 10 {
+		st := nfr.NewStats()
+		for range 20 {
 			start := time.Now()
 			p, _ := e.Must(200, "POST", "/v1/depreciation-runs/preview"+query, body, "")
-			times = append(times, time.Since(start))
+			st.Add(name, nfr.Result{Status: 200, Took: time.Since(start)})
 			if got := previewSums(p); got != wantSums {
 				t.Fatalf("preview %s: got %s, want %s", name, got, wantSums)
 			}
 		}
-		slices.Sort(times)
-		p95 := times[len(times)*95/100]
-		t.Logf("preview, %s, over 100,001 assets: median %v, p95 (worst of ten) %v", name, times[len(times)/2], p95)
+		p95 := st.Percentile(name, 95)
+		t.Logf("preview, %s, over 100,001 assets: median %v, p95 %v, slowest %v", name, st.Percentile(name, 50), p95, st.Percentile(name, 100))
 		if budget := nfr.Budget(time.Second); p95 > budget {
 			t.Errorf("preview, %s: p95 %v exceeds the %v budget (report class: p95 1 s scaled by ERP_BUDGET_SCALE)", name, p95, budget)
 		}

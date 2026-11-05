@@ -782,6 +782,87 @@ expose its channel's connector). Decided by default, as above:
   description names the problem and says its detail names the supplier.
   No new field; oasdiff reports no breaking change.
 
+## As built: payments events name the company; a withholding too large names its item (review:batch28)
+
+- **Decision (events).** Every payments event that gives `legal_entity_id`
+  now gives `legal_entity_code` beside it, the company code as
+  `LegalEntityCreated` names it `code`: `PaymentRunProposed`, `Released`,
+  `Rejected` and `Failed`, `PaymentExcluded`, and the twelve
+  `BankStatement*` events (imported, gap closed, found and accepted, file
+  refused and changed, line matched, excluded, proposed, proposal decided
+  and posted, reconciled). `PaymentExcluded` gives `supplier_number`
+  beside `supplier_id`. Before, a consumer alerting a treasurer looked both
+  up (REVIEW.md, API-consumer classes: an identifier without the name its
+  consumer needs). Decided by default from procurement's expiry events
+  (ADR-0034, review:batch27), which name the company and the supplier the
+  same way. The fields are optional, as asyncapi's v1 rule and
+  `api/eventcompat.go` require of a new payload field; an event published
+  before them has none.
+- **Where.** `companyCode` reads the code through the `LegalEntities` port
+  (tenancy's `Directory`), never once a line: once a run event, once a
+  statement import (`statementBank.Company`), once a statement's matching
+  (`matcher.company`), once a person's or an agent's decision on a line,
+  once a reconciliation that reconciles something, once a fetched file
+  refused or changed. A change that does several of these (a decision that
+  posts and reconciles, an approval that posts and reconciles) reads it for
+  each, a primary-key read at most three times a request. The proposal names its company by the
+  legal entity it already read (`build`), so the proposal reads nothing
+  more (TestProposalBudget's queries are unchanged). `RefuseFetched`,
+  `ChangedFetched` and `AcceptGap` became methods of `Endpoints` to reach
+  the port; `fail`, `writeMatch`, `rejectLive`, `postMatch` and
+  `reconcileStatements` take the code.
+- **A legal entity the tenancy context does not hold.** Payments'
+  `legal_entity_id` columns have no foreign key into tenancy. There the
+  event goes out without `legal_entity_code` rather than failing the
+  change it records: a proposal failing because its legal entity is
+  missing (`noEntity`) must still record its failure, or the job is
+  retried first in its tenant's queue forever. Procurement's round fails
+  instead, because a round is retried idempotently the next time; the
+  tenancy context failing is an error in both. `apitest.CompanyNamed`
+  checks every payments event the payments and workflows tests read
+  against the directory's code.
+- **The supplier's name is not in `PaymentExcluded`: a question of
+  security posture for the product owner.** The event is marked
+  `x-webhook`, and a webhook subscriber passes no permission check: what
+  the event carries goes to every subscribed endpoint. ADR-0041 keeps
+  partner master data out of webhooks because a partner may be a person
+  (`BusinessPartnerCreated` and `Updated` are not offered). The product
+  owner's answer of 2026-11-02 keeps supplier names on payments and in the
+  payment problems as the record's own content, but for API callers under
+  `payments.run.read`; it does not speak of webhooks. Procurement's
+  `ContractExpired` and `ContractExpiring` (offered to webhooks) have
+  carried `supplier_name` since batch 27 without the question being
+  weighed. So nothing settles whether a supplier's name may go into an
+  event delivered by webhook; the number, an identifier, is given and the
+  name left out. If the answer is yes, `PaymentExcluded` gains an optional
+  `supplier_name`; if no, procurement's expiry events should stop giving
+  theirs.
+- **Decision (problem).** `payments.withholding_too_large` gave the
+  withholding, the cash discount and the amount owed as raw minor units and
+  the item as `fiscal year/entry id/line`. Its detail now gives the amounts
+  in the run's currency at its scale (`0.97 EUR`; a JPY run's without
+  decimals), as the release's refusals give theirs, the item by its
+  journal entry's document number, fiscal year and line with the entry's
+  id, and the supplier by number and name with its id, as
+  `payments.amount_too_large` names it. The supplier's name is the
+  payment's own content in a problem (product owner 2026-11-02, above), so
+  no permission is checked, as `supplierNamed` checks none. The proposal
+  computes without a context, so `takeDiscounts` returns
+  `withholdingTooLarge` and `paymentsFor` names it (`nameRefusal`, which
+  `supplierTooLarge` shares): a supplier or an entry the other context does
+  not hold is named by its id and the run still fails; either context
+  failing is an error, so the job is retried.
+- **Swept.** `payments.statement_amount_differs` gave the two amounts
+  without their currency; it gives the statement's currency now. Left as
+  they are and listed for the coordinator (the same classes, no consumer
+  asked): the payments events give `house_bank_id` without the house
+  bank's code; the bank file events give `payment_run_id` without the
+  run's document number and no company; `payments.no_statement_channel`
+  names the house bank by its id.
+- **Contract.** asyncapi: the optional fields and the examples.
+  openapi: `proposePaymentRun`'s description says what the problem's detail
+  names. No breaking change (eventcompat, oasdiff).
+
 ## As built: SAP house banks in their account's currency (T53a review)
 
 The SAP load of house banks gave every bank its company's currency, so an

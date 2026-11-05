@@ -539,9 +539,38 @@ func record(ctx context.Context, action string, id uuid.UUID, detail map[string]
 	return audit.Record(ctx, action, audit.ObjectTypeOf(action), id, detail, events...)
 }
 
-func runEvent(r Run, name string, payload map[string]any) outbox.Event {
+// runEvent is run r's event, naming its company by company, the code
+// companyCode read for the run's legal entity.
+func runEvent(r Run, company, name string, payload map[string]any) outbox.Event {
 	payload["payment_run_id"], payload["document_number"], payload["legal_entity_id"], payload["status"] = r.ID, r.DocumentNumber, r.LegalEntityID, r.Status
-	return outbox.Event{Context: "payments", Name: name, AggregateType: "payments.payment_run", AggregateID: r.ID, Payload: payload}
+	return outbox.Event{Context: "payments", Name: name, AggregateType: "payments.payment_run", AggregateID: r.ID, Payload: withCompany(payload, company)}
+}
+
+// companyCode is the code of the company (legal entity legalEntity) that a
+// payments event names beside its legal_entity_id, as procurement's expiry
+// events do (REVIEW.md, an identifier without the name its consumer needs):
+// a consumer alerting a treasurer need not look the company up. It is ""
+// for a legal entity the tenancy context does not hold (payments'
+// legal_entity_id columns have no foreign key into tenancy), and the event
+// goes out without the optional field rather than fail the change it
+// records: a proposal failing because its legal entity is missing
+// (noEntity) still records its failure. The tenancy context failing is an
+// error.
+func (e *Endpoints) companyCode(ctx context.Context, legalEntity uuid.UUID) (string, error) {
+	code, _, err := tenancy.CompanyCode(e.LegalEntities)(ctx, legalEntity) // not found: ""
+	if err != nil {
+		return "", fmt.Errorf("payments: the company code of legal entity %s: %w", legalEntity, err)
+	}
+	return code, nil
+}
+
+// withCompany adds the company's code to an event's payload, beside its
+// legal_entity_id, unless code is "" (companyCode).
+func withCompany(payload map[string]any, code string) map[string]any {
+	if code != "" {
+		payload["legal_entity_code"] = code
+	}
+	return payload
 }
 
 func fileEvent(f BankFile, name string, payload map[string]any) outbox.Event {

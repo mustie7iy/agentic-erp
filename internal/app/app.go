@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"time"
 
@@ -172,6 +173,10 @@ type Config struct {
 	// (ERP_PACKS_DIR, refused in production): a demonstration's or a
 	// test's pack not yet released (ADR-0048). Empty: none.
 	UnreleasedPacks string
+	// WebhookReceiver is the walkthrough's webhook receiver, the one
+	// loopback address a subscription may name (ERP_WALKTHROUGH_RECEIVER,
+	// refused outside development, ADR-0041 As built); zero: none.
+	WebhookReceiver netip.AddrPort
 }
 
 // certifications bounds agents' autonomy by their type's certification
@@ -357,7 +362,7 @@ func Integration(cfg Config) *integration.Endpoints {
 	return &integration.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Settings: configuration.Settings{},
 		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{}, Orders: procurementEndpoints(cfg), OrderLocks: procurement.Orders{}, OrderValues: procurement.Orders{},
 		Invoices: payablesEndpoints(cfg, uploads(cfg)), InvoiceCounts: payables.Invoices{}, Invoiced: payables.Invoices{}, Postings: postings(), Reports: ledger.Reports{},
-		Secrets: resolver(cfg.Secrets), Requesters: identity.Actors{}, Keys: cfg.FieldKeys, Resolver: net.DefaultResolver, ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil, RefuseEBICS: cfg.RefuseEBICS}
+		Secrets: resolver(cfg.Secrets), Requesters: identity.Actors{}, Keys: cfg.FieldKeys, Resolver: net.DefaultResolver, Receiver: cfg.WebhookReceiver, ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil, RefuseEBICS: cfg.RefuseEBICS}
 }
 
 // procurementEndpoints is the procurement context as the API wires it.

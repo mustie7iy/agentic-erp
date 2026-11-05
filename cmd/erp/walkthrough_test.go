@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -32,19 +34,25 @@ func TestWalkthrough(t *testing.T) {
 		}
 	}
 	run := exec.CommandContext(t.Context(), "bash", "../../scripts/walkthrough.sh")
-	addrs := freeAddrs(t, 3)
-	// The last value of a variable wins: a developer's own walkthrough
-	// settings (keep the server, stop early, a work directory) do not apply.
-	run.Env = append(os.Environ(), "DATABASE_URL="+db, "WALKTHROUGH_PAUSE=0", "WALKTHROUGH_BIN="+bin,
-		"WALKTHROUGH_API_ADDR="+addrs[0], "WALKTHROUGH_ADMIN_ADDR="+addrs[1], "WALKTHROUGH_MODEL_ADDR="+addrs[2], "WALKTHROUGH_KEEP=0", "WALKTHROUGH_UNTIL=", "WALKTHROUGH_DIR=")
+	// Every listener the walkthrough starts gets a free port: other lanes
+	// run make walkthrough on its default ports on the same machine
+	// (ci:batch56, the SFTP stand-in's 127.0.0.1:18022 taken). The last
+	// value of a variable wins: a developer's own walkthrough settings
+	// (keep the server, stop early, a work directory) do not apply.
+	env := []string{"DATABASE_URL=" + db, "WALKTHROUGH_PAUSE=0", "WALKTHROUGH_BIN=" + bin, "WALKTHROUGH_KEEP=0", "WALKTHROUGH_UNTIL=", "WALKTHROUGH_DIR="}
+	addrs := freeAddrs(t, len(walkthroughListeners))
+	for i, name := range walkthroughListeners {
+		env = append(env, name+"="+addrs[i])
+	}
+	run.Env = append(os.Environ(), env...)
 	start := time.Now()
 	out, err := run.CombinedOutput()
 	if err != nil {
-		t.Fatalf("walkthrough: %v after %s\n%s", err, time.Since(start).Round(time.Second), tail(string(out), 120))
+		t.Fatalf("walkthrough: %v after %s\n%s", err, time.Since(start).Round(time.Second), failure(string(out)))
 	}
 	for _, want := range []string{"Step 15 — GR/IR maintenance", "Step 16 — SAP's open down payment", "Step 17 — The audit trail", "Step 18 — A scanned invoice above the request limit is captured by upload",
 		"Step 19 — Asset accounting", "Step 20 — The asset master", "Step 21 — The liquidity forecast by liquidity item", "Step 22 — Asset acquisitions", "Step 23 — The liquidity forecast opened, converted and drilled down",
-		"Step 24 — Asset corrections", "Step 25 — Depreciation schedule and preview", "Step 26 — Snapshots of the liquidity forecast", "Step 27 — Cash actuals", "Step 28 — Forecast variance", "Step 29 — The depreciation run", "Step 30 — Variance comments", "Step 31 — Asset retirements", "Step 32 — Asset transfers", "Step 33 — Purchase orders", "Step 34 — The asset history sheet", "Step 35 — The treasury connector", "Step 36 — The group liquidity forecast", "Step 37 — Cash actuals in analytics", "Step 38 — The forecast in analytics", "Final step — Financial close", "none failed"} {
+		"Step 24 — Asset corrections", "Step 25 — Depreciation schedule and preview", "Step 26 — Snapshots of the liquidity forecast", "Step 27 — Cash actuals", "Step 28 — Forecast variance", "Step 29 — The depreciation run", "Step 30 — Variance comments", "Step 31 — Asset retirements", "Step 32 — Asset transfers", "Step 33 — Purchase orders", "Step 34 — The asset history sheet", "Step 35 — The treasury connector", "verified true, a changed body refused true", "Step 36 — The group liquidity forecast", "Step 37 — Cash actuals in analytics", "Step 38 — The forecast in analytics", "Final step — Financial close", "none failed"} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("walkthrough output: got\n%s\nwant it to contain %q", tail(string(out), 40), want)
 		}
@@ -106,6 +114,47 @@ func TestWalkthroughDates(t *testing.T) {
 	if got, want := strings.Fields(string(out)), []string{"2027-01-01", "2026-02-28"}; strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("date_add: got %v, want %v", got, want)
 	}
+}
+
+// walkthroughListeners are the variables naming every address
+// scripts/walkthrough.sh listens on (its header lists them with their
+// defaults); TestWalkthroughListeners keeps them equal to the
+// WALKTHROUGH_*_ADDR variables the script names.
+var walkthroughListeners = []string{"WALKTHROUGH_API_ADDR", "WALKTHROUGH_ADMIN_ADDR", "WALKTHROUGH_MODEL_ADDR",
+	"WALKTHROUGH_SFTP_ADDR", "WALKTHROUGH_NATS_ADDR", "WALKTHROUGH_HOOK_ADDR"}
+
+// TestWalkthroughListeners: TestWalkthrough gives a free port to every
+// listener the walkthrough configures through a WALKTHROUGH_*_ADDR
+// variable, wherever the script names one (a default, a local, the
+// header), so a stand-in added that way cannot fall back to a fixed port
+// another lane's walkthrough holds (ci:batch56). A stand-in started on a
+// literal address escapes the check: every listener the script starts so
+// far has its variable, listed in the script's header.
+func TestWalkthroughListeners(t *testing.T) {
+	b, err := os.ReadFile("../../scripts/walkthrough.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	named := regexp.MustCompile(`WALKTHROUGH_[A-Z0-9_]+_ADDR`).FindAllString(string(b), -1)
+	slices.Sort(named)
+	named = slices.Compact(named)
+	want := slices.Sorted(slices.Values(walkthroughListeners))
+	if !slices.Equal(named, want) {
+		t.Errorf("listener addresses scripts/walkthrough.sh names: got %v, want %v (TestWalkthrough's walkthroughListeners)", named, want)
+	}
+}
+
+// failure is what a failed walkthrough said: from a little before its
+// first UNEXPECTED report (which names the step and the reason) to the
+// end, the last answer and the server log fail prints after it included;
+// or its last lines when it reported none.
+func failure(out string) string {
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	at := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "UNEXPECTED") })
+	if at < 0 {
+		return tail(out, 120)
+	}
+	return strings.Join(lines[max(at-10, 0):], "\n")
 }
 
 // freeAddrs are n distinct loopback addresses no one listens on at the

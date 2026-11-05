@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -93,6 +94,7 @@ var (
 )
 
 type item struct {
+	Status   string `json:"s"`
 	Title    string `json:"t"`
 	Ref      string `json:"r"`
 	Source   string `json:"src"`
@@ -291,6 +293,97 @@ func TestTrackerPilotScope(t *testing.T) {
 	}
 	if tagged != pilotItems {
 		t.Errorf("%d leaves carry pilot, want %d: a change to the pilot scope names the product owner's decision and updates pilotItems", tagged, pilotItems)
+	}
+}
+
+// summaryStatus is the status a summary item's children give it (07 §7.5):
+// done when every child is done, to do when every child is still to do,
+// partly done otherwise. A child without a known status is named instead.
+func summaryStatus(children []item) (string, string) {
+	done, todo := 0, 0
+	for _, c := range children {
+		switch c.Status {
+		case "D":
+			done++
+		case "T":
+			todo++
+		case "P":
+		default:
+			return "", c.Title
+		}
+	}
+	switch len(children) {
+	case done:
+		return "D", ""
+	case todo:
+		return "T", ""
+	}
+	return "P", ""
+}
+
+// summaryMismatches lists the summary items (items with a status and
+// children) whose status is not the one their children give them; groups,
+// which carry no status, are only walked.
+func summaryMismatches(items []item, path string, out []string) []string {
+	for _, it := range items {
+		p := it.Title
+		if path != "" {
+			p = path + " / " + it.Title
+		}
+		if len(it.Children) == 0 {
+			continue
+		}
+		if it.Status != "" {
+			want, untracked := summaryStatus(it.Children)
+			switch {
+			case untracked != "":
+				out = append(out, p+": child "+untracked+" has no status or an unknown one; want D, P or T")
+			case it.Status != want:
+				out = append(out, p+": status "+it.Status+", want "+want+" from its children")
+			}
+		}
+		out = summaryMismatches(it.Children, p, out)
+	}
+	return out
+}
+
+// TestTrackerSummaryStatus: a summary item's status is derived from its
+// children, never set apart from them, so a summary cannot read as done while
+// one of its children is open, or stay open once every child is done.
+func TestTrackerSummaryStatus(t *testing.T) {
+	for _, m := range summaryMismatches(readTracker(t), "", nil) {
+		t.Error(m)
+	}
+}
+
+// TestSummaryStatus: the status children give their summary item.
+func TestSummaryStatus(t *testing.T) {
+	for name, tc := range map[string]struct {
+		children []string
+		want     string
+		named    string
+	}{
+		"every child done":          {[]string{"D", "D"}, "D", ""},
+		"every child to do":         {[]string{"T", "T"}, "T", ""},
+		"one child open":            {[]string{"D", "T"}, "P", ""},
+		"a child partly done":       {[]string{"T", "P"}, "P", ""},
+		"every child partly":        {[]string{"P", "P"}, "P", ""},
+		"a child of no status":      {[]string{"D", ""}, "", "child 1"},
+		"a child of unknown status": {[]string{"X", "D"}, "", "child 0"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var children []item
+			for i, s := range tc.children {
+				children = append(children, item{Status: s, Title: "child " + strconv.Itoa(i)})
+			}
+			got, named := summaryStatus(children)
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+			if named != tc.named {
+				t.Errorf("named %q, want %q", named, tc.named)
+			}
+		})
 	}
 }
 

@@ -146,7 +146,7 @@ func offered(t string) bool {
 // checkURL applies the egress client's rules when the URL is written, so a
 // tenant learns at once of an endpoint that could never be reached.
 func (e *Endpoints) checkURL(ctx context.Context, raw string) error {
-	if err := egress.CheckURL(ctx, e.Resolver, raw); err != nil {
+	if err := egress.CheckURL(ctx, e.Resolver, raw, e.Receiver); err != nil {
 		return invalid("integration.invalid_webhook_url", "url",
 			"An https URL without credentials or fragment, whose host resolves (now) to public addresses only; a host that failed to resolve may be retried.")
 	}

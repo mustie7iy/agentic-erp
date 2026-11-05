@@ -200,7 +200,7 @@ func statementFormat(file []byte) string {
 // RefuseFetched records that the import refused the fetched file, once:
 // the first refusal publishes BankStatementFileRefused, and a fetch that
 // runs again finds it recorded and publishes nothing.
-func RefuseFetched(ctx context.Context, houseBank uuid.UUID, name string, sum []byte, refusal *problem.Problem) error {
+func (e *Endpoints) RefuseFetched(ctx context.Context, houseBank uuid.UUID, name string, sum []byte, refusal *problem.Problem) error {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return err
@@ -220,10 +220,14 @@ func RefuseFetched(ctx context.Context, houseBank uuid.UUID, name string, sum []
 	if err != nil {
 		return fmt.Errorf("payments: record the refusal of %s for house bank %s: %w", name, houseBank, err)
 	}
+	company, err := e.companyCode(ctx, legalEntity)
+	if err != nil {
+		return err
+	}
 	return record(ctx, "payments.statement_fetch.refuse", id, map[string]any{"house_bank_id": houseBank, "file_name": name, "code": refusal.Code, "reason": reason},
 		outbox.Event{Context: "payments", Name: "bank_statement_file_refused", AggregateType: "payments.statement_fetch", AggregateID: id,
-			Payload: map[string]any{"statement_fetch_id": id, "house_bank_id": houseBank, "legal_entity_id": legalEntity, "file_name": name,
-				"file_sha256": sha256Hex(sum), "code": refusal.Code, "reason": reason}})
+			Payload: withCompany(map[string]any{"statement_fetch_id": id, "house_bank_id": houseBank, "legal_entity_id": legalEntity, "file_name": name,
+				"file_sha256": sha256Hex(sum), "code": refusal.Code, "reason": reason}, company)})
 }
 
 // ArchivedFetched records that the imported file was moved to the archive
@@ -251,7 +255,7 @@ func ArchivedFetched(ctx context.Context, houseBank uuid.UUID, sum []byte) error
 // is not archived, the change is recorded once with
 // BankStatementFileChanged, and the next fetch imports the content as a
 // new file. A file archived or recorded changed before is left as it is.
-func ChangedFetched(ctx context.Context, houseBank uuid.UUID, sum, now []byte) error {
+func (e *Endpoints) ChangedFetched(ctx context.Context, houseBank uuid.UUID, sum, now []byte) error {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return err
@@ -269,8 +273,12 @@ func ChangedFetched(ctx context.Context, houseBank uuid.UUID, sum, now []byte) e
 	if err != nil {
 		return fmt.Errorf("payments: record the change of file %x for house bank %s: %w", sum, houseBank, err)
 	}
+	company, err := e.companyCode(ctx, legalEntity)
+	if err != nil {
+		return err
+	}
 	return record(ctx, "payments.statement_fetch.change", id, map[string]any{"house_bank_id": houseBank, "file_name": name, "reason": reason},
 		outbox.Event{Context: "payments", Name: "bank_statement_file_changed", AggregateType: "payments.statement_fetch", AggregateID: id,
-			Payload: map[string]any{"statement_fetch_id": id, "house_bank_id": houseBank, "legal_entity_id": legalEntity, "file_name": name,
-				"file_sha256": sha256Hex(sum), "current_sha256": sha256Hex(now)}})
+			Payload: withCompany(map[string]any{"statement_fetch_id": id, "house_bank_id": houseBank, "legal_entity_id": legalEntity, "file_name": name,
+				"file_sha256": sha256Hex(sum), "current_sha256": sha256Hex(now)}, company)})
 }

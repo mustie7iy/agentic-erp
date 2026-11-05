@@ -203,7 +203,7 @@ func TestTaxRatesInUse(t *testing.T) {
 // copy is not refused for the postings that used them.
 func TestTaxRatesBackfilled(t *testing.T) {
 	conn := emptyDatabase(t)
-	migrateBefore(t, conn, 124)
+	migrateBefore(t, conn, "000124_tax_rates")
 	f := fixtureIDs()
 	inTenant(t, conn, f.tenant, func(tx pgx.Tx) error {
 		if err := f.seed(tx); err != nil {

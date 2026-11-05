@@ -91,7 +91,11 @@ func filterOf(p reqctx.Principal, params gen.ListCloseTasksParams) taskFilter {
 
 // ListCloseTasks implements GET /v1/close-tasks: tasks across the closes
 // of the legal entities the caller may act in, in due date, close and
-// code order: a person's worklist.
+// code order: a person's worklist. It pages by its own cursor, so it
+// passes pagination.PlanPerCall itself: from a cached statement's sixth
+// run PostgreSQL took a generic plan that keeps every optional condition
+// as a filter and reads all the tenant's closes and tasks (72,000 tasks:
+// 0.3-1.9 ms to 23-55 ms a page).
 func (e *Endpoints) ListCloseTasks(ctx context.Context, params gen.ListCloseTasksParams) (gen.ListCloseTasksRes, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -119,7 +123,7 @@ func (e *Endpoints) ListCloseTasks(ctx context.Context, params gen.ListCloseTask
 	rows, _ := tx.Query(ctx, taskSelect+` WHERE ($1 OR c.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR t.assignee_id = $3)
 			AND ($4::uuid IS NULL OR c.legal_entity_id = $4) AND ($5::uuid IS NULL OR t.close_id = $5) AND ($6 = '' OR t.status = $6)
 			AND ($7::date IS NULL OR t.due_on < $7) AND ($8::date IS NULL OR (t.due_on, t.close_id, t.code) > ($8::date, $9::uuid, $10::text))
-		ORDER BY t.due_on, t.close_id, t.code LIMIT $11`,
+		ORDER BY t.due_on, t.close_id, t.code LIMIT $11`, pagination.PlanPerCall,
 		access.All, access.IDs, f.assignee, f.legalEntity, f.closeID, f.status, f.dueBefore, afterDue, after.Close, after.Code, size+1)
 	ts, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (task, error) { return scanTask(r) })
 	if err != nil {

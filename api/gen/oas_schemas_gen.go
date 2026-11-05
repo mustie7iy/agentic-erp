@@ -434,6 +434,762 @@ func (s *AccountPage) SetTotalEstimate(val OptInt64) {
 
 func (*AccountPage) listAccountsRes() {}
 
+// A document an accrual proposal rests on, as it was when cited (its number does not change).
+// Ref: #/components/schemas/AccrualEvidence
+type AccrualEvidence struct {
+	// `supplier_invoice`, `purchase_order` or `journal_entry`. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Kind string `json:"kind"`
+	// The document (`GET /v1/supplier-invoices/{id}`, `/v1/purchase-orders/{id}` or
+	// `/v1/journal-entries/{id}`).
+	DocumentID uuid.UUID `json:"document_id"`
+	// Its document number.
+	DocumentNumber string `json:"document_number"`
+	// A journal entry's fiscal year; absent for an invoice or an order.
+	FiscalYear OptInt32 `json:"fiscal_year"`
+	// An invoice's or an order's supplier; absent for a journal entry.
+	SupplierID OptUUID `json:"supplier_id"`
+	// Its business partner number; absent for a journal entry, and for a caller who may not read business
+	// partners (`partner.supplier.read`).
+	SupplierNumber OptString `json:"supplier_number"`
+	// Its name; absent as `supplier_number` is.
+	SupplierName OptString `json:"supplier_name"`
+}
+
+// GetKind returns the value of Kind.
+func (s *AccrualEvidence) GetKind() string {
+	return s.Kind
+}
+
+// GetDocumentID returns the value of DocumentID.
+func (s *AccrualEvidence) GetDocumentID() uuid.UUID {
+	return s.DocumentID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *AccrualEvidence) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AccrualEvidence) GetFiscalYear() OptInt32 {
+	return s.FiscalYear
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *AccrualEvidence) GetSupplierID() OptUUID {
+	return s.SupplierID
+}
+
+// GetSupplierNumber returns the value of SupplierNumber.
+func (s *AccrualEvidence) GetSupplierNumber() OptString {
+	return s.SupplierNumber
+}
+
+// GetSupplierName returns the value of SupplierName.
+func (s *AccrualEvidence) GetSupplierName() OptString {
+	return s.SupplierName
+}
+
+// SetKind sets the value of Kind.
+func (s *AccrualEvidence) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetDocumentID sets the value of DocumentID.
+func (s *AccrualEvidence) SetDocumentID(val uuid.UUID) {
+	s.DocumentID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *AccrualEvidence) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AccrualEvidence) SetFiscalYear(val OptInt32) {
+	s.FiscalYear = val
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *AccrualEvidence) SetSupplierID(val OptUUID) {
+	s.SupplierID = val
+}
+
+// SetSupplierNumber sets the value of SupplierNumber.
+func (s *AccrualEvidence) SetSupplierNumber(val OptString) {
+	s.SupplierNumber = val
+}
+
+// SetSupplierName sets the value of SupplierName.
+func (s *AccrualEvidence) SetSupplierName(val OptString) {
+	s.SupplierName = val
+}
+
+// A document an accrual proposal rests on.
+// Ref: #/components/schemas/AccrualEvidenceInput
+type AccrualEvidenceInput struct {
+	// `supplier_invoice` (a posted supplier invoice of the company, `GET /v1/supplier-invoices/{id}`),
+	// `purchase_order` (a released purchase order of the company, `GET /v1/purchase-orders/{id}`) or
+	// `journal_entry` (a journal entry of the company posted in the leading ledger,
+	// `GET /v1/journal-entries/{id}`). Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Kind string `json:"kind"`
+	// The document.
+	DocumentID uuid.UUID `json:"document_id"`
+}
+
+// GetKind returns the value of Kind.
+func (s *AccrualEvidenceInput) GetKind() string {
+	return s.Kind
+}
+
+// GetDocumentID returns the value of DocumentID.
+func (s *AccrualEvidenceInput) GetDocumentID() uuid.UUID {
+	return s.DocumentID
+}
+
+// SetKind sets the value of Kind.
+func (s *AccrualEvidenceInput) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetDocumentID sets the value of DocumentID.
+func (s *AccrualEvidenceInput) SetDocumentID(val uuid.UUID) {
+	s.DocumentID = val
+}
+
+// An accrual the close agent proposed for a period close (ADR-0058 §8, T64e): one expense of the
+// close's period, in the company's local currency, parked as a journal entry for a person to post,
+// with the evidence it rests on.
+// Ref: #/components/schemas/AccrualProposal
+type AccrualProposal struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The period close (`GET /v1/period-closes/{id}`).
+	CloseID uuid.UUID `json:"close_id"`
+	// The close's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The close's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The close's regular period.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The agent's session it was proposed in (`GET /v1/agent-sessions/{id}`).
+	SessionID uuid.UUID `json:"session_id"`
+	// The agent that proposed it.
+	AgentID uuid.UUID `json:"agent_id"`
+	// Its name.
+	AgentName string `json:"agent_name"`
+	// The expense account, debited.
+	AccountID uuid.UUID `json:"account_id"`
+	// Its number.
+	AccountNumber string `json:"account_number"`
+	// Its name, as it was when proposed.
+	AccountName string `json:"account_name"`
+	// The company's accrual account (`companies[].close.accrual_account`), credited.
+	AccrualAccountID uuid.UUID `json:"accrual_account_id"`
+	// Its number.
+	AccrualAccountNumber string `json:"accrual_account_number"`
+	// Its name, as it was when proposed.
+	AccrualAccountName string `json:"accrual_account_name"`
+	// The expense line's cost center; absent without one.
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// Its code; absent without one.
+	CostCenterCode OptString `json:"cost_center_code"`
+	// Its name, as it was when proposed; absent without one.
+	CostCenterName OptString `json:"cost_center_name"`
+	// The profit center of both lines, given or derived from the expense line; absent without one.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// Its code; absent without one.
+	ProfitCenterCode OptString `json:"profit_center_code"`
+	// Its name, as it was when proposed; absent without one.
+	ProfitCenterName OptString `json:"profit_center_name"`
+	// The supplier the expense is for; absent without one.
+	SupplierID OptUUID `json:"supplier_id"`
+	// Its business partner number; absent without a supplier, and for a caller who may not read business
+	// partners (`partner.supplier.read`).
+	SupplierNumber OptString `json:"supplier_number"`
+	// Its name; absent as `supplier_number` is.
+	SupplierName OptString `json:"supplier_name"`
+	// The expense proposed, in the company's local currency: the parked entry's debit as parked.
+	Amount Money `json:"amount"`
+	// What the expense is; the parked entry's line text.
+	Description string `json:"description"`
+	// Why the agent proposed it.
+	Reason string `json:"reason"`
+	// What it rests on, in the order given.
+	Evidence []AccrualEvidence `json:"evidence"`
+	// The journal entry parked for it (`GET /v1/parked-journal-entries/{id}`), which a person posts, edits
+	// or cancels; what was done with it is read there.
+	ParkedEntryID uuid.UUID `json:"parked_entry_id"`
+	// The parked entry's posting and document date, the last day of the close's period.
+	PostingDate time.Time `json:"posting_date"`
+	// `proposed`: its parked entry waits for a person, who decides it in the ledger. Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The proposal's version, its ETag.
+	Version int32 `json:"version"`
+	// When it was proposed.
+	CreatedAt time.Time `json:"created_at"`
+	// When it last changed.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *AccrualProposal) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCloseID returns the value of CloseID.
+func (s *AccrualProposal) GetCloseID() uuid.UUID {
+	return s.CloseID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AccrualProposal) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *AccrualProposal) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *AccrualProposal) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AccrualProposal) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *AccrualProposal) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetSessionID returns the value of SessionID.
+func (s *AccrualProposal) GetSessionID() uuid.UUID {
+	return s.SessionID
+}
+
+// GetAgentID returns the value of AgentID.
+func (s *AccrualProposal) GetAgentID() uuid.UUID {
+	return s.AgentID
+}
+
+// GetAgentName returns the value of AgentName.
+func (s *AccrualProposal) GetAgentName() string {
+	return s.AgentName
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *AccrualProposal) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *AccrualProposal) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *AccrualProposal) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetAccrualAccountID returns the value of AccrualAccountID.
+func (s *AccrualProposal) GetAccrualAccountID() uuid.UUID {
+	return s.AccrualAccountID
+}
+
+// GetAccrualAccountNumber returns the value of AccrualAccountNumber.
+func (s *AccrualProposal) GetAccrualAccountNumber() string {
+	return s.AccrualAccountNumber
+}
+
+// GetAccrualAccountName returns the value of AccrualAccountName.
+func (s *AccrualProposal) GetAccrualAccountName() string {
+	return s.AccrualAccountName
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *AccrualProposal) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *AccrualProposal) GetCostCenterCode() OptString {
+	return s.CostCenterCode
+}
+
+// GetCostCenterName returns the value of CostCenterName.
+func (s *AccrualProposal) GetCostCenterName() OptString {
+	return s.CostCenterName
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *AccrualProposal) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetProfitCenterCode returns the value of ProfitCenterCode.
+func (s *AccrualProposal) GetProfitCenterCode() OptString {
+	return s.ProfitCenterCode
+}
+
+// GetProfitCenterName returns the value of ProfitCenterName.
+func (s *AccrualProposal) GetProfitCenterName() OptString {
+	return s.ProfitCenterName
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *AccrualProposal) GetSupplierID() OptUUID {
+	return s.SupplierID
+}
+
+// GetSupplierNumber returns the value of SupplierNumber.
+func (s *AccrualProposal) GetSupplierNumber() OptString {
+	return s.SupplierNumber
+}
+
+// GetSupplierName returns the value of SupplierName.
+func (s *AccrualProposal) GetSupplierName() OptString {
+	return s.SupplierName
+}
+
+// GetAmount returns the value of Amount.
+func (s *AccrualProposal) GetAmount() Money {
+	return s.Amount
+}
+
+// GetDescription returns the value of Description.
+func (s *AccrualProposal) GetDescription() string {
+	return s.Description
+}
+
+// GetReason returns the value of Reason.
+func (s *AccrualProposal) GetReason() string {
+	return s.Reason
+}
+
+// GetEvidence returns the value of Evidence.
+func (s *AccrualProposal) GetEvidence() []AccrualEvidence {
+	return s.Evidence
+}
+
+// GetParkedEntryID returns the value of ParkedEntryID.
+func (s *AccrualProposal) GetParkedEntryID() uuid.UUID {
+	return s.ParkedEntryID
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AccrualProposal) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetStatus returns the value of Status.
+func (s *AccrualProposal) GetStatus() string {
+	return s.Status
+}
+
+// GetVersion returns the value of Version.
+func (s *AccrualProposal) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *AccrualProposal) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *AccrualProposal) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *AccrualProposal) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCloseID sets the value of CloseID.
+func (s *AccrualProposal) SetCloseID(val uuid.UUID) {
+	s.CloseID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AccrualProposal) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *AccrualProposal) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *AccrualProposal) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AccrualProposal) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *AccrualProposal) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetSessionID sets the value of SessionID.
+func (s *AccrualProposal) SetSessionID(val uuid.UUID) {
+	s.SessionID = val
+}
+
+// SetAgentID sets the value of AgentID.
+func (s *AccrualProposal) SetAgentID(val uuid.UUID) {
+	s.AgentID = val
+}
+
+// SetAgentName sets the value of AgentName.
+func (s *AccrualProposal) SetAgentName(val string) {
+	s.AgentName = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *AccrualProposal) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *AccrualProposal) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *AccrualProposal) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetAccrualAccountID sets the value of AccrualAccountID.
+func (s *AccrualProposal) SetAccrualAccountID(val uuid.UUID) {
+	s.AccrualAccountID = val
+}
+
+// SetAccrualAccountNumber sets the value of AccrualAccountNumber.
+func (s *AccrualProposal) SetAccrualAccountNumber(val string) {
+	s.AccrualAccountNumber = val
+}
+
+// SetAccrualAccountName sets the value of AccrualAccountName.
+func (s *AccrualProposal) SetAccrualAccountName(val string) {
+	s.AccrualAccountName = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *AccrualProposal) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *AccrualProposal) SetCostCenterCode(val OptString) {
+	s.CostCenterCode = val
+}
+
+// SetCostCenterName sets the value of CostCenterName.
+func (s *AccrualProposal) SetCostCenterName(val OptString) {
+	s.CostCenterName = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *AccrualProposal) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetProfitCenterCode sets the value of ProfitCenterCode.
+func (s *AccrualProposal) SetProfitCenterCode(val OptString) {
+	s.ProfitCenterCode = val
+}
+
+// SetProfitCenterName sets the value of ProfitCenterName.
+func (s *AccrualProposal) SetProfitCenterName(val OptString) {
+	s.ProfitCenterName = val
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *AccrualProposal) SetSupplierID(val OptUUID) {
+	s.SupplierID = val
+}
+
+// SetSupplierNumber sets the value of SupplierNumber.
+func (s *AccrualProposal) SetSupplierNumber(val OptString) {
+	s.SupplierNumber = val
+}
+
+// SetSupplierName sets the value of SupplierName.
+func (s *AccrualProposal) SetSupplierName(val OptString) {
+	s.SupplierName = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AccrualProposal) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetDescription sets the value of Description.
+func (s *AccrualProposal) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetReason sets the value of Reason.
+func (s *AccrualProposal) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetEvidence sets the value of Evidence.
+func (s *AccrualProposal) SetEvidence(val []AccrualEvidence) {
+	s.Evidence = val
+}
+
+// SetParkedEntryID sets the value of ParkedEntryID.
+func (s *AccrualProposal) SetParkedEntryID(val uuid.UUID) {
+	s.ParkedEntryID = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AccrualProposal) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetStatus sets the value of Status.
+func (s *AccrualProposal) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetVersion sets the value of Version.
+func (s *AccrualProposal) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *AccrualProposal) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *AccrualProposal) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// AccrualProposalHeaders wraps AccrualProposal with response headers.
+type AccrualProposalHeaders struct {
+	ETag     OptString
+	Location OptString
+	Response AccrualProposal
+}
+
+// GetETag returns the value of ETag.
+func (s *AccrualProposalHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetLocation returns the value of Location.
+func (s *AccrualProposalHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *AccrualProposalHeaders) GetResponse() AccrualProposal {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *AccrualProposalHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetLocation sets the value of Location.
+func (s *AccrualProposalHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AccrualProposalHeaders) SetResponse(val AccrualProposal) {
+	s.Response = val
+}
+
+func (*AccrualProposalHeaders) proposeAccrualRes() {}
+
+// An agent's proposed accrual of one expense of a period close's period, in its running session
+// (ADR-0058 §8).
+// Ref: #/components/schemas/AccrualProposalInput
+type AccrualProposalInput struct {
+	// The agent's running session (`startAgentSession`).
+	SessionID uuid.UUID `json:"session_id"`
+	// The period close (`GET /v1/period-closes/{id}`).
+	CloseID uuid.UUID `json:"close_id"`
+	// The expense account: a profit and loss account set up and postable in the close's company, no
+	// reconciliation account (`GET /v1/accounts`).
+	AccountID uuid.UUID `json:"account_id"`
+	// The expense line's cost center (`GET /v1/cost-centers`), checked as a posting checks it; none when
+	// absent.
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// The profit center of both lines (`GET /v1/profit-centers`), checked as a posting checks it; when
+	// absent, both lines take the one a posting of the expense line derives (its cost center's, or the
+	// company's default), if any.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// The supplier whose service or goods the expense is for (`GET /v1/business-partners/{id}`); none when
+	// absent.
+	SupplierID OptUUID `json:"supplier_id"`
+	// The expense, in the company's local currency, more than zero.
+	Amount Money `json:"amount"`
+	// What the expense is; the parked entry's line text.
+	Description string `json:"description"`
+	// Why the agent proposes it: what the evidence shows.
+	Reason string `json:"reason"`
+	// What the proposal rests on, in the order given.
+	Evidence []AccrualEvidenceInput `json:"evidence"`
+}
+
+// GetSessionID returns the value of SessionID.
+func (s *AccrualProposalInput) GetSessionID() uuid.UUID {
+	return s.SessionID
+}
+
+// GetCloseID returns the value of CloseID.
+func (s *AccrualProposalInput) GetCloseID() uuid.UUID {
+	return s.CloseID
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *AccrualProposalInput) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *AccrualProposalInput) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *AccrualProposalInput) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *AccrualProposalInput) GetSupplierID() OptUUID {
+	return s.SupplierID
+}
+
+// GetAmount returns the value of Amount.
+func (s *AccrualProposalInput) GetAmount() Money {
+	return s.Amount
+}
+
+// GetDescription returns the value of Description.
+func (s *AccrualProposalInput) GetDescription() string {
+	return s.Description
+}
+
+// GetReason returns the value of Reason.
+func (s *AccrualProposalInput) GetReason() string {
+	return s.Reason
+}
+
+// GetEvidence returns the value of Evidence.
+func (s *AccrualProposalInput) GetEvidence() []AccrualEvidenceInput {
+	return s.Evidence
+}
+
+// SetSessionID sets the value of SessionID.
+func (s *AccrualProposalInput) SetSessionID(val uuid.UUID) {
+	s.SessionID = val
+}
+
+// SetCloseID sets the value of CloseID.
+func (s *AccrualProposalInput) SetCloseID(val uuid.UUID) {
+	s.CloseID = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *AccrualProposalInput) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *AccrualProposalInput) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *AccrualProposalInput) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *AccrualProposalInput) SetSupplierID(val OptUUID) {
+	s.SupplierID = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AccrualProposalInput) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetDescription sets the value of Description.
+func (s *AccrualProposalInput) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetReason sets the value of Reason.
+func (s *AccrualProposalInput) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetEvidence sets the value of Evidence.
+func (s *AccrualProposalInput) SetEvidence(val []AccrualEvidenceInput) {
+	s.Evidence = val
+}
+
+// One page of accrual proposals.
+// Ref: #/components/schemas/AccrualProposalPage
+type AccrualProposalPage struct {
+	// The accrual proposals on this page.
+	Items []AccrualProposal `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *AccrualProposalPage) GetItems() []AccrualProposal {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AccrualProposalPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *AccrualProposalPage) SetItems(val []AccrualProposal) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AccrualProposalPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*AccrualProposalPage) listAccrualProposalsRes() {}
+
 type ActivateChangeRequestBadRequest Problem
 
 func (*ActivateChangeRequestBadRequest) activateChangeRequestRes() {}
@@ -18318,6 +19074,7 @@ func (*ConflictHeaders) endRolePermissionRes()                {}
 func (*ConflictHeaders) endSodRuleRes()                       {}
 func (*ConflictHeaders) excludeBankStatementLineRes()         {}
 func (*ConflictHeaders) fileTaxReturnRes()                    {}
+func (*ConflictHeaders) getAccrualProposalRes()               {}
 func (*ConflictHeaders) getAnalyticsModelRes()                {}
 func (*ConflictHeaders) getBankFileContentRes()               {}
 func (*ConflictHeaders) getCloseCalendarRes()                 {}
@@ -18330,6 +19087,7 @@ func (*ConflictHeaders) getVarianceCommentRes()               {}
 func (*ConflictHeaders) grantRolePermissionRes()              {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()              {}
 func (*ConflictHeaders) importBankStatementsRes()             {}
+func (*ConflictHeaders) listAccrualProposalsRes()             {}
 func (*ConflictHeaders) listCloseTasksRes()                   {}
 func (*ConflictHeaders) listPeriodCloseVariancesRes()         {}
 func (*ConflictHeaders) listPeriodClosesRes()                 {}
@@ -18361,6 +19119,7 @@ func (*ConflictHeaders) postSupplierInvoiceRes()              {}
 func (*ConflictHeaders) prepareTaxReturnRes()                 {}
 func (*ConflictHeaders) previewDepreciationRunRes()           {}
 func (*ConflictHeaders) previewRevaluationRes()               {}
+func (*ConflictHeaders) proposeAccrualRes()                   {}
 func (*ConflictHeaders) proposeBankStatementLineRes()         {}
 func (*ConflictHeaders) proposeMemoRecordRes()                {}
 func (*ConflictHeaders) proposePaymentRunRes()                {}
@@ -26246,6 +27005,46 @@ func (*GetAccountForbidden) getAccountRes() {}
 type GetAccountNotFound Problem
 
 func (*GetAccountNotFound) getAccountRes() {}
+
+type GetAccrualProposalBadRequest Problem
+
+func (*GetAccrualProposalBadRequest) getAccrualProposalRes() {}
+
+type GetAccrualProposalForbidden Problem
+
+func (*GetAccrualProposalForbidden) getAccrualProposalRes() {}
+
+type GetAccrualProposalNotFound Problem
+
+func (*GetAccrualProposalNotFound) getAccrualProposalRes() {}
+
+// GetAccrualProposalOKHeaders wraps AccrualProposal with response headers.
+type GetAccrualProposalOKHeaders struct {
+	ETag     OptString
+	Response AccrualProposal
+}
+
+// GetETag returns the value of ETag.
+func (s *GetAccrualProposalOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetAccrualProposalOKHeaders) GetResponse() AccrualProposal {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetAccrualProposalOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetAccrualProposalOKHeaders) SetResponse(val AccrualProposal) {
+	s.Response = val
+}
+
+func (*GetAccrualProposalOKHeaders) getAccrualProposalRes() {}
 
 type GetAgentSessionBadRequest Problem
 
@@ -35132,6 +35931,14 @@ func (*ListAccountsBadRequest) listAccountsRes() {}
 type ListAccountsForbidden Problem
 
 func (*ListAccountsForbidden) listAccountsRes() {}
+
+type ListAccrualProposalsBadRequest Problem
+
+func (*ListAccrualProposalsBadRequest) listAccrualProposalsRes() {}
+
+type ListAccrualProposalsForbidden Problem
+
+func (*ListAccrualProposalsForbidden) listAccrualProposalsRes() {}
 
 type ListAgentSessionsBadRequest Problem
 
@@ -50830,6 +51637,76 @@ func (s *ProfitCenterPlanActualPage) SetNextPageToken(val OptString) {
 
 func (*ProfitCenterPlanActualPage) listProfitCenterPlanActualRes() {}
 
+type ProposeAccrualBadRequest Problem
+
+func (*ProposeAccrualBadRequest) proposeAccrualRes() {}
+
+// ProposeAccrualCreatedHeaders wraps AccrualProposal with response headers.
+type ProposeAccrualCreatedHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           AccrualProposal
+}
+
+// GetETag returns the value of ETag.
+func (s *ProposeAccrualCreatedHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ProposeAccrualCreatedHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *ProposeAccrualCreatedHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *ProposeAccrualCreatedHeaders) GetResponse() AccrualProposal {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ProposeAccrualCreatedHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ProposeAccrualCreatedHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *ProposeAccrualCreatedHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ProposeAccrualCreatedHeaders) SetResponse(val AccrualProposal) {
+	s.Response = val
+}
+
+func (*ProposeAccrualCreatedHeaders) proposeAccrualRes() {}
+
+type ProposeAccrualForbidden Problem
+
+func (*ProposeAccrualForbidden) proposeAccrualRes() {}
+
+type ProposeAccrualNotFound Problem
+
+func (*ProposeAccrualNotFound) proposeAccrualRes() {}
+
+type ProposeAccrualPreconditionRequired Problem
+
+func (*ProposeAccrualPreconditionRequired) proposeAccrualRes() {}
+
+type ProposeAccrualUnprocessableEntity Problem
+
+func (*ProposeAccrualUnprocessableEntity) proposeAccrualRes() {}
+
 type ProposeBankStatementLineBadRequest Problem
 
 func (*ProposeBankStatementLineBadRequest) proposeBankStatementLineRes() {}
@@ -56810,6 +57687,7 @@ func (*ServiceUnavailableHeaders) postParkedJournalEntryRes()           {}
 func (*ServiceUnavailableHeaders) postRevaluationRunRes()               {}
 func (*ServiceUnavailableHeaders) postSupplierInvoiceRes()              {}
 func (*ServiceUnavailableHeaders) prepareTaxReturnRes()                 {}
+func (*ServiceUnavailableHeaders) proposeAccrualRes()                   {}
 func (*ServiceUnavailableHeaders) proposeBankStatementLineRes()         {}
 func (*ServiceUnavailableHeaders) proposeMemoRecordRes()                {}
 func (*ServiceUnavailableHeaders) proposePaymentRunRes()                {}
@@ -61145,6 +62023,7 @@ func (*TooManyRequestsHeaders) endSodRuleRes()                       {}
 func (*TooManyRequestsHeaders) excludeBankStatementLineRes()         {}
 func (*TooManyRequestsHeaders) fileTaxReturnRes()                    {}
 func (*TooManyRequestsHeaders) getAccountRes()                       {}
+func (*TooManyRequestsHeaders) getAccrualProposalRes()               {}
 func (*TooManyRequestsHeaders) getAgentSessionRes()                  {}
 func (*TooManyRequestsHeaders) getAiPolicyRes()                      {}
 func (*TooManyRequestsHeaders) getAiUsageRes()                       {}
@@ -61232,6 +62111,7 @@ func (*TooManyRequestsHeaders) grantRolePermissionRes()              {}
 func (*TooManyRequestsHeaders) holdSupplierInvoiceRes()              {}
 func (*TooManyRequestsHeaders) importBankStatementsRes()             {}
 func (*TooManyRequestsHeaders) listAccountsRes()                     {}
+func (*TooManyRequestsHeaders) listAccrualProposalsRes()             {}
 func (*TooManyRequestsHeaders) listAgentSessionsRes()                {}
 func (*TooManyRequestsHeaders) listAgentToolCallsRes()               {}
 func (*TooManyRequestsHeaders) listApprovalRequestsRes()             {}
@@ -61351,6 +62231,7 @@ func (*TooManyRequestsHeaders) postSupplierInvoiceRes()              {}
 func (*TooManyRequestsHeaders) prepareTaxReturnRes()                 {}
 func (*TooManyRequestsHeaders) previewDepreciationRunRes()           {}
 func (*TooManyRequestsHeaders) previewRevaluationRes()               {}
+func (*TooManyRequestsHeaders) proposeAccrualRes()                   {}
 func (*TooManyRequestsHeaders) proposeBankStatementLineRes()         {}
 func (*TooManyRequestsHeaders) proposeMemoRecordRes()                {}
 func (*TooManyRequestsHeaders) proposePaymentRunRes()                {}
@@ -61568,6 +62449,7 @@ func (*UnauthorizedHeaders) endSodRuleRes()                       {}
 func (*UnauthorizedHeaders) excludeBankStatementLineRes()         {}
 func (*UnauthorizedHeaders) fileTaxReturnRes()                    {}
 func (*UnauthorizedHeaders) getAccountRes()                       {}
+func (*UnauthorizedHeaders) getAccrualProposalRes()               {}
 func (*UnauthorizedHeaders) getAgentSessionRes()                  {}
 func (*UnauthorizedHeaders) getAiPolicyRes()                      {}
 func (*UnauthorizedHeaders) getAiUsageRes()                       {}
@@ -61655,6 +62537,7 @@ func (*UnauthorizedHeaders) grantRolePermissionRes()              {}
 func (*UnauthorizedHeaders) holdSupplierInvoiceRes()              {}
 func (*UnauthorizedHeaders) importBankStatementsRes()             {}
 func (*UnauthorizedHeaders) listAccountsRes()                     {}
+func (*UnauthorizedHeaders) listAccrualProposalsRes()             {}
 func (*UnauthorizedHeaders) listAgentSessionsRes()                {}
 func (*UnauthorizedHeaders) listAgentToolCallsRes()               {}
 func (*UnauthorizedHeaders) listApprovalRequestsRes()             {}
@@ -61774,6 +62657,7 @@ func (*UnauthorizedHeaders) postSupplierInvoiceRes()              {}
 func (*UnauthorizedHeaders) prepareTaxReturnRes()                 {}
 func (*UnauthorizedHeaders) previewDepreciationRunRes()           {}
 func (*UnauthorizedHeaders) previewRevaluationRes()               {}
+func (*UnauthorizedHeaders) proposeAccrualRes()                   {}
 func (*UnauthorizedHeaders) proposeBankStatementLineRes()         {}
 func (*UnauthorizedHeaders) proposeMemoRecordRes()                {}
 func (*UnauthorizedHeaders) proposePaymentRunRes()                {}

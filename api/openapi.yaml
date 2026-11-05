@@ -9542,7 +9542,7 @@ paths:
       tags:
         - procurement
       summary: Get the purchase order document for the supplier
-      description: "The order as a plain-text document (UTF-8) to send to the supplier, rendered from the stored order at the time of the call (ADR-0054): the buyer company, the supplier's name, number and address (its `order_from` address valid today, else its `legal` one; none when neither is held), the document number, revision, order date and currency, the purchasing organisation, the payment term with its description, the date the requisition needed the goods by, and each item with its quantity, unit, price per price unit, tax code and amount, with the order's total. Only a `released` or `closed` order has one (409 `procurement.invalid_status`). Producing it changes nothing: transmission to the supplier by email or EDI is not built (post-pilot)."
+      description: "The order as a plain-text document (UTF-8) to send to the supplier, rendered from the stored order at the time of the call (ADR-0054): the buyer company, the supplier's name, number and address (its `order_from` address valid today, else its `legal` one; none when neither is held), the document number, revision, order date and currency, the purchasing organisation, the payment term with its description, and each item with its quantity, unit, price per price unit, tax code, amount and its own delivery date when it has one, with the order's total; the date the requisition needed the goods by is printed for the items without a delivery date of their own. Only a `released` or `closed` order has one (409 `procurement.invalid_status`). Producing it changes nothing: transmission to the supplier by email or EDI is not built (post-pilot)."
       x-permission: procurement.order.read
       x-problem-codes:
         - procurement.amount_too_large
@@ -12246,7 +12246,7 @@ paths:
       tags:
         - payments
       summary: Propose a payment run
-      description: "Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then selects due open items, applies exclusions (blocks, missing or recently changed bank details) and reserves the items; the run becomes `proposed`, or `failed`. Runs can exceed 100,000 items, so this returns an Operation. A run that takes cash discount in a legal entity without a cash discount account fails with 422 `payments.no_cash_discount_account` (T36d). A withholding tax deducted at payment that, rounded after the cash discount, would take all an item owes fails it with 422 `payments.withholding_too_large` (T46f). Open items that add up to more than an amount can hold fail it with 422 `payments.amount_too_large`, whose `detail` names the supplier by its number and name when one supplier's items do, or the run."
+      description: "Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then selects due open items, applies exclusions (blocks, missing or recently changed bank details) and reserves the items; the run becomes `proposed`, or `failed`. Runs can exceed 100,000 items, so this returns an Operation. A run that takes cash discount in a legal entity without a cash discount account fails with 422 `payments.no_cash_discount_account` (T36d). A withholding tax deducted at payment that, rounded after the cash discount, would take all an item owes fails it with 422 `payments.withholding_too_large` (T46f), whose `detail` names the item by its journal entry's document number, fiscal year and line, the supplier by its number and name, and the amounts in the run's currency. Open items that add up to more than an amount can hold fail it with 422 `payments.amount_too_large`, whose `detail` names the supplier by its number and name when one supplier's items do, or the run."
       x-permission: payments.run.propose
       x-problem-codes:
         - config.no_number_range
@@ -14271,6 +14271,218 @@ paths:
           $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/accrual-proposals:
+    post:
+      operationId: proposeAccrual
+      tags:
+        - closing
+      summary: Propose an accrual
+      description: "The close agent proposes one expense the close's period bore and the ledger does not show yet (ADR-0058 §8, T64e): the close, an expense account (a profit and loss account of the company, set up and postable in it, no reconciliation account: 422 `closing.accrual_account_invalid` on `account_id`) with its cost and profit center, an optional supplier (any business partner of the tenant; 422 `request.reference_not_found` on `supplier_id` for no business partner), the amount in the company's local currency, more than zero (422 `request.invalid_amount`), a description, a reason, and 1-10 evidence items: supplier invoices of the company that are posted, purchase orders of the company that are released and journal entries of the company posted in the leading ledger (422 `closing.evidence_unknown` on `evidence[i]` otherwise). Made in the agent's running session (`session_id`; another's or an ended one is refused as `proposeMemoRecord` refuses it); agents only (403 `agents.not_an_agent`). Under a lock on the close, it refuses a close whose company configures no accrual account (`companies[].close.accrual_account`; 409 `closing.accrual_account_missing`) and a duplicate: a proposal of the same close, expense account, cost center and supplier that is not rejected is 409 `closing.accrual_duplicate`, naming it, with its `Location`, unless it is this session's with the same content (account, centers, supplier, amount, description, reason and evidence), which answers 200 with it: a retried proposal. Else it parks a journal entry as the agent (`parkJournalEntry`'s checks and problems, the centers checked as a posting checks them), dated on the period's last day (document and posting date), in local currency, its header text naming the proposal: Dr the expense account with the centers, Cr the accrual account with the expense line's profit center (the one given, or the one a posting of the expense line derives: its cost center's, or the company's default), each line's text the description. A person posts it (`postParkedJournalEntry`, within their approval limit), edits it or cancels it; the agent never posts it. A signed-off close whose covered periods are all locked refuses the proposal (409 `closing.close_signed_off`), and once one of them was unlocked it sets the close open again first (PeriodCloseChanged `reopened`, ADR-0058 §7). Since it parks a ledger entry, besides `closing.accrual.propose` the caller needs `ledger.entry.park` (`x-also-permissions`). Audited, and published as AccrualProposed (and ParkedJournalEntryChanged for the entry)."
+      x-permission: closing.accrual.propose
+      x-also-permissions:
+        - ledger.entry.park
+      x-autonomy: propose
+      x-problem-codes:
+        - agents.not_an_agent
+        - agents.not_your_session
+        - agents.session_ended
+        - closing.accrual_account_invalid
+        - closing.accrual_account_missing
+        - closing.accrual_duplicate
+        - closing.close_exists
+        - closing.close_signed_off
+        - closing.evidence_unknown
+        - config.not_bootstrapped
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of proposeAccrual.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccrualProposalInput"
+      responses:
+        "200":
+          description: "The same proposal again; the proposal the session made."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccrualProposal"
+        "201":
+          description: "Proposed; the proposal, `proposed`, with its parked entry."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccrualProposal"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    get:
+      operationId: listAccrualProposals
+      tags:
+        - closing
+      summary: List accrual proposals
+      description: "The accrual proposals of the period closes of the legal entities the caller may act in (ADR-0058 §8, T64e), oldest first (sortable by `created_at`, the default), each with its company, its accounts and centers named, its supplier, its amount with its currency, its evidence and its parked entry. Filters: the close, the company, the agent's session and the parked entry. A supplier's number and name, the proposal's and each evidence item's, are shown only to a caller who may read business partners (`partner.supplier.read`); the ids are always shown. Besides `closing.close.read` the caller needs `ledger.entry.read`, since a proposal shows a ledger entry (`x-also-permissions`)."
+      x-permission: closing.close.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: close_id
+          in: query
+          required: false
+          description: Only the proposals of this period close.
+          schema:
+            type: string
+            format: uuid
+        - name: legal_entity_id
+          in: query
+          required: false
+          description: "Only the proposals of this company's closes."
+          schema:
+            type: string
+            format: uuid
+        - name: session_id
+          in: query
+          required: false
+          description: "Only the proposals an agent made in this session."
+          schema:
+            type: string
+            format: uuid
+        - name: parked_entry_id
+          in: query
+          required: false
+          description: "Only the proposal whose parked entry this is (`GET /v1/parked-journal-entries/{id}`)."
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of accrual proposals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccrualProposalPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/accrual-proposals/{id}":
+    get:
+      operationId: getAccrualProposal
+      tags:
+        - closing
+      summary: Get an accrual proposal
+      description: "One accrual proposal (ADR-0058 §8, T64e), as `listAccrualProposals` shows it. A proposal of a close of a legal entity the caller cannot act in is not found. Besides `closing.close.read` the caller needs `ledger.entry.read` (`x-also-permissions`)."
+      x-permission: closing.close.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - config.not_bootstrapped
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The accrual proposal.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccrualProposal"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/variance-comment-proposals:
@@ -36801,6 +37013,346 @@ components:
           account_id: 0192a000-0000-7000-8000-000000000402
           text: "The new office's first rent, 1,000.00, paid in October."
           citations: [0192a000-0000-7000-8000-000000000c11]
+    AccrualProposalInput:
+      type: object
+      description: "An agent's proposed accrual of one expense of a period close's period, in its running session (ADR-0058 §8)."
+      required:
+        - session_id
+        - close_id
+        - account_id
+        - amount
+        - description
+        - reason
+        - evidence
+      properties:
+        session_id: {type: string, format: uuid, description: "The agent's running session (`startAgentSession`)."}
+        close_id: {type: string, format: uuid, description: "The period close (`GET /v1/period-closes/{id}`)."}
+        account_id: {type: string, format: uuid, description: "The expense account: a profit and loss account set up and postable in the close's company, no reconciliation account (`GET /v1/accounts`)."}
+        cost_center_id: {type: string, format: uuid, description: "The expense line's cost center (`GET /v1/cost-centers`), checked as a posting checks it; none when absent."}
+        profit_center_id: {type: string, format: uuid, description: "The profit center of both lines (`GET /v1/profit-centers`), checked as a posting checks it; when absent, both lines take the one a posting of the expense line derives (its cost center's, or the company's default), if any."}
+        supplier_id: {type: string, format: uuid, description: "The supplier whose service or goods the expense is for (`GET /v1/business-partners/{id}`); none when absent."}
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "The expense, in the company's local currency, more than zero."
+        description: {type: string, minLength: 1, maxLength: 200, description: "What the expense is; the parked entry's line text."}
+        reason: {type: string, minLength: 1, maxLength: 2000, description: "Why the agent proposes it: what the evidence shows."}
+        evidence:
+          type: array
+          minItems: 1
+          maxItems: 10
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/AccrualEvidenceInput"
+          description: "What the proposal rests on, in the order given."
+      additionalProperties: false
+      examples:
+        - session_id: 0192a000-0000-7000-8000-000000000d01
+          close_id: 0192a000-0000-7000-8000-000000000f01
+          account_id: 0192a000-0000-7000-8000-000000000402
+          cost_center_id: 0192a000-0000-7000-8000-000000000501
+          supplier_id: 0192a000-0000-7000-8000-000000000301
+          amount: {amount: "1200.00", currency: CAD}
+          description: "Courier services of October"
+          reason: "Tyrell invoices courier services monthly; September's invoice was 1,200.00 and October's has not arrived."
+          evidence:
+            - {kind: supplier_invoice, document_id: 0192a000-0000-7000-8000-000000000611}
+    AccrualEvidenceInput:
+      type: object
+      description: "A document an accrual proposal rests on."
+      required:
+        - kind
+        - document_id
+      properties:
+        kind:
+          type: string
+          pattern: "^[a-z_]{1,32}$"
+          description: "`supplier_invoice` (a posted supplier invoice of the company, `GET /v1/supplier-invoices/{id}`), `purchase_order` (a released purchase order of the company, `GET /v1/purchase-orders/{id}`) or `journal_entry` (a journal entry of the company posted in the leading ledger, `GET /v1/journal-entries/{id}`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [supplier_invoice, purchase_order, journal_entry]
+        document_id: {type: string, format: uuid, description: The document.}
+      additionalProperties: false
+    AccrualEvidence:
+      type: object
+      description: "A document an accrual proposal rests on, as it was when cited (its number does not change)."
+      required:
+        - kind
+        - document_id
+        - document_number
+      properties:
+        kind:
+          type: string
+          description: "`supplier_invoice`, `purchase_order` or `journal_entry`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [supplier_invoice, purchase_order, journal_entry]
+          readOnly: true
+        document_id:
+          type: string
+          format: uuid
+          description: "The document (`GET /v1/supplier-invoices/{id}`, `/v1/purchase-orders/{id}` or `/v1/journal-entries/{id}`)."
+          readOnly: true
+        document_number:
+          type: string
+          description: Its document number.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: "A journal entry's fiscal year; absent for an invoice or an order."
+          readOnly: true
+        supplier_id:
+          type: string
+          format: uuid
+          description: "An invoice's or an order's supplier; absent for a journal entry."
+          readOnly: true
+        supplier_number:
+          type: string
+          description: "Its business partner number; absent for a journal entry, and for a caller who may not read business partners (`partner.supplier.read`)."
+          readOnly: true
+        supplier_name:
+          type: string
+          description: "Its name; absent as `supplier_number` is."
+          readOnly: true
+    AccrualProposal:
+      type: object
+      description: "An accrual the close agent proposed for a period close (ADR-0058 §8, T64e): one expense of the close's period, in the company's local currency, parked as a journal entry for a person to post, with the evidence it rests on."
+      required:
+        - id
+        - close_id
+        - legal_entity_id
+        - company_code
+        - company_name
+        - fiscal_year
+        - fiscal_period
+        - session_id
+        - agent_id
+        - agent_name
+        - account_id
+        - account_number
+        - account_name
+        - accrual_account_id
+        - accrual_account_number
+        - accrual_account_name
+        - amount
+        - description
+        - reason
+        - evidence
+        - parked_entry_id
+        - posting_date
+        - status
+        - version
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        close_id:
+          type: string
+          format: uuid
+          description: "The period close (`GET /v1/period-closes/{id}`)."
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: "The close's legal entity."
+          readOnly: true
+        company_code:
+          type: string
+          description: The company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: "The company's name."
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: "The close's fiscal year."
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 12
+          description: "The close's regular period."
+          readOnly: true
+        session_id:
+          type: string
+          format: uuid
+          description: "The agent's session it was proposed in (`GET /v1/agent-sessions/{id}`)."
+          readOnly: true
+        agent_id:
+          type: string
+          format: uuid
+          description: The agent that proposed it.
+          readOnly: true
+        agent_name:
+          type: string
+          description: Its name.
+          readOnly: true
+        account_id:
+          type: string
+          format: uuid
+          description: The expense account, debited.
+          readOnly: true
+        account_number:
+          type: string
+          description: "Its number."
+          readOnly: true
+        account_name:
+          type: string
+          description: "Its name, as it was when proposed."
+          readOnly: true
+        accrual_account_id:
+          type: string
+          format: uuid
+          description: "The company's accrual account (`companies[].close.accrual_account`), credited."
+          readOnly: true
+        accrual_account_number:
+          type: string
+          description: "Its number."
+          readOnly: true
+        accrual_account_name:
+          type: string
+          description: "Its name, as it was when proposed."
+          readOnly: true
+        cost_center_id:
+          type: string
+          format: uuid
+          description: "The expense line's cost center; absent without one."
+          readOnly: true
+        cost_center_code:
+          type: string
+          description: "Its code; absent without one."
+          readOnly: true
+        cost_center_name:
+          type: string
+          description: "Its name, as it was when proposed; absent without one."
+          readOnly: true
+        profit_center_id:
+          type: string
+          format: uuid
+          description: "The profit center of both lines, given or derived from the expense line; absent without one."
+          readOnly: true
+        profit_center_code:
+          type: string
+          description: "Its code; absent without one."
+          readOnly: true
+        profit_center_name:
+          type: string
+          description: "Its name, as it was when proposed; absent without one."
+          readOnly: true
+        supplier_id:
+          type: string
+          format: uuid
+          description: "The supplier the expense is for; absent without one."
+          readOnly: true
+        supplier_number:
+          type: string
+          description: "Its business partner number; absent without a supplier, and for a caller who may not read business partners (`partner.supplier.read`)."
+          readOnly: true
+        supplier_name:
+          type: string
+          description: "Its name; absent as `supplier_number` is."
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "The expense proposed, in the company's local currency: the parked entry's debit as parked."
+          readOnly: true
+        description:
+          type: string
+          description: "What the expense is; the parked entry's line text."
+          readOnly: true
+        reason:
+          type: string
+          description: "Why the agent proposed it."
+          readOnly: true
+        evidence:
+          type: array
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/AccrualEvidence"
+          description: "What it rests on, in the order given."
+          readOnly: true
+        parked_entry_id:
+          type: string
+          format: uuid
+          description: "The journal entry parked for it (`GET /v1/parked-journal-entries/{id}`), which a person posts, edits or cancels; what was done with it is read there."
+          readOnly: true
+        posting_date:
+          type: string
+          format: date
+          description: "The parked entry's posting and document date, the last day of the close's period."
+          readOnly: true
+        status:
+          type: string
+          description: "`proposed`: its parked entry waits for a person, who decides it in the ledger. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [proposed]
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          description: "The proposal's version, its ETag."
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: When it was proposed.
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: When it last changed.
+          readOnly: true
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000f41
+          close_id: 0192a000-0000-7000-8000-000000000f01
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "1000"
+          company_name: Maple Inc.
+          fiscal_year: 2026
+          fiscal_period: 10
+          session_id: 0192a000-0000-7000-8000-000000000d01
+          agent_id: 0192a000-0000-7000-8000-000000000105
+          agent_name: Close agent
+          account_id: 0192a000-0000-7000-8000-000000000402
+          account_number: "6000"
+          account_name: Courier services
+          accrual_account_id: 0192a000-0000-7000-8000-000000000403
+          accrual_account_number: "2190"
+          accrual_account_name: Accrued liabilities
+          cost_center_id: 0192a000-0000-7000-8000-000000000501
+          cost_center_code: ADMIN
+          cost_center_name: Administration
+          supplier_id: 0192a000-0000-7000-8000-000000000301
+          supplier_number: "100042"
+          supplier_name: Tyrell Logistics
+          amount: {amount: "1200.00", currency: CAD}
+          description: "Courier services of October"
+          reason: "Tyrell invoices courier services monthly; September's invoice was 1,200.00 and October's has not arrived."
+          evidence:
+            - {kind: supplier_invoice, document_id: 0192a000-0000-7000-8000-000000000611, document_number: "5100000042", supplier_id: 0192a000-0000-7000-8000-000000000301, supplier_number: "100042", supplier_name: Tyrell Logistics}
+          parked_entry_id: 0192a000-0000-7000-8000-000000000c51
+          posting_date: "2026-10-31"
+          status: proposed
+          version: 1
+          created_at: "2026-11-03T14:00:00Z"
+          updated_at: "2026-11-03T14:00:00Z"
+    AccrualProposalPage:
+      type: object
+      description: One page of accrual proposals.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccrualProposal"
+          description: The accrual proposals on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
     VarianceCommentProposal:
       type: object
       description: "An agent's proposed comment explaining one row of a period close's variance report, in its running session (ADR-0058 §10)."

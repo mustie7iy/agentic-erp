@@ -349,6 +349,10 @@ type GetAccountRes interface {
 	getAccountRes()
 }
 
+type GetAccrualProposalRes interface {
+	getAccrualProposalRes()
+}
+
 type GetAgentSessionRes interface {
 	getAgentSessionRes()
 }
@@ -695,6 +699,10 @@ type ImportBankStatementsRes interface {
 
 type ListAccountsRes interface {
 	listAccountsRes()
+}
+
+type ListAccrualProposalsRes interface {
+	listAccrualProposalsRes()
 }
 
 type ListAgentSessionsRes interface {
@@ -1171,6 +1179,10 @@ type PreviewDepreciationRunRes interface {
 
 type PreviewRevaluationRes interface {
 	previewRevaluationRes()
+}
+
+type ProposeAccrualRes interface {
+	proposeAccrualRes()
 }
 
 type ProposeBankStatementLineRes interface {

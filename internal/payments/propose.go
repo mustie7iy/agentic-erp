@@ -149,7 +149,7 @@ func errTooLarge(what string) error {
 
 // supplierTooLarge is errTooLarge for one supplier's items, before the
 // supplier is named: the proposal computes without a context, so
-// paymentsFor names it (nameTooLarge), by number and name as the release's
+// paymentsFor names it (nameRefusal), by number and name as the release's
 // refusals do.
 type supplierTooLarge struct{ supplier uuid.UUID }
 
@@ -157,27 +157,83 @@ func (s supplierTooLarge) Error() string {
 	return "payments: the open items of supplier " + s.supplier.String() + " add up to more than an amount can hold"
 }
 
-// nameTooLarge turns a supplierTooLarge into errTooLarge naming the
-// supplier as its consumer knows it (REVIEW.md, an identifier without the
-// name its consumer needs); any other error passes unchanged. The partner
-// context failing stays an error, so the job is retried. A supplier it
-// does not hold (journal lines name their partner without a foreign key)
-// still fails the run, naming the supplier by its id: left an error, the
-// job would be retried first in its tenant's queue forever (build).
-func (e *Endpoints) nameTooLarge(ctx context.Context, err error) error {
+// withholdingTooLarge is withholdingWithin's refusal of a supplier's
+// item, before the item and the supplier are named, as supplierTooLarge
+// is: paymentsFor names them (nameWithholding).
+type withholdingTooLarge struct {
+	supplier              uuid.UUID
+	item                  Item
+	discount, withholding money.Minor
+}
+
+func (w withholdingTooLarge) Error() string {
+	return fmt.Sprintf("payments: the withholding on item %d/%s/%d of supplier %s takes all it owes", w.item.FiscalYear, w.item.EntryID, w.item.LineNo, w.supplier)
+}
+
+// nameRefusal turns the proposal's refusals of a supplier
+// (supplierTooLarge, withholdingTooLarge) into their problems, naming the
+// supplier and the item as their consumer knows them (REVIEW.md, an
+// identifier without the name its consumer needs); any other error passes
+// unchanged.
+func (e *Endpoints) nameRefusal(ctx context.Context, r Run, err error) error {
 	var tl supplierTooLarge
-	if !errors.As(err, &tl) {
+	var wt withholdingTooLarge
+	switch {
+	case errors.As(err, &tl):
+		supplier, err := e.proposalSupplier(ctx, tl.supplier)
+		if err != nil {
+			return err
+		}
+		return errTooLarge("supplier " + supplier)
+	case errors.As(err, &wt):
+		return e.nameWithholding(ctx, r, wt)
+	}
+	return err
+}
+
+// proposalSupplier is how a proposal's problem names a supplier: by number
+// and name, as supplierNamed does, with its id. The partner context
+// failing stays an error, so the job is retried. A supplier it does not
+// hold (journal lines name their partner without a foreign key) is named
+// by its id, and the run still fails: left an error, the job would be
+// retried first in its tenant's queue forever (build).
+func (e *Endpoints) proposalSupplier(ctx context.Context, supplier uuid.UUID) (string, error) {
+	named, err := e.Payees.Names(ctx, []uuid.UUID{supplier})
+	if err != nil {
+		return "", fmt.Errorf("payments: name supplier %s: %w", supplier, err)
+	}
+	n, ok := named[supplier]
+	if !ok {
+		return supplier.String(), nil
+	}
+	return supplierLabel(supplier, n), nil
+}
+
+// nameWithholding is the problem of a withholding that takes all of what
+// its item owes: the item named by its entry's document number, fiscal
+// year and line, with the entry's id, the supplier by number and name, and
+// the amounts in the run's currency, scaled by its exponent (REVIEW.md, an
+// amount without its currency). The name is the payment's own content,
+// as the release's refusals give it (product owner 2026-11-02, ADR-0038).
+// An entry the ledger does not hold is named by its id, as
+// proposalSupplier names a supplier it cannot find.
+func (e *Endpoints) nameWithholding(ctx context.Context, r Run, w withholdingTooLarge) error {
+	supplier, err := e.proposalSupplier(ctx, w.supplier)
+	if err != nil {
 		return err
 	}
-	named, err := e.Payees.Names(ctx, []uuid.UUID{tl.supplier})
+	numbers, err := e.OpenItems.Numbers(ctx, []uuid.UUID{w.item.EntryID})
 	if err != nil {
-		return fmt.Errorf("payments: name supplier %s: %w", tl.supplier, err)
+		return fmt.Errorf("payments: the document number of journal entry %s: %w", w.item.EntryID, err)
 	}
-	n, ok := named[tl.supplier]
-	if !ok {
-		return errTooLarge("supplier " + tl.supplier.String())
+	document := "journal entry " + w.item.EntryID.String()
+	if n, ok := numbers[w.item.EntryID]; ok {
+		document = "document " + n + " (journal entry " + w.item.EntryID.String() + ")"
 	}
-	return errTooLarge("supplier " + supplierLabel(tl.supplier, n))
+	amount := func(m money.Minor) string { return m.Plain(r.Exponent) + " " + r.Currency }
+	return problem.Unprocessable("payments.withholding_too_large",
+		fmt.Sprintf("The withholding tax of %s on line %d of %s of fiscal year %d (supplier %s), with its cash discount of %s, takes all of the %s the item owes.",
+			amount(w.withholding), w.item.LineNo, document, w.item.FiscalYear, supplier, amount(w.discount), amount(w.item.Amount)))
 }
 
 // total is what is owed the supplier after the cash discounts its items
@@ -197,11 +253,11 @@ func (c candidate) total() (money.Minor, error) {
 func (c *candidate) takeDiscounts(on time.Time) error {
 	for i, it := range c.items {
 		d, withheld, err := deductionsOn(it.terms, it.withholding, it.Amount, on)
-		if err == nil {
-			err = withholdingWithin(it, d, withheld)
-		}
 		if err != nil {
 			return fmt.Errorf("payments: the discount on item %d/%s/%d: %w", it.FiscalYear, it.EntryID, it.LineNo, err)
+		}
+		if !withholdingWithin(it.Amount, d, withheld) {
+			return withholdingTooLarge{supplier: c.supplier, item: it, discount: d, withholding: withheld}
 		}
 		c.items[i].Discount, c.items[i].Withholding = d, withheld
 		if d != 0 {
@@ -212,21 +268,16 @@ func (c *candidate) takeDiscounts(on time.Time) error {
 	return nil
 }
 
-// withholdingWithin refuses a withholding that, with the discount, takes
-// all of what the item owes, as the payment item's check
-// (payment_item_withholding_within) would. The invoice refuses codes that
-// withhold its whole gross, but the payment rounds its withholding after
-// the discount, so at extreme rates it can still reach the rest (422).
-// The discount is of the item's sign and smaller than it (discountOn), so
-// the difference cannot overflow.
-func withholdingWithin(it Item, discount, withholding money.Minor) error {
-	amount := it.Amount
-	if withholding == 0 || ((withholding > 0) == (amount > 0) && withholding.Abs() < amount.Abs()-discount.Abs()) {
-		return nil
-	}
-	return problem.Unprocessable("payments.withholding_too_large",
-		fmt.Sprintf("Item %d/%s/%d's withholding tax of %d with its cash discount of %d takes all of the %d it owes.", it.FiscalYear, it.EntryID, it.LineNo,
-			withholding, discount, amount))
+// withholdingWithin tells whether a withholding leaves the item, after
+// its discount, something to pay, as the payment item's check
+// (payment_item_withholding_within) requires. The invoice refuses codes
+// that withhold its whole gross, but the payment rounds its withholding
+// after the discount, so at extreme rates it can still reach the rest
+// (422 payments.withholding_too_large, nameWithholding). The discount is
+// of the item's sign and smaller than it (discountOn), so the difference
+// cannot overflow.
+func withholdingWithin(amount, discount, withholding money.Minor) bool {
+	return withholding == 0 || ((withholding > 0) == (amount > 0) && withholding.Abs() < amount.Abs()-discount.Abs())
 }
 
 // deductions are the cash discount the supplier's items take and the
@@ -378,7 +429,7 @@ func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r 
 		return Run{}, err
 	}
 	return proposed, record(ctx, "payments.payment_run.build", r.ID, map[string]any{"payments": len(pr.payIDs), "exclusions": len(pr.exSuppliers), "items": n},
-		runEvent(proposed, "payment_run_proposed", map[string]any{"house_bank_id": proposed.HouseBankID, "run_date": proposed.RunDate.Format(time.DateOnly),
+		runEvent(proposed, le.Code, "payment_run_proposed", map[string]any{"house_bank_id": proposed.HouseBankID, "run_date": proposed.RunDate.Format(time.DateOnly),
 			"due_by": proposed.DueBy.Format(time.DateOnly), "total_amount": money.EventAmount(pr.total, proposed.Currency, proposed.Exponent),
 			"discount_amount":    money.EventAmount(pr.discount, proposed.Currency, proposed.Exponent),
 			"withholding_amount": money.EventAmount(pr.withheld, proposed.Currency, proposed.Exponent),
@@ -405,7 +456,7 @@ func (e *Endpoints) paymentsFor(ctx context.Context, tx pgx.Tx, r Run, entityCod
 	}
 	pr := proposal{route: route}
 	if err := pr.propose(cands, payees, r, entityCode, holdDays); err != nil {
-		return proposal{}, e.nameTooLarge(ctx, err)
+		return proposal{}, e.nameRefusal(ctx, r, err)
 	}
 	invalid, err := e.invalidTaxCodes(ctx, r, requests)
 	if err != nil {
@@ -618,7 +669,11 @@ func (pr *proposal) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r
 // fail moves a run that could not be proposed, or whose operation was
 // cancelled, to failed; the operation records the problem unless it is
 // already cancelled.
-func fail(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, why *problem.Problem) error {
+func (e *Endpoints) fail(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, why *problem.Problem) error {
+	company, err := e.companyCode(ctx, r.LegalEntityID)
+	if err != nil {
+		return err
+	}
 	if why != nil {
 		if _, err := operations.Fail(ctx, *r.OperationID, why); err != nil {
 			return err
@@ -635,7 +690,7 @@ func fail(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, why *proble
 	if why != nil {
 		detail["code"], detail["detail"] = why.Code, why.Detail
 	}
-	return record(ctx, "payments.payment_run.fail", r.ID, detail, runEvent(failed, "payment_run_failed", map[string]any{"operation_id": r.OperationID,
+	return record(ctx, "payments.payment_run.fail", r.ID, detail, runEvent(failed, company, "payment_run_failed", map[string]any{"operation_id": r.OperationID,
 		"released_item_count": 0, "previous_status": Proposing}))
 }
 
@@ -711,11 +766,11 @@ func (e *Endpoints) Process(ctx context.Context, j Job) error {
 		return err
 	}
 	if j.Cancelled {
-		return fail(ctx, tx, p, r, nil)
+		return e.fail(ctx, tx, p, r, nil)
 	}
 	var why *problem.Problem
 	if err := e.mayAct(ctx, tx, p, r.ID); errors.As(err, &why) {
-		return fail(ctx, tx, p, r, why)
+		return e.fail(ctx, tx, p, r, why)
 	} else if err != nil {
 		return err
 	}
@@ -730,5 +785,5 @@ func (e *Endpoints) Process(ctx context.Context, j Job) error {
 		return fmt.Errorf("payments: roll back the build of run %s: %w", r.ID, err)
 	}
 	audit.Discard(ctx)
-	return fail(ctx, tx, p, r, why)
+	return e.fail(ctx, tx, p, r, why)
 }

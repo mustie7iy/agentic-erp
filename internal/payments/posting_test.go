@@ -256,6 +256,12 @@ func TestPostStatementLineByHand(t *testing.T) {
 			c2.Problem(c.status, c.code, "POST", c.path, c.body, c.ifMatch)
 		})
 	}
+	// The amounts that differ are given with their currency (REVIEW.md, an
+	// amount without its currency).
+	differs := e.in(t).Problem(409, "payments.statement_amount_differs", "POST", sc.line(8, "post"), "", tag)
+	if detail := fmt.Sprint(differs["detail"]); strings.Count(detail, " EUR") != 2 {
+		t.Errorf("statement_amount_differs detail: got %q, want both amounts in EUR", detail)
+	}
 	m, _ = e.Must(200, "POST", sc.line(7, "post"), "", tag)
 	wantPosting(t, "a reversed credit to charges", m["journal_entry_id"].(string), map[string]money.Minor{"101000": -1050, "520000": 1050})
 }

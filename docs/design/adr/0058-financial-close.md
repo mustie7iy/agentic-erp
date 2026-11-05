@@ -1119,6 +1119,142 @@ locks the leading ledger's periods one at a time, by legal entity, year
 and period; a period close, lock or unlock locks one row). 03's entry-lock
 paragraph states the rule.
 
+**T64e (accrual proposals).** Built as §8: migration 000216 creates
+`accrual_proposal` and `accrual_evidence` (RLS, `tenant_id` leading every
+key, no foreign key leaving the schema; a proposal moves only `proposed`
+-> `rejected`, the evidence is insert-only) and the permission
+`closing.accrual.propose`. `companies[].close.accrual_account` is validated
+by the configuration (an account of the company's chart of type
+liability, no supplier or asset reconciliation account, not the GR/IR or
+down payment account) and is tier 3 by its own rule. `POST
+/v1/accrual-proposals` (`proposeAccrual`, agents only: 403
+`agents.not_an_agent` for a person; `x-autonomy: propose`;
+`ledger.entry.park` as `x-also-permissions`; in the agent's running
+session through `closing.Sessions`) reads the close `FOR UPDATE`, answers
+the session's retry of the same proposal 200 as it is and refuses a
+duplicate (409 `closing.accrual_duplicate`, with `Location`), refuses a
+company without an accrual account it can post to (409
+`closing.accrual_account_missing`), checks the expense account (422
+`closing.accrual_account_invalid`), the supplier and each evidence item
+(422 `closing.evidence_unknown` on `evidence[i]`), derives the expense
+line's profit center through `closing.Ledger.ProfitCenter`, over the
+ledger's new `ledger.CloseAccounts.ProfitCenter` (the posting's own
+derivation and checks, `assign`), parks the entry
+through `closing.Ledger.Park`, over the ledger's new published
+`ledger.ParkedEntries` (`Park` runs `parkJournalEntry`'s own parking,
+checks, problems and `ParkedJournalEntryChanged` included, as the request's
+principal, and returns the entry's id and debit total), and writes the
+proposal, its evidence, the audit record
+(`closing.accrual_proposal.propose`) and `AccrualProposed`. The accounts
+are read through `closing.Ledger.Accounts`, over the new
+`ledger.CloseAccounts.Accounts` (an account by id, or by number when set up
+in the company, with whether it is a balance sheet account and postable
+by hand: `Accounts.IsPostable`'s rule), the centers' codes and names
+through `closing.Ledger.Centers`, over the ledger's published
+`AssetReads.CenterNames` (reused, not copied), and the evidence through the
+new port `closing.Evidence`, adapted in `internal/app` over
+`payables.Invoices.Sources` (whose `InvoiceSource` gains the invoice's
+legal entity and status, additive), `procurement.Orders.Order` and
+`partner.Payees.Names` (the suppliers' numbers and names; the composition
+root reads the partner context, so no context's dependency changes). `GET
+/v1/accrual-proposals/{id}` (`getAccrualProposal`) and `GET
+/v1/accrual-proposals` (`listAccrualProposals`, filters close, company,
+session and parked entry, cursor-paged by creation) show each proposal
+with its company, agent, accounts, centers, supplier, amount with its
+currency, evidence and parked entry. Walkthrough: `close_accruals` in
+`step_close`, after the checks and before the variances. Decided by
+default, for the product owner to overrule:
+- **The stored status until T64f.** A proposal is stored `proposed`
+  (`rejected` is T64f's `:reject`), and T64e shows that status. The
+  statuses derived from the parked entry (`posted`, `pending_approval`,
+  `modified`, `reversed`, `rejected` when the ledger cancelled or rejected
+  it), the list's `status` filter and its totals per status and currency
+  are T64f's leaf, which reads the entries' statuses
+  (`ParkedEntries.Statuses`); until then a consumer reads what was done with
+  the entry from the parked entry itself (`parked_entry_id`). For the same
+  reason the duplicate rule counts a proposal that is not stored
+  `rejected`: one whose parked entry was cancelled in the ledger still
+  refuses a new proposal of the same expense until T64f derives it
+  `rejected`.
+- **Duplicate and retry.** The key is the close, the expense account, the
+  cost center and the supplier, an absent center or supplier equal to
+  another absent one. The session's retry is the same content: the profit
+  center, the amount, the description, the reason and the evidence in the
+  order given (a retry that leaves the profit center out matches the one
+  the proposal took from its expense line); it is looked for before the
+  accounts are checked and answers 200 with the proposal as stored,
+  publishing nothing again, as T64i's retried comment does. The same key with other content, or from another
+  session, is 409 `closing.accrual_duplicate` naming the first.
+- **The accrual account at the proposal.** The configuration checks the
+  chart; the ledger's master data is checked when a proposal is made: an
+  accrual account not set up, active and postable by hand in the company
+  (blocked, say) is 409 `closing.accrual_account_missing` too, its detail
+  saying why.
+- **The expense account** is a profit and loss account set up, active and
+  not blocked in the close's company, of no reconciliation kind and not its
+  GR/IR account; an unknown account or another company's is the same 422
+  `closing.accrual_account_invalid`.
+- **The amount** is in the company's local currency with its digits and
+  more than zero; another currency, other digits and an amount of zero or
+  less are each 422 `request.invalid_amount` on `amount` (§8's code), not
+  the 400 other operations give for the digits.
+- **The supplier** names a business partner, of any role (422
+  `request.reference_not_found` on `supplier_id`), is not checked against
+  the evidence's suppliers and is not on the entry's lines (an expense line
+  takes no partner and the accrual account reconciles no supplier): it is
+  the proposal's, for the duplicate rule and its reader.
+- **Evidence.** A journal entry is checked through `closing.Ledger.Cited`
+  (T64i's read: a posted entry of the company in the leading ledger),
+  whatever accounts it has lines on. Each document is cited once
+  (`uniqueItems`: 400 `request.invalid_body`), and is kept with its
+  document number as cited (a posted invoice, a released order and a
+  posted entry keep theirs), an invoice or an order with its supplier, an
+  entry with its fiscal year.
+- **The parked entry**: document type `SA`, document and posting date the
+  close's `period_end`, header text `Accrual proposal <id>`, each line's
+  text the description (1-200 characters, the ledger's line text limit),
+  the credit line without a cost center. Both lines carry the expense
+  line's profit center (§8): the one given or, without one, the one a
+  posting of the expense line derives on that date (its cost center's, its
+  account's default cost center's, or the company's default profit
+  center), read before parking; the proposal records it as its profit
+  center. The ledger's refusals pass through with their codes (listed by
+  `TestProblemCodes` from the call graph): a field of the expense line is
+  renamed to the proposal's (`lines[0].cost_center_id` becomes
+  `cost_center_id`), one of the accrual account's line, which the
+  configuration names, keeps `lines[1].…`, and the detail names the line
+  ("The expense line: ...").
+- **Names.** The accounts' numbers and names and the centers' codes and
+  names are kept as they were when proposed, as T64i keeps a comment's
+  account; the suppliers' numbers and names, the proposal's and each
+  evidence item's, are read at the read and shown only to a caller holding
+  `partner.supplier.read` (product owner 2026-11-02: a copy never crosses
+  permissions), the ids always.
+- **`AccrualProposed` names the company and the supplier** (batch 56
+  integration): `legal_entity_code` beside `legal_entity_id`, and
+  `supplier_number` beside `supplier_id` (null without a supplier), as
+  the payments events name them (ADR-0038 As built, review:batch28); the
+  number is the one the supplier check read. The supplier's name is not
+  given: the event is offered to webhooks, and whether a supplier's name
+  may go into a webhook event is the product owner's open question
+  (ADR-0038 As built). Both fields are required, the event being new.
+- `accrual_proposal` has no `legal_entity_id` column (§5 lists one): the
+  close names the company, as for variance comments. Its codes of centers
+  are never blank, and a parked entry is named by one proposal
+  (`accrual_proposal_parked_once`).
+- A proposal on a signed-off close follows §7: refused while its periods are
+  all locked, reopening it after an unlock.
+- **The walkthrough's agent principal** is now created in `close_accruals`
+  (T64i's As built: "T64e, when built, takes it over"), its role reading
+  closes and the ledger, proposing accruals and parking entries;
+  `close_comments` grants it `closing.variance.propose`. Ada's change is
+  tier 4, since the accrual account 2195 is new in the chart (the
+  accrual account itself is tier 3), approved as step 19's chart change is.
+  "Last month's invoice" is Tyrell's invoice of its courier deliveries,
+  dated the last day of the previous month and posted today: the previous period may be locked
+  by step 11's filed return, which a story run on any day cannot avoid.
+- No performance budget: §8 asks for none.
+
 **T64h (the variance report).** Built as §9: `companies[].close.variance`
 (`bases`, `threshold_amount`, `threshold_percent`, `plan_category`,
 `plan_centers`) in `internal/config` (`config.CloseVariance`, validated

@@ -8,7 +8,7 @@
     "ph": 0,
     "c": [
      {
-      "s": "D",
+      "s": "P",
       "t": "Double-entry journal posting",
       "r": "internal/ledger · ledger.Postings",
       "c": [
@@ -233,7 +233,7 @@
        {
         "s": "T",
         "t": "Point-in-time recovery",
-        "r": "ADR-0040 · T41b (35 days in production) · T41d (restore verified)",
+        "r": "ADR-0040 · T41b (35 days in production) · T41d (restore verified) · the first restore drills on AWS staging are their own pilot leaf (Pre-pilot: the first restore drills on AWS staging, waiting on the AWS staging account)",
         "src": "baseline",
         "pilot": "po:2026-10-31 · adr:ADR-0040",
         "c": []
@@ -487,7 +487,7 @@
       "c": []
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Down payments",
       "r": "T46",
       "c": [
@@ -1052,16 +1052,16 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Payments' events name the company by its code beside legal_entity_id, and PaymentExcluded its supplier by number and name beside supplier_id: the payment run, bank file and bank statement events give the ids alone",
-      "r": "api/asyncapi.yaml payments channel (PaymentRunProposed/Released/Rejected/Failed, PaymentExcluded, BankStatement* events) · internal/payments runEvent, exclusions, statements · release.go supplierNamed and procurement expiry_names.go are the patterns (optional fields, eventcompat) · REVIEW.md API-consumer class: an identifier without the name its consumer needs",
+      "r": "api/asyncapi.yaml payments channel (PaymentRunProposed/Released/Rejected/Failed, PaymentExcluded, BankStatement* events) · internal/payments runEvent, exclusions, statements · release.go supplierNamed and procurement expiry_names.go are the patterns (optional fields, eventcompat) · REVIEW.md API-consumer class: an identifier without the name its consumer needs · done in paynames: optional legal_entity_code on PaymentRunProposed/Released/Rejected/Failed, PaymentExcluded and the twelve BankStatement* events, supplier_number on PaymentExcluded (payments.go companyCode, withCompany, runEvent; release.go recordExcluded; statementBank.Company, matcher.company; RefuseFetched, ChangedFetched, AcceptGap methods of Endpoints) · the supplier's name left out of PaymentExcluded, a security-posture question for the product owner (webhooks) · tests apitest.CompanyNamed in payments' events and workflows' count, TestEventCompany, TestUnpayablePaymentIsDropped · ADR-0038 as built (review:batch28)",
       "src": "review:batch28",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "payments.withholding_too_large's detail gives the withholding, the cash discount and the amount owed as raw minor units without currency or scaling, and names the item only by its journal entry's UUID (fiscal year/entry id/line), not by the supplier's number and name and the invoice's document number",
-      "r": "internal/payments propose.go withholdingWithin (fmt %d of money.Minor, it.EntryID) · money.EventAmount / the amount formatting other refusals use, release.go supplierNamed (batch 28's apinames5) are the patterns · REVIEW.md API-consumer classes: an amount without its currency and scale, an identifier without the name its consumer needs · T46f",
+      "r": "internal/payments propose.go withholdingWithin (fmt %d of money.Minor, it.EntryID) · money.EventAmount / the amount formatting other refusals use, release.go supplierNamed (batch 28's apinames5) are the patterns · REVIEW.md API-consumer classes: an amount without its currency and scale, an identifier without the name its consumer needs · T46f · done in paynames: takeDiscounts returns withholdingTooLarge, paymentsFor names it (nameRefusal, nameWithholding, proposalSupplier): amounts in the run's currency at its scale, the item by its entry's document number, fiscal year and line, the supplier by number and name; payments.statement_amount_differs gives its currency too · tests TestNameWithholding, TestNameTooLarge, TestWithholdingBeyondTheItem, TestPostStatementLineByHand · ADR-0038 as built (review:batch28)",
       "src": "review:batch28",
       "c": []
      },
@@ -1123,7 +1123,7 @@
     "ph": 2,
     "c": [
      {
-      "s": "P",
+      "s": "D",
       "t": "Asset accounting designed (ADR-0057, decided by default under ADR-0053 d): a leaf assets context; classes and asset accounts in configuration; acquisitions settling an asset clearing account's lines; depreciation per ledger as planned less booked by a Temporal run; retirements and transfers per ledger; the history sheet from movements",
       "r": "ADR-0057 · T57 (split T57a-T57i)",
       "c": [
@@ -1249,9 +1249,9 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Asset master and classes",
-      "r": "T57 · ADR-0057 §3, §5 · T57a, T57b",
+      "r": "T57 · ADR-0057 §3, §5 · T57a, T57b · done by T57a and T57b under Asset accounting designed",
       "src": "baseline",
       "c": []
      },
@@ -1263,9 +1263,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Depreciation runs (straight-line, declining balance)",
-      "r": "T57 · ADR-0057 §7 · T57e, T57f",
+      "r": "T57 · ADR-0057 §7 · T57e, T57f · done by T57e, T57f and T57f2 under Asset accounting designed",
       "src": "baseline",
       "c": []
      },
@@ -1611,16 +1611,16 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Daily cash position",
-      "r": "T53a · T53c",
+      "r": "T53a · T53c · done by T53c's cash position (GET /v1/cash-position per bank, currency and day) under Cash position and liquidity forecast decided",
       "src": "baseline",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Liquidity forecast from open items and orders",
-      "r": "T53e · T53g",
+      "r": "T53e · T53g · done by T53e (the forecast from payables and payments, P5) and T53g (from procurement, P7) under Cash position and liquidity forecast decided",
       "src": "baseline",
       "c": []
      },
@@ -1686,7 +1686,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Accrual proposals: companies[].close.accrual_account (tier 3); ledger.ParkedEntries.Park as the request's principal; accrual_proposal and accrual_evidence; POST /v1/accrual-proposals (agents only, in session, x-autonomy propose, ledger.entry.park also; evidence of supplier invoices, orders and entries checked; duplicate and retry rules; the parked entry Dr expense / Cr accrual account dated the period's last day); GET and list with names, evidence and the parked entry; AccrualProposed; closing.accrual.propose; the walkthrough's first agent principal at level 1; walkthrough: the agent principal proposes an accrual citing last month's invoice, Carla posts its parked entry, a person's proposal refused with agents.not_an_agent",
         "r": "ADR-0058 · T64e",
         "src": "adr:ADR-0058",
@@ -1737,9 +1737,9 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Close calendar and checklist",
-      "r": "T64 · ADR-0058 §3, §6 · T64a, T64b, T64c, T64k",
+      "r": "T64 · ADR-0058 §3, §6 · T64a, T64b, T64c, T64k · done by T64a (the close template and calendar), T64b (the period close and its manual checklist), T64c (the automatic checks) and T64k (the depreciation check) under Financial close designed",
       "src": "baseline",
       "c": []
      },
@@ -1758,9 +1758,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Period lock after sign-off",
-      "r": "T64 · ADR-0058 §7 · T64d",
+      "r": "T64 · ADR-0058 §7 · T64d · done by T64d (sign-off locks the period through T32) under Financial close designed",
       "src": "baseline",
       "c": []
      }
@@ -2320,9 +2320,9 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "Treasury system connector",
-      "r": "T53h",
+      "r": "T53h · done by T53h's treasury connector (P8) under Cash management and liquidity forecast, Cash position and liquidity forecast decided",
       "src": "baseline",
       "c": []
      }
@@ -2557,9 +2557,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Cost center reports",
-      "r": "T56f",
+      "r": "T56f · done by T56f's actual reports (GET /v1/cost-center-balances) under Cost and profit center accounting decided",
       "src": "baseline",
       "c": []
      }
@@ -2571,16 +2571,16 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "Profit center derivation",
-      "r": "T56a · T56d",
+      "r": "T56a · T56d · done by T56a (a cost center period's profit center) and T56d (derivation at posting, every posting path) under Cost center accounting, Cost and profit center accounting decided; the commit-time check is its own leaf (T56d3)",
       "src": "baseline",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Profit center reporting",
-      "r": "T56f",
+      "r": "T56f · done by T56f's actual reports (GET /v1/profit-center-balances, per profit center, node and segment) under Cost center accounting, Cost and profit center accounting decided",
       "src": "baseline",
       "c": []
      }
@@ -2806,6 +2806,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "The purchase order document prints each item's delivery date, else the requisition's needed-by date, qualified when an order holds both",
+        "r": "ADR-0054 As built (podate) · ADR-0051 As built T53g (procurement.purchase_order_item.delivery_date, 000205) · internal/procurement/order_document.go · walkthrough step 4",
+        "src": "adr:ADR-0054 · adr:ADR-0051",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "The purchase order document also as a PDF, with an embedded font for every script the tenants' names and addresses use (Latin, and Arabic for the UAE pilot)",
         "r": "T72g · ADR-0054 \"What a PDF would need\": a PDF library is a new third-party module, a decision for the product owner",
@@ -2948,7 +2955,7 @@
       "c": []
      },
      {
-      "s": "D",
+      "s": "P",
       "t": "Expiry and renewal alerts",
       "r": "contracts/{id}:renew · procurement.ContractExpirer · migration 000066 · T47g",
       "c": [
@@ -5666,7 +5673,7 @@
       "c": []
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Model routing, cost per agent, spend caps, kill switch",
       "r": "internal/agents · agents.Gateway (api/model.yaml) · T42",
       "c": [
@@ -5749,9 +5756,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Agents offered only the tools their autonomy level allows",
-        "r": "internal/apitools · T42 follow-up (post-pilot, PO 2026-10-21)",
+        "r": "internal/apitools · T42 follow-up (post-pilot, PO 2026-10-21) · done by T43f (Quality engineering, Model evaluations: agents are offered only the tools their autonomy level performs)",
         "src": "baseline",
         "c": []
        },
@@ -7253,6 +7260,13 @@
         "t": "Operations: deliveries listed and read; :redeliver and :replay (since at most 30 days, dead and dropped too) requeue in event order; :ping queues a signed webhook.ping the dispatcher sends once, paused or disabled too; retention in batches of 1000",
         "r": "internal/integration/deliveries.go · api/openapi.yaml · db/migrations/000106 · T50g",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A webhook delivered in the walkthrough: an embedded event bus and a subscriber on the walkthrough's machine, the one loopback address and port a development server may deliver to (ERP_WALKTHROUGH_RECEIVER, refused outside development); CashSnapshotTaken delivered, its signature verified and a changed body refused",
+        "r": "egress.WalkthroughReceiver, CheckURL's receiver · config.Walkthrough (ERP_WALKTHROUGH_RECEIVER, ERP_WALKTHROUGH_RECEIVER_CA) · integration.Endpoints.Receiver · app.Config.WebhookReceiver · erp-server webhookClient · natstest/natsstub · webhooktest/webhookstub · TestWalkthroughReceiverOption, TestAllowReceiver, TestWalkthroughReceiver, TestCheckURLReceiver, TestWebhookWalkthroughReceiver, TestWebhookClient, TestProductionFailsClosed · walkthrough step 35 · ADR-0041 (as built, T50i) · ADR-0051 (as built) · T50i",
+        "src": "po:2026-11-04 · adr:ADR-0041",
         "c": []
        }
       ]
@@ -9461,6 +9475,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Queries with optional conditions are planned per call where PostgreSQL's generic plan is worse: a cached statement switches to a generic plan from its sixth run on a connection, and EXPLAIN ANALYZE as erp_app over seeded volumes, forced and after five runs with mixed arguments, showed it chosen and slower for five reads, which now pass pagination.PlanPerCall: the close task worklist (72,000 tasks: 0.3-1.9 ms to 23-55 ms a page), assets selectDepreciable (a run's batch of 500 of 100,000 assets after five previews on the connection: 9 ms to 134 ms), the ledger reconciliation's trial balances (a period 26 ms to 50 ms, the year 212 ms to 290 ms), the plan/actual report's actuals (ledger AssignmentBalances: ten profit centers 0.8 ms to 2.6-8.8 ms, every center 162 ms to 178-201 ms) and its plan rows (2.4 million lines: ten profit centers 308 ms to 398 ms, a later page 650 ms to 733 ms). The others kept their custom plan or read the same index in both (open item aging, profit and loss balances, unreported tax items and their claim, tax codes, the segregation-of-duties check, key lookups); no layout test enforces the convention, since a query's text cannot tell those apart",
+        "r": "internal/closing/lists.go (ListCloseTasks) · internal/assets/preview.go (selectDepreciable) · internal/ledger/reconciliation.go (trialBalances) · internal/ledger/assignmentbalances.go (actuals) · internal/controlling/planactual.go (planActualRows) · TestLedgerReconciliationBudget, TestDepreciationRunBudget",
+        "src": "review:T57d",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "Sweep the remaining catch-all filter lists (68 sites in 26 files) onto the list helper",
         "r": "(post-pilot, PO 2026-10-21)",
@@ -9789,6 +9810,48 @@
       "t": "erp-temporal's TestServe dials its engine at 127.0.0.1, not localhost (batch 55's ci-local failed two of TestServe/refusals' cases, another identity and another namespace, which got failed reaching server: context deadline exceeded after 5.00 s instead of permission denied): for a name, gRPC's DNS resolver also looks up the TXT record _grpc_config.<name> at the network's nameservers before the channel has an address, and one lost answer took the system resolver's 5 s timeout, the SDK's whole GetSystemInfo timeout (seen in gRPC's channel log: a channel's name resolution not done 5 s after it left idle). The engine was already serving (the readiness wait had started a workflow as the cell's server); the refusals stay PermissionDenied and fail if the authorizer is removed",
       "r": "temporal/cmd/erp-temporal/serve_test.go (newEngineWith's frontend, engineYAML's publicClient) · scripts/temporal-checks.sh · ADR-0035",
       "src": "ci:batch55",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A schema test that migrates part of the way names its migration by file, not by number (batch 54: TestAssetTermsBookedBackfilled kept migrateBefore 199 after integration renumbered its migration to 000211, and passed, seeding before an older migration; only review saw it): migrateBefore and migrationNamed take NNNNNN_slug and fail when db/migrations has no such file, so a renumbering that leaves a test behind fails it; every caller converted, the GR/IR, controlling and hierarchy backfill tests' own selection of their migration included; and a source check, which holds in -short runs, refuses a test calling them that spells no migration file name, one that names no embedded migration, or whose doc comment does not name the same number",
+      "r": "db/contract_test.go migrateBefore · migrationNamed · db/migrations_test.go TestMigrationTestsNameTheirMigration · the 18 call sites in db/*_test.go · 06 §6.4",
+      "src": "review:batch54",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "TestWalkthrough gives every listener the walkthrough starts a free loopback port, the treasury connector's SFTP stand-in included (batch 56's ci-local stopped at step 35 when its default 127.0.0.1:18022 was taken by another lane's make walkthrough on the same machine: the stand-in exited at start, bind: address already in use); a source check keeps the test's list equal to every WALKTHROUGH_*_ADDR variable scripts/walkthrough.sh names, so a stand-in later configured through such a variable cannot fall back to a fixed port; a failed walkthrough now shows its output from a little before its first UNEXPECTED report (which names the step and the reason) to the end, the last answer and the server log included, not only the last 120 lines, which had held only the last answer's JSON",
+      "r": "cmd/erp/walkthrough_test.go TestWalkthrough, walkthroughListeners, TestWalkthroughListeners, failure",
+      "src": "ci:batch56",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "The walkthrough passes a run that crosses Toronto's midnight (batch 56's ci-local stopped at step 32: the server answered at 00:02 and the tool asset split off the milling machine was capitalised on 2026-11-05 while the script expected its TODAY, 2026-11-04, fixed at its start): a date the server takes as Maple's today is checked against the company's day read just before the request or, when midnight passed during it, the day after (expect_today, now used by every such check), the tool's capitalisation against the transfer's own value date, step 23's week grain and two-week drill-down are counted from the forecast's own read date, and step 38 reads its forecast, variance and accuracy on the day the step 35 snapshot was taken, as the server dated it; proved with a test double of date(1) that gives the script yesterday's date at its start while the server keeps today's: every step passed (39, none failed), as did a plain run. A run that crosses midnight into a new month is not covered: the story's periods are the period of TODAY",
+      "r": "scripts/walkthrough.sh expect_today, step_cash_forecast, step_asset_transfer, step_cash_forecast_analytics, forecast_accuracy_analytics",
+      "src": "ci:batch56",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "TestDepreciationRunBudget measures the preview's p95 over twenty reads a page as nfr's load runs do (the 19th of 20), not the worst of ten, so one stalled read does not fail it (batch 56's ci-local: next page median 518 ms, worst of ten 2.08 s against the 2 s of scale 2), and forces a checkpoint after vacuuming its seed so the seed's WAL checkpoints do not run among the timed reads; the budget is unchanged (p95 1 s scaled by ERP_BUDGET_SCALE)",
+      "r": "internal/workflows/depreciation_budget_test.go · ADR-0057 As built",
+      "src": "ci:batch56",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Test binaries started at once on a new PostgreSQL server no longer fail migrating their databases (PR #100's GitHub check: cmd/erp-router's 000001_foundation failed on pg_authid_rolname_index, 23505): roles are the server's, not a database's, and the migration lock is an advisory lock, scoped to one database, so two binaries' migrations both found erp_owner missing and both created it. db.MigrateBeside migrates again after a CREATE ROLE that another database's migration beat (unique_violation on pg_authid_rolname_index, or duplicate_object from CreateRole), as the role then exists, bounded at 20 tries; pgtest.Main and db's own TestMain migrate with it, and they and db's emptyDatabase name their databases at random, not by a clock reading two binaries can share (a microsecond on macOS); the migrations and Migrate are unchanged; proved on fresh postgres:17 containers with 16 binaries started at once: 4 of 5 runs failed before, 14 of 14 passed after",
+      "r": "db/rolerace.go MigrateBeside · db/rolerace_test.go TestMigrateBesideWinsARoleRace · internal/platform/pgtest Main · db/schema_test.go TestMain · db/migrate_test.go emptyDatabase",
+      "src": "ci:batch56",
+      "c": []
+     },
+     {
+      "s": "P",
+      "t": "Pin a pgbouncer image carrying apt ≥ 3.0.4 (the product owner allowed downloading it, 2026-11-05) and remove the .grype.yaml entry; by 2026-11-20 (batch 56's ci-local image scan failed on CVE-2026-109518, High, in apt and libapt-pkg7.0 3.0.3 of the pinned ghcr.io/cloudnative-pg/pgbouncer:1.26.0-trixie, fixed in Debian 13's 3.0.4, DSA-6607-1; the tag's current build of 2026-11-05 still carries 3.0.3, so the finding is accepted until then: nothing in the cell's use of the image runs apt or loads libapt-pkg)",
+      "r": "deploy/images/upstream.txt · .grype.yaml · ADR-0032 As built",
+      "src": "ci:batch56",
       "c": []
      }
     ]

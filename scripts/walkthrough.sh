@@ -7,8 +7,13 @@
 # the people of the story. No test harness and no mocks beyond the mock SAP
 # extract and a stand-in for the model provider (internal/llm/llmtest/
 # modelstub), which answers a capture's extraction as the uploaded document
-# prints it, without a live model or its key. A step that needs a
-# capability not built yet says so and is skipped.
+# prints it, without a live model or its key. The event bus is the
+# embedded NATS JetStream the tests run (natsstub), and a webhook
+# subscriber on this machine (webhookstub) is the one loopback address the
+# server may deliver to, named by ERP_WALKTHROUGH_RECEIVER, which only a
+# development server accepts (ADR-0041 As built, product owner
+# 2026-11-04). A step that needs a capability not built yet says so and is
+# skipped.
 #
 # Each step prints a heading, the commands it runs and an excerpt of the
 # answers, and checks what it expects: any unexpected answer stops the run
@@ -24,6 +29,8 @@
 #   WALKTHROUGH_API_ADDR, WALKTHROUGH_ADMIN_ADDR   listeners (127.0.0.1:18080, 127.0.0.1:19090)
 #   WALKTHROUGH_MODEL_ADDR   the model stand-in's listener (127.0.0.1:18081)
 #   WALKTHROUGH_SFTP_ADDR    the treasury system's SFTP stand-in's listener (127.0.0.1:18022)
+#   WALKTHROUGH_NATS_ADDR    the event bus's listener (127.0.0.1:18222)
+#   WALKTHROUGH_HOOK_ADDR    the webhook subscriber's listener (127.0.0.1:18443)
 #   WALKTHROUGH_DIR       work directory (default: a temporary one, removed after)
 #   WALKTHROUGH_BIN       directory with erp and erp-server already built (default: build them)
 #   WALKTHROUGH_KEEP=1    keep the server running at the end, to look around with erp call
@@ -44,6 +51,8 @@ API_ADDR="${WALKTHROUGH_API_ADDR:-127.0.0.1:18080}"
 ADMIN_ADDR="${WALKTHROUGH_ADMIN_ADDR:-127.0.0.1:19090}"
 MODEL_ADDR="${WALKTHROUGH_MODEL_ADDR:-127.0.0.1:18081}"
 SFTP_ADDR="${WALKTHROUGH_SFTP_ADDR:-127.0.0.1:18022}"
+NATS_ADDR="${WALKTHROUGH_NATS_ADDR:-127.0.0.1:18222}"
+HOOK_ADDR="${WALKTHROUGH_HOOK_ADDR:-127.0.0.1:18443}"
 PAUSE="${WALKTHROUGH_PAUSE:-0}"
 # shellcheck source=walkthrough/dates.sh
 . "$ROOT/scripts/walkthrough/dates.sh"
@@ -81,6 +90,8 @@ rm -f "$WORK/failed" # an earlier run's in a WALKTHROUGH_DIR (fail)
 SERVER_PID=''
 MODEL_PID=''
 SFTP_PID=''
+NATS_PID=''
+HOOK_PID=''
 
 cleanup() {
   if [ -n "$MODEL_PID" ]; then
@@ -95,6 +106,13 @@ cleanup() {
     kill "$SERVER_PID" 2>/dev/null || true # it may have exited already: then there is nothing to stop
     wait "$SERVER_PID" 2>/dev/null || true # its exit status after a kill says nothing about the walkthrough
   fi
+  # The bus and the subscriber stop after the server, which uses them.
+  for pid in "$HOOK_PID" "$NATS_PID"; do
+    if [ -n "$pid" ]; then
+      kill "$pid" 2>/dev/null || true # as the model stand-in
+      wait "$pid" 2>/dev/null || true # as the model stand-in
+    fi
+  done
   if [ -z "${WALKTHROUGH_DIR:-}" ]; then rm -rf "$WORK"; fi
 }
 on_exit cleanup
@@ -309,6 +327,15 @@ expect() {
   if [ "$2" != "$3" ]; then fail "$1: got '$2', expected '$3'"; fi
 }
 
+# expect_today LABEL DATE BEFORE checks a date the server took as Maple's
+# today (a default date, a read date): the company's day read just before
+# the request (BEFORE), or, when Toronto's midnight passed during it, the
+# day now. Never TODAY: the script fixes that at its start, and a run that
+# crosses midnight finds the server a day ahead of it (ci:batch56).
+expect_today() {
+  [ "$2" = "$3" ] || expect "$1" "$2" "$(company_day)"
+}
+
 # wait_op waits for the operation in the last answer to finish and stops
 # unless it succeeded; the finished operation is left in last.json.
 wait_op() {
@@ -397,11 +424,11 @@ start() {
   say "    invoices, down payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening,"
   say "    memo records and payments in transit, conversion and drill-down; step 26 its snapshots; step 27 the cash actuals;"
   say "    step 28 the forecast's variance, step 30 a person's comment on it; step 33 its purchase orders; step 35 its"
-  say "    treasury connector over SFTP; step 36 the forecast across companies in group currency; step 37 the actuals in"
-  say "    analytics, step 38 the forecast, its variance and accuracy in analytics"
-  say "  - a webhook delivered: the walkthrough runs without the event bus and never sends one to this machine"
+  say "    treasury connector over SFTP and its webhook; step 36 the forecast across companies in group currency; step 37 the"
+  say "    actuals in analytics, step 38 the forecast, its variance and accuracy in analytics"
   say "  - cost center postings, reports and planning (T56d-T56j)"
-  say "  - accounts receivable, the period close's accruals and its close agent (T64e-T64g, T64j), consolidation (T68)"
+  say "  - accounts receivable, the decisions on the period close's accrual proposals and its close agent (T64f, T64g,"
+  say "    T64j), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
   # ERP_EVAL_CELL: the close agent's principal runs at level 1 before its
@@ -412,6 +439,8 @@ start() {
   export ERP_API_URL="http://$API_ADDR" ERP_ADMIN_URL="http://$ADMIN_ADDR" ERP_CONTROL_URL="http://$ADMIN_ADDR"
   export ERP_EXTRACT_DIR="$WORK/data" ERP_OBJECT_DIR="$WORK/data/objects"
   model_stub
+  bus_stub
+  hook_stub
   unset ERP_PACKS_DIR # the released packs alone
   ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64)
   ERP_FIELD_KEY=$(head -c 32 /dev/urandom | base64)
@@ -431,6 +460,59 @@ start() {
   model_price
   say ""
   say "erp-server is up (development, development issuer on): API $ERP_API_URL, admin $ERP_ADMIN_URL."
+  say "Its events go through the embedded event bus at $ERP_NATS_URL; webhooks reach public addresses and,"
+  say "in this walkthrough alone, the subscriber on this machine at https://$HOOK_ADDR (ERP_WALKTHROUGH_RECEIVER)."
+}
+
+# stub NAME PKG sets STUB to the stand-in NAME, built from the package PKG
+# unless WALKTHROUGH_BIN has it.
+stub() {
+  STUB="$BIN/$1"
+  if [ ! -x "$STUB" ]; then
+    STUB="$WORK/bin/$1"
+    (cd "$ROOT" && go build -o "$STUB" "./$2") || fail "the $1 stand-in did not build"
+  fi
+}
+
+# wait_file FILE PID NAME LOG HINT waits for FILE, which the stand-in NAME
+# (process PID, its output in LOG) writes once it listens.
+wait_file() {
+  local file=$1 pid=$2 name=$3 log=$4 hint=$5 i
+  for i in $(seq 1 100); do
+    if [ -s "$file" ]; then return 0; fi
+    kill -0 "$pid" 2>/dev/null || fail "$name exited at start ($(cat "$log")): $hint"
+    sleep 0.1
+  done
+  fail "$name is not listening after ten seconds ($i checks)"
+}
+
+# bus_stub starts the event bus, the embedded NATS JetStream of the tests
+# (natstest), and points erp-server's outbox relay at it (ERP_NATS_URL): the
+# events are relayed and fanned out to webhook subscriptions (ADR-0007,
+# ADR-0041).
+bus_stub() {
+  stub natsstub internal/platform/natsbus/natstest/natsstub
+  rm -rf "$WORK/nats" "$WORK/nats.url"
+  "$STUB" -addr "$NATS_ADDR" -store "$WORK/nats" -ready "$WORK/nats.url" >"$WORK/nats.log" 2>&1 &
+  NATS_PID=$!
+  wait_file "$WORK/nats.url" "$NATS_PID" "the event bus" "$WORK/nats.log" "is $NATS_ADDR free? set WALKTHROUGH_NATS_ADDR"
+  ERP_NATS_URL=$(cat "$WORK/nats.url")
+  export ERP_NATS_URL
+}
+
+# hook_stub starts the webhook subscriber (step 35) on this machine and
+# names it to erp-server as the walkthrough's receiver, with the
+# certificate it made (ERP_WALKTHROUGH_RECEIVER, _CA; development only). It
+# verifies each delivery with the secret step 35 writes to hook/secret and
+# keeps it in hook/received.
+hook_stub() {
+  stub webhookstub internal/platform/webhook/webhooktest/webhookstub
+  rm -rf "$WORK/hook"
+  mkdir -p "$WORK/hook/received"
+  "$STUB" -addr "$HOOK_ADDR" -ca "$WORK/hook/receiver.pem" -secret "$WORK/hook/secret" -out "$WORK/hook/received" >"$WORK/hook.log" 2>&1 &
+  HOOK_PID=$!
+  wait_file "$WORK/hook/receiver.pem" "$HOOK_PID" "the webhook subscriber" "$WORK/hook.log" "is $HOOK_ADDR free? set WALKTHROUGH_HOOK_ADDR"
+  export ERP_WALKTHROUGH_RECEIVER="$HOOK_ADDR" ERP_WALKTHROUGH_RECEIVER_CA="$WORK/hook/receiver.pem"
 }
 
 # model_stub starts the stand-in for the model provider (step 18's capture)
@@ -1197,7 +1279,7 @@ step_procure() {
   before=$(company_day)
   api 201 '"requisition \(.id) of \(.requisition_date): \(.status), \(.total_amount.amount) \(.total_amount.currency), needed by \(.needed_by)"' createRequisition \
     -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"supplier_id\": \"$SUPPLIER\", \"needed_by\": \"$NEEDED_BY\", \"items\": [$item]}"
-  [ "$(field .requisition_date)" = "$before" ] || expect "the requisition's date, Toronto's" "$(field .requisition_date)" "$(company_day)"
+  expect_today "the requisition's date, Toronto's" "$(field .requisition_date)" "$before"
   req=$(field .id)
   api 200 '"\(.status): approval request \(.workflow_request_id)"' submitRequisition -p "id=$req" -if-match "$ETAG"
   request=$(field .workflow_request_id)
@@ -1212,8 +1294,13 @@ step_procure() {
   as ben
   say "Tyrell quotes CAD 470.00 a chair, more than the approved CAD 450.00: the order exceeds its requisition,"
   say "so the release strategy asks for approval before it goes to the supplier. It pays 2% in 10 days, net 30."
-  api 201 '"purchase order \(.document_number // .id): \(.status), \(.total_amount.amount) \(.total_amount.currency), terms \(.payment_term_code)"' createPurchaseOrder \
-    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"2/10N30\", \"requisition_id\": \"$req\", \"items\": [${item/450.00/470.00}]}"
+  say "Tyrell can deliver in ten days, before the chairs are needed: the item carries that delivery date (T53g)."
+  DELIVERY=$(date_add "$TODAY" 10)
+  local ordered=${item/450.00/470.00}
+  ordered="${ordered%\}}, \"delivery_date\": \"$DELIVERY\"}"
+  api 201 '"purchase order \(.document_number // .id): \(.status), \(.total_amount.amount) \(.total_amount.currency), terms \(.payment_term_code)", (.items[] | "  item \(.item_no): delivery \(.delivery_date)")' createPurchaseOrder \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"2/10N30\", \"requisition_id\": \"$req\", \"items\": [$ordered]}"
+  expect "the item's delivery date" "$(field '.items[0].delivery_date')" "$DELIVERY"
   PO=$(field .id)
   api 200 '"\(.status): release request \(.release_request_id)"' releasePurchaseOrder -p "id=$PO" -if-match "$ETAG"
   expect "order status" "$(field .status)" pending_approval
@@ -1255,9 +1342,12 @@ order_document() {
   api 200 '' getPurchaseOrderDocument -p "id=$PO"
   sed 's/^/     /' "$WORK/last.json"
   local want
-  for want in "PURCHASE ORDER $number" "220 King Street West" "Payment terms: 2/10N30" "Needed by: $NEEDED_BY" "10 EA at 470.00 CAD per 1 EA" "Total 4700.00 CAD"; do
+  for want in "PURCHASE ORDER $number" "220 King Street West" "Payment terms: 2/10N30" "10 EA at 470.00 CAD per 1 EA" "Delivery date $DELIVERY" "Total 4700.00 CAD"; do
     grep -qF "$want" "$WORK/last.json" || fail "the order's document does not show '$want'"
   done
+  # The item's own date is printed, not the requisition's: no item is left
+  # to be delivered by it (ADR-0054 As built).
+  if grep -qF "Needed by" "$WORK/last.json"; then fail "the order's document prints the requisition's date beside the item's own"; fi
 }
 
 # order_change has Ben ask for Tyrell's dearer price on the released
@@ -1370,7 +1460,7 @@ step_credit() {
   before=$(company_day)
   api 200 '"\(.kind) \(.document_number): \(.status) on \(.posting_date)"' postSupplierInvoice -p "id=$CREDIT" -if-match '"1"' -body '{}'
   expect "credit memo status" "$(field .status)" posted
-  [ "$(field .posting_date)" = "$before" ] || expect "the credit memo's posting date, Toronto's" "$(field .posting_date)" "$(company_day)"
+  expect_today "the credit memo's posting date, Toronto's" "$(field .posting_date)" "$before"
   CREDIT_ENTRY=$(field .journal_entry_id)
   api 200 '.items[] | "open item \(.amount.amount) \(.amount.currency)"' listOpenItems -p "partner_id=$SUPPLIER"
   receipt_held
@@ -2124,20 +2214,18 @@ step_cash() {
   expect "the statement balance the position opens with" "$(field '.banks[] | select(.house_bank_code == "RBC") | .opening.balance.amount')" "$CLOSING"
   expect "the memo record's flow" "$(field '[.banks[] | select(.house_bank_code == "RBC") | .days[].flows[]? | select(.source == "memo") | .amount.amount] | join(" ")')" 25000.00
   say "Today for the position is Maple's date in Toronto, not UTC's: in a Toronto evening UTC is already tomorrow (T72n1)."
-  local before after
+  local before
   before=$(company_day)
   api 200 '"read on \(.read_date) in \(.time_zone), from \(.from)"' getCashPosition -p "legal_entity_id=$LE" -p days=1
-  after=$(company_day)
   expect "the zone the position is read in" "$(field .time_zone)" America/Toronto
-  [ "$(field .read_date)" = "$before" ] || expect "the read date, Toronto's" "$(field .read_date)" "$after"
+  expect_today "the read date, Toronto's" "$(field .read_date)" "$before"
   expect "the first day, the read date" "$(field .from)" "$(field .read_date)"
   say "A client dates its forms on the same day: Maple's date today, in its zone (getLegalEntityToday), which the web"
   say "workspace pre-fills a manual entry's dates, a payment run's and the open items' key date with, not UTC's day:"
   before=$(company_day)
   api 200 '"today is \(.date) in \(.time_zone)"' getLegalEntityToday -p "id=$LE"
-  after=$(company_day)
   expect "the zone Maple's today is in" "$(field .time_zone)" America/Toronto
-  [ "$(field .date)" = "$before" ] || expect "Maple's today, Toronto's" "$(field .date)" "$after"
+  expect_today "Maple's today, Toronto's" "$(field .date)" "$before"
   local toronto judged status listed counted
   toronto=$(company_day)
   say "A receipt promised for today ($toronto in Toronto), its last day today, is active until Toronto's day ends:"
@@ -2146,7 +2234,7 @@ step_cash() {
     -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"amount\": {\"amount\": \"1000.00\", \"currency\": \"CAD\"}, \"value_date\": \"$toronto\", \"expires_on\": \"$toronto\", \"liquidity_item\": \"REC_CUSTOMERS\", \"reference\": \"WT-1043\"}"
   expect "the zone the memo record's status is judged in" "$(field .time_zone)" America/Toronto
   judged=$(field .read_date)
-  [ "$judged" = "$toronto" ] || expect "the memo record's read date, Toronto's" "$judged" "$(company_day)"
+  expect_today "the memo record's read date, Toronto's" "$judged" "$toronto"
   status=active
   [ "$judged" = "$toronto" ] || status=expired # Toronto's midnight passed between the two reads
   expect "the memo record's status on Maple's date" "$(field .status)" "$status"
@@ -2171,15 +2259,14 @@ forecast() {
   say "weeks, 9 months), each open item on the day a payment run would pay it and at what it would pay then. Maple"
   say "runs payments on Tuesdays and Thursdays: an overdue item is expected on the next of them, an item in a discount"
   say "tier on the tier's last payment day, else on the last payment day before it is due; step 7's run paid the rest."
-  local before after
+  local before
   before=$(company_day)
   api 200 '"read on \(.read_date) in \(.time_zone), \(.buckets | length) buckets from \(.buckets[0].start) to \(.buckets[-1].end)",
     (.currencies[] | .currency as $c | "  \($c): total \(.total.amount), beyond the last bucket \(.beyond.amount.amount) (\(.beyond.count))",
       (.buckets[] | select(.flows | length > 0) | "    from \(.start): \([.flows[] | "\(.source) \(.certainty) \(.amount.amount) x\(.count)"] | join(", "))"))' \
     getLiquidityForecast -p "legal_entity_id=$LE"
-  after=$(company_day)
   expect "the zone the forecast is read in" "$(field .time_zone)" America/Toronto
-  [ "$(field .read_date)" = "$before" ] || expect "the forecast's read date, Toronto's" "$(field .read_date)" "$after"
+  expect_today "the forecast's read date, Toronto's" "$(field .read_date)" "$before"
   expect "the first bucket, the read date" "$(field '.buckets[0].start')" "$(field .read_date)"
   # A day's bucket starts on the day expected: the first Tuesday or Thursday
   # from today, or, when that is one of Maple's holidays, the next working
@@ -2791,7 +2878,7 @@ step_asset_acquisitions() {
 step_cash_forecast() {
   heading "Step 23 — The liquidity forecast opened, converted and drilled down to its documents"
   as tom
-  local next to memo memo_etag cells
+  local next to memo memo_etag cells read
   next=$(date_add "$TODAY" 40)
   say "Tom expects a US customer's USD 2,000.00 on $next and records it without a house bank: a memo record the"
   say "forecast counts and the cash position does not (T53e4)."
@@ -2816,14 +2903,18 @@ step_cash_forecast() {
   expect "USD converted or listed without a rate, never as zero" \
     "$(field '.converted | ([.rates[].currency] + .incomplete_currencies) | index("USD") != null')" true
   cells=$(field '[.currencies[] | select(.currency == "CAD") | .items[] | select(.liquidity_item == "REC_CUSTOMERS") | .buckets[0:14][].amount | sub("\\."; "") | tonumber] | add // 0')
-  to=$(date_add "$TODAY" 55)
+  # The forecast's buckets start on its read date, the server's today:
+  # the ranges below are counted from it, not from TODAY, which a run
+  # that crossed Toronto's midnight left a day behind (ci:batch56).
+  read=$(field .read_date)
+  to=$(date_add "$read" 55)
   say "One grain over a range instead of Maple's buckets: weeks up to $to."
   api 200 '"\(.buckets | length) \(.buckets[0].grain)s from \(.buckets[0].start) to \(.buckets[-1].end)"' getLiquidityForecast -p "legal_entity_id=$LE" -p grain=week -p "to=$to"
   expect "the weeks up to the one holding $to" "$(field '.buckets | length')" 8
   say "Tom drills the first two weeks of Customer receipts down to their flows and the documents behind them, each"
   say "to read in its own context (getMemoRecord here), and the drill-down totals the row's cells:"
   api 200 '"  \(.count) flows, total \(.total.amount) \(.total.currency)", (.items[] | "  \(.date) \(.source) \(.certainty) \(.share.amount): \([.documents[] | "\(.kind) \(.number // "-") \(.amount.amount)"] | join(", ")) (\(.document_count))")' \
-    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "to=$(date_add "$TODAY" 13)" -p liquidity_item=REC_CUSTOMERS
+    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "to=$(date_add "$read" 13)" -p liquidity_item=REC_CUSTOMERS
   expect "the drill-down's total, the row's cells of the two weeks" "$(field '.total.amount | sub("\\."; "") | tonumber')" "$cells"
   expect "WT-1042 named by its reference" "$(field '[.items[].documents[] | select(.kind == "memo_record") | .number] | index("WT-1042") != null')" true
   as ada
@@ -2836,7 +2927,7 @@ step_cash_forecast() {
   person rita "Rita Reporting" cash_reporting
   as rita
   api 200 '"  \(.count) flows, total \(.total.amount) \(.total.currency)", (.items[] | "  \(.date) \(.source) \(.share.amount): \(.documents | length) of \(.document_count) documents shown, supplier \(.supplier.name // "not shown")")' \
-    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "to=$(date_add "$TODAY" 13)" -p liquidity_item=REC_CUSTOMERS
+    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "to=$(date_add "$read" 13)" -p liquidity_item=REC_CUSTOMERS
   expect "Rita's total, Tom's" "$(field '.total.amount | sub("\\."; "") | tonumber')" "$cells"
   expect "documents shown to Rita" "$(field '[.items[].documents[]] | length')" 0
   expect "documents counted for Rita" "$(field '[.items[].document_count] | add > 0')" true
@@ -2983,8 +3074,9 @@ step_asset_depreciation() {
 # the process owner approves; Carla reads the year's close calendar, each
 # period's planned first and last due dates on the company's business days.
 # Then the close's checklist (T64b), its depreciation check (T64k), its
-# other checks (T64c), its variances (T64h) and their comments (T64i)
-# and, last, its sign-off (T64d), which locks the period.
+# other checks (T64c), its accrual proposals (T64e), its variances (T64h)
+# and their comments (T64i) and, last, its sign-off (T64d), which locks
+# the period.
 step_close() {
   heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off"
   as ada
@@ -3037,6 +3129,7 @@ step_close() {
   close_checklist
   close_depreciation
   close_checks
+  close_accruals
   close_variances
   close_comments
   close_sign_off
@@ -3216,6 +3309,108 @@ step_cash_snapshot() {
   passed
 }
 
+# close_accruals is T64e's part of step_close (ADR-0058 §8, §12): Ada
+# names the company's accrual account, a new liability, through a governed
+# change, and sets up the close agent, a level-1 agent principal. Alex
+# enters the courier's invoice of last month's deliveries; the agent, as
+# it will (T64g), proposes this month's accrual citing it, parked as its
+# entry dated the period's last day, and may not post it. Carla reads the
+# proposal with its evidence and posts its parked entry; a person's
+# proposal is refused.
+close_accruals() {
+  local period close end base cr request role agent session last invoice body proposal entry
+  period=$((10#${TODAY:5:2}))
+  as ada
+  say "Ada names the account $CC's accruals are credited to (ADR-0058 §3): a new liability, 2195 Accrued"
+  say "liabilities, posted by hand. The accrual account decides what the accrual proposals' entries post (tier 3), and"
+  say "a new account changes the chart, so the change is tier 4: the invoices of the last year are replayed under it."
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Accrual account 2195\", rationale: \"The close agent's accrual proposals (T64e)\", base_version: $base,
+    proposed: (.items[0].document | .companies |= map(if .code == \"$CC\" then .chart_of_accounts += [{number: \"2195\", name: \"Accrued liabilities\",
+      type: \"liability\"}] | .close.accrual_account = \"2195\" else . end))}" "$WORK/last.json" >"$WORK/accrual.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @accrual.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[] | "\(.path) (tier \(.tier))"] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 4
+  expect "the accrual account's tier" "$(field "[.items[] | select(.path == \"companies[$CC].close.accrual_account\") | .tier] | join(\" \")")" 3
+  QUIET=1 api 201 '' createRegressionSuite -body '{"name": "Before the accrual account", "window_days": 366}'
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
+  expect "status after the evidence" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve sam "$request" "A new liability for accruals, unposted"
+  approve carla "$request" "The account the close agent's accruals are credited to"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  say "Ada sets up the close agent (ADR-0058 §12): an agent principal at autonomy level 1, which proposes and decides"
+  say "nothing; its role reads closes and the ledger and proposes accruals in its sessions, parking their entries."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "close_agent", "name": "Close agent"}'
+  role=$(field .id)
+  printf '%s' "$role" >"$WORK/close_agent_role"
+  grant "$role" closing.close.read closing.accrual.propose ledger.entry.park ledger.entry.read agents.session.record
+  api 201 '"\(.kind) \(.display_name), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' createPrincipal \
+    -body '{"kind": "agent", "external_subject": "close-agent", "display_name": "Close agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "model": "erp-default", "description": "Proposes accruals and variance comments for people to decide (ADR-0058)"}}'
+  agent=$(field .id)
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$agent\", \"role_id\": \"$role\"}"
+  token close-agent "Close agent"
+  printf '%s\tClose agent\n' "$agent" >>"$WORK/names"
+  last=$(date_add "${TODAY:0:8}01" -1)
+  as alex
+  say "Tyrell invoices its courier deliveries monthly. Alex enters last month's invoice, dated $last, CAD 300.00"
+  say "plus 15.00 GST, and posts it:"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference) of \(.invoice_date): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' \
+    createSupplierInvoice -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"COURIER-${last:0:7}\", \"invoice_date\": \"$last\", \"gross_amount\": {\"amount\": \"315.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"15.00\", \"currency\": \"CAD\"}, \"items\": [{\"account_id\": \"$(account 6000)\", \"description\": \"Courier deliveries of ${last:0:7}\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}]}"
+  invoice=$(field .id)
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  as carla
+  QUIET=1 api 200 '' listPeriodCloses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  close=$(field ".items[] | select(.fiscal_period == $period) | .id")
+  end=$(field ".items[] | select(.fiscal_period == $period) | .period_end")
+  as close-agent
+  say "The agent starts a session. This month's deliveries are not invoiced yet, so it proposes their accrual at"
+  say "last month's amount, citing that invoice: the closing context parks the entry as the agent, Dr 6000 and Cr"
+  say "the accrual account 2195, dated the period's last day, for a person to post."
+  api 201 '"session \(.id[0:8])…: \(.status)"' startAgentSession -body '{"purpose": "Propose the accruals of the close", "model": "erp-default"}'
+  session=$(field .id)
+  body="{\"session_id\": \"$session\", \"close_id\": \"$close\", \"account_id\": \"$(account 6000)\", \"supplier_id\": \"$SUPPLIER\", \"amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"description\": \"Courier deliveries of ${TODAY:0:7}, not invoiced yet\", \"reason\": \"Tyrell invoices its deliveries monthly; last month's invoice was 300.00 and this month's has not arrived.\", \"evidence\": [{\"kind\": \"supplier_invoice\", \"document_id\": \"$invoice\"}]}"
+  api 201 '"  proposal \(.id[0:8])…: \(.status), Dr \(.account_number) \(.account_name) Cr \(.accrual_account_number) \(.accrual_account_name) \(.amount.amount) \(.amount.currency) on \(.posting_date), parked entry \(.parked_entry_id[0:8])…"' \
+    proposeAccrual -body "$body"
+  proposal=$(field .id)
+  entry=$(field .parked_entry_id)
+  expect "the proposal" "$(field .status)" proposed
+  expect "the accrual account" "$(field .accrual_account_number)" 2195
+  say "Retried, the same proposal answers as it is, and parks nothing more:"
+  api 200 '"  proposal \(.id[0:8])…: \(.status)"' proposeAccrual -body "$body"
+  expect "the retried proposal" "$(field .id)" "$proposal"
+  say "Proposing is all it may do: posting its entry is a person's."
+  QUIET=1 api 200 '' getParkedJournalEntry -p "id=$entry"
+  expect "who parked the entry" "$(field .created_by_kind)" agent
+  refused 403 identity.agent_not_allowed postParkedJournalEntry -p "id=$entry" -if-match "$ETAG" -body '{}'
+  QUIET=1 api 200 '' endAgentSession -p "id=$session" -if-match '*' -body '{"status": "completed", "input_tokens": 0, "output_tokens": 0}'
+  as carla
+  say "Carla reads the proposal with its evidence, each document named, and the close's proposals:"
+  api 200 '"  \(.company_code) \(.fiscal_year)/\(.fiscal_period) by \(.agent_name): \(.description), \(.amount.amount) \(.amount.currency) for \(.supplier_name // .supplier_id)", "  because: \(.reason)",
+    (.evidence[] | "  evidence \(.kind) \(.document_number) of \(.supplier_name // .supplier_id)")' getAccrualProposal -p "id=$proposal"
+  expect "the evidence, last month's invoice" "$(field '[.evidence[] | .kind] | join(" ")')" supplier_invoice
+  expect "the cited invoice" "$(field '.evidence[0].document_id')" "$invoice"
+  api 200 '(.items[] | "  \(.id[0:8])… \(.account_number) \(.amount.amount) \(.amount.currency): \(.status)")' listAccrualProposals -p "close_id=$close"
+  expect "the close's proposals" "$(field '[.items[].id] | join(" ")')" "$proposal"
+  say "Its parked entry, the agent's, waits for a person. Carla reads it and posts it (postParkedJournalEntry):"
+  api 200 '"  parked entry by \(.created_by_kind) on \(.posting_date): \(.header_text)", (.lines[] | "    \(.amount.amount) \(.amount.currency) on \(.account_id[0:8])…: \(.line_text)")' \
+    getParkedJournalEntry -p "id=$entry"
+  expect "the parked entry's date, the period's last day" "$(field .posting_date)" "$end"
+  QUIET=1 api 200 '' getParkedJournalEntry -p "id=$entry"
+  api 200 '"  parked entry: \(.status), journal entry \(.journal_entry_id)"' postParkedJournalEntry -p "id=$entry" -if-match "$ETAG" -body '{}'
+  expect "the accrual's entry" "$(field .status)" posted
+  say "A person's proposal is refused: a person parks an entry herself (parkJournalEntry)."
+  refused 403 agents.not_an_agent proposeAccrual -body "$body"
+}
+
 # close_variances is T64h's part of step_close (ADR-0058 §9): Ada sets the
 # company's variance thresholds through a tier 2 change; Carla reads the
 # period's variances against the prior period, the rows past the
@@ -3280,27 +3475,19 @@ close_variances() {
 }
 
 # close_comments is T64i's part of step_close (ADR-0058 §10): the close
-# agent, a level-1 agent principal, proposes a comment on a flagged row
+# agent (set up in close_accruals), its role now proposing variance
+# comments too, proposes a comment on a flagged row
 # citing the entry behind it, as the agent will (T64j); a citation of an
 # entry with no line on the row's account is refused. Carla accepts the
 # proposal and explains the other flagged rows herself; the report shows
 # each row's accepted comment, the unexplained filter and the rows
 # explained, and the variances check passes.
 close_comments() {
-  local period close role agent session row account entry other comment tag basis n
+  local period close session row account entry other comment tag basis n
   period=$((10#${TODAY:5:2}))
   as ada
-  say "Ada sets up the close agent (ADR-0058 §12): an agent principal at autonomy level 1, which proposes and"
-  say "decides nothing; its role reads closes and the ledger, and proposes variance comments in its sessions."
-  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "close_agent", "name": "Close agent"}'
-  role=$(field .id)
-  grant "$role" closing.close.read closing.variance.propose ledger.entry.read agents.session.record
-  api 201 '"\(.kind) \(.display_name), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' createPrincipal \
-    -body '{"kind": "agent", "external_subject": "close-agent", "display_name": "Close agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "model": "erp-default", "description": "Proposes accruals and variance comments for people to decide (ADR-0058)"}}'
-  agent=$(field .id)
-  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$agent\", \"role_id\": \"$role\"}"
-  token close-agent "Close agent"
-  printf '%s\tClose agent\n' "$agent" >>"$WORK/names"
+  say "Ada lets the close agent propose variance comments in its sessions too."
+  grant "$(cat "$WORK/close_agent_role")" closing.variance.propose
   as carla
   QUIET=1 api 200 '' listPeriodCloses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
   close=$(field ".items[] | select(.fiscal_period == $period) | .id")
@@ -3622,7 +3809,7 @@ step_asset_transfer() {
   heading "Step 32 — Asset transfers: the milling machine moved to a cost center of another profit center from this period, its balances reposted; a quarter of it moved to a tool of another class"
   as sam
   say "Maple opens a Toronto office. Sam sets up its profit center and cost center, which the controller approves."
-  local pc cc mill tool q start values cost
+  local pc cc mill tool q start values cost before value
   api 201 '"profit center \(.code) \(.name): \(.status)"' createProfitCenter \
     -body "{\"code\": \"PC-TOR\", \"name\": \"Toronto office\", \"responsible\": \"Carla Controller\", \"legal_entity_ids\": [\"$LE\"], \"valid_from\": \"$YEAR-01-01\", \"reason\": \"The Toronto office\"}"
   pc=$(field .id)
@@ -3667,12 +3854,15 @@ step_asset_transfer() {
   api 201 '"asset \(.company_code)/\(.asset_number) \(.description) (\(.class_code)): \(.status)"' createAsset \
     -body "{\"legal_entity_id\": \"$LE\", \"class_code\": \"TOOLS\", \"description\": \"Milling tool set\", \"cost_center_id\": \"$cc\"}"
   tool=$(field .id)
-  api 201 '"transfer \(.kind) of asset \(.asset_number) to \(.to_asset_number) \(.to_asset_description) (\(.to_class_code)), \(.share_percent) %",
+  before=$(company_day)
+  api 201 '"transfer \(.kind) of asset \(.asset_number) to \(.to_asset_number) \(.to_asset_description) (\(.to_class_code)), \(.share_percent) % from \(.value_date)",
     (.ledgers[] | "  \(.ledger_code): catch-up \(.catch_up.amount), cost \(.cost.amount), accumulated \(.accumulated.amount) \(.cost.currency)")' \
     createAssetTransfer -body "{\"asset_id\": \"$mill\", \"kind\": \"asset\", \"to_asset_id\": \"$tool\", \"share\": {\"percent\": \"25\"}, \"text\": \"Tooling split off the milling machine\"}"
   expect "the receiver's class" "$(field .to_class_code)" TOOLS
+  value=$(field .value_date)
+  expect_today "the transfer's value date, Maple's today" "$value" "$before"
   api 200 "$values" getAsset -p "id=$tool"
-  expect "the tool, active from today" "$(field '"\(.status) \(.capitalised_on)"')" "active $TODAY"
+  expect "the tool, active from the transfer's value date" "$(field '"\(.status) \(.capitalised_on)"')" "active $value"
   api 200 "$values" getAsset -p "id=$mill"
   api 200 '"the machine'"'"'s transfers: \([.items[] | "\(.kind) \(.status)"] | join(", "))"' listAssetTransfers -p "asset_id=$mill"
   expect "the machine's transfers" "$(field '[.items[].kind] | sort | join(" ")')" "asset center"
@@ -3833,10 +4023,12 @@ wait_export() {
 
 # step_cash_export is the treasury connector (T53h, ADR-0051 §14): a
 # snapshot exported in the cash export schema v1 to a treasury system's
-# SFTP directory, and the same snapshot sent again recognised as a resend.
+# SFTP directory, the same snapshot sent again recognised as a resend, and
+# the treasury system told of the snapshot by a signed webhook
+# (CashSnapshotTaken, ADR-0041) that its endpoint verifies.
 step_cash_export() {
-  heading "Step 35 — The treasury connector: a snapshot exported to the treasury system over SFTP, then sent again"
-  local host port snap export first sum
+  heading "Step 35 — The treasury connector: a snapshot exported to the treasury system over SFTP, sent again, and announced by webhook"
+  local host port snap export first sum hook
   sftp_stub
   host=${SFTP_ADDR%:*} port=${SFTP_ADDR##*:}
   as sam
@@ -3847,6 +4039,14 @@ step_cash_export() {
     createConnector -body "{\"kind\": \"treasury_export\", \"name\": \"Maple treasury\", \"secret_ref\": \"file:$WORK/sftp/client\", \"settings\": {\"host\": \"$host\", \"port\": $port, \"user\": \"erp\", \"host_key\": \"$(tr -d '\n' <"$WORK/sftp/host.pub")\", \"directory\": \"/treasury\", \"format\": \"csv\", \"companies\": [\"$CC\"]}}"
   local connector
   connector=$(field .id)
+  say "The treasury system also wants to hear of each snapshot as it is taken: Sam subscribes its endpoint to the"
+  say "cash context's webhook events (ADR-0041), of which CashSnapshotTaken is the one offered. The answer shows the"
+  say "subscription's whsec_ secret once; Sam gives it to the treasury system, which verifies every delivery with it."
+  api 201 '"subscription to \(.event_types | join(", ")) at \(.url): \(.status)"' createWebhookSubscription \
+    -body "{\"url\": \"https://$HOOK_ADDR/treasury/events\", \"description\": \"Maple treasury\", \"event_types\": [\"cash.*\"]}"
+  hook=$(field .id)
+  field .secret >"$WORK/hook/secret"
+  expect "a whsec_ secret, shown once" "$(cut -c1-6 "$WORK/hook/secret")" "whsec_"
   as tom
   say "Tom takes the month-end snapshot. Taking it queues its export to every active treasury connector of Maple; the"
   say "server's exporter sends it in the background, as the bank file transmitter sends bank files:"
@@ -3874,9 +4074,46 @@ step_cash_export() {
   expect "the same file name" "$(field .file_name)" "$first"
   expect "the same hash" "$(field .sha256)" "$sum"
   expect "recognised as a resend" "$(field .resend)" true
-  say "Whoever subscribes to CashSnapshotTaken (a webhook, ADR-0041) is told of each snapshot and may pull it instead;"
-  say "this run has no event bus, so no webhook is sent here (TestCashSnapshotTakenWebhook shows one delivered)."
+  cash_webhook "$hook" "$snap"
   passed
+}
+
+# cash_webhook HOOK SNAPSHOT shows the webhook announcing the snapshot:
+# delivered as the subscription's deliveries show it, received by the
+# treasury system's endpoint (webhookstub), its signature verified there
+# and refused for a body changed by one byte.
+cash_webhook() {
+  local hook=$1 snap=$2 i file='' delivery event
+  say "Taking the snapshot published CashSnapshotTaken through the outbox; the event bus carried it to the webhook"
+  say "fan-out, which queued a delivery to the subscription, and the dispatcher sent it, signed with its secret:"
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' listWebhookDeliveries -p "id=$hook"
+    if [ "$(field '[.items[] | select(.subject == "'"$snap"'" and .status == "delivered")] | length')" = 1 ]; then break; fi
+    sleep 0.25
+  done
+  api 200 '.items[] | select(.subject == "'"$snap"'") | "  \(.type): \(.status) after \(.attempts) attempt(s), the endpoint answered \(.last_status)"' \
+    listWebhookDeliveries -p "id=$hook"
+  expect "the snapshot's delivery, delivered (after $i checks)" "$(field '[.items[] | select(.subject == "'"$snap"'" and .status == "delivered")] | length')" 1
+  delivery=$(field '.items[] | select(.subject == "'"$snap"'") | .id')
+  event=$(field '.items[] | select(.subject == "'"$snap"'") | .event_id')
+  for file in "$WORK"/hook/received/delivery-*.json; do
+    [ -e "$file" ] || break # none received: the glob is left as written, and the check below says so
+    if [ "$(jq -r .webhook_delivery_id "$file")" = "$delivery" ]; then break; fi
+  done
+  [ -s "$file" ] && [ "$(jq -r .webhook_delivery_id "$file")" = "$delivery" ] || fail "the treasury system's endpoint did not receive delivery $delivery"
+  say "What the treasury system's endpoint received (a CloudEvent, application/cloudevents+json):"
+  jq -r '"  webhook-id \(.webhook_id), webhook-timestamp \(.webhook_timestamp)",
+    "  webhook-signature \(.webhook_signature | .[0:16])…",
+    "  \(.event.type) for snapshot \(.event.data.cash_snapshot_id) of company \(.event.data.company_code) on \(.event.data.snapshot_date)"' "$file" | sed 's/^/   /'
+  expect "the webhook-id, the event's id" "$(jq -r .webhook_id "$file")" "$event"
+  expect "the event's type" "$(jq -r .event.type "$file")" "com.example.erp.cash.cash_snapshot_taken.v1"
+  expect "the snapshot it names" "$(jq -r .event.data.cash_snapshot_id "$file")" "$snap"
+  expect "its content type" "$(jq -r .content_type "$file")" "application/cloudevents+json"
+  say "The endpoint verified the signature with the secret Sam gave it (Standard Webhooks, as api/webhooks-test-vectors.json"
+  say "fixes it) and refused the same signature over the body with one byte changed:"
+  jq -r '"  verified \(.verified), a changed body refused \(.tampered_body_refused)"' "$file" | sed 's/^/   /'
+  expect "the signature verified" "$(jq -r .verified "$file")" true
+  expect "a changed body refused" "$(jq -r .tampered_body_refused "$file")" true
 }
 
 step_cash_group() {
@@ -3989,11 +4226,17 @@ step_cash_analytics() {
 step_cash_forecast_analytics() {
   heading "Step 38 — The forecast in analytics: what today's snapshot expected for today, a week and a month ahead, and how accurate it was today"
   as tom
-  local snap kind other day lag q kept got seen=0 total=0 preferred=0 on_demand=0
+  local snap kind other day lag q kept got seen=0 total=0 preferred=0 on_demand=0 snapshot_day
+  # Today is the day step 35's snapshot was taken on, the server's: a run
+  # that crossed Toronto's midnight after the script fixed TODAY took it on
+  # the next day (ci:batch56).
+  QUIET=1 api 200 '' listCashSnapshots -p "legal_entity_id=$LE" -p kind=on_demand
+  snapshot_day=$(field '[.items[] | select(.name == "Month-end treasury report")][0].snapshot_date')
+  [ "$snapshot_day" != null ] || fail "step 35's snapshot, the Month-end treasury report, is not listed"
   say "The variance report compares one snapshot over its period. The governed forecast metrics read each value date"
   say "from the snapshot taken that many days before it (0, 7 or 30): the company's daily snapshot of that date, else the"
-  say "last one taken on demand that day. Today's is the one Tom's metrics read for today, in a week and in a month:"
-  api 200 '.items[] | "  \(.snapshot_date) \(.kind) \(.name // "") taken \(.taken_at)"' listCashSnapshots -p "legal_entity_id=$LE" -p "from=$TODAY" -p "to=$TODAY"
+  say "last one taken on demand that day. Today's ($snapshot_day) is the one Tom's metrics read for today, in a week and in a month:"
+  api 200 '.items[] | "  \(.snapshot_date) \(.kind) \(.name // "") taken \(.taken_at)"' listCashSnapshots -p "legal_entity_id=$LE" -p "from=$snapshot_day" -p "to=$snapshot_day"
   snap=$(field '([.items[] | select(.kind == "daily")] + .items)[0].id')
   kind=$(field '([.items[] | select(.kind == "daily")] + .items)[0].kind')
   other=$(field '[.items[] | select(.kind == "on_demand")][0].id')
@@ -4003,7 +4246,7 @@ step_cash_forecast_analytics() {
   QUIET=1 api 200 '' listCashSnapshotFlows -p "id=$other" -p currency=CAD -p page_size=500
   cp "$WORK/last.json" "$WORK/forecast_other.json"
   for lag in 0 7 30; do
-    day=$(date_add "$TODAY" "$lag")
+    day=$(date_add "$snapshot_day" "$lag")
     kept=$(kept_on "$WORK/forecast_lines.json" "$day")
     q="{\"measures\": [\"forecast_lag_$lag\"], \"by\": [\"currency\", \"value_date\", \"flow_source\", \"certainty\", \"liquidity_item\"], \"companies\": [\"$CC\"], \"order_by\": \"value_date\"}"
     say "forecast_lag_$lag, by currency, value date, flow source, certainty and liquidity item: $day is today's snapshot's day $lag."
@@ -4023,22 +4266,22 @@ step_cash_forecast_analytics() {
   else
     expect "today's snapshot forecasts one of those days" "$seen" 1
   fi
-  forecast_accuracy_analytics
+  forecast_accuracy_analytics "$snapshot_day"
   as rita
   say "Rita, who holds the forecast's read alone, reads the day-ahead forecast and its accuracy: they name no supplier"
   say "(ADR-0044 As built T53j2, T53j3)."
   q="{\"measures\": [\"forecast_lag_0\"], \"by\": [\"currency\", \"value_date\"], \"companies\": [\"$CC\"]}"
   api 200 '(.rows[] | "  " + (map(.value // "-") | join("  ")))' runAnalyticsQuery -body "$q"
-  expect "Rita's CAD forecast of $TODAY, Tom's" "$(amount "$(cad_on "$TODAY")")" "$(amount "$(kept_on "$WORK/forecast_lines.json" "$TODAY")")"
+  expect "Rita's CAD forecast of $snapshot_day, Tom's" "$(amount "$(cad_on "$snapshot_day")")" "$(amount "$(kept_on "$WORK/forecast_lines.json" "$snapshot_day")")"
   api 200 '(.rows[] | "  " + (map(.value // "-") | join("  ")))' runAnalyticsQuery -body "$ACCURACY_TODAY"
-  expect "Rita's CAD accuracy of $TODAY, Tom's" "$(field '[.rows[] | select(.[0].value == "CAD") | .[4].value // "-"][0]')" "$ACCURACY_CAD"
+  expect "Rita's CAD accuracy of $snapshot_day, Tom's" "$(field '[.rows[] | select(.[0].value == "CAD") | .[4].value // "-"][0]')" "$ACCURACY_CAD"
   as tom
   passed
 }
 
-# forecast_accuracy_analytics is the forecast's variance and accuracy as
-# governed metrics (T53j3, ADR-0044 As built T53j3; product owner
-# 2026-11-04): today's actuals against today's snapshot at lag 0, in cells
+# forecast_accuracy_analytics DAY is the forecast's variance and accuracy
+# as governed metrics (T53j3, ADR-0044 As built T53j3; product owner
+# 2026-11-04): DAY's (today's) actuals against its snapshot at lag 0, in cells
 # of a currency and liquidity item, checked by hand against the variance
 # report of the day (step 28's): each item's variance is the report's, its
 # accuracy 100% less the report's variance_percent (none where nothing was
@@ -4047,10 +4290,10 @@ step_cash_forecast_analytics() {
 # percentage half away from zero. No snapshot was taken a week or a month
 # ago, so no day is compared at lags 7 and 30.
 forecast_accuracy_analytics() {
-  local report ours abs_v=0 abs_f=0 want v f item var pct line
+  local day=$1 report ours abs_v=0 abs_f=0 want v f item var pct line
   say "The variance report compares today's snapshot with today's statement lines, item by item (step 28):"
   api 200 '.currencies[] | select(.currency == "CAD") | .items[] | "  \("  " * .level)\(.liquidity_item // "unclassified"): \(.total.forecast.amount) -> \(.total.actual.amount), variance \(.total.variance.amount) (\(.total.variance_percent // "-")%)"' \
-    getLiquidityForecastVariance -p "legal_entity_id=$LE" -p "from=$TODAY" -p "to=$TODAY" -p lag=0
+    getLiquidityForecastVariance -p "legal_entity_id=$LE" -p "from=$day" -p "to=$day" -p lag=0
   # The report's leaf rows of CAD (an item's row is followed by its
   # children's, one level deeper), each item's own cell, of something
   # forecast or paid.
@@ -4069,7 +4312,7 @@ forecast_accuracy_analytics() {
   say "by currency and liquidity item: the actual less the forecast, and 100% less the variance's size in percent of the"
   say "forecast's, as the report's variance_percent; none where nothing was forecast:"
   api 200 '"answered from \(.source) as of \(.as_of), \(.columns | map(.name) | join(", "))", (.rows[] | "  " + (map(.value // "-") | join("  ")))' \
-    runAnalyticsQuery -body "{\"measures\": [\"variance_lag_0\", \"accuracy_lag_0\"], \"by\": [\"currency\", \"liquidity_item\"], \"companies\": [\"$CC\"], \"where\": [{\"dim\": \"value_date\", \"op\": \"in\", \"values\": [\"$TODAY\"]}]}"
+    runAnalyticsQuery -body "{\"measures\": [\"variance_lag_0\", \"accuracy_lag_0\"], \"by\": [\"currency\", \"liquidity_item\"], \"companies\": [\"$CC\"], \"where\": [{\"dim\": \"value_date\", \"op\": \"in\", \"values\": [\"$day\"]}]}"
   ours=$(field '.rows[] | select(.[0].value == "CAD") | select(.[2].value != "0.00" or .[3].value != null) | "\(.[1].value // "") \(.[2].value) \(.[3].value // "-")"' | sort)
   expect "each item's variance and accuracy, the report's" "$ours" "$(printf '%s\n' ${mine[@]+"${mine[@]}"} | sort)"
   if [ "$abs_f" = 0 ]; then
@@ -4077,7 +4320,7 @@ forecast_accuracy_analytics() {
   else
     want=$(ratio4 $((10000 - (2 * abs_v * 10000 + abs_f) / (2 * abs_f))))
   fi
-  ACCURACY_TODAY="{\"measures\": [\"variance_lag_0\", \"absolute_variance_lag_0\", \"absolute_forecast_lag_0\", \"accuracy_lag_0\"], \"by\": [\"currency\"], \"companies\": [\"$CC\"], \"where\": [{\"dim\": \"value_date\", \"op\": \"in\", \"values\": [\"$TODAY\"]}]}"
+  ACCURACY_TODAY="{\"measures\": [\"variance_lag_0\", \"absolute_variance_lag_0\", \"absolute_forecast_lag_0\", \"accuracy_lag_0\"], \"by\": [\"currency\"], \"companies\": [\"$CC\"], \"where\": [{\"dim\": \"value_date\", \"op\": \"in\", \"values\": [\"$day\"]}]}"
   say "The day's accuracy is 1 less WAPE: the items' absolute variances, $(amount "$abs_v") CAD, over their absolute forecasts,"
   say "$(amount "$abs_f") CAD, the quotient rounded to two decimals of a percentage first: $want."
   api 200 '(.rows[] | "  " + (map(.value // "-") | join("  ")))' runAnalyticsQuery -body "$ACCURACY_TODAY"

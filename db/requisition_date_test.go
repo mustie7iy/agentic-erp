@@ -61,7 +61,7 @@ func TestRequisitionDate(t *testing.T) {
 // version: 23:30 on 31 December in UTC-5 is 1 January in UTC.
 func TestRequisitionDateBackfilled(t *testing.T) {
 	conn := emptyDatabase(t)
-	migrateBefore(t, conn, 170)
+	migrateBefore(t, conn, "000170_requisition_date")
 	f := fixtureIDs()
 	r := id()
 	inTenant(t, conn, f.tenant, func(tx pgx.Tx) error {

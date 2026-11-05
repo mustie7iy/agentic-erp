@@ -377,12 +377,13 @@ channels:
   closing:
     address: 'erp.{cell}.closing.{tenant}.{event}'
     title: Financial close events
-    description: Period closes, their checklists, sign-offs and variance comments (ADR-0058 §13).
+    description: Period closes, their checklists, sign-offs, accrual proposals and variance comments (ADR-0058 §13).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       PeriodCloseChanged: {$ref: '#/components/messages/PeriodCloseChanged'}
       PeriodCloseSignedOff: {$ref: '#/components/messages/PeriodCloseSignedOff'}
+      AccrualProposed: {$ref: '#/components/messages/AccrualProposed'}
       VarianceCommentChanged: {$ref: '#/components/messages/VarianceCommentChanged'}
   platform:
     address: 'erp.{cell}.platform.{tenant}.{event}'
@@ -611,6 +612,7 @@ operations:
     messages:
       - $ref: '#/channels/closing/messages/PeriodCloseChanged'
       - $ref: '#/channels/closing/messages/PeriodCloseSignedOff'
+      - $ref: '#/channels/closing/messages/AccrualProposed'
       - $ref: '#/channels/closing/messages/VarianceCommentChanged'
   publishPlatformEvents:
     action: send
@@ -1503,7 +1505,7 @@ components:
       examples:
         - name: weekly-run
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000019, source: /erp/eu-1/payments, type: com.example.erp.payments.payment_run_proposed.v1, subject: 0192a000-0000-7000-8000-000000000801, time: '2026-10-19T06:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, house_bank_id: 0192a000-0000-7000-8000-000000000802, run_date: '2026-10-20', due_by: '2026-10-27', total_amount: {amount: '184220.50', currency: EUR}, payment_count: 57, exclusion_count: 3, proposed_by: 0192a000-0000-7000-8000-000000000101, operation_id: 0192a000-0000-7000-8000-000000000805, status: proposed}
+          payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, house_bank_id: 0192a000-0000-7000-8000-000000000802, run_date: '2026-10-20', due_by: '2026-10-27', total_amount: {amount: '184220.50', currency: EUR}, payment_count: 57, exclusion_count: 3, proposed_by: 0192a000-0000-7000-8000-000000000101, operation_id: 0192a000-0000-7000-8000-000000000805, status: proposed}
     PaymentRunReleased:
       name: PaymentRunReleased
       x-webhook: true
@@ -1525,7 +1527,7 @@ components:
       examples:
         - name: released
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e0000000001a, source: /erp/eu-1/payments, type: com.example.erp.payments.payment_run_released.v1, subject: 0192a000-0000-7000-8000-000000000801, time: '2026-10-19T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
-          payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, house_bank_id: 0192a000-0000-7000-8000-000000000802, run_date: '2026-10-20', total_amount: {amount: '184220.50', currency: EUR}, payment_count: 57, workflow_request_id: 0192a000-0000-7000-8000-000000000901, released_at: '2026-10-19T11:00:00Z', status: released}
+          payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, house_bank_id: 0192a000-0000-7000-8000-000000000802, run_date: '2026-10-20', total_amount: {amount: '184220.50', currency: EUR}, payment_count: 57, workflow_request_id: 0192a000-0000-7000-8000-000000000901, released_at: '2026-10-19T11:00:00Z', status: released}
     PaymentRunRejected:
       name: PaymentRunRejected
       x-webhook: true
@@ -1542,7 +1544,7 @@ components:
       examples:
         - name: rejected
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e0000000001b, source: /erp/eu-1/payments, type: com.example.erp.payments.payment_run_rejected.v1, subject: 0192a000-0000-7000-8000-000000000801, time: '2026-10-19T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
-          payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, workflow_request_id: 0192a000-0000-7000-8000-000000000901, released_item_count: 212, status: rejected}
+          payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, workflow_request_id: 0192a000-0000-7000-8000-000000000901, released_item_count: 212, status: rejected}
     PaymentExcluded:
       name: PaymentExcluded
       x-webhook: true
@@ -1559,7 +1561,7 @@ components:
       examples:
         - name: dropped
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000081, source: /erp/eu-1/payments, type: com.example.erp.payments.payment_excluded.v1, subject: 0192a000-0000-7000-8000-000000000801, time: '2026-10-19T11:02:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
-          payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, payment_id: 0192a000-0000-7000-8000-000000000806, supplier_id: 0192a000-0000-7000-8000-000000000301, reason_code: item_reversed, amount: {amount: '40.00', currency: EUR}, released_item_count: 1, status: releasing}
+          payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, payment_id: 0192a000-0000-7000-8000-000000000806, supplier_id: 0192a000-0000-7000-8000-000000000301, supplier_number: BP-100231, reason_code: item_reversed, amount: {amount: '40.00', currency: EUR}, released_item_count: 1, status: releasing}
     BankStatementImported:
       name: BankStatementImported
       title: Bank statement imported
@@ -1575,7 +1577,7 @@ components:
       examples:
         - name: mt940
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f2, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_imported.v1, subject: 0192a000-0000-7000-8000-000000000b20, time: '2026-10-20T08:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
-          payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b20, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, format: mt940, file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9, statement_ref: STMT20261020, sequence: 00293/001, line_count: 4, opening_balance: {amount: '120000.00', currency: AED}, closing_balance: {amount: '93196.75', currency: AED}, previous_statement_id: 0192a000-0000-7000-8000-000000000b19, status: imported}
+          payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b20, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, format: mt940, file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9, statement_ref: STMT20261020, sequence: 00293/001, line_count: 4, opening_balance: {amount: '120000.00', currency: AED}, closing_balance: {amount: '93196.75', currency: AED}, previous_statement_id: 0192a000-0000-7000-8000-000000000b19, status: imported}
     BankStatementGapClosed:
       name: BankStatementGapClosed
       title: Bank statement gap closed
@@ -1591,7 +1593,7 @@ components:
       examples:
         - name: closed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f3, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_gap_closed.v1, subject: 0192a000-0000-7000-8000-000000000b21, time: '2026-10-20T08:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
-          payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b21, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, previous_statement_id: 0192a000-0000-7000-8000-000000000b20, status: imported}
+          payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b21, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, previous_statement_id: 0192a000-0000-7000-8000-000000000b20, status: imported}
     BankStatementGapFound:
       name: BankStatementGapFound
       title: Bank statement gap found
@@ -1607,7 +1609,7 @@ components:
       examples:
         - name: found
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f4, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_gap_found.v1, subject: 0192a000-0000-7000-8000-000000000b21, time: '2026-10-20T08:06:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
-          payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b21, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, previous_statement_id: 0192a000-0000-7000-8000-000000000b20, status: gap}
+          payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b21, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, previous_statement_id: 0192a000-0000-7000-8000-000000000b20, status: gap}
     BankStatementGapAccepted:
       name: BankStatementGapAccepted
       title: Bank statement gap accepted
@@ -1623,7 +1625,7 @@ components:
       examples:
         - name: accepted
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f5, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_gap_accepted.v1, subject: 0192a000-0000-7000-8000-000000000b21, time: '2026-10-20T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
-          payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b21, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, previous_statement_id: 0192a000-0000-7000-8000-000000000b20, opening_balance: {amount: '95000.00', currency: AED}, previous_closing_balance: {amount: '93196.75', currency: AED}, reason: The bank no longer holds the statement of 21 October; its bookings are posted by hand., status: imported}
+          payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b21, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, previous_statement_id: 0192a000-0000-7000-8000-000000000b20, opening_balance: {amount: '95000.00', currency: AED}, previous_closing_balance: {amount: '93196.75', currency: AED}, reason: The bank no longer holds the statement of 21 October; its bookings are posted by hand., status: imported}
     BankStatementFileRefused:
       name: BankStatementFileRefused
       title: Bank statement file refused
@@ -1639,7 +1641,7 @@ components:
       examples:
         - name: unreadable
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f5, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_file_refused.v1, subject: 0192a000-0000-7000-8000-000000000b30, time: '2026-10-20T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
-          payload: {statement_fetch_id: 0192a000-0000-7000-8000-000000000b30, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, file_name: STMT20261020.sta, file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9, code: payments.statement_unreadable, reason: "line 4: the opening balance is not an amount"}
+          payload: {statement_fetch_id: 0192a000-0000-7000-8000-000000000b30, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, file_name: STMT20261020.sta, file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9, code: payments.statement_unreadable, reason: "line 4: the opening balance is not an amount"}
     BankStatementFileChanged:
       name: BankStatementFileChanged
       title: Bank statement file changed after its import
@@ -1655,7 +1657,7 @@ components:
       examples:
         - name: changed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f6, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_file_changed.v1, subject: 0192a000-0000-7000-8000-000000000b31, time: '2026-10-20T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
-          payload: {statement_fetch_id: 0192a000-0000-7000-8000-000000000b31, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, file_name: STMT20261020.sta, file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9, current_sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
+          payload: {statement_fetch_id: 0192a000-0000-7000-8000-000000000b31, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, file_name: STMT20261020.sta, file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9, current_sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
     BankStatementLineMatched:
       name: BankStatementLineMatched
       title: Bank statement line matched
@@ -1671,7 +1673,7 @@ components:
       examples:
         - name: matched
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f7, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_line_matched.v1, subject: 0192a000-0000-7000-8000-000000000b40, time: '2026-10-20T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
-          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b40, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, kind: rule, rule: end_to_end_id, status: matched, candidates: 1}
+          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b40, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, kind: rule, rule: end_to_end_id, status: matched, candidates: 1}
     BankStatementLineExcluded:
       name: BankStatementLineExcluded
       title: Bank statement line excluded
@@ -1687,7 +1689,7 @@ components:
       examples:
         - name: excluded
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f8, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_line_excluded.v1, subject: 0192a000-0000-7000-8000-000000000b41, time: '2026-10-20T11:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
-          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b41, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 2, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, kind: manual, rule: null, status: excluded, candidates: 0}
+          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b41, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 2, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, kind: manual, rule: null, status: excluded, candidates: 0}
     BankStatementLinePosted:
       name: BankStatementLinePosted
       title: Bank statement line posted
@@ -1703,7 +1705,7 @@ components:
       examples:
         - name: posted
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f9, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_line_posted.v1, subject: 0192a000-0000-7000-8000-000000000b40, time: '2026-10-20T11:10:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
-          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b40, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, amount: {amount: '-100.00', currency: EUR}, posting_date: '2026-04-17', journal_entry_id: 0192a000-0000-7000-8000-000000000d01, journal_entry_year: 2026, document_number: '100000001', cleared_payments: 1, approval_request_id: 0192a000-0000-7000-8000-000000000901}
+          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b40, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, amount: {amount: '-100.00', currency: EUR}, posting_date: '2026-04-17', journal_entry_id: 0192a000-0000-7000-8000-000000000d01, journal_entry_year: 2026, document_number: '100000001', cleared_payments: 1, approval_request_id: 0192a000-0000-7000-8000-000000000901}
     BankStatementReconciled:
       name: BankStatementReconciled
       title: Bank statement reconciled
@@ -1719,7 +1721,7 @@ components:
       examples:
         - name: reconciled
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e0000000010a, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_reconciled.v1, subject: 0192a000-0000-7000-8000-000000000b20, time: '2026-10-21T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
-          payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b20, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, closing_date: '2026-04-17', closing_balance: {amount: '929.50', currency: EUR}, ledger_balance: {amount: '989.50', currency: EUR}, excluded: {amount: '-60.00', currency: EUR}, posted_later: {amount: '0.00', currency: EUR}, line_count: 2, status: reconciled}
+          payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b20, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, closing_date: '2026-04-17', closing_balance: {amount: '929.50', currency: EUR}, ledger_balance: {amount: '989.50', currency: EUR}, excluded: {amount: '-60.00', currency: EUR}, posted_later: {amount: '0.00', currency: EUR}, line_count: 2, status: reconciled}
     BankStatementLineProposed:
       name: BankStatementLineProposed
       title: Bank statement line proposed by the agent
@@ -1735,7 +1737,7 @@ components:
       examples:
         - name: proposed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000fa, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_line_proposed.v1, subject: 0192a000-0000-7000-8000-000000000b42, time: '2026-10-21T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000106}
-          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b42, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 4, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, kind: agent, rule: null, status: open, candidates: 1, session_id: 0192a000-0000-7000-8000-000000000a01, proposal: match}
+          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b42, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 4, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, kind: agent, rule: null, status: open, candidates: 1, session_id: 0192a000-0000-7000-8000-000000000a01, proposal: match}
     BankStatementLineProposalDecided:
       name: BankStatementLineProposalDecided
       title: Agent's proposal for a statement line decided
@@ -1751,7 +1753,7 @@ components:
       examples:
         - name: accepted
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000fb, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_line_proposal_decided.v1, subject: 0192a000-0000-7000-8000-000000000b42, time: '2026-10-21T09:30:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
-          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b42, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 4, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, session_id: 0192a000-0000-7000-8000-000000000a01, outcome: accepted}
+          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b42, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 4, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, session_id: 0192a000-0000-7000-8000-000000000a01, outcome: accepted}
     BankFileTransmitted:
       name: BankFileTransmitted
       x-webhook: true
@@ -2240,7 +2242,7 @@ components:
       examples:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000050", "source": "/erp/eu-1/payments", "type": "com.example.erp.payments.payment_run_failed.v1", "subject": "0192a000-0000-7000-8000-000000000801", "time": "2026-10-08T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
-          payload: {"payment_run_id": "0192a000-0000-7000-8000-000000000801", "document_number": "PR-2026-0042", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "operation_id": "0192a000-0000-7000-8000-000000000805", "released_item_count": 0, "previous_status": "proposing", "status": "failed"}
+          payload: {"payment_run_id": "0192a000-0000-7000-8000-000000000801", "document_number": "PR-2026-0042", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "DE01", "operation_id": "0192a000-0000-7000-8000-000000000805", "released_item_count": 0, "previous_status": "proposing", "status": "failed"}
     ConnectorEnabled:
       name: ConnectorEnabled
       x-webhook: true
@@ -3215,6 +3217,30 @@ components:
         - name: signed_off
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000802, source: /erp/eu-1/closing, type: com.example.erp.closing.period_close_signed_off.v1, subject: 0192a000-0000-7000-8000-000000000f01, time: '2026-11-05T16:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {period_close_id: 0192a000-0000-7000-8000-000000000f01, sign_off_id: 0192a000-0000-7000-8000-000000000f21, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2026, fiscal_period: 10, signed_by: 0192a000-0000-7000-8000-000000000101, note: null, periods: [{ledger_id: 0192a000-0000-7000-8000-000000000a01, ledger_code: 0L, fiscal_period_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41, locked: true}], status: signed_off, version: 9}
+    AccrualProposed:
+      name: AccrualProposed
+      x-webhook: true
+      title: Accrual proposed
+      summary: The close agent proposed an accrual for a period close, parked as a journal entry for a person to post.
+      description: |
+        Emitted by `accrual-proposals` (POST) (ADR-0058 §8, T64e): the
+        close agent proposed one expense of the close's period, and the
+        ledger parked its entry (published by the ledger as
+        ParkedJournalEntryChanged) for a person to post, edit or cancel.
+        A retried proposal, answered as it is, is not published again.
+        `GET /v1/accrual-proposals/{id}` returns the proposal at `version`.
+        Subject is the accrual proposal id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.closing.accrual_proposed.v1}
+      payload: {$ref: '#/components/schemas/AccrualProposedV1'}
+      examples:
+        - name: proposed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000804, source: /erp/eu-1/closing, type: com.example.erp.closing.accrual_proposed.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-03T14:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
+          payload: {accrual_proposal_id: 0192a000-0000-7000-8000-000000000f41, period_close_id: 0192a000-0000-7000-8000-000000000f01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, fiscal_year: 2026, fiscal_period: 10, session_id: 0192a000-0000-7000-8000-000000000d01, account_id: 0192a000-0000-7000-8000-000000000402, accrual_account_id: 0192a000-0000-7000-8000-000000000403, cost_center_id: 0192a000-0000-7000-8000-000000000501, profit_center_id: null, supplier_id: 0192a000-0000-7000-8000-000000000301, supplier_number: BP-100231, amount: {amount: '1200.00', currency: CAD}, evidence: [{kind: supplier_invoice, document_id: 0192a000-0000-7000-8000-000000000611}], parked_entry_id: 0192a000-0000-7000-8000-000000000c51, posting_date: '2026-10-31', status: proposed, version: 1}
     VarianceCommentChanged:
       name: VarianceCommentChanged
       x-webhook: true
@@ -3826,6 +3852,37 @@ components:
         check_passed: {type: [boolean, 'null'], description: "Whether the task's check passed (T64c); null for any change but task_checked. `GET /v1/period-closes/{id}` shows what it found."}
         status: {type: string, description: "The close's status after the change. Open enum: open, signed_off."}
         version: {type: integer, description: "The close's version after the change."}
+    AccrualProposedV1:
+      type: object
+      required: [accrual_proposal_id, period_close_id, legal_entity_id, legal_entity_code, fiscal_year, fiscal_period, session_id, account_id, accrual_account_id, cost_center_id, profit_center_id, supplier_id, supplier_number, amount, evidence, parked_entry_id, posting_date, status, version]
+      properties:
+        accrual_proposal_id: {$ref: '#/components/schemas/Uuid', description: '`closing.accrual_proposal.id`.'}
+        period_close_id: {$ref: '#/components/schemas/Uuid', description: '`closing.period_close.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        fiscal_year: {type: integer}
+        fiscal_period: {type: integer, description: The regular period (1-12).}
+        session_id: {$ref: '#/components/schemas/Uuid', description: "The agent's session it was proposed in."}
+        account_id: {$ref: '#/components/schemas/Uuid', description: The expense account, debited.}
+        accrual_account_id: {$ref: '#/components/schemas/Uuid', description: "The company's accrual account, credited."}
+        cost_center_id: {$ref: '#/components/schemas/NullableUuid', description: "The expense line's cost center; null without one."}
+        profit_center_id: {$ref: '#/components/schemas/NullableUuid', description: The profit center of both lines; null without one.}
+        supplier_id: {$ref: '#/components/schemas/NullableUuid', description: The supplier the expense is for; null without one.}
+        supplier_number: {type: [string, 'null'], description: "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it; null without a supplier. The supplier's name is not given: the event is offered to webhooks (ADR-0038, as built)."}
+        amount: {$ref: '#/components/schemas/Money', description: "The expense, in the company's local currency."}
+        evidence:
+          type: array
+          description: What it rests on, in the order given.
+          items:
+            type: object
+            required: [kind, document_id]
+            properties:
+              kind: {type: string, description: 'Open enum: supplier_invoice, purchase_order, journal_entry.'}
+              document_id: {$ref: '#/components/schemas/Uuid'}
+        parked_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.parked_entry.id`: the entry parked for it.'}
+        posting_date: {$ref: '#/components/schemas/Date', description: "The parked entry's posting date, the period's last day."}
+        status: {type: string, description: "The proposal's status. Open enum: proposed."}
+        version: {type: integer, description: "The proposal's version."}
     VarianceCommentChangedV1:
       type: object
       required: [variance_comment_id, period_close_id, legal_entity_id, fiscal_year, fiscal_period, basis, account_id, change, author_kind, edited, reason, status, version]
@@ -4388,6 +4445,7 @@ components:
         payment_run_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it; absent when the tenancy context no longer holds the legal entity. Added within v1 (review:batch28); consumers ignore it if absent.'}
         house_bank_id: {$ref: '#/components/schemas/NullableUuid', description: 'The house bank of a run proposed for one; null for a run proposed without one, whose payments each name their bank (T45c, ADR-0038).'}
         run_date: {$ref: '#/components/schemas/Date'}
         due_by: {$ref: '#/components/schemas/Date'}
@@ -4406,6 +4464,7 @@ components:
         payment_run_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it; absent when the tenancy context no longer holds the legal entity. Added within v1 (review:batch28); consumers ignore it if absent.'}
         house_bank_id: {$ref: '#/components/schemas/NullableUuid', description: 'The house bank of a run proposed for one; null for a run proposed without one, whose payments each name their bank (T45c, ADR-0038).'}
         run_date: {$ref: '#/components/schemas/Date'}
         total_amount: {$ref: '#/components/schemas/Money'}
@@ -4420,6 +4479,7 @@ components:
         payment_run_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it; absent when the tenancy context no longer holds the legal entity. Added within v1 (review:batch28); consumers ignore it if absent.'}
         workflow_request_id: {$ref: '#/components/schemas/NullableUuid'}
         released_item_count: {type: integer, minimum: 0, description: Payment items deactivated (open items free for another run).}
         status: {type: string, description: 'Open enum; rejected in v1.'}
@@ -4430,8 +4490,10 @@ components:
         payment_run_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it; absent when the tenancy context no longer holds the legal entity. Added within v1 (review:batch28); consumers ignore it if absent.'}
         payment_id: {$ref: '#/components/schemas/Uuid'}
         supplier_id: {$ref: '#/components/schemas/Uuid'}
+        supplier_number: {type: string, description: "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it. The supplier's name is not given: the event is offered to webhooks (ADR-0038, as built). Added within v1 (review:batch28); consumers ignore it if absent."}
         reason_code: {type: string, description: 'Open enum; item_reversed or item_not_open in v1.'}
         amount: {$ref: '#/components/schemas/Money'}
         released_item_count: {type: integer, minimum: 0, description: Payment items deactivated (open items free for another run).}
@@ -4791,6 +4853,7 @@ components:
         payment_run_id: {"$ref": "#/components/schemas/Uuid"}
         document_number: {"type": "string"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it; absent when the tenancy context no longer holds the legal entity. Added within v1 (review:batch28); consumers ignore it if absent."}
         operation_id: {"$ref": "#/components/schemas/NullableUuid"}
         released_item_count: {"type": "integer", "minimum": 0, "description": "Payment items deactivated."}
         previous_status: {"type": "string", "description": "Open enum: proposing, released."}
@@ -5142,6 +5205,7 @@ components:
         bank_statement_id: {"$ref": "#/components/schemas/Uuid"}
         house_bank_id: {"$ref": "#/components/schemas/Uuid"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it; absent when the tenancy context no longer holds the legal entity. Added within v1 (review:batch28); consumers ignore it if absent."}
         format: {"type": "string", "description": "Open enum: camt.053.001.02, camt.053.001.08, mt940."}
         file_sha256: {"$ref": "#/components/schemas/Sha256Hex"}
         statement_ref: {"type": "string", "description": "The bank's statement id: camt.053 Stmt/Id, MT940 field 20."}
@@ -5158,6 +5222,7 @@ components:
         bank_statement_id: {"$ref": "#/components/schemas/Uuid"}
         house_bank_id: {"$ref": "#/components/schemas/Uuid"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it; absent when the tenancy context no longer holds the legal entity. Added within v1 (review:batch28); consumers ignore it if absent."}
         previous_statement_id: {"$ref": "#/components/schemas/Uuid"}
         status: {"type": "string", "description": "Open enum: imported (BankStatementGapClosed), gap (BankStatementGapFound)."}
     BankStatementGapAcceptedV1:
@@ -5167,6 +5232,7 @@ components:
         bank_statement_id: {"$ref": "#/components/schemas/Uuid"}
         house_bank_id: {"$ref": "#/components/schemas/Uuid"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it; absent when the tenancy context no longer holds the legal entity. Added within v1 (review:batch28); consumers ignore it if absent."}
         previous_statement_id: {"$ref": "#/components/schemas/Uuid"}
         opening_balance: {"$ref": "#/components/schemas/Money"}
         previous_closing_balance: {"$ref": "#/components/schemas/Money"}
@@ -5179,6 +5245,7 @@ components:
         statement_fetch_id: {"$ref": "#/components/schemas/Uuid"}
         house_bank_id: {"$ref": "#/components/schemas/Uuid"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it; absent when the tenancy context no longer holds the legal entity. Added within v1 (review:batch28); consumers ignore it if absent."}
         file_name: {"type": "string", "description": "The file's name in the bank's statements directory."}
         file_sha256: {"$ref": "#/components/schemas/Sha256Hex"}
         code: {"type": "string", "description": "The import's problem code, such as payments.statement_unreadable or payments.statement_conflict."}
@@ -5190,6 +5257,7 @@ components:
         statement_fetch_id: {"$ref": "#/components/schemas/Uuid"}
         house_bank_id: {"$ref": "#/components/schemas/Uuid"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it; absent when the tenancy context no longer holds the legal entity. Added within v1 (review:batch28); consumers ignore it if absent."}
         file_name: {"type": "string", "description": "The file's name in the bank's statements directory."}
         file_sha256: {"$ref": "#/components/schemas/Sha256Hex", "description": "The content imported."}
         current_sha256: {"$ref": "#/components/schemas/Sha256Hex", "description": "The content the file holds now, imported by the next fetch."}
@@ -5202,6 +5270,7 @@ components:
         line_no: {"type": "integer", "minimum": 1, "description": "The line's number in the statement."}
         house_bank_id: {"$ref": "#/components/schemas/Uuid"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it; absent when the tenancy context no longer holds the legal entity. Added within v1 (review:batch28); consumers ignore it if absent."}
         kind: {"type": "string", "description": "Open enum: rule, manual, agent."}
         rule: {"type": ["string", "null"], "description": "Open enum: end_to_end_id, batch_id, transaction_code, amount; null unless kind is rule."}
         status: {"type": "string", "description": "Open enum: open, matched (BankStatementLineMatched), excluded (BankStatementLineExcluded)."}
@@ -5215,6 +5284,7 @@ components:
         line_no: {"type": "integer", "minimum": 1, "description": "The line's number in the statement."}
         house_bank_id: {"$ref": "#/components/schemas/Uuid"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it; absent when the tenancy context no longer holds the legal entity. Added within v1 (review:batch28); consumers ignore it if absent."}
         amount: {"$ref": "#/components/schemas/SignedMoney", "description": "The line's amount in the statement's currency: credit (money in) positive."}
         posting_date: {"$ref": "#/components/schemas/Date"}
         journal_entry_id: {"$ref": "#/components/schemas/Uuid"}
@@ -5229,6 +5299,7 @@ components:
         bank_statement_id: {"$ref": "#/components/schemas/Uuid"}
         house_bank_id: {"$ref": "#/components/schemas/Uuid"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it; absent when the tenancy context no longer holds the legal entity. Added within v1 (review:batch28); consumers ignore it if absent."}
         closing_date: {"$ref": "#/components/schemas/Date"}
         closing_balance: {"$ref": "#/components/schemas/SignedMoney", "description": "The statement's closing balance: credit positive."}
         ledger_balance: {"$ref": "#/components/schemas/SignedMoney", "description": "The ledger's balance of the main bank account on the closing date, in the legal entity's local currency: debit positive."}
@@ -5245,6 +5316,7 @@ components:
         line_no: {"type": "integer", "minimum": 1, "description": "The line's number in the statement."}
         house_bank_id: {"$ref": "#/components/schemas/Uuid"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it; absent when the tenancy context no longer holds the legal entity. Added within v1 (review:batch28); consumers ignore it if absent."}
         kind: {"type": "string", "description": "agent."}
         rule: {"type": "null", "description": "Always null: no rule made it."}
         status: {"type": "string", "description": "open."}
@@ -5260,6 +5332,7 @@ components:
         line_no: {"type": "integer", "minimum": 1, "description": "The line's number in the statement."}
         house_bank_id: {"$ref": "#/components/schemas/Uuid"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it; absent when the tenancy context no longer holds the legal entity. Added within v1 (review:batch28); consumers ignore it if absent."}
         session_id: {"$ref": "#/components/schemas/Uuid", "description": "The agent session that proposed it."}
         outcome: {"type": "string", "description": "Open enum: accepted, rejected, overridden."}
     BankFileCreatedV1:
