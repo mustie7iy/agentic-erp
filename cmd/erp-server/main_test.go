@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -2586,5 +2588,24 @@ func TestWithRecord(t *testing.T) {
 				t.Errorf("got %q, want the record's failure once", got)
 			}
 		})
+	}
+}
+
+// TestWebhookClient: the server posts webhooks to public addresses only,
+// and with the walkthrough's receiver (which config.Load reads in
+// development alone) to it too; a receiver the egress client refuses
+// stops the server before it serves (ADR-0041 As built).
+func TestWebhookClient(t *testing.T) {
+	roots := x509.NewCertPool()
+	if c, err := webhookClient(config.Config{}); c == nil || err != nil {
+		t.Errorf("without a receiver: got %v, %v; want a client", c, err)
+	}
+	walk := config.Config{Walkthrough: config.Walkthrough{Receiver: netip.MustParseAddrPort("127.0.0.1:18443"), Roots: roots}}
+	if c, err := webhookClient(walk); c == nil || err != nil {
+		t.Errorf("with the walkthrough's receiver: got %v, %v; want a client", c, err)
+	}
+	refused := config.Config{Walkthrough: config.Walkthrough{Receiver: netip.MustParseAddrPort("10.0.0.1:18443"), Roots: roots}}
+	if err := (&server{cfg: refused}).newAPI(); err == nil || !strings.Contains(err.Error(), "the walkthrough's webhook receiver") {
+		t.Errorf("a receiver off the machine: got %v, want the server refused", err)
 	}
 }

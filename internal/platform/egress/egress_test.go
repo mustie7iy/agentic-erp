@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -179,4 +180,42 @@ func TestPostRefused(t *testing.T) {
 			t.Errorf("error %q shows the URL's path or query", err)
 		}
 	})
+}
+
+// TestWalkthroughReceiver: a client made with the walkthrough's receiver
+// posts to it, trusting its certificate; the same server is refused to
+// the client every other server has, and to a receiver on another port
+// (ADR-0041 As built, product owner 2026-11-04).
+func TestWalkthroughReceiver(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	t.Cleanup(srv.Close)
+	roots := x509.NewCertPool()
+	roots.AddCert(srv.Certificate())
+	at := netip.MustParseAddrPort(srv.Listener.Addr().String())
+	other := at.Port() + 1
+	if other == 0 { // the server's port was the last: the one below it differs too
+		other = at.Port() - 1
+	}
+	walk, err := egress.New(egress.WalkthroughReceiver(at, roots))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if resp, err := walk.Post(context.Background(), srv.URL+"/hook", nil, []byte(`{}`)); err != nil || resp.Status != http.StatusNoContent {
+		t.Errorf("walkthrough's client: got %d, %v; want 204", resp.Status, err)
+	}
+	production, err := egress.New()
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	elsewhere, err := egress.New(egress.WalkthroughReceiver(netip.AddrPortFrom(at.Addr(), other), roots))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	for name, c := range map[string]*egress.Client{"every other server's client": production, "a receiver on another port": elsewhere} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := c.Post(context.Background(), srv.URL+"/hook", nil, []byte(`{}`)); err == nil || !strings.Contains(err.Error(), "not a public unicast address") {
+				t.Errorf("got %v, want the loopback address refused", err)
+			}
+		})
+	}
 }

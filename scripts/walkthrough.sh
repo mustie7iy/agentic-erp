@@ -7,8 +7,13 @@
 # the people of the story. No test harness and no mocks beyond the mock SAP
 # extract and a stand-in for the model provider (internal/llm/llmtest/
 # modelstub), which answers a capture's extraction as the uploaded document
-# prints it, without a live model or its key. A step that needs a
-# capability not built yet says so and is skipped.
+# prints it, without a live model or its key. The event bus is the
+# embedded NATS JetStream the tests run (natsstub), and a webhook
+# subscriber on this machine (webhookstub) is the one loopback address the
+# server may deliver to, named by ERP_WALKTHROUGH_RECEIVER, which only a
+# development server accepts (ADR-0041 As built, product owner
+# 2026-11-04). A step that needs a capability not built yet says so and is
+# skipped.
 #
 # Each step prints a heading, the commands it runs and an excerpt of the
 # answers, and checks what it expects: any unexpected answer stops the run
@@ -24,6 +29,8 @@
 #   WALKTHROUGH_API_ADDR, WALKTHROUGH_ADMIN_ADDR   listeners (127.0.0.1:18080, 127.0.0.1:19090)
 #   WALKTHROUGH_MODEL_ADDR   the model stand-in's listener (127.0.0.1:18081)
 #   WALKTHROUGH_SFTP_ADDR    the treasury system's SFTP stand-in's listener (127.0.0.1:18022)
+#   WALKTHROUGH_NATS_ADDR    the event bus's listener (127.0.0.1:18222)
+#   WALKTHROUGH_HOOK_ADDR    the webhook subscriber's listener (127.0.0.1:18443)
 #   WALKTHROUGH_DIR       work directory (default: a temporary one, removed after)
 #   WALKTHROUGH_BIN       directory with erp and erp-server already built (default: build them)
 #   WALKTHROUGH_KEEP=1    keep the server running at the end, to look around with erp call
@@ -44,6 +51,8 @@ API_ADDR="${WALKTHROUGH_API_ADDR:-127.0.0.1:18080}"
 ADMIN_ADDR="${WALKTHROUGH_ADMIN_ADDR:-127.0.0.1:19090}"
 MODEL_ADDR="${WALKTHROUGH_MODEL_ADDR:-127.0.0.1:18081}"
 SFTP_ADDR="${WALKTHROUGH_SFTP_ADDR:-127.0.0.1:18022}"
+NATS_ADDR="${WALKTHROUGH_NATS_ADDR:-127.0.0.1:18222}"
+HOOK_ADDR="${WALKTHROUGH_HOOK_ADDR:-127.0.0.1:18443}"
 PAUSE="${WALKTHROUGH_PAUSE:-0}"
 # shellcheck source=walkthrough/dates.sh
 . "$ROOT/scripts/walkthrough/dates.sh"
@@ -81,6 +90,8 @@ rm -f "$WORK/failed" # an earlier run's in a WALKTHROUGH_DIR (fail)
 SERVER_PID=''
 MODEL_PID=''
 SFTP_PID=''
+NATS_PID=''
+HOOK_PID=''
 
 cleanup() {
   if [ -n "$MODEL_PID" ]; then
@@ -95,6 +106,13 @@ cleanup() {
     kill "$SERVER_PID" 2>/dev/null || true # it may have exited already: then there is nothing to stop
     wait "$SERVER_PID" 2>/dev/null || true # its exit status after a kill says nothing about the walkthrough
   fi
+  # The bus and the subscriber stop after the server, which uses them.
+  for pid in "$HOOK_PID" "$NATS_PID"; do
+    if [ -n "$pid" ]; then
+      kill "$pid" 2>/dev/null || true # as the model stand-in
+      wait "$pid" 2>/dev/null || true # as the model stand-in
+    fi
+  done
   if [ -z "${WALKTHROUGH_DIR:-}" ]; then rm -rf "$WORK"; fi
 }
 on_exit cleanup
@@ -397,9 +415,8 @@ start() {
   say "    invoices, down payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening,"
   say "    memo records and payments in transit, conversion and drill-down; step 26 its snapshots; step 27 the cash actuals;"
   say "    step 28 the forecast's variance, step 30 a person's comment on it; step 33 its purchase orders; step 35 its"
-  say "    treasury connector over SFTP; step 36 the forecast across companies in group currency; step 37 the actuals in"
-  say "    analytics, step 38 the forecast, its variance and accuracy in analytics"
-  say "  - a webhook delivered: the walkthrough runs without the event bus and never sends one to this machine"
+  say "    treasury connector over SFTP and its webhook; step 36 the forecast across companies in group currency; step 37 the"
+  say "    actuals in analytics, step 38 the forecast, its variance and accuracy in analytics"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - accounts receivable, the period close's accruals and its close agent (T64e-T64g, T64j), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
@@ -412,6 +429,8 @@ start() {
   export ERP_API_URL="http://$API_ADDR" ERP_ADMIN_URL="http://$ADMIN_ADDR" ERP_CONTROL_URL="http://$ADMIN_ADDR"
   export ERP_EXTRACT_DIR="$WORK/data" ERP_OBJECT_DIR="$WORK/data/objects"
   model_stub
+  bus_stub
+  hook_stub
   unset ERP_PACKS_DIR # the released packs alone
   ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64)
   ERP_FIELD_KEY=$(head -c 32 /dev/urandom | base64)
@@ -431,6 +450,59 @@ start() {
   model_price
   say ""
   say "erp-server is up (development, development issuer on): API $ERP_API_URL, admin $ERP_ADMIN_URL."
+  say "Its events go through the embedded event bus at $ERP_NATS_URL; webhooks reach public addresses and,"
+  say "in this walkthrough alone, the subscriber on this machine at https://$HOOK_ADDR (ERP_WALKTHROUGH_RECEIVER)."
+}
+
+# stub NAME PKG sets STUB to the stand-in NAME, built from the package PKG
+# unless WALKTHROUGH_BIN has it.
+stub() {
+  STUB="$BIN/$1"
+  if [ ! -x "$STUB" ]; then
+    STUB="$WORK/bin/$1"
+    (cd "$ROOT" && go build -o "$STUB" "./$2") || fail "the $1 stand-in did not build"
+  fi
+}
+
+# wait_file FILE PID NAME LOG HINT waits for FILE, which the stand-in NAME
+# (process PID, its output in LOG) writes once it listens.
+wait_file() {
+  local file=$1 pid=$2 name=$3 log=$4 hint=$5 i
+  for i in $(seq 1 100); do
+    if [ -s "$file" ]; then return 0; fi
+    kill -0 "$pid" 2>/dev/null || fail "$name exited at start ($(cat "$log")): $hint"
+    sleep 0.1
+  done
+  fail "$name is not listening after ten seconds ($i checks)"
+}
+
+# bus_stub starts the event bus, the embedded NATS JetStream of the tests
+# (natstest), and points erp-server's outbox relay at it (ERP_NATS_URL): the
+# events are relayed and fanned out to webhook subscriptions (ADR-0007,
+# ADR-0041).
+bus_stub() {
+  stub natsstub internal/platform/natsbus/natstest/natsstub
+  rm -rf "$WORK/nats" "$WORK/nats.url"
+  "$STUB" -addr "$NATS_ADDR" -store "$WORK/nats" -ready "$WORK/nats.url" >"$WORK/nats.log" 2>&1 &
+  NATS_PID=$!
+  wait_file "$WORK/nats.url" "$NATS_PID" "the event bus" "$WORK/nats.log" "is $NATS_ADDR free? set WALKTHROUGH_NATS_ADDR"
+  ERP_NATS_URL=$(cat "$WORK/nats.url")
+  export ERP_NATS_URL
+}
+
+# hook_stub starts the webhook subscriber (step 35) on this machine and
+# names it to erp-server as the walkthrough's receiver, with the
+# certificate it made (ERP_WALKTHROUGH_RECEIVER, _CA; development only). It
+# verifies each delivery with the secret step 35 writes to hook/secret and
+# keeps it in hook/received.
+hook_stub() {
+  stub webhookstub internal/platform/webhook/webhooktest/webhookstub
+  rm -rf "$WORK/hook"
+  mkdir -p "$WORK/hook/received"
+  "$STUB" -addr "$HOOK_ADDR" -ca "$WORK/hook/receiver.pem" -secret "$WORK/hook/secret" -out "$WORK/hook/received" >"$WORK/hook.log" 2>&1 &
+  HOOK_PID=$!
+  wait_file "$WORK/hook/receiver.pem" "$HOOK_PID" "the webhook subscriber" "$WORK/hook.log" "is $HOOK_ADDR free? set WALKTHROUGH_HOOK_ADDR"
+  export ERP_WALKTHROUGH_RECEIVER="$HOOK_ADDR" ERP_WALKTHROUGH_RECEIVER_CA="$WORK/hook/receiver.pem"
 }
 
 # model_stub starts the stand-in for the model provider (step 18's capture)
@@ -3841,10 +3913,12 @@ wait_export() {
 
 # step_cash_export is the treasury connector (T53h, ADR-0051 §14): a
 # snapshot exported in the cash export schema v1 to a treasury system's
-# SFTP directory, and the same snapshot sent again recognised as a resend.
+# SFTP directory, the same snapshot sent again recognised as a resend, and
+# the treasury system told of the snapshot by a signed webhook
+# (CashSnapshotTaken, ADR-0041) that its endpoint verifies.
 step_cash_export() {
-  heading "Step 35 — The treasury connector: a snapshot exported to the treasury system over SFTP, then sent again"
-  local host port snap export first sum
+  heading "Step 35 — The treasury connector: a snapshot exported to the treasury system over SFTP, sent again, and announced by webhook"
+  local host port snap export first sum hook
   sftp_stub
   host=${SFTP_ADDR%:*} port=${SFTP_ADDR##*:}
   as sam
@@ -3855,6 +3929,14 @@ step_cash_export() {
     createConnector -body "{\"kind\": \"treasury_export\", \"name\": \"Maple treasury\", \"secret_ref\": \"file:$WORK/sftp/client\", \"settings\": {\"host\": \"$host\", \"port\": $port, \"user\": \"erp\", \"host_key\": \"$(tr -d '\n' <"$WORK/sftp/host.pub")\", \"directory\": \"/treasury\", \"format\": \"csv\", \"companies\": [\"$CC\"]}}"
   local connector
   connector=$(field .id)
+  say "The treasury system also wants to hear of each snapshot as it is taken: Sam subscribes its endpoint to the"
+  say "cash context's webhook events (ADR-0041), of which CashSnapshotTaken is the one offered. The answer shows the"
+  say "subscription's whsec_ secret once; Sam gives it to the treasury system, which verifies every delivery with it."
+  api 201 '"subscription to \(.event_types | join(", ")) at \(.url): \(.status)"' createWebhookSubscription \
+    -body "{\"url\": \"https://$HOOK_ADDR/treasury/events\", \"description\": \"Maple treasury\", \"event_types\": [\"cash.*\"]}"
+  hook=$(field .id)
+  field .secret >"$WORK/hook/secret"
+  expect "a whsec_ secret, shown once" "$(cut -c1-6 "$WORK/hook/secret")" "whsec_"
   as tom
   say "Tom takes the month-end snapshot. Taking it queues its export to every active treasury connector of Maple; the"
   say "server's exporter sends it in the background, as the bank file transmitter sends bank files:"
@@ -3882,9 +3964,46 @@ step_cash_export() {
   expect "the same file name" "$(field .file_name)" "$first"
   expect "the same hash" "$(field .sha256)" "$sum"
   expect "recognised as a resend" "$(field .resend)" true
-  say "Whoever subscribes to CashSnapshotTaken (a webhook, ADR-0041) is told of each snapshot and may pull it instead;"
-  say "this run has no event bus, so no webhook is sent here (TestCashSnapshotTakenWebhook shows one delivered)."
+  cash_webhook "$hook" "$snap"
   passed
+}
+
+# cash_webhook HOOK SNAPSHOT shows the webhook announcing the snapshot:
+# delivered as the subscription's deliveries show it, received by the
+# treasury system's endpoint (webhookstub), its signature verified there
+# and refused for a body changed by one byte.
+cash_webhook() {
+  local hook=$1 snap=$2 i file='' delivery event
+  say "Taking the snapshot published CashSnapshotTaken through the outbox; the event bus carried it to the webhook"
+  say "fan-out, which queued a delivery to the subscription, and the dispatcher sent it, signed with its secret:"
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' listWebhookDeliveries -p "id=$hook"
+    if [ "$(field '[.items[] | select(.subject == "'"$snap"'" and .status == "delivered")] | length')" = 1 ]; then break; fi
+    sleep 0.25
+  done
+  api 200 '.items[] | select(.subject == "'"$snap"'") | "  \(.type): \(.status) after \(.attempts) attempt(s), the endpoint answered \(.last_status)"' \
+    listWebhookDeliveries -p "id=$hook"
+  expect "the snapshot's delivery, delivered (after $i checks)" "$(field '[.items[] | select(.subject == "'"$snap"'" and .status == "delivered")] | length')" 1
+  delivery=$(field '.items[] | select(.subject == "'"$snap"'") | .id')
+  event=$(field '.items[] | select(.subject == "'"$snap"'") | .event_id')
+  for file in "$WORK"/hook/received/delivery-*.json; do
+    [ -e "$file" ] || break # none received: the glob is left as written, and the check below says so
+    if [ "$(jq -r .webhook_delivery_id "$file")" = "$delivery" ]; then break; fi
+  done
+  [ -s "$file" ] && [ "$(jq -r .webhook_delivery_id "$file")" = "$delivery" ] || fail "the treasury system's endpoint did not receive delivery $delivery"
+  say "What the treasury system's endpoint received (a CloudEvent, application/cloudevents+json):"
+  jq -r '"  webhook-id \(.webhook_id), webhook-timestamp \(.webhook_timestamp)",
+    "  webhook-signature \(.webhook_signature | .[0:16])…",
+    "  \(.event.type) for snapshot \(.event.data.cash_snapshot_id) of company \(.event.data.company_code) on \(.event.data.snapshot_date)"' "$file" | sed 's/^/   /'
+  expect "the webhook-id, the event's id" "$(jq -r .webhook_id "$file")" "$event"
+  expect "the event's type" "$(jq -r .event.type "$file")" "com.example.erp.cash.cash_snapshot_taken.v1"
+  expect "the snapshot it names" "$(jq -r .event.data.cash_snapshot_id "$file")" "$snap"
+  expect "its content type" "$(jq -r .content_type "$file")" "application/cloudevents+json"
+  say "The endpoint verified the signature with the secret Sam gave it (Standard Webhooks, as api/webhooks-test-vectors.json"
+  say "fixes it) and refused the same signature over the body with one byte changed:"
+  jq -r '"  verified \(.verified), a changed body refused \(.tampered_body_refused)"' "$file" | sed 's/^/   /'
+  expect "the signature verified" "$(jq -r .verified "$file")" true
+  expect "a changed body refused" "$(jq -r .tampered_body_refused "$file")" true
 }
 
 step_cash_group() {
