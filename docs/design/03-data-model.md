@@ -726,7 +726,8 @@ erDiagram
     int po_item_no
     uuid cost_center_id "T56d"
     uuid profit_center_id
-    uuid segment_id }
+    uuid segment_id
+    uuid trading_partner_id "T68b" }
   clearing { uuid id PK
     uuid legal_entity_id
     date clearing_date
@@ -751,6 +752,15 @@ erDiagram
     smallint fiscal_year
     smallint fiscal_period
     char currency_tc
+    bigint debit_lc
+    bigint credit_lc }
+  trading_partner_balance { uuid ledger_id PK "T68b"
+    uuid legal_entity_id PK
+    uuid account_id PK
+    uuid trading_partner_id PK
+    smallint fiscal_year PK
+    smallint fiscal_period PK
+    char currency_tc PK
     bigint debit_lc
     bigint credit_lc }
 ```
@@ -1325,6 +1335,33 @@ before it. The two center reports read it with the lines still pending,
 as the trial balance reads `period_balance`, through the partial indexes
 `assignment_balance_cost_center` and `assignment_balance_profit_center`
 (company, ledger, year, period, center).
+
+The trading partner on the journal line (T68b, ADR-0059 §4, migrations
+000216-000218). `journal_line.trading_partner_id` is the tenant's company
+on the other side of an intercompany line (SAP's RASSC), nullable, NULL on
+lines posted before; a legal entity id without a foreign key (tenancy is
+another context, 02 §2.1), which the ledger checks is a legal entity of the
+tenant before it posts or parks a line naming it (422
+`ledger.trading_partner_invalid`). The database holds the other half: a
+line's trading partner is never its own company
+(`journal_line_trading_partner`, added `NOT VALID` and validated partition
+by partition; a partition created later gets it validated). The partial
+index `journal_line_trading_partner` (company, trading partner, year,
+period) serves the journal list's `trading_partner_id` filter. A parked
+entry's and a template's lines keep the trading partner entered
+(`parked_entry_line.trading_partner_id`, `entry_template_line.trading_partner_id`),
+checked again when the entry is posted. A reversal copies each line's; a
+clearing's lines take the items they offset, and a settlement's or bank
+posting's exchange difference and cash discount lines the items' when they
+all name the same one. `trading_partner_balance` holds, per ledger,
+company, account, trading partner, year, period and transaction currency,
+the totals of the lines that name one, never the company's own
+(`trading_partner_balance_partner`); like `assignment_balance` it is
+written only by the projection (`erp_projector`), by the trigger
+`balance_projection_trading_partner` in the statement that marks an entry
+projected, and consolidation reads it with the lines still pending
+(ADR-0059 §4a, T68d). No line carried a trading partner before, so nothing
+was backfilled.
 
 ## 3.8 Procurement (`procurement`)
 
@@ -3444,10 +3481,10 @@ it reads tenancy, the configuration and the ledger through ports the
 composition root adapts, and no context reads it. The group chart, the
 mapping of each company's accounts (`companies[].chart_of_accounts[].group_account`),
 the eliminations and the groups are configuration (T68a, ADR-0059 §3).
-The ledger gains, in T68b, `journal_line.trading_partner_id` (the legal
+The ledger gained, in T68b, `journal_line.trading_partner_id` (the legal
 entity on the other side of an intercompany line, nullable, no foreign key)
 and the projection `ledger.trading_partner_balance`, maintained as
-`assignment_balance` is; partner gains `business_partner.group_company_id`
+`assignment_balance` is (§3.7); partner gains `business_partner.group_company_id`
 in T68c (ADR-0059 §4). The schema `consolidation` is created by the slices
 that write it, from T68d (ADR-0059 §5):
 

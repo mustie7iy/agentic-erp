@@ -109,7 +109,8 @@ func transferLines(ctx context.Context, tx pgx.Tx, in DownPaymentClearing, items
 		if err := checkDownPayment(i, it, in, items[0]); err != nil {
 			return nil, err
 		}
-		add(Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, SpecialGL: &special, Text: in.HeaderText})
+		add(Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, SpecialGL: &special, Text: in.HeaderText,
+			TradingPartnerID: it.tradingPartner})
 	}
 	seen := map[uuid.UUID]bool{}
 	for _, it := range items {

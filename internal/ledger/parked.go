@@ -93,7 +93,8 @@ func (t lineTable) read(alias string) string {
 	return `coalesce((SELECT json_agg(json_build_object('line_no', l.line_no, 'account_id', l.account_id, 'tc', l.amount, 'lc', 0, 'gc', 0,
 			'partner_id', l.partner_id, 'tax_code', l.tax_code, 'quantity', trim_scale(l.quantity)::text, 'unit', l.uom_code, 'text', l.line_text,
 			'tax_base_tc', l.tax_base, 'tax_jurisdiction', l.tax_jurisdiction, 'cost_center_id', l.cost_center_id, 'profit_center_id', l.profit_center_id,
-			'segment_id', l.segment_id, 'cost_center_code', cc.code, 'profit_center_code', pc.code, 'segment_code', sg.code)
+			'segment_id', l.segment_id, 'cost_center_code', cc.code, 'profit_center_code', pc.code, 'segment_code', sg.code,
+			'trading_partner_id', l.trading_partner_id)
 			ORDER BY l.line_no)
 		 FROM ` + t.name() + ` l` + centerJoins + where + `), '[]'),
 		(SELECT coalesce(sum(l.amount) FILTER (WHERE l.amount > 0), 0)::bigint FROM ` + t.name() + ` l` + where + `)`
@@ -271,14 +272,15 @@ func refuseAutomatic(ctx context.Context, le uuid.UUID, lines []Line) error {
 // the functions that run them (api TestProblemCodes).
 const (
 	lineValues = `line_no, account_id, amount, partner_id,
-			tax_code, quantity, uom_code, line_text, tax_base, tax_jurisdiction, cost_center_id, profit_center_id, segment_id)
-		SELECT $1, $2, n, a, m, pa, tx, q::numeric, u, t, b, j, cc, pc, sg
+			tax_code, quantity, uom_code, line_text, tax_base, tax_jurisdiction, cost_center_id, profit_center_id, segment_id, trading_partner_id)
+		SELECT $1, $2, n, a, m, pa, tx, q::numeric, u, t, b, j, cc, pc, sg, tp
 		FROM unnest($3::int[], $4::uuid[], $5::bigint[], $6::uuid[], $7::text[], $8::text[], $9::text[], $10::text[], $11::bigint[], $12::text[],
-			$13::uuid[], $14::uuid[], $15::uuid[]) AS x(n, a, m, pa, tx, q, u, t, b, j, cc, pc, sg)`
+			$13::uuid[], $14::uuid[], $15::uuid[], $16::uuid[]) AS x(n, a, m, pa, tx, q, u, t, b, j, cc, pc, sg, tp)`
 	lineUpdate = ` DO UPDATE SET account_id = EXCLUDED.account_id, amount = EXCLUDED.amount,
 			partner_id = EXCLUDED.partner_id, tax_code = EXCLUDED.tax_code, quantity = EXCLUDED.quantity, uom_code = EXCLUDED.uom_code,
 			line_text = EXCLUDED.line_text, tax_base = EXCLUDED.tax_base, tax_jurisdiction = EXCLUDED.tax_jurisdiction,
-			cost_center_id = EXCLUDED.cost_center_id, profit_center_id = EXCLUDED.profit_center_id, segment_id = EXCLUDED.segment_id, is_removed = false`
+			cost_center_id = EXCLUDED.cost_center_id, profit_center_id = EXCLUDED.profit_center_id, segment_id = EXCLUDED.segment_id,
+			trading_partner_id = EXCLUDED.trading_partner_id, is_removed = false`
 	writeParkedLines = `INSERT INTO ledger.parked_entry_line (tenant_id, parked_entry_id, ` + lineValues +
 		` ON CONFLICT (tenant_id, parked_entry_id, line_no)` + lineUpdate
 	removeParkedLines  = `UPDATE ledger.parked_entry_line SET is_removed = true WHERE parked_entry_id = $1 AND line_no > $2 AND NOT is_removed`
@@ -306,14 +308,14 @@ func putLines(ctx context.Context, tx pgx.Tx, sql [2]string, what string, tenant
 	nos, accounts, partners, amounts := make([]int32, n), make([]uuid.UUID, n), make([]*uuid.UUID, n), make([]money.Minor, n)
 	taxes, quantities, units, texts := make([]*string, n), make([]*string, n), make([]*string, n), make([]*string, n)
 	bases, jurisdictions := make([]*money.Minor, n), make([]*string, n)
-	ccs, pcs, segs := make([]*uuid.UUID, n), make([]*uuid.UUID, n), make([]*uuid.UUID, n)
+	ccs, pcs, segs, tps := make([]*uuid.UUID, n), make([]*uuid.UUID, n), make([]*uuid.UUID, n), make([]*uuid.UUID, n)
 	for i, l := range lines {
 		nos[i], accounts[i], partners[i], amounts[i] = int32(i+1), l.AccountID, l.PartnerID, l.TC
 		taxes[i], quantities[i], units[i], texts[i], bases[i], jurisdictions[i] = l.TaxCode, l.Quantity, l.Unit, l.Text, l.TaxBase, l.TaxJurisdiction
-		ccs[i], pcs[i], segs[i] = l.CostCenterID, l.ProfitCenterID, l.SegmentID
+		ccs[i], pcs[i], segs[i], tps[i] = l.CostCenterID, l.ProfitCenterID, l.SegmentID, l.TradingPartnerID
 	}
 	if _, err := tx.Exec(ctx, sql[0], tenant, id, nos, accounts, amounts, partners, taxes, quantities, units, texts, bases, jurisdictions,
-		ccs, pcs, segs); err != nil {
+		ccs, pcs, segs, tps); err != nil {
 		return fmt.Errorf("ledger: write lines of %s %s: %w", what, id, err)
 	}
 	if _, err := tx.Exec(ctx, sql[1], id, n); err != nil {
@@ -444,7 +446,7 @@ func asNewLines(lines []Line, currency string, exp int) []NewLine {
 	for i, l := range lines {
 		out[i] = NewLine{AccountID: l.AccountID, Amount: l.TC.Plain(exp), Currency: currency, PartnerID: l.PartnerID, TaxCode: l.TaxCode,
 			Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, TaxBaseCurrency: currency, TaxJurisdiction: l.TaxJurisdiction,
-			CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID}
+			CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID, TradingPartnerID: l.TradingPartnerID}
 		if l.TaxBase != nil {
 			b := l.TaxBase.Plain(exp)
 			out[i].TaxBase = &b

@@ -217,6 +217,18 @@ of its kind only), `ledger.profit_center_posted_after` and
 lines carrying it, T56d4) and `ledger.segment_in_use` (a posted profit
 center's segment), at the request and again at the approval.
 
+Manual, parked and template entry lines take a `trading_partner_id`
+(T68b, ADR-0059 §4): the tenant's company on the other side of an
+intercompany line, another legal entity of the tenant than the entry's
+(422 `ledger.trading_partner_invalid` on `lines[i].trading_partner_id`,
+the field error's `code` `own_company` or `unknown`). Journal and parked
+lines show it as `trading_partner` (id, company code and the company's
+name as it is now; the name is added after a journal entry's ETag is
+taken, so renaming a company changes no entry's ETag); `GET
+/v1/journal-entries` filters by `trading_partner_id`, and
+JournalEntryPosted's lines carry it. Every operation that posts can answer
+the refusal, as the database's check of a line's own company maps to it.
+
 Requisition and purchase order items take `account_assignment` (`none` or
 `cost_center`; left out: `cost_center` when a `cost_center_id` is given)
 and `cost_center_id` (T56e): 422 `procurement.invalid_account_assignment`

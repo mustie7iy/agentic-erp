@@ -43224,6 +43224,9 @@ type ListJournalEntriesParams struct {
 	// Only entries with a line on this profit center (ADR-0050 §5); each entry is listed with all its
 	// lines.
 	ProfitCenterID OptUUID `json:",omitempty,omitzero"`
+	// Only entries with a line naming this trading partner, a legal entity of the tenant (ADR-0059 §4);
+	// each entry is listed with all its lines.
+	TradingPartnerID OptUUID `json:",omitempty,omitzero"`
 	// Only entries with a line on this G/L account (`GET /v1/accounts`): a trial balance's or a cost or
 	// profit center balance's account drilled down to its entries; each entry is listed with all its
 	// lines.
@@ -43333,6 +43336,15 @@ func unpackListJournalEntriesParams(packed middleware.Parameters) (params ListJo
 		}
 		if v, ok := packed[key]; ok {
 			params.ProfitCenterID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "trading_partner_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.TradingPartnerID = v.(OptUUID)
 		}
 	}
 	{
@@ -43852,6 +43864,47 @@ func decodeListJournalEntriesParams(args [0]string, argsEscaped bool, r *http.Re
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "profit_center_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: trading_partner_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "trading_partner_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotTradingPartnerIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotTradingPartnerIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.TradingPartnerID.SetTo(paramsDotTradingPartnerIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "trading_partner_id",
 			In:   "query",
 			Err:  err,
 		}

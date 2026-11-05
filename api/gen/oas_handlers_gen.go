@@ -45152,6 +45152,10 @@ func (s *Server) handleListJournalEntriesRequest(args [0]string, argsEscaped boo
 					In:   "query",
 				}: params.ProfitCenterID,
 				{
+					Name: "trading_partner_id",
+					In:   "query",
+				}: params.TradingPartnerID,
+				{
 					Name: "account_id",
 					In:   "query",
 				}: params.AccountID,

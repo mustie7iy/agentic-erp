@@ -335,6 +335,7 @@ func (e *Endpoints) paymentLines(ctx context.Context, tx pgx.Tx, in Settlement, 
 	}
 	taxItems := plan.taxItems(bank)
 	fx, err := exchangeDifferenceLines(ctx, le.ID, total.lc, total.gc, paid, in.HeaderText)
+	withTradingPartner(fx, sharedTradingPartner(items)) // a difference line takes the items' trading partner (ADR-0059 §4)
 	return append(append(lines, more...), fx...), bank, taxItems, err
 }
 
@@ -402,6 +403,9 @@ func discountLines(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, items 
 			lines = append(lines, Line{AccountID: k.account, TC: -split.taxes[k], TaxCode: &code, Text: in.HeaderText})
 		}
 	}
+	// The discount is a difference of the items' clearing: it takes their
+	// trading partner (ADR-0059 §4).
+	withTradingPartner(lines, sharedTradingPartner(items))
 	return lines, plan, nil
 }
 
@@ -521,7 +525,7 @@ func offsetItems(items []item, currency string, text *string, check func(int, it
 		if it.currency != currency || it.ledger != items[0].ledger {
 			return nil, 0, 0, 0, problem.Unprocessable("ledger.mixed_items", "The items of one settlement share their ledger and transaction currency "+currency+".")
 		}
-		lines = append(lines, Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: text})
+		lines = append(lines, Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: text, TradingPartnerID: it.tradingPartner})
 		tcs[i], lcs[i], gcs[i] = it.tc, it.lc, it.gc
 	}
 	if tc, err = money.Sum(tcs...); err == nil {

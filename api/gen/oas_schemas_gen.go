@@ -31904,6 +31904,10 @@ type JournalLine struct {
 	SegmentID OptUUID `json:"segment_id"`
 	// Code of the segment, set with `segment_id`.
 	SegmentCode OptString `json:"segment_code"`
+	// The line's trading partner (ADR-0059 §4): the tenant's company on the other side of an intercompany
+	// transaction, as entered (JournalLineInput `trading_partner_id`) or copied from the line a reversal
+	// or clearing offsets; absent when it has none.
+	TradingPartner OptTradingPartner `json:"trading_partner"`
 	// Line text.
 	LineText OptString `json:"line_text"`
 }
@@ -32006,6 +32010,11 @@ func (s *JournalLine) GetSegmentID() OptUUID {
 // GetSegmentCode returns the value of SegmentCode.
 func (s *JournalLine) GetSegmentCode() OptString {
 	return s.SegmentCode
+}
+
+// GetTradingPartner returns the value of TradingPartner.
+func (s *JournalLine) GetTradingPartner() OptTradingPartner {
+	return s.TradingPartner
 }
 
 // GetLineText returns the value of LineText.
@@ -32113,6 +32122,11 @@ func (s *JournalLine) SetSegmentCode(val OptString) {
 	s.SegmentCode = val
 }
 
+// SetTradingPartner sets the value of TradingPartner.
+func (s *JournalLine) SetTradingPartner(val OptTradingPartner) {
+	s.TradingPartner = val
+}
+
 // SetLineText sets the value of LineText.
 func (s *JournalLine) SetLineText(val OptString) {
 	s.LineText = val
@@ -32158,6 +32172,11 @@ type JournalLineInput struct {
 	// Segment of the line: derived from the profit center, so one given must be its profit center's (422
 	// `ledger.segment_mismatch`).
 	SegmentID OptUUID `json:"segment_id"`
+	// Trading partner of the line (ADR-0059 §4): the tenant's company on the other side of an
+	// intercompany transaction, a legal entity of the tenant other than the entry's own (422
+	// `ledger.trading_partner_invalid` on the line's field). Consolidation matches and eliminates
+	// intercompany balances by it.
+	TradingPartnerID OptUUID `json:"trading_partner_id"`
 	// Line text.
 	LineText OptString `json:"line_text"`
 }
@@ -32210,6 +32229,11 @@ func (s *JournalLineInput) GetProfitCenterID() OptUUID {
 // GetSegmentID returns the value of SegmentID.
 func (s *JournalLineInput) GetSegmentID() OptUUID {
 	return s.SegmentID
+}
+
+// GetTradingPartnerID returns the value of TradingPartnerID.
+func (s *JournalLineInput) GetTradingPartnerID() OptUUID {
+	return s.TradingPartnerID
 }
 
 // GetLineText returns the value of LineText.
@@ -32265,6 +32289,11 @@ func (s *JournalLineInput) SetProfitCenterID(val OptUUID) {
 // SetSegmentID sets the value of SegmentID.
 func (s *JournalLineInput) SetSegmentID(val OptUUID) {
 	s.SegmentID = val
+}
+
+// SetTradingPartnerID sets the value of TradingPartnerID.
+func (s *JournalLineInput) SetTradingPartnerID(val OptUUID) {
+	s.TradingPartnerID = val
 }
 
 // SetLineText sets the value of LineText.
@@ -43752,6 +43781,52 @@ func (o OptTaxReturnFiling) Or(d TaxReturnFiling) TaxReturnFiling {
 	return d
 }
 
+// NewOptTradingPartner returns new OptTradingPartner with value set to v.
+func NewOptTradingPartner(v TradingPartner) OptTradingPartner {
+	return OptTradingPartner{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptTradingPartner is optional TradingPartner.
+type OptTradingPartner struct {
+	Value TradingPartner
+	Set   bool
+}
+
+// IsSet returns true if OptTradingPartner was set.
+func (o OptTradingPartner) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptTradingPartner) Reset() {
+	var v TradingPartner
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptTradingPartner) SetTo(v TradingPartner) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptTradingPartner) Get() (v TradingPartner, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptTradingPartner) Or(d TradingPartner) TradingPartner {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptUUID returns new OptUUID with value set to v.
 func NewOptUUID(v uuid.UUID) OptUUID {
 	return OptUUID{
@@ -44909,6 +44984,9 @@ type ParkedJournalLine struct {
 	SegmentID OptUUID `json:"segment_id"`
 	// Code of the segment, set with `segment_id`.
 	SegmentCode OptString `json:"segment_code"`
+	// The trading partner entered on the line (JournalLineInput `trading_partner_id`), absent when none
+	// was.
+	TradingPartner OptTradingPartner `json:"trading_partner"`
 	// Line text.
 	LineText OptString `json:"line_text"`
 }
@@ -44981,6 +45059,11 @@ func (s *ParkedJournalLine) GetSegmentID() OptUUID {
 // GetSegmentCode returns the value of SegmentCode.
 func (s *ParkedJournalLine) GetSegmentCode() OptString {
 	return s.SegmentCode
+}
+
+// GetTradingPartner returns the value of TradingPartner.
+func (s *ParkedJournalLine) GetTradingPartner() OptTradingPartner {
+	return s.TradingPartner
 }
 
 // GetLineText returns the value of LineText.
@@ -45056,6 +45139,11 @@ func (s *ParkedJournalLine) SetSegmentID(val OptUUID) {
 // SetSegmentCode sets the value of SegmentCode.
 func (s *ParkedJournalLine) SetSegmentCode(val OptString) {
 	s.SegmentCode = val
+}
+
+// SetTradingPartner sets the value of TradingPartner.
+func (s *ParkedJournalLine) SetTradingPartner(val OptTradingPartner) {
+	s.TradingPartner = val
 }
 
 // SetLineText sets the value of LineText.
@@ -61430,6 +61518,48 @@ func (*TooManyRequestsHeaders) uploadMemoRecordsRes()                {}
 func (*TooManyRequestsHeaders) verifyAuditChainRes()                 {}
 func (*TooManyRequestsHeaders) withdrawChangeRequestRes()            {}
 func (*TooManyRequestsHeaders) withdrawTaxReturnRes()                {}
+
+// A journal line's trading partner (ADR-0059 §4): a legal entity of the tenant, by id, company code
+// and its name as it is now.
+// Ref: #/components/schemas/TradingPartner
+type TradingPartner struct {
+	// The legal entity.
+	ID uuid.UUID `json:"id"`
+	// Its company code.
+	Code string `json:"code"`
+	// Its name, as it is now: renaming the company changes no entry's ETag.
+	Name string `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *TradingPartner) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCode returns the value of Code.
+func (s *TradingPartner) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *TradingPartner) GetName() string {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *TradingPartner) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCode sets the value of Code.
+func (s *TradingPartner) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *TradingPartner) SetName(val string) {
+	s.Name = val
+}
 
 type TransmitBankFileBadRequest Problem
 

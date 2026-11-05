@@ -5868,6 +5868,13 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: trading_partner_id
+          in: query
+          required: false
+          description: "Only entries with a line naming this trading partner, a legal entity of the tenant (ADR-0059 §4); each entry is listed with all its lines."
+          schema:
+            type: string
+            format: uuid
         - name: account_id
           in: query
           required: false
@@ -5948,6 +5955,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -6150,6 +6158,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -6360,6 +6369,7 @@ paths:
         - ledger.tax_base_not_import
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -6502,6 +6512,7 @@ paths:
         - ledger.tax_base_not_import
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -6661,6 +6672,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -6793,6 +6805,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.template_name_taken
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -6915,6 +6928,7 @@ paths:
         - ledger.tax_code_off_leading
         - ledger.template_name_taken
         - ledger.template_retired
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -7056,6 +7070,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.template_retired
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -7262,6 +7277,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -7379,6 +7395,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - request.version_mismatch
       parameters:
@@ -8719,6 +8736,7 @@ paths:
         - ledger.special_gl_account
         - ledger.special_gl_item
         - ledger.special_gl_required
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -10574,6 +10592,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -10715,6 +10734,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -11438,6 +11458,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -11712,6 +11733,7 @@ paths:
         - ledger.special_gl_account
         - ledger.special_gl_item
         - ledger.special_gl_required
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - payables.down_payment_already_cleared
         - payables.down_payment_other_order
@@ -11861,6 +11883,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - payables.already_captured
         - payables.down_payments_cleared
@@ -12742,6 +12765,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - payments.statement_amount_differs
         - payments.statement_bank_not_posting
@@ -12901,6 +12925,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - payments.statement_amount_differs
         - payments.statement_bank_not_posting
@@ -13299,6 +13324,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - payments.statement_amount_differs
         - payments.statement_bank_not_posting
@@ -15359,6 +15385,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -15487,6 +15514,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - request.version_mismatch
       parameters:
@@ -15662,6 +15690,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -15788,6 +15817,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - request.version_mismatch
       parameters:
@@ -15968,6 +15998,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -16094,6 +16125,7 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - request.version_mismatch
       parameters:
@@ -18822,6 +18854,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -20417,6 +20450,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -27717,6 +27751,31 @@ components:
               created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
               updated_at: "2026-10-09T14:03:11Z"
               updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
+    TradingPartner:
+      type: object
+      description: "A journal line's trading partner (ADR-0059 §4): a legal entity of the tenant, by id, company code and its name as it is now."
+      required:
+        - id
+        - code
+        - name
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The legal entity.
+          readOnly: true
+        code:
+          type: string
+          description: Its company code.
+          readOnly: true
+        name:
+          type: string
+          description: "Its name, as it is now: renaming the company changes no entry's ETag."
+          readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbe"
+          code: "1000"
+          name: Acme Corp US
     JournalLine:
       type: object
       description: One posted line.
@@ -27818,6 +27877,10 @@ components:
         segment_code:
           type: string
           description: "Code of the segment, set with `segment_id`."
+          readOnly: true
+        trading_partner:
+          $ref: "#/components/schemas/TradingPartner"
+          description: "The line's trading partner (ADR-0059 §4): the tenant's company on the other side of an intercompany transaction, as entered (JournalLineInput `trading_partner_id`) or copied from the line a reversal or clearing offsets; absent when it has none."
           readOnly: true
         line_text:
           type: string
@@ -28093,6 +28156,10 @@ components:
           type: string
           format: uuid
           description: "Segment of the line: derived from the profit center, so one given must be its profit center's (422 `ledger.segment_mismatch`)."
+        trading_partner_id:
+          type: string
+          format: uuid
+          description: "Trading partner of the line (ADR-0059 §4): the tenant's company on the other side of an intercompany transaction, a legal entity of the tenant other than the entry's own (422 `ledger.trading_partner_invalid` on the line's field). Consolidation matches and eliminates intercompany balances by it."
         line_text:
           type: string
           description: Line text.
@@ -28324,6 +28391,10 @@ components:
         segment_code:
           type: string
           description: "Code of the segment, set with `segment_id`."
+          readOnly: true
+        trading_partner:
+          $ref: "#/components/schemas/TradingPartner"
+          description: "The trading partner entered on the line (JournalLineInput `trading_partner_id`), absent when none was."
           readOnly: true
         line_text:
           type: string

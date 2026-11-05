@@ -1042,3 +1042,70 @@ tracker item only when one does (07 §7.5).
 
 ## As built
 (Filled in by the slices T68a-T68h.)
+
+**T68b (trading partner on journal lines).** Built as §4 and §4a say, in
+`internal/ledger/tradingpartner.go` and migrations 000216-000218 (the
+column and projection, the check's validation, the index). Decided by
+default, for the product owner to overrule:
+- **The check.** A line's trading partner must be a legal entity tenancy
+  knows in the request's tenant (`LegalEntities.Entity`, whatever its
+  status, and without the caller's company access: the trading partner is
+  a fact of the line, not a company the caller acts in) and not the
+  entry's company: 422 `ledger.trading_partner_invalid` on
+  `lines[i].trading_partner_id`, the field error's code `own_company` or
+  `unknown` (another tenant's company is unknown under row-level
+  security). It runs where an entry's lines are checked
+  (`prepareFor`: manual, parked and template entries and the posting
+  port; and the GR/IR posting path). The database holds the second half
+  (`journal_line_trading_partner`, `trading_partner_id <>
+  legal_entity_id`), added `NOT VALID` and validated partition by
+  partition in the next migration, as 000155-000156 did; the first half
+  has no foreign key (02 §2.1). Its constraint maps to the same problem.
+- **The posting port.** `PostingLine.TradingPartner` is a line's own;
+  `Posting.TradingPartner` is that of each of the posting's `Lines` that
+  names none (not the GR/IR lines the ledger adds). No posting context sets
+  either yet: T68c derives them from business partners.
+- **Copies.** A reversal copies each line's trading partner; a clearing's,
+  a settlement's, a bank statement line's and a down payment transfer's
+  lines offsetting items take each item's. Their difference lines (a
+  settlement's and a bank posting's exchange differences, a settlement's
+  cash discount lines) take the items' when every item names the same
+  one, else none; a settlement's bank and withholding lines and a
+  transfer's tax and payables lines take none (T68c's propagation from
+  partner lines gives them theirs).
+- **Reads.** Journal and parked lines (templates share the parked lines'
+  representation) show `trading_partner` with the company's code and its
+  name as tenancy has them now, each company read once per response,
+  whatever the caller's access to that company (the line is a record of
+  the entry's company, which the caller may read; §13 names the
+  representation). A
+  journal entry's ETag is taken before the names are added, as the
+  business partners' expansion is, so renaming a company changes no
+  entry's ETag (`JournalEntry`'s contract). `listJournalEntries` filters
+  by `trading_partner_id` with an `EXISTS` of its own, added only when
+  asked, as the `account_id` filter is, over the partial index
+  `journal_line_trading_partner` (company, trading partner, year,
+  period).
+- **Balances.** `ledger.trading_partner_balance` has a plain primary key
+  (every part of its key is set) and a check that the trading partner is
+  never the company; the trigger `balance_projection_trading_partner`
+  writes it in the projector's statement. No line carried a trading
+  partner before 000216, so nothing was backfilled. Its exact read (the
+  projection plus pending lines) is T68d's `BalancesThrough` (§4a): T68b
+  has no reader of it, and its tests compare it with the lines projected.
+- **Events.** JournalEntryPosted's lines carry `trading_partner_id` when
+  set (additive).
+- **Walkthrough.** `step_consolidation` is T68a's and not on T68b's base,
+  and Acme Corp US (step 36) does not exist at the manual entries of the
+  earlier steps, so T68b's evidence is its own step,
+  `step_trading_partner` (step 39, before `step_close`), for integration
+  to fold into `step_consolidation`: Ada adds 1250 Intercompany
+  receivable to Maple's chart through a governed change; Carla posts
+  Maple's USD 2,000.00 invoice to Acme Corp US on the month's first day,
+  both lines naming company 1000; reads it back with the company's code
+  and name; lists Maple's entries by trading partner; and a line naming
+  Maple is refused with `ledger.trading_partner_invalid`.
+- **Not built (a gap for T68f):** a revaluation's lines of a foreign
+  currency intercompany item (ADR-0042) do not carry the item's trading
+  partner, so they show as `no_trading_partner` until a slice gives them
+  the item's.

@@ -4132,7 +4132,69 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_close'
+# step_trading_partner is the trading partner on journal lines (T68b,
+# ADR-0059 §4): Maple's USD invoice to its sister Acme Corp US (company
+# 1000, step 36), posted by hand on the month's first day as an
+# intercompany receivable against revenue, names company 1000 on both
+# lines; the entry reads back with the company's code and name, the
+# journal lists it by trading partner, and a line naming Maple itself is
+# refused. ADR-0059 places this in step_consolidation (T68a), which is not
+# on this lane's base: integration moves it there.
+step_trading_partner() {
+  heading "Step 39 — The trading partner on journal lines: Maple invoices its US sister, and the entry names the company"
+  as ada
+  local first="${TODAY:0:7}-01" base cr request us receivable sales je body
+  say "Maple's chart has no account for what its group companies owe it. Ada adds one, 1250 Intercompany receivable,"
+  say "through a governed change: a new account changes the chart, a tier 4 change, replayed against last year's invoices."
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Intercompany receivable\", rationale: \"Invoices to group companies (T68b)\", base_version: $base,
+    proposed: (.items[0].document | (.companies[] | select(.code == \"$CC\")).chart_of_accounts +=
+      [{\"number\": \"1250\", \"name\": \"Intercompany receivable\", \"type\": \"asset\"}])}" "$WORK/last.json" >"$WORK/intercompany.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @intercompany.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier) (structural): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 4
+  api 201 '"regression suite \(.number): \(.case_count) cases"' createRegressionSuite -body '{"name": "Before the intercompany receivable", "window_days": 366}'
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
+  expect "status after the evidence" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve sam "$request" "The intercompany receivable account checked"
+  approve carla "$request" "A new account, unposted"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  accounts
+  receivable=$(account 1250)
+  sales=$(account 4000)
+  as carla
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  us=$(field '.items[] | select(.code == "1000") | .id')
+  say "Carla posts Maple's invoice to Acme Corp US, USD 2,000.00 dated $first (booked at 1.35), as a manual entry:"
+  say "the intercompany receivable against revenue, each line naming company 1000 as its trading partner (ADR-0059 §4)."
+  body="{\"legal_entity_id\": \"$LE\", \"document_date\": \"$first\", \"posting_date\": \"$first\", \"currency\": \"USD\", \"header_text\": \"Engineering services to Acme Corp US\", \"lines\": [{\"account_id\": \"$receivable\", \"amount\": {\"amount\": \"2000.00\", \"currency\": \"USD\"}, \"trading_partner_id\": \"$us\"}, {\"account_id\": \"$sales\", \"amount\": {\"amount\": \"-2000.00\", \"currency\": \"USD\"}, \"trading_partner_id\": \"$us\"}]}"
+  api 201 '"journal entry \(.document_number): \([.lines[] | "\(.amount.amount) USD = \(.amount_lc.amount) CAD, trading partner \(.trading_partner.code) \(.trading_partner.name)"] | join(" / "))"' \
+    postJournalEntry -body "$body"
+  je=$(field .id)
+  say "She reads it back: each line names its trading partner by company code and name, beside its id."
+  api 200 '.lines[] | "  line \(.line_no): \(.amount.amount) \(.amount.currency), trading partner \(.trading_partner.code) \(.trading_partner.name) (\(.trading_partner.id[0:8])…)"' \
+    getJournalEntry -p "id=$je"
+  expect "the lines' trading partners" "$(field '[.lines[].trading_partner | "\(.code) \(.name)"] | unique | join(", ")')" "1000 Acme Corp US"
+  expect "the trading partner's id" "$(field '[.lines[].trading_partner.id] | unique | join(" ")')" "$us"
+  say "The journal lists Maple's entries with company 1000 as trading partner: this invoice alone so far."
+  api 200 '.items[] | "  entry \(.document_number) of \(.posting_date): \(.header_text)"' listJournalEntries -p "legal_entity_id=$LE" -p "trading_partner_id=$us"
+  expect "the entries naming Acme Corp US" "$(field '[.items[].id] | join(" ")')" "$je"
+  say "A trading partner is another company of the group: a line naming Maple itself is refused on that line."
+  refused 422 ledger.trading_partner_invalid postJournalEntry -body "${body%\"$us\"\}\]\}}\"$LE\"}]}"
+  expect "the refused line" "$(field '[.errors[] | "\(.field) \(.code)"] | join(", ")')" "lines[1].trading_partner_id own_company"
+  passed
+}
+
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_trading_partner step_close'
 
 main() {
   stop_unseen

@@ -84010,6 +84010,12 @@ func (s *JournalLine) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TradingPartner.Set {
+			e.FieldStart("trading_partner")
+			s.TradingPartner.Encode(e)
+		}
+	}
+	{
 		if s.LineText.Set {
 			e.FieldStart("line_text")
 			s.LineText.Encode(e)
@@ -84017,7 +84023,7 @@ func (s *JournalLine) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfJournalLine = [21]string{
+var jsonFieldsNameOfJournalLine = [22]string{
 	0:  "line_no",
 	1:  "account_id",
 	2:  "amount",
@@ -84038,7 +84044,8 @@ var jsonFieldsNameOfJournalLine = [21]string{
 	17: "profit_center_code",
 	18: "segment_id",
 	19: "segment_code",
-	20: "line_text",
+	20: "trading_partner",
+	21: "line_text",
 }
 
 // Decode decodes JournalLine from json.
@@ -84254,6 +84261,16 @@ func (s *JournalLine) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"segment_code\"")
 			}
+		case "trading_partner":
+			if err := func() error {
+				s.TradingPartner.Reset()
+				if err := s.TradingPartner.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"trading_partner\"")
+			}
 		case "line_text":
 			if err := func() error {
 				s.LineText.Reset()
@@ -84388,6 +84405,12 @@ func (s *JournalLineInput) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TradingPartnerID.Set {
+			e.FieldStart("trading_partner_id")
+			s.TradingPartnerID.Encode(e)
+		}
+	}
+	{
 		if s.LineText.Set {
 			e.FieldStart("line_text")
 			s.LineText.Encode(e)
@@ -84395,7 +84418,7 @@ func (s *JournalLineInput) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfJournalLineInput = [11]string{
+var jsonFieldsNameOfJournalLineInput = [12]string{
 	0:  "account_id",
 	1:  "amount",
 	2:  "partner_id",
@@ -84406,7 +84429,8 @@ var jsonFieldsNameOfJournalLineInput = [11]string{
 	7:  "cost_center_id",
 	8:  "profit_center_id",
 	9:  "segment_id",
-	10: "line_text",
+	10: "trading_partner_id",
+	11: "line_text",
 }
 
 // Decode decodes JournalLineInput from json.
@@ -84519,6 +84543,16 @@ func (s *JournalLineInput) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"segment_id\"")
+			}
+		case "trading_partner_id":
+			if err := func() error {
+				s.TradingPartnerID.Reset()
+				if err := s.TradingPartnerID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"trading_partner_id\"")
 			}
 		case "line_text":
 			if err := func() error {
@@ -111679,6 +111713,39 @@ func (s *OptTaxReturnFiling) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes TradingPartner as json.
+func (o OptTradingPartner) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes TradingPartner from json.
+func (o *OptTradingPartner) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptTradingPartner to nil")
+	}
+	o.Set = true
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptTradingPartner) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptTradingPartner) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes uuid.UUID as json.
 func (o OptUUID) Encode(e *jx.Encoder) {
 	if !o.Set {
@@ -113960,6 +114027,12 @@ func (s *ParkedJournalLine) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TradingPartner.Set {
+			e.FieldStart("trading_partner")
+			s.TradingPartner.Encode(e)
+		}
+	}
+	{
 		if s.LineText.Set {
 			e.FieldStart("line_text")
 			s.LineText.Encode(e)
@@ -113967,7 +114040,7 @@ func (s *ParkedJournalLine) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfParkedJournalLine = [15]string{
+var jsonFieldsNameOfParkedJournalLine = [16]string{
 	0:  "line_no",
 	1:  "account_id",
 	2:  "amount",
@@ -113982,7 +114055,8 @@ var jsonFieldsNameOfParkedJournalLine = [15]string{
 	11: "profit_center_code",
 	12: "segment_id",
 	13: "segment_code",
-	14: "line_text",
+	14: "trading_partner",
+	15: "line_text",
 }
 
 // Decode decodes ParkedJournalLine from json.
@@ -114137,6 +114211,16 @@ func (s *ParkedJournalLine) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"segment_code\"")
+			}
+		case "trading_partner":
+			if err := func() error {
+				s.TradingPartner.Reset()
+				if err := s.TradingPartner.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"trading_partner\"")
 			}
 		case "line_text":
 			if err := func() error {
@@ -155043,6 +155127,136 @@ func (s *TerminateContractUnprocessableEntity) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *TerminateContractUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *TradingPartner) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *TradingPartner) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("id")
+		json.EncodeUUID(e, s.ID)
+	}
+	{
+		e.FieldStart("code")
+		e.Str(s.Code)
+	}
+	{
+		e.FieldStart("name")
+		e.Str(s.Name)
+	}
+}
+
+var jsonFieldsNameOfTradingPartner = [3]string{
+	0: "id",
+	1: "code",
+	2: "name",
+}
+
+// Decode decodes TradingPartner from json.
+func (s *TradingPartner) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode TradingPartner to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.ID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"id\"")
+			}
+		case "code":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Code = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"code\"")
+			}
+		case "name":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.Name = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"name\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode TradingPartner")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfTradingPartner) {
+					name = jsonFieldsNameOfTradingPartner[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *TradingPartner) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *TradingPartner) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

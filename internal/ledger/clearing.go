@@ -102,6 +102,7 @@ type item struct {
 	rateTCLC, rateLCGC               string
 	reservedBy                       *Owner  // the owner holding the item (item_reservation), or nil
 	special                          *string // the special G/L indicator (ADR-0037), or nil
+	tradingPartner                   *uuid.UUID
 }
 
 // createClearing clears open items against each other. The items must be
@@ -185,7 +186,7 @@ func clearingLines(items []item, legalEntity uuid.UUID, text *string) ([]Line, e
 			return nil, err
 		}
 		sums.add(*it.partner, it.tc, it.lc, it.gc)
-		lines[i] = Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: text}
+		lines[i] = Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: text, TradingPartnerID: it.tradingPartner}
 	}
 	if partner, ok := sums.unbalanced(); ok {
 		return nil, problem.Unprocessable("ledger.clearing_not_balanced",
@@ -307,7 +308,7 @@ func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 			coalesce(l.amount_tc, 0), coalesce(l.amount_lc, 0), coalesce(l.amount_gc, 0), coalesce(e.currency_tc, ''),
 			coalesce(e.currency_lc, ''), coalesce(e.currency_gc, ''), coalesce(e.rate_tc_lc::text, ''), coalesce(e.rate_lc_gc::text, ''),
 			`+reversedLine+`,
-			ir.owner_id, coalesce(ir.owner_context, ''), coalesce(ir.owner_reference, ''), l.special_gl
+			ir.owner_id, coalesce(ir.owner_context, ''), coalesce(ir.owner_reference, ''), l.special_gl, l.trading_partner_id
 		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) WITH ORDINALITY AS x(y, je, n, ord)
 		LEFT JOIN ledger.journal_line l ON l.fiscal_year = x.y AND l.journal_entry_id = x.je AND l.line_no = x.n
 			AND EXISTS (SELECT FROM ledger.ledger g WHERE g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading)
@@ -325,7 +326,7 @@ func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 	var ownerID *uuid.UUID
 	if _, err := pgx.ForEachRow(rows, []any{&ord, &it.found, &it.open, &it.recon, &it.legalEntity, &it.ledger, &it.account, &it.partner,
 		&it.tc, &it.lc, &it.gc, &it.currency, &it.currencyLC, &it.currencyGC, &it.rateTCLC, &it.rateLCGC, &it.reversed,
-		&ownerID, &owner.Context, &owner.Reference, &it.special}, func() error {
+		&ownerID, &owner.Context, &owner.Reference, &it.special, &it.tradingPartner}, func() error {
 		it.ref, it.reservedBy = refs[ord-1], nil
 		if ownerID != nil {
 			holder := owner

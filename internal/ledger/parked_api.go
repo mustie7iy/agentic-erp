@@ -45,7 +45,8 @@ func linesToAPI(lines []Line, currency string, exp int) []gen.ParkedJournalLine 
 			PartnerID: apitypes.OptUUID(l.PartnerID), TaxCode: apitypes.OptString(l.TaxCode), LineText: apitypes.OptString(l.Text),
 			TaxJurisdiction: apitypes.OptString(l.TaxJurisdiction), CostCenterID: apitypes.OptUUID(l.CostCenterID),
 			CostCenterCode: apitypes.OptString(l.CostCenterCode), ProfitCenterID: apitypes.OptUUID(l.ProfitCenterID),
-			ProfitCenterCode: apitypes.OptString(l.ProfitCenterCode), SegmentID: apitypes.OptUUID(l.SegmentID), SegmentCode: apitypes.OptString(l.SegmentCode)}
+			ProfitCenterCode: apitypes.OptString(l.ProfitCenterCode), SegmentID: apitypes.OptUUID(l.SegmentID), SegmentCode: apitypes.OptString(l.SegmentCode),
+			TradingPartner: tradingPartnerRef(l.TradingPartnerID)}
 		if l.Quantity != nil {
 			line.Quantity.SetTo(gen.Quantity{Value: *l.Quantity, Unit: *l.Unit})
 		}
@@ -63,14 +64,35 @@ func (e *Endpoints) ParkJournalEntry(ctx context.Context, req *gen.JournalEntryC
 	if err != nil {
 		return nil, err
 	}
-	return parkedHeaders(pe), nil
+	return e.parkedHeaders(ctx, pe)
 }
 
 // parkedHeaders is the answer that parked an entry: the entry, its ETag
 // and where to read it.
-func parkedHeaders(pe ParkedEntry) *gen.ParkedJournalEntryHeaders {
+func (e *Endpoints) parkedHeaders(ctx context.Context, pe ParkedEntry) (*gen.ParkedJournalEntryHeaders, error) {
+	rep, err := e.parkedRep(ctx, pe)
+	if err != nil {
+		return nil, err
+	}
 	return &gen.ParkedJournalEntryHeaders{ETag: gen.NewOptString(etag.Format(pe.Version)),
-		Location: gen.NewOptString("/v1/parked-journal-entries/" + pe.ID.String()), Response: parkedToAPI(pe)}
+		Location: gen.NewOptString("/v1/parked-journal-entries/" + pe.ID.String()), Response: rep}, nil
+}
+
+// parkedRep is the parked entry as the API gives it, its lines' trading
+// partners named.
+func (e *Endpoints) parkedRep(ctx context.Context, pe ParkedEntry) (gen.ParkedJournalEntry, error) {
+	rep := parkedToAPI(pe)
+	return rep, e.nameTradingPartners(ctx, lineTradingPartners(rep.Lines))
+}
+
+// parkedOK is the answer that changed a parked entry: the entry and its
+// ETag.
+func (e *Endpoints) parkedOK(ctx context.Context, pe ParkedEntry) (*gen.UpdateParkedJournalEntryOKHeaders, error) {
+	rep, err := e.parkedRep(ctx, pe)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.UpdateParkedJournalEntryOKHeaders{ETag: gen.NewOptString(etag.Format(pe.Version)), Response: rep}, nil
 }
 
 // GetParkedJournalEntry implements GET /v1/parked-journal-entries/{id}.
@@ -83,7 +105,10 @@ func (e *Endpoints) GetParkedJournalEntry(ctx context.Context, params gen.GetPar
 	if err != nil {
 		return nil, err
 	}
-	rep := parkedToAPI(pe)
+	rep, err := e.parkedRep(ctx, pe)
+	if err != nil {
+		return nil, err
+	}
 	partners := make([]gen.OptUUID, len(rep.Lines))
 	for i, l := range rep.Lines {
 		partners[i] = l.PartnerID
@@ -133,6 +158,13 @@ func (e *Endpoints) ListParkedJournalEntries(ctx context.Context, params gen.Lis
 	items, next := apitypes.PageOf(ks, entries, func(pe ParkedEntry) (string, uuid.UUID) {
 		return pe.CreatedAt.UTC().Format(time.RFC3339Nano), pe.ID
 	}, parkedToAPI)
+	var partners []*gen.OptTradingPartner // each named once for the page
+	for i := range items {
+		partners = append(partners, lineTradingPartners(items[i].Lines)...)
+	}
+	if err := e.nameTradingPartners(ctx, partners); err != nil {
+		return nil, err
+	}
 	return &gen.ParkedJournalEntryPage{Items: items, NextPageToken: next}, nil
 }
 
@@ -165,7 +197,7 @@ func (e *Endpoints) UpdateParkedJournalEntry(ctx context.Context, req *gen.Parke
 	if err != nil {
 		return nil, err
 	}
-	return &gen.UpdateParkedJournalEntryOKHeaders{ETag: gen.NewOptString(etag.Format(pe.Version)), Response: parkedToAPI(pe)}, nil
+	return e.parkedOK(ctx, pe)
 }
 
 // CancelParkedJournalEntry implements POST /v1/parked-journal-entries/{id}:cancel.
@@ -175,7 +207,7 @@ func (e *Endpoints) CancelParkedJournalEntry(ctx context.Context, req *gen.Reaso
 	if err != nil {
 		return nil, err
 	}
-	return &gen.UpdateParkedJournalEntryOKHeaders{ETag: gen.NewOptString(etag.Format(pe.Version)), Response: parkedToAPI(pe)}, nil
+	return e.parkedOK(ctx, pe)
 }
 
 // PostParkedJournalEntry implements POST /v1/parked-journal-entries/{id}:post.
@@ -184,5 +216,5 @@ func (e *Endpoints) PostParkedJournalEntry(ctx context.Context, params gen.PostP
 	if err != nil {
 		return nil, err
 	}
-	return &gen.UpdateParkedJournalEntryOKHeaders{ETag: gen.NewOptString(etag.Format(pe.Version)), Response: parkedToAPI(pe)}, nil
+	return e.parkedOK(ctx, pe)
 }

@@ -1784,7 +1784,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Trading partner on journal lines: ledger.journal_line.trading_partner_id, Posting/PostingLine.TradingPartner, trading_partner_id on manual, parked and template entry lines (ledger.trading_partner_invalid), copied by reversals and clearings; ledger.trading_partner_balance maintained as assignment_balance and read exactly; responses with trading_partner (id, code, name), listJournalEntries?trading_partner_id, events; walkthrough: Carla posts Maple's USD invoice to Acme Corp US with trading partner 1000, one naming Maple itself refused",
         "r": "ADR-0059 · T68b",
         "src": "adr:ADR-0059",

@@ -40,9 +40,30 @@ func scheduleOf(s gen.EntrySchedule) *Schedule {
 }
 
 // templateHeaders is the answer that saved a template.
-func templateHeaders(t EntryTemplate) *gen.EntryTemplateHeaders {
+func (e *Endpoints) templateHeaders(ctx context.Context, t EntryTemplate) (*gen.EntryTemplateHeaders, error) {
+	rep, err := e.templateRep(ctx, t)
+	if err != nil {
+		return nil, err
+	}
 	return &gen.EntryTemplateHeaders{ETag: gen.NewOptString(etag.Format(t.Version)),
-		Location: gen.NewOptString("/v1/entry-templates/" + t.ID.String()), Response: templateToAPI(t)}
+		Location: gen.NewOptString("/v1/entry-templates/" + t.ID.String()), Response: rep}, nil
+}
+
+// templateRep is the template as the API gives it, its lines' trading
+// partners named.
+func (e *Endpoints) templateRep(ctx context.Context, t EntryTemplate) (gen.EntryTemplate, error) {
+	rep := templateToAPI(t)
+	return rep, e.nameTradingPartners(ctx, lineTradingPartners(rep.Lines))
+}
+
+// templateOK is the answer that changed a template: the template and its
+// ETag.
+func (e *Endpoints) templateOK(ctx context.Context, t EntryTemplate) (*gen.UpdateEntryTemplateOKHeaders, error) {
+	rep, err := e.templateRep(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.UpdateEntryTemplateOKHeaders{ETag: gen.NewOptString(etag.Format(t.Version)), Response: rep}, nil
 }
 
 // CreateEntryTemplate implements POST /v1/entry-templates.
@@ -58,7 +79,7 @@ func (e *Endpoints) CreateEntryTemplate(ctx context.Context, req *gen.EntryTempl
 	if err != nil {
 		return nil, err
 	}
-	return templateHeaders(t), nil
+	return e.templateHeaders(ctx, t)
 }
 
 // GetEntryTemplate implements GET /v1/entry-templates/{id}.
@@ -71,7 +92,11 @@ func (e *Endpoints) GetEntryTemplate(ctx context.Context, params gen.GetEntryTem
 	if err != nil {
 		return nil, err
 	}
-	return &gen.GetEntryTemplateOKHeaders{ETag: gen.NewOptString(etag.Format(t.Version)), Response: templateToAPI(t)}, nil
+	rep, err := e.templateRep(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.GetEntryTemplateOKHeaders{ETag: gen.NewOptString(etag.Format(t.Version)), Response: rep}, nil
 }
 
 var templateSort = pagination.Sort{Default: "created_at", DefaultDesc: true, Fields: []pagination.Field{
@@ -104,6 +129,13 @@ func (e *Endpoints) ListEntryTemplates(ctx context.Context, params gen.ListEntry
 	items, next := apitypes.PageOf(ks, templates, func(t EntryTemplate) (string, uuid.UUID) {
 		return t.CreatedAt.UTC().Format(time.RFC3339Nano), t.ID
 	}, templateToAPI)
+	var partners []*gen.OptTradingPartner // each named once for the page
+	for i := range items {
+		partners = append(partners, lineTradingPartners(items[i].Lines)...)
+	}
+	if err := e.nameTradingPartners(ctx, partners); err != nil {
+		return nil, err
+	}
 	return &gen.EntryTemplatePage{Items: items, NextPageToken: next}, nil
 }
 
@@ -126,7 +158,7 @@ func (e *Endpoints) UpdateEntryTemplate(ctx context.Context, req *gen.EntryTempl
 	if err != nil {
 		return nil, err
 	}
-	return &gen.UpdateEntryTemplateOKHeaders{ETag: gen.NewOptString(etag.Format(t.Version)), Response: templateToAPI(t)}, nil
+	return e.templateOK(ctx, t)
 }
 
 // RetireEntryTemplate implements POST /v1/entry-templates/{id}:retire.
@@ -135,7 +167,7 @@ func (e *Endpoints) RetireEntryTemplate(ctx context.Context, params gen.RetireEn
 	if err != nil {
 		return nil, err
 	}
-	return &gen.UpdateEntryTemplateOKHeaders{ETag: gen.NewOptString(etag.Format(t.Version)), Response: templateToAPI(t)}, nil
+	return e.templateOK(ctx, t)
 }
 
 // ParkFromEntryTemplate implements POST /v1/entry-templates/{id}:park.
@@ -146,5 +178,5 @@ func (e *Endpoints) ParkFromEntryTemplate(ctx context.Context, req *gen.EntryTem
 	if err != nil {
 		return nil, err
 	}
-	return parkedHeaders(pe), nil
+	return e.parkedHeaders(ctx, pe)
 }

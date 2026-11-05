@@ -3563,6 +3563,7 @@ components:
               profit_center_code: {type: string, description: 'Code of the profit center, set with profit_center_id.'}
               segment_id: {$ref: '#/components/schemas/Uuid', description: 'The line''s segment, its profit center''s. Absent on lines without one.'}
               segment_code: {type: string, description: 'Code of the segment, set with segment_id.'}
+              trading_partner_id: {$ref: '#/components/schemas/Uuid', description: 'The line''s trading partner (ADR-0059 §4), a legal entity of the tenant other than the entry''s. Absent on lines without one.'}
     JournalEntryReversedV1:
       type: object
       required: [journal_entry_id, fiscal_year, legal_entity_id, document_number, reversal_entry_id, reversal_fiscal_year, reversal_document_number, reversal_posting_date]

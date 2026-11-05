@@ -41352,6 +41352,23 @@ func (c *Client) sendListJournalEntries(ctx context.Context, params ListJournalE
 		}
 	}
 	{
+		// Encode "trading_partner_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "trading_partner_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.TradingPartnerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
 		// Encode "account_id" parameter.
 		cfg := uri.QueryParameterEncodingConfig{
 			Name:    "account_id",
