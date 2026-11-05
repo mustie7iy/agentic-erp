@@ -1655,7 +1655,7 @@
      {
       "s": "P",
       "t": "Financial close designed (ADR-0058, decided by default under ADR-0053 d): a leaf closing context; the close template and a company weekend in configuration; one close per company and regular period with its checklist, checks run on demand and at sign-off; sign-off locking each covered period through T32; accrual proposals parked for a person to post; the variance report and comments; the close agent proposing only",
-      "r": "ADR-0058 · T64 (split T64a-T64k)",
+      "r": "ADR-0058 · T64 (split T64a-T64n)",
       "c": [
        {
         "s": "D",
@@ -1758,7 +1758,7 @@
        {
         "s": "D",
         "t": "A close task's assignee must have access to the close's company: PATCH /v1/period-closes/{id}/tasks/{code} refuses an active person without it with 422 closing.assignee_invalid (authz.CompaniesOf, another principal's company access as its own requests read it)",
-        "r": "internal/closing/tasks.go person · authz.CompaniesOf · updateCloseTask description · TestCloseTaskRefusals (a person of another company) · TestCompaniesOf · ADR-0058 As built (T64b, product owner 2026-11-04) · T64n",
+        "r": "internal/closing/tasks.go person · authz.CompaniesOf · updateCloseTask description · TestCloseTaskRefusals (a person of another company) · TestCompaniesOf · walkthrough step_close (close_checklist: Olga refused) · ADR-0058 As built (T64b, product owner 2026-11-04) · T64n",
         "src": "po:2026-11-04 · adr:ADR-0058",
         "c": []
        }

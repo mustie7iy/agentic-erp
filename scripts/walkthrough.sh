@@ -3047,7 +3047,7 @@ step_close() {
 # the close of today's period, the template copied into it, and works its
 # manual checklist to the end, every task done for the sign-off to come.
 close_checklist() {
-  local period close tag carla
+  local period close tag carla olga
   period=$((10#${TODAY:5:2}))
   carla=$(awk -F'\t' '$2 == "Carla Controller" { print $1 }' "$WORK/names")
   say "Carla opens the close of $CC's period $period of $YEAR, the period of the company's today ($TODAY): its checklist"
@@ -3063,6 +3063,13 @@ close_checklist() {
   expect "the leading ledger first" "$(field '.ledgers[0].ledger_code')" 0L
   say "A second close of the period is refused, and names the first:"
   refused 409 closing.close_exists createPeriodClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  say "A task goes only to a person who may act in $CC (product owner 2026-11-04): Olga, a new colleague not yet given"
+  say "any company, is refused as the cut-off reminder's assignee."
+  as ada
+  QUIET=1 api 201 '' createPrincipal -body '{"kind": "human", "external_subject": "olga", "display_name": "Olga Onboarding", "all_companies": false}'
+  olga=$(field .id)
+  as carla
+  refused 422 closing.assignee_invalid updateCloseTask -p "id=$close" -p code=CUTOFF_NOTICE -if-match "$tag" -body "{\"assignee_id\": \"$olga\"}"
   say "Carla takes the cut-off reminder herself. The supplier invoices wait for it: completing them first is refused."
   api 200 '"  \(.code) assigned to \(.assignee_name); the close is now at version \(.close_version)"' \
     updateCloseTask -p "id=$close" -p code=CUTOFF_NOTICE -if-match "$tag" -body "{\"assignee_id\": \"$carla\"}"

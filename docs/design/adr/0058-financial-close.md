@@ -1375,7 +1375,9 @@ the other checks. Decided by default, for the product owner to overrule:
   /v1/period-closes/{id}/tasks/{code}` now also refuses an active person
   who may not act in the close's company, with the same 422
   `closing.assignee_invalid` on `assignee_id` (no new problem code: the
-  field is equally wrong, and its message now names the company access).
+  field is equally wrong); the field error's message says which rule the
+  id broke ("an active person of the tenant", or "a person with access
+  to the close's company").
   The access is read as the person's own requests read it, all companies
   or a company access grant valid on the database's date, through the new
   `authz.CompaniesOf` (`authz.Companies` is it for the caller), so the
@@ -1384,6 +1386,8 @@ the other checks. Decided by default, for the product owner to overrule:
   it is until the task is assigned again; the access later ended does not
   unassign a task either: the worklist simply does not show it to them,
   as before. Evidence: `closing.TestCloseTaskRefusals` ("a person of
-  another company"), `authz.TestCompaniesOf`, and
+  another company", each case's field message), `authz.TestCompaniesOf`,
+  the walkthrough's `close_checklist` (Olga, a person given no company
+  yet, refused as the cut-off reminder's assignee), and
   `TestCloseDatabaseFailures`, which fails the new read in turn (tracker
   T64n).

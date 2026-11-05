@@ -84,7 +84,8 @@ func (e *Endpoints) changed(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 }
 
 // UpdateCloseTask implements PATCH /v1/period-closes/{id}/tasks/{code}:
-// the task's assignee, an active person of the tenant, or none.
+// the task's assignee, an active person of the tenant who may act in the
+// close's company, or none.
 func (e *Endpoints) UpdateCloseTask(ctx context.Context, req *gen.CloseTaskUpdate, params gen.UpdateCloseTaskParams) (gen.UpdateCloseTaskRes, error) {
 	return e.taskAction(ctx, params.ID, params.Code, params.IfMatch, func(ctx context.Context, tx pgx.Tx, p reqctx.Principal, t task) (change, bool, error) {
 		if !req.AssigneeID.Set {
@@ -116,22 +117,24 @@ func (e *Endpoints) person(ctx context.Context, id, legalEntity uuid.UUID) error
 		return fmt.Errorf("closing: assignee %s: %w", id, err)
 	}
 	if n, ok := named[id]; !ok || n.Kind != "human" || n.Status != "active" {
-		return assigneeInvalid()
+		return assigneeInvalid("an active person of the tenant")
 	}
 	access, err := authz.CompaniesOf(ctx, id)
 	if err != nil {
 		return fmt.Errorf("closing: assignee %s: %w", id, err)
 	}
 	if !access.Allows(legalEntity) {
-		return assigneeInvalid()
+		return assigneeInvalid("a person with access to the close's company")
 	}
 	return nil
 }
 
-func assigneeInvalid() error {
+// assigneeInvalid refuses an assignee, the field's message naming what
+// it must be (want), so a consumer tells which rule the id broke.
+func assigneeInvalid(want string) error {
 	return problem.Unprocessable("closing.assignee_invalid", "A task is assigned to an active person of the tenant who may act in the close's "+
 		"company, not to an agent, a service, a blocked or an unknown principal, or a person without the company's access.",
-		problem.FieldError{Field: "assignee_id", Code: "invalid", Message: "an active person of the tenant with access to the close's company"})
+		problem.FieldError{Field: "assignee_id", Code: "invalid", Message: want})
 }
 
 // CompleteCloseTask implements POST

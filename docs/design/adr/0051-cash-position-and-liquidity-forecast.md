@@ -2254,8 +2254,17 @@ As built (T53f4, variance comments by people; decided by default where
   beside `cash.variance.comment`, so a caller lacking it is 403
   `identity.permission_missing` (`TestVarianceCommentRefusals`). T53i's
   proposals (`cash.variance.propose`) and the decisions on them declare
-  it likewise when they are built. The walkthrough is unchanged: Tom,
-  who comments in step 30, reads the variance first.
+  it likewise when they are built. The operation is stricter than
+  before: a caller holding `cash.variance.comment` alone was answered
+  and now is 403. `oasdiff` does not see an `x-` extension, so there is
+  no `api/breaking-accepted.txt` entry; it is accepted as the product
+  owner's decision before a pilot uses `/v1` (ADR-0041), and no seeded
+  role grants `cash.variance.comment` (migration 000201), so no role
+  loses the operation. The walkthrough is unchanged: step 30 already
+  shows the 403 for a reader (Rita), and Tom, who comments, reads the
+  variance first; a person holding the comment's permission without the
+  forecast's read would need a role made for the refusal alone, so the
+  refusal's evidence is `TestVarianceCommentRefusals`.
 - **What it does not do.** A comment does not carry the variance's
   figures (they are read again from the snapshot it keeps); T64's
   threshold on which variances need a comment is T64's.
