@@ -3488,11 +3488,17 @@ Saved reports, and the analytical store's bookkeeping in PostgreSQL
 
 ## 3.24 Consolidation (`consolidation`)
 
-Planned, not built (ADR-0059, T68a-T68h). Consolidation is a leaf context:
-it reads tenancy, the configuration and the ledger through ports the
-composition root adapts, and no context reads it. The group chart, the
-mapping of each company's accounts (`companies[].chart_of_accounts[].group_account`),
-the eliminations and the groups are configuration (T68a, ADR-0059 §3).
+ADR-0059, T68a-T68h. Consolidation is a leaf context: it reads tenancy,
+the configuration and the ledger through ports the composition root
+adapts, and no context reads it. The group chart (`consolidation.accounts`,
+with the roles `cta`, `retained_earnings`, `nci` and `goodwill`), the
+mapping of each company's accounts (`companies[].chart_of_accounts[].group_account`,
+required on every account of a company in a group), the eliminations
+(`consolidation.eliminations`) and the groups (`consolidation.groups`:
+parent, members with ownership, first period and investment account) are
+configuration, built in T68a (ADR-0059 §3, As built T68a): they keep no
+table, and migration 000220 adds the permission `consolidation.read`.
+T68b and T68c are built; what follows is planned, not built (T68d-T68h).
 The ledger gained, in T68b, `journal_line.trading_partner_id` (the legal
 entity on the other side of an intercompany line, nullable, no foreign key)
 and the projection `ledger.trading_partner_balance`, maintained as

@@ -469,6 +469,10 @@ type GetConnectorRes interface {
 	getConnectorRes()
 }
 
+type GetConsolidationGroupRes interface {
+	getConsolidationGroupRes()
+}
+
 type GetContractRes interface {
 	getContractRes()
 }
@@ -813,6 +817,10 @@ type ListConnectorsRes interface {
 	listConnectorsRes()
 }
 
+type ListConsolidationGroupsRes interface {
+	listConsolidationGroupsRes()
+}
+
 type ListContractsRes interface {
 	listContractsRes()
 }
@@ -871,6 +879,10 @@ type ListGrIrBalancesRes interface {
 
 type ListGrIrClearingsRes interface {
 	listGrIrClearingsRes()
+}
+
+type ListGroupAccountsRes interface {
+	listGroupAccountsRes()
 }
 
 type ListHierarchiesRes interface {

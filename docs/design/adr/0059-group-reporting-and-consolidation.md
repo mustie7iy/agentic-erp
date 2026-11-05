@@ -1043,6 +1043,69 @@ tracker item only when one does (07 §7.5).
 ## As built
 (Filled in by the slices T68a-T68h.)
 
+**T68a (group chart, mapping and groups in configuration).** Built as §3:
+`consolidation.rate_type`, `consolidation.accounts` (number, name, type,
+role), `consolidation.eliminations` (code, name, accounts, difference
+account, tolerance) and `consolidation.groups` (code, name, parent,
+members with company, ownership, first period and investment account) and
+`companies[].chart_of_accounts[].group_account`, in `internal/config`
+(`consolidation.go`), validated with the problems on their fields as §3
+lists the rules, with the tiers of §3 (names 1; `rate_type` and
+tolerances 2; the eliminations' accounts and difference accounts 3; the
+group chart, its roles, the groups, their members and the mapping 4). The
+leaf `consolidation` (`internal/consolidation`; `internal/layout` lists it
+among the leaves, `config` alone allowed) answers
+`GET /v1/consolidation-groups`, `GET /v1/consolidation-groups/{code}`
+(`listConsolidationGroups`, `getConsolidationGroup`: `consolidation.read`
+and, by `x-also-permissions`, `ledger.entry.read`) and
+`GET /v1/group-accounts` (`listGroupAccounts`, `consolidation.read`)
+from the active document through the ports `consolidation.Settings` and
+`consolidation.Companies` (the tenant's legal entities with code, name,
+local currency and fiscal calendar, and its group currency, adapted over
+tenancy in `internal/app`). Migration 000220 adds `consolidation.read`
+(000216 on its branch, the next after its base's 000215; renumbered when
+merged after T68b-T68c's 000216-000219). The slice keeps no table. The walkthrough's
+`step_consolidation` (step 39, after step 38 and before `step_close`):
+Ada adds Acme Corp US (1000, USD, leading ledger alone, number ranges of
+this and the previous fiscal year) to the configuration, Maple's
+intercompany receivables and revenue accounts and its investment account
+1700, the group chart of fifteen accounts, the eliminations IC_BALANCES
+(10.00) and IC_RESULTS (1.00), every account of both companies mapped,
+and the group MAPLE (Maple holding 80% of Acme Corp US from today's
+period), a tier 4 change simulated against a new regression suite,
+approved by Sam and Carla and activated; Carla reads the group and the
+group chart; Cory, given `consolidation.read` and `ledger.entry.read` and
+acting in Maple alone, lists no group and is answered 404
+`consolidation.group_unknown` for MAPLE. Decided by default, for the
+product owner to overrule:
+- The two rules that need the tenant's data are checked when a change is
+  submitted, by the context's configuration section `consolidation.Setup`
+  (config validation has no group currency): a group's parent is in the
+  group currency (the run's own refusal, 422
+  `consolidation.parent_currency`, stays T68d's, for a document activated
+  before), and an elimination's tolerance has at most the group
+  currency's decimals.
+- A group has at least one member; an elimination at least one account,
+  each named once; `group_account` is checked wherever it is given, on a
+  company in no group too (in the group chart, of a compatible type, no
+  role account); `first_period` is written `YYYY-PP` and read back as
+  `first_fiscal_year` and `first_fiscal_period`; `ownership_percent` is
+  answered as configured.
+- A group read carries `group_currency` (the tenant's) beside the
+  parent's and members' local currencies, members sorted by company code.
+  `mapped_accounts` counts the company accounts mapped in the companies
+  the caller may act in only (ADR-0010), so a company outside access
+  reaches no figure. The groups' list has no filter: at most 50 groups
+  exist. The 404 for a group outside the caller's access names only the
+  code asked for.
+- In the walkthrough, Acme Corp US's chart is the SAP extract's company
+  1000 chart (its house bank the extract's), with an intercompany
+  payables reconciliation account 225000 and intercompany services
+  525000, so that T68c can give the supplier Maple its own
+  reconciliation account; Maple gains 1250 intercompany receivables and
+  4250 intercompany revenue. Later slices may change these through the
+  same approval loop.
+
 **T68b (trading partner on journal lines).** Built as §4 and §4a say, in
 `internal/ledger/tradingpartner.go` and migrations 000216-000218 (the
 column and projection, the check's validation, the index). Decided by
@@ -1180,3 +1243,11 @@ product owner to overrule:
   posted at Acme Corp US) needs Acme Corp US's chart, payables set-up and
   number ranges, which no step has yet; the coordinator's brief chose the
   direction built.
+
+**Merging T68a with T68b-T68c (on T68d's branch).** T68a's migration
+000216 became 000220, after T68b-T68c's 000216-000219, which kept their
+numbers. `step_trading_partner` was folded into `step_consolidation` as
+its part `consolidation_trading_partner`, after the group's reads: the
+governed change adding 1250 was dropped, since T68a's change adds Maple's
+1250 Intercompany receivables and 4250 Intercompany revenue, and Carla's
+manual invoice to Acme Corp US now credits 4250 rather than 4000.

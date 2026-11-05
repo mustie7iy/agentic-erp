@@ -1717,6 +1717,19 @@ func (UnimplementedHandler) GetConnector(ctx context.Context, params GetConnecto
 	return r, ht.ErrNotImplemented
 }
 
+// GetConsolidationGroup implements getConsolidationGroup operation.
+//
+// One consolidation group of the active configuration by its code (ADR-0059 §3, T68a), as
+// `listConsolidationGroups` gives it. A group that does not exist, or whose parent or any member the
+// caller may not act in, is unknown to the caller (404 `consolidation.group_unknown`, ADR-0059 §12),
+// so its existence and its companies do not leak. Besides `consolidation.read` the caller needs
+// `ledger.entry.read` (`x-also-permissions`).
+//
+// GET /v1/consolidation-groups/{code}
+func (UnimplementedHandler) GetConsolidationGroup(ctx context.Context, params GetConsolidationGroupParams) (r GetConsolidationGroupRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetContract implements getContract operation.
 //
 // Returns one contract.
@@ -2825,6 +2838,26 @@ func (UnimplementedHandler) ListConnectors(ctx context.Context, params ListConne
 	return r, ht.ErrNotImplemented
 }
 
+// ListConsolidationGroups implements listConsolidationGroups operation.
+//
+// The consolidation groups of the active configuration (ADR-0059 §3, T68a), in code order: each
+// group's parent company and its members, held directly by the parent, by legal entity id, company
+// code, name and local currency, each member with the parent's ownership in percent, the fiscal year
+// and regular period from whose first day it is consolidated, and the parent's account holding the
+// investment in it (number and name); and the group currency, the tenant's, which the parent's local
+// currency must be. Groups change only through the configuration's approval loop
+// (`consolidation.groups`, tier 4). A group's figures are only meaningful whole, so a group is listed
+// only when the caller may act in its parent and every member (ADR-0059 §12); one outside that is
+// left out and none of its companies named. Besides `consolidation.read` the caller needs
+// `ledger.entry.read`, as for every consolidation read naming a group's companies and, in later
+// slices, their figures (ADR-0059 §12; `x-also-permissions`; 403 `identity.permission_missing`
+// otherwise). At most 50 groups exist (ADR-0059 §3).
+//
+// GET /v1/consolidation-groups
+func (UnimplementedHandler) ListConsolidationGroups(ctx context.Context, params ListConsolidationGroupsParams) (r ListConsolidationGroupsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListContracts implements listContracts operation.
 //
 // Purchasing contracts. Sortable by: `valid_from`, `document_number`.
@@ -3002,6 +3035,23 @@ func (UnimplementedHandler) ListGrIrBalances(ctx context.Context, params ListGrI
 //
 // GET /v1/purchase-orders/{id}/gr-ir-clearings
 func (UnimplementedHandler) ListGrIrClearings(ctx context.Context, params ListGrIrClearingsParams) (r ListGrIrClearingsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListGroupAccounts implements listGroupAccounts operation.
+//
+// The group chart of accounts of the active configuration (ADR-0059 §3, T68a; SAP's financial
+// statement items), in number order: each account's number, name and type, its role if a consolidation
+// run computes it (`cta`, the currency translation reserve; `retained_earnings`; `nci`,
+// non-controlling interests; `goodwill`), the elimination whose intercompany balances it holds, if
+// any, by code and name, and the number of company accounts mapped to it
+// (`companies[].chart_of_accounts[].group_account`) in the companies the caller may act in, so a
+// company outside the caller's access reaches no figure (ADR-0010). The group chart and the mapping
+// change only through the configuration's approval loop (tier 4). Filters: `type`, `role`,
+// `elimination` (an elimination's code).
+//
+// GET /v1/group-accounts
+func (UnimplementedHandler) ListGroupAccounts(ctx context.Context, params ListGroupAccountsParams) (r ListGroupAccountsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
