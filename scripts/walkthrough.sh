@@ -58,6 +58,7 @@ TODAY=$(company_day)
 YEAR=${TODAY:0:4}
 PREV=$((YEAR - 1))
 CC=3000 # the pilot's SAP company code, Maple Industries Canada in the mock extract
+AE=5000 # the UAE pilot company of step 39 (T62f), which SAP's extract does not hold
 
 if [ -t 1 ]; then
   B=$'\033[1m' DIM=$'\033[2m' RED=$'\033[31m' GREEN=$'\033[32m' YELLOW=$'\033[33m' R=$'\033[0m'
@@ -2977,6 +2978,144 @@ step_asset_depreciation() {
   passed
 }
 
+# UAE_COMPANY is the UAE pilot company in the configuration before its
+# country pack (T62f): what a company of a document needs, its name,
+# currency, country, fiscal year and time zone, the accounts its account
+# determination names (the cash discount account too, as the document's
+# payment terms grant discounts), named and typed as the pack names them so
+# that applying the pack keeps them without a conflict, its tolerances and
+# limits, and a house bank (the walkthrough's illustrative IBAN, as step 39
+# needs none to pay). @AE@ is replaced.
+UAE_COMPANY='{"code": "@AE@", "name": "Maple Gulf Trading", "currency": "AED", "country": "AE", "fiscal_year_start_month": 1,
+  "time_zone": "Asia/Dubai",
+  "chart_of_accounts": [
+    {"number": "1000", "name": "Bank - operating", "type": "asset"},
+    {"number": "1300", "name": "VAT recoverable (input tax)", "type": "asset"},
+    {"number": "2000", "name": "Accounts payable - trade", "type": "liability", "vendor_reconciliation": true},
+    {"number": "4800", "name": "Purchase discounts received", "type": "revenue"}],
+  "account_determination": {"ap_reconciliation": "2000", "input_tax": "1300", "bank": "1000", "cash_discount": "4800"},
+  "invoice_tolerance": {"price_percent": 2, "price_absolute": "20.00"},
+  "auto_post_limit": "50000.00", "manual_entry_approval_limit": "50000.00", "gr_over_delivery_percent": 0,
+  "house_bank": {"name": "MAIN", "iban": "GB33BUKB20201555555555", "bic": "BUKBGB22"}}'
+
+# governed CR WHAT submits a structural change request, evidences it (a
+# regression suite of the last year's invoices, replayed under the
+# proposal), has the solution architect and the controller approve it and
+# activates it, as Ada.
+governed() {
+  local cr=$1 request
+  api 200 '"\(.status), tier \(.tier): \(.items | length) changes"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "$2: the change's tier" "$(field .tier)" 4
+  api 201 '"regression suite \(.number): \(.case_count) cases"' createRegressionSuite -body "{\"name\": \"Before $2\", \"window_days\": 366}"
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
+  expect "$2: status after the evidence" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve sam "$request" "Structure checked"
+  approve carla "$request" "Postings checked"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "$2: status after activation" "$(field .status)" active
+}
+
+# step_uae is the UAE country pack (T62f, ADR-0048, ADR-0049 §6 As built):
+# Ada creates the UAE pilot company, proposes it in the configuration and
+# applies the UAE pack to it, not signed off, so with a note; Alex posts a
+# UAE supplier's invoice above AED 10,000 and one below: the supplier has
+# no TRN on file, so the first carries the documentary warning of the
+# pack's tier, pending the tax specialist, and the second none.
+step_uae() {
+  heading "Step 39 — The UAE country pack: the UAE pilot company applies it; an invoice above AED 10,000 without the supplier's TRN is flagged"
+  as ada
+  local cal ae base cr p supplier expense recon item invoice
+  say "The second pilot is a UAE company (07 §7.6). The image holds the UAE pack (T62f): its VAT codes and tax"
+  say "settings as ADR-0049 records them for the UAE, a starter chart, number ranges and payment terms; no holidays"
+  say "(no source is recorded) and no VAT 201 (T61k). Every UAE tax item waits for the tax specialist"
+  say "(packs/ae/TAX-PENDING-T62f.md), so the pack is not signed off and production refuses to apply it (409"
+  say "config.pack_not_signed_off); outside production it is applied with a note, as here."
+  api 200 '.items[] | select(.country == "AE") | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
+  expect "the UAE pack" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false"
+  say "Ada creates the UAE company's legal entity, Maple Gulf Trading ($AE, in AED), and activates it."
+  QUIET=1 api 200 '' getLegalEntity -p "id=$LE"
+  cal=$(field .fiscal_calendar_id)
+  api 201 '"legal entity \(.code) \(.name): \(.country_code), \(.local_currency), \(.status)"' createLegalEntity \
+    -body "{\"code\": \"$AE\", \"name\": \"Maple Gulf Trading\", \"country_code\": \"AE\", \"local_currency\": \"AED\", \"fiscal_calendar_id\": \"$cal\"}"
+  ae=$(field .id)
+  api 200 '"legal entity \(.code): \(.status)"' activateLegalEntity -p "id=$ae" -if-match "$ETAG"
+  say "A pack is applied to a company of the configuration, so she first proposes the company: its currency,"
+  say "country and time zone (Asia/Dubai), its house bank and the accounts its account determination needs, as"
+  say "the pack names them. A new company is a structural change, tier 4, with its evidence and two approvers."
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"The UAE company $AE\", rationale: \"The UAE pilot company (T62f)\", base_version: $base,
+    proposed: (.items[0].document | .companies += [${UAE_COMPANY//@AE@/$AE}])}" "$WORK/last.json" >"$WORK/uae-company.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-company.json
+  governed "$(field .id)" "the UAE company"
+  say "Ada applies the UAE pack to $AE for $YEAR. The merge keeps the company's accounts, which are the"
+  say "pack's, and adds the rest; its notes for the reviewers say the pack is not signed off:"
+  api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
+    -body "{\"country\": \"AE\", \"version\": \"2026.1\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
+  cr=$(field .id)
+  excerpt '.notes[] | "note \(.path): \(.message)"'
+  expect "the note that the pack is not signed off" "$(field '[.notes[] | select(.path == "packs['"$AE"']" and (.message | contains("signed")))] | length')" 1
+  expect "conflicts with the company's own settings" "$(field '[.notes[] | select((.path | startswith("companies['"$AE"']")) and (.message | startswith("conflict")))] | length')" 0
+  say "The company takes the pack's VAT codes, each with its UN/CEFACT category, and its tax settings:"
+  excerpt '.proposed.companies[] | select(.code == "'"$AE"'") | (.tax_codes[] | "  \(.code) \(.direction) \(.kind) \(.category // "-"): \(.description)"),
+    (.tax_settings | "  rate type \(.rate_type), rounding per \(.rounding)", (.documentary_requirements[] | "  above AED \(.above): \(.requires | join(", ")), pending sign-off \(.pending_sign_off) (\(.source))"))'
+  expect "the documentary tier" "$(field '.proposed.companies[] | select(.code == "'"$AE"'") | .tax_settings.documentary_requirements | map("\(.above) \(.requires | join(" ")) \(.pending_sign_off)") | join(", ")')" \
+    "10000 supplier_tax_id true"
+  governed "$cr" "the UAE pack"
+  say "The pack's number ranges gave $AE the periods of $YEAR, closed; Ada opens the one of today."
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$ae" -p "fiscal_year=$YEAR" -p page_size=100
+  for p in $(jq -r --arg d "$TODAY" '.items[] | select((.is_special | not) and .start_date <= $d and .end_date >= $d and .status == "closed") | "\(.id)/\(.version)"' "$WORK/last.json"); do
+    api 200 '"period \(.fiscal_year)/\(.period) \(.start_date) to \(.end_date): \(.status)"' openFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+  expect "today's period of $AE open" "$(field .status)" open
+  as tom
+  say "The tenant's currency is CAD, and the ledger converts $AE's postings into it too: Tom records an AED"
+  say "rate, an illustrative one for the walkthrough, not a published rate."
+  api 201 '"\(.from_currency)/\(.to_currency) \(.rate) from \(.valid_from) (\(.source))"' createExchangeRate \
+    -body "{\"rate_type\": \"average\", \"from_currency\": \"AED\", \"to_currency\": \"CAD\", \"valid_from\": \"$YEAR-01-01\", \"rate\": \"0.37\", \"source\": \"walkthrough\"}"
+  as alex
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
+  expense=$(field '.items[] | select(.number == "6000") | .id')
+  recon=$(field '.items[] | select(.number == "2000") | .id')
+  say "Alex sets up a UAE supplier for $AE, Gulf Office Interiors. Its TRN has not been received, so none is on"
+  say "file; Carla, who approves supplier master data, approves it."
+  api 201 '"supplier \(.name), \(.country_code), \(.status)"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Gulf Office Interiors\", \"country_code\": \"AE\", \"roles\": [\"supplier\"], \"supplier_companies\": [{\"legal_entity_id\": \"$ae\", \"reconciliation_account_id\": \"$recon\", \"payment_term_code\": \"NT30\"}], \"reason\": \"Office fit-out supplier of the UAE company\"}"
+  supplier=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$supplier"
+  approve carla "$(field '.items[0].workflow_request_id')" "Supplier confirmed by call-back"
+  as alex
+  say "Its tax invoice for office furniture: AED 12,000.00 plus 600.00 VAT on V5, the pack's standard purchase code,"
+  say "AED 12,600.00 in all. Posting calculates the VAT at the code's 5% and checks the documentary requirement the"
+  say "pack brings (Executive Regulation Art. 59, as ADR-0049 records it): above AED 10,000 the supplier's TRN, a tax"
+  say "identifier of the UAE that the supplier does not have. A warning, pending the tax specialist; not a refusal:"
+  item="{\"account_id\": \"$expense\", \"description\": \"Office furniture\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"12000.00\", \"currency\": \"AED\"}, \"tax_code\": \"V5\"}"
+  api 201 '"\(.kind) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$ae\", \"supplier_id\": \"$supplier\", \"supplier_reference\": \"GOI-1001\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"12600.00\", \"currency\": \"AED\"}, \"tax_amount\": {\"amount\": \"600.00\", \"currency\": \"AED\"}, \"items\": [$item]}"
+  invoice=$(field .id)
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)", (.documentary_warnings[] | "warning \(.code): above \(.threshold.amount) \(.threshold.currency), pending sign-off \(.pending_sign_off), \(.source)")' \
+    postSupplierInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the invoice's status" "$(field .status)" posted
+  expect "the invoice's documentary warnings" \
+    "$(field '[.documentary_warnings[] | "\(.code) \(.threshold.amount) \(.threshold.currency) \(.threshold_inclusive) \(.pending_sign_off)"] | join(", ")')" \
+    "supplier_tax_id_missing 10000.00 AED false true"
+  say "Its next invoice, AED 4,000.00 plus 200.00 VAT, is below the threshold: no warning."
+  api 201 '"\(.kind) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$ae\", \"supplier_id\": \"$supplier\", \"supplier_reference\": \"GOI-1002\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"4200.00\", \"currency\": \"AED\"}, \"tax_amount\": {\"amount\": \"200.00\", \"currency\": \"AED\"}, \"items\": [${item//12000.00/4000.00}]}"
+  invoice=$(field .id)
+  api 200 '"\(.document_number): \(.status), \(.documentary_warnings | length) documentary warnings"' \
+    postSupplierInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the smaller invoice's status" "$(field .status)" posted
+  expect "the smaller invoice's documentary warnings" "$(field '.documentary_warnings | length')" 0
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -4132,7 +4271,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_uae step_close'
 
 main() {
   stop_unseen

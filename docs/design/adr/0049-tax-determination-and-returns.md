@@ -614,6 +614,20 @@ commit-time check, like the balance trigger).
   `supplier_tax_id`, `pending_sign_off: true` (Executive Regulation Art. 59
   is read only through secondary summaries). The working papers' filter on
   these warnings comes with the returns (§11).
+- **As built (T62f):** UAE pack 2026.1 states the tier as above (`above:
+  "10000"`, `requires: [supplier_tax_id]`, `pending_sign_off: true`, its
+  source Art. 59), with `rate_type: average` and `rounding: document`,
+  pending the tax specialist like every UAE fact it holds
+  (`packs/ae/TAX-PENDING-T62f.md`; ADR-0048 As built, T62f). Payables'
+  `TestUAEPackDocumentaryWarning` holds an invoice of a UAE company to the
+  pack's settings: above 10,000 without a UAE tax identifier warned
+  (`supplier_tax_id_missing`, exclusive, pending), exactly 10,000, below it
+  and with an `AE_` identifier not; the walkthrough's step 39 posts one
+  above and one below through the API. The tier is measured on the
+  invoice's gross total, as every tier is; whether Art. 59's AED 10,000 is
+  the supply's value instead is listed for the specialist. Every UAE code
+  of the pack carries its UN/CEFACT category (§1) but import VAT, IM5,
+  for which this ADR records none (pending the specialist).
 
 
 ### 7. Output tax and the pilot's sales
@@ -1546,7 +1560,9 @@ confirm or for the tax specialist stand confirmed.
   scope of the five-year limit, the VAT 201 labels on EmaraTax, the
   Executive Regulation's Art. 51, 53 and 59 texts, the UAE documentary tier
   (`pending_sign_off`, §6 As built), UAE rounding, and the FTA's side of
-  the amended return. For Canada, the GST34 lines (T61j) and the FPZ-500
+  the amended return. (T62f wrote the UAE pack's codes and tax settings
+  in 2026.1, unsigned; what the specialist confirms is in
+  `packs/ae/TAX-PENDING-T62f.md`, ADR-0048 As built, T62f.) For Canada, the GST34 lines (T61j) and the FPZ-500
   lines (P4) are signed off with the step that writes them. (T61j wrote
   the GST34's lines in Canada 2026.6, unsigned; what the specialist
   confirms is in `packs/ca/TAX-PENDING-T61j.md`, §11 As built, T61j.)

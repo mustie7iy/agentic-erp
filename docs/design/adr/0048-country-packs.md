@@ -200,6 +200,53 @@ settings cannot simply overwrite their document.
   the API lists it first by version and a tenant in production applies
   2026.5 until the signed version exists. The walkthrough applies it
   instead of an unreleased copy with an illustrative return.
+- **As built (T62f): the UAE pack, 2026.1** (`packs/ae/2026.1`): a starter
+  chart with every account determination key (1300 VAT recoverable, 2300
+  VAT payable), the Canada pack's number ranges and net payment terms (the
+  same keys and terms, so a document holding both merges them without a
+  conflict), no holidays and no `returns.yaml` (the VAT 201 is T61k). Its
+  `tax.yaml` holds nine VAT codes in ADR-0049's component schema, every
+  component of AE with one rate from 2026-01-01: purchases V5 (5%, wholly
+  recovered), VB5 (5%, blocked: recovering 0), RC5 (reverse charge on
+  imported services and goods without a customs declaration), DR5 (the
+  domestic reverse charge) and IM5 (import VAT from a customs declaration),
+  each self-assessed pair owed on 2300 and recovered on 1300; sales S5 (5%,
+  one code levying the emirate each line names, ADR-0049 §7 As built), Z0,
+  E0 and OS (zero-rated, exempt and out of scope, rate 0); and the tax
+  settings of ADR-0049 §6 As built (above AED 10,000 the supplier's TRN,
+  `pending_sign_off: true`), `rate_type: average` and `rounding: document`.
+  Each fact's basis is in `packs/ae/TAX-PENDING-T62f.md` as ADR-0049
+  records it, nothing fetched again and nothing from memory;
+  `TestUAEPackTaxCodes` compares its table with the pack and its links with
+  the manifest's sources. The manifest lists the sources ADR-0049 links (the
+  Ministry of Finance on the 2026 amendments, the FTA's Designated Zones
+  guide and its clarification on electronic devices, the two secondary
+  VAT 201 summaries); the VAT Law and its Executive Regulation, which
+  ADR-0049 names without a link, are cited in the pending file alone. It
+  carries no `sign_off`, so production refuses to apply it (409
+  `config.pack_not_signed_off`) and elsewhere it applies with a note; the
+  sign-off is a later version, its own tracker leaf split from T62f.
+  **Decided by default:** every rate starts on the pack's `valid_from`,
+  2026-01-01, as Canada's QST and PST did, the earlier start not being
+  recorded; the pack holds sales codes, unlike Canada's (whose sourced file
+  had purchase codes only), since ADR-0049 records the UAE's output
+  categories, §7 As built designed the emirate-levying code and T61k's boxes
+  select them; recovery wholly on 1300, blocked input a fixed share of 0
+  (P8); a self-assessed code keys its owed part `vat_due` and its claim
+  `vat`, the key of the ordinary component, as Canada's return mapping keys
+  a claim; IM5 carries no UN/CEFACT category (ADR-0049 records none for an
+  import); the rate type and rounding as Canada's, both pending (VAT Law
+  Art. 69 is cited from memory in ADR-0049, no rounding rule is recorded);
+  no holidays, as no source is recorded (several follow the Hijri calendar)
+  and the company's weekend has no place yet (Consequences). The
+  walkthrough's step 39 creates the UAE company (5000, AED, Asia/Dubai),
+  adds it to the configuration with a house bank and the accounts its
+  account determination needs (the cash discount account among them, as
+  the document's terms grant discounts), named as the pack names them,
+  applies the pack (two tier 4 changes), records an illustrative AED/CAD
+  rate (the ledger converts into the tenant's currency) and posts a
+  supplier invoice of AED 12,600.00 without the supplier's TRN (warned)
+  and one of AED 4,200.00 (none).
 
 ## Consequences
 - A pack upgrade never silently overwrites a tenant's decision; reviewers

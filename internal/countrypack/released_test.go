@@ -44,7 +44,7 @@ func TestReleasedPacksApply(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadAll(packs.FS): %v", err)
 	}
-	currencies := map[string]string{"CA": "CAD"}
+	currencies := map[string]string{"AE": "AED", "CA": "CAD"}
 	for _, p := range lib.All() {
 		t.Run(p.Dir(), func(t *testing.T) {
 			cur, ok := currencies[p.Manifest.Country]

@@ -5584,11 +5584,19 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "UAE pack (its tax_settings with the documentary tier above AED 10,000 requiring the supplier's TRN, pending sign-off, ADR-0049 §6 As built)",
-        "r": "T62f",
+        "s": "D",
+        "t": "UAE pack 2026.1: starter chart with every account determination key, the VAT codes in the component schema (purchases V5, VB5 blocked, RC5 and DR5 reverse charge, IM5 import VAT; sales S5 levying the line's emirate, Z0, E0, OS), each at 5% or 0 from 2026-01-01, every fact's basis as ADR-0049 records it in packs/ae/TAX-PENDING-T62f.md; its tax_settings with the documentary tier above AED 10,000 requiring the supplier's TRN, pending sign-off (ADR-0049 §6 As built), rate type average and rounding per document; number ranges and net payment terms; no holidays (no source recorded) and no VAT 201 (T61k); not signed off (production refuses it; the sign-off is a leaf of its own, split from T62f)",
+        "r": "packs/ae/2026.1 · packs/ae/TAX-PENDING-T62f.md · packs/released.sha256 · TestUAEPackTaxCodes · TestUAEPack · ledger TestUAEPackTaxCodes · TestUAEPackDocumentaryWarning · ADR-0048 and ADR-0049 §6 As built (T62f) · walkthrough step 39 · T62f",
         "src": "baseline",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0048",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "UAE pack signed off by the tax specialist before the pilot: a new UAE pack version with sign_off (a released version never changes) and its documentary tier no longer pending, after the specialist confirms 2026.1's VAT codes, rates and their start, recovery, categories, tax settings and the items of packs/ae/TAX-PENDING-T62f.md",
+        "r": "after T62f · ADR-0048 As built (T62f) · ADR-0049 §6 As built (T62f)",
+        "src": "split:T62f · adr:ADR-0049",
+        "pilot": "po:2026-10-31 · adr:ADR-0048",
         "c": []
        },
        {
