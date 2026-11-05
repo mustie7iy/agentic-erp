@@ -1450,7 +1450,7 @@ func TestPrincipalsAreTheirIssuersSubjects(t *testing.T) {
 func TestPrincipalIssuerBackfill(t *testing.T) {
 	conn := emptyDatabase(t)
 	ctx := context.Background()
-	migrateBefore(t, conn, 37)
+	migrateBefore(t, conn, "000037_principal_issuer")
 	tenant, human, agent := id(), id(), id()
 	for _, s := range []struct {
 		sql  string
@@ -1836,7 +1836,7 @@ func TestGoodsMovementEntry(t *testing.T) {
 // and the last posting date. Each position equals the sum of its lines.
 func TestGRIRPositionBackfill(t *testing.T) {
 	conn := emptyDatabase(t)
-	migrateBefore(t, conn, 54)
+	up := migrateBefore(t, conn, "000054_gr_ir_position")
 	f := fixtureIDs()
 	order, other := id(), id()
 	item := "10"
@@ -1859,12 +1859,6 @@ func TestGRIRPositionBackfill(t *testing.T) {
 	inTenant(t, conn, f.tenant, f.grIREntry("payables", grIRLine{grir, 110, &order, &item, qty("1")}, grIRLine{account: f.expense, amount: -110}))
 	inTenant(t, conn, f.tenant, f.grIREntry("procurement", grIRLine{grir, -50, &other, &item, qty("-1")}, grIRLine{account: f.expense, amount: 50}))
 	inTenant(t, conn, f.tenant, f.grIREntry("ledger", grIRLine{f.expense, -70, &order, &item, qty("-7")}, grIRLine{account: f.bank, amount: 70})) // not on GR/IR
-	var up Migration
-	for _, m := range Migrations() {
-		if v, _ := m.Version(); v == 54 {
-			up = m
-		}
-	}
 	if _, err := migrate(context.Background(), conn, []Migration{up}); err != nil {
 		t.Fatalf("migrate 000054: %v", err)
 	}
@@ -2726,7 +2720,7 @@ func TestAIPolicy(t *testing.T) {
 func TestAgentModelAliases(t *testing.T) {
 	conn := emptyDatabase(t)
 	ctx := context.Background()
-	migrateBefore(t, conn, 76)
+	migrateBefore(t, conn, "000076_agent_model_aliases")
 	tenant, human := id(), id()
 	agents := map[string]string{"claude-opus-5-5": "erp-default", "claude-haiku-5": "erp-default", "erp-analytics": "erp-analytics", "gpt-9": "gpt-9"}
 	ids := map[string]uuid.UUID{}
@@ -2766,7 +2760,7 @@ func TestAgentModelAliases(t *testing.T) {
 func TestExistingAgentsLevelTwo(t *testing.T) {
 	conn := emptyDatabase(t)
 	ctx := context.Background()
-	migrateBefore(t, conn, 77)
+	migrateBefore(t, conn, "000077_existing_agents_level_two")
 	tenant, human, agent, other := id(), id(), id(), id()
 	exec := func(sql string, args ...any) {
 		t.Helper()

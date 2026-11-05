@@ -73,6 +73,12 @@ The database is the foundation, so changes to it are the most controlled.
 - Comes with a schema test for every new database-enforced rule
   (`db/schema_test.go`): the valid case passes, the invalid case fails with
   the expected error.
+- A test of what a migration does to the rows before it (a backfill, a
+  contract step) migrates the way there with `migrateBefore`, naming the
+  migration by file (`"000211_asset_terms_booked"`), not by number, and
+  names its number in its doc comment: integration renumbers a lane's
+  migrations, and a number left behind still names some migration
+  (batch 54), while a stale name fails `TestMigrationTestsNameTheirMigration`.
 
 **Zero-downtime (expand / migrate / contract)**
 

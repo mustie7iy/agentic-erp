@@ -3,7 +3,6 @@ package db
 import (
 	"fmt"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -257,11 +256,7 @@ func TestHierarchyChanges(t *testing.T) {
 func TestHierarchyBackfill(t *testing.T) {
 	conn := emptyDatabase(t)
 	ctx := t.Context()
-	all := Migrations()
-	at := slices.IndexFunc(all, func(m Migration) bool { return strings.HasSuffix(m.Name, "_hierarchies") })
-	if _, err := migrate(ctx, conn, all[:at]); err != nil {
-		t.Fatal(err)
-	}
+	migrateBefore(t, conn, "000139_hierarchies")
 	tenant, actor := id(), id()
 	insert := map[string]string{
 		"cost_center": `INSERT INTO ledger.cost_center (tenant_id, id, legal_entity_id, code, name, responsible, status, created_by, updated_by)
@@ -277,7 +272,7 @@ func TestHierarchyBackfill(t *testing.T) {
 			t.Fatalf("%s %s: %v", c.table, c.code, err)
 		}
 	}
-	if _, err := migrate(ctx, conn, all[at:]); err != nil {
+	if _, err := migrate(ctx, conn, Migrations()); err != nil {
 		t.Fatal(err)
 	}
 	rows, _ := conn.Query(ctx, `SELECT h.kind || ' ' || h.code || '/' || p.code || '/' || n.code || ' ' || coalesce(cc.code, pc.code)

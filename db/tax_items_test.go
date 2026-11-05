@@ -333,7 +333,7 @@ func TestTaxItemRules(t *testing.T) {
 // reads them.
 func TestTaxItemsBackfilled(t *testing.T) {
 	conn := emptyDatabase(t)
-	migrateBefore(t, conn, 144)
+	migrateBefore(t, conn, "000144_tax_items")
 	f := fixtureIDs()
 	rate := id()
 	var taxed, plain, local uuid.UUID

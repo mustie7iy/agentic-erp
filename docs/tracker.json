@@ -9790,6 +9790,13 @@
       "r": "temporal/cmd/erp-temporal/serve_test.go (newEngineWith's frontend, engineYAML's publicClient) · scripts/temporal-checks.sh · ADR-0035",
       "src": "ci:batch55",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "A schema test that migrates part of the way names its migration by file, not by number (batch 54: TestAssetTermsBookedBackfilled kept migrateBefore 199 after integration renumbered its migration to 000211, and passed, seeding before an older migration; only review saw it): migrateBefore and migrationNamed take NNNNNN_slug and fail when db/migrations has no such file, so a renumbering that leaves a test behind fails it; every caller converted, the GR/IR, controlling and hierarchy backfill tests' own selection of their migration included; and a source check, which holds in -short runs, refuses a test calling them that spells no migration file name, one that names no embedded migration, or whose doc comment does not name the same number",
+      "r": "db/contract_test.go migrateBefore · migrationNamed · db/migrations_test.go TestMigrationTestsNameTheirMigration · the 18 call sites in db/*_test.go · 06 §6.4",
+      "src": "review:batch54",
+      "c": []
      }
     ]
    },
