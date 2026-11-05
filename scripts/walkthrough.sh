@@ -327,6 +327,15 @@ expect() {
   if [ "$2" != "$3" ]; then fail "$1: got '$2', expected '$3'"; fi
 }
 
+# expect_today LABEL DATE BEFORE checks a date the server took as Maple's
+# today (a default date, a read date): the company's day read just before
+# the request (BEFORE), or, when Toronto's midnight passed during it, the
+# day now. Never TODAY: the script fixes that at its start, and a run that
+# crosses midnight finds the server a day ahead of it (ci:batch56).
+expect_today() {
+  [ "$2" = "$3" ] || expect "$1" "$2" "$(company_day)"
+}
+
 # wait_op waits for the operation in the last answer to finish and stops
 # unless it succeeded; the finished operation is left in last.json.
 wait_op() {
@@ -1270,7 +1279,7 @@ step_procure() {
   before=$(company_day)
   api 201 '"requisition \(.id) of \(.requisition_date): \(.status), \(.total_amount.amount) \(.total_amount.currency), needed by \(.needed_by)"' createRequisition \
     -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"supplier_id\": \"$SUPPLIER\", \"needed_by\": \"$NEEDED_BY\", \"items\": [$item]}"
-  [ "$(field .requisition_date)" = "$before" ] || expect "the requisition's date, Toronto's" "$(field .requisition_date)" "$(company_day)"
+  expect_today "the requisition's date, Toronto's" "$(field .requisition_date)" "$before"
   req=$(field .id)
   api 200 '"\(.status): approval request \(.workflow_request_id)"' submitRequisition -p "id=$req" -if-match "$ETAG"
   request=$(field .workflow_request_id)
@@ -1451,7 +1460,7 @@ step_credit() {
   before=$(company_day)
   api 200 '"\(.kind) \(.document_number): \(.status) on \(.posting_date)"' postSupplierInvoice -p "id=$CREDIT" -if-match '"1"' -body '{}'
   expect "credit memo status" "$(field .status)" posted
-  [ "$(field .posting_date)" = "$before" ] || expect "the credit memo's posting date, Toronto's" "$(field .posting_date)" "$(company_day)"
+  expect_today "the credit memo's posting date, Toronto's" "$(field .posting_date)" "$before"
   CREDIT_ENTRY=$(field .journal_entry_id)
   api 200 '.items[] | "open item \(.amount.amount) \(.amount.currency)"' listOpenItems -p "partner_id=$SUPPLIER"
   receipt_held
@@ -2205,20 +2214,18 @@ step_cash() {
   expect "the statement balance the position opens with" "$(field '.banks[] | select(.house_bank_code == "RBC") | .opening.balance.amount')" "$CLOSING"
   expect "the memo record's flow" "$(field '[.banks[] | select(.house_bank_code == "RBC") | .days[].flows[]? | select(.source == "memo") | .amount.amount] | join(" ")')" 25000.00
   say "Today for the position is Maple's date in Toronto, not UTC's: in a Toronto evening UTC is already tomorrow (T72n1)."
-  local before after
+  local before
   before=$(company_day)
   api 200 '"read on \(.read_date) in \(.time_zone), from \(.from)"' getCashPosition -p "legal_entity_id=$LE" -p days=1
-  after=$(company_day)
   expect "the zone the position is read in" "$(field .time_zone)" America/Toronto
-  [ "$(field .read_date)" = "$before" ] || expect "the read date, Toronto's" "$(field .read_date)" "$after"
+  expect_today "the read date, Toronto's" "$(field .read_date)" "$before"
   expect "the first day, the read date" "$(field .from)" "$(field .read_date)"
   say "A client dates its forms on the same day: Maple's date today, in its zone (getLegalEntityToday), which the web"
   say "workspace pre-fills a manual entry's dates, a payment run's and the open items' key date with, not UTC's day:"
   before=$(company_day)
   api 200 '"today is \(.date) in \(.time_zone)"' getLegalEntityToday -p "id=$LE"
-  after=$(company_day)
   expect "the zone Maple's today is in" "$(field .time_zone)" America/Toronto
-  [ "$(field .date)" = "$before" ] || expect "Maple's today, Toronto's" "$(field .date)" "$after"
+  expect_today "Maple's today, Toronto's" "$(field .date)" "$before"
   local toronto judged status listed counted
   toronto=$(company_day)
   say "A receipt promised for today ($toronto in Toronto), its last day today, is active until Toronto's day ends:"
@@ -2227,7 +2234,7 @@ step_cash() {
     -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"amount\": {\"amount\": \"1000.00\", \"currency\": \"CAD\"}, \"value_date\": \"$toronto\", \"expires_on\": \"$toronto\", \"liquidity_item\": \"REC_CUSTOMERS\", \"reference\": \"WT-1043\"}"
   expect "the zone the memo record's status is judged in" "$(field .time_zone)" America/Toronto
   judged=$(field .read_date)
-  [ "$judged" = "$toronto" ] || expect "the memo record's read date, Toronto's" "$judged" "$(company_day)"
+  expect_today "the memo record's read date, Toronto's" "$judged" "$toronto"
   status=active
   [ "$judged" = "$toronto" ] || status=expired # Toronto's midnight passed between the two reads
   expect "the memo record's status on Maple's date" "$(field .status)" "$status"
@@ -2252,15 +2259,14 @@ forecast() {
   say "weeks, 9 months), each open item on the day a payment run would pay it and at what it would pay then. Maple"
   say "runs payments on Tuesdays and Thursdays: an overdue item is expected on the next of them, an item in a discount"
   say "tier on the tier's last payment day, else on the last payment day before it is due; step 7's run paid the rest."
-  local before after
+  local before
   before=$(company_day)
   api 200 '"read on \(.read_date) in \(.time_zone), \(.buckets | length) buckets from \(.buckets[0].start) to \(.buckets[-1].end)",
     (.currencies[] | .currency as $c | "  \($c): total \(.total.amount), beyond the last bucket \(.beyond.amount.amount) (\(.beyond.count))",
       (.buckets[] | select(.flows | length > 0) | "    from \(.start): \([.flows[] | "\(.source) \(.certainty) \(.amount.amount) x\(.count)"] | join(", "))"))' \
     getLiquidityForecast -p "legal_entity_id=$LE"
-  after=$(company_day)
   expect "the zone the forecast is read in" "$(field .time_zone)" America/Toronto
-  [ "$(field .read_date)" = "$before" ] || expect "the forecast's read date, Toronto's" "$(field .read_date)" "$after"
+  expect_today "the forecast's read date, Toronto's" "$(field .read_date)" "$before"
   expect "the first bucket, the read date" "$(field '.buckets[0].start')" "$(field .read_date)"
   # A day's bucket starts on the day expected: the first Tuesday or Thursday
   # from today, or, when that is one of Maple's holidays, the next working
@@ -2872,7 +2878,7 @@ step_asset_acquisitions() {
 step_cash_forecast() {
   heading "Step 23 — The liquidity forecast opened, converted and drilled down to its documents"
   as tom
-  local next to memo memo_etag cells
+  local next to memo memo_etag cells read
   next=$(date_add "$TODAY" 40)
   say "Tom expects a US customer's USD 2,000.00 on $next and records it without a house bank: a memo record the"
   say "forecast counts and the cash position does not (T53e4)."
@@ -2897,14 +2903,18 @@ step_cash_forecast() {
   expect "USD converted or listed without a rate, never as zero" \
     "$(field '.converted | ([.rates[].currency] + .incomplete_currencies) | index("USD") != null')" true
   cells=$(field '[.currencies[] | select(.currency == "CAD") | .items[] | select(.liquidity_item == "REC_CUSTOMERS") | .buckets[0:14][].amount | sub("\\."; "") | tonumber] | add // 0')
-  to=$(date_add "$TODAY" 55)
+  # The forecast's buckets start on its read date, the server's today:
+  # the ranges below are counted from it, not from TODAY, which a run
+  # that crossed Toronto's midnight left a day behind (ci:batch56).
+  read=$(field .read_date)
+  to=$(date_add "$read" 55)
   say "One grain over a range instead of Maple's buckets: weeks up to $to."
   api 200 '"\(.buckets | length) \(.buckets[0].grain)s from \(.buckets[0].start) to \(.buckets[-1].end)"' getLiquidityForecast -p "legal_entity_id=$LE" -p grain=week -p "to=$to"
   expect "the weeks up to the one holding $to" "$(field '.buckets | length')" 8
   say "Tom drills the first two weeks of Customer receipts down to their flows and the documents behind them, each"
   say "to read in its own context (getMemoRecord here), and the drill-down totals the row's cells:"
   api 200 '"  \(.count) flows, total \(.total.amount) \(.total.currency)", (.items[] | "  \(.date) \(.source) \(.certainty) \(.share.amount): \([.documents[] | "\(.kind) \(.number // "-") \(.amount.amount)"] | join(", ")) (\(.document_count))")' \
-    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "to=$(date_add "$TODAY" 13)" -p liquidity_item=REC_CUSTOMERS
+    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "to=$(date_add "$read" 13)" -p liquidity_item=REC_CUSTOMERS
   expect "the drill-down's total, the row's cells of the two weeks" "$(field '.total.amount | sub("\\."; "") | tonumber')" "$cells"
   expect "WT-1042 named by its reference" "$(field '[.items[].documents[] | select(.kind == "memo_record") | .number] | index("WT-1042") != null')" true
   as ada
@@ -2917,7 +2927,7 @@ step_cash_forecast() {
   person rita "Rita Reporting" cash_reporting
   as rita
   api 200 '"  \(.count) flows, total \(.total.amount) \(.total.currency)", (.items[] | "  \(.date) \(.source) \(.share.amount): \(.documents | length) of \(.document_count) documents shown, supplier \(.supplier.name // "not shown")")' \
-    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "to=$(date_add "$TODAY" 13)" -p liquidity_item=REC_CUSTOMERS
+    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "to=$(date_add "$read" 13)" -p liquidity_item=REC_CUSTOMERS
   expect "Rita's total, Tom's" "$(field '.total.amount | sub("\\."; "") | tonumber')" "$cells"
   expect "documents shown to Rita" "$(field '[.items[].documents[]] | length')" 0
   expect "documents counted for Rita" "$(field '[.items[].document_count] | add > 0')" true
@@ -3799,7 +3809,7 @@ step_asset_transfer() {
   heading "Step 32 — Asset transfers: the milling machine moved to a cost center of another profit center from this period, its balances reposted; a quarter of it moved to a tool of another class"
   as sam
   say "Maple opens a Toronto office. Sam sets up its profit center and cost center, which the controller approves."
-  local pc cc mill tool q start values cost
+  local pc cc mill tool q start values cost before value
   api 201 '"profit center \(.code) \(.name): \(.status)"' createProfitCenter \
     -body "{\"code\": \"PC-TOR\", \"name\": \"Toronto office\", \"responsible\": \"Carla Controller\", \"legal_entity_ids\": [\"$LE\"], \"valid_from\": \"$YEAR-01-01\", \"reason\": \"The Toronto office\"}"
   pc=$(field .id)
@@ -3844,12 +3854,15 @@ step_asset_transfer() {
   api 201 '"asset \(.company_code)/\(.asset_number) \(.description) (\(.class_code)): \(.status)"' createAsset \
     -body "{\"legal_entity_id\": \"$LE\", \"class_code\": \"TOOLS\", \"description\": \"Milling tool set\", \"cost_center_id\": \"$cc\"}"
   tool=$(field .id)
-  api 201 '"transfer \(.kind) of asset \(.asset_number) to \(.to_asset_number) \(.to_asset_description) (\(.to_class_code)), \(.share_percent) %",
+  before=$(company_day)
+  api 201 '"transfer \(.kind) of asset \(.asset_number) to \(.to_asset_number) \(.to_asset_description) (\(.to_class_code)), \(.share_percent) % from \(.value_date)",
     (.ledgers[] | "  \(.ledger_code): catch-up \(.catch_up.amount), cost \(.cost.amount), accumulated \(.accumulated.amount) \(.cost.currency)")' \
     createAssetTransfer -body "{\"asset_id\": \"$mill\", \"kind\": \"asset\", \"to_asset_id\": \"$tool\", \"share\": {\"percent\": \"25\"}, \"text\": \"Tooling split off the milling machine\"}"
   expect "the receiver's class" "$(field .to_class_code)" TOOLS
+  value=$(field .value_date)
+  expect_today "the transfer's value date, Maple's today" "$value" "$before"
   api 200 "$values" getAsset -p "id=$tool"
-  expect "the tool, active from today" "$(field '"\(.status) \(.capitalised_on)"')" "active $TODAY"
+  expect "the tool, active from the transfer's value date" "$(field '"\(.status) \(.capitalised_on)"')" "active $value"
   api 200 "$values" getAsset -p "id=$mill"
   api 200 '"the machine'"'"'s transfers: \([.items[] | "\(.kind) \(.status)"] | join(", "))"' listAssetTransfers -p "asset_id=$mill"
   expect "the machine's transfers" "$(field '[.items[].kind] | sort | join(" ")')" "asset center"
@@ -4213,11 +4226,17 @@ step_cash_analytics() {
 step_cash_forecast_analytics() {
   heading "Step 38 — The forecast in analytics: what today's snapshot expected for today, a week and a month ahead, and how accurate it was today"
   as tom
-  local snap kind other day lag q kept got seen=0 total=0 preferred=0 on_demand=0
+  local snap kind other day lag q kept got seen=0 total=0 preferred=0 on_demand=0 snapshot_day
+  # Today is the day step 35's snapshot was taken on, the server's: a run
+  # that crossed Toronto's midnight after the script fixed TODAY took it on
+  # the next day (ci:batch56).
+  QUIET=1 api 200 '' listCashSnapshots -p "legal_entity_id=$LE" -p kind=on_demand
+  snapshot_day=$(field '[.items[] | select(.name == "Month-end treasury report")][0].snapshot_date')
+  [ "$snapshot_day" != null ] || fail "step 35's snapshot, the Month-end treasury report, is not listed"
   say "The variance report compares one snapshot over its period. The governed forecast metrics read each value date"
   say "from the snapshot taken that many days before it (0, 7 or 30): the company's daily snapshot of that date, else the"
-  say "last one taken on demand that day. Today's is the one Tom's metrics read for today, in a week and in a month:"
-  api 200 '.items[] | "  \(.snapshot_date) \(.kind) \(.name // "") taken \(.taken_at)"' listCashSnapshots -p "legal_entity_id=$LE" -p "from=$TODAY" -p "to=$TODAY"
+  say "last one taken on demand that day. Today's ($snapshot_day) is the one Tom's metrics read for today, in a week and in a month:"
+  api 200 '.items[] | "  \(.snapshot_date) \(.kind) \(.name // "") taken \(.taken_at)"' listCashSnapshots -p "legal_entity_id=$LE" -p "from=$snapshot_day" -p "to=$snapshot_day"
   snap=$(field '([.items[] | select(.kind == "daily")] + .items)[0].id')
   kind=$(field '([.items[] | select(.kind == "daily")] + .items)[0].kind')
   other=$(field '[.items[] | select(.kind == "on_demand")][0].id')
@@ -4227,7 +4246,7 @@ step_cash_forecast_analytics() {
   QUIET=1 api 200 '' listCashSnapshotFlows -p "id=$other" -p currency=CAD -p page_size=500
   cp "$WORK/last.json" "$WORK/forecast_other.json"
   for lag in 0 7 30; do
-    day=$(date_add "$TODAY" "$lag")
+    day=$(date_add "$snapshot_day" "$lag")
     kept=$(kept_on "$WORK/forecast_lines.json" "$day")
     q="{\"measures\": [\"forecast_lag_$lag\"], \"by\": [\"currency\", \"value_date\", \"flow_source\", \"certainty\", \"liquidity_item\"], \"companies\": [\"$CC\"], \"order_by\": \"value_date\"}"
     say "forecast_lag_$lag, by currency, value date, flow source, certainty and liquidity item: $day is today's snapshot's day $lag."
@@ -4247,22 +4266,22 @@ step_cash_forecast_analytics() {
   else
     expect "today's snapshot forecasts one of those days" "$seen" 1
   fi
-  forecast_accuracy_analytics
+  forecast_accuracy_analytics "$snapshot_day"
   as rita
   say "Rita, who holds the forecast's read alone, reads the day-ahead forecast and its accuracy: they name no supplier"
   say "(ADR-0044 As built T53j2, T53j3)."
   q="{\"measures\": [\"forecast_lag_0\"], \"by\": [\"currency\", \"value_date\"], \"companies\": [\"$CC\"]}"
   api 200 '(.rows[] | "  " + (map(.value // "-") | join("  ")))' runAnalyticsQuery -body "$q"
-  expect "Rita's CAD forecast of $TODAY, Tom's" "$(amount "$(cad_on "$TODAY")")" "$(amount "$(kept_on "$WORK/forecast_lines.json" "$TODAY")")"
+  expect "Rita's CAD forecast of $snapshot_day, Tom's" "$(amount "$(cad_on "$snapshot_day")")" "$(amount "$(kept_on "$WORK/forecast_lines.json" "$snapshot_day")")"
   api 200 '(.rows[] | "  " + (map(.value // "-") | join("  ")))' runAnalyticsQuery -body "$ACCURACY_TODAY"
-  expect "Rita's CAD accuracy of $TODAY, Tom's" "$(field '[.rows[] | select(.[0].value == "CAD") | .[4].value // "-"][0]')" "$ACCURACY_CAD"
+  expect "Rita's CAD accuracy of $snapshot_day, Tom's" "$(field '[.rows[] | select(.[0].value == "CAD") | .[4].value // "-"][0]')" "$ACCURACY_CAD"
   as tom
   passed
 }
 
-# forecast_accuracy_analytics is the forecast's variance and accuracy as
-# governed metrics (T53j3, ADR-0044 As built T53j3; product owner
-# 2026-11-04): today's actuals against today's snapshot at lag 0, in cells
+# forecast_accuracy_analytics DAY is the forecast's variance and accuracy
+# as governed metrics (T53j3, ADR-0044 As built T53j3; product owner
+# 2026-11-04): DAY's (today's) actuals against its snapshot at lag 0, in cells
 # of a currency and liquidity item, checked by hand against the variance
 # report of the day (step 28's): each item's variance is the report's, its
 # accuracy 100% less the report's variance_percent (none where nothing was
@@ -4271,10 +4290,10 @@ step_cash_forecast_analytics() {
 # percentage half away from zero. No snapshot was taken a week or a month
 # ago, so no day is compared at lags 7 and 30.
 forecast_accuracy_analytics() {
-  local report ours abs_v=0 abs_f=0 want v f item var pct line
+  local day=$1 report ours abs_v=0 abs_f=0 want v f item var pct line
   say "The variance report compares today's snapshot with today's statement lines, item by item (step 28):"
   api 200 '.currencies[] | select(.currency == "CAD") | .items[] | "  \("  " * .level)\(.liquidity_item // "unclassified"): \(.total.forecast.amount) -> \(.total.actual.amount), variance \(.total.variance.amount) (\(.total.variance_percent // "-")%)"' \
-    getLiquidityForecastVariance -p "legal_entity_id=$LE" -p "from=$TODAY" -p "to=$TODAY" -p lag=0
+    getLiquidityForecastVariance -p "legal_entity_id=$LE" -p "from=$day" -p "to=$day" -p lag=0
   # The report's leaf rows of CAD (an item's row is followed by its
   # children's, one level deeper), each item's own cell, of something
   # forecast or paid.
@@ -4293,7 +4312,7 @@ forecast_accuracy_analytics() {
   say "by currency and liquidity item: the actual less the forecast, and 100% less the variance's size in percent of the"
   say "forecast's, as the report's variance_percent; none where nothing was forecast:"
   api 200 '"answered from \(.source) as of \(.as_of), \(.columns | map(.name) | join(", "))", (.rows[] | "  " + (map(.value // "-") | join("  ")))' \
-    runAnalyticsQuery -body "{\"measures\": [\"variance_lag_0\", \"accuracy_lag_0\"], \"by\": [\"currency\", \"liquidity_item\"], \"companies\": [\"$CC\"], \"where\": [{\"dim\": \"value_date\", \"op\": \"in\", \"values\": [\"$TODAY\"]}]}"
+    runAnalyticsQuery -body "{\"measures\": [\"variance_lag_0\", \"accuracy_lag_0\"], \"by\": [\"currency\", \"liquidity_item\"], \"companies\": [\"$CC\"], \"where\": [{\"dim\": \"value_date\", \"op\": \"in\", \"values\": [\"$day\"]}]}"
   ours=$(field '.rows[] | select(.[0].value == "CAD") | select(.[2].value != "0.00" or .[3].value != null) | "\(.[1].value // "") \(.[2].value) \(.[3].value // "-")"' | sort)
   expect "each item's variance and accuracy, the report's" "$ours" "$(printf '%s\n' ${mine[@]+"${mine[@]}"} | sort)"
   if [ "$abs_f" = 0 ]; then
@@ -4301,7 +4320,7 @@ forecast_accuracy_analytics() {
   else
     want=$(ratio4 $((10000 - (2 * abs_v * 10000 + abs_f) / (2 * abs_f))))
   fi
-  ACCURACY_TODAY="{\"measures\": [\"variance_lag_0\", \"absolute_variance_lag_0\", \"absolute_forecast_lag_0\", \"accuracy_lag_0\"], \"by\": [\"currency\"], \"companies\": [\"$CC\"], \"where\": [{\"dim\": \"value_date\", \"op\": \"in\", \"values\": [\"$TODAY\"]}]}"
+  ACCURACY_TODAY="{\"measures\": [\"variance_lag_0\", \"absolute_variance_lag_0\", \"absolute_forecast_lag_0\", \"accuracy_lag_0\"], \"by\": [\"currency\"], \"companies\": [\"$CC\"], \"where\": [{\"dim\": \"value_date\", \"op\": \"in\", \"values\": [\"$day\"]}]}"
   say "The day's accuracy is 1 less WAPE: the items' absolute variances, $(amount "$abs_v") CAD, over their absolute forecasts,"
   say "$(amount "$abs_f") CAD, the quotient rounded to two decimals of a percentage first: $want."
   api 200 '(.rows[] | "  " + (map(.value // "-") | join("  ")))' runAnalyticsQuery -body "$ACCURACY_TODAY"

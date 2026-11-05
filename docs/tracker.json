@@ -9825,6 +9825,20 @@
       "r": "cmd/erp/walkthrough_test.go TestWalkthrough, walkthroughListeners, TestWalkthroughListeners, failure",
       "src": "ci:batch56",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "The walkthrough passes a run that crosses Toronto's midnight (batch 56's ci-local stopped at step 32: the server answered at 00:02 and the tool asset split off the milling machine was capitalised on 2026-11-05 while the script expected its TODAY, 2026-11-04, fixed at its start): a date the server takes as Maple's today is checked against the company's day read just before the request or, when midnight passed during it, the day after (expect_today, now used by every such check), the tool's capitalisation against the transfer's own value date, step 23's week grain and two-week drill-down are counted from the forecast's own read date, and step 38 reads its forecast, variance and accuracy on the day the step 35 snapshot was taken, as the server dated it; proved with a test double of date(1) that gives the script yesterday's date at its start while the server keeps today's: every step passed (39, none failed), as did a plain run. A run that crosses midnight into a new month is not covered: the story's periods are the period of TODAY",
+      "r": "scripts/walkthrough.sh expect_today, step_cash_forecast, step_asset_transfer, step_cash_forecast_analytics, forecast_accuracy_analytics",
+      "src": "ci:batch56",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "TestDepreciationRunBudget measures the preview's p95 over twenty reads a page as nfr's load runs do (the 19th of 20), not the worst of ten, so one stalled read does not fail it (batch 56's ci-local: next page median 518 ms, worst of ten 2.08 s against the 2 s of scale 2), and forces a checkpoint after vacuuming its seed so the seed's WAL checkpoints do not run among the timed reads; the budget is unchanged (p95 1 s scaled by ERP_BUDGET_SCALE)",
+      "r": "internal/workflows/depreciation_budget_test.go · ADR-0057 As built",
+      "src": "ci:batch56",
+      "c": []
      }
     ]
    },
