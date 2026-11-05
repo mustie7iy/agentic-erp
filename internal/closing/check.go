@@ -114,6 +114,7 @@ type foundLedger struct {
 	Depreciation *uuid.UUID `json:"depreciation_run_id,omitempty"`
 	ToDepreciate *int       `json:"assets_to_depreciate,omitempty"`
 	Later        *uuid.UUID `json:"later_depreciation_run_id,omitempty"`
+	LaterOf      *[2]int16  `json:"later_depreciation_period,omitempty"` // its fiscal year and period
 }
 
 // toAPI shows a recorded result; what a check found is shown for its own
@@ -154,9 +155,10 @@ func (f *found) toAPI(check string, passed bool, at time.Time, by uuid.UUID, byN
 
 // toAPI shows a warning as its check found it.
 func (w foundWarning) toAPI() gen.CloseCheckWarning {
-	out := gen.CloseCheckWarning{Code: w.Code, Message: w.Message, LedgerID: w.LedgerID, LedgerCode: w.LedgerCode, AssetID: w.AssetID,
-		AssetNumber: w.AssetNumber, AssetDescription: w.AssetDescription, MissingThroughYear: int32(w.MissingThrough[0]),
-		MissingThroughPeriod: int32(w.MissingThrough[1]), LaterDepreciationRunID: w.LaterRun, CatchUp: gen.Money{Amount: w.CatchUp, Currency: w.Currency}}
+	out := gen.CloseCheckWarning{Code: w.Code, Message: w.Message, LedgerID: gen.NewOptUUID(w.LedgerID), LedgerCode: gen.NewOptString(w.LedgerCode),
+		AssetID: gen.NewOptUUID(w.AssetID), AssetNumber: gen.NewOptString(w.AssetNumber), AssetDescription: gen.NewOptString(w.AssetDescription),
+		MissingThroughYear: gen.NewOptInt32(int32(w.MissingThrough[0])), MissingThroughPeriod: gen.NewOptInt32(int32(w.MissingThrough[1])),
+		LaterDepreciationRunID: gen.NewOptUUID(w.LaterRun), CatchUp: gen.NewOptMoney(gen.Money{Amount: w.CatchUp, Currency: w.Currency})}
 	if w.MissingFrom != nil {
 		out.MissingFromYear.SetTo(int32(w.MissingFrom[0]))
 		out.MissingFromPeriod.SetTo(int32(w.MissingFrom[1]))
@@ -170,6 +172,10 @@ func (l foundLedger) toAPI() gen.CloseCheckLedger {
 	out := gen.CloseCheckLedger{LedgerID: l.LedgerID, LedgerCode: l.LedgerCode, LedgerName: l.LedgerName, KeyDate: day,
 		Posted: l.Run != nil || l.Depreciation != nil, RevaluationRunID: apitypes.OptUUID(l.Run), DepreciationRunID: apitypes.OptUUID(l.Depreciation),
 		LaterDepreciationRunID: apitypes.OptUUID(l.Later)}
+	if l.LaterOf != nil {
+		out.LaterDepreciationFiscalYear.SetTo(int32(l.LaterOf[0]))
+		out.LaterDepreciationPeriod.SetTo(int32(l.LaterOf[1]))
+	}
 	if l.ToDepreciate != nil {
 		out.AssetsToDepreciate.SetTo(int32(*l.ToDepreciate)) // at most a company's assets
 	}
@@ -385,7 +391,7 @@ func (e *Endpoints) depreciationPosted(ctx context.Context, tx pgx.Tx, legalEnti
 		case d.Later == nil:
 			missing = append(missing, fmt.Sprintf("%s (%s)", k.Code, assetCount(d.Selected)))
 		default:
-			f.Ledgers[i].Later = &d.Later.ID
+			f.Ledgers[i].Later, f.Ledgers[i].LaterOf = &d.Later.ID, &[2]int16{d.Later.Of.FiscalYear, d.Later.Of.Period}
 			if err := f.warnLate(ctx, tx, k, d); err != nil {
 				return false, found{}, err
 			}
@@ -417,13 +423,14 @@ func (f *found) warnLate(ctx context.Context, tx pgx.Tx, k LedgerPeriod, d Perio
 	for _, a := range d.Late {
 		w := foundWarning{Code: warnCatchUp, LedgerID: k.LedgerID, LedgerCode: k.Code, AssetID: a.ID, AssetNumber: a.Number, AssetDescription: a.Description,
 			MissingThrough: through, LaterRun: d.Later.ID, CatchUp: a.CatchUp.Plain(exp), Currency: d.Later.Currency}
-		from := ""
+		w.Message = fmt.Sprintf("Asset %s (%s) in ledger %s differs from its depreciation planned through %d/%d, whose run posted before it; a run of "+
+			"%d/%d or later posts the difference, %s %s.", a.Number, a.Description, k.Code, through[0], through[1], through[0], through[1], w.CatchUp, w.Currency)
 		if a.MissingFrom != nil {
 			w.MissingFrom = &[2]int16{a.MissingFrom.FiscalYear, a.MissingFrom.Period}
-			from = fmt.Sprintf(" from %d/%d", a.MissingFrom.FiscalYear, a.MissingFrom.Period)
+			w.Message = fmt.Sprintf("Asset %s (%s) in ledger %s has no depreciation booked from %d/%d through %d/%d, whose run posted before it; a run "+
+				"of %d/%d or later catches up %s %s.", a.Number, a.Description, k.Code, a.MissingFrom.FiscalYear, a.MissingFrom.Period, through[0], through[1],
+				through[0], through[1], w.CatchUp, w.Currency)
 		}
-		w.Message = fmt.Sprintf("Asset %s (%s) in ledger %s has no depreciation booked%s through %d/%d, whose run posted before it; a run of %d/%d "+
-			"or later catches up %s %s.", a.Number, a.Description, k.Code, from, through[0], through[1], through[0], through[1], w.CatchUp, w.Currency)
 		f.Warnings = append(f.Warnings, w)
 	}
 	return nil

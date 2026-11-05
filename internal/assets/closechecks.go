@@ -105,7 +105,11 @@ func (CloseChecks) Depreciation(ctx context.Context, legalEntity, ledger uuid.UU
 	if out.Later, err = laterRun(ctx, tx, legalEntity, ledger, FiscalPeriod{fiscalYear, period}); err != nil || out.Later == nil {
 		return out, err
 	}
-	out.Late, err = lateAssets(ctx, tx, ledger, calendar{FiscalPeriod{fiscalYear, period}, MonthOf(end)}, *out.Later, cs[:min(len(cs), limit)])
+	named := cs[:min(len(cs), max(limit, 0))]
+	if len(named) == 0 { // none left to name: the count is enough
+		return out, nil
+	}
+	out.Late, err = lateAssets(ctx, tx, ledger, calendar{FiscalPeriod{fiscalYear, period}, MonthOf(end)}, *out.Later, named)
 	return out, err
 }
 

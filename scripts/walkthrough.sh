@@ -3102,7 +3102,7 @@ close_late_depreciation() {
   close=$(field .id)
   tag=$ETAG
   local result='"  \(.code) \(.status): \(.check_result.summary)",
-    (.check_result.ledgers[] | "    \(.ledger_code): \(if .posted then "posted run" else "no posted run, \(.assets_to_depreciate) assets a run would select" end)\(if .later_depreciation_run_id then ", a later run posted" else "" end)"),
+    (.check_result.ledgers[] | "    \(.ledger_code): \(if .posted then "posted run" else "no posted run, \(.assets_to_depreciate) assets a run would select" end)\(if .later_depreciation_run_id then ", the run of \(.later_depreciation_fiscal_year)/\(.later_depreciation_period) posted" else "" end)"),
     "    \(.check_result.warnings_count) warnings:", (.check_result.warnings[] | "    \(.code): \(.message)")'
   api 200 "$result" checkCloseTask -p "id=$close" -p code=DEPRECIATED -if-match "$tag"
   tag=$ETAG
@@ -3111,6 +3111,7 @@ close_late_depreciation() {
   expect "the machine's warning in 0L" "$(field ".check_result.warnings[] | select(.asset_id == \"$late\") | \"\\(.code) \\(.ledger_code) \\(.missing_from_year)/\\(.missing_from_period) \\(.missing_through_year)/\\(.missing_through_period)\"")" \
     "depreciation_catch_up 0L $YEAR/$prev $YEAR/$period"
   expect "the warning's catch-up, the preview's difference" "$(field ".check_result.warnings[] | select(.asset_id == \"$late\") | .catch_up.amount")" "$catch"
+  expect "0L's later run's period" "$(field '.check_result.ledgers[] | select(.ledger_code == "0L") | "\(.later_depreciation_fiscal_year)/\(.later_depreciation_period)"')" "$YEAR/$period"
   l2=$(field '.check_result.ledgers[] | select(.ledger_code == "2L") | .ledger_id')
   say "Carla runs $YEAR/$prev's depreciation in 2L, where no later run has posted, and checks again: it passes, and"
   say "the warning stays, for the next run of the leading ledger to catch the machine up."

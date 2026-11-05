@@ -1354,7 +1354,10 @@ latest posted run of a later period; with one, the ledger passes, and for
 the first 20 of the selected assets (by asset number; the count is all of
 them) it reads the number, description, the period the asset is booked
 through and its catch-up. `CloseCheckLedger` gains
-`later_depreciation_run_id`; `CloseCheckResult` gains `warnings_count`
+`later_depreciation_run_id` with that run's fiscal year and period
+(`later_depreciation_fiscal_year`, `later_depreciation_period`), so a
+ledger whose warnings fall beyond the 20 named still says which run's
+period catches its assets up; `CloseCheckResult` gains `warnings_count`
 and `warnings`. No migration: the warnings are stored in T64c's
 `check_result` with the rest. Walkthrough: `close_late_depreciation` in
 `step_close`, before `close_depreciation`. Decided by default, for the
@@ -1364,8 +1367,10 @@ product owner to overrule:
   all, as `parked_entries` and `unexplained_rows` do) holds
   `CloseCheckWarning`s, each with an open-enumeration `code` and a
   one-sentence `message`, the shape `PartnerChangeWarning` and
-  `DocumentaryWarning` have elsewhere in the API, plus the fields its code
-  needs. No check had a warning level before; `depreciation_catch_up` is
+  `DocumentaryWarning` have elsewhere in the API; only those two are
+  required, and every other field is optional, present for the codes that
+  name it, so a later code without an asset adds its own fields without a
+  breaking change. No check had a warning level before; `depreciation_catch_up` is
   the first code. Both are present (0 and empty) on every result,
   including results recorded before T64l, which had none. A warning never
   changes `passed`, so the task is `done` and the sign-off proceeds; the
@@ -1375,7 +1380,8 @@ product owner to overrule:
   number, description), the first period whose depreciation it has not
   booked (the period after its `booked_through`, else its depreciation
   start's; absent with neither, an asset whose acquisition was reversed
-  after depreciation), the later run and its period (the last period
+  after depreciation, whose catch-up is negative and whose message says
+  it differs from its plan rather than that nothing is booked), the later run and its period (the last period
   missed), and the catch-up: the difference a run of the later run's
   period posts for the asset now, planned through that period less booked,
   computed by the run's and the preview's own `differences` (ADR-0057 §7),

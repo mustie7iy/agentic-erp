@@ -36227,6 +36227,8 @@ components:
               posted: false
               assets_to_depreciate: 1
               later_depreciation_run_id: 0192a000-0000-7000-8000-000000000e01
+              later_depreciation_fiscal_year: 2026
+              later_depreciation_period: 2
           warnings_count: 1
           warnings:
             - code: depreciation_catch_up
@@ -36348,21 +36350,22 @@ components:
           format: uuid
           description: "`depreciation_posted` without a posted run of the period and with assets to depreciate: the latest posted depreciation run of a later period in this ledger (`GET /v1/depreciation-runs/{id}`), with which the check passes, the assets warned of; absent otherwise and for another check."
           readOnly: true
+        later_depreciation_fiscal_year:
+          type: integer
+          format: int32
+          description: "With `later_depreciation_run_id`: that run's fiscal year; a run of its period or a later one posts the assets' catch-up."
+          readOnly: true
+        later_depreciation_period:
+          type: integer
+          format: int32
+          description: "With `later_depreciation_run_id`: that run's period."
+          readOnly: true
     CloseCheckWarning:
       type: object
       description: "What a check reports without failing (ADR-0058 §6 as built, PO 2026-11-04), as it was when the check ran. `depreciation_catch_up`: an asset a depreciation run of the closed period would select in a ledger whose later period's run has posted, so that no run of the closed period may post (`assets.run_out_of_order`); a run of the later run's period or after posts its catch-up (ADR-0057 §7)."
       required:
         - code
         - message
-        - ledger_id
-        - ledger_code
-        - asset_id
-        - asset_number
-        - asset_description
-        - missing_through_year
-        - missing_through_period
-        - later_depreciation_run_id
-        - catch_up
       properties:
         code:
           type: string
@@ -36371,34 +36374,34 @@ components:
           readOnly: true
         message:
           type: string
-          description: The warning in one sentence.
+          description: "The warning in one sentence. Every warning has a `code` and a `message`; the other fields are those its code names, each absent for a code that does not name it."
           readOnly: true
         ledger_id:
           type: string
           format: uuid
-          description: The ledger.
+          description: "`depreciation_catch_up`: the ledger."
           readOnly: true
         ledger_code:
           type: string
-          description: Its code.
+          description: "`depreciation_catch_up`: its code."
           readOnly: true
         asset_id:
           type: string
           format: uuid
-          description: "The asset (`GET /v1/assets/{id}`)."
+          description: "`depreciation_catch_up`: the asset (`GET /v1/assets/{id}`)."
           readOnly: true
         asset_number:
           type: string
-          description: Its number.
+          description: "`depreciation_catch_up`: its number."
           readOnly: true
         asset_description:
           type: string
-          description: Its description.
+          description: "`depreciation_catch_up`: its description."
           readOnly: true
         missing_from_year:
           type: integer
           format: int32
-          description: "The fiscal year of the first period whose depreciation the asset has not booked in the ledger: the period after the one it is booked through, else its depreciation start's; absent when it has neither."
+          description: "`depreciation_catch_up`: the fiscal year of the first period whose depreciation the asset has not booked in the ledger: the period after the one it is booked through, else its depreciation start's; absent when it has neither."
           readOnly: true
         missing_from_period:
           type: integer
@@ -36408,7 +36411,7 @@ components:
         missing_through_year:
           type: integer
           format: int32
-          description: "The fiscal year of the later run's period, the last period whose depreciation the asset misses."
+          description: "`depreciation_catch_up`: the fiscal year of the later run's period, the last period whose depreciation the asset misses."
           readOnly: true
         missing_through_period:
           type: integer
@@ -36418,11 +36421,11 @@ components:
         later_depreciation_run_id:
           type: string
           format: uuid
-          description: "The later period's posted run (`GET /v1/depreciation-runs/{id}`)."
+          description: "`depreciation_catch_up`: the later period's posted run (`GET /v1/depreciation-runs/{id}`)."
           readOnly: true
         catch_up:
           $ref: "#/components/schemas/Money"
-          description: "What a run of the later run's period would post for the asset when the check ran: its depreciation planned through that period less what is booked (`POST /v1/depreciation-runs/preview`, ADR-0057 §7), in the run's currency; a run of a period after it posts that period's depreciation on top."
+          description: "`depreciation_catch_up`: what a run of the later run's period would post for the asset when the check ran: its depreciation planned through that period less what is booked (`POST /v1/depreciation-runs/preview`, ADR-0057 §7), in the run's currency. Negative when more is booked than planned, as for an asset whose acquisition was reversed after depreciation posted (`missing_from_year` absent); a run of a period after it posts that period's depreciation on top."
           readOnly: true
     CloseTaskPage:
       type: object

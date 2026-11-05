@@ -122,12 +122,14 @@ func TestCloseDepreciation(t *testing.T) {
 // out of order; the port names July's run and the machine, its
 // depreciation missing from June, and the catch-up a run of July posts
 // for it (June's and July's 10.00). It names at most limit late assets,
-// counting them all, each missing from the period after the one it is
-// booked through, or from none for an asset with neither that nor a
-// depreciation start. A repeat run of July posts exactly the catch-ups
-// named (20.00 + 20.00 - 5.00), after which nothing is late. Without a
-// later run nothing is late, and one ledger's later run does not count
-// for another.
+// counting them all (none with a limit of 0), each missing from the
+// period after the one it is booked through (2025/12: 2026/1), else from
+// its depreciation start's (2025/11; its cost arrives in June, so June
+// and July take 1200.00 over the 113 periods left, 10.62 each), or from none
+// for an asset with neither. A repeat run of July posts exactly the
+// catch-ups named (20.00 + 20.00 - 5.00 + 21.24), after which nothing is
+// late. Without a later run nothing is late, and one ledger's later run
+// does not count for another.
 func TestCloseDepreciationLate(t *testing.T) {
 	e := newRuns(t)
 	e.depreciable(t, "Mill")
@@ -141,16 +143,19 @@ func TestCloseDepreciationLate(t *testing.T) {
 	want(t, "another ledger, no later run", e.mustDepreciation(t, e.l2, 6), "2 to depreciate")
 
 	press, _ := e.depreciable(t, "Press")
-	pgtest.Exec(t, `UPDATE assets.asset_terms SET booked_through_year = 2026, booked_through_period = 5, version = version + 1
+	pgtest.Exec(t, `UPDATE assets.asset_terms SET booked_through_year = 2025, booked_through_period = 12, version = version + 1
 		WHERE asset_id = $1 AND ledger_id = $2`, press, e.l0)
 	a, _ := e.create(t, fmt.Sprintf(`{"legal_entity_id": %q, "class_code": "MACHINES", "description": "Drill", "cost_center_id": %q}`, e.DE, e.c.Admin))
 	e.depreciate(t, a["id"].(string), e.l0, 7, 500)
-	want(t, "three late, one named", e.mustDepreciationOf(t, 6, 1), "3 to depreciate; "+later+"; Lathe from 2026/6 catch-up 2000 EUR")
-	want(t, "three late, all named", e.mustDepreciationOf(t, 6, 20), "3 to depreciate; "+later+"; Lathe from 2026/6 catch-up 2000 EUR; "+
-		"Press from 2026/6 catch-up 2000 EUR; Drill from <nil> catch-up -500 EUR")
+	saw, _ := e.depreciable(t, "Saw")
+	pgtest.Exec(t, `UPDATE assets.asset_terms SET depreciation_start = '2025-11-01', version = version + 1 WHERE asset_id = $1 AND ledger_id = $2`, saw, e.l0)
+	want(t, "four late, none named", e.mustDepreciationOf(t, 6, 0), "4 to depreciate; "+later)
+	want(t, "four late, one named", e.mustDepreciationOf(t, 6, 1), "4 to depreciate; "+later+"; Lathe from 2026/6 catch-up 2000 EUR")
+	want(t, "four late, all named", e.mustDepreciationOf(t, 6, 20), "4 to depreciate; "+later+"; Lathe from 2026/6 catch-up 2000 EUR; "+
+		"Press from 2026/1 catch-up 2000 EUR; Drill from <nil> catch-up -500 EUR; Saw from 2025/11 catch-up 2124 EUR")
 
 	_, repeat := e.start(t, e.l0, 7)
-	want(t, "the repeat run of July, the catch-ups", runOf(e.carry(t, repeat)), "posted 4 3 0 35.00; 1 posted 4 3 0 35.00")
+	want(t, "the repeat run of July, the catch-ups", runOf(e.carry(t, repeat)), "posted 5 4 0 56.24; 1 posted 5 4 0 56.24")
 	want(t, "caught up", e.mustDepreciation(t, e.l0, 6), "0 to depreciate")
 }
 

@@ -102,7 +102,7 @@ func depreciationLines(t *testing.T, task map[string]any) []string {
 		out = append(out, fmt.Sprintf("%v %v %v posted=%v run=%v to depreciate=%v", l["ledger_code"], l["ledger_name"], l["key_date"], l["posted"],
 			l["depreciation_run_id"], l["assets_to_depreciate"]))
 		if later, ok := l["later_depreciation_run_id"]; ok {
-			out[len(out)-1] += fmt.Sprintf(" later=%v", later)
+			out[len(out)-1] += fmt.Sprintf(" later=%v %v/%v", later, l["later_depreciation_fiscal_year"], l["later_depreciation_period"])
 		}
 	}
 	out = append(out, fmt.Sprintf("%v warnings", r["warnings_count"]))
@@ -191,7 +191,7 @@ func TestDepreciationPostedLateAsset(t *testing.T) {
 	task, tag := e.Must(200, "POST", base, "", tag)
 	wantLines(t, "2L without a later run", depreciationLines(t, task), []string{
 		"false No posted depreciation run of 2026/1 in ledger 2L (2 assets to depreciate); run the depreciation first.",
-		"0L Leading ledger 2026-01-31 posted=false run=<nil> to depreciate=1 later=" + feb,
+		"0L Leading ledger 2026-01-31 posted=false run=<nil> to depreciate=1 later=" + feb + " 2026/2",
 		"2L HGB 2026-01-31 posted=false run=<nil> to depreciate=2",
 		"1 warnings",
 		"depreciation_catch_up 0L 2 Press from 2026/1 through 2026/2 run=" + feb + " catch-up 20.00 EUR: Asset 2 (Press) in ledger 0L has no " +
@@ -206,7 +206,7 @@ func TestDepreciationPostedLateAsset(t *testing.T) {
 	wantLines(t, "a later run in each ledger", want[:2], []string{
 		"true Every covered ledger has a posted depreciation run of 2026/1, nothing to depreciate or a posted run of a later period; ledger 0L " +
 			"(1 late asset, caught up by a run of 2026/2 or later), see the warnings.",
-		"0L Leading ledger 2026-01-31 posted=false run=<nil> to depreciate=1 later=" + feb})
+		"0L Leading ledger 2026-01-31 posted=false run=<nil> to depreciate=1 later=" + feb + " 2026/2"})
 	wantFields(t, "a later run in each ledger", task, map[string]any{"status": "done"})
 	r := task["check_result"].(map[string]any)
 	wantFields(t, "the warnings counted", r, map[string]any{"warnings_count": float64(1)})

@@ -40328,18 +40328,32 @@ func (s *CloseCheckLedger) encodeFields(e *jx.Encoder) {
 			s.LaterDepreciationRunID.Encode(e)
 		}
 	}
+	{
+		if s.LaterDepreciationFiscalYear.Set {
+			e.FieldStart("later_depreciation_fiscal_year")
+			s.LaterDepreciationFiscalYear.Encode(e)
+		}
+	}
+	{
+		if s.LaterDepreciationPeriod.Set {
+			e.FieldStart("later_depreciation_period")
+			s.LaterDepreciationPeriod.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfCloseCheckLedger = [9]string{
-	0: "ledger_id",
-	1: "ledger_code",
-	2: "ledger_name",
-	3: "key_date",
-	4: "posted",
-	5: "revaluation_run_id",
-	6: "depreciation_run_id",
-	7: "assets_to_depreciate",
-	8: "later_depreciation_run_id",
+var jsonFieldsNameOfCloseCheckLedger = [11]string{
+	0:  "ledger_id",
+	1:  "ledger_code",
+	2:  "ledger_name",
+	3:  "key_date",
+	4:  "posted",
+	5:  "revaluation_run_id",
+	6:  "depreciation_run_id",
+	7:  "assets_to_depreciate",
+	8:  "later_depreciation_run_id",
+	9:  "later_depreciation_fiscal_year",
+	10: "later_depreciation_period",
 }
 
 // Decode decodes CloseCheckLedger from json.
@@ -40450,6 +40464,26 @@ func (s *CloseCheckLedger) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"later_depreciation_run_id\"")
+			}
+		case "later_depreciation_fiscal_year":
+			if err := func() error {
+				s.LaterDepreciationFiscalYear.Reset()
+				if err := s.LaterDepreciationFiscalYear.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"later_depreciation_fiscal_year\"")
+			}
+		case "later_depreciation_period":
+			if err := func() error {
+				s.LaterDepreciationPeriod.Reset()
+				if err := s.LaterDepreciationPeriod.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"later_depreciation_period\"")
 			}
 		default:
 			return d.Skip()
@@ -41282,24 +41316,34 @@ func (s *CloseCheckWarning) encodeFields(e *jx.Encoder) {
 		e.Str(s.Message)
 	}
 	{
-		e.FieldStart("ledger_id")
-		json.EncodeUUID(e, s.LedgerID)
+		if s.LedgerID.Set {
+			e.FieldStart("ledger_id")
+			s.LedgerID.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("ledger_code")
-		e.Str(s.LedgerCode)
+		if s.LedgerCode.Set {
+			e.FieldStart("ledger_code")
+			s.LedgerCode.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("asset_id")
-		json.EncodeUUID(e, s.AssetID)
+		if s.AssetID.Set {
+			e.FieldStart("asset_id")
+			s.AssetID.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("asset_number")
-		e.Str(s.AssetNumber)
+		if s.AssetNumber.Set {
+			e.FieldStart("asset_number")
+			s.AssetNumber.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("asset_description")
-		e.Str(s.AssetDescription)
+		if s.AssetDescription.Set {
+			e.FieldStart("asset_description")
+			s.AssetDescription.Encode(e)
+		}
 	}
 	{
 		if s.MissingFromYear.Set {
@@ -41314,20 +41358,28 @@ func (s *CloseCheckWarning) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
-		e.FieldStart("missing_through_year")
-		e.Int32(s.MissingThroughYear)
+		if s.MissingThroughYear.Set {
+			e.FieldStart("missing_through_year")
+			s.MissingThroughYear.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("missing_through_period")
-		e.Int32(s.MissingThroughPeriod)
+		if s.MissingThroughPeriod.Set {
+			e.FieldStart("missing_through_period")
+			s.MissingThroughPeriod.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("later_depreciation_run_id")
-		json.EncodeUUID(e, s.LaterDepreciationRunID)
+		if s.LaterDepreciationRunID.Set {
+			e.FieldStart("later_depreciation_run_id")
+			s.LaterDepreciationRunID.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("catch_up")
-		s.CatchUp.Encode(e)
+		if s.CatchUp.Set {
+			e.FieldStart("catch_up")
+			s.CatchUp.Encode(e)
+		}
 	}
 }
 
@@ -41381,11 +41433,9 @@ func (s *CloseCheckWarning) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"message\"")
 			}
 		case "ledger_id":
-			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
-				v, err := json.DecodeUUID(d)
-				s.LedgerID = v
-				if err != nil {
+				s.LedgerID.Reset()
+				if err := s.LedgerID.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -41393,11 +41443,9 @@ func (s *CloseCheckWarning) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"ledger_id\"")
 			}
 		case "ledger_code":
-			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
-				v, err := d.Str()
-				s.LedgerCode = string(v)
-				if err != nil {
+				s.LedgerCode.Reset()
+				if err := s.LedgerCode.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -41405,11 +41453,9 @@ func (s *CloseCheckWarning) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"ledger_code\"")
 			}
 		case "asset_id":
-			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
-				v, err := json.DecodeUUID(d)
-				s.AssetID = v
-				if err != nil {
+				s.AssetID.Reset()
+				if err := s.AssetID.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -41417,11 +41463,9 @@ func (s *CloseCheckWarning) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"asset_id\"")
 			}
 		case "asset_number":
-			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
-				v, err := d.Str()
-				s.AssetNumber = string(v)
-				if err != nil {
+				s.AssetNumber.Reset()
+				if err := s.AssetNumber.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -41429,11 +41473,9 @@ func (s *CloseCheckWarning) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"asset_number\"")
 			}
 		case "asset_description":
-			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
-				v, err := d.Str()
-				s.AssetDescription = string(v)
-				if err != nil {
+				s.AssetDescription.Reset()
+				if err := s.AssetDescription.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -41461,11 +41503,9 @@ func (s *CloseCheckWarning) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"missing_from_period\"")
 			}
 		case "missing_through_year":
-			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
-				v, err := d.Int32()
-				s.MissingThroughYear = int32(v)
-				if err != nil {
+				s.MissingThroughYear.Reset()
+				if err := s.MissingThroughYear.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -41473,11 +41513,9 @@ func (s *CloseCheckWarning) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"missing_through_year\"")
 			}
 		case "missing_through_period":
-			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
-				v, err := d.Int32()
-				s.MissingThroughPeriod = int32(v)
-				if err != nil {
+				s.MissingThroughPeriod.Reset()
+				if err := s.MissingThroughPeriod.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -41485,11 +41523,9 @@ func (s *CloseCheckWarning) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"missing_through_period\"")
 			}
 		case "later_depreciation_run_id":
-			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
-				v, err := json.DecodeUUID(d)
-				s.LaterDepreciationRunID = v
-				if err != nil {
+				s.LaterDepreciationRunID.Reset()
+				if err := s.LaterDepreciationRunID.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -41497,8 +41533,8 @@ func (s *CloseCheckWarning) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"later_depreciation_run_id\"")
 			}
 		case "catch_up":
-			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
+				s.CatchUp.Reset()
 				if err := s.CatchUp.Decode(d); err != nil {
 					return err
 				}
@@ -41516,8 +41552,8 @@ func (s *CloseCheckWarning) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b01111111,
-		0b00011110,
+		0b00000011,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
