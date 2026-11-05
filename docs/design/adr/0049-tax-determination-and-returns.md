@@ -1410,8 +1410,8 @@ companies (all in the tenant, under RLS). A registration change is financial
     box 6 an import's (IM5, the declared value its amount, from a customs
     declaration's entry, §9 As built); box 10 the part recovered of both
     claims (`vat`, `self_input`; the Context's "Box 3/6 output, Box 10
-    input" for imported services and goods); box 9 standard-rated purchases, VB5's blocked VAT adding its
-    amount and no VAT. Adjustments are codes of kind `adjustment` the
+    input" for imported services and goods); box 9 standard-rated
+    purchases, VB5's blocked VAT adding its amount and no VAT. Adjustments are codes of kind `adjustment` the
     tenant adds (T61j): output, component `vat`, levying the line's emirate
     (box 1's adjustment column), input `vat` (box 9's), output
     `tourist_refund` (box 2) and `import_adjustment` (box 7). The step's
