@@ -187,7 +187,8 @@ type EntryStatus struct {
 // of a legal entity in a fiscal year, by period; the ledgers it keeps with
 // their period of a fiscal year and period, the leading one first, then by
 // code; how many of its parked entries with a posting date from from to to
-// are in one of the statuses, and the first limit of them by posting date;
+// are in one of the statuses, and the first limit of them by posting date,
+// those parked for a special period left out (ADR-0059 §3: the year's);
 // its ledger's posted revaluation run at a key date, ok false when there
 // is none; every profit and loss account of it with its net movement of a
 // fiscal year and period in the leading ledger, by account number; and

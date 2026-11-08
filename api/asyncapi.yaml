@@ -228,6 +228,7 @@ channels:
       ExchangeRateMaintained: {$ref: '#/components/messages/ExchangeRateMaintained'}
       RevaluationRunPosted: {$ref: '#/components/messages/RevaluationRunPosted'}
       RevaluationRunCancelled: {$ref: '#/components/messages/RevaluationRunCancelled'}
+      BalanceCarriedForward: {$ref: '#/components/messages/BalanceCarriedForward'}
   procurement:
     address: 'erp.{cell}.procurement.{tenant}.{event}'
     title: Procurement events
@@ -491,6 +492,7 @@ operations:
       - $ref: '#/channels/ledger/messages/ExchangeRateMaintained'
       - $ref: '#/channels/ledger/messages/RevaluationRunPosted'
       - $ref: '#/channels/ledger/messages/RevaluationRunCancelled'
+      - $ref: '#/channels/ledger/messages/BalanceCarriedForward'
   publishProcurementEvents:
     action: send
     title: Procurement publishes
@@ -2350,6 +2352,23 @@ components:
         - name: corrected-rate
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000072", "source": "/erp/eu-1/ledger", "type": "com.example.erp.ledger.revaluation_run_cancelled.v1", "subject": "0192a000-0000-7000-8000-000000000701", "time": "2026-04-02T08:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
           payload: {"run_id": "0192a000-0000-7000-8000-000000000701", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "ledger_id": "0192a000-0000-7000-8000-000000000202", "key_date": "2026-03-31", "reason": "The USD rate was keyed wrongly.", "valuation_reversal_entry_id": "0192a000-0000-7000-8000-000000000704", "valuation_reversal_entry_year": 2026, "reset_reversal_entry_id": "0192a000-0000-7000-8000-000000000705", "reset_reversal_entry_year": 2026}
+
+    BalanceCarriedForward:
+      name: BalanceCarriedForward
+      title: Balances carried forward into the next fiscal year
+      summary: "A company's fiscal year was carried forward in one ledger: a carry-forward run with the opening balances of the next year."
+      description: "Emitted by `POST /v1/balance-carry-forwards` (ADR-0059 §5, §12, T64m2), once per ledger run, when a `ledger.carry_forward_run` is recorded. No journal entry is posted. A run of a year already carried forward supersedes the current one (`superseded_run_id`). `result_lc` and `result_gc` are the year's profit or loss over every currency in local and group currency; `results` is it per transaction currency, debit positive (a profit is negative), in transaction, local and group currency; a currency without a result is absent. Subject is the run id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.ledger.balance_carried_forward.v1}
+      payload: {$ref: '#/components/schemas/BalanceCarriedForwardV1'}
+      examples:
+        - name: year-end
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000073", "source": "/erp/eu-1/ledger", "type": "com.example.erp.ledger.balance_carried_forward.v1", "subject": "0192a000-0000-7000-8000-000000000711", "time": "2027-01-20T15:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
+          payload: {"run_id": "0192a000-0000-7000-8000-000000000711", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "ledger_id": "0192a000-0000-7000-8000-000000000202", "from_fiscal_year": 2026, "to_fiscal_year": 2027, "basis": "chained", "chained_from_id": "0192a000-0000-7000-8000-000000000710", "superseded_run_id": null, "retained_earnings_account_id": "0192a000-0000-7000-8000-000000000301", "row_count": 412, "result_lc": {"amount": "-125000.00", "currency": "CAD"}, "result_gc": {"amount": "-125000.00", "currency": "CAD"}, "results": [{"currency": "CAD", "result": {"amount": "-125000.00", "currency": "CAD"}, "result_lc": {"amount": "-125000.00", "currency": "CAD"}, "result_gc": {"amount": "-125000.00", "currency": "CAD"}}]}
 
     # ------------------------------------------------ further state changes
     TenantStatusChanged:
@@ -5083,6 +5102,34 @@ components:
         valuation_entry_year: {"type": ["integer", "null"], "minimum": 1900, "maximum": 2999}
         reversal_entry_id: {"$ref": "#/components/schemas/NullableUuid", "description": "Null when the run found no difference."}
         reversal_entry_year: {"type": ["integer", "null"], "minimum": 1900, "maximum": 2999}
+    BalanceCarriedForwardV1:
+      type: object
+      required: ["run_id", "legal_entity_id", "ledger_id", "from_fiscal_year", "to_fiscal_year", "basis", "chained_from_id", "superseded_run_id", "retained_earnings_account_id", "row_count", "result_lc", "result_gc", "results"]
+      properties:
+        run_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        ledger_id: {"$ref": "#/components/schemas/Uuid"}
+        from_fiscal_year: {"type": "integer", "minimum": 1900, "maximum": 2998}
+        to_fiscal_year: {"type": "integer", "minimum": 1901, "maximum": 2999}
+        basis: {"type": "string", "description": "Open enum: chained, all_years."}
+        chained_from_id: {"$ref": "#/components/schemas/NullableUuid", "description": "The previous year's run it was chained from; null for all_years."}
+        superseded_run_id: {"$ref": "#/components/schemas/NullableUuid", "description": "The run of the same year it superseded; null for the year's first."}
+        retained_earnings_account_id: {"$ref": "#/components/schemas/Uuid"}
+        row_count: {"type": "integer", "minimum": 0}
+        result_lc: {"$ref": "#/components/schemas/SignedMoney", "description": "The year's result over every transaction currency in local currency."}
+        result_gc: {"$ref": "#/components/schemas/SignedMoney", "description": "The year's result over every transaction currency in group currency."}
+        results:
+          type: array
+          description: "The year's result per transaction currency, by currency code."
+          items:
+            type: object
+            required: ["currency", "result", "result_lc", "result_gc"]
+            additionalProperties: false
+            properties:
+              currency: {"$ref": "#/components/schemas/CurrencyCode"}
+              result: {"$ref": "#/components/schemas/SignedMoney"}
+              result_lc: {"$ref": "#/components/schemas/SignedMoney"}
+              result_gc: {"$ref": "#/components/schemas/SignedMoney"}
     RevaluationRunCancelledV1:
       type: object
       required: ["run_id", "legal_entity_id", "ledger_id", "key_date", "reason", "valuation_reversal_entry_id", "valuation_reversal_entry_year", "reset_reversal_entry_id", "reset_reversal_entry_year"]

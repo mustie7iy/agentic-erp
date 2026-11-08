@@ -1090,7 +1090,13 @@ func (a *codeAnalysis) operationCodes(t *testing.T, spec node, common []string) 
 	byName := map[string]*ssa.Function{}
 	for i := range methods.Len() {
 		sel := methods.At(i)
-		byName[strings.ToLower(sel.Obj().Name())] = a.prog.MethodValue(sel)
+		// Operations are the exported methods: an unexported one promoted
+		// from a context's endpoints (ledger's postJournalEntry, the
+		// Postings path) lower-cases to an operation's id and, met after it,
+		// took its place.
+		if sel.Obj().Exported() {
+			byName[strings.ToLower(sel.Obj().Name())] = a.prog.MethodValue(sel)
+		}
 	}
 	out := map[string][]string{}
 	for _, o := range operations(t, spec) {

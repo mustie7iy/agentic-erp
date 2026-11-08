@@ -49,21 +49,23 @@ func (e *Endpoints) postDirect(ctx context.Context, in NewEntry) (je Entry, park
 	if err != nil {
 		return Entry{}, nil, err
 	}
-	switch p.Kind {
-	case reqctx.KindAgent:
+	if p.Kind == reqctx.KindAgent {
 		// The operation is open to service principals, so agents are refused
 		// here rather than by x-agent: false, which would refuse
 		// integrations too (as importBankStatements, ADR-0047).
 		return Entry{}, nil, problem.Forbidden("identity.agent_not_allowed",
 			"Journal entries are posted by people and integrations; an agent parks its proposal (POST /v1/parked-journal-entries).")
-	case reqctx.KindService: // measured against the service posting limit below
-	default:
-		je, err = e.postEntry(ctx, tx, p, in, e.withinLimit)
-		return je, nil, err
 	}
 	v, err := e.prepare(ctx, tx, in)
 	if err != nil {
 		return Entry{}, nil, err
+	}
+	if err := checkSpecial(ctx, tx, v, in); err != nil {
+		return Entry{}, nil, err
+	}
+	if p.Kind != reqctx.KindService { // a person's: measured against the manual entry approval limit
+		je, err = e.postPrepared(ctx, tx, p, v, in, e.withinLimit)
+		return je, nil, err
 	}
 	over, err := e.overServiceLimit(ctx, tx, v, in)
 	if err != nil {
@@ -92,7 +94,7 @@ func (e *Endpoints) postDirect(ctx context.Context, in NewEntry) (je Entry, park
 // person could not post it either. Keep it in step with
 // approvals.manualEntrySteps, which measures a person's entries.
 func (e *Endpoints) overServiceLimit(ctx context.Context, tx pgx.Tx, v prepared, in NewEntry) (*ParkLimit, error) {
-	if _, _, _, err := postingPeriod(ctx, tx, v.le, v.choice.ledgers, in.PostingDate); err != nil {
+	if _, _, _, err := postingPeriod(ctx, tx, v.le, v.choice.ledgers, in.PostingDate, in.specialNumber()); err != nil {
 		return nil, err
 	}
 	debits, err := debitTotal(v.lines)

@@ -98,6 +98,14 @@ type Endpoints struct {
 	// People tells whether a person is still active: the owner of an entry
 	// template, for whom the recurrer parks (ADR-0056).
 	People People
+	// PersonNames names the people who ran a carry-forward (ADR-0059 §7).
+	PersonNames PersonNames
+}
+
+// PersonNames is the identity context's names of principals by id; an id
+// of none is left out.
+type PersonNames interface {
+	PersonNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
 }
 
 // People is the identity context's directory of principals.

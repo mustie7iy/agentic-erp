@@ -109,7 +109,7 @@ func (p Postings) Postable(ctx context.Context, legalEntity uuid.UUID, date time
 	if err != nil {
 		return err
 	}
-	_, _, _, err = postingPeriod(ctx, tx, le, nil, date)
+	_, _, _, err = postingPeriod(ctx, tx, le, nil, date, 0)
 	return err
 }
 

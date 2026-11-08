@@ -1386,6 +1386,50 @@ projected, and consolidation reads it with the lines still pending
 (ADR-0059 §4a, T68d). No line carried a trading partner before, so nothing
 was backfilled.
 
+Year-end close, special-period postings (ADR-0059 §3, T64m1, migrations
+000216 and 000217): special periods 13-16 take manual and parked entries
+and the API's reversals, dated in the year's last regular period, whose
+dates they share. A parked entry keeps the special period it names in a
+nullable `parked_entry.fiscal_period`, 13 to 16 or null
+(`parked_entry_fiscal_period_special`; null: the regular period of its
+posting date). `ledger.check_entry_period`, the journal entry's period
+trigger, refuses an entry in a special period dated outside its dates (as
+in any period) and one that is neither a manual entry (`source_context`
+`ledger`) nor a reversal; the ledger answers both first with problems
+(`ledger.special_period_date`; no other context's posting names a special
+period), and refuses a tax code on a special-period line
+(`ledger.special_period_tax_code`, application only). A period close's
+parked-entry check (`ledger.CloseChecks.Parked`) leaves out entries naming
+a special period.
+
+The balance carry-forward (ADR-0059 §4-§6, T64m2, migrations 000218 and
+000219) stores the opening balances of the next fiscal year as balances,
+never as journal lines. `period_status.opened_count` counts a period's
+openings: the trigger `period_status_opened_count` starts it at 0 and adds
+one on every change of the status to `open`, whoever writes it, and
+refuses any other change (`period_status_opened_count_set`); locking and
+unlocking do not move it. The retained earnings account is the account
+determination key `retained_earnings`, applied from
+`companies[].year_end.retained_earnings_account` (tier 3; changed but not
+removed once activated). A run (`carry_forward_run`) of a company, ledger
+and year Y carries into Y+1 (`carry_forward_run_years`), `chained` from
+the previous year's run of its company and ledger
+(`carry_forward_run_basis`, `carry_forward_run_chain`) or `all_years`,
+to an equity account (`carry_forward_run_retained_earnings`); one is
+`current` per company, ledger and year (`carry_forward_run_current`), and
+a later run of the year sets it `superseded`, naming its successor
+(`carry_forward_run_superseded`; the successor's foreign key is checked at
+commit); nothing else of it changes and it is never deleted
+(`carry_forward_run_lifecycle`, `carry_forward_run_fixed`). Its rows
+(`carry_forward_balance`, insert-only) are per account, kind and
+transaction currency, in transaction, local and group currency, debit
+positive: `balance` for a balance sheet account, `result` (the year's
+profit or loss per currency) only on the run's retained earnings account
+(`carry_forward_balance_result`). `carry_forward_period` (insert-only)
+records the opened count of every period of its ledger in Y and earlier
+when it ran: a run is stale when one of them is open or its count moved,
+or a period of those years it did not record is open or has been opened.
+
 ## 3.8 Procurement (`procurement`)
 
 ```mermaid
@@ -2499,7 +2543,15 @@ the leading ledger's periods by legal entity, year and period through
 `LockPeriod`. A transaction that takes period locks over several
 statements (the migration load) is not covered by this. No write takes a
 period lock before a close's lock, so close-then-period never crosses
-either.
+either. A balance carry-forward (ADR-0059 §5, T64m2) first takes an
+advisory lock per ledger run (`'ledger.carry_forward:' || tenant || ':' ||
+company || ':' || ledger || ':' || year`), in one call in the ledgers'
+order (leading first, then by code), so runs of the same company, ledger
+and year wait for each other; then every period of the year and of every
+earlier year of its ledgers `FOR SHARE`, in one statement in the one
+order above. A posting into one of them needs it open, which waits for
+the run (`OpenPeriod`'s `FOR UPDATE`); the run takes no entry bucket and
+no number range, so it adds no cycle.
 
 A transaction that would otherwise lock in several
 steps or after posting, the migration load (it posts every document, then
@@ -3420,7 +3472,8 @@ check passed (`close_task_check_passed`): a pass sets it done (who ran it
 and when become its completion, unless it was done already) and a failure
 open; reopening it keeps the result. The checks read the ledger through
 its port (`ledger.CloseChecks`): parked entries of the company by posting
-date in the leading ledger's period (`ledger.parked_entry`) and posted
+date in the leading ledger's period (`ledger.parked_entry`), those naming a
+special period left out (ADR-0059 §3, T64m1), and posted
 revaluation runs per ledger and key date (`ledger.revaluation_run`);
 the depreciation check reads the assets context through its port
 (`assets.CloseChecks`): the latest `posted` run of the company, ledger,
@@ -3561,6 +3614,15 @@ first. The report and the check read a close's comments of a basis
 (`variance_comment_by_created`). The account, entries, session and
 principals are other contexts', by id, without foreign keys. Schema
 tests: `db/closing_test.go` (`TestVarianceCommentRules`).
+
+The year close (ADR-0059 §8, T64m4-T64m6) is **planned, not built**: a
+company's close of a fiscal year, stored apart from period closes in
+`year_close` (unique per company and year), `year_close_ledger`,
+`year_close_task` and `year_sign_off`, with the same columns and rules as
+`period_close`, `close_ledger`, `close_task` and `sign_off` but for the
+period; its template is the configuration's `close.year_tasks`. Its
+sign-off needs every regular period of each covered ledger locked and
+locks the special periods.
 
 ## 3.23 Analytics (`analytics`)
 

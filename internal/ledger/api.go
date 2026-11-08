@@ -226,7 +226,7 @@ func newEntry(req *gen.JournalEntryCreate) NewEntry {
 	in := NewEntry{LegalEntityID: req.LegalEntityID, LedgerID: apitypes.Ptr[uuid.UUID](req.LedgerID), LedgerGroup: apitypes.Ptr[string](req.LedgerGroup),
 		DocumentType: req.DocumentType.Or("SA"), DocumentDate: req.DocumentDate, PostingDate: req.PostingDate, TaxDate: apitypes.Ptr[time.Time](req.TaxDate),
 		Currency: req.Currency, Reference: apitypes.Ptr[string](req.Reference),
-		HeaderText: apitypes.Ptr[string](req.HeaderText), Lines: make([]NewLine, len(req.Lines))}
+		HeaderText: apitypes.Ptr[string](req.HeaderText), Lines: make([]NewLine, len(req.Lines)), special: specialOf(req.FiscalPeriod)}
 	for i, l := range req.Lines {
 		line := NewLine{AccountID: l.AccountID, Amount: l.Amount.Amount, Currency: l.Amount.Currency, PartnerID: apitypes.Ptr[uuid.UUID](l.PartnerID),
 			TaxCode: apitypes.Ptr[string](l.TaxCode), Text: apitypes.Ptr[string](l.LineText), TaxJurisdiction: apitypes.Ptr[string](l.TaxJurisdiction),
@@ -399,7 +399,8 @@ func (e *Endpoints) ReverseJournalEntry(ctx context.Context, req gen.OptJournalE
 		}
 		return requireOwnEntry(orig)
 	}
-	rev, err := e.reverseJournalEntry(ctx, params.ID, check, apitypes.Ptr[time.Time](req.Value.PostingDate), apitypes.Ptr[string](req.Value.HeaderText))
+	rev, err := e.reverseManually(ctx, params.ID, check, apitypes.Ptr[time.Time](req.Value.PostingDate), specialOf(req.Value.FiscalPeriod),
+		apitypes.Ptr[string](req.Value.HeaderText))
 	if err != nil {
 		return nil, err
 	}

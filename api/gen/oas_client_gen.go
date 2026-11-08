@@ -361,17 +361,18 @@ type Invoker interface {
 	// name; the task is set done when it passed (who ran it and when become its completion; a task already
 	// done keeps its completion) and open when it did not. `no_parked_entries` passes when no parked entry
 	// of the company dated in the period (the leading ledger's period's first to last day) is `parked` or
-	// `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted`
-	// passes when each covered ledger has a posted revaluation run keyed on its period's last day, and
-	// names each ledger with its run; `depreciation_posted` (T64k) passes when each covered ledger has a
-	// posted depreciation run of the close's fiscal year and period (`GET /v1/depreciation-runs`; a failed
-	// or cancelled run, or one still queued or running, does not count) or has no asset a run of that
-	// period in that ledger would select (the selection `POST /v1/depreciation-runs/preview` shows), and
-	// names each ledger with its latest posted run or, without one, how many assets a run would select;
-	// `variances_explained` (T64i) passes when every row requiring a comment of each basis the company
-	// configures (`companies[].close.variance`; none configured fails) has an accepted comment that is not
-	// stale, and names the first 20 that have none, or only a stale one. A check is a statement about the
-	// moment it ran: run it again to refresh it. Refused while a task it depends on is open (409
+	// `pending_approval`, an entry parked for a special period left out (the year close's, ADR-0059 §3),
+	// and names the first 20 with who parked them and their kind; `revaluation_posted` passes when each
+	// covered ledger has a posted revaluation run keyed on its period's last day, and names each ledger
+	// with its run; `depreciation_posted` (T64k) passes when each covered ledger has a posted depreciation
+	// run of the close's fiscal year and period (`GET /v1/depreciation-runs`; a failed or cancelled run,
+	// or one still queued or running, does not count) or has no asset a run of that period in that ledger
+	// would select (the selection `POST /v1/depreciation-runs/preview` shows), and names each ledger with
+	// its latest posted run or, without one, how many assets a run would select; `variances_explained`
+	// (T64i) passes when every row requiring a comment of each basis the company configures
+	// (`companies[].close.variance`; none configured fails) has an accepted comment that is not stale, and
+	// names the first 20 that have none, or only a stale one. A check is a statement about the moment it
+	// ran: run it again to refresh it. Refused while a task it depends on is open (409
 	// `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`).
 	// `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only.
 	// Audited, and published as PeriodCloseChanged (`task_checked`, with `check_passed`). A signed-off
@@ -1242,6 +1243,15 @@ type Invoker interface {
 	//
 	// GET /v1/asset-transfers/{id}
 	GetAssetTransfer(ctx context.Context, params GetAssetTransferParams) (GetAssetTransferRes, error)
+	// GetBalanceCarryForward invokes getBalanceCarryForward operation.
+	//
+	// One carry-forward run (ADR-0059 §7) with its company, ledger, years, basis, retained earnings
+	// account, status, who ran it, and its totals per transaction currency: the year's result carried to
+	// retained earnings and the debit and credit totals of its rows in transaction, local and group
+	// currency (debits equal credits). A run of a company the caller cannot act in is not found.
+	//
+	// GET /v1/balance-carry-forwards/{id}
+	GetBalanceCarryForward(ctx context.Context, params GetBalanceCarryForwardParams) (GetBalanceCarryForwardRes, error)
 	// GetBankAccount invokes getBankAccount operation.
 	//
 	// Returns one bank account of the partner, masked.
@@ -4041,6 +4051,34 @@ type Invoker interface {
 	//
 	// POST /v1/analytics-queries
 	RunAnalyticsQuery(ctx context.Context, request *AnalyticsQuery, params RunAnalyticsQueryParams) (RunAnalyticsQueryRes, error)
+	// RunBalanceCarryForward invokes runBalanceCarryForward operation.
+	//
+	// Carries a company's fiscal year forward into the next one in each ledger named (ADR-0059 §5,
+	// T64m2): one run per ledger, all in one transaction, stored as balances, never as journal entries, so
+	// the trial balance and every reader of journal lines are unchanged. A run's rows are the opening
+	// balances of the next year per account and transaction currency, with local and group amounts as
+	// booked: each balance sheet account carries its balance at the year's end (`balance`), and the year's
+	// profit or loss of each transaction currency is carried to the company's retained earnings account
+	// (`companies[].year_end.retained_earnings_account`, one for every ledger) as a `result` row beside
+	// that account's own `balance` row; the results of earlier years are in that `balance` row. A run is
+	// chained from the ledger's current carry-forward of the previous year (its rows plus the year's
+	// balances, periods 1-16), or computed from every year when there is none; the two give the same rows.
+	// A run's rows sum to zero per transaction currency in transaction, local and group currency. Refused:
+	// a ledger the company does not keep (422 `ledger.ledger_not_kept`); the year not set up in a ledger
+	// (422 `ledger.no_fiscal_period`); no retained earnings account (409
+	// `ledger.retained_earnings_missing`); the next year not set up in a ledger (409
+	// `ledger.next_year_not_set_up`); a period of the year or an earlier year still open (409
+	// `ledger.carry_forward_periods_open`, naming them: close them first); the previous year's
+	// carry-forward stale, a period it read opened since (409 `ledger.carry_forward_stale`, naming the
+	// year to carry forward again first). Runs of the same company, ledger and year wait for each other;
+	// postings into the periods read wait for the run, which holds them `FOR SHARE` (03-data-model, entry
+	// locks). A run of a year already carried forward supersedes the current one, which stays readable.
+	// Each run is audited and published (`BalanceCarriedForward`). People only. Besides
+	// `ledger.carry_forward.run` the caller needs `ledger.entry.read`, since the runs show balances
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// POST /v1/balance-carry-forwards
+	RunBalanceCarryForward(ctx context.Context, request *BalanceCarryForwardRequest, params RunBalanceCarryForwardParams) (RunBalanceCarryForwardRes, error)
 	// SignOffPeriodClose invokes signOffPeriodClose operation.
 	//
 	// Signs off a period close and locks its covered ledgers' periods through the period lock (ADR-0058
@@ -9437,17 +9475,18 @@ func (c *Client) sendCaptureSupplierInvoice(ctx context.Context, request *Suppli
 // name; the task is set done when it passed (who ran it and when become its completion; a task already
 // done keeps its completion) and open when it did not. `no_parked_entries` passes when no parked entry
 // of the company dated in the period (the leading ledger's period's first to last day) is `parked` or
-// `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted`
-// passes when each covered ledger has a posted revaluation run keyed on its period's last day, and
-// names each ledger with its run; `depreciation_posted` (T64k) passes when each covered ledger has a
-// posted depreciation run of the close's fiscal year and period (`GET /v1/depreciation-runs`; a failed
-// or cancelled run, or one still queued or running, does not count) or has no asset a run of that
-// period in that ledger would select (the selection `POST /v1/depreciation-runs/preview` shows), and
-// names each ledger with its latest posted run or, without one, how many assets a run would select;
-// `variances_explained` (T64i) passes when every row requiring a comment of each basis the company
-// configures (`companies[].close.variance`; none configured fails) has an accepted comment that is not
-// stale, and names the first 20 that have none, or only a stale one. A check is a statement about the
-// moment it ran: run it again to refresh it. Refused while a task it depends on is open (409
+// `pending_approval`, an entry parked for a special period left out (the year close's, ADR-0059 §3),
+// and names the first 20 with who parked them and their kind; `revaluation_posted` passes when each
+// covered ledger has a posted revaluation run keyed on its period's last day, and names each ledger
+// with its run; `depreciation_posted` (T64k) passes when each covered ledger has a posted depreciation
+// run of the close's fiscal year and period (`GET /v1/depreciation-runs`; a failed or cancelled run,
+// or one still queued or running, does not count) or has no asset a run of that period in that ledger
+// would select (the selection `POST /v1/depreciation-runs/preview` shows), and names each ledger with
+// its latest posted run or, without one, how many assets a run would select; `variances_explained`
+// (T64i) passes when every row requiring a comment of each basis the company configures
+// (`companies[].close.variance`; none configured fails) has an accepted comment that is not stale, and
+// names the first 20 that have none, or only a stale one. A check is a statement about the moment it
+// ran: run it again to refresh it. Refused while a task it depends on is open (409
 // `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`).
 // `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only.
 // Audited, and published as PeriodCloseChanged (`task_checked`, with `check_passed`). A signed-off
@@ -19997,6 +20036,140 @@ func (c *Client) sendGetAssetTransfer(ctx context.Context, params GetAssetTransf
 
 	stage = "DecodeResponse"
 	result, err := decodeGetAssetTransferResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetBalanceCarryForward invokes getBalanceCarryForward operation.
+//
+// One carry-forward run (ADR-0059 §7) with its company, ledger, years, basis, retained earnings
+// account, status, who ran it, and its totals per transaction currency: the year's result carried to
+// retained earnings and the debit and credit totals of its rows in transaction, local and group
+// currency (debits equal credits). A run of a company the caller cannot act in is not found.
+//
+// GET /v1/balance-carry-forwards/{id}
+func (c *Client) GetBalanceCarryForward(ctx context.Context, params GetBalanceCarryForwardParams) (GetBalanceCarryForwardRes, error) {
+	res, err := c.sendGetBalanceCarryForward(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetBalanceCarryForward(ctx context.Context, params GetBalanceCarryForwardParams) (res GetBalanceCarryForwardRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getBalanceCarryForward"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/balance-carry-forwards/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetBalanceCarryForwardOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/balance-carry-forwards/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetBalanceCarryForwardOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetBalanceCarryForwardResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -66165,6 +66338,158 @@ func (c *Client) sendRunAnalyticsQuery(ctx context.Context, request *AnalyticsQu
 
 	stage = "DecodeResponse"
 	result, err := decodeRunAnalyticsQueryResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// RunBalanceCarryForward invokes runBalanceCarryForward operation.
+//
+// Carries a company's fiscal year forward into the next one in each ledger named (ADR-0059 §5,
+// T64m2): one run per ledger, all in one transaction, stored as balances, never as journal entries, so
+// the trial balance and every reader of journal lines are unchanged. A run's rows are the opening
+// balances of the next year per account and transaction currency, with local and group amounts as
+// booked: each balance sheet account carries its balance at the year's end (`balance`), and the year's
+// profit or loss of each transaction currency is carried to the company's retained earnings account
+// (`companies[].year_end.retained_earnings_account`, one for every ledger) as a `result` row beside
+// that account's own `balance` row; the results of earlier years are in that `balance` row. A run is
+// chained from the ledger's current carry-forward of the previous year (its rows plus the year's
+// balances, periods 1-16), or computed from every year when there is none; the two give the same rows.
+// A run's rows sum to zero per transaction currency in transaction, local and group currency. Refused:
+// a ledger the company does not keep (422 `ledger.ledger_not_kept`); the year not set up in a ledger
+// (422 `ledger.no_fiscal_period`); no retained earnings account (409
+// `ledger.retained_earnings_missing`); the next year not set up in a ledger (409
+// `ledger.next_year_not_set_up`); a period of the year or an earlier year still open (409
+// `ledger.carry_forward_periods_open`, naming them: close them first); the previous year's
+// carry-forward stale, a period it read opened since (409 `ledger.carry_forward_stale`, naming the
+// year to carry forward again first). Runs of the same company, ledger and year wait for each other;
+// postings into the periods read wait for the run, which holds them `FOR SHARE` (03-data-model, entry
+// locks). A run of a year already carried forward supersedes the current one, which stays readable.
+// Each run is audited and published (`BalanceCarriedForward`). People only. Besides
+// `ledger.carry_forward.run` the caller needs `ledger.entry.read`, since the runs show balances
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// POST /v1/balance-carry-forwards
+func (c *Client) RunBalanceCarryForward(ctx context.Context, request *BalanceCarryForwardRequest, params RunBalanceCarryForwardParams) (RunBalanceCarryForwardRes, error) {
+	res, err := c.sendRunBalanceCarryForward(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendRunBalanceCarryForward(ctx context.Context, request *BalanceCarryForwardRequest, params RunBalanceCarryForwardParams) (res RunBalanceCarryForwardRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("runBalanceCarryForward"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/balance-carry-forwards"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RunBalanceCarryForwardOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/balance-carry-forwards"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeRunBalanceCarryForwardRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RunBalanceCarryForwardOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRunBalanceCarryForwardResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

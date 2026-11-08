@@ -6338,17 +6338,18 @@ func (s *Server) handleCaptureSupplierInvoiceRequest(args [0]string, argsEscaped
 // name; the task is set done when it passed (who ran it and when become its completion; a task already
 // done keeps its completion) and open when it did not. `no_parked_entries` passes when no parked entry
 // of the company dated in the period (the leading ledger's period's first to last day) is `parked` or
-// `pending_approval`, and names the first 20 with who parked them and their kind; `revaluation_posted`
-// passes when each covered ledger has a posted revaluation run keyed on its period's last day, and
-// names each ledger with its run; `depreciation_posted` (T64k) passes when each covered ledger has a
-// posted depreciation run of the close's fiscal year and period (`GET /v1/depreciation-runs`; a failed
-// or cancelled run, or one still queued or running, does not count) or has no asset a run of that
-// period in that ledger would select (the selection `POST /v1/depreciation-runs/preview` shows), and
-// names each ledger with its latest posted run or, without one, how many assets a run would select;
-// `variances_explained` (T64i) passes when every row requiring a comment of each basis the company
-// configures (`companies[].close.variance`; none configured fails) has an accepted comment that is not
-// stale, and names the first 20 that have none, or only a stale one. A check is a statement about the
-// moment it ran: run it again to refresh it. Refused while a task it depends on is open (409
+// `pending_approval`, an entry parked for a special period left out (the year close's, ADR-0059 §3),
+// and names the first 20 with who parked them and their kind; `revaluation_posted` passes when each
+// covered ledger has a posted revaluation run keyed on its period's last day, and names each ledger
+// with its run; `depreciation_posted` (T64k) passes when each covered ledger has a posted depreciation
+// run of the close's fiscal year and period (`GET /v1/depreciation-runs`; a failed or cancelled run,
+// or one still queued or running, does not count) or has no asset a run of that period in that ledger
+// would select (the selection `POST /v1/depreciation-runs/preview` shows), and names each ledger with
+// its latest posted run or, without one, how many assets a run would select; `variances_explained`
+// (T64i) passes when every row requiring a comment of each basis the company configures
+// (`companies[].close.variance`; none configured fails) has an accepted comment that is not stale, and
+// names the first 20 that have none, or only a stale one. A check is a statement about the moment it
+// ran: run it again to refresh it. Refused while a task it depends on is open (409
 // `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`).
 // `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only.
 // Audited, and published as PeriodCloseChanged (`task_checked`, with `check_passed`). A signed-off
@@ -21204,6 +21205,196 @@ func (s *Server) handleGetAssetTransferRequest(args [1]string, argsEscaped bool,
 	}
 
 	if err := encodeGetAssetTransferResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetBalanceCarryForwardRequest handles getBalanceCarryForward operation.
+//
+// One carry-forward run (ADR-0059 §7) with its company, ledger, years, basis, retained earnings
+// account, status, who ran it, and its totals per transaction currency: the year's result carried to
+// retained earnings and the debit and credit totals of its rows in transaction, local and group
+// currency (debits equal credits). A run of a company the caller cannot act in is not found.
+//
+// GET /v1/balance-carry-forwards/{id}
+func (s *Server) handleGetBalanceCarryForwardRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getBalanceCarryForward"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/balance-carry-forwards/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetBalanceCarryForwardOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetBalanceCarryForwardOperation,
+			ID:   "getBalanceCarryForward",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetBalanceCarryForwardOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetBalanceCarryForwardParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetBalanceCarryForwardRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetBalanceCarryForwardOperation,
+			OperationSummary: "Get a balance carry-forward run",
+			OperationID:      "getBalanceCarryForward",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetBalanceCarryForwardParams
+			Response = GetBalanceCarryForwardRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetBalanceCarryForwardParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetBalanceCarryForward(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetBalanceCarryForward(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetBalanceCarryForwardResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -71978,6 +72169,230 @@ func (s *Server) handleRunAnalyticsQueryRequest(args [0]string, argsEscaped bool
 	}
 
 	if err := encodeRunAnalyticsQueryResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleRunBalanceCarryForwardRequest handles runBalanceCarryForward operation.
+//
+// Carries a company's fiscal year forward into the next one in each ledger named (ADR-0059 §5,
+// T64m2): one run per ledger, all in one transaction, stored as balances, never as journal entries, so
+// the trial balance and every reader of journal lines are unchanged. A run's rows are the opening
+// balances of the next year per account and transaction currency, with local and group amounts as
+// booked: each balance sheet account carries its balance at the year's end (`balance`), and the year's
+// profit or loss of each transaction currency is carried to the company's retained earnings account
+// (`companies[].year_end.retained_earnings_account`, one for every ledger) as a `result` row beside
+// that account's own `balance` row; the results of earlier years are in that `balance` row. A run is
+// chained from the ledger's current carry-forward of the previous year (its rows plus the year's
+// balances, periods 1-16), or computed from every year when there is none; the two give the same rows.
+// A run's rows sum to zero per transaction currency in transaction, local and group currency. Refused:
+// a ledger the company does not keep (422 `ledger.ledger_not_kept`); the year not set up in a ledger
+// (422 `ledger.no_fiscal_period`); no retained earnings account (409
+// `ledger.retained_earnings_missing`); the next year not set up in a ledger (409
+// `ledger.next_year_not_set_up`); a period of the year or an earlier year still open (409
+// `ledger.carry_forward_periods_open`, naming them: close them first); the previous year's
+// carry-forward stale, a period it read opened since (409 `ledger.carry_forward_stale`, naming the
+// year to carry forward again first). Runs of the same company, ledger and year wait for each other;
+// postings into the periods read wait for the run, which holds them `FOR SHARE` (03-data-model, entry
+// locks). A run of a year already carried forward supersedes the current one, which stays readable.
+// Each run is audited and published (`BalanceCarriedForward`). People only. Besides
+// `ledger.carry_forward.run` the caller needs `ledger.entry.read`, since the runs show balances
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// POST /v1/balance-carry-forwards
+func (s *Server) handleRunBalanceCarryForwardRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("runBalanceCarryForward"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/balance-carry-forwards"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), RunBalanceCarryForwardOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: RunBalanceCarryForwardOperation,
+			ID:   "runBalanceCarryForward",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, RunBalanceCarryForwardOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeRunBalanceCarryForwardParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeRunBalanceCarryForwardRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response RunBalanceCarryForwardRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    RunBalanceCarryForwardOperation,
+			OperationSummary: "Carry a fiscal year's balances forward",
+			OperationID:      "runBalanceCarryForward",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *BalanceCarryForwardRequest
+			Params   = RunBalanceCarryForwardParams
+			Response = RunBalanceCarryForwardRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackRunBalanceCarryForwardParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.RunBalanceCarryForward(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.RunBalanceCarryForward(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeRunBalanceCarryForwardResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
