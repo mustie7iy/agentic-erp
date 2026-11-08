@@ -73,9 +73,9 @@ func (c carryForward) insertRun(tx pgx.Tx, run uuid.UUID, year int, chained *uui
 		c.tenant, run, c.entity, c.ledger, year, basis, chained, account, c.actor)
 }
 
-// TestPeriodOpenedCount: a period starts at 0 openings, each change to
-// open adds one whoever writes it, closing and locking add none, and the
-// count is never set (ADR-0059 §6).
+// TestPeriodOpenedCount: a period starts at 0 openings (1 when inserted
+// open), each change to open adds one whoever writes it, closing and
+// locking add none, and the count is never set (ADR-0059 §6).
 func TestPeriodOpenedCount(t *testing.T) {
 	need(t)
 	f := newFixture(t)
