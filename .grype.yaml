@@ -33,3 +33,36 @@ ignore:
       name: libapt-pkg7.0
       type: deb
       version: 3.0.3
+  # zlib1g 1:1.3.dfsg+really1.3.1-1+b1 in gcr.io/distroless/cc-debian13:nonroot
+  # (erp-analytics's runtime base, deploy/images/erp-analytics.Dockerfile,
+  # digest sha256:08476c24..., still the tag's current digest on
+  # 2026-11-08) and in the pinned PgBouncer image above; Debian 13 fixes
+  # CVE-2026-76844 and CVE-2026-85091 (High) in
+  # 1:1.3.dfsg+really1.3.1-1+deb13u1 (DSA-6613-1). Both are heap overflows
+  # in the gzFile write path (gz_write/gz_vacate after a failed or stalled
+  # write); the deflate/inflate stream API and compress/uncompress are not
+  # affected (per advisory aggregators and OSV, 2026-11-08; DSA-6613-1 not
+  # read directly: confirm when pinning). Accepted because nothing we run calls the gz* functions
+  # (checked 2026-11-08): erp-analytics loads no libz at all (the binary's
+  # NEEDED are libstdc++, libm, libgcc_s, libc and ld-linux, whose own
+  # NEEDED name no libz; it names no libz.so to dlopen; DuckDB links its
+  # own miniz and zstd statically; Go's compress packages are pure Go; the
+  # linux/arm64 build uses the same link flags). In the PgBouncer image the
+  # only loaded library linking libz is libcrypto.so.3, which imports
+  # compress, uncompress, deflate* and inflate* and no gz* function;
+  # libapt-pkg imports gzwrite but nothing in the cell loads it (the apt
+  # entry above). PgBouncer's current tag build (sha256:5487ee7b...,
+  # pulled 2026-11-05) still carries the same zlib1g. Pinned to this version; grype applies it to every image,
+  # so a new pin carrying it needs its own check. Until 2026-11-20, or
+  # sooner once fixed digests are pinned. CVE-2026-27171 (Medium) is below
+  # the scan's threshold and needs no entry.
+  - vulnerability: CVE-2026-76844
+    package:
+      name: zlib1g
+      type: deb
+      version: 1:1.3.dfsg+really1.3.1-1+b1
+  - vulnerability: CVE-2026-85091
+    package:
+      name: zlib1g
+      type: deb
+      version: 1:1.3.dfsg+really1.3.1-1+b1
