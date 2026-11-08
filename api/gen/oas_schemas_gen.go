@@ -12221,7 +12221,8 @@ type BusinessPartner struct {
 	// §4): the trading partner the ledger gives the lines that name the partner from then on. Absent:
 	// none.
 	GroupCompanyID OptUUID `json:"group_company_id"`
-	// `group_company_id` by its company code and its name as they are now; absent with it.
+	// `group_company_id` by its company code and its name as they are now, both only to a caller who may
+	// act in that company (the id alone otherwise); absent with it.
 	GroupCompany OptGroupCompany `json:"group_company"`
 }
 
@@ -33418,16 +33419,18 @@ func (s *GroupAccountRef) SetName(val string) {
 	s.Name = val
 }
 
-// The company of the group a business partner is (ADR-0059 §4): a legal entity of the tenant, by id,
-// company code and its name as it is now.
+// The company of the group a business partner is (ADR-0059 §4): a legal entity of the tenant, by id
+// and, to a caller who may act in that company (ADR-0010), its company code and its name as it is now.
+// To any other caller the id alone (product owner 2026-11-05).
 // Ref: #/components/schemas/GroupCompany
 type GroupCompany struct {
 	// The legal entity.
 	ID uuid.UUID `json:"id"`
-	// Its company code.
-	Code string `json:"code"`
-	// Its name, as it is now: renaming the company changes no partner's ETag.
-	Name string `json:"name"`
+	// Its company code; absent when the caller may not act in the company.
+	Code OptString `json:"code"`
+	// Its name, as it is now: renaming the company changes no partner's ETag, and neither does who reads
+	// it. Absent when the caller may not act in the company.
+	Name OptString `json:"name"`
 }
 
 // GetID returns the value of ID.
@@ -33436,12 +33439,12 @@ func (s *GroupCompany) GetID() uuid.UUID {
 }
 
 // GetCode returns the value of Code.
-func (s *GroupCompany) GetCode() string {
+func (s *GroupCompany) GetCode() OptString {
 	return s.Code
 }
 
 // GetName returns the value of Name.
-func (s *GroupCompany) GetName() string {
+func (s *GroupCompany) GetName() OptString {
 	return s.Name
 }
 
@@ -33451,12 +33454,12 @@ func (s *GroupCompany) SetID(val uuid.UUID) {
 }
 
 // SetCode sets the value of Code.
-func (s *GroupCompany) SetCode(val string) {
+func (s *GroupCompany) SetCode(val OptString) {
 	s.Code = val
 }
 
 // SetName sets the value of Name.
-func (s *GroupCompany) SetName(val string) {
+func (s *GroupCompany) SetName(val OptString) {
 	s.Name = val
 }
 
@@ -65607,16 +65610,19 @@ func (*TooManyRequestsHeaders) verifyAuditChainRes()                      {}
 func (*TooManyRequestsHeaders) withdrawChangeRequestRes()                 {}
 func (*TooManyRequestsHeaders) withdrawTaxReturnRes()                     {}
 
-// A journal line's trading partner (ADR-0059 §4): a legal entity of the tenant, by id, company code
-// and its name as it is now.
+// A journal line's trading partner (ADR-0059 §4): a legal entity of the tenant, by id and, to a
+// caller who may act in that company (ADR-0010), its company code and its name as it is now. To any
+// other caller the id alone (product owner 2026-11-05): the line is the entry's company's record, the
+// other company's master data is not.
 // Ref: #/components/schemas/TradingPartner
 type TradingPartner struct {
 	// The legal entity.
 	ID uuid.UUID `json:"id"`
-	// Its company code.
-	Code string `json:"code"`
-	// Its name, as it is now: renaming the company changes no entry's ETag.
-	Name string `json:"name"`
+	// Its company code; absent when the caller may not act in the company.
+	Code OptString `json:"code"`
+	// Its name, as it is now: renaming the company changes no entry's ETag, and neither does who reads it.
+	// Absent when the caller may not act in the company.
+	Name OptString `json:"name"`
 }
 
 // GetID returns the value of ID.
@@ -65625,12 +65631,12 @@ func (s *TradingPartner) GetID() uuid.UUID {
 }
 
 // GetCode returns the value of Code.
-func (s *TradingPartner) GetCode() string {
+func (s *TradingPartner) GetCode() OptString {
 	return s.Code
 }
 
 // GetName returns the value of Name.
-func (s *TradingPartner) GetName() string {
+func (s *TradingPartner) GetName() OptString {
 	return s.Name
 }
 
@@ -65640,12 +65646,12 @@ func (s *TradingPartner) SetID(val uuid.UUID) {
 }
 
 // SetCode sets the value of Code.
-func (s *TradingPartner) SetCode(val string) {
+func (s *TradingPartner) SetCode(val OptString) {
 	s.Code = val
 }
 
 // SetName sets the value of Name.
-func (s *TradingPartner) SetName(val string) {
+func (s *TradingPartner) SetName(val OptString) {
 	s.Name = val
 }
 

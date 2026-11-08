@@ -11,6 +11,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -107,7 +108,9 @@ func (e *Endpoints) ListConsolidationBalances(ctx context.Context, params gen.Li
 }
 
 // names are what a page of translated balances is shown with: the group
-// chart in the run's version, the companies by id, the accounts of the
+// chart in the run's version, the companies the caller may act in by id
+// (every company of a run it may read, and the trading partners named to
+// it, product owner 2026-11-05), the accounts of the
 // page's companies and the currencies' minor units.
 type names struct {
 	chart     config.Consolidation
@@ -129,8 +132,14 @@ func (e *Endpoints) namesOf(ctx context.Context, tx pgx.Tx, r Run, page []stored
 	if err != nil {
 		return names{}, fmt.Errorf("consolidation: companies: %w", err)
 	}
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return names{}, fmt.Errorf("consolidation: names of run %s: %w", r.ID, err)
+	}
 	for _, c := range entities {
-		n.companies[c.ID] = c
+		if access.Allows(c.ID) { // the run's companies all are; a trading partner outside access keeps its id alone
+			n.companies[c.ID] = c
+		}
 	}
 	rows, _ := tx.Query(ctx, `SELECT DISTINCT local_currency FROM consolidation.run_member WHERE run_id = $1 ORDER BY 1`, r.ID)
 	codes, err := pgx.CollectRows(rows, pgx.RowTo[string])
@@ -181,8 +190,11 @@ func (n names) balanceAPI(s storedBalance) gen.ConsolidationBalance {
 		}
 	}
 	if s.partner != nil {
-		p := n.companies[*s.partner]
-		out.TradingPartner = gen.NewOptTradingPartner(gen.TradingPartner{ID: *s.partner, Code: p.Code, Name: p.Name})
+		tp := gen.TradingPartner{ID: *s.partner}
+		if p, ok := n.companies[*s.partner]; ok {
+			tp.Code, tp.Name = gen.NewOptString(p.Code), gen.NewOptString(p.Name)
+		}
+		out.TradingPartner = gen.NewOptTradingPartner(tp)
 	}
 	if s.lc != nil {
 		out.AmountLc, out.AmountGcBooked = gen.NewOptMoney(n.money(*s.lc, s.currency)), gen.NewOptMoney(n.money(*s.booked, n.group))

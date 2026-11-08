@@ -1847,6 +1847,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Trading partner and group company names by company access: a journal, parked or template line's trading_partner, a business partner's group_company and a consolidation run's translated balance's trading_partner show the company's code and name only to a caller who may act in that company (ADR-0010), the id alone otherwise; ETags independent of the caller; events carry ids only, unchanged; walkthrough: in step 39 Cory, who may act in Maple alone, reads the intercompany entry with company 1000's id alone",
+        "r": "TradingPartner · GroupCompany · ADR-0059 As built · 04-api-design · T68b, T68c, T68d",
+        "src": "po:2026-11-05 · adr:ADR-0059",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "An accounting specialist confirms the consolidation run's translation method (ADR-0059 §7: assets and liabilities at the closing rate, non-monetary ones included; income, expenses and equity at booked group amounts; prior results on retained earnings; the difference to the translation reserve per member) against IAS 21 before T68d ships",
         "r": "ADR-0059 §7, question 1 · T68d",

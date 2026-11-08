@@ -3334,11 +3334,12 @@ step_consolidation() {
 # first day as an intercompany receivable (1250) against intercompany
 # revenue (4250), names company 1000 on both lines; the entry reads back
 # with the company's code and name, the journal lists it by trading
-# partner, and a line naming Maple itself is refused. Then the trading
-# partner derived from the business partner (T68c): Maple's business
-# partner record of Acme Corp US, a supplier of Maple's, is linked to
-# company 1000, and its USD invoice, posted through payables without
-# naming a trading partner, carries 1000 on every line.
+# partner, Cory (Maple alone) reads it with the trading partner's id
+# alone (product owner 2026-11-05), and a line naming Maple itself is
+# refused. Then the trading partner derived from the business partner
+# (T68c): Maple's business partner record of Acme Corp US, a supplier of
+# Maple's, is linked to company 1000, and its USD invoice, posted through
+# payables without naming a trading partner, carries 1000 on every line.
 consolidation_trading_partner() {
   local first="${TODAY:0:7}-01" receivable revenue us je body
   say "The trading partner on journal lines (T68b, ADR-0059 §4): an intercompany line names the group company on its"
@@ -3363,6 +3364,13 @@ consolidation_trading_partner() {
   say "The journal lists Maple's entries with company 1000 as trading partner: this invoice alone so far."
   api 200 '.items[] | "  entry \(.document_number) of \(.posting_date): \(.header_text)"' listJournalEntries -p "legal_entity_id=$LE" -p "trading_partner_id=$us"
   expect "the entries naming Acme Corp US" "$(field '[.items[].id] | join(" ")')" "$je"
+  say "Cory, who may act in Maple alone, reads the same entry: its trading partner is a company he may not act in, so"
+  say "he is shown its id alone, without its code or name (product owner 2026-11-05, ADR-0010):"
+  as cory
+  api 200 '.lines[] | "  line \(.line_no): trading partner \(.trading_partner.id[0:8])…, code \(.trading_partner.code // "not shown"), name \(.trading_partner.name // "not shown")"' \
+    getJournalEntry -p "id=$je"
+  expect "the trading partner Cory sees" "$(field '[.lines[].trading_partner | "\(.id) \(.code) \(.name)"] | unique | join(", ")')" "$us null null"
+  as carla
   say "A trading partner is another company of the group: a line naming Maple itself is refused on that line."
   refused 422 ledger.trading_partner_invalid postJournalEntry -body "${body%\"$us\"\}\]\}}\"$LE\"}]}"
   expect "the refused line" "$(field '[.errors[] | "\(.field) \(.code)"] | join(", ")')" "lines[1].trading_partner_id own_company"

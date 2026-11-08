@@ -222,9 +222,12 @@ Manual, parked and template entry lines take a `trading_partner_id`
 intercompany line, another legal entity of the tenant than the entry's
 (422 `ledger.trading_partner_invalid` on `lines[i].trading_partner_id`,
 the field error's `code` `own_company` or `unknown`). Journal and parked
-lines show it as `trading_partner` (id, company code and the company's
-name as it is now; the name is added after a journal entry's ETag is
-taken, so renaming a company changes no entry's ETag); `GET
+lines show it as `trading_partner` (id, and company code and the
+company's name as it is now only to a caller who may act in that company,
+the id alone otherwise, product owner 2026-11-05; the names are added
+after a journal entry's ETag is taken, so neither renaming a company nor
+who reads changes an entry's ETag); a consolidation run's translated
+balances name their trading partners the same way; `GET
 /v1/journal-entries` filters by `trading_partner_id`, and
 JournalEntryPosted's lines carry it. Every operation that posts can answer
 the refusal, as the database's check of a line's own company maps to it.
@@ -233,7 +236,8 @@ A business partner takes a `group_company_id` (T68c, ADR-0059 §4) on
 `createBusinessPartner` and in an `update` partner change (null unlinks
 it; applied on approval): any legal entity of the tenant, else 422
 `partner.group_company_unknown`. The partner shows it with `group_company`
-(id, company code and name as they are now; the ETag is the partner's
+(id, and company code and name as they are now only to a caller who may
+act in that company, as a trading partner; the ETag is the partner's
 version), and BusinessPartnerCreated and BusinessPartnerUpdated carry it.
 The ledger derives each posted line's trading partner from it: a line
 naming the partner takes the company, the entry's other lines take the one

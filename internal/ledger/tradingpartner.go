@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -25,8 +26,9 @@ import (
 // (journal_line_trading_partner, 000216). The balance projection's trigger
 // adds the lines with one to ledger.trading_partner_balance (000216), which
 // consolidation reads (T68d). Reads name each trading partner by its
-// company code and its name as it is now, after a journal entry's ETag is
-// taken, so renaming a company changes no entry's ETag.
+// company code and its name as it is now, to a caller with access to that
+// company only, after a journal entry's ETag is taken, so neither renaming
+// a company nor who reads it changes an entry's ETag.
 
 func init() {
 	problem.RegisterConstraint("journal_line_trading_partner", func() *problem.Problem {
@@ -156,16 +158,31 @@ func tradingPartnerRef(id *uuid.UUID) gen.OptTradingPartner {
 	return gen.NewOptTradingPartner(gen.TradingPartner{ID: *id})
 }
 
-// nameTradingPartners gives each trading partner its company code and its
-// name as tenancy has them now, reading each legal entity once. A line's
-// trading partner was a legal entity of the tenant when it was posted, and
-// legal entities are never deleted, so one tenancy does not know is an
-// error.
+// nameTradingPartners gives each trading partner the caller may act in
+// (ADR-0010) its company code and its name as tenancy has them now,
+// reading each legal entity once; one outside the caller's access keeps
+// its id alone (product owner 2026-11-05, ADR-0059 As built): the line is
+// a record of the entry's company, the other company's master data is
+// not the caller's to read. The caller's access is read only when a
+// trading partner is there to name. A line's trading partner was a legal
+// entity of the tenant when it was posted, and legal entities are never
+// deleted, so one tenancy does not know is an error.
 func (e *Endpoints) nameTradingPartners(ctx context.Context, partners []*gen.OptTradingPartner) error {
+	var access *authz.Access
 	names := map[uuid.UUID]tenancy.Entity{}
 	for _, p := range partners {
 		tp, ok := p.Get()
 		if !ok {
+			continue
+		}
+		if access == nil {
+			a, err := authz.Companies(ctx)
+			if err != nil {
+				return fmt.Errorf("ledger: name trading partners: %w", err)
+			}
+			access = &a
+		}
+		if !access.Allows(tp.ID) {
 			continue
 		}
 		le, seen := names[tp.ID]
@@ -180,7 +197,7 @@ func (e *Endpoints) nameTradingPartners(ctx context.Context, partners []*gen.Opt
 			}
 			names[tp.ID] = le
 		}
-		tp.Code, tp.Name = le.Code, le.Name
+		tp.Code, tp.Name = gen.NewOptString(le.Code), gen.NewOptString(le.Name)
 		p.SetTo(tp)
 	}
 	return nil

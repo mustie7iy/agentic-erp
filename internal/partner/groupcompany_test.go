@@ -201,3 +201,39 @@ func groupCompany(t *testing.T, e env, partnerID uuid.UUID) string {
 	}
 	return got.String()
 }
+
+// TestGroupCompanyNamedOnlyWithAccess: a partner's group company is named
+// (company code and name) only to a caller who may act in that company;
+// the service, which may act in none, gets its id alone, read or listed,
+// until it is given the company (product owner 2026-11-05, ADR-0059 As
+// built). The ETag does not depend on who reads.
+func TestGroupCompanyNamedOnlyWithAccess(t *testing.T) {
+	e := setup(t)
+	p, c := e.create(t, e.withGroupCompany("Acme Corp US", e.le))
+	e.mustApply(t, id(c))
+	svc := e.Client
+	svc.As = e.ten.Service
+	_, tag := e.Must(200, "GET", "/v1/business-partners/"+id(p), "", "")
+	seen := func(t *testing.T, want string) {
+		t.Helper()
+		got, gotTag := svc.In(t).Must(200, "GET", "/v1/business-partners/"+id(p), "", "")
+		if g := groupCompanyOf(t, got); g != want {
+			t.Errorf("read: got %q, want %q", g, want)
+		}
+		if gotTag != tag {
+			t.Errorf("ETag: got %s, want %s, the one a caller with access gets", gotTag, tag)
+		}
+		page, _ := svc.In(t).Must(200, "GET", "/v1/business-partners?ids="+id(p), "", "")
+		if g := groupCompanyOf(t, apitest.List(t, page, "items")[0].(map[string]any)); g != want {
+			t.Errorf("listed: got %q, want %q", g, want)
+		}
+	}
+	t.Run("a caller who may not act in the company sees its id alone", func(t *testing.T) {
+		seen(t, e.le.String()+" <nil> <nil>")
+	})
+	t.Run("a caller who may sees its code and name", func(t *testing.T) {
+		pgtest.Exec(t, `INSERT INTO identity.company_access (tenant_id, id, principal_id, legal_entity_id, valid_from, created_by)
+			VALUES ($1, gen_random_uuid(), $2, $3, current_date - 1, $2)`, e.ten.ID, e.ten.Service.ID, e.le)
+		seen(t, e.le.String()+" 1000 Acme")
+	})
+}
