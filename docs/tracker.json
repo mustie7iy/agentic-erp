@@ -1756,9 +1756,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Year-end close designed as its own step before the pilots' first year end: special periods 13-16, closing profit and loss into retained earnings and carrying balances forward (the ledger has no carry-forward today)",
-        "r": "ADR-0058 §1, Questions (year-end close), As built (product owner 2026-11-04) · T64m",
+        "r": "ADR-0058 §1, Questions (year-end close), As built (product owner 2026-11-04) · T64m · done by ADR-0060 (T64m, split T64m1-T64m6)",
         "src": "po:2026-11-04 · adr:ADR-0058",
         "c": []
        },
@@ -1772,7 +1772,7 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Year-end close designed (ADR-0060, product owner 2026-11-04, T64m): special periods 13-16 take manual entries; a retained earnings account per company; the balance carry-forward per company, ledger and year stored as balances, chained, stale when a period is opened, re-run by a person; a year close in closing whose sign-off locks the year",
       "r": "ADR-0060 · T64m (split T64m1-T64m6)",
       "c": [
