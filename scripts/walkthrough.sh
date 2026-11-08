@@ -4448,13 +4448,14 @@ close_accruals() {
   period=$((10#${TODAY:5:2}))
   as ada
   say "Ada names the account $CC's accruals are credited to (ADR-0058 §3): a new liability, 2195 Accrued"
-  say "liabilities, posted by hand. The accrual account decides what the accrual proposals' entries post (tier 3), and"
-  say "a new account changes the chart, so the change is tier 4: the invoices of the last year are replayed under it."
+  say "liabilities, posted by hand (group account G2000, as $CC is in group MAPLE). The accrual account decides what"
+  say "the accrual proposals' entries post (tier 3), and a new account changes the chart, so the change is tier 4: the"
+  say "invoices of the last year are replayed under it."
   QUIET=1 api 200 '' listConfigVersions -p is_active=true
   base=$(field '.items[0].number')
   jq "{title: \"Accrual account 2195\", rationale: \"The close agent's accrual proposals (T64e)\", base_version: $base,
     proposed: (.items[0].document | .companies |= map(if .code == \"$CC\" then .chart_of_accounts += [{number: \"2195\", name: \"Accrued liabilities\",
-      type: \"liability\"}] | .close.accrual_account = \"2195\" else . end))}" "$WORK/last.json" >"$WORK/accrual.json"
+      type: \"liability\"} + if any(.chart_of_accounts[]; .group_account) then {group_account: \"G2000\"} else {} end] | .close.accrual_account = \"2195\" else . end))}" "$WORK/last.json" >"$WORK/accrual.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @accrual.json
   cr=$(field .id)
   api 200 '"\(.status), tier \(.tier): \([.items[] | "\(.path) (tier \(.tier))"] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
