@@ -358,6 +358,16 @@ exceptions.
   containers are non-root on a read-only root with no capabilities, and
   the pod has no init container or hook). The `.grype.yaml` entry names
   the evidence; the tracker item pins a fixed image and removes it.
+- **Second exception (2026-11-08, batch 56 fix forward).** CVE-2026-76844
+  and CVE-2026-85091 (High) in zlib1g of erp-analytics's runtime base
+  (distroless cc-debian13:nonroot) and of the PgBouncer pin, fixed in
+  Debian 13's 1:1.3.dfsg+really1.3.1-1+deb13u1 (DSA-6613-1, per advisory
+  aggregators; to confirm when pinning), are accepted
+  until 2026-11-20 with the product owner's agreement: Google had
+  published no fixed digest, nor PgBouncer a fixed build. Both flaws are in zlib's gzFile write path;
+  erp-analytics loads no libz, and in PgBouncer only libcrypto loads it,
+  importing the stream functions and no gz* function. The tracker item
+  pins fixed digests and removes the entry.
 - **Checked by** `scripts/test-images.sh` with a fake grype: every pin,
   PgBouncer's and NATS's, scanned once by digest on `linux/arm64` with the
   threshold and `.grype.yaml`; a fixable high in a pin fails the scan; a
