@@ -270,9 +270,43 @@ type Plans interface {
 // Depreciation reads the assets context: a legal entity's latest posted
 // depreciation run of a fiscal year and period, ending on end, in a
 // ledger, nil without one; and, only without one, how many of its assets
-// a run of that period in that ledger would select (ADR-0057 §7).
+// a run of that period in that ledger would select, the latest posted run
+// of a later period and, with one, the first limit of those assets late
+// for it with their catch-up (ADR-0057 §7, PO 2026-11-04).
 type Depreciation interface {
-	Posted(ctx context.Context, legalEntity, ledger uuid.UUID, fiscalYear, period int16, end time.Time) (run *uuid.UUID, selected int, err error)
+	Posted(ctx context.Context, legalEntity, ledger uuid.UUID, fiscalYear, period int16, end time.Time, limit int) (PeriodDepreciation, error)
+}
+
+// PeriodDepreciation is a ledger's depreciation of a period as the
+// depreciation check reads it (Depreciation).
+type PeriodDepreciation struct {
+	Run      *uuid.UUID
+	Selected int
+	Later    *LaterDepreciation
+	Late     []LateAsset
+}
+
+// FiscalPeriod is a fiscal year and regular period.
+type FiscalPeriod struct{ FiscalYear, Period int16 }
+
+// LaterDepreciation is a posted depreciation run of a later period: its
+// id, period and currency.
+type LaterDepreciation struct {
+	ID       uuid.UUID
+	Of       FiscalPeriod
+	Currency string
+}
+
+// LateAsset is an asset a run of the period would select after a later
+// period's run posted: its number and description, the first period it
+// has no depreciation booked for (nil when it has neither a booked period
+// nor a depreciation start) and the catch-up a run of the later run's
+// period posts for it, in the run's currency.
+type LateAsset struct {
+	ID                  uuid.UUID
+	Number, Description string
+	MissingFrom         *FiscalPeriod
+	CatchUp             money.Minor
 }
 
 // Person is a principal as the closing context names it: its name, kind

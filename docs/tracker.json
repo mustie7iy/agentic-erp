@@ -1733,6 +1733,13 @@
         "r": "ADR-0058 · T64k",
         "src": "adr:ADR-0058",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "Late assets warn (PO 2026-11-04): depreciation_posted passes for a ledger without a posted run of the period once a later period's run has posted there, each asset a run of the period would select a depreciation_catch_up warning (asset, ledger, periods missing, the later run, the catch-up a run of its period posts); warnings and warnings_count on every check result; without a later run the check fails as before; walkthrough: a machine valued in the previous period after step 29's run warns in 0L on that period's close, 2L failing until its run",
+        "r": "ADR-0058 · T64l",
+        "src": "po:2026-11-04 · adr:ADR-0058",
+        "c": []
        }
       ]
      },

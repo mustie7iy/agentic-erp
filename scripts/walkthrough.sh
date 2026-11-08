@@ -3095,10 +3095,10 @@ step_asset_depreciation() {
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
 # the process owner approves; Carla reads the year's close calendar, each
 # period's planned first and last due dates on the company's business days.
-# Then the close's checklist (T64b), its depreciation check (T64k), its
-# other checks (T64c), its accrual proposals (T64e), its variances (T64h)
-# and their comments (T64i) and, last, its sign-off (T64d), which locks
-# the period.
+# Then the close's checklist (T64b), its depreciation check (T64k) with a
+# late asset in the previous period's close (T64l), its other checks
+# (T64c), its accrual proposals (T64e), its variances (T64h) and their
+# comments (T64i) and, last, its sign-off (T64d), which locks the period.
 step_close() {
   heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off"
   as ada
@@ -3151,6 +3151,7 @@ step_close() {
   expect "the cut-off reminder before each period's end, the review after it" \
     "$(field '[.periods[] | .first_due_on < .end_date and .last_due_on > .end_date] | all')" true
   close_checklist
+  close_late_depreciation
   close_depreciation
   close_checks
   close_accruals
@@ -3211,6 +3212,72 @@ close_checklist() {
   api 200 ".periods[] | select(.period == $period) | \"  period \\(.period): close \\(.close.status), \\(.close.tasks_done) of \\(.close.tasks_total) done\"" \
     getCloseCalendar -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
   expect "the calendar's close" "$(field ".periods[] | select(.period == $period) | .close.id")" "$close"
+}
+
+# close_late_depreciation is T64l's part of step_close (ADR-0058 §6 as
+# built, PO 2026-11-04): a machine contributed in kind is capitalised after
+# step 29's run, valued in the previous period. Carla opens that period's
+# close: a run of it is refused in the leading ledger, whose later run
+# posted, so the check warns of the machine there, naming the catch-up the
+# preview of this period shows for it; 2L, without a later run, still
+# fails until Carla runs the previous period's depreciation there. The
+# check then passes, the warning kept. Skipped in January, whose previous
+# period is another fiscal year's.
+close_late_depreciation() {
+  local period prev from cc late close tag l2 run catch
+  period=$((10#${TODAY:5:2}))
+  prev=$((period - 1))
+  if [ "$prev" -lt 1 ]; then
+    say "(The previous period is another fiscal year's in January; the late asset's warning is shown from February.)"
+    return
+  fi
+  from=$(printf '%s-%02d-01' "$YEAR" "$prev")
+  as carla
+  say "A second shareholder contribution in kind, a packaging machine in use since $from, reaches Carla only now,"
+  say "after step 29 posted this period's depreciation in the leading ledger. She capitalises it with that value date:"
+  accounts
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  api 201 '"asset \(.company_code)/\(.asset_number) \(.description): \(.status)"' createAsset \
+    -body "{\"legal_entity_id\": \"$LE\", \"class_code\": \"MACHINES\", \"description\": \"Packaging machine\", \"cost_center_id\": \"$cc\"}"
+  late=$(field .id)
+  api 201 '"acquisition onto asset \(.asset_number), valued \(.value_date), posted \(.posting_date): \(.amount.amount) \(.amount.currency)"' \
+    createAssetAcquisition -body "{\"asset_id\": \"$late\", \"offset_account_id\": \"$(account 3000)\", \"amount\": {\"amount\": \"2400.00\", \"currency\": \"CAD\"}, \"value_date\": \"$from\", \"text\": \"Packaging machine contributed in kind\"}"
+  say "The previous period's depreciation can no longer be run in the leading ledger, whose run of $YEAR/$period posted:"
+  refused 409 assets.run_out_of_order startDepreciationRun -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"period\": $prev}"
+  say "What a run of $YEAR/$period would post for the machine now, its catch-up of both periods:"
+  api 200 ".items[] | select(.asset_id == \"$late\") | \"  \\(.asset_number) \\(.description): planned \\(.planned.amount), booked \\(.booked.amount), difference \\(.difference.amount) \\(.difference.currency)\"" \
+    previewDepreciationRun -p page_size=100 -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"period\": $period}"
+  catch=$(field ".items[] | select(.asset_id == \"$late\") | .difference.amount")
+  say "Carla opens the close of $YEAR/$prev, still open, and runs its depreciation check:"
+  api 201 '"close of \(.company_code) \(.fiscal_year)/\(.fiscal_period): \(.status)"' \
+    createPeriodClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"fiscal_period\": $prev}"
+  close=$(field .id)
+  tag=$ETAG
+  local result='"  \(.code) \(.status): \(.check_result.summary)",
+    (.check_result.ledgers[] | "    \(.ledger_code): \(if .posted then "posted run" else "no posted run, \(.assets_to_depreciate) assets a run would select" end)\(if .later_depreciation_run_id then ", the run of \(.later_depreciation_fiscal_year)/\(.later_depreciation_period) posted" else "" end)"),
+    "    \(.check_result.warnings_count) warnings:", (.check_result.warnings[] | "    \(.code): \(.message)")'
+  api 200 "$result" checkCloseTask -p "id=$close" -p code=DEPRECIATED -if-match "$tag"
+  tag=$ETAG
+  expect "the check without a later run in 2L" "$(field '.check_result.passed')" false
+  expect "the ledgers failing" "$(field '[.check_result.ledgers[] | select((.posted | not) and .assets_to_depreciate > 0 and .later_depreciation_run_id == null) | .ledger_code] | join(" ")')" 2L
+  expect "the machine's warning in 0L" "$(field ".check_result.warnings[] | select(.asset_id == \"$late\") | \"\\(.code) \\(.ledger_code) \\(.missing_from_year)/\\(.missing_from_period) \\(.missing_through_year)/\\(.missing_through_period)\"")" \
+    "depreciation_catch_up 0L $YEAR/$prev $YEAR/$period"
+  expect "the warning's catch-up, the preview's difference" "$(field ".check_result.warnings[] | select(.asset_id == \"$late\") | .catch_up.amount")" "$catch"
+  expect "0L's later run's period" "$(field '.check_result.ledgers[] | select(.ledger_code == "0L") | "\(.later_depreciation_fiscal_year)/\(.later_depreciation_period)"')" "$YEAR/$period"
+  l2=$(field '.check_result.ledgers[] | select(.ledger_code == "2L") | .ledger_id')
+  say "Carla runs $YEAR/$prev's depreciation in 2L, where no later run has posted, and checks again: it passes, and"
+  say "the warning stays, for the next run of the leading ledger to catch the machine up."
+  api 202 '"\(.kind) \(.status): \(.resource)"' startDepreciationRun \
+    -body "{\"legal_entity_id\": \"$LE\", \"ledger_id\": \"$l2\", \"fiscal_year\": $YEAR, \"period\": $prev}"
+  run=$(field .resource)
+  run=${run##*/}
+  wait_op
+  QUIET=1 api 200 '' getDepreciationRun -p "id=$run"
+  expect "2L's run of $YEAR/$prev" "$(field .status)" posted
+  api 200 "$result" checkCloseTask -p "id=$close" -p code=DEPRECIATED -if-match "$tag"
+  expect "the check with the warning" "$(field '"\(.check_result.passed) \(.status)"')" "true done"
+  expect "the warning kept" "$(field "[.check_result.warnings[] | select(.asset_id == \"$late\") | .ledger_code] | join(\" \")")" 0L
 }
 
 # close_depreciation is T64k's part of step_close (ADR-0058 §6): the

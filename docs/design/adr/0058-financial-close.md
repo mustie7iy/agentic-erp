@@ -357,7 +357,7 @@ open (`closing.task_blocked`) and for a manual task (409
 | `accruals_decided` | no accrual proposal of this close is `proposed` or `pending_approval` (§8) | `closing`, T64f |
 | `accruals_reversed` | every accrual of the company's close of the previous regular period that was posted is reversed (none, when there is no such close) | `closing.Ledger`, T64f |
 | `variances_explained` | every row of each configured basis that requires a comment has an accepted comment that is not stale (§9) | `closing`, T64i |
-| `depreciation_posted` | each covered ledger has a posted depreciation run for the period, or has nothing a run would select | `closing.Depreciation`, T64k |
+| `depreciation_posted` | each covered ledger has a posted depreciation run for the period, has nothing a run would select, or has a posted run of a later period (each asset a run would select then a warning naming its catch-up; PO 2026-11-04) | `closing.Depreciation`, T64k, T64l |
 
 A check is a statement about the moment it ran: the result is shown with
 its time, and sign-off runs every check again (§7). No check runs on its
@@ -1695,7 +1695,9 @@ the other checks. Decided by default, for the product owner to overrule:
   which no run can then pass; the next period's run catches it up. The
   check is §6's as written, so such a close cannot be signed off (it keeps
   the tasks it copied); whether the check should then pass on the later
-  period's run is listed for the product owner, not decided here.
+  period's run is listed for the product owner, not decided here. The
+  product owner decided on 2026-11-04 that it passes, with a warning per
+  late asset (T64l, below).
 - **A posted run stays enough**: an acquisition posted into the period
   after its run (whose depreciation the next run catches up) does not
   fail the check again; §6 asks for a posted run, not for a zero
@@ -1725,3 +1727,71 @@ the other checks. Decided by default, for the product owner to overrule:
   depreciation run and passes after it", per covered ledger, without
   reordering the story. The template gains the check task `DEPRECIATED`
   (due day 2, no dependency).
+
+**T64l (late assets warn, PO 2026-11-04).** The product owner decided on
+2026-11-04 that the depreciation check passes once a later period's
+depreciation run has posted, and reports the late asset as a warning
+naming the catch-up it needs: before, an asset capitalised after a later
+period's run with a value date in or before the closed period was
+selected for that period, whose run `assets.run_out_of_order` refuses, so
+the close could never pass its check (T64k's "a period passed over"). Now
+`assets.CloseChecks.Depreciation`, when a ledger has no posted run of the
+period and the run's selection selects assets, also reads the ledger's
+latest posted run of a later period; with one, the ledger passes, and for
+the first 20 of the selected assets (by asset number; the count is all of
+them) it reads the number, description, the period the asset is booked
+through and its catch-up. `CloseCheckLedger` gains
+`later_depreciation_run_id` with that run's fiscal year and period
+(`later_depreciation_fiscal_year`, `later_depreciation_period`), so a
+ledger whose warnings fall beyond the 20 named still says which run's
+period catches its assets up; `CloseCheckResult` gains `warnings_count`
+and `warnings`. No migration: the warnings are stored in T64c's
+`check_result` with the rest. Walkthrough: `close_late_depreciation` in
+`step_close`, before `close_depreciation`. Decided by default, for the
+product owner to overrule:
+- **Warnings are a level of every check**, not a field of this one:
+  `CloseCheckResult.warnings` (at most 20, `warnings_count` counting them
+  all, as `parked_entries` and `unexplained_rows` do) holds
+  `CloseCheckWarning`s, each with an open-enumeration `code` and a
+  one-sentence `message`, the shape `PartnerChangeWarning` and
+  `DocumentaryWarning` have elsewhere in the API; only those two are
+  required, and every other field is optional, present for the codes that
+  name it, so a later code without an asset adds its own fields without a
+  breaking change. No check had a warning level before; `depreciation_catch_up` is
+  the first code. Both are present (0 and empty) on every result,
+  including results recorded before T64l, which had none. A warning never
+  changes `passed`, so the task is `done` and the sign-off proceeds; the
+  sign-off records the warnings with the result. The audit record of
+  `check_task` gains `warnings_count`.
+- **A `depreciation_catch_up` warning** names the ledger, the asset (id,
+  number, description), the first period whose depreciation it has not
+  booked (the period after its `booked_through`, else its depreciation
+  start's; absent with neither, an asset whose acquisition was reversed
+  after depreciation, whose catch-up is negative and whose message says
+  it differs from its plan rather than that nothing is booked), the later run and its period (the last period
+  missed), and the catch-up: the difference a run of the later run's
+  period posts for the asset now, planned through that period less booked,
+  computed by the run's and the preview's own `differences` (ADR-0057 §7),
+  in the run's currency. A run of a period after it posts that period's
+  depreciation on top, so the warning names "a run of that period or
+  later". The walkthrough checks the warning's amount against the
+  preview's difference for the asset.
+- **Only without a posted run of the period**: a ledger with its own
+  posted run passes as before and warns of nothing, even if an asset was
+  capitalised into the period after it (T64k's "a posted run stays
+  enough"); a ledger without a later posted run fails as before. A later
+  run counts only when `posted`, in the same ledger: another ledger's
+  later run does not.
+- Periods are placed by months (ADR-0057's `Month`: a fiscal year's
+  twelve regular periods are consecutive calendar months), counted from
+  the closed period, so the first missing period of an asset booked
+  through another fiscal year is named in that year.
+- The warnings' 20 are shared by the covered ledgers in `ledgers`' order:
+  each ledger names at most what is left of the 20.
+- **No new permission**: `checkCloseTask` keeps `closing.close.manage`
+  and `ledger.entry.read`, though a warning now names an asset's number
+  and description, which T64k's result did not, to a checker who may lack
+  `assets.asset.read`. The close needs to say which asset waits, as
+  `no_parked_entries` names parked entries' header texts; the port still
+  reads only within the companies the caller may act in. Reading the
+  asset itself, its values or schedule, still needs `assets.asset.read`.

@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -59,6 +60,31 @@ type found struct {
 	Accruals      []foundAccrual `json:"accruals,omitempty"`
 	PreviousClose *uuid.UUID     `json:"previous_close_id,omitempty"`
 	Previous      *[2]int16      `json:"previous_period,omitempty"` // its fiscal year and period
+	// Any check: what it warns of without failing, how many, the first.
+	WarningCount int            `json:"warnings_count,omitempty"`
+	Warnings     []foundWarning `json:"warnings,omitempty"`
+}
+
+// The warnings a check reports (ADR-0058 §6 as built).
+const warnCatchUp = "depreciation_catch_up"
+
+// foundWarning is what a check warns of without failing: for
+// depreciation_catch_up a late asset of a ledger, the first period it has
+// no depreciation booked for, the later period whose posted run a run of
+// that period or after catches it up through, and the catch-up then.
+type foundWarning struct {
+	Code             string    `json:"code"`
+	Message          string    `json:"message"`
+	LedgerID         uuid.UUID `json:"ledger_id"`
+	LedgerCode       string    `json:"ledger_code"`
+	AssetID          uuid.UUID `json:"asset_id"`
+	AssetNumber      string    `json:"asset_number"`
+	AssetDescription string    `json:"asset_description"`
+	MissingFrom      *[2]int16 `json:"missing_from,omitempty"`
+	MissingThrough   [2]int16  `json:"missing_through"`
+	LaterRun         uuid.UUID `json:"later_depreciation_run_id"`
+	CatchUp          string    `json:"catch_up"`
+	Currency         string    `json:"currency"`
 }
 
 // foundVariance is a row a variances_explained check found unexplained,
@@ -97,12 +123,18 @@ type foundLedger struct {
 	Run          *uuid.UUID `json:"revaluation_run_id,omitempty"`
 	Depreciation *uuid.UUID `json:"depreciation_run_id,omitempty"`
 	ToDepreciate *int       `json:"assets_to_depreciate,omitempty"`
+	Later        *uuid.UUID `json:"later_depreciation_run_id,omitempty"`
+	LaterOf      *[2]int16  `json:"later_depreciation,omitempty"` // its fiscal year and period
 }
 
 // toAPI shows a recorded result; what a check found is shown for its own
 // check only, an empty list when it found nothing.
 func (f *found) toAPI(check string, passed bool, at time.Time, by uuid.UUID, byName string) gen.CloseCheckResult {
-	out := gen.CloseCheckResult{Check: check, Passed: passed, CheckedAt: at, CheckedBy: by, CheckedByName: byName, Summary: f.Summary}
+	out := gen.CloseCheckResult{Check: check, Passed: passed, CheckedAt: at, CheckedBy: by, CheckedByName: byName, Summary: f.Summary,
+		WarningsCount: int32(f.WarningCount), Warnings: make([]gen.CloseCheckWarning, len(f.Warnings))} // at most a company's assets
+	for i, w := range f.Warnings {
+		out.Warnings[i] = w.toAPI()
+	}
 	switch check {
 	case CheckNoParked:
 		out.ParkedEntriesCount.SetTo(int32(f.ParkedCount)) // at most the entries of one period
@@ -144,11 +176,29 @@ func (f *found) toAPI(check string, passed bool, at time.Time, by uuid.UUID, byN
 	return out
 }
 
+// toAPI shows a warning as its check found it.
+func (w foundWarning) toAPI() gen.CloseCheckWarning {
+	out := gen.CloseCheckWarning{Code: w.Code, Message: w.Message, LedgerID: gen.NewOptUUID(w.LedgerID), LedgerCode: gen.NewOptString(w.LedgerCode),
+		AssetID: gen.NewOptUUID(w.AssetID), AssetNumber: gen.NewOptString(w.AssetNumber), AssetDescription: gen.NewOptString(w.AssetDescription),
+		MissingThroughYear: gen.NewOptInt32(int32(w.MissingThrough[0])), MissingThroughPeriod: gen.NewOptInt32(int32(w.MissingThrough[1])),
+		LaterDepreciationRunID: gen.NewOptUUID(w.LaterRun), CatchUp: gen.NewOptMoney(gen.Money{Amount: w.CatchUp, Currency: w.Currency})}
+	if w.MissingFrom != nil {
+		out.MissingFromYear.SetTo(int32(w.MissingFrom[0]))
+		out.MissingFromPeriod.SetTo(int32(w.MissingFrom[1]))
+	}
+	return out
+}
+
 // toAPI shows a covered ledger as its check found it.
 func (l foundLedger) toAPI() gen.CloseCheckLedger {
 	day, _ := time.Parse(time.DateOnly, l.KeyDate) // written by run from a date
 	out := gen.CloseCheckLedger{LedgerID: l.LedgerID, LedgerCode: l.LedgerCode, LedgerName: l.LedgerName, KeyDate: day,
-		Posted: l.Run != nil || l.Depreciation != nil, RevaluationRunID: apitypes.OptUUID(l.Run), DepreciationRunID: apitypes.OptUUID(l.Depreciation)}
+		Posted: l.Run != nil || l.Depreciation != nil, RevaluationRunID: apitypes.OptUUID(l.Run), DepreciationRunID: apitypes.OptUUID(l.Depreciation),
+		LaterDepreciationRunID: apitypes.OptUUID(l.Later)}
+	if l.LaterOf != nil {
+		out.LaterDepreciationFiscalYear.SetTo(int32(l.LaterOf[0]))
+		out.LaterDepreciationPeriod.SetTo(int32(l.LaterOf[1]))
+	}
 	if l.ToDepreciate != nil {
 		out.AssetsToDepreciate.SetTo(int32(*l.ToDepreciate)) // at most a company's assets
 	}
@@ -176,7 +226,7 @@ func (e *Endpoints) CheckCloseTask(ctx context.Context, params gen.CheckCloseTas
 			return change{}, false, err
 		}
 		return change{action: "check_task", name: "task_checked", task: &t.Code, passed: &passed,
-			detail: map[string]any{"check": *t.Check, "passed": passed, "summary": f.Summary}}, true, nil
+			detail: map[string]any{"check": *t.Check, "passed": passed, "summary": f.Summary, "warnings_count": f.WarningCount}}, true, nil
 	})
 }
 
@@ -210,7 +260,7 @@ func (e *Endpoints) run(ctx context.Context, tx pgx.Tx, t task) (bool, found, er
 	case CheckVariances:
 		return e.variancesExplained(ctx, tx, t)
 	case CheckDepreciation:
-		return e.depreciationPosted(ctx, t.LegalEntityID, t.FiscalYear, t.FiscalPeriod, covered)
+		return e.depreciationPosted(ctx, tx, t.LegalEntityID, FiscalPeriod{t.FiscalYear, t.FiscalPeriod}, covered)
 	case CheckDecided:
 		return e.accrualsDecided(ctx, tx, t)
 	case CheckReversed:
@@ -343,31 +393,93 @@ func (e *Endpoints) company(ctx context.Context, legalEntity uuid.UUID) (Company
 }
 
 // depreciationPosted passes when each covered ledger has a posted
-// depreciation run of the period, or has no asset a run of it would
-// select (ADR-0057 §7), and names each ledger with its run or, without
-// one, how many assets a run would select.
-func (e *Endpoints) depreciationPosted(ctx context.Context, legalEntity uuid.UUID, year, period int16, covered []LedgerPeriod) (bool, found, error) {
+// depreciation run of the period, has no asset a run of it would select
+// (ADR-0057 §7), or has a posted run of a later period, which refuses a
+// run of this one (PO 2026-11-04): each asset a run of the period would
+// select is then a warning naming its catch-up. It names each ledger with
+// its run or, without one, how many assets a run would select and the
+// later run.
+func (e *Endpoints) depreciationPosted(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, p FiscalPeriod, covered []LedgerPeriod) (bool, found, error) {
 	f := found{Ledgers: make([]foundLedger, len(covered))}
-	var missing []string
+	var missing, late []string
 	for i, k := range covered {
-		run, selected, err := e.Depreciation.Posted(ctx, legalEntity, k.LedgerID, year, period, k.Period.EndDate)
+		d, err := e.Depreciation.Posted(ctx, legalEntity, k.LedgerID, p.FiscalYear, p.Period, k.Period.EndDate, maxNamed-len(f.Warnings))
 		if err != nil {
 			return false, found{}, fmt.Errorf("closing: depreciation of ledger %s: %w", k.Code, err)
 		}
 		f.Ledgers[i] = foundLedger{LedgerID: k.LedgerID, LedgerCode: k.Code, LedgerName: k.Name, KeyDate: k.Period.EndDate.Format(time.DateOnly),
-			Depreciation: run}
-		if run == nil {
-			f.Ledgers[i].ToDepreciate = &selected
-			if selected > 0 {
-				missing = append(missing, fmt.Sprintf("%s (%s)", k.Code, assetCount(selected)))
+			Depreciation: d.Run}
+		if d.Run != nil {
+			continue
+		}
+		f.Ledgers[i].ToDepreciate = &d.Selected
+		switch {
+		case d.Selected == 0:
+		case d.Later == nil:
+			missing = append(missing, fmt.Sprintf("%s (%s)", k.Code, assetCount(d.Selected)))
+		default:
+			f.Ledgers[i].Later, f.Ledgers[i].LaterOf = &d.Later.ID, &[2]int16{d.Later.Of.FiscalYear, d.Later.Of.Period}
+			if err := f.warnLate(ctx, tx, k, d); err != nil {
+				return false, found{}, err
 			}
+			late = append(late, fmt.Sprintf("%s (%s, caught up by a run of %d/%d or later)", k.Code, lateCount(d.Selected), d.Later.Of.FiscalYear,
+				d.Later.Of.Period))
 		}
 	}
-	f.Summary = fmt.Sprintf("Every covered ledger has a posted depreciation run of %d/%d or nothing to depreciate.", year, period)
-	if len(missing) > 0 {
-		f.Summary = fmt.Sprintf("No posted depreciation run of %d/%d in ledger %s; run the depreciation first.", year, period, strings.Join(missing, ", "))
+	f.Summary = fmt.Sprintf("Every covered ledger has a posted depreciation run of %d/%d or nothing to depreciate.", p.FiscalYear, p.Period)
+	switch {
+	case len(missing) > 0:
+		f.Summary = fmt.Sprintf("No posted depreciation run of %d/%d in ledger %s; run the depreciation first.", p.FiscalYear, p.Period, strings.Join(missing, ", "))
+	case len(late) > 0:
+		f.Summary = fmt.Sprintf("Every covered ledger has a posted depreciation run of %d/%d, nothing to depreciate or a posted run of a later period; "+
+			"ledger %s, see the warnings.", p.FiscalYear, p.Period, strings.Join(late, ", "))
 	}
 	return len(missing) == 0, f, nil
+}
+
+// warnLate adds a depreciation_catch_up warning for each late asset the
+// assets context named of the ledger, counting them all, its catch-up in
+// the later run's currency's digits.
+func (f *found) warnLate(ctx context.Context, tx pgx.Tx, k LedgerPeriod, d PeriodDepreciation) error {
+	f.WarningCount += d.Selected
+	exp, err := currency.Exponent(ctx, tx, d.Later.Currency, nil)
+	if err != nil {
+		return fmt.Errorf("closing: digits of %s: %w", d.Later.Currency, err)
+	}
+	through := [2]int16{d.Later.Of.FiscalYear, d.Later.Of.Period}
+	for _, a := range d.Late {
+		w := foundWarning{Code: warnCatchUp, LedgerID: k.LedgerID, LedgerCode: k.Code, AssetID: a.ID, AssetNumber: a.Number, AssetDescription: a.Description,
+			MissingThrough: through, LaterRun: d.Later.ID, CatchUp: a.CatchUp.Plain(exp), Currency: d.Later.Currency}
+		if a.MissingFrom != nil {
+			w.MissingFrom = &[2]int16{a.MissingFrom.FiscalYear, a.MissingFrom.Period}
+		}
+		w.Message = w.message()
+		f.Warnings = append(f.Warnings, w)
+	}
+	return nil
+}
+
+// message is a depreciation_catch_up warning in one sentence: the periods
+// an asset has no depreciation booked for, or, without a first missing
+// period (an acquisition reversed after depreciation posted), that what
+// is booked differs from its plan; and what a run of the later period
+// posts for it.
+func (w foundWarning) message() string {
+	y, p := w.MissingThrough[0], w.MissingThrough[1]
+	if w.MissingFrom == nil {
+		return fmt.Sprintf("Asset %s (%s) in ledger %s differs from its depreciation planned through %d/%d, whose run posted before it; a run of "+
+			"%d/%d or later posts the difference, %s %s.", w.AssetNumber, w.AssetDescription, w.LedgerCode, y, p, y, p, w.CatchUp, w.Currency)
+	}
+	return fmt.Sprintf("Asset %s (%s) in ledger %s has no depreciation booked from %d/%d through %d/%d, whose run posted before it; a run of "+
+		"%d/%d or later catches up %s %s.", w.AssetNumber, w.AssetDescription, w.LedgerCode, w.MissingFrom[0], w.MissingFrom[1], y, p, y, p, w.CatchUp, w.Currency)
+}
+
+// lateCount is n late assets in words.
+func lateCount(n int) string {
+	if n == 1 {
+		return "1 late asset"
+	}
+	return fmt.Sprintf("%d late assets", n)
 }
 
 // assetCount is n assets in words.

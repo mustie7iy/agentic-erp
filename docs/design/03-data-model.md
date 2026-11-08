@@ -3345,7 +3345,10 @@ the count and the first 20 parked entries with who parked them; for
 `revaluation_posted`, each covered ledger with its key date and posted
 run; for `depreciation_posted` (T64k), each covered ledger with its
 latest posted depreciation run of the period or, without one, how many
-assets a run would select), names included as they were then. The four are set together, on a
+assets a run would select and the latest posted run of a later period;
+for any check, its warnings, counted, the first 20 named: from T64l,
+`depreciation_catch_up` for each asset a run of the period would select
+in a ledger whose later period's run posted, with its catch-up), names included as they were then. The four are set together, on a
 check task only (`close_task_checked`), never when the task is created,
 and once recorded are replaced by the next check, never removed
 (`closing.check_close_task`). A check task is `done` only while its latest
@@ -3360,7 +3363,9 @@ the depreciation check reads the assets context through its port
 fiscal year and period (`assets.depreciation_run`,
 `depreciation_run_by_company`) and, without one, the assets a run would
 select (the run's and the preview's selection over `assets.asset`,
-`asset_terms`, `asset_assignment` and `movement`, ADR-0057 §7).
+`asset_terms`, `asset_assignment` and `movement`, ADR-0057 §7) and the
+latest `posted` run of a later period, with the selected assets'
+`booked_through` and movements for their catch-up (T64l).
 
 A close's sign-offs (T64d, migration 000199):
 
