@@ -67,6 +67,12 @@ func TestProposeVarianceComment(t *testing.T) {
 
 	agent.Problem(403, "identity.agent_not_allowed", "POST", commentAt(c, "acceptProposal"), ``, `"1"`)
 	agent.Problem(403, "identity.agent_not_allowed", "POST", commentAt(c, "rejectProposal"), `{"reason": "no"}`, `"1"`)
+	// A person decides on a comment explaining a variance they read
+	// (product owner 2026-11-04): without the forecast's read it is refused.
+	e.Tenant.Revoke(t, "cash.forecast.read", e.Tenant.Human)
+	e.Problem(403, "identity.permission_missing", "POST", commentAt(c, "acceptProposal"), ``, `"1"`)
+	e.Problem(403, "identity.permission_missing", "POST", commentAt(c, "rejectProposal"), `{"reason": "no"}`, `"1"`)
+	e.Tenant.Grant(t, "cash.forecast.read", e.Tenant.Human)
 	e.Problem(412, "request.version_mismatch", "POST", commentAt(c, "acceptProposal"), ``, `"2"`)
 	accepted, tag := e.Must(200, "POST", commentAt(c, "acceptProposal"), ``, `"1"`)
 	want(t, "accepted", fmt.Sprint(accepted["status"], " ", accepted["decided_by"], " ", accepted["citations"], " ", tag),
@@ -160,6 +166,11 @@ func TestProposeVarianceCommentRefusals(t *testing.T) {
 	// Without the run's read, the agent does not see the payment it cites.
 	e.Tenant.Revoke(t, "payments.run.read", e.Tenant.Agent)
 	agent.Problem(422, "cash.citation_not_attributed", "POST", proposals, e.proposal(session, `"liquidity_item": "OP_SUPPLIERS"`, cite("payment", run2)), "")
+	// A proposal explains a variance its agent reads (product owner
+	// 2026-11-04): without the forecast's read it is refused.
+	e.Tenant.Revoke(t, "cash.forecast.read", e.Tenant.Agent)
+	agent.Problem(403, "identity.permission_missing", "POST", proposals, e.proposal(session, `"liquidity_item": "OP_SUPPLIERS"`, cite("payment", run2)), "")
+	e.Tenant.Grant(t, "cash.forecast.read", e.Tenant.Agent)
 	e.Tenant.Revoke(t, "cash.variance.propose", e.Tenant.Agent)
 	agent.Problem(403, "identity.permission_missing", "POST", proposals, e.proposal(session, `"liquidity_item": "OP_SUPPLIERS"`, cite("payment", run2)), "")
 	want(t, "nothing written", e.listedFor(t, ""), []string{})

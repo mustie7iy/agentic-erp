@@ -68,8 +68,10 @@ type Invoker interface {
 	// A person accepts the forecast agent's `proposed` comment on the forecast variance (ADR-0051 §13,
 	// T53i; 409 `cash.variance_comment_not_proposed` otherwise), as it stands or with their own `text` (1
 	// to 2,000 characters, not blank), the agent's then kept as `proposed_text`: it becomes `accepted`,
-	// decided by the person, and keeps its session and citations. Audited, and published as
-	// VarianceCommentDecided.
+	// decided by the person, and keeps its session and citations. A person decides on a comment explaining
+	// a variance they read, so besides `cash.variance.comment` the caller needs `cash.forecast.read`
+	// (product owner 2026-11-04; `x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	// Audited, and published as VarianceCommentDecided.
 	//
 	// POST /v1/liquidity-forecast-variance/comments/{id}:acceptProposal
 	AcceptForecastVarianceCommentProposal(ctx context.Context, request OptForecastVarianceCommentAccept, params AcceptForecastVarianceCommentProposalParams) (AcceptForecastVarianceCommentProposalRes, error)
@@ -3368,7 +3370,10 @@ type Invoker interface {
 	// is `proposed` and names the session and its citations until a person accepts it (`:acceptProposal`),
 	// as it stands or in their own words (the agent's kept as `proposed_text`), or rejects it with a
 	// reason (`:rejectProposal`), kept as evidence of what the agent said. Agents never write, accept or
-	// reject a comment otherwise. Audited, and published as VarianceCommentProposed.
+	// reject a comment otherwise. A proposal explains a variance its agent reads, so besides
+	// `cash.variance.propose` the caller needs `cash.forecast.read` (product owner 2026-11-04;
+	// `x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as
+	// VarianceCommentProposed.
 	//
 	// POST /v1/liquidity-forecast-variance/comment-proposals
 	ProposeForecastVarianceComment(ctx context.Context, request *ForecastVarianceCommentProposal, params ProposeForecastVarianceCommentParams) (ProposeForecastVarianceCommentRes, error)
@@ -3544,7 +3549,10 @@ type Invoker interface {
 	// A person rejects the forecast agent's `proposed` comment on the forecast variance, with a reason
 	// (ADR-0051 §13, T53i; 409 `cash.variance_comment_not_proposed` otherwise): it becomes `rejected`,
 	// decided by the person, and is kept with its text and citations as evidence of what the agent said,
-	// and its snapshot with it. Audited, and published as VarianceCommentDecided.
+	// and its snapshot with it. A person decides on a comment explaining a variance they read, so besides
+	// `cash.variance.comment` the caller needs `cash.forecast.read` (product owner 2026-11-04;
+	// `x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as
+	// VarianceCommentDecided.
 	//
 	// POST /v1/liquidity-forecast-variance/comments/{id}:rejectProposal
 	RejectForecastVarianceCommentProposal(ctx context.Context, request *ReasonInput, params RejectForecastVarianceCommentProposalParams) (RejectForecastVarianceCommentProposalRes, error)
@@ -4770,8 +4778,10 @@ func (c *Client) sendAcceptBankStatementLineProposal(ctx context.Context, reques
 // A person accepts the forecast agent's `proposed` comment on the forecast variance (ADR-0051 §13,
 // T53i; 409 `cash.variance_comment_not_proposed` otherwise), as it stands or with their own `text` (1
 // to 2,000 characters, not blank), the agent's then kept as `proposed_text`: it becomes `accepted`,
-// decided by the person, and keeps its session and citations. Audited, and published as
-// VarianceCommentDecided.
+// decided by the person, and keeps its session and citations. A person decides on a comment explaining
+// a variance they read, so besides `cash.variance.comment` the caller needs `cash.forecast.read`
+// (product owner 2026-11-04; `x-also-permissions`; 403 `identity.permission_missing` otherwise).
+// Audited, and published as VarianceCommentDecided.
 //
 // POST /v1/liquidity-forecast-variance/comments/{id}:acceptProposal
 func (c *Client) AcceptForecastVarianceCommentProposal(ctx context.Context, request OptForecastVarianceCommentAccept, params AcceptForecastVarianceCommentProposalParams) (AcceptForecastVarianceCommentProposalRes, error) {
@@ -58086,7 +58096,10 @@ func (c *Client) sendProposeBankStatementLine(ctx context.Context, request *Stat
 // is `proposed` and names the session and its citations until a person accepts it (`:acceptProposal`),
 // as it stands or in their own words (the agent's kept as `proposed_text`), or rejects it with a
 // reason (`:rejectProposal`), kept as evidence of what the agent said. Agents never write, accept or
-// reject a comment otherwise. Audited, and published as VarianceCommentProposed.
+// reject a comment otherwise. A proposal explains a variance its agent reads, so besides
+// `cash.variance.propose` the caller needs `cash.forecast.read` (product owner 2026-11-04;
+// `x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as
+// VarianceCommentProposed.
 //
 // POST /v1/liquidity-forecast-variance/comment-proposals
 func (c *Client) ProposeForecastVarianceComment(ctx context.Context, request *ForecastVarianceCommentProposal, params ProposeForecastVarianceCommentParams) (ProposeForecastVarianceCommentRes, error) {
@@ -60165,7 +60178,10 @@ func (c *Client) sendRejectBankStatementLineProposal(ctx context.Context, reques
 // A person rejects the forecast agent's `proposed` comment on the forecast variance, with a reason
 // (ADR-0051 §13, T53i; 409 `cash.variance_comment_not_proposed` otherwise): it becomes `rejected`,
 // decided by the person, and is kept with its text and citations as evidence of what the agent said,
-// and its snapshot with it. Audited, and published as VarianceCommentDecided.
+// and its snapshot with it. A person decides on a comment explaining a variance they read, so besides
+// `cash.variance.comment` the caller needs `cash.forecast.read` (product owner 2026-11-04;
+// `x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as
+// VarianceCommentDecided.
 //
 // POST /v1/liquidity-forecast-variance/comments/{id}:rejectProposal
 func (c *Client) RejectForecastVarianceCommentProposal(ctx context.Context, request *ReasonInput, params RejectForecastVarianceCommentProposalParams) (RejectForecastVarianceCommentProposalRes, error) {

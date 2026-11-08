@@ -2432,6 +2432,13 @@ reconciliation and close agents leave it open):
   and an edited one with the agent's text, so what the agent said is
   evidence (§11). Memo record proposals are T53d's, unchanged: a person
   may change one before accepting it.
+- **The forecast's read too** (batch 57 integration, as the product
+  owner decided on 2026-11-04 and As built T53f4 says): a proposal and a
+  decision on one each declare `cash.forecast.read` in
+  `x-also-permissions` beside `cash.variance.propose` or
+  `cash.variance.comment`, 403 `identity.permission_missing` without it
+  (`TestProposeVarianceComment`, `TestProposeVarianceCommentRefusals`).
+  The operations are new in this batch, so nothing was answered before.
 - **Migration 000218** (expand only): `cash.variance_comment` gains
   `session_id`, `citations` (a JSON list of at most 50), `decision_reason`,
   `proposed_text` (`variance_comment_edited`) and `version`; a proposal names its session and only an agent's
