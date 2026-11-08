@@ -836,7 +836,10 @@ expose its channel's connector). Decided by default, as above:
   event delivered by webhook; the number, an identifier, is given and the
   name left out. If the answer is yes, `PaymentExcluded` gains an optional
   `supplier_name`; if no, procurement's expiry events should stop giving
-  theirs.
+  theirs. Answered no by the product owner on 2026-11-05: see ADR-0041's
+  As built "no supplier's name in a webhook event", which gives
+  `ContractExpired` and `ContractExpiring` a `.v2` without the name;
+  `PaymentExcluded` stays as built, with the number alone.
 - **Decision (problem).** `payments.withholding_too_large` gave the
   withholding, the cash discount and the amount owed as raw minor units and
   the item as `fiscal year/entry id/line`. Its detail now gives the amounts

@@ -1253,9 +1253,13 @@ default, for the product owner to overrule:
   `supplier_number` beside `supplier_id` (null without a supplier), as
   the payments events name them (ADR-0038 As built, review:batch28); the
   number is the one the supplier check read. The supplier's name is not
-  given: the event is offered to webhooks, and whether a supplier's name
-  may go into a webhook event is the product owner's open question
-  (ADR-0038 As built). Both fields are required, the event being new.
+  given: the event is offered to webhooks, and a supplier's name never
+  goes into a webhook event (product owner 2026-11-05, ADR-0041 As built;
+  `api/asyncapi_test.go` refuses one). Both fields are required, the event
+  being new. `AccrualProposalRejected` (T64f, merged in batch 57) names
+  neither the company's code nor the supplier's number: like the
+  closing context's other events (`VarianceCommentChanged`,
+  `PeriodCloseSignedOff`) it gives the ids, and it carries no name.
 - `accrual_proposal` has no `legal_entity_id` column (§5 lists one): the
   close names the company, as for variance comments. Its codes of centers
   are never blank, and a parked entry is named by one proposal
@@ -1299,7 +1303,10 @@ another person took on), sets the proposal `rejected` with who, when and
 why, and writes the audit record (`closing.accrual_proposal.reject`) and
 `AccrualProposalRejected`. The checks `accruals_decided` and
 `accruals_reversed` join `config.CloseChecks`. Walkthrough:
-`close_accrual_decisions`, called at the end of `close_accruals`, and the
+`close_accrual_decisions`, called at the end of `close_accruals` after
+T64g's `close_accrual_agent` (batch 57 integration: the agent's proposal
+is posted first, so the totals count two posted, 750.00 CAD, and one
+rejected, and `ACCRUALS` passes over all three), and the
 walkthrough's template gains the check task `ACCRUALS`. Decided by
 default, for the product owner to overrule:
 - **The action is `:rejectProposal`, not §8's `:reject`**: the contract's
@@ -1812,6 +1819,9 @@ product owner to overrule:
   `no_parked_entries` names parked entries' header texts; the port still
   reads only within the companies the caller may act in. Reading the
   asset itself, its values or schedule, still needs `assets.asset.read`.
+  Confirmed by the product owner on 2026-11-05 (src po:2026-11-05): a
+  close check's warnings may show an asset's number and description to a
+  caller without `assets.asset.read`.
 
 **Product owner 2026-11-04 (sign-off and close scope; src po:2026-11-04).**
 - *Sign-off without separation of duties for the pilot.* As built in
