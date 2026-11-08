@@ -295,6 +295,37 @@ local-delivery setting. As built:
   subscription's secret by `internal/platform/webhook`, and the same
   signature refused over the body with one byte changed.
 
+### As built: no supplier's name in a webhook event (product owner 2026-11-05)
+The product owner answered two questions on 2026-11-05 (security
+posture). A supplier's name never goes into an event offered to webhooks:
+subscribers pass no permission check, and a partner may be a person, the
+reason partner master data is not offered. A supplier's number, an
+identifier and not a name, may be (`supplier_number`).
+
+- **Which events.** Only procurement's `ContractExpired` and
+  `ContractExpiring` gave one, `supplier_name` since review:batch27
+  (ADR-0034 as built). No other marked event gives a partner's name.
+- **How.** Removing a field from `.v1` is a breaking event change this ADR
+  allows only as a `.vN+1` beside `.vN` for 12 months; eventcompat refuses
+  the removal and `api/breaking-accepted.txt` serves oasdiff only, so it
+  has no entry. Both events' `.v1` loses its `x-webhook` mark (eventcompat
+  compares payloads, not the mark) and is published as before until
+  2027-11-05; a `.v2` without `supplier_name` is marked and written in the
+  same transaction on the same subject. Its fields `.v1` added later
+  (`legal_entity_code`, `supplier_number`, the date and `time_zone`) are
+  required, since the job gives them on every event. A subscription naming
+  a `.v1` type explicitly no longer receives it and a new one is refused;
+  `procurement.*` receives `.v2`. Such a subscription still lists the
+  `.v1` type, so an update sending its `event_types` back unchanged is
+  refused (422 `integration.unknown_event_type`) until the type is replaced.
+  A `.v1` delivery made before the change is kept its 30 days and may still
+  be sent, redelivered or replayed with the name, as it was recorded. No
+  partner consumes webhooks yet (T50h), so neither case exists today.
+- **For the future.** `api/asyncapi_test.go` refuses a marked event whose
+  payload has `supplier_name`, `partner_name`, `holder_name`,
+  `bank_account_holder_name` or `counterparty_name`, the names the
+  contracts give a partner's or account holder's name.
+
 ## Alternatives
 - **Versions in a header or media type:** keeps URLs stable but hides the
   version from logs, caches and gateways; paths are what 04 §4.2 already

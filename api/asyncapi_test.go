@@ -399,6 +399,10 @@ func TestAsyncAPIRequiredEvents(t *testing.T) {
 // webhooks (ADR-0041): a context whose events carry personal data, single
 // event types that do, and payload fields that are bank or personal data
 // wherever they appear.
+// A business partner's name (a supplier's, an account holder's, a bank
+// statement counterparty's) is personal data, since a partner may be a
+// person: no webhook event gives one, by any of the names the contracts
+// use for it (product owner 2026-11-05); its number may be given.
 var (
 	webhookExcludedContexts = []string{"identity"}
 	webhookExcludedTypes    = []string{
@@ -409,6 +413,7 @@ var (
 	webhookExcludedFields = []string{
 		"account_last4", "account_number", "account_scheme", "bank_account_id", "bank_country_code", "bic",
 		"ended_bank_account_id", "iban", "display_name", "email", "phone", "legal_name", "external_issuer", "principal_kind",
+		"supplier_name", "partner_name", "holder_name", "bank_account_holder_name", "counterparty_name",
 	}
 )
 
@@ -495,10 +500,12 @@ func TestWebhookRefusal(t *testing.T) {
 		fields    map[string]bool
 		refused   bool
 	}{
-		"business event":   {"com.example.erp.ledger.journal_entry_posted.v1", map[string]bool{"amount": true}, false},
-		"identity context": {"com.example.erp.identity.role_created.v1", nil, true},
-		"excluded type":    {"com.example.erp.partner.business_partner_created.v1", nil, true},
-		"bank field":       {"com.example.erp.payments.payment_excluded.v1", map[string]bool{"bic": true}, true},
+		"business event":    {"com.example.erp.ledger.journal_entry_posted.v1", map[string]bool{"amount": true}, false},
+		"identity context":  {"com.example.erp.identity.role_created.v1", nil, true},
+		"excluded type":     {"com.example.erp.partner.business_partner_created.v1", nil, true},
+		"bank field":        {"com.example.erp.payments.payment_excluded.v1", map[string]bool{"bic": true}, true},
+		"supplier's name":   {"com.example.erp.procurement.contract_expired.v1", map[string]bool{"supplier_number": true, "supplier_name": true}, true},
+		"supplier's number": {"com.example.erp.procurement.contract_expired.v2", map[string]bool{"supplier_number": true}, false},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

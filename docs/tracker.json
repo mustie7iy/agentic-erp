@@ -1745,10 +1745,10 @@
         "s": "D",
         "t": "Late assets warn (PO 2026-11-04): depreciation_posted passes for a ledger without a posted run of the period once a later period's run has posted there, each asset a run of the period would select a depreciation_catch_up warning (asset, ledger, periods missing, the later run, the catch-up a run of its period posts); warnings and warnings_count on every check result; without a later run the check fails as before; walkthrough: a machine valued in the previous period after step 29's run warns in 0L on that period's close, 2L failing until its run",
         "r": "ADR-0058 · T64l",
-         "src": "po:2026-11-04 · adr:ADR-0058",
-         "c": []
-        },
-        {
+        "src": "po:2026-11-04 · adr:ADR-0058",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "Close sign-off: the signer must differ from the preparer before go-live (the pilot runs without separation of duties on sign-off and records who signed; what counts as the preparer, the people who completed the close's tasks, is set when it is built)",
         "r": "ADR-0058 Questions (segregation of duties on sign-off), As built (product owner 2026-11-04) · T64o",
@@ -7309,6 +7309,13 @@
         "t": "A webhook delivered in the walkthrough: an embedded event bus and a subscriber on the walkthrough's machine, the one loopback address and port a development server may deliver to (ERP_WALKTHROUGH_RECEIVER, refused outside development); CashSnapshotTaken delivered, its signature verified and a changed body refused",
         "r": "egress.WalkthroughReceiver, CheckURL's receiver · config.Walkthrough (ERP_WALKTHROUGH_RECEIVER, ERP_WALKTHROUGH_RECEIVER_CA) · integration.Endpoints.Receiver · app.Config.WebhookReceiver · erp-server webhookClient · natstest/natsstub · webhooktest/webhookstub · TestWalkthroughReceiverOption, TestAllowReceiver, TestWalkthroughReceiver, TestCheckURLReceiver, TestWebhookWalkthroughReceiver, TestWebhookClient, TestProductionFailsClosed · walkthrough step 35 · ADR-0041 (as built, T50i) · ADR-0051 (as built) · T50i",
         "src": "po:2026-11-04 · adr:ADR-0041",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "No supplier's name in an event offered to webhooks (product owner 2026-11-05, security posture: a partner may be a person); a supplier's number may be given. ContractExpired and ContractExpiring gave supplier_name since review:batch27: their .v1 is no longer offered to webhooks and is published beside a new .v2 without the name (its later fields required) until 2027-11-05, as ADR-0041 has a breaking event change (eventcompat refuses a field removed within .v1). No other x-webhook event gave a partner's name; a test refuses supplier_name, partner_name, holder_name, bank_account_holder_name and counterparty_name in any marked event",
+        "r": "secpost · api/asyncapi.yaml ContractExpiredV2, ContractExpiringV2 · internal/procurement expiry_names.go publish · api/asyncapi_test.go webhookExcludedFields · TestContractExpiry · TestContractExpiryAlerts · ADR-0041 As built · ADR-0034 As built · 03 §3.8",
+        "src": "po:2026-11-05 · adr:ADR-0041",
         "c": []
        }
       ]

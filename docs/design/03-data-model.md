@@ -1430,7 +1430,10 @@ Both judge on the contract's company's date in its time zone at the round
 (T72n6), which the events give with the zone (`expired_on`, `alerted_on`,
 `time_zone`). Both name the company by `legal_entity_code` and the supplier
 by `supplier_number` and `supplier_name` beside their ids (ADR-0034 as
-built, review:batch27). An
+built, review:batch27). Each is written twice: `.v1` as described, and
+`.v2` without `supplier_name`, the one offered to webhooks, since a
+supplier's name never goes to a webhook (product owner 2026-11-05;
+ADR-0041 as built); `.v1` is published until 2027-11-05. An
 alert is an event only: buyers renew the contract or let it expire. A
 configuration activated before the key existed reads 0: the round alerts
 nothing and logs a warning until a change request adds it. Received quantity per PO item is the sum of goods

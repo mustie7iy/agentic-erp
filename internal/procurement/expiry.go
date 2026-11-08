@@ -14,7 +14,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
-	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
@@ -165,10 +164,7 @@ func expireContract(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now 
 	payload := map[string]any{"contract_id": id, "document_number": c.DocumentNumber, "legal_entity_id": c.LegalEntityID, "supplier_id": c.SupplierID,
 		"valid_to": c.ValidTo.Format(time.DateOnly), "consumed_value": money.EventAmount(c.ConsumedValue, c.Currency, c.Exponent), "previous_status": Active, "status": Expired,
 		"expired_on": day.date.Format(time.DateOnly), "time_zone": day.zone}
-	if err := names.name(ctx, c, day, payload); err != nil {
-		return err
-	}
-	if _, err := outbox.Write(ctx, tx, actor.TenantID, actor.ID, "", event("contract_expired", "contract", id, payload)); err != nil {
+	if err := names.publish(ctx, tx, actor, "contract_expired", c, day, payload); err != nil {
 		return err
 	}
 	return audit.Write(ctx, tx, actor, "", now, audit.Entry{Action: "procurement.contract.expire", ObjectType: "procurement.contract", ObjectID: id, Outcome: "succeeded",

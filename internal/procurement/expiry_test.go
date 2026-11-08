@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"maps"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -11,9 +13,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -81,6 +85,7 @@ func TestContractExpiry(t *testing.T) {
 	}
 	want(t, "expired event", ev[0], map[string]any{"valid_to": "2026-02-28", "expired_on": "2026-03-01", "time_zone": "UTC",
 		"legal_entity_code": "2000", "supplier_number": "BP90000001", "supplier_name": "Supplier GmbH"})
+	webhookEvents(t, e, "contract_expired", ev)
 	var actor uuid.UUID
 	var detail map[string]any
 	var occurred time.Time
@@ -104,6 +109,10 @@ func TestContractExpiry(t *testing.T) {
 	}
 	if round.Expired != 0 {
 		t.Fatalf("second round: got %d expired, want 0", round.Expired)
+	}
+	webhookEvents(t, e, "contract_expired", events(t, e, "contract_expired"))
+	if n := len(events(t, e, "contract_expired")); n != 1 {
+		t.Errorf("ContractExpired events after the second round: got %d, want 1", n)
 	}
 	// An expired contract takes no new orders and cannot be terminated.
 	e.Problem(409, "procurement.invalid_status", "POST", pastPath+":terminate", `{"reason": "Late"}`, "*")
@@ -191,4 +200,32 @@ func TestContractExpiry(t *testing.T) {
 		"no expiring round logged: %s", logs)
 	cancel()
 	<-done
+}
+
+// webhookEvents checks the .v2 events of name, the ones offered to
+// webhooks, against the .v1 events v1 of the same round: one each, the same
+// payload without the supplier's name (product owner 2026-11-05, ADR-0041),
+// the supplier still given by its number. Published refuses a field the
+// .v2 schema does not declare, and Conforms the whole payload against it.
+func webhookEvents(t *testing.T, e env, name string, v1 []map[string]any) {
+	t.Helper()
+	typ := outbox.Event{Context: "procurement", Name: name, Version: 2}
+	v2 := apitest.Published(t, e.Tenant, typ)
+	if len(v2) != len(v1) {
+		t.Fatalf("%s.v2: got %d events, want %d, one per .v1 event", name, len(v2), len(v1))
+	}
+	for i, p := range v2 {
+		apitest.Conforms(t, typ, p)
+		if _, named := p["supplier_name"]; named {
+			t.Errorf("%s.v2 %v: got supplier_name %v, want none", name, p["contract_id"], p["supplier_name"])
+		}
+		if p["supplier_number"] == nil {
+			t.Errorf("%s.v2 %v: got no supplier_number, want the supplier's number", name, p["contract_id"])
+		}
+		want := maps.Clone(v1[i])
+		delete(want, "supplier_name")
+		if !reflect.DeepEqual(p, want) {
+			t.Errorf("%s.v2: got %v, want the .v1 event without the supplier's name, %v", name, p, want)
+		}
+	}
 }
