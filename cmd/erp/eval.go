@@ -17,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/agent"
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/closeagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/configagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/migrationagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/testagent"
@@ -28,7 +29,7 @@ import (
 // evalAgents are the adapters of the agents a suite may evaluate, by agent
 // type (ADR-0039).
 var evalAgents = map[string]eval.Agent{"analytics": analyticsEval, "ap_exceptions": apExceptions, "capture": captureEval,
-	"configuration": configurationEval, "migration": migrationEval, "reconciliation": reconciliationEval, "test": testEval}
+	"close": closeEval, "configuration": configurationEval, "migration": migrationEval, "reconciliation": reconciliationEval, "test": testEval}
 
 // analyticsEval asks the task's question as erp ask does, its session
 // reading what the API gives the agent principal and no more. Its reply
@@ -152,6 +153,31 @@ func reconciliationEval(ctx context.Context, env eval.Env) error {
 	if len(res.Errors) > 0 {
 		return fmt.Errorf("reconciliation: %s", strings.Join(res.Errors, "; "))
 	}
+	return nil
+}
+
+// closeEval has the close agent run on the task's close as erp agent
+// close-accruals does or, when the task's run is variances, as erp agent
+// close-variances does (against the task's basis, or every one the company
+// configures); what it proposed, and what it left, is the checks' to
+// judge, and its reply theirs too ($reply.text).
+func closeEval(ctx context.Context, env eval.Env) error {
+	t, err := tasked(env, "close")
+	if err != nil {
+		return err
+	}
+	a := &closeagent.Agent{LLM: env.LLM, API: env.Agent}
+	var res closeagent.Result
+	if run, _ := env.Task["run"].(string); run == "variances" { // a task without a run is the accruals'
+		basis, _ := env.Task["basis"].(string) // no basis: every one the company configures
+		res, err = a.Variances(ctx, t["close"], basis)
+	} else {
+		res, err = a.Accruals(ctx, t["close"])
+	}
+	if err != nil {
+		return fmt.Errorf("close: %w", err)
+	}
+	env.Reply(map[string]any{"text": res.Reply, "proposals": len(res.Proposals), "refused": res.Refused})
 	return nil
 }
 

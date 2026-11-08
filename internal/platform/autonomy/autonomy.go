@@ -14,7 +14,7 @@ import (
 // Types are the agent types an agent's profile may name, each with its
 // evaluation suite under evals/<type>/. An open enumeration: clients
 // accept values added later.
-var Types = []string{"ap_exceptions", "configuration", "migration", "test", "analytics", "reconciliation"}
+var Types = []string{"ap_exceptions", "configuration", "migration", "test", "analytics", "reconciliation", "close"}
 
 // MaxLevel is the highest autonomy level a profile may hold (ADR-0036),
 // which a waived certification certifies every type for.

@@ -41,8 +41,8 @@ client certificates in production (ADR-0033). Today:
     secret reference (ADR-0017). Data stays in the cell's region
     (ADR-0003).
 - **Routing.**
-  - Callers name a model alias: `erp-default`, `erp-extraction` or
-    `erp-analytics`.
+  - Callers name a model alias: `erp-default`, `erp-extraction`,
+    `erp-analytics` or `erp-close` (the close agent's, ADR-0058 §12, T64g).
   - The tenant's AI policy maps each alias to an allowed concrete model.
     Platform defaults apply when the policy says nothing. A concrete model
     outside the tenant's allow-list is refused.

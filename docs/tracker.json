@@ -1700,7 +1700,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The close agent, accruals: agent type close, internal/closeagent (tools, prompt, untrusted data; internal/layout entry apitools and llm), erp agent close-accruals -close ID, alias erp-close; evals/close with the accrual cases of ADR-0058 §12 replayed in CI; the model stand-in answering from a script of turns; walkthrough: the agent through the stand-in proposes the missing monthly accrual and nothing for a supplier already invoiced",
         "r": "ADR-0058 · T64g",
         "src": "adr:ADR-0058",
@@ -1721,7 +1721,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The close agent, variances: erp agent close-variances -close ID, the variance tools and prompt, the variance cases of ADR-0058 §12 in evals/close; walkthrough: the agent through the stand-in proposes a comment for the flagged row citing its entry and none for rows below the threshold",
         "r": "ADR-0058 · T64j",
         "src": "adr:ADR-0058",

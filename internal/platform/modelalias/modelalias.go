@@ -7,7 +7,7 @@ package modelalias
 import "slices"
 
 // Aliases are the platform's model aliases.
-var Aliases = []string{"erp-default", "erp-extraction", "erp-analytics"}
+var Aliases = []string{"erp-default", "erp-extraction", "erp-analytics", "erp-close"}
 
 // Known reports whether alias is one of them.
 func Known(alias string) bool { return slices.Contains(Aliases, alias) }

@@ -13,9 +13,11 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/agent"
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/closeagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/configagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/migrationagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/testagent"
+	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/reconagent"
 )
@@ -270,7 +272,7 @@ func agentInvoices(ctx context.Context) error {
 // agentCmd runs a delivery agent with the agents' token.
 func agentCmd(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("agent invoices | config | migration | test | reconcile")
+		return errors.New("agent invoices | config | migration | test | reconcile | close-accruals | close-variances")
 	}
 	switch args[0] {
 	case "invoices":
@@ -283,6 +285,10 @@ func agentCmd(ctx context.Context, args []string) error {
 		return agentTest(ctx, args[1:])
 	case "reconcile":
 		return agentReconcile(ctx, args[1:])
+	case "close-accruals":
+		return agentCloseAccruals(ctx, args[1:])
+	case "close-variances":
+		return agentCloseVariances(ctx, args[1:])
 	}
 	return fmt.Errorf("unknown agent %q", args[0])
 }
@@ -384,4 +390,75 @@ func agentReconcile(ctx context.Context, args []string) error {
 		return fmt.Errorf("agent reconcile: %s", strings.Join(res.Errors, "; "))
 	}
 	return nil
+}
+
+// agentCloseAccruals has the close agent propose the close's accruals
+// (ADR-0058 §12, T64g), on erp-close unless ERP_AGENT_MODEL names an
+// alias: a person posts or cancels each proposal's parked entry.
+func agentCloseAccruals(ctx context.Context, args []string) error {
+	return agentClose(ctx, "close-accruals", args, func(a *closeagent.Agent, closeID, _ string) (closeagent.Result, error) {
+		return a.Accruals(ctx, closeID)
+	}, func(p closeagent.Proposal) string {
+		return fmt.Sprintf("proposal %s, parked entry %s", p.ID, p.ParkedEntryID)
+	})
+}
+
+// agentCloseVariances has the close agent propose comments on the close's
+// variance rows (ADR-0058 §12, T64j), against -basis or every basis the
+// company configures, on erp-close unless ERP_AGENT_MODEL names an alias:
+// a person accepts or rejects each comment.
+func agentCloseVariances(ctx context.Context, args []string) error {
+	return agentClose(ctx, "close-variances", args, func(a *closeagent.Agent, closeID, basis string) (closeagent.Result, error) {
+		return a.Variances(ctx, closeID, basis)
+	}, func(p closeagent.Proposal) string {
+		return fmt.Sprintf("comment %s on %s against %s", p.ID, p.AccountNumber, p.Basis)
+	})
+}
+
+// agentClose runs one of the close agent's runs on -close (and, for the
+// variances, -basis) and prints its session, what it proposed, each as
+// line says, and the model's reply.
+func agentClose(ctx context.Context, name string, args []string, run func(*closeagent.Agent, string, string) (closeagent.Result, error),
+	line func(closeagent.Proposal) string) error {
+	fs := flag.NewFlagSet("agent "+name, flag.ContinueOnError)
+	closeID := fs.String("close", "", "period close id")
+	basis := new(string)
+	if name == "close-variances" {
+		basis = fs.String("basis", "", "variance basis (default: every basis the company configures)")
+	}
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if *closeID == "" {
+		return fmt.Errorf("agent %s: -close names the period close", name)
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := run(&closeagent.Agent{LLM: closeRunner(c), API: c}, *closeID, *basis)
+	if res.Session == "" {
+		return runErr
+	}
+	// What the run made is printed even when it failed afterwards: its
+	// proposals wait for a person either way.
+	w := printer()
+	fmt.Fprintf(w, "Session %s: proposals made %d, refused %d.\n", res.Session, len(res.Proposals), res.Refused)
+	for _, p := range res.Proposals {
+		fmt.Fprintf(w, "  %s\n", line(p))
+	}
+	if res.Reply != "" {
+		fmt.Fprintln(w, res.Reply)
+	}
+	return errors.Join(runErr, errs.Wrapf(w.Flush(), "agent %s: print", name))
+}
+
+// closeRunner is newRunner on the close agent's alias, unless
+// ERP_AGENT_MODEL names another.
+func closeRunner(c *apitools.Client) *llm.Runner {
+	r := newRunner(c)
+	if getenv("ERP_AGENT_MODEL") == "" {
+		r.Model = closeagent.Alias
+	}
+	return r
 }
