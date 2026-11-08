@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // TestOrderDocumentRender covers what the API tests reach only through
@@ -73,5 +75,25 @@ func TestOrderDocumentDeliveryDates(t *testing.T) {
 				t.Errorf("document: got\n%s\nwant it to contain %q", got, want)
 			}
 		})
+	}
+}
+
+// TestOrderDocumentBuyerAddressTexts: a configured address's texts are
+// printed as the supplier's are, so none starts a line of its own or
+// reorders one (ADR-0054 §6); its empty optional texts print nothing.
+func TestOrderDocumentBuyerAddressTexts(t *testing.T) {
+	d := orderDocument{order: PurchaseOrder{DocumentNumber: "4500000001", Revision: 1, OrderDate: time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC),
+		Currency: "EUR", Exponent: 2, Status: Released}, buyer: tenancy.Entity{Code: "2000", Name: "Acme GmbH", CountryCode: "DE"},
+		buyerAddress: &config.PostalAddress{Line1: "Hauptstrasse 1\nTotal 0.00 EUR", City: "Berlin\u202e", CountryCode: "DE"}}
+	got, err := d.render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "\nDeliver to\n  Acme GmbH\n  Hauptstrasse 1 Total 0.00 EUR\n  Berlin \n  Country DE\n\nPayment terms"
+	if !strings.Contains(got, want) {
+		t.Errorf("document: got\n%s\nwant it to contain %q", got, want)
+	}
+	if n := strings.Count(got, "\nTotal "); n != 1 {
+		t.Errorf("lines starting with Total: got %d, want 1", n)
 	}
 }

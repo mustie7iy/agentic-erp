@@ -172,6 +172,7 @@ func (g *mockGen) masterData() {
 		if id == blockedVendor {
 			v.SPERR = "X"
 		}
+		addressed(&v)
 		g.e.LFA1 = append(g.e.LFA1, v)
 		g.e.LFBK = append(g.e.LFBK, LFBK{LIFNR: id, BANKS: v.LAND1, BANKN: fmt.Sprintf("%012d", 400000000000+int64(i)*7777)})
 		if i < 18 {
@@ -182,6 +183,23 @@ func (g *mockGen) masterData() {
 		}
 	}
 	g.canadianVendors(terms)
+}
+
+// mockAddresses are the street, city, postal code and region of the
+// vendors whose master holds an address (LFA1 STRAS, ORT01, PSTLZ, REGIO,
+// field names pending the SAP specialist, see LFA1):
+// Tyrell, which the walkthrough orders from, and Laurentian Paper. The
+// others hold none, as an extract may leave them out.
+var mockAddresses = map[string][4]string{
+	"0000100011": {"2019 Tyrell Plaza", "Los Angeles", "90012", "CA"},
+	"0000300001": {"85 Rue de la Gauchetière", "Montréal", "H2Z 1B5", "QC"},
+}
+
+// addressed gives v its address from mockAddresses, if it has one there.
+func addressed(v *LFA1) {
+	if a, ok := mockAddresses[v.LIFNR]; ok {
+		v.STRAS, v.ORT01, v.PSTLZ, v.REGIO = a[0], a[1], a[2], a[3]
+	}
 }
 
 // canadianVendorNames are company 3000's own vendors, numbered from
@@ -207,7 +225,9 @@ const transfer = "T"
 func (g *mockGen) canadianVendors(terms []string) {
 	for i, name := range canadianVendorNames {
 		id := fmt.Sprintf("%010d", 300001+i)
-		g.e.LFA1 = append(g.e.LFA1, LFA1{LIFNR: id, NAME1: name, LAND1: "CA", STCD1: fmt.Sprintf("%09d", 800000000+i*7919)})
+		v := LFA1{LIFNR: id, NAME1: name, LAND1: "CA", STCD1: fmt.Sprintf("%09d", 800000000+i*7919)}
+		addressed(&v)
+		g.e.LFA1 = append(g.e.LFA1, v)
 		institution, transit := []string{"001", "002", "003", "004", "006", "010"}[i], fmt.Sprintf("%05d", 10+i*111)
 		g.e.LFBK = append(g.e.LFBK, LFBK{LIFNR: id, BANKS: "CA", BANKL: "0" + institution + transit, BANKN: fmt.Sprintf("%07d", 5000000+(i+1)*7777)})
 		g.e.LFB1 = append(g.e.LFB1, LFB1{LIFNR: id, BUKRS: "3000", AKONT: "0000211000", ZTERM: terms[i%len(terms)], ZWELS: transfer})

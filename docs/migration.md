@@ -343,6 +343,18 @@ stopped the run before the load.
   lacks, or one listed twice (ADR-0038). Confirm the tables and fields in
   your release, that a lower RANGF ranks first, and that ZWELS's order is
   the order of preference.
+- Vendor addresses: the extract's LFA1 may carry the vendor's street with
+  house number, city, postal code and region as STRAS, ORT01, PSTLZ and
+  REGIO, which the load gives the supplier as its `legal` address (product
+  owner 2026-11-04, ADR-0054 As built). These field names are written from
+  memory and are **pending the SAP specialist**: confirm whether your
+  release keeps the address in LFA1 or only in the central address (ADRC,
+  by LFA1-ADRNR), and which fields the extract takes it from. The fields are
+  optional: a vendor without them, as every vendor of an OData extract is
+  (the mapping does not carry them), loads without an address; one with a
+  street but no city, a city but no street, or a text longer than an
+  address holds is warned of by the quality gate and loads without one. A
+  vendor an earlier run created keeps the address it has.
 - Amounts for currencies with no decimals or three decimals (JPY, KWD) come in
   external format.
 - **SAP digital-access licensing:** reading data is usually fine, but agents

@@ -199,7 +199,12 @@ type Company struct {
 	// Validation requires it (product owner 2026-10-31); a document
 	// activated before then may lack it and is read as UTC, as every date
 	// was before it was set (T72n1).
-	TimeZone             string               `yaml:"time_zone,omitempty" json:"time_zone,omitempty"`
+	TimeZone string `yaml:"time_zone,omitempty" json:"time_zone,omitempty"`
+	// PostalAddress is where the company receives mail and, while no item
+	// of a purchase order names another, its deliveries: the order
+	// document prints it (ADR-0054 As built). Optional: nil prints that
+	// none is configured.
+	PostalAddress        *PostalAddress       `yaml:"postal_address,omitempty" json:"postal_address,omitempty"`
 	ChartOfAccounts      []Account            `yaml:"chart_of_accounts" json:"chart_of_accounts"`
 	AccountDetermination AccountDetermination `yaml:"account_determination" json:"account_determination"`
 	TaxCodes             []TaxCode            `yaml:"tax_codes" json:"tax_codes"`
