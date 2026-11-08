@@ -2366,9 +2366,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Tax agent, proposals: adjustment entries proposed by parking them and tax code corrections on captured and parked documents proposed for a person, with their evaluation cases; never transitions a return",
-        "r": "after T61l1 · ADR-0049 §13 · T61l2",
+        "s": "D",
+        "t": "Tax agent, proposals: adjustment entries proposed by parking them (parkJournalEntry, x-autonomy propose; a person posts) and tax code corrections of parked journal entries and supplier invoices proposed as recommendations on them (kind correct_tax_code; a person changes the document), held by the run's guard to the registration's companies, an adjustment's tax date to the period, a correction to a parked document the run read and one per document; evaluation cases in evals/tax version 2; never posts or transitions a return",
+        "r": "internal/taxagent · erp agent tax-draft · evals/tax v2 · ADR-0049 §13 As built (T61l2) · ADR-0039 · walkthrough step 11 · T61l2",
         "src": "split:T61l · adr:ADR-0049",
         "c": []
        },

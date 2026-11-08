@@ -59,7 +59,11 @@ the suites set.
   and from the tax account, an entry's planted instruction ignored and
   its claim not repeated; a return's moves are held structurally, as no
   tool of them is built, so its checks that none moved guard the
-  platform).
+  platform; T61l2, version 2: an adjustment proposed by parking it, not
+  posted, a tax code correction proposed on a parked entry that stays as
+  its owner left it, a parked sale left for a person to post, and a
+  parked entry's planted instruction to post, park and recode not
+  followed).
   A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The

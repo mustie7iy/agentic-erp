@@ -45,6 +45,7 @@ type Tool struct {
 	session           *Session
 	guard             func(map[string]any) error
 	observe           func(Response)
+	exclusive         *sync.Mutex
 }
 
 func (t *Tool) Name() string                                    { return t.name }
@@ -59,9 +60,20 @@ func (t *Tool) Guard(fn func(map[string]any) error) { t.guard = fn }
 // what they created.
 func (t *Tool) Observe(fn func(Response)) { t.observe = fn }
 
+// Exclusive runs each call of the tool, its guard, the API's answer and
+// its observer, holding mu: the model's runner executes the tool calls
+// of one turn concurrently, so tools whose guards and observers share
+// state (a check that one object gets one proposal, recorded when the
+// API accepts it) share one mutex and see each call whole.
+func (t *Tool) Exclusive(mu *sync.Mutex) { t.exclusive = mu }
+
 // Execute calls the operation and records the call in the session. API
 // answers, problems included, go back to the model as the result.
 func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) ([]anthropic.BetaToolResultBlockParamContentUnion, error) {
+	if t.exclusive != nil {
+		t.exclusive.Lock()
+		defer t.exclusive.Unlock()
+	}
 	var input map[string]any
 	if err := json.Unmarshal(raw, &input); err != nil {
 		return nil, fmt.Errorf("tool input is not a JSON object: %w", err)

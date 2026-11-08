@@ -22,18 +22,34 @@ import (
 const (
 	reg     = "01a1aa00-0000-7000-8000-000000000e01"
 	session = "01a1aa00-0000-7000-8000-000000000a01"
+	le      = "01a1aa00-0000-7000-8000-000000000b01" // the registrant
+	member  = "01a1aa00-0000-7000-8000-000000000b02" // a tax group's member
+	other   = "01a1aa00-0000-7000-8000-000000000b09" // a company the registration does not cover
 )
 
+// documents are the parked documents and invoices the fake API answers,
+// by id: parked ones of the registration's companies, a posted one and
+// one of another company.
+var documents = map[string]string{
+	"pe1": `{"id": "pe1", "legal_entity_id": "` + le + `", "status": "parked"}`,
+	"pe2": `{"id": "pe2", "legal_entity_id": "` + le + `", "status": "posted"}`,
+	"pe3": `{"id": "pe3", "legal_entity_id": "` + other + `", "status": "parked"}`,
+	"pe4": `{"id": "pe4", "legal_entity_id": "` + member + `", "status": "parked"}`,
+	"si1": `{"id": "si1", "legal_entity_id": "` + le + `", "status": "parked"}`,
+}
+
 // fakeAPI is a stand-in for the cell's API: registration GSTHST and its
-// draft of the second quarter, a session, and recommendations answered by
-// their content; it keeps every request it was sent.
+// draft of the second quarter, a session, the parked documents, and
+// recommendations and parked entries answered by their content; it keeps
+// every request it was sent.
 type fakeAPI struct {
-	mu    sync.Mutex
-	calls []string
-	draft int // the draft's status; 0: 200
-	start int // the session's status; 0: 201
-	regs  string
-	made  int // the recommendations it accepted
+	mu     sync.Mutex
+	calls  []string
+	draft  int // the draft's status; 0: 200
+	start  int // the session's status; 0: 201
+	regs   string
+	made   int // the recommendations it accepted
+	parked int // the entries it parked
 }
 
 func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +66,7 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/v1/tax-registrations":
 		regs := a.regs
 		if regs == "" {
-			regs = `{"id": "01a1aa00-0000-7000-8000-000000000e09", "code": "QST"}, {"id": "` + reg + `", "code": "GSTHST", "company_code": "3000"}`
+			regs = `{"id": "01a1aa00-0000-7000-8000-000000000e09", "code": "QST"}, {"id": "` + reg + `", "code": "GSTHST", "company_code": "3000", "legal_entity_id": "` + le + `", "group_members": [{"legal_entity_id": "` + member + `"}]}`
 		}
 		answer(200, `{"items": [`+regs+`]}`)
 	case strings.HasSuffix(path, "/draft-return") && a.draft != 0:
@@ -62,7 +78,10 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/v1/agent-sessions":
 		answer(201, `{"id": "`+session+`", "autonomy_level": 1}`)
 	case path == "/v1/recommendations":
-		var body struct{ Content string }
+		var body struct {
+			Content  string
+			ObjectID string `json:"object_id"`
+		}
 		_ = json.Unmarshal(b, &body) // the agent's own JSON
 		if strings.Contains(body.Content, "refuse") {
 			answer(422, `{"code": "request.validation_failed", "status": 422}`)
@@ -72,17 +91,35 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.made++
 		id := fmt.Sprintf("r%d", a.made)
 		a.mu.Unlock()
+		answer(201, `{"id": "`+id+`", "object_id": "`+body.ObjectID+`"}`)
+	case path == "/v1/parked-journal-entries" && r.Method == http.MethodPost:
+		if strings.Contains(string(b), "refuse") {
+			answer(422, `{"code": "ledger.unknown_tax_code", "status": 422}`)
+			return
+		}
+		a.mu.Lock()
+		a.parked++
+		id := fmt.Sprintf("p%d", a.parked)
+		a.mu.Unlock()
 		answer(201, `{"id": "`+id+`"}`)
+	case strings.HasPrefix(path, "/v1/parked-journal-entries/") || strings.HasPrefix(path, "/v1/supplier-invoices/"):
+		doc, ok := documents[path[strings.LastIndex(path, "/")+1:]]
+		if !ok {
+			answer(404, `{"code": "request.not_found", "status": 404}`)
+			return
+		}
+		answer(200, doc)
 	default:
 		answer(200, `{}`)
 	}
 }
 
-// recommendations are the recommendation calls the API was sent.
-func (a *fakeAPI) recommendations() []string {
+// sent are the calls the API was sent whose method and path contain
+// what.
+func (a *fakeAPI) sent(what string) []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return slices.DeleteFunc(slices.Clone(a.calls), func(c string) bool { return !strings.Contains(c, "recommendations") })
+	return slices.DeleteFunc(slices.Clone(a.calls), func(c string) bool { return !strings.Contains(c, what) })
 }
 
 var sessionRe = regexp.MustCompile(`session id is ([0-9a-f-]{36})`)
@@ -150,8 +187,8 @@ func TestExplain(t *testing.T) {
 	if res.Reply != "Explained the draft; nothing else." {
 		t.Errorf("reply: got %q, want the model's last text", res.Reply)
 	}
-	if got := len(a.recommendations()); got != 2 {
-		t.Errorf("recommendations sent: got %d %v, want 2: the guard keeps the others from the API", got, a.recommendations())
+	if got := len(a.sent("recommendations")); got != 2 {
+		t.Errorf("recommendations sent: got %d %v, want 2: the guard keeps the others from the API", got, a.sent("recommendations"))
 	}
 	offered := model.ToolNames()
 	slices.Sort(offered)
@@ -160,8 +197,127 @@ func TestExplain(t *testing.T) {
 	if strings.Join(offered, " ") != strings.Join(want, " ") {
 		t.Errorf("tools offered: got %v, want %v", offered, want)
 	}
-	if !strings.Contains(model.Requests[0], "GSTHST (id "+reg+", company 3000) for the period 2026-04-01 to 2026-06-30") {
+	if !strings.Contains(model.Requests[0], "GSTHST (id "+reg+", company 3000, legal entity "+le+") for the period 2026-04-01 to 2026-06-30") {
 		t.Errorf("prompt: got %s, want the draft named", model.Requests[0])
+	}
+}
+
+// correct is a tax code correction of the document id of objectType in
+// the session the conversation names.
+func correct(objectType, id, content string) func(string) any {
+	return func(conversation string) any {
+		return map[string]any{"body": map[string]any{"session_id": sessionRe.FindStringSubmatch(conversation)[1], "object_type": objectType,
+			"object_id": id, "kind": "correct_tax_code", "content": content}}
+	}
+}
+
+// adjust is an adjustment entry of the company le, of the tax date day,
+// its tax account's line coded code and its header text.
+func adjust(le, day, code, text string) map[string]any {
+	return map[string]any{"body": map[string]any{"legal_entity_id": le, "document_date": "2026-06-30", "posting_date": "2026-06-30",
+		"tax_date": day, "currency": "CAD", "header_text": text, "lines": []any{
+			map[string]any{"account_id": "a2300", "amount": map[string]any{"amount": "100.00", "currency": "CAD"}, "tax_code": code},
+			map[string]any{"account_id": "a2300", "amount": map[string]any{"amount": "-100.00", "currency": "CAD"}}}}}
+}
+
+// TestPropose: besides its explanation, the agent parks adjustment
+// entries of the period and recommends tax code corrections of the
+// parked documents it read. The run's guard refuses, and counts, a
+// correction of a document it did not read, read in another status or of
+// a company the registration does not cover, of another object type, of
+// another kind or session, or a second one of a document; and an entry
+// to park of another company, with a tax date outside the period or not
+// a date, without a coded line or without a body. The API's refusals are
+// counted; nothing the guard refuses reaches it.
+func TestPropose(t *testing.T) {
+	a := &fakeAPI{}
+	const pe, si = "parked_journal_entry", "supplier_invoice"
+	steps := []llmtest.Step{
+		llmtest.Tool("getParkedJournalEntry", map[string]any{"id": "pe1"}),
+		llmtest.Tool("getParkedJournalEntry", map[string]any{"id": "pe2"}),
+		llmtest.Tool("getParkedJournalEntry", map[string]any{"id": "pe3"}),
+		llmtest.Tool("getParkedJournalEntry", map[string]any{"id": "pe4"}),
+		llmtest.Tool("getParkedJournalEntry", map[string]any{"id": "pe9"}),
+		llmtest.Tool("getSupplierInvoice", map[string]any{"id": "si1"}),
+		llmtest.ToolFn("createRecommendation", explain(nil)),
+		llmtest.ToolFn("createRecommendation", correct(pe, "pe1", "Line 2: GO5; refuse it.")),
+		llmtest.ToolFn("createRecommendation", correct(pe, "pe1", "Lines 2 and 3: GO5, the tax account's line carries none.")),
+		llmtest.ToolFn("createRecommendation", correct(pe, "pe1", "Again.")),
+		llmtest.ToolFn("createRecommendation", correct(pe, "pe2", "Posted already.")),
+		llmtest.ToolFn("createRecommendation", correct(pe, "pe3", "Another company's.")),
+		llmtest.ToolFn("createRecommendation", correct(pe, "pe9", "Never read.")),
+		llmtest.ToolFn("createRecommendation", correct(pe, "si1", "An invoice called an entry.")),
+		llmtest.ToolFn("createRecommendation", correct(si, "si1", "Item 1: the code its supplier's tax fits.")),
+		llmtest.ToolFn("createRecommendation", correct(pe, "pe4", "The group member's entry: GO5.")),
+		llmtest.ToolFn("createRecommendation", explain(map[string]any{"kind": "correct_tax_code"})),
+		llmtest.ToolFn("createRecommendation", explain(map[string]any{"kind": "post_entry", "object_type": pe, "object_id": "pe1"})),
+		llmtest.ToolFn("createRecommendation", func(c string) any {
+			in := correct(pe, "pe4", "Another session's.")(c).(map[string]any)
+			in["body"].(map[string]any)["session_id"] = reg
+			return in
+		}),
+		llmtest.Tool("parkJournalEntry", adjust(le, "2026-06-30", "GI", "Tax agent: entry 100004's instalment on line 110")),
+		llmtest.Tool("parkJournalEntry", adjust(member, "2026-04-01", "GI", "The group member's")),
+		llmtest.Tool("parkJournalEntry", adjust(le, "2026-06-30", "XX", "refuse: no such code")),
+		llmtest.Tool("parkJournalEntry", adjust(other, "2026-06-30", "GI", "Another company's")),
+		llmtest.Tool("parkJournalEntry", adjust(le, "2026-07-01", "GI", "After the period")),
+		llmtest.Tool("parkJournalEntry", adjust(le, "2026-03-31", "GI", "Before the period")),
+		llmtest.Tool("parkJournalEntry", adjust(le, "2026-06-30T00:00:00Z", "GI", "Not a date")),
+		llmtest.Tool("parkJournalEntry", adjust(le, "2026-06-30", "", "No code")),
+		llmtest.Tool("parkJournalEntry", map[string]any{}),
+		llmtest.Final("Explained the draft, parked two adjustments and proposed three corrections."),
+	}
+	model := llmtest.New(t, steps...)
+	res, err := (&taxagent.Agent{LLM: model.Runner(), API: client(t, a)}).Explain(context.Background(), "GSTHST", "2026-04-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(res.Recommendations, " "), "r1 r2 r3 r4"; got != want {
+		t.Errorf("recommendations: got %q, want %q: the explanation and three corrections", got, want)
+	}
+	if got, want := strings.Join(res.Parked, " "), "p1 p2"; got != want {
+		t.Errorf("parked: got %q, want %q", got, want)
+	}
+	if res.Refused != 16 {
+		t.Errorf("refused: got %d, want 16: the API's two and the guard's fourteen", res.Refused)
+	}
+	if got := len(a.sent("recommendations")); got != 5 {
+		t.Errorf("recommendations sent: got %d %v, want 5: the guard keeps the others from the API", got, a.sent("recommendations"))
+	}
+	if got := len(a.sent("POST /v1/parked-journal-entries")); got != 3 {
+		t.Errorf("entries sent to park: got %d, want 3: the guard keeps the others from the API", got)
+	}
+	if got := a.sent(":post"); len(got) != 0 {
+		t.Errorf("posts: got %v, want none", got)
+	}
+}
+
+// TestProposeInOneTurn: the tool calls of one turn run concurrently, and
+// the run sees each whole: two documents read at once are both kept, and
+// of two corrections of one document, or two explanations, in one turn
+// only one reaches the API.
+func TestProposeInOneTurn(t *testing.T) {
+	a := &fakeAPI{}
+	const pe = "parked_journal_entry"
+	model := llmtest.New(t,
+		llmtest.Together(llmtest.Tool("getParkedJournalEntry", map[string]any{"id": "pe1"}), llmtest.Tool("getParkedJournalEntry", map[string]any{"id": "pe4"}),
+			llmtest.Tool("getSupplierInvoice", map[string]any{"id": "si1"})),
+		llmtest.Together(llmtest.ToolFn("createRecommendation", correct(pe, "pe1", "GO5.")), llmtest.ToolFn("createRecommendation", correct(pe, "pe1", "GO5 again.")),
+			llmtest.ToolFn("createRecommendation", correct(pe, "pe4", "GO5.")), llmtest.ToolFn("createRecommendation", correct("supplier_invoice", "si1", "GI.")),
+			llmtest.ToolFn("createRecommendation", explain(nil)), llmtest.ToolFn("createRecommendation", explain(nil))),
+		llmtest.Final("Done."))
+	res, err := (&taxagent.Agent{LLM: model.Runner(), API: client(t, a)}).Explain(context.Background(), "GSTHST", "2026-04-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(res.Recommendations); got != 4 {
+		t.Errorf("recommendations: got %d %v, want 4: one per object", got, res.Recommendations)
+	}
+	if res.Refused != 2 {
+		t.Errorf("refused: got %d, want 2: the second correction of pe1 and the second explanation", res.Refused)
+	}
+	if got := len(a.sent("recommendations")); got != 4 {
+		t.Errorf("recommendations sent: got %d, want 4", got)
 	}
 }
 
@@ -197,7 +353,7 @@ func TestNeverTransitions(t *testing.T) {
 		})
 	}
 	for _, id := range []string{"prepareTaxReturn", "fileTaxReturn", "withdrawTaxReturn", "approveApprovalRequest", "rejectApprovalRequest",
-		"decideRecommendation"} {
+		"decideRecommendation", "postParkedJournalEntry"} {
 		t.Run(id, func(t *testing.T) {
 			if ops[id].AgentAllowed {
 				t.Errorf("%s: open to agents, want x-agent: false", id)

@@ -2,6 +2,7 @@ package llmtest
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -31,6 +32,23 @@ func TestScriptControls(t *testing.T) {
 	}
 	if got := fn.Input("abc").(map[string]any)["len"]; got != 3 {
 		t.Errorf("ToolFn input len: got %v, want 3", got)
+	}
+}
+
+// TestTogether: a turn of several tool calls answers with each, in order.
+func TestTogether(t *testing.T) {
+	srv := New(t, Together(Tool("a", map[string]any{"n": 1}), Tool("b", map[string]any{"n": 2})))
+	r := srv.Runner()
+	msg, err := r.Client.Beta.Messages.New(context.Background(), r.Params("s", anthropic.NewBetaTextBlock("go")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, c := range msg.Content {
+		names = append(names, c.Name)
+	}
+	if got := strings.Join(names, " "); got != "a b" {
+		t.Errorf("tool calls: got %q, want %q", got, "a b")
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
@@ -160,6 +161,9 @@ func TestToolsCallTheAPIInASession(t *testing.T) {
 	if got := call(t, tools[2], `{"id": "`+id+`", "if_match": "\"1\"", "body": {"name": "x"}}`); got["status"] != float64(412) {
 		t.Fatalf("stale: %v", got)
 	}
+	// A tool run under a mutex its caller shares takes it for the call.
+	var mu sync.Mutex
+	tools[3].Exclusive(&mu)
 	if got := call(t, tools[3], `{"kind": "sap_file", "page_size": 1}`); len(got["body"].(map[string]any)["items"].([]any)) != 1 {
 		t.Fatalf("listed: %v", got)
 	}
@@ -177,6 +181,10 @@ func TestToolsCallTheAPIInASession(t *testing.T) {
 			}
 		})
 	}
+	if !mu.TryLock() {
+		t.Error("the mutex is still held after the call")
+	}
+	mu.Unlock()
 	if got := call(t, tools[3], `null`); got["status"] != float64(200) {
 		t.Fatalf("null input: %v", got)
 	}
