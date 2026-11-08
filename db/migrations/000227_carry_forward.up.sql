@@ -4,7 +4,7 @@
 -- earnings account that takes year Y's profit or loss.
 --
 -- Expand only (06 §6.4): a column with a default, a check and a key added
--- NOT VALID (000219 validates them), new tables and a permission, none of
+-- NOT VALID (000228 validates them), new tables and a permission, none of
 -- which the previous release writes. The previous release's OpenPeriod
 -- updates period_status as before; the trigger counts its openings too.
 

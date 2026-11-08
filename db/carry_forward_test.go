@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// The balance carry-forward (ADR-0059 §4-§6, §14, T64m2, migrations 000218
-// and 000219): a period counts its openings; a run's years are consecutive,
+// The balance carry-forward (ADR-0059 §4-§6, §14, T64m2, migrations 000227
+// and 000228): a period counts its openings; a run's years are consecutive,
 // it chains only from the previous year's run, carries to an equity
 // account, moves only from current to superseded naming its successor, is
 // the only current one of its company, ledger and year; its balance and

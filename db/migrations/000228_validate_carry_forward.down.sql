@@ -1,5 +1,5 @@
 -- A validated constraint cannot be marked unvalidated again; the down
--- restores 000218's state by adding the checks back NOT VALID.
+-- restores 000227's state by adding the checks back NOT VALID.
 ALTER TABLE ledger.period_status
   DROP CONSTRAINT period_status_opened_count,
   ADD CONSTRAINT period_status_opened_count CHECK (opened_count >= 0) NOT VALID;

@@ -676,7 +676,7 @@ item only when one does (07 §7.5).
 ## As built
 (Filled in by the slices T64m1-T64m6.)
 
-**T64m1, postings into special periods** (migrations 000216 and 000217).
+**T64m1, postings into special periods** (migrations 000225 and 000226).
 Built as §3 says; the choices taken by default (ADR-0053 d), for the
 product owner to overrule:
 1. *Where the rule is checked.* `fiscal_period` is checked
@@ -707,7 +707,7 @@ product owner to overrule:
    application's only: a line trigger would read the period per line.
    `parked_entry.fiscal_period` is null or 13-16
    (`parked_entry_fiscal_period_special`, added NOT VALID and validated by
-   000217); the contract bounds it too, so no problem is registered for it.
+   000226); the contract bounds it too, so no problem is registered for it.
 4. *Events.* `JournalEntryPosted` already carries the entry's
    `fiscal_period`; `ParkedJournalEntryChanged` is unchanged (the period is
    on the representation).
@@ -743,15 +743,15 @@ product owner to overrule:
    `submitRequisition`, `updateRequisition`, `renewContract` and
    `updateContract`, which other unexported twins had hidden.
 
-**T64m2, retained earnings and the carry-forward run** (migrations 000218
-and 000219). Built as §4-§6 say; the choices taken by default (ADR-0053 d),
+**T64m2, retained earnings and the carry-forward run** (migrations 000227
+and 000228). Built as §4-§6 say; the choices taken by default (ADR-0053 d),
 for the product owner to overrule:
 1. *Where the account is kept.* `companies[].year_end.retained_earnings_account`
    (config `YearEnd`, validated on the field: in the chart, `equity`, no
    supplier or asset reconciliation account, not open-item managed; every
    account of the chart is postable, the configuration has no posting
    block) is applied as the account determination key `retained_earnings`
-   (000218 adds the key, NOT VALID, validated by 000219). Tier 3 by an
+   (000227 adds the key, NOT VALID, validated by 000228). Tier 3 by an
    explicit rule. The application has no DELETE grant, so `ledger.Setup.Check`
    lets the account be changed but not removed once activated; each run
    records the account it used.

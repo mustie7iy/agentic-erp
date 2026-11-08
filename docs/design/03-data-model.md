@@ -1387,7 +1387,7 @@ projected, and consolidation reads it with the lines still pending
 was backfilled.
 
 Year-end close, special-period postings (ADR-0059 §3, T64m1, migrations
-000216 and 000217): special periods 13-16 take manual and parked entries
+000225 and 000226): special periods 13-16 take manual and parked entries
 and the API's reversals, dated in the year's last regular period, whose
 dates they share. A parked entry keeps the special period it names in a
 nullable `parked_entry.fiscal_period`, 13 to 16 or null
@@ -1402,8 +1402,8 @@ period), and refuses a tax code on a special-period line
 parked-entry check (`ledger.CloseChecks.Parked`) leaves out entries naming
 a special period.
 
-The balance carry-forward (ADR-0059 §4-§6, T64m2, migrations 000218 and
-000219) stores the opening balances of the next fiscal year as balances,
+The balance carry-forward (ADR-0059 §4-§6, T64m2, migrations 000227 and
+000228) stores the opening balances of the next fiscal year as balances,
 never as journal lines. `period_status.opened_count` counts a period's
 openings: the trigger `period_status_opened_count` starts it at 0 and adds
 one on every change of the status to `open`, whoever writes it, and

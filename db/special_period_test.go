@@ -7,8 +7,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Postings into special periods (ADR-0059 §3, T64m1, migrations 000216 and
-// 000217): a special period takes manual entries and reversals only, dated
+// Postings into special periods (ADR-0059 §3, T64m1, migrations 000225 and
+// 000226): a special period takes manual entries and reversals only, dated
 // in its dates, the year's last regular period's; a parked entry names
 // only a special period.
 

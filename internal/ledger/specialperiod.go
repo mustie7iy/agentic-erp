@@ -20,7 +20,7 @@ import (
 // reverseManually, and each checks it here before anything is written.
 // postingPeriod then reads the special period's status, FOR SHARE in the
 // postings' order, as it reads a regular one's, and the database refuses
-// any other posting into a special period (check_entry_period, 000216).
+// any other posting into a special period (check_entry_period, 000225).
 
 // checkSpecial holds a prepared manual entry naming a special period to
 // specialPeriod's rules; one naming none passes.

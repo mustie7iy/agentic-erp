@@ -6,7 +6,7 @@
 -- keeps it and is held to the rules again when it is posted. Null: the
 -- regular period of its posting date, as before. Expand only (06 §6.4): a
 -- nullable column without a default rewrites nothing, and its check is
--- added NOT VALID, reading none of the rows under the lock; 000217
+-- added NOT VALID, reading none of the rows under the lock; 000226
 -- validates it. The previous release never writes the column.
 ALTER TABLE ledger.parked_entry
   ADD COLUMN fiscal_period smallint,
