@@ -314,7 +314,7 @@ func Configuration(cfg Config) configuration.Dependencies {
 func Ledger(cfg Config) *ledger.Endpoints {
 	return &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
 		Numbers: configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: opener(), Settings: configuration.Settings{}, TaxReturns: taxfiling.Holds{},
-		PartnerNames: LedgerPartners{}, Now: cfg.Now, People: identity.Actors{}}
+		PartnerNames: LedgerPartners{}, Now: cfg.Now, People: identity.Actors{}, PersonNames: LedgerPeople{}}
 }
 
 // Payments is the payments context as the API wires it, for the proposal
@@ -401,6 +401,22 @@ func (LedgerPartners) PartnerNames(ctx context.Context, ids []uuid.UUID) (map[uu
 	out := make(map[uuid.UUID]ledger.PartnerName, len(named))
 	for id, n := range named {
 		out[id] = ledger.PartnerName{Number: n.Number, Name: n.Name}
+	}
+	return out, err
+}
+
+// LedgerPeople names the people who ran the ledger's carry-forwards from
+// the identity context's directory: the ledger does not import it.
+// Exported for the ledger's tests, which wire their endpoints as the API
+// does.
+type LedgerPeople struct{}
+
+// PersonNames are the principals' names by id; an id of none is left out.
+func (LedgerPeople) PersonNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	named, err := identity.People{}.Named(ctx, ids)
+	out := make(map[uuid.UUID]string, len(named))
+	for id, n := range named {
+		out[id] = n.Name
 	}
 	return out, err
 }

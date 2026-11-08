@@ -2992,13 +2992,17 @@ step_asset_depreciation() {
 # business the later parts carry forward (an expense, a revenue, a USD
 # bank posting, the USD rates on PREV's last day and PREV's year-end
 # revaluation in every ledger), and an audit adjustment posted into
-# special period 13, dated the year's last day.
+# special period 13, dated the year's last day. T64m2's: the retained
+# earnings account set through a change request, PREV's periods closed
+# and PREV carried forward into this year in every ledger.
 step_year_end() {
-  heading "Step 39 — Year-end close of $PREV: the year set up, its business and year-end revaluation, an audit adjustment in special period 13"
+  heading "Step 39 — Year-end close of $PREV: the year set up, its business and year-end revaluation, an audit adjustment in special period 13, the year carried forward"
   year_end_setup
   year_end_business
   year_end_revaluation
   year_end_adjustment
+  year_end_retained_earnings
+  year_end_carry_forward
   passed
 }
 
@@ -3165,6 +3169,83 @@ year_end_adjustment() {
   refused 422 ledger.special_period_date postJournalEntry \
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$PREV-11-30\", \"posting_date\": \"$PREV-11-30\", \"fiscal_period\": 13, \"currency\": \"CAD\", \"header_text\": \"November charges\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"50.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-50.00\", \"currency\": \"CAD\"}}]}"
   expect "the refused field" "$(field '[.errors[].field] | join(" ")')" posting_date
+}
+
+# year_end_retained_earnings has Ada give the company its retained
+# earnings account (ADR-0059 §4): a new equity account in the chart, a
+# tier 4 change with its evidence, and the account the year's result is
+# carried to, one for every ledger.
+year_end_retained_earnings() {
+  as ada
+  say "A carry-forward carries each year's profit or loss to the company's retained earnings account, which $CC"
+  say "does not have yet. Ada adds account 330000 to the chart and names it in year_end; a new account changes the"
+  say "chart, so the change is tier 4 and the last year's invoices are replayed under it."
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  local base cr request
+  base=$(field '.items[0].number')
+  jq "{title: \"Retained earnings of $CC\", rationale: \"The year's result is carried to it (ADR-0059 §4)\", base_version: $base,
+    proposed: (.items[0].document | (.companies[] | select(.code == \"$CC\")) |= (.chart_of_accounts += [{\"number\": \"330000\", \"name\": \"Retained earnings\", \"type\": \"equity\"}]
+      | .year_end.retained_earnings_account = \"330000\"))}" "$WORK/last.json" >"$WORK/retained.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @retained.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 4
+  expect "the retained earnings account among the changes" "$(field '[.items[] | select(.path == "companies['"$CC"'].year_end.retained_earnings_account")] | length')" 1
+  api 201 '"regression suite \(.number): \(.case_count) cases"' createRegressionSuite -body '{"name": "Before retained earnings", "window_days": 366}'
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
+  expect "status after the evidence" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve sam "$request" "Retained earnings account checked"
+  approve carla "$request" "The account is new and unposted"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+}
+
+# year_end_carry_forward is T64m2's capability (ADR-0059 §5): Carla closes
+# PREV's open periods and carries PREV forward into this year in every
+# ledger, stored as balances, not journal entries. Each run's rows sum to
+# zero per currency (debits equal credits in every amount), and the
+# leading ledger's result per currency is PREV's profit and loss in the
+# trial balance.
+year_end_carry_forward() {
+  as carla
+  accounts
+  say "Carla closes $PREV's periods still open, December and special period 13, in each ledger: nothing may be"
+  say "posted into what is carried."
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=100
+  local p run
+  for p in $(field '.items[] | select(.status == "open") | "\(.id)/\(.version)"'); do
+    api 200 '"  period \(.fiscal_year)/\(.period) of ledger \(.ledger_id[0:8])…: \(.status)"' closeFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+  say "She carries $PREV forward into $YEAR in every ledger the company keeps: the opening balances of $YEAR, per"
+  say "account and currency, with $PREV's profit or loss carried to retained earnings. No journal entry is posted."
+  api 201 '.items[] | "  \(.ledger_code): run \(.id[0:8])…, \(.from_fiscal_year) into \(.to_fiscal_year), \(.basis), \(.row_count) rows, result to \(.retained_earnings_account.number) \(.retained_earnings_account.name)"' \
+    runBalanceCarryForward -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $PREV}"
+  expect "the runs" "$(field '[.items[] | "\(.ledger_code) \(.basis) \(.status)"] | join(", ")')" "0L all_years current, 2L all_years current"
+  cp "$WORK/last.json" "$WORK/carry-forward.json"
+  say "Each run's opening balances sum to zero in every currency: its debits equal its credits in transaction,"
+  say "local and group currency."
+  for run in $(jq -r '.items[] | "\(.ledger_code)=\(.id)"' "$WORK/carry-forward.json"); do
+    api 200 '"  \(.ledger_code), run by \(.created_by_name):", (.totals[] | "    \(.currency): result \(.result.amount) (\(.result_lc.amount) \(.result_lc.currency)), debit \(.debit.amount) = credit \(.credit.amount), local \(.debit_lc.amount) = \(.credit_lc.amount), group \(.debit_gc.amount) = \(.credit_gc.amount)")' \
+      getBalanceCarryForward -p "id=${run#*=}"
+    expect "${run%%=*}'s rows summing to zero" "$(field '[.totals[] | select(.debit.amount != .credit.amount or .debit_lc.amount != .credit_lc.amount or .debit_gc.amount != .credit_gc.amount)] | length')" 0
+    printf '%s\t%s carry-forward of %s\n' "${run#*=}" "${run%%=*}" "$PREV" >>"$WORK/names"
+  done
+  local result
+  result=$(jq -r '[.items[0].totals[] | select(.result.amount != "0.00") | "\(.currency) \(.result.amount)"] | join(", ")' "$WORK/carry-forward.json")
+  say "0L's result per currency, $result, is $PREV's profit and loss in the trial balance (revenue and expense"
+  say "accounts, debit positive):"
+  api 200 '"  \(.items | length) balances of \(.items | map(.account_id) | unique | length) accounts"' listBalances -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=500
+  expect "the trial balance's profit and loss" "$(jq -r --slurpfile acc "$WORK/accounts.json" '($acc[0].items | map({(.id): .account_type}) | add) as $t
+    | [.items[] | select($t[.account_id] == "revenue" or $t[.account_id] == "expense")] | group_by(.currency)
+    | map({c: .[0].currency, v: (map((.debit.amount | tonumber) - (.credit.amount | tonumber)) | add)}) | map(select(.v != 0))
+    | map("\(.c) \(.v * 100 | round)") | join(", ")' "$WORK/last.json")" \
+    "$(jq -r '[.items[0].totals[] | select(.result.amount != "0.00") | "\(.currency) \(.result.amount | tonumber * 100 | round)"] | join(", ")' "$WORK/carry-forward.json")"
 }
 
 step_close() {

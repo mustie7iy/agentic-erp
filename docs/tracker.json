@@ -1749,7 +1749,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Retained earnings and the carry-forward run: companies[].year_end.retained_earnings_account (equity, postable, no reconciliation, not open-item managed; tier 3); opened_count on ledger.period_status (a trigger adds one on every change to open); ledger.carry_forward_run, carry_forward_balance and carry_forward_period; POST /v1/balance-carry-forwards per ledger (chained from the previous year's current run or from every year; a stale predecessor refused with ledger.carry_forward_stale; the year and earlier years closed or locked, the next year set up, a retained earnings account; the ledgers' advisory locks, then every period in the one lock order; the previous run superseded); GET one run with year Y's result and totals per currency; BalanceCarriedForward; audit; ledger.carry_forward.run; rows summing to zero per currency, chained equal to from every year, result being the year's alone, the chained budget; walkthrough: the year carried forward in every ledger, its result equal to the year's profit and loss",
         "r": "ADR-0059 §4, §5, §6 · T64m2",
         "src": "adr:ADR-0059",

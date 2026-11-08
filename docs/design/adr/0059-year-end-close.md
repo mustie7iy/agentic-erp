@@ -742,3 +742,73 @@ product owner to overrule:
    `reverseJournalEntry`, `cancelAsset`, `cancelRequisition`,
    `submitRequisition`, `updateRequisition`, `renewContract` and
    `updateContract`, which other unexported twins had hidden.
+
+**T64m2, retained earnings and the carry-forward run** (migrations 000218
+and 000219). Built as §4-§6 say; the choices taken by default (ADR-0053 d),
+for the product owner to overrule:
+1. *Where the account is kept.* `companies[].year_end.retained_earnings_account`
+   (config `YearEnd`, validated on the field: in the chart, `equity`, no
+   supplier or asset reconciliation account, not open-item managed; every
+   account of the chart is postable, the configuration has no posting
+   block) is applied as the account determination key `retained_earnings`
+   (000218 adds the key, NOT VALID, validated by 000219). Tier 3 by an
+   explicit rule. The application has no DELETE grant, so `ledger.Setup.Check`
+   lets the account be changed but not removed once activated; each run
+   records the account it used.
+2. *The opened count.* A trigger (`period_status_opened_count`) adds one on
+   every change of the status to `open`, so the previous release's
+   `OpenPeriod` and the tests that set `open` directly count too; an insert
+   starts at 0 and any other change of the count is refused.
+3. *The rows.* Computed in one statement from the predecessor's rows (when
+   chained) and the ledger's balances of the year (chained) or of every
+   year up to it, read as the trial balance reads them: projected
+   `period_balance` plus the lines of entries the projector has not reached.
+   A row whose three amounts are all zero is left out. A predecessor's
+   `result` rows fold into the retained earnings account's `balance`, as
+   that account is a balance sheet account; a predecessor that carried to
+   another retained earnings account (the configuration changed) keeps that
+   account's balance as a balance sheet account.
+4. *Refusals and their order.* An unknown company or ledger is 422
+   `request.reference_not_found` (on `legal_entity_id`, `ledger_ids`), a
+   ledger not kept 422 `ledger.ledger_not_kept`; then 409
+   `ledger.retained_earnings_missing`; after the locks, a ledger without
+   periods of the year is 422 `ledger.no_fiscal_period` on `fiscal_year`
+   (not listed in §5: without it the run would carry nothing), then 409
+   `ledger.next_year_not_set_up`, then 409
+   `ledger.carry_forward_periods_open` naming every open period as
+   `year/period in ledger`; per ledger, a stale predecessor is 409
+   `ledger.carry_forward_stale` naming its year and the periods opened
+   since. Staleness is `openedSince`, which T64m3's reads reuse.
+5. *The response.* 201 with the runs in one body (`items`, the leading
+   ledger first, then by code) and no `Location`, since one request makes
+   several runs; `GET /v1/balance-carry-forwards/{id}` carries the totals
+   per transaction currency (result, debits and credits in transaction,
+   local and group currency) and the local and group currency codes;
+   `stale`, the list and the balances are T64m3's.
+6. *Who ran it.* The ledger names the person through a new port,
+   `ledger.PersonNames` (`app.LedgerPeople` over `identity.People.Named`,
+   resolved with `idref`, so an unknown person fails the read rather than
+   showing no name); no dependency direction changes.
+7. *The permission.* `ledger.carry_forward.run` is in `ref.permission`.
+   There is no role catalog in the repository: roles are each tenant's,
+   granted by its administrator (the walkthrough grants every permission
+   to finance staff), and no migration has ever granted a permission to
+   existing roles, so "granted with `ledger.period.lock`" is the advice to
+   administrators, not a migration.
+8. *Event and audit.* `BalanceCarriedForward` (ledger channel) carries the
+   run, company, ledger, years, basis, the run it chained from and the one
+   it superseded, the retained earnings account, the row count and the
+   result per currency with a result row (signed, debit positive); the
+   audit record `ledger.carry_forward_run.run` names the run superseded.
+9. *Budget.* `TestCarryForwardBudget`: a chained run over 5,000 accounts
+   with balances in 3 currencies in every period 1-16 of two years: median
+   312 ms, p95 432 ms (scale 1) and 472 ms (scale 2) against 3 s, load
+   7-15 on 10 cores; 01 §1.3 has the row.
+10. *Walkthrough* (`step_year_end`): Ada adds account 330000 Retained
+   earnings to the chart and names it in `year_end`, a tier 4 change with
+   its regression evidence and two approvals; Carla closes `PREV`'s open
+   periods (12 and 13) in both ledgers and carries `PREV` forward: one
+   `all_years` run per ledger, each run's debits equal its credits per
+   currency in every amount, and 0L's result (CAD -1,790.00: the sale, the
+   rent, the audit adjustment and the revaluation gain) is `PREV`'s profit
+   and loss in the trial balance.

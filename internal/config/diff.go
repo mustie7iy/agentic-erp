@@ -154,6 +154,9 @@ var tierRules = []struct {
 	// report need a comment before sign-off and post nothing (ADR-0058 §3).
 	{rx(`^companies\[\*\]\.close\.variance(\.|$)`), TierOperational},
 	{rx(`^close(\.|$)`), TierOperational},
+	// Where a year's result is carried decides what the next carry-forward
+	// run carries (ADR-0059 §4): posting-relevant, applied from the next run.
+	{rx(`^companies\[\*\]\.year_end(\.|$)`), TierPostingRelated},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }

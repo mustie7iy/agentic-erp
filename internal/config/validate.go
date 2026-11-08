@@ -289,7 +289,37 @@ func (v *validator) company(p string, co *Company) {
 	v.bankStatements(p, co, exp, known)
 	v.companyControlling(p, co)
 	v.companyCash(p, co)
+	v.closes(p, co, exp, known)
+}
+
+// closes checks how the company's periods and years are closed: the
+// period close's settings (ADR-0058 §3) and the year end's (ADR-0059 §4).
+func (v *validator) closes(p string, co *Company, exp int, known bool) {
 	v.companyClose(p, co, exp, known)
+	v.yearEnd(p, co)
+}
+
+// yearEnd checks a company's retained earnings account (ADR-0059 §4): in
+// the company's chart, where every account is postable, an equity
+// account, reconciling nothing (supplier or asset) and not open-item
+// managed, since a carry-forward's result is a balance, not an item.
+func (v *validator) yearEnd(p string, co *Company) {
+	number := co.YearEnd.RetainedEarningsAccount
+	if number == "" {
+		return
+	}
+	p += ".year_end.retained_earnings_account"
+	a := co.Account(number)
+	switch {
+	case a == nil:
+		v.err(p, "account %s is not in the chart of accounts", number)
+	case a.Type != Equity:
+		v.err(p, "account %s is %s, expected equity", number, a.Type)
+	case a.VendorReconciliation || a.AssetReconciliation:
+		v.err(p, "account %s is a reconciliation account, posted only through its subledger", number)
+	case a.OpenItems:
+		v.err(p, "account %s manages open items; retained earnings carry a balance", number)
+	}
 }
 
 // isTaxAccount reports whether the account is the input tax account or a

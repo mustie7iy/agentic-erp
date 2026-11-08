@@ -252,6 +252,18 @@ projected. A row's lines are the entries `GET /v1/journal-entries` lists
 for its center (`cost_center_id`, `profit_center_id`) with the company,
 ledger and year; the reports add no journal filter.
 
+The balance carry-forward (ADR-0059 §5, §7, T64m2) is a run per ledger:
+`POST /v1/balance-carry-forwards` (`ledger.carry_forward.run` with
+`ledger.entry.read` as `x-also-permissions`, `x-agent: false`,
+`Idempotency-Key`) takes a company, a fiscal year and optional
+`ledger_ids` (default every kept ledger) and answers 201 with one run per
+ledger in one body (`items`, the leading ledger first), all in one
+transaction, so no single `Location` names them; each is read with `GET
+/v1/balance-carry-forwards/{id}` (`ledger.entry.read`, ETag), which names
+the company, ledger, retained earnings account and who ran it, with the
+year's result and the rows' debit and credit totals per transaction
+currency. A run is never a journal entry; the trial balance is unchanged.
+
 Plan values (ADR-0050 §8, T56g) are the controlling context's.
 `/v1/plan-categories` (`controlling.plan.read`, `.write`) are open or
 locked by a person (`:lock`, `:unlock`: `controlling.plan.lock`, an

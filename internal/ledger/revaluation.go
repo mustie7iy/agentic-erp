@@ -14,7 +14,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
-	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -376,16 +375,9 @@ func (e *Endpoints) PreviewRevaluation(ctx context.Context, req *gen.Revaluation
 // default, else one the company keeps) and group currency a preview or run
 // values; a legal entity the caller cannot act in is not found.
 func (e *Endpoints) revaluationTarget(ctx context.Context, tx pgx.Tx, req *gen.RevaluationPreviewRequest) (tenancy.Entity, uuid.UUID, string, error) {
-	access, err := authz.Companies(ctx)
+	le, err := e.visibleEntity(ctx, req.LegalEntityID)
 	if err != nil {
 		return tenancy.Entity{}, uuid.Nil, "", err
-	}
-	le, ok, err := e.LegalEntities.Entity(ctx, req.LegalEntityID)
-	if err != nil {
-		return tenancy.Entity{}, uuid.Nil, "", err
-	}
-	if !ok || !access.Allows(le.ID) {
-		return tenancy.Entity{}, uuid.Nil, "", problem.ReferenceNotFound("legal_entity_id", "legal entity", "no legal entity with this id")
 	}
 	var ledgerID uuid.UUID
 	var kept bool

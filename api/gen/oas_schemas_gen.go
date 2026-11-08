@@ -8567,6 +8567,394 @@ func (s *Balance) SetUpdatedAt(val time.Time) {
 	s.UpdatedAt = val
 }
 
+// A balance carry-forward run of a company and ledger from one fiscal year into the next (ADR-0059
+// §5): its rows are the opening balances of the next year. Fixed once run, except that a later run of
+// the same year supersedes it.
+// Ref: #/components/schemas/BalanceCarryForward
+type BalanceCarryForward struct {
+	// Run id.
+	ID uuid.UUID `json:"id"`
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// The fiscal year carried forward.
+	FromFiscalYear int32 `json:"from_fiscal_year"`
+	// The fiscal year whose opening balances the run holds.
+	ToFiscalYear int32 `json:"to_fiscal_year"`
+	// Chained: the previous year's current run plus the year's balances; all_years: every year's balances,
+	// there being no current run of the previous year.
+	Basis string `json:"basis"`
+	// The previous year's run it was chained from; absent for all_years.
+	ChainedFromID OptUUID `json:"chained_from_id"`
+	// The retained earnings account the year's result was carried to.
+	RetainedEarningsAccount CarryForwardAccount `json:"retained_earnings_account"`
+	// Current, or superseded by a later run of the same year (`superseded_by_id`).
+	Status string `json:"status"`
+	// The run that superseded it; absent while current.
+	SupersededByID OptUUID `json:"superseded_by_id"`
+	// When it was superseded; absent while current.
+	SupersededAt OptDateTime `json:"superseded_at"`
+	// Its rows: balance rows per account and currency, and a result row per currency.
+	RowCount int32 `json:"row_count"`
+	// The company's local currency, of every row's local amount.
+	LocalCurrency string `json:"local_currency"`
+	// The group currency, of every row's group amount.
+	GroupCurrency string `json:"group_currency"`
+	// Per transaction currency, by currency code: the year's result carried to retained earnings and the
+	// totals of the run's rows.
+	Totals []CarryForwardTotal `json:"totals"`
+	// When it was run.
+	CreatedAt time.Time `json:"created_at"`
+	// Who ran it.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Their name.
+	CreatedByName string `json:"created_by_name"`
+}
+
+// GetID returns the value of ID.
+func (s *BalanceCarryForward) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *BalanceCarryForward) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *BalanceCarryForward) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *BalanceCarryForward) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *BalanceCarryForward) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *BalanceCarryForward) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *BalanceCarryForward) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetFromFiscalYear returns the value of FromFiscalYear.
+func (s *BalanceCarryForward) GetFromFiscalYear() int32 {
+	return s.FromFiscalYear
+}
+
+// GetToFiscalYear returns the value of ToFiscalYear.
+func (s *BalanceCarryForward) GetToFiscalYear() int32 {
+	return s.ToFiscalYear
+}
+
+// GetBasis returns the value of Basis.
+func (s *BalanceCarryForward) GetBasis() string {
+	return s.Basis
+}
+
+// GetChainedFromID returns the value of ChainedFromID.
+func (s *BalanceCarryForward) GetChainedFromID() OptUUID {
+	return s.ChainedFromID
+}
+
+// GetRetainedEarningsAccount returns the value of RetainedEarningsAccount.
+func (s *BalanceCarryForward) GetRetainedEarningsAccount() CarryForwardAccount {
+	return s.RetainedEarningsAccount
+}
+
+// GetStatus returns the value of Status.
+func (s *BalanceCarryForward) GetStatus() string {
+	return s.Status
+}
+
+// GetSupersededByID returns the value of SupersededByID.
+func (s *BalanceCarryForward) GetSupersededByID() OptUUID {
+	return s.SupersededByID
+}
+
+// GetSupersededAt returns the value of SupersededAt.
+func (s *BalanceCarryForward) GetSupersededAt() OptDateTime {
+	return s.SupersededAt
+}
+
+// GetRowCount returns the value of RowCount.
+func (s *BalanceCarryForward) GetRowCount() int32 {
+	return s.RowCount
+}
+
+// GetLocalCurrency returns the value of LocalCurrency.
+func (s *BalanceCarryForward) GetLocalCurrency() string {
+	return s.LocalCurrency
+}
+
+// GetGroupCurrency returns the value of GroupCurrency.
+func (s *BalanceCarryForward) GetGroupCurrency() string {
+	return s.GroupCurrency
+}
+
+// GetTotals returns the value of Totals.
+func (s *BalanceCarryForward) GetTotals() []CarryForwardTotal {
+	return s.Totals
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *BalanceCarryForward) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *BalanceCarryForward) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetCreatedByName returns the value of CreatedByName.
+func (s *BalanceCarryForward) GetCreatedByName() string {
+	return s.CreatedByName
+}
+
+// SetID sets the value of ID.
+func (s *BalanceCarryForward) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *BalanceCarryForward) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *BalanceCarryForward) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *BalanceCarryForward) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *BalanceCarryForward) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *BalanceCarryForward) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *BalanceCarryForward) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetFromFiscalYear sets the value of FromFiscalYear.
+func (s *BalanceCarryForward) SetFromFiscalYear(val int32) {
+	s.FromFiscalYear = val
+}
+
+// SetToFiscalYear sets the value of ToFiscalYear.
+func (s *BalanceCarryForward) SetToFiscalYear(val int32) {
+	s.ToFiscalYear = val
+}
+
+// SetBasis sets the value of Basis.
+func (s *BalanceCarryForward) SetBasis(val string) {
+	s.Basis = val
+}
+
+// SetChainedFromID sets the value of ChainedFromID.
+func (s *BalanceCarryForward) SetChainedFromID(val OptUUID) {
+	s.ChainedFromID = val
+}
+
+// SetRetainedEarningsAccount sets the value of RetainedEarningsAccount.
+func (s *BalanceCarryForward) SetRetainedEarningsAccount(val CarryForwardAccount) {
+	s.RetainedEarningsAccount = val
+}
+
+// SetStatus sets the value of Status.
+func (s *BalanceCarryForward) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetSupersededByID sets the value of SupersededByID.
+func (s *BalanceCarryForward) SetSupersededByID(val OptUUID) {
+	s.SupersededByID = val
+}
+
+// SetSupersededAt sets the value of SupersededAt.
+func (s *BalanceCarryForward) SetSupersededAt(val OptDateTime) {
+	s.SupersededAt = val
+}
+
+// SetRowCount sets the value of RowCount.
+func (s *BalanceCarryForward) SetRowCount(val int32) {
+	s.RowCount = val
+}
+
+// SetLocalCurrency sets the value of LocalCurrency.
+func (s *BalanceCarryForward) SetLocalCurrency(val string) {
+	s.LocalCurrency = val
+}
+
+// SetGroupCurrency sets the value of GroupCurrency.
+func (s *BalanceCarryForward) SetGroupCurrency(val string) {
+	s.GroupCurrency = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *BalanceCarryForward) SetTotals(val []CarryForwardTotal) {
+	s.Totals = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *BalanceCarryForward) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *BalanceCarryForward) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetCreatedByName sets the value of CreatedByName.
+func (s *BalanceCarryForward) SetCreatedByName(val string) {
+	s.CreatedByName = val
+}
+
+// BalanceCarryForwardHeaders wraps BalanceCarryForward with response headers.
+type BalanceCarryForwardHeaders struct {
+	ETag     OptString
+	Response BalanceCarryForward
+}
+
+// GetETag returns the value of ETag.
+func (s *BalanceCarryForwardHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *BalanceCarryForwardHeaders) GetResponse() BalanceCarryForward {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *BalanceCarryForwardHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *BalanceCarryForwardHeaders) SetResponse(val BalanceCarryForward) {
+	s.Response = val
+}
+
+func (*BalanceCarryForwardHeaders) getBalanceCarryForwardRes() {}
+
+// Parameters of a balance carry-forward.
+// Ref: #/components/schemas/BalanceCarryForwardRequest
+type BalanceCarryForwardRequest struct {
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year carried forward, into the next one.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The ledgers to carry forward, each one the company keeps (422 `ledger.ledger_not_kept`); default
+	// every ledger it keeps.
+	LedgerIds []uuid.UUID `json:"ledger_ids"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *BalanceCarryForwardRequest) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *BalanceCarryForwardRequest) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetLedgerIds returns the value of LedgerIds.
+func (s *BalanceCarryForwardRequest) GetLedgerIds() []uuid.UUID {
+	return s.LedgerIds
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *BalanceCarryForwardRequest) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *BalanceCarryForwardRequest) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetLedgerIds sets the value of LedgerIds.
+func (s *BalanceCarryForwardRequest) SetLedgerIds(val []uuid.UUID) {
+	s.LedgerIds = val
+}
+
+// The runs of a balance carry-forward, one per ledger.
+// Ref: #/components/schemas/BalanceCarryForwardRuns
+type BalanceCarryForwardRuns struct {
+	// The runs, the leading ledger's first, then by ledger code.
+	Items []BalanceCarryForward `json:"items"`
+}
+
+// GetItems returns the value of Items.
+func (s *BalanceCarryForwardRuns) GetItems() []BalanceCarryForward {
+	return s.Items
+}
+
+// SetItems sets the value of Items.
+func (s *BalanceCarryForwardRuns) SetItems(val []BalanceCarryForward) {
+	s.Items = val
+}
+
+// BalanceCarryForwardRunsHeaders wraps BalanceCarryForwardRuns with response headers.
+type BalanceCarryForwardRunsHeaders struct {
+	IdempotentReplayed OptBool
+	Response           BalanceCarryForwardRuns
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *BalanceCarryForwardRunsHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *BalanceCarryForwardRunsHeaders) GetResponse() BalanceCarryForwardRuns {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *BalanceCarryForwardRunsHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *BalanceCarryForwardRunsHeaders) SetResponse(val BalanceCarryForwardRuns) {
+	s.Response = val
+}
+
+func (*BalanceCarryForwardRunsHeaders) runBalanceCarryForwardRes() {}
+
 // One page of balances.
 // Ref: #/components/schemas/BalancePage
 type BalancePage struct {
@@ -12172,6 +12560,174 @@ func (*CaptureSupplierInvoicePreconditionRequired) captureSupplierInvoiceRes() {
 type CaptureSupplierInvoiceUnprocessableEntity Problem
 
 func (*CaptureSupplierInvoiceUnprocessableEntity) captureSupplierInvoiceRes() {}
+
+// An account a carry-forward names.
+// Ref: #/components/schemas/CarryForwardAccount
+type CarryForwardAccount struct {
+	// Account.
+	ID uuid.UUID `json:"id"`
+	// Its number.
+	Number string `json:"number"`
+	// Its name.
+	Name string `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *CarryForwardAccount) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetNumber returns the value of Number.
+func (s *CarryForwardAccount) GetNumber() string {
+	return s.Number
+}
+
+// GetName returns the value of Name.
+func (s *CarryForwardAccount) GetName() string {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *CarryForwardAccount) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *CarryForwardAccount) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetName sets the value of Name.
+func (s *CarryForwardAccount) SetName(val string) {
+	s.Name = val
+}
+
+// A carry-forward run's figures in one transaction currency: the year's result carried to retained
+// earnings (debit positive, so a profit is negative) and the debit and credit totals of its rows,
+// which are equal.
+// Ref: #/components/schemas/CarryForwardTotal
+type CarryForwardTotal struct {
+	// The transaction currency.
+	Currency string `json:"currency"`
+	// The year's result in transaction currency, debit positive: a profit is negative; zero when none.
+	Result Money `json:"result"`
+	// The result in local currency.
+	ResultLc Money `json:"result_lc"`
+	// The result in group currency.
+	ResultGc Money `json:"result_gc"`
+	// Debit total of the rows in transaction currency.
+	Debit Money `json:"debit"`
+	// Credit total of the rows in transaction currency (positive).
+	Credit Money `json:"credit"`
+	// Debit total in local currency.
+	DebitLc Money `json:"debit_lc"`
+	// Credit total in local currency (positive).
+	CreditLc Money `json:"credit_lc"`
+	// Debit total in group currency.
+	DebitGc Money `json:"debit_gc"`
+	// Credit total in group currency (positive).
+	CreditGc Money `json:"credit_gc"`
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CarryForwardTotal) GetCurrency() string {
+	return s.Currency
+}
+
+// GetResult returns the value of Result.
+func (s *CarryForwardTotal) GetResult() Money {
+	return s.Result
+}
+
+// GetResultLc returns the value of ResultLc.
+func (s *CarryForwardTotal) GetResultLc() Money {
+	return s.ResultLc
+}
+
+// GetResultGc returns the value of ResultGc.
+func (s *CarryForwardTotal) GetResultGc() Money {
+	return s.ResultGc
+}
+
+// GetDebit returns the value of Debit.
+func (s *CarryForwardTotal) GetDebit() Money {
+	return s.Debit
+}
+
+// GetCredit returns the value of Credit.
+func (s *CarryForwardTotal) GetCredit() Money {
+	return s.Credit
+}
+
+// GetDebitLc returns the value of DebitLc.
+func (s *CarryForwardTotal) GetDebitLc() Money {
+	return s.DebitLc
+}
+
+// GetCreditLc returns the value of CreditLc.
+func (s *CarryForwardTotal) GetCreditLc() Money {
+	return s.CreditLc
+}
+
+// GetDebitGc returns the value of DebitGc.
+func (s *CarryForwardTotal) GetDebitGc() Money {
+	return s.DebitGc
+}
+
+// GetCreditGc returns the value of CreditGc.
+func (s *CarryForwardTotal) GetCreditGc() Money {
+	return s.CreditGc
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CarryForwardTotal) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetResult sets the value of Result.
+func (s *CarryForwardTotal) SetResult(val Money) {
+	s.Result = val
+}
+
+// SetResultLc sets the value of ResultLc.
+func (s *CarryForwardTotal) SetResultLc(val Money) {
+	s.ResultLc = val
+}
+
+// SetResultGc sets the value of ResultGc.
+func (s *CarryForwardTotal) SetResultGc(val Money) {
+	s.ResultGc = val
+}
+
+// SetDebit sets the value of Debit.
+func (s *CarryForwardTotal) SetDebit(val Money) {
+	s.Debit = val
+}
+
+// SetCredit sets the value of Credit.
+func (s *CarryForwardTotal) SetCredit(val Money) {
+	s.Credit = val
+}
+
+// SetDebitLc sets the value of DebitLc.
+func (s *CarryForwardTotal) SetDebitLc(val Money) {
+	s.DebitLc = val
+}
+
+// SetCreditLc sets the value of CreditLc.
+func (s *CarryForwardTotal) SetCreditLc(val Money) {
+	s.CreditLc = val
+}
+
+// SetDebitGc sets the value of DebitGc.
+func (s *CarryForwardTotal) SetDebitGc(val Money) {
+	s.DebitGc = val
+}
+
+// SetCreditGc sets the value of CreditGc.
+func (s *CarryForwardTotal) SetCreditGc(val Money) {
+	s.CreditGc = val
+}
 
 // A bank statement line as the cash actuals classify it (ADR-0051 §4, §11): its value date, house
 // bank, amount and shares by liquidity item, what classified it, and, for a caller who may read them
@@ -18398,6 +18954,7 @@ func (*ConflictHeaders) reverseJournalEntryRes()              {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()           {}
 func (*ConflictHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*ConflictHeaders) runAnalyticsQueryRes()                {}
+func (*ConflictHeaders) runBalanceCarryForwardRes()           {}
 func (*ConflictHeaders) signOffPeriodCloseRes()               {}
 func (*ConflictHeaders) simulateChangeRequestRes()            {}
 func (*ConflictHeaders) startAgentSessionRes()                {}
@@ -26518,6 +27075,18 @@ func (s *GetAssetTransferOKHeaders) SetResponse(val AssetTransfer) {
 }
 
 func (*GetAssetTransferOKHeaders) getAssetTransferRes() {}
+
+type GetBalanceCarryForwardBadRequest Problem
+
+func (*GetBalanceCarryForwardBadRequest) getBalanceCarryForwardRes() {}
+
+type GetBalanceCarryForwardForbidden Problem
+
+func (*GetBalanceCarryForwardForbidden) getBalanceCarryForwardRes() {}
+
+type GetBalanceCarryForwardNotFound Problem
+
+func (*GetBalanceCarryForwardNotFound) getBalanceCarryForwardRes() {}
 
 type GetBankAccountBadRequest Problem
 
@@ -56459,6 +57028,22 @@ type RunAnalyticsQueryUnprocessableEntity Problem
 
 func (*RunAnalyticsQueryUnprocessableEntity) runAnalyticsQueryRes() {}
 
+type RunBalanceCarryForwardBadRequest Problem
+
+func (*RunBalanceCarryForwardBadRequest) runBalanceCarryForwardRes() {}
+
+type RunBalanceCarryForwardForbidden Problem
+
+func (*RunBalanceCarryForwardForbidden) runBalanceCarryForwardRes() {}
+
+type RunBalanceCarryForwardPreconditionRequired Problem
+
+func (*RunBalanceCarryForwardPreconditionRequired) runBalanceCarryForwardRes() {}
+
+type RunBalanceCarryForwardUnprocessableEntity Problem
+
+func (*RunBalanceCarryForwardUnprocessableEntity) runBalanceCarryForwardRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/Segment
 type Segment struct {
@@ -56911,6 +57496,7 @@ func (*ServiceUnavailableHeaders) reverseJournalEntryRes()              {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()           {}
 func (*ServiceUnavailableHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*ServiceUnavailableHeaders) runAnalyticsQueryRes()                {}
+func (*ServiceUnavailableHeaders) runBalanceCarryForwardRes()           {}
 func (*ServiceUnavailableHeaders) signOffPeriodCloseRes()               {}
 func (*ServiceUnavailableHeaders) simulateChangeRequestRes()            {}
 func (*ServiceUnavailableHeaders) startAgentSessionRes()                {}
@@ -61220,6 +61806,7 @@ func (*TooManyRequestsHeaders) getAssetRes()                         {}
 func (*TooManyRequestsHeaders) getAssetRetirementRes()               {}
 func (*TooManyRequestsHeaders) getAssetScheduleRes()                 {}
 func (*TooManyRequestsHeaders) getAssetTransferRes()                 {}
+func (*TooManyRequestsHeaders) getBalanceCarryForwardRes()           {}
 func (*TooManyRequestsHeaders) getBankAccountRes()                   {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()               {}
 func (*TooManyRequestsHeaders) getBankFileRes()                      {}
@@ -61452,6 +62039,7 @@ func (*TooManyRequestsHeaders) reverseJournalEntryRes()              {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()           {}
 func (*TooManyRequestsHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*TooManyRequestsHeaders) runAnalyticsQueryRes()                {}
+func (*TooManyRequestsHeaders) runBalanceCarryForwardRes()           {}
 func (*TooManyRequestsHeaders) signOffPeriodCloseRes()               {}
 func (*TooManyRequestsHeaders) simulateChangeRequestRes()            {}
 func (*TooManyRequestsHeaders) startAgentSessionRes()                {}
@@ -61643,6 +62231,7 @@ func (*UnauthorizedHeaders) getAssetRes()                         {}
 func (*UnauthorizedHeaders) getAssetRetirementRes()               {}
 func (*UnauthorizedHeaders) getAssetScheduleRes()                 {}
 func (*UnauthorizedHeaders) getAssetTransferRes()                 {}
+func (*UnauthorizedHeaders) getBalanceCarryForwardRes()           {}
 func (*UnauthorizedHeaders) getBankAccountRes()                   {}
 func (*UnauthorizedHeaders) getBankFileContentRes()               {}
 func (*UnauthorizedHeaders) getBankFileRes()                      {}
@@ -61875,6 +62464,7 @@ func (*UnauthorizedHeaders) reverseJournalEntryRes()              {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()           {}
 func (*UnauthorizedHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*UnauthorizedHeaders) runAnalyticsQueryRes()                {}
+func (*UnauthorizedHeaders) runBalanceCarryForwardRes()           {}
 func (*UnauthorizedHeaders) signOffPeriodCloseRes()               {}
 func (*UnauthorizedHeaders) simulateChangeRequestRes()            {}
 func (*UnauthorizedHeaders) startAgentSessionRes()                {}

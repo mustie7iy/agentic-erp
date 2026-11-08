@@ -40,7 +40,7 @@ pointing its schema at a separate database. Callers do not change.
 | **identity** | Users, agents, roles, permissions, SoD rules, company access | `RoleAssigned`, `AccessRevoked` |
 | **configuration** (schema `config`) | Configuration versions, change requests, evidence | `ConfigurationActivated` |
 | **partner** | Business partners, roles (supplier, customer), addresses, bank accounts, tax ids | `SupplierApproved`, `BankAccountChanged` |
-| **ledger** | Chart of accounts, fiscal calendars, periods, currencies, exchange rates, journal entries, open items, clearing, balances; planned, not built: balance carry-forward runs (ADR-0059) | `JournalEntryPosted`, `PeriodClosed`; planned: `BalanceCarriedForward` |
+| **ledger** | Chart of accounts, fiscal calendars, periods, currencies, exchange rates, journal entries, open items, clearing, balances, balance carry-forward runs (ADR-0059) | `JournalEntryPosted`, `PeriodClosed`, `BalanceCarriedForward` |
 | **procurement** | Requisitions, purchase orders, contracts, goods receipts | `PurchaseOrderReleased`, `GoodsReceived` |
 | **payables** | Supplier invoices, matching results, invoice holds | `SupplierInvoicePosted`, `InvoiceHeld` |
 | **payments** | Payment proposals, payments, bank files, bank statements | `PaymentRunReleased` |

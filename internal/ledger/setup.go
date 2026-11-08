@@ -333,6 +333,11 @@ func checkActivated(base, proposed *config.Config, out *findings) {
 		if was := old.AccountDetermination.DownPayment; was != "" && co.AccountDetermination.DownPayment != was {
 			out.add(p+".account_determination.down_payment", "the down payment account cannot change once activated")
 		}
+		// The determination is never deleted (no grant); the account may be
+		// changed for the next carry-forward, not removed (ADR-0059 §4).
+		if old.YearEnd.RetainedEarningsAccount != "" && co.YearEnd.RetainedEarningsAccount == "" {
+			out.add(p+".year_end.retained_earnings_account", "the retained earnings account can be changed but not removed once activated")
+		}
 		for _, was := range old.ChartOfAccounts {
 			a := co.Account(was.Number)
 			switch {
@@ -407,8 +412,8 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 		ON CONFLICT (tenant_id, legal_entity_id, key) DO UPDATE SET account_id = EXCLUDED.account_id, version = d.version + 1, updated_by = $4
 		WHERE d.account_id <> EXCLUDED.account_id`,
 		p.TenantID, le.ID, chart, p.ID, []string{"ap_reconciliation", "input_tax", "bank", "fx_gain", "fx_loss", "gr_ir", "price_difference",
-			"cash_discount", "down_payment"}, []string{ad.APReconciliation, ad.InputTax, ad.Bank, ad.FXGain, ad.FXLoss, ad.GRIR, ad.PriceDifference,
-			ad.CashDiscount, ad.DownPayment}); err != nil {
+			"cash_discount", "down_payment", "retained_earnings"}, []string{ad.APReconciliation, ad.InputTax, ad.Bank, ad.FXGain, ad.FXLoss, ad.GRIR,
+			ad.PriceDifference, ad.CashDiscount, ad.DownPayment, co.YearEnd.RetainedEarningsAccount}); err != nil {
 		return fmt.Errorf("ledger: apply company %s: account determination: %w", co.Code, err)
 	}
 	if err := applyCompanyLedgers(ctx, tx, p, le.ID, co); err != nil {

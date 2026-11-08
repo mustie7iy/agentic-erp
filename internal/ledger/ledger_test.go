@@ -27,7 +27,7 @@ import (
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
-var perms = []string{"ledger.account.read", "ledger.period.read", "ledger.period.manage", "ledger.period.lock", "ledger.entry.read", "ledger.entry.post", "ledger.entry.park",
+var perms = []string{"ledger.account.read", "ledger.period.read", "ledger.period.manage", "ledger.period.lock", "ledger.carry_forward.run", "ledger.entry.read", "ledger.entry.post", "ledger.entry.park",
 	"ledger.rate.read", "ledger.rate.maintain", "ledger.clearing.post",
 	"ledger.cost_center.read", "ledger.cost_center.change", "ledger.cost_center.approve", "workflow.request.read", "workflow.request.decide", "workflow.request.cancel"}
 
@@ -63,7 +63,7 @@ func deps() configuration.Dependencies {
 
 func endpoints() *ledger.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	return &ledger.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, PartnerNames: app.LedgerPartners{},
+	return &ledger.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, PartnerNames: app.LedgerPartners{}, PersonNames: app.LedgerPeople{},
 		Numbers: configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: fixture.Approvals(), Settings: configuration.Settings{}, TaxReturns: taxfiling.Holds{}}
 }
 

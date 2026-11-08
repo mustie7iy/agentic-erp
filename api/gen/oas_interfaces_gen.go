@@ -393,6 +393,10 @@ type GetAssetTransferRes interface {
 	getAssetTransferRes()
 }
 
+type GetBalanceCarryForwardRes interface {
+	getBalanceCarryForwardRes()
+}
+
 type GetBankAccountRes interface {
 	getBankAccountRes()
 }
@@ -1319,6 +1323,10 @@ type RotateWebhookSubscriptionSecretRes interface {
 
 type RunAnalyticsQueryRes interface {
 	runAnalyticsQueryRes()
+}
+
+type RunBalanceCarryForwardRes interface {
+	runBalanceCarryForwardRes()
 }
 
 type SignOffPeriodCloseRes interface {
