@@ -42,6 +42,77 @@ func (p ParkedEntries) Park(ctx context.Context, in NewEntry) (Parked, error) {
 	return Parked{ID: pe.ID, Debits: pe.Debits}, nil
 }
 
+// ParkedStatus is a parked entry as an accrual proposal derives its
+// status from it (ADR-0058 §4, T64f): its status; its debit total in
+// Currency, once posted its journal entry's in local currency (what was
+// posted, whatever a person changed before), before that its lines' as
+// they stand in the entry's currency; once posted, its journal entry (the
+// posting group's first) with its document number; and
+// once that entry is reversed, the reversal's id and document number.
+type ParkedStatus struct {
+	ID              uuid.UUID
+	Status          string
+	Debits          money.Minor
+	Currency        string
+	JournalEntryID  *uuid.UUID
+	DocumentNumber  *string
+	ReversalEntryID *uuid.UUID
+	ReversalNumber  *string
+}
+
+// Statuses returns the parked entries among ids by id; one of a legal
+// entity the caller may not act in, or none, is absent. It reads every
+// entry asked for in one statement, so a list of proposals reads its
+// entries once.
+func (ParkedEntries) Statuses(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ParkedStatus, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT p.id, p.status, coalesce(j.currency_lc, p.currency),
+			CASE WHEN j.id IS NULL THEN (SELECT coalesce(sum(l.amount) FILTER (WHERE l.amount > 0), 0) FROM ledger.parked_entry_line l
+				WHERE l.tenant_id = p.tenant_id AND l.parked_entry_id = p.id AND NOT l.is_removed)
+			ELSE (SELECT coalesce(sum(l.amount_lc) FILTER (WHERE l.amount_lc > 0), 0) FROM ledger.journal_line l
+				WHERE l.tenant_id = j.tenant_id AND l.fiscal_year = j.fiscal_year AND l.journal_entry_id = j.id) END::bigint,
+			j.id, j.document_number, rj.id, rj.document_number
+		FROM ledger.parked_entry p
+		LEFT JOIN ledger.journal_entry j ON j.tenant_id = p.tenant_id AND j.fiscal_year = p.journal_fiscal_year AND j.id = p.journal_entry_id
+		LEFT JOIN ledger.reversal r ON r.tenant_id = j.tenant_id AND r.original_entry_id = j.id
+		LEFT JOIN ledger.journal_entry rj ON rj.tenant_id = r.tenant_id AND rj.fiscal_year = r.reversal_year AND rj.id = r.reversal_entry_id
+		WHERE p.id = ANY($1) AND ($2 OR p.legal_entity_id = ANY($3))`, ids, access.All, access.IDs)
+	// A fresh row each time: pgx reuses a pointer field it scanned before.
+	ss, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (ParkedStatus, error) {
+		var s ParkedStatus
+		return s, errs.Wrapf(r.Scan(&s.ID, &s.Status, &s.Currency, &s.Debits, &s.JournalEntryID, &s.DocumentNumber,
+			&s.ReversalEntryID, &s.ReversalNumber), "scan parked entry status")
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ledger: statuses of %d parked entries: %w", len(ids), err)
+	}
+	out := make(map[uuid.UUID]ParkedStatus, len(ss))
+	for _, s := range ss {
+		out[s.ID] = s
+	}
+	return out, nil
+}
+
+// Cancel cancels a parked entry for the reason as
+// POST /v1/parked-journal-entries/{id}:cancel does, as the request's
+// principal: locked, refused unless it is parked
+// (ledger.invalid_parked_status) and unless the caller may act on it (the
+// owner rule, ledger.not_entry_owner: a person cancelling an agent's entry
+// no person has taken on becomes its owner), audited and published as
+// ParkedJournalEntryChanged. The caller answers for the version: an
+// accrual proposal's rejection checks its own (ADR-0058 §8).
+func (ParkedEntries) Cancel(ctx context.Context, id uuid.UUID, reason string) error {
+	_, err := cancelEntry(ctx, id, func(int32) error { return nil }, reason)
+	return err
+}
+
 // ProfitCenter is the profit center a manual entry's line on the account
 // with the centers given takes when it is posted in the legal entity on
 // date, in fiscal year year: the one given, its cost center's, the

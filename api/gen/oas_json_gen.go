@@ -1865,6 +1865,64 @@ func (s *AccrualProposal) encodeFields(e *jx.Encoder) {
 		e.Str(s.Status)
 	}
 	{
+		e.FieldStart("modified")
+		e.Bool(s.Modified)
+	}
+	{
+		if s.PostedAmount.Set {
+			e.FieldStart("posted_amount")
+			s.PostedAmount.Encode(e)
+		}
+	}
+	{
+		if s.JournalEntryID.Set {
+			e.FieldStart("journal_entry_id")
+			s.JournalEntryID.Encode(e)
+		}
+	}
+	{
+		if s.JournalEntryNumber.Set {
+			e.FieldStart("journal_entry_number")
+			s.JournalEntryNumber.Encode(e)
+		}
+	}
+	{
+		if s.ReversalEntryID.Set {
+			e.FieldStart("reversal_entry_id")
+			s.ReversalEntryID.Encode(e)
+		}
+	}
+	{
+		if s.ReversalEntryNumber.Set {
+			e.FieldStart("reversal_entry_number")
+			s.ReversalEntryNumber.Encode(e)
+		}
+	}
+	{
+		if s.DecidedBy.Set {
+			e.FieldStart("decided_by")
+			s.DecidedBy.Encode(e)
+		}
+	}
+	{
+		if s.DecidedByName.Set {
+			e.FieldStart("decided_by_name")
+			s.DecidedByName.Encode(e)
+		}
+	}
+	{
+		if s.DecidedAt.Set {
+			e.FieldStart("decided_at")
+			s.DecidedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		if s.DecisionReason.Set {
+			e.FieldStart("decision_reason")
+			s.DecisionReason.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("version")
 		e.Int32(s.Version)
 	}
@@ -1878,7 +1936,7 @@ func (s *AccrualProposal) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAccrualProposal = [35]string{
+var jsonFieldsNameOfAccrualProposal = [45]string{
 	0:  "id",
 	1:  "close_id",
 	2:  "legal_entity_id",
@@ -1911,9 +1969,19 @@ var jsonFieldsNameOfAccrualProposal = [35]string{
 	29: "parked_entry_id",
 	30: "posting_date",
 	31: "status",
-	32: "version",
-	33: "created_at",
-	34: "updated_at",
+	32: "modified",
+	33: "posted_amount",
+	34: "journal_entry_id",
+	35: "journal_entry_number",
+	36: "reversal_entry_id",
+	37: "reversal_entry_number",
+	38: "decided_by",
+	39: "decided_by_name",
+	40: "decided_at",
+	41: "decision_reason",
+	42: "version",
+	43: "created_at",
+	44: "updated_at",
 }
 
 // Decode decodes AccrualProposal from json.
@@ -1921,7 +1989,7 @@ func (s *AccrualProposal) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode AccrualProposal to nil")
 	}
-	var requiredBitSet [5]uint8
+	var requiredBitSet [6]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -2295,8 +2363,110 @@ func (s *AccrualProposal) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
-		case "version":
+		case "modified":
 			requiredBitSet[4] |= 1 << 0
+			if err := func() error {
+				v, err := d.Bool()
+				s.Modified = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"modified\"")
+			}
+		case "posted_amount":
+			if err := func() error {
+				s.PostedAmount.Reset()
+				if err := s.PostedAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"posted_amount\"")
+			}
+		case "journal_entry_id":
+			if err := func() error {
+				s.JournalEntryID.Reset()
+				if err := s.JournalEntryID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"journal_entry_id\"")
+			}
+		case "journal_entry_number":
+			if err := func() error {
+				s.JournalEntryNumber.Reset()
+				if err := s.JournalEntryNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"journal_entry_number\"")
+			}
+		case "reversal_entry_id":
+			if err := func() error {
+				s.ReversalEntryID.Reset()
+				if err := s.ReversalEntryID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reversal_entry_id\"")
+			}
+		case "reversal_entry_number":
+			if err := func() error {
+				s.ReversalEntryNumber.Reset()
+				if err := s.ReversalEntryNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reversal_entry_number\"")
+			}
+		case "decided_by":
+			if err := func() error {
+				s.DecidedBy.Reset()
+				if err := s.DecidedBy.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"decided_by\"")
+			}
+		case "decided_by_name":
+			if err := func() error {
+				s.DecidedByName.Reset()
+				if err := s.DecidedByName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"decided_by_name\"")
+			}
+		case "decided_at":
+			if err := func() error {
+				s.DecidedAt.Reset()
+				if err := s.DecidedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"decided_at\"")
+			}
+		case "decision_reason":
+			if err := func() error {
+				s.DecisionReason.Reset()
+				if err := s.DecisionReason.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"decision_reason\"")
+			}
+		case "version":
+			requiredBitSet[5] |= 1 << 2
 			if err := func() error {
 				v, err := d.Int32()
 				s.Version = int32(v)
@@ -2308,7 +2478,7 @@ func (s *AccrualProposal) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"version\"")
 			}
 		case "created_at":
-			requiredBitSet[4] |= 1 << 1
+			requiredBitSet[5] |= 1 << 3
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -2320,7 +2490,7 @@ func (s *AccrualProposal) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_at\"")
 			}
 		case "updated_at":
-			requiredBitSet[4] |= 1 << 2
+			requiredBitSet[5] |= 1 << 4
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.UpdatedAt = v
@@ -2340,12 +2510,13 @@ func (s *AccrualProposal) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [5]uint8{
+	for i, mask := range [6]uint8{
 		0b11111111,
 		0b11111111,
 		0b00000000,
 		0b11111110,
-		0b00000111,
+		0b00000001,
+		0b00011100,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -2667,6 +2838,14 @@ func (s *AccrualProposalPage) encodeFields(e *jx.Encoder) {
 		e.ArrEnd()
 	}
 	{
+		e.FieldStart("totals")
+		e.ArrStart()
+		for _, elem := range s.Totals {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
 		if s.NextPageToken.Set {
 			e.FieldStart("next_page_token")
 			s.NextPageToken.Encode(e)
@@ -2674,9 +2853,10 @@ func (s *AccrualProposalPage) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAccrualProposalPage = [2]string{
+var jsonFieldsNameOfAccrualProposalPage = [3]string{
 	0: "items",
-	1: "next_page_token",
+	1: "totals",
+	2: "next_page_token",
 }
 
 // Decode decodes AccrualProposalPage from json.
@@ -2706,6 +2886,24 @@ func (s *AccrualProposalPage) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"items\"")
 			}
+		case "totals":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				s.Totals = make([]AccrualProposalTotal, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem AccrualProposalTotal
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Totals = append(s.Totals, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"totals\"")
+			}
 		case "next_page_token":
 			if err := func() error {
 				s.NextPageToken.Reset()
@@ -2726,7 +2924,7 @@ func (s *AccrualProposalPage) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00000001,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -2768,6 +2966,185 @@ func (s *AccrualProposalPage) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *AccrualProposalPage) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *AccrualProposalTotal) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *AccrualProposalTotal) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("status")
+		e.Str(s.Status)
+	}
+	{
+		e.FieldStart("currency")
+		e.Str(s.Currency)
+	}
+	{
+		e.FieldStart("count")
+		e.Int32(s.Count)
+	}
+	{
+		e.FieldStart("amount")
+		s.Amount.Encode(e)
+	}
+	{
+		if s.PostedAmount.Set {
+			e.FieldStart("posted_amount")
+			s.PostedAmount.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("modified_count")
+		e.Int32(s.ModifiedCount)
+	}
+}
+
+var jsonFieldsNameOfAccrualProposalTotal = [6]string{
+	0: "status",
+	1: "currency",
+	2: "count",
+	3: "amount",
+	4: "posted_amount",
+	5: "modified_count",
+}
+
+// Decode decodes AccrualProposalTotal from json.
+func (s *AccrualProposalTotal) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode AccrualProposalTotal to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "status":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.Status = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"status\"")
+			}
+		case "currency":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Currency = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"currency\"")
+			}
+		case "count":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Int32()
+				s.Count = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"count\"")
+			}
+		case "amount":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				if err := s.Amount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"amount\"")
+			}
+		case "posted_amount":
+			if err := func() error {
+				s.PostedAmount.Reset()
+				if err := s.PostedAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"posted_amount\"")
+			}
+		case "modified_count":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Int32()
+				s.ModifiedCount = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"modified_count\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode AccrualProposalTotal")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00101111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfAccrualProposalTotal) {
+					name = jsonFieldsNameOfAccrualProposalTotal[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *AccrualProposalTotal) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *AccrualProposalTotal) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -41654,6 +42031,237 @@ func (s *CloseCalendarPeriod) UnmarshalJSON(data []byte) error {
 }
 
 // Encode implements json.Marshaler.
+func (s *CloseCheckAccrual) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *CloseCheckAccrual) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("id")
+		json.EncodeUUID(e, s.ID)
+	}
+	{
+		e.FieldStart("account_id")
+		json.EncodeUUID(e, s.AccountID)
+	}
+	{
+		e.FieldStart("account_number")
+		e.Str(s.AccountNumber)
+	}
+	{
+		e.FieldStart("account_name")
+		e.Str(s.AccountName)
+	}
+	{
+		e.FieldStart("amount")
+		s.Amount.Encode(e)
+	}
+	{
+		e.FieldStart("status")
+		e.Str(s.Status)
+	}
+	{
+		e.FieldStart("parked_entry_id")
+		json.EncodeUUID(e, s.ParkedEntryID)
+	}
+	{
+		if s.JournalEntryID.Set {
+			e.FieldStart("journal_entry_id")
+			s.JournalEntryID.Encode(e)
+		}
+	}
+	{
+		if s.JournalEntryNumber.Set {
+			e.FieldStart("journal_entry_number")
+			s.JournalEntryNumber.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfCloseCheckAccrual = [9]string{
+	0: "id",
+	1: "account_id",
+	2: "account_number",
+	3: "account_name",
+	4: "amount",
+	5: "status",
+	6: "parked_entry_id",
+	7: "journal_entry_id",
+	8: "journal_entry_number",
+}
+
+// Decode decodes CloseCheckAccrual from json.
+func (s *CloseCheckAccrual) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CloseCheckAccrual to nil")
+	}
+	var requiredBitSet [2]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.ID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"id\"")
+			}
+		case "account_id":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.AccountID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"account_id\"")
+			}
+		case "account_number":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.AccountNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"account_number\"")
+			}
+		case "account_name":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Str()
+				s.AccountName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"account_name\"")
+			}
+		case "amount":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				if err := s.Amount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"amount\"")
+			}
+		case "status":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Str()
+				s.Status = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"status\"")
+			}
+		case "parked_entry_id":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.ParkedEntryID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"parked_entry_id\"")
+			}
+		case "journal_entry_id":
+			if err := func() error {
+				s.JournalEntryID.Reset()
+				if err := s.JournalEntryID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"journal_entry_id\"")
+			}
+		case "journal_entry_number":
+			if err := func() error {
+				s.JournalEntryNumber.Reset()
+				if err := s.JournalEntryNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"journal_entry_number\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode CloseCheckAccrual")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [2]uint8{
+		0b01111111,
+		0b00000000,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfCloseCheckAccrual) {
+					name = jsonFieldsNameOfCloseCheckAccrual[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CloseCheckAccrual) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CloseCheckAccrual) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
 func (s *CloseCheckLedger) Encode(e *jx.Encoder) {
 	e.ObjStart()
 	s.encodeFields(e)
@@ -42176,9 +42784,43 @@ func (s *CloseCheckResult) encodeFields(e *jx.Encoder) {
 			e.ArrEnd()
 		}
 	}
+	{
+		if s.PreviousFiscalYear.Set {
+			e.FieldStart("previous_fiscal_year")
+			s.PreviousFiscalYear.Encode(e)
+		}
+	}
+	{
+		if s.PreviousFiscalPeriod.Set {
+			e.FieldStart("previous_fiscal_period")
+			s.PreviousFiscalPeriod.Encode(e)
+		}
+	}
+	{
+		if s.PreviousCloseID.Set {
+			e.FieldStart("previous_close_id")
+			s.PreviousCloseID.Encode(e)
+		}
+	}
+	{
+		if s.AccrualsCount.Set {
+			e.FieldStart("accruals_count")
+			s.AccrualsCount.Encode(e)
+		}
+	}
+	{
+		if s.Accruals != nil {
+			e.FieldStart("accruals")
+			e.ArrStart()
+			for _, elem := range s.Accruals {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfCloseCheckResult = [11]string{
+var jsonFieldsNameOfCloseCheckResult = [16]string{
 	0:  "check",
 	1:  "passed",
 	2:  "checked_at",
@@ -42190,6 +42832,11 @@ var jsonFieldsNameOfCloseCheckResult = [11]string{
 	8:  "ledgers",
 	9:  "unexplained_rows_count",
 	10: "unexplained_rows",
+	11: "previous_fiscal_year",
+	12: "previous_fiscal_period",
+	13: "previous_close_id",
+	14: "accruals_count",
+	15: "accruals",
 }
 
 // Decode decodes CloseCheckResult from json.
@@ -42343,6 +42990,63 @@ func (s *CloseCheckResult) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"unexplained_rows\"")
+			}
+		case "previous_fiscal_year":
+			if err := func() error {
+				s.PreviousFiscalYear.Reset()
+				if err := s.PreviousFiscalYear.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"previous_fiscal_year\"")
+			}
+		case "previous_fiscal_period":
+			if err := func() error {
+				s.PreviousFiscalPeriod.Reset()
+				if err := s.PreviousFiscalPeriod.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"previous_fiscal_period\"")
+			}
+		case "previous_close_id":
+			if err := func() error {
+				s.PreviousCloseID.Reset()
+				if err := s.PreviousCloseID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"previous_close_id\"")
+			}
+		case "accruals_count":
+			if err := func() error {
+				s.AccrualsCount.Reset()
+				if err := s.AccrualsCount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"accruals_count\"")
+			}
+		case "accruals":
+			if err := func() error {
+				s.Accruals = make([]CloseCheckAccrual, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem CloseCheckAccrual
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Accruals = append(s.Accruals, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"accruals\"")
 			}
 		default:
 			return d.Skip()
@@ -135430,6 +136134,234 @@ func (s *RegressionSuitePage) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *RegressionSuitePage) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes RejectAccrualProposalBadRequest as json.
+func (s *RejectAccrualProposalBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes RejectAccrualProposalBadRequest from json.
+func (s *RejectAccrualProposalBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode RejectAccrualProposalBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = RejectAccrualProposalBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *RejectAccrualProposalBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *RejectAccrualProposalBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes RejectAccrualProposalForbidden as json.
+func (s *RejectAccrualProposalForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes RejectAccrualProposalForbidden from json.
+func (s *RejectAccrualProposalForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode RejectAccrualProposalForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = RejectAccrualProposalForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *RejectAccrualProposalForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *RejectAccrualProposalForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes RejectAccrualProposalNotFound as json.
+func (s *RejectAccrualProposalNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes RejectAccrualProposalNotFound from json.
+func (s *RejectAccrualProposalNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode RejectAccrualProposalNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = RejectAccrualProposalNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *RejectAccrualProposalNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *RejectAccrualProposalNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes RejectAccrualProposalPreconditionFailed as json.
+func (s *RejectAccrualProposalPreconditionFailed) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes RejectAccrualProposalPreconditionFailed from json.
+func (s *RejectAccrualProposalPreconditionFailed) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode RejectAccrualProposalPreconditionFailed to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = RejectAccrualProposalPreconditionFailed(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *RejectAccrualProposalPreconditionFailed) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *RejectAccrualProposalPreconditionFailed) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes RejectAccrualProposalPreconditionRequired as json.
+func (s *RejectAccrualProposalPreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes RejectAccrualProposalPreconditionRequired from json.
+func (s *RejectAccrualProposalPreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode RejectAccrualProposalPreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = RejectAccrualProposalPreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *RejectAccrualProposalPreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *RejectAccrualProposalPreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes RejectAccrualProposalUnprocessableEntity as json.
+func (s *RejectAccrualProposalUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes RejectAccrualProposalUnprocessableEntity from json.
+func (s *RejectAccrualProposalUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode RejectAccrualProposalUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = RejectAccrualProposalUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *RejectAccrualProposalUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *RejectAccrualProposalUnprocessableEntity) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

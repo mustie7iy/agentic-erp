@@ -3102,7 +3102,8 @@ step_close() {
   say "Ada proposes the close template (ADR-0058 §3): the tasks every company's period close is given, each due"
   say "a number of business days after the period's last day (negative: before it), some waiting for others:"
   say "manual tasks a person completes, and checks the system runs (no entry of the period left parked, the"
-  say "period's depreciation posted in every ledger, its variances explained). The"
+  say "period's depreciation posted in every ledger, its variances explained, the close agent's accrual proposals"
+  say "decided). The"
   say "template decides what a sign-off requires, so it is configuration, approved as a tier 2 change."
   api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
   local base cr request
@@ -3114,13 +3115,14 @@ step_close() {
       {\"code\": \"TB_REVIEW\", \"name\": \"Trial balance reviewed\", \"kind\": \"manual\", \"due_day\": 3, \"depends_on\": [\"AP_CUTOFF\"]},
       {\"code\": \"NO_PARKED\", \"name\": \"No entry of the period left parked\", \"kind\": \"check\", \"check\": \"no_parked_entries\", \"due_day\": 3, \"depends_on\": [\"AP_CUTOFF\"]},
       {\"code\": \"DEPRECIATED\", \"name\": \"Depreciation of the period posted in every ledger\", \"kind\": \"check\", \"check\": \"depreciation_posted\", \"due_day\": 2},
-      {\"code\": \"VARIANCES\", \"name\": \"Variances explained\", \"kind\": \"check\", \"check\": \"variances_explained\", \"due_day\": 4, \"depends_on\": [\"TB_REVIEW\"]}])}" \
+      {\"code\": \"VARIANCES\", \"name\": \"Variances explained\", \"kind\": \"check\", \"check\": \"variances_explained\", \"due_day\": 4, \"depends_on\": [\"TB_REVIEW\"]},
+      {\"code\": \"ACCRUALS\", \"name\": \"Accrual proposals decided\", \"kind\": \"check\", \"check\": \"accruals_decided\", \"due_day\": 3}])}" \
     "$WORK/last.json" >"$WORK/close.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @close.json
   cr=$(field .id)
   api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
   expect "the change's tier" "$(field .tier)" 2
-  expect "the tasks among the changes" "$(field '[.items[] | select(.path | startswith("close.tasks["))] | length')" 6
+  expect "the tasks among the changes" "$(field '[.items[] | select(.path | startswith("close.tasks["))] | length')" 7
   expect "status after submit" "$(field .status)" pending_approval
   request=$(field .workflow_request_id)
   approve priya "$request" "The monthly close checklist, as agreed with the controller"
@@ -3171,7 +3173,7 @@ close_checklist() {
     createPeriodClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
   close=$(field .id)
   tag=$ETAG
-  expect "the close's tasks" "$(field '[.tasks[].code] | join(" ")')" "CUTOFF_NOTICE AP_CUTOFF TB_REVIEW NO_PARKED DEPRECIATED VARIANCES"
+  expect "the close's tasks" "$(field '[.tasks[].code] | join(" ")')" "CUTOFF_NOTICE AP_CUTOFF TB_REVIEW NO_PARKED DEPRECIATED VARIANCES ACCRUALS"
   expect "the leading ledger first" "$(field '.ledgers[0].ledger_code')" 0L
   say "A second close of the period is refused, and names the first:"
   refused 409 closing.close_exists createPeriodClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
@@ -3289,8 +3291,8 @@ close_checks() {
   expect "the check's verdict" "$(field '.check_result.passed')" true
   expect "the task after a passing check" "$(field .status)" done
   QUIET=1 api 200 '' getPeriodClose -p "id=$close"
-  expect "every task done but the variances' check, which comes with their comments" \
-    "$(field '[.tasks[] | select(.status != "done") | .code] | join(" ")')" VARIANCES
+  expect "every task done but the checks of the variances and the accruals, which come with their comments and proposals" \
+    "$(field '[.tasks[] | select(.status != "done") | .code] | join(" ")')" "VARIANCES ACCRUALS"
 }
 
 step_cash_snapshot() {
@@ -3426,8 +3428,62 @@ close_accruals() {
   QUIET=1 api 200 '' getParkedJournalEntry -p "id=$entry"
   api 200 '"  parked entry: \(.status), journal entry \(.journal_entry_id)"' postParkedJournalEntry -p "id=$entry" -if-match "$ETAG" -body '{}'
   expect "the accrual's entry" "$(field .status)" posted
+  local journal
+  journal=$(field .journal_entry_id)
   say "A person's proposal is refused: a person parks an entry herself (parkJournalEntry)."
   refused 403 agents.not_an_agent proposeAccrual -body "$body"
+  close_accrual_decisions "$close" "$proposal" "$journal" "$invoice"
+}
+
+# close_accrual_decisions is T64f's part of step_close (ADR-0058 §6, §8):
+# the proposal Carla posted reads posted with its journal entry's number,
+# derived from its parked entry; the agent proposes a second accrual, which
+# Carla rejects with a reason, cancelling its parked entry; the close's
+# proposals are summed per status in CAD; and the check that every
+# proposal is decided passes.
+close_accrual_decisions() {
+  local close=$1 proposal=$2 journal=$3 invoice=$4 session second number tag
+  as carla
+  say "A proposal's status is derived from its parked entry (ADR-0058 §8): Carla posted it, so it reads posted, with"
+  say "the journal entry's number, and as proposed:"
+  QUIET=1 api 200 '' getJournalEntry -p "id=$journal"
+  number=$(field .document_number)
+  api 200 '"  proposal \(.id[0:8])…: \(.status), journal entry \(.journal_entry_number), \(.posted_amount.amount) \(.posted_amount.currency) posted\(if .modified then ", changed before posting" else " as proposed" end)"' \
+    getAccrualProposal -p "id=$proposal"
+  expect "the posted proposal" "$(field .status)" posted
+  expect "its journal entry's number" "$(field .journal_entry_number)" "$number"
+  expect "posted as proposed" "$(field .modified)" false
+  as close-agent
+  say "The agent proposes a second accrual, of Tyrell's implementation services on 6100, citing the same invoice:"
+  api 201 '"session \(.id[0:8])…: \(.status)"' startAgentSession -body '{"purpose": "Propose the accruals of the close", "model": "erp-default"}'
+  session=$(field .id)
+  api 201 '"  proposal \(.id[0:8])…: \(.status), Dr \(.account_number) \(.account_name) \(.amount.amount) \(.amount.currency)"' \
+    proposeAccrual -body "{\"session_id\": \"$session\", \"close_id\": \"$close\", \"account_id\": \"$(account 6100)\", \"supplier_id\": \"$SUPPLIER\", \"amount\": {\"amount\": \"45.00\", \"currency\": \"CAD\"}, \"description\": \"Implementation services of ${TODAY:0:7}\", \"reason\": \"Tyrell billed implementation services before; more may be owed for this month.\", \"evidence\": [{\"kind\": \"supplier_invoice\", \"document_id\": \"$invoice\"}]}"
+  second=$(field .id)
+  tag=$ETAG
+  QUIET=1 api 200 '' endAgentSession -p "id=$session" -if-match '*' -body '{"status": "completed", "input_tokens": 0, "output_tokens": 0}'
+  as carla
+  say "The implementation was invoiced in full: Carla rejects the proposal with her reason, which cancels its parked entry."
+  api 200 '"  proposal \(.id[0:8])…: \(.status) by \(.decided_by_name): \(.decision_reason)"' \
+    rejectAccrualProposal -p "id=$second" -if-match "$tag" -body '{"reason": "The implementation was invoiced in full; nothing more is owed."}'
+  expect "the rejected proposal" "$(field .status)" rejected
+  expect "the reason kept" "$(field .decision_reason)" "The implementation was invoiced in full; nothing more is owed."
+  QUIET=1 api 200 '' getAccrualProposal -p "id=$second"
+  QUIET=1 api 200 '' getParkedJournalEntry -p "id=$(field .parked_entry_id)"
+  expect "its parked entry" "$(field .status)" cancelled
+  refused 409 closing.accrual_not_open rejectAccrualProposal -p "id=$proposal" -if-match '"1"' -body '{"reason": "Posted already"}'
+  say "The close's proposals, summed per status in CAD: how much of what the agent proposed was posted, as proposed"
+  say "or changed, and how much rejected."
+  api 200 '(.totals[] | "  \(.status): \(.count), \(.amount.amount) \(.amount.currency) proposed\(if .posted_amount then ", \(.posted_amount.amount) posted, \(.modified_count) changed" else "" end)")' \
+    listAccrualProposals -p "close_id=$close"
+  expect "the totals" "$(field '[.totals[] | "\(.status) \(.currency) \(.count) \(.amount.amount)"] | join(", ")')" "posted CAD 1 300.00, rejected CAD 1 45.00"
+  QUIET=1 api 200 '' listAccrualProposals -p "close_id=$close" -p status=rejected
+  expect "the rejected ones" "$(field '[.items[].id] | join(" ")')" "$second"
+  say "ACCRUALS checks that no proposal of the close waits for a person; each is posted or rejected, so it passes:"
+  QUIET=1 api 200 '' getPeriodClose -p "id=$close"
+  api 200 '"  \(.code) \(.status) by \(.completed_by_name): \(.check_result.summary)"' checkCloseTask -p "id=$close" -p code=ACCRUALS -if-match "$ETAG"
+  expect "the check's verdict" "$(field '.check_result.passed')" true
+  expect "the task after a passing check" "$(field .status)" done
 }
 
 # close_variances is T64h's part of step_close (ADR-0058 §9): Ada sets the

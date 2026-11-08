@@ -34,7 +34,12 @@ func (a *accruing) input(account uuid.UUID, amount string, supplier, cost, profi
 // each of their database statements failing in turn, and outside a unit
 // of work.
 func TestAccrualDatabaseFailures(t *testing.T) {
-	a := newAccruing(t)
+	a := newAccruingWith(t, withAccrualChecks)
+	march := a.close
+	feb, _ := open(t, a.Client, a.DE, 2, "")
+	a.close = apitest.String(t, feb, "id")
+	a.post(t, a.propose(t, "520000", "60.00", ""))
+	a.close = march
 	invoice := gen.AccrualEvidenceInput{Kind: "supplier_invoice", DocumentID: a.invoice}
 	retried := a.input(a.expense, "100.00", a.Supplier, a.centers.Cost, uuid.Nil, invoice)
 	h := endpoints(t)
@@ -69,6 +74,26 @@ func TestAccrualDatabaseFailures(t *testing.T) {
 			_, err := h.ListAccrualProposals(ctx, gen.ListAccrualProposalsParams{PageSize: gen.NewOptInt32(1)})
 			return err
 		}},
+		"list by status": {a.Tenant.Human, func(ctx context.Context) error {
+			_, err := h.ListAccrualProposals(ctx, gen.ListAccrualProposalsParams{Status: gen.NewOptString("posted")})
+			return err
+		}},
+		"reject": {a.Tenant.Human, func(ctx context.Context) error {
+			_, err := h.RejectAccrualProposal(ctx, &gen.ReasonInput{Reason: "No"}, gen.RejectAccrualProposalParams{ID: proposed, IfMatch: `"1"`})
+			return err
+		}},
+		"check decided": {a.Tenant.Human, func(ctx context.Context) error {
+			_, err := h.CheckCloseTask(ctx, gen.CheckCloseTaskParams{ID: uuid.MustParse(march), Code: "ACCRUALS", IfMatch: "*"})
+			return err
+		}},
+		"check reversed": {a.Tenant.Human, func(ctx context.Context) error {
+			_, err := h.CheckCloseTask(ctx, gen.CheckCloseTaskParams{ID: uuid.MustParse(march), Code: "REVERSED", IfMatch: "*"})
+			return err
+		}},
+		"check reversed, no previous close": {a.Tenant.Human, func(ctx context.Context) error {
+			_, err := h.CheckCloseTask(ctx, gen.CheckCloseTaskParams{ID: uuid.MustParse(apitest.String(t, feb, "id")), Code: "REVERSED", IfMatch: "*"})
+			return err
+		}},
 	}
 	for name, k := range calls {
 		t.Run(name, func(t *testing.T) {
@@ -92,7 +117,7 @@ func TestAccrualDatabaseFailures(t *testing.T) {
 // rather than showing it without a name or in other digits; a close whose
 // company the tenancy context does not hold fails a proposal.
 func TestAccrualBrokenData(t *testing.T) {
-	a := newAccruing(t)
+	a := newAccruingWith(t, withAccrualChecks)
 	p, _ := a.agent.Must(201, "POST", "/v1/accrual-proposals", a.proposal("100.00"), "")
 	id := uuid.MustParse(apitest.String(t, p, "id"))
 	h := endpoints(t)
@@ -109,6 +134,29 @@ func TestAccrualBrokenData(t *testing.T) {
 	pgtest.Unguarded(t, `UPDATE closing.accrual_proposal SET agent_id = $2, currency = 'XXZ' WHERE id = $1`, id, a.Tenant.Agent.ID)
 	if err := get(); err == nil || !strings.Contains(err.Error(), "currency of accrual proposal") {
 		t.Errorf("an unknown currency: got %v, want the currency's failure", err)
+	}
+	others := map[string]func(ctx context.Context) error{
+		"currency of accrual proposal": func(ctx context.Context) error {
+			_, err := h.RejectAccrualProposal(ctx, &gen.ReasonInput{Reason: "No"}, gen.RejectAccrualProposalParams{ID: id, IfMatch: `"1"`})
+			return err
+		},
+		"currency of accrual totals": func(ctx context.Context) error {
+			_, err := h.ListAccrualProposals(ctx, gen.ListAccrualProposalsParams{})
+			return err
+		},
+		"currency of accrual proposal " + id.String(): func(ctx context.Context) error {
+			_, err := h.CheckCloseTask(ctx, gen.CheckCloseTaskParams{ID: uuid.MustParse(a.close), Code: "ACCRUALS", IfMatch: "*"})
+			return err
+		},
+	}
+	for want, fn := range others {
+		if err := apitest.InRequest(t, a.Tenant, a.Tenant.Human, fn); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("an unknown currency: got %v, want %s", err, want)
+		}
+	}
+	pgtest.Unguarded(t, `UPDATE closing.accrual_proposal SET currency = 'EUR', parked_entry_id = $2 WHERE id = $1`, id, uuid.New())
+	if err := get(); err == nil || !strings.Contains(err.Error(), "not held by the ledger context") {
+		t.Errorf("an unknown parked entry: got %v, want the ledger context's failure", err)
 	}
 	pgtest.Unguarded(t, `UPDATE closing.period_close SET legal_entity_id = $2 WHERE id = $1`, uuid.MustParse(a.close), uuid.New())
 	err := apitest.InRequest(t, a.Tenant, a.Tenant.Agent, func(ctx context.Context) error {
@@ -157,4 +205,41 @@ func TestAccrualOnSignedOffClose(t *testing.T) {
 	})
 	agent.Must(201, "POST", "/v1/accrual-proposals", body, "")
 	wantFields(t, "the close after the proposal", s.read(t), map[string]any{"status": "open"})
+}
+
+// TestRejectOnSignedOffClose: a close signed off with its periods locked
+// refuses a rejection; once a covered period is unlocked, the rejection
+// sets it open again first.
+func TestRejectOnSignedOffClose(t *testing.T) {
+	e := fixture.NewWith(t, nil, withAccruals, append(append([]string{}, signPermissions...), "closing.accrual.propose", "closing.accrual.decide",
+		"agents.session.record")...)
+	entry := e.PostedBy(t, "", "2026-01-15", 10000)
+	s := signable(t, e, 1)
+	e.Tenant.AllCompanies(t, e.Tenant.Agent)
+	agent := e.As(e.Tenant.Agent)
+	session, _ := agent.Must(201, "POST", "/v1/agent-sessions", `{"purpose": "Accrue", "model": "erp-default"}`, "")
+	a := &accruing{Env: e, close: strings.TrimPrefix(s.path, "/v1/period-closes/"), session: apitest.String(t, session, "id"), agent: agent}
+	p, _ := agent.Must(201, "POST", "/v1/accrual-proposals", a.body(e.Account(t, "2000", "520000"), "10.00", a.session,
+		[][2]string{{"journal_entry", entry.String()}}, ""), "")
+	path := "/v1/accrual-proposals/" + apitest.String(t, p, "id") + ":rejectProposal"
+	s.periods(t, "close")
+	s.read(t)
+	s.signOff(t, "Signed")
+	e.Problem(409, "closing.close_signed_off", "POST", path, `{"reason": "No"}`, `"1"`)
+	for _, x := range apitest.List(t, s.read(t), "ledgers") {
+		if l := x.(map[string]any); l["ledger_code"] == "2L" {
+			period := "/v1/fiscal-periods/" + l["fiscal_period_id"].(string)
+			_, ptag := e.Must(200, "GET", period, "", "")
+			unlock, _ := e.Must(200, "POST", period+":unlock", `{"reason": "Audit adjustment"}`, ptag)
+			e.Approve(t, unlock["id"].(string))
+		}
+	}
+	h := endpoints(t)
+	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "reject, reopening", func(ctx context.Context) error {
+		_, err := h.RejectAccrualProposal(ctx, &gen.ReasonInput{Reason: "No"}, gen.RejectAccrualProposalParams{ID: uuid.MustParse(apitest.String(t, p, "id")),
+			IfMatch: `"1"`})
+		return err
+	})
+	e.Must(200, "POST", path, `{"reason": "Not an expense of January"}`, `"1"`)
+	wantFields(t, "the close after the rejection", s.read(t), map[string]any{"status": "open"})
 }

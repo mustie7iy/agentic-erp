@@ -14,11 +14,11 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
-// accrualPermissions are Carla's, who reads proposals and posts their
-// entries, the agent's (the machine role holds every one of them that is
+// accrualPermissions are Carla's, who reads proposals, posts their
+// entries and rejects them, the agent's (the machine role holds every one of them that is
 // no approval), who proposes them in its sessions, and what the evidence
 // is entered and posted with.
-var accrualPermissions = append(append([]string{}, closePermissions...), "closing.accrual.propose", "ledger.entry.park", "ledger.entry.post",
+var accrualPermissions = append(append([]string{}, closePermissions...), "closing.accrual.propose", "closing.accrual.decide", "ledger.entry.park", "ledger.entry.post",
 	"ledger.account.read", "ledger.cost_center.read", "ledger.cost_center.change", "agents.session.record", "partner.supplier.read",
 	"payables.invoice.read", "payables.invoice.capture", "payables.invoice.post", "procurement.order.read")
 
@@ -46,7 +46,13 @@ type accruing struct {
 
 func newAccruing(t *testing.T) *accruing {
 	t.Helper()
-	e := fixture.NewWith(t, nil, withAccruals, accrualPermissions...)
+	return newAccruingWith(t, withAccruals)
+}
+
+// newAccruingWith is newAccruing with the configuration extend makes.
+func newAccruingWith(t *testing.T, extend func(*config.Config)) *accruing {
+	t.Helper()
+	e := fixture.NewWith(t, nil, extend, accrualPermissions...)
 	march, _ := open(t, e.Client, e.DE, 3, "")
 	e.Tenant.AllCompanies(t, e.Tenant.Agent)
 	a := &accruing{Env: e, close: apitest.String(t, march, "id"), agent: e.As(e.Tenant.Agent), centers: e.Centers(t),

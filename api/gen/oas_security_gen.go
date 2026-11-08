@@ -358,6 +358,7 @@ var operationRolesOidc = map[string][]string{
 	RedateCostCenterOperation:                 []string{},
 	RedateProfitCenterOperation:               []string{},
 	RedeliverWebhookDeliveryOperation:         []string{},
+	RejectAccrualProposalOperation:            []string{},
 	RejectApprovalRequestOperation:            []string{},
 	RejectBankStatementLineProposalOperation:  []string{},
 	RejectMemoRecordProposalOperation:         []string{},

@@ -1225,6 +1225,10 @@ type RedeliverWebhookDeliveryRes interface {
 	redeliverWebhookDeliveryRes()
 }
 
+type RejectAccrualProposalRes interface {
+	rejectAccrualProposalRes()
+}
+
 type RejectApprovalRequestRes interface {
 	rejectApprovalRequestRes()
 }

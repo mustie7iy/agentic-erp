@@ -14392,10 +14392,11 @@ paths:
       tags:
         - closing
       summary: List accrual proposals
-      description: "The accrual proposals of the period closes of the legal entities the caller may act in (ADR-0058 §8, T64e), oldest first (sortable by `created_at`, the default), each with its company, its accounts and centers named, its supplier, its amount with its currency, its evidence and its parked entry. Filters: the close, the company, the agent's session and the parked entry. A supplier's number and name, the proposal's and each evidence item's, are shown only to a caller who may read business partners (`partner.supplier.read`); the ids are always shown. Besides `closing.close.read` the caller needs `ledger.entry.read`, since a proposal shows a ledger entry (`x-also-permissions`)."
+      description: "The accrual proposals of the period closes of the legal entities the caller may act in (ADR-0058 §8, T64e, T64f), oldest first (sortable by `created_at`, the default), each with its company, its accounts and centers named, its supplier, its amount with its currency, its evidence, its parked entry and its status derived from that entry (`proposed`, `pending_approval`, `posted` with the journal entry's number and whether the amount posted differs, `reversed`, `rejected`). Filters: the close, the company, the agent's session, the parked entry and the derived status. `totals` sum the whole filtered set, on every page alike, per status and currency (the proposals' local currencies are never summed together): how many, the amount proposed and, for those posted or reversed, the amount posted and how many were changed before posting. Read from one database state (a repeatable-read snapshot), so `totals`, the page and each proposal's status agree whatever is proposed, posted or reversed meanwhile. A supplier's number and name, the proposal's and each evidence item's, are shown only to a caller who may read business partners (`partner.supplier.read`); the ids are always shown. Besides `closing.close.read` the caller needs `ledger.entry.read`, since a proposal shows a ledger entry (`x-also-permissions`)."
       x-permission: closing.close.read
       x-also-permissions:
         - ledger.entry.read
+      x-snapshot: true
       x-problem-codes:
         - config.not_bootstrapped
         - request.invalid_order_by
@@ -14430,6 +14431,14 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: status
+          in: query
+          required: false
+          description: "Only the proposals of this status, as derived from their parked entries at the read."
+          schema:
+            type: string
+            description: "Accrual proposal status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [proposed, pending_approval, posted, reversed, rejected]
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -14486,6 +14495,69 @@ paths:
           $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/accrual-proposals/{id}:rejectProposal":
+    post:
+      operationId: rejectAccrualProposal
+      tags:
+        - closing
+      summary: Reject an accrual proposal
+      description: "A person rejects the close agent's accrual proposal, with a reason (ADR-0058 §8, T64f): its parked entry is cancelled in the ledger, as `cancelParkedJournalEntry` cancels it and under the ledger's owner rule (the person rejecting an agent's entry no person has taken on becomes its owner for this; an entry another person took on is theirs to cancel, 403 `ledger.not_entry_owner`), and the proposal is `rejected` with who decided, when and why. Only a proposal whose parked entry is still `parked` is rejected (409 `closing.accrual_not_open`, naming its status, for one pending approval, posted, reversed or rejected; a posted one is reversed in the ledger). `If-Match` is the proposal's ETag. Under a lock on the close; a signed-off close whose covered periods are all locked refuses it (409 `closing.close_signed_off`), and once one of them was unlocked it sets the close open again first. People only. Since it cancels a ledger entry, besides `closing.accrual.decide` the caller needs `ledger.entry.park` (`x-also-permissions`). Audited, and published as AccrualProposalRejected (and ParkedJournalEntryChanged for the entry)."
+      x-permission: closing.accrual.decide
+      x-also-permissions:
+        - ledger.entry.park
+      x-agent: false
+      x-problem-codes:
+        - closing.accrual_not_open
+        - closing.close_exists
+        - closing.close_signed_off
+        - config.not_bootstrapped
+        - ledger.invalid_parked_status
+        - ledger.not_entry_owner
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of rejectAccrualProposal.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "200":
+          description: "The proposal, `rejected`, with its new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccrualProposal"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/variance-comment-proposals:
     post:
       operationId: proposeVarianceComment
@@ -36347,7 +36419,7 @@ components:
         check:
           type: string
           description: "The check run. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-          x-extensible-enum: [no_parked_entries, revaluation_posted, variances_explained, depreciation_posted]
+          x-extensible-enum: [no_parked_entries, revaluation_posted, variances_explained, depreciation_posted, accruals_decided, accruals_reversed]
           readOnly: true
         passed:
           type: boolean
@@ -36403,6 +36475,36 @@ components:
           items:
             $ref: "#/components/schemas/CloseCheckVariance"
           description: "`variances_explained`: the first 20 of them, by basis as the company configures them, then by account number; absent for another check."
+          readOnly: true
+        previous_fiscal_year:
+          type: integer
+          format: int32
+          description: "`accruals_reversed`: the fiscal year of the company's previous regular period, whose close it looked for; absent for another check."
+          readOnly: true
+        previous_fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 12
+          description: "`accruals_reversed`: that period (12 of the previous fiscal year for period 1); absent for another check."
+          readOnly: true
+        previous_close_id:
+          type: string
+          format: uuid
+          description: "`accruals_reversed`: the company's close of the previous regular period, whose posted accruals it looked at (`GET /v1/period-closes/{id}`); absent when there is none (the check passes), and for another check."
+          readOnly: true
+        accruals_count:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "`accruals_decided`: how many accrual proposals of this close are `proposed` or `pending_approval`; `accruals_reversed`: how many of the previous close's are `posted` and not reversed; absent for another check (T64f)."
+          readOnly: true
+        accruals:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/CloseCheckAccrual"
+          description: "`accruals_decided` and `accruals_reversed`: the first 20 of them, oldest first; absent for another check."
           readOnly: true
       examples:
         - check: no_parked_entries
@@ -36701,7 +36803,7 @@ components:
         check:
           type: string
           description: "The check. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-          x-extensible-enum: [no_parked_entries, revaluation_posted, variances_explained, depreciation_posted]
+          x-extensible-enum: [no_parked_entries, revaluation_posted, variances_explained, depreciation_posted, accruals_decided, accruals_reversed]
         summary:
           type: string
           description: "What it found, in one sentence; `:check` on the task records it whole."
@@ -37113,7 +37215,7 @@ components:
           readOnly: true
     AccrualProposal:
       type: object
-      description: "An accrual the close agent proposed for a period close (ADR-0058 §8, T64e): one expense of the close's period, in the company's local currency, parked as a journal entry for a person to post, with the evidence it rests on."
+      description: "An accrual the close agent proposed for a period close (ADR-0058 §8, T64e, T64f): one expense of the close's period, in the company's local currency, parked as a journal entry for a person to post, with the evidence it rests on, and its status derived from that entry."
       required:
         - id
         - close_id
@@ -37138,6 +37240,7 @@ components:
         - parked_entry_id
         - posting_date
         - status
+        - modified
         - version
         - created_at
         - updated_at
@@ -37278,7 +37381,7 @@ components:
         parked_entry_id:
           type: string
           format: uuid
-          description: "The journal entry parked for it (`GET /v1/parked-journal-entries/{id}`), which a person posts, edits or cancels; what was done with it is read there."
+          description: "The journal entry parked for it (`GET /v1/parked-journal-entries/{id}`), which a person posts, edits or cancels; the proposal's status is derived from it."
           readOnly: true
         posting_date:
           type: string
@@ -37287,8 +37390,52 @@ components:
           readOnly: true
         status:
           type: string
-          description: "`proposed`: its parked entry waits for a person, who decides it in the ledger. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-          x-extensible-enum: [proposed]
+          description: "Derived at the read from its parked entry (ADR-0058 §8, T64f): `proposed`, the entry is parked and waits for a person; `pending_approval`, it was submitted for a second person's approval; `posted`, it was posted (`journal_entry_id`, `journal_entry_number`; `modified` when the amount posted differs from the one proposed); `reversed`, its journal entry was reversed (`reversal_entry_id`, `reversal_entry_number`); `rejected`, rejected here (`:rejectProposal`, with `decided_by` and `decision_reason`), or its entry cancelled or its approval rejected in the ledger. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [proposed, pending_approval, posted, reversed, rejected]
+          readOnly: true
+        modified:
+          type: boolean
+          description: "Whether a person changed the entry before posting it, so the amount posted (`posted_amount`) differs from the one proposed; false until it is posted."
+          readOnly: true
+        posted_amount:
+          $ref: "#/components/schemas/Money"
+          description: "The parked entry's debit total as posted, with its currency; absent until it is posted."
+          readOnly: true
+        journal_entry_id:
+          type: string
+          format: uuid
+          description: "The journal entry it was posted as (`GET /v1/journal-entries/{id}`); absent until it is posted."
+          readOnly: true
+        journal_entry_number:
+          type: string
+          description: "Its document number; absent as `journal_entry_id` is."
+          readOnly: true
+        reversal_entry_id:
+          type: string
+          format: uuid
+          description: "The journal entry that reversed it (`reverseJournalEntry`); absent until it is reversed."
+          readOnly: true
+        reversal_entry_number:
+          type: string
+          description: "Its document number; absent as `reversal_entry_id` is."
+          readOnly: true
+        decided_by:
+          type: string
+          format: uuid
+          description: "The person who rejected it (`:rejectProposal`); absent otherwise, also when its entry was cancelled in the ledger."
+          readOnly: true
+        decided_by_name:
+          type: string
+          description: "Their name; absent as `decided_by` is."
+          readOnly: true
+        decided_at:
+          type: string
+          format: date-time
+          description: "When it was rejected; absent as `decided_by` is."
+          readOnly: true
+        decision_reason:
+          type: string
+          description: "Why it was rejected; absent as `decided_by` is."
           readOnly: true
         version:
           type: integer
@@ -37335,25 +37482,79 @@ components:
             - {kind: supplier_invoice, document_id: 0192a000-0000-7000-8000-000000000611, document_number: "5100000042", supplier_id: 0192a000-0000-7000-8000-000000000301, supplier_number: "100042", supplier_name: Tyrell Logistics}
           parked_entry_id: 0192a000-0000-7000-8000-000000000c51
           posting_date: "2026-10-31"
-          status: proposed
+          status: posted
+          modified: false
+          posted_amount: {amount: "1200.00", currency: CAD}
+          journal_entry_id: 0192a000-0000-7000-8000-000000000c61
+          journal_entry_number: "100000042"
           version: 1
           created_at: "2026-11-03T14:00:00Z"
           updated_at: "2026-11-03T14:00:00Z"
     AccrualProposalPage:
       type: object
-      description: One page of accrual proposals.
+      description: "One page of accrual proposals, with the totals of the whole filtered set."
       required:
         - items
+        - totals
       properties:
         items:
           type: array
           items:
             $ref: "#/components/schemas/AccrualProposal"
           description: The accrual proposals on this page.
+        totals:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/AccrualProposalTotal"
+          description: "The filtered set's proposals summed per status and currency, by status (`proposed`, `pending_approval`, `posted`, `reversed`, `rejected`), then currency; the same on every page, and empty when none matches."
+          readOnly: true
         next_page_token:
           type: string
           description: "Opaque cursor for the next page; absent on the last page."
           maxLength: 2048
+    AccrualProposalTotal:
+      type: object
+      description: "The accrual proposals of one status and currency in a filtered set (ADR-0058 §8, T64f): how much of what the agent proposed was posted as proposed, changed or rejected."
+      required:
+        - status
+        - currency
+        - count
+        - amount
+        - modified_count
+      properties:
+        status:
+          type: string
+          description: "The proposals' derived status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [proposed, pending_approval, posted, reversed, rejected]
+          readOnly: true
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+          description: "The proposals' currency, their companies' local currency."
+          readOnly: true
+        count:
+          type: integer
+          format: int32
+          minimum: 1
+          description: How many proposals.
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "The sum of the amounts proposed."
+          readOnly: true
+        posted_amount:
+          $ref: "#/components/schemas/Money"
+          description: "`posted` and `reversed`: the sum of the amounts posted; absent for another status."
+          readOnly: true
+        modified_count:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "How many of them were posted with an amount other than the one proposed (`modified`); 0 for a status not posted."
+          readOnly: true
+      examples:
+        - {status: posted, currency: CAD, count: 2, amount: {amount: "1500.00", currency: CAD}, posted_amount: {amount: "1450.00", currency: CAD}, modified_count: 1}
     VarianceCommentProposal:
       type: object
       description: "An agent's proposed comment explaining one row of a period close's variance report, in its running session (ADR-0058 §10)."
@@ -37720,6 +37921,59 @@ components:
           type: integer
           format: int32
           description: "The comment's version, its ETag."
+          readOnly: true
+    CloseCheckAccrual:
+      type: object
+      description: "An accrual proposal an `accruals_decided` check found undecided, or an `accruals_reversed` check found posted and not reversed (`GET /v1/accrual-proposals/{id}`), as it was when the check ran."
+      required:
+        - id
+        - account_id
+        - account_number
+        - account_name
+        - amount
+        - status
+        - parked_entry_id
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The accrual proposal.
+          readOnly: true
+        account_id:
+          type: string
+          format: uuid
+          description: Its expense account.
+          readOnly: true
+        account_number:
+          type: string
+          description: "The account's number."
+          readOnly: true
+        account_name:
+          type: string
+          description: "The account's name, as it was when proposed."
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "The amount proposed, or the amount posted once posted."
+          readOnly: true
+        status:
+          type: string
+          description: "Its derived status then. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [proposed, pending_approval, posted]
+          readOnly: true
+        parked_entry_id:
+          type: string
+          format: uuid
+          description: "Its parked entry (`GET /v1/parked-journal-entries/{id}`)."
+          readOnly: true
+        journal_entry_id:
+          type: string
+          format: uuid
+          description: "The journal entry it was posted as, to reverse (`reverseJournalEntry`); absent until posted."
+          readOnly: true
+        journal_entry_number:
+          type: string
+          description: "Its document number; absent as `journal_entry_id` is."
           readOnly: true
     CloseCheckVariance:
       type: object
