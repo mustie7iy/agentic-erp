@@ -444,8 +444,7 @@ start() {
   say "    actuals in analytics, step 38 the forecast, its variance and accuracy in analytics; step 39 its agent, through a"
   say "    model stand-in"
   say "  - cost center postings, reports and planning (T56d-T56j)"
-  say "  - accounts receivable, the decisions on the period close's accrual proposals and its close agent (T64f, T64g,"
-  say "    T64j), the consolidated statements, eliminations and finalization (T68e-T68h)"
+  say "  - accounts receivable, the consolidated statements, eliminations and finalization (T68e-T68h)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
   # ERP_EVAL_CELL: the close agent's principal runs at level 1 before its
