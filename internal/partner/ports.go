@@ -53,6 +53,23 @@ func (Postings) PostingBlock(ctx context.Context, partnerID, legalEntity uuid.UU
 	return "", nil
 }
 
+// GroupCompany is the legal entity of the tenant the partner is, when it
+// is one of the group's companies, or nil: the ledger's trading partner of
+// the lines naming the partner (ADR-0059 §4, T68c). A partner that does not
+// exist is linked to none; PostingBlock refuses it where it must exist.
+func (Postings) GroupCompany(ctx context.Context, partnerID uuid.UUID) (*uuid.UUID, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var group *uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT group_company_id FROM partner.business_partner WHERE id = $1`, partnerID).Scan(&group)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("partner: read the group company of business partner %s: %w", partnerID, err)
+	}
+	return group, nil
+}
+
 // PaymentTerms is the configuration document's payment_terms section,
 // kept in partner.payment_term.
 type PaymentTerms struct{}

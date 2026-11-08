@@ -63,6 +63,8 @@ tags:
     description: "Asset accounting (ADR-0057): asset classes with their depreciation terms and accounts."
   - name: closing
     description: "Financial close (ADR-0058): the close template, each company's close calendar and its period closes."
+  - name: consolidation
+    description: "Group reporting and consolidation (ADR-0059): the consolidation groups and the group chart of accounts."
   - name: controlling
     description: "Controlling (ADR-0050): plan categories, plan lines by batch and plan against actual by cost center."
   - name: tax
@@ -3043,6 +3045,7 @@ paths:
         - partner.duplicate_payment_method
         - partner.duplicate_tax_scheme
         - partner.duplicate_withholding_tax_code
+        - partner.group_company_unknown
         - partner.invalid_account_number
         - partner.invalid_end
         - partner.invalid_iban
@@ -3544,6 +3547,7 @@ paths:
         - partner.duplicate_payment_method
         - partner.duplicate_tax_scheme
         - partner.duplicate_withholding_tax_code
+        - partner.group_company_unknown
         - partner.invalid_end
         - partner.invalid_reconciliation_account
         - partner.invalid_status
@@ -5868,6 +5872,13 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: trading_partner_id
+          in: query
+          required: false
+          description: "Only entries with a line naming this trading partner, a legal entity of the tenant (ADR-0059 §4); each entry is listed with all its lines."
+          schema:
+            type: string
+            format: uuid
         - name: account_id
           in: query
           required: false
@@ -5948,6 +5959,8 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -6150,6 +6163,8 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -6360,6 +6375,7 @@ paths:
         - ledger.tax_base_not_import
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -6502,6 +6518,7 @@ paths:
         - ledger.tax_base_not_import
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -6661,6 +6678,8 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -6793,6 +6812,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.template_name_taken
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -6915,6 +6935,7 @@ paths:
         - ledger.tax_code_off_leading
         - ledger.template_name_taken
         - ledger.template_retired
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -7056,6 +7077,7 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.template_retired
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -7262,6 +7284,8 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -7379,6 +7403,8 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - request.version_mismatch
       parameters:
@@ -8719,6 +8745,8 @@ paths:
         - ledger.special_gl_account
         - ledger.special_gl_item
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -10575,6 +10603,8 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -10716,6 +10746,8 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -11439,6 +11471,8 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -11713,6 +11747,8 @@ paths:
         - ledger.special_gl_account
         - ledger.special_gl_item
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - payables.down_payment_already_cleared
         - payables.down_payment_other_order
@@ -11862,6 +11898,8 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - payables.already_captured
         - payables.down_payments_cleared
@@ -12743,6 +12781,8 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - payments.statement_amount_differs
         - payments.statement_bank_not_posting
@@ -12902,6 +12942,8 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - payments.statement_amount_differs
         - payments.statement_bank_not_posting
@@ -13300,6 +13342,8 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - payments.statement_amount_differs
         - payments.statement_bank_not_posting
@@ -13717,6 +13761,419 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/consolidation-groups:
+    get:
+      operationId: listConsolidationGroups
+      tags:
+        - consolidation
+      summary: List consolidation groups
+      description: "The consolidation groups of the active configuration (ADR-0059 §3, T68a), in code order: each group's parent company and its members, held directly by the parent, by legal entity id, company code, name and local currency, each member with the parent's ownership in percent, the fiscal year and regular period from whose first day it is consolidated, and the parent's account holding the investment in it (number and name); and the group currency, the tenant's, which the parent's local currency must be. Groups change only through the configuration's approval loop (`consolidation.groups`, tier 4). A group's figures are only meaningful whole, so a group is listed only when the caller may act in its parent and every member (ADR-0059 §12); one outside that is left out and none of its companies named. Besides `consolidation.read` the caller needs `ledger.entry.read`, as for every consolidation read naming a group's companies and, in later slices, their figures (ADR-0059 §12; `x-also-permissions`; 403 `identity.permission_missing` otherwise). At most 50 groups exist (ADR-0059 §3)."
+      x-permission: consolidation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of consolidation groups.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsolidationGroupPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/consolidation-groups/{code}":
+    get:
+      operationId: getConsolidationGroup
+      tags:
+        - consolidation
+      summary: Get a consolidation group
+      description: "One consolidation group of the active configuration by its code (ADR-0059 §3, T68a), as `listConsolidationGroups` gives it. A group that does not exist, or whose parent or any member the caller may not act in, is unknown to the caller (404 `consolidation.group_unknown`, ADR-0059 §12), so its existence and its companies do not leak. Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`)."
+      x-permission: consolidation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - consolidation.group_unknown
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: "The group's code: 1-30 upper-case letters, digits or underscores."
+          schema:
+            type: string
+            pattern: "^[A-Z0-9_]{1,30}$"
+          example: MAPLE
+      responses:
+        "200":
+          description: The consolidation group.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsolidationGroup"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/group-accounts:
+    get:
+      operationId: listGroupAccounts
+      tags:
+        - consolidation
+      summary: List the group chart of accounts
+      description: "The group chart of accounts of the active configuration (ADR-0059 §3, T68a; SAP's financial statement items), in number order: each account's number, name and type, its role if a consolidation run computes it (`cta`, the currency translation reserve; `retained_earnings`; `nci`, non-controlling interests; `goodwill`), the elimination whose intercompany balances it holds, if any, by code and name, and the number of company accounts mapped to it (`companies[].chart_of_accounts[].group_account`) in the companies the caller may act in, so a company outside the caller's access reaches no figure (ADR-0010). The group chart and the mapping change only through the configuration's approval loop (tier 4). Filters: `type`, `role`, `elimination` (an elimination's code)."
+      x-permission: consolidation.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: type
+          in: query
+          required: false
+          description: Only group accounts of this type.
+          schema:
+            type: string
+            description: "Account type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [asset, liability, equity, revenue, expense]
+        - name: role
+          in: query
+          required: false
+          description: Only the group account with this role.
+          schema:
+            type: string
+            description: "Group account role. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [cta, retained_earnings, nci, goodwill]
+        - name: elimination
+          in: query
+          required: false
+          description: Only the group accounts of the elimination with this code.
+          schema:
+            type: string
+            pattern: "^[A-Z0-9_]{1,30}$"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of group accounts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupAccountPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/consolidation-runs:
+    post:
+      operationId: createConsolidationRun
+      tags:
+        - consolidation
+      summary: Start a consolidation run
+      description: "Starts the consolidation run of a group for a regular period (ADR-0059 §6, T68d; SAP's consolidation monitor): the run is written `queued` with the active configuration's version and its Operation (kind `consolidation.run`, its `resource` the run), and carried out as a workflow, or in process in a cell without a workflow engine. It includes the parent and every member whose first period is on or before the run's, reads each one's leading-ledger balances through the period (balance sheet accounts over every fiscal year, profit and loss accounts per fiscal year, per account and trading partner) and translates them into the group currency (§7): assets and liabilities at the closing rate, the latest of the configuration's `consolidation.rate_type` from the company's local currency into the group currency valid on the period's last day; income, expenses and equity at their booked group amounts; earlier fiscal years' results, and for a member in the fiscal year of its first period those of the periods before it, as one row on the group chart's `retained_earnings` account; and the translation difference, which makes each company's translated rows sum to zero, as one row on its `cta` account. The method is to be confirmed by an accounting specialist (ADR-0059, question 1). A run may be made for any period, open or not: a draft shows the figures as they stand. Refused when the group is unknown to the caller (404 `consolidation.group_unknown`: one that does not exist, or whose parent or a member the caller may not act in), for a special period (422 `consolidation.special_period`), a period the parent's leading ledger does not have (422 `consolidation.period_unknown`), a member included on another fiscal calendar (422 `consolidation.calendar_mismatch`, naming it), a parent whose local currency is not the group currency (422 `consolidation.parent_currency`), a company currency without a closing rate of the period (422 `consolidation.rate_missing`) or with one valid from before the period's first day (422 `consolidation.rate_stale`, ADR-0042's rule), each naming the pair and the date; and while another run of the group is queued or running (409 `consolidation.run_in_progress`, whose detail and `Location` name it). A business problem while the run is carried out (a rate recorded since, a company account with a balance and no group account, `consolidation.account_unmapped`, a member's period gone, its requester blocked since) fails the run and its Operation with the problem. Cancelling the Operation (`POST /v1/operations/{id}:cancel`) fails the run at its next step with `consolidation.run_cancelled`, the Operation staying `cancelled`. A step failing on an error of the machinery is tried five times; one that outlasts them fails the run with `platform.internal`. Each change of the run's status is published as ConsolidationRunChanged and audited. Human-only."
+      x-permission: consolidation.run.manage
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - consolidation.calendar_mismatch
+        - consolidation.group_unknown
+        - consolidation.parent_currency
+        - consolidation.period_unknown
+        - consolidation.rate_missing
+        - consolidation.rate_stale
+        - consolidation.run_in_progress
+        - consolidation.special_period
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The run to start.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConsolidationRunStart"
+            examples:
+              november:
+                summary: Consolidate the group MAPLE for November
+                value:
+                  group_code: MAPLE
+                  fiscal_year: 2026
+                  period: 11
+      responses:
+        "202":
+          description: "Accepted; the run continues as a long-running operation. Poll the Operation at `Location`; its `resource` is the run (`GET /v1/consolidation-runs/{id}`)."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Operation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    get:
+      operationId: listConsolidationRuns
+      tags:
+        - consolidation
+      summary: List consolidation runs
+      description: "The consolidation runs of the groups whose parent and every member the caller may act in (ADR-0059 §6, §12), newest first, each as `getConsolidationRun` gives it. Filters: group, fiscal year, period and status. Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). Read from one database state (a repeatable-read snapshot), so each run's status and members agree whatever the workflow writes meanwhile."
+      x-permission: consolidation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-snapshot: true
+      x-problem-codes:
+        - config.unknown_version
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: group_code
+          in: query
+          required: false
+          description: Only the runs of the group with this code.
+          schema:
+            type: string
+            pattern: "^[A-Z0-9_]{1,30}$"
+        - name: fiscal_year
+          in: query
+          required: false
+          description: Only the runs of this fiscal year.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: period
+          in: query
+          required: false
+          description: Only the runs of this period.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 12
+        - name: status
+          in: query
+          required: false
+          description: Only runs in this status.
+          schema:
+            type: string
+            description: "Consolidation run status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [queued, running, computed, failed, final, superseded, discarded]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of consolidation runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsolidationRunPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/consolidation-runs/{id}":
+    get:
+      operationId: getConsolidationRun
+      tags:
+        - consolidation
+      summary: Get a consolidation run
+      description: "One consolidation run (ADR-0059 §6, T68d): its group by code and name, its period with its dates, its status and the problem that failed it, the configuration version it read, the group currency and the closing rate type, and its companies, the parent first and the members by company code, each with its local currency, closing rate and the date it is valid from, its role, ownership and first period, and the status and version of its leading ledger's period when the run read its figures. A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist, so neither its existence nor its companies leak (ADR-0059 §12). Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). Read from one database state (a repeatable-read snapshot)."
+      x-permission: consolidation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-snapshot: true
+      x-problem-codes:
+        - config.unknown_version
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The run.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsolidationRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/consolidation-runs/{id}:discard":
+    post:
+      operationId: discardConsolidationRun
+      tags:
+        - consolidation
+      summary: Discard a consolidation run
+      description: "Discards a computed or failed consolidation run (ADR-0059 §6, §10): a draft no longer wanted. Its figures stay readable, and it is `discarded` from then on; a final run is never discarded, and a queued, running, superseded or discarded run is refused (409 `consolidation.run_not_discardable`). `If-Match` is the run's ETag (412 `request.version_mismatch` when it moved since). Published as ConsolidationRunChanged and audited. A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Human-only."
+      x-permission: consolidation.run.manage
+      x-agent: false
+      x-problem-codes:
+        - config.unknown_version
+        - consolidation.run_in_progress
+        - consolidation.run_not_discardable
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The run, discarded, with its new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsolidationRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/consolidation-runs/{id}/balances":
+    get:
+      operationId: listConsolidationBalances
+      tags:
+        - consolidation
+      summary: List a consolidation run's translated balances
+      description: "A consolidation run's translated balances (ADR-0059 §7, T68d), by company code and line: per company, one row per company account and trading partner (`balance`, with the local amount, the booked group amount and the translated group amount, and the closing rate where one applied: on asset and liability accounts), the results of earlier fiscal years on the `retained_earnings` account (`prior_results`, translated at their booked group amounts) and the translation difference on the `cta` account (`cta`, a group amount alone), each with the company's code and name, the group account's number and name, the company account's number and name and the trading partner's code and name. Within a company the rows follow the group account's number, the company account's (none first), the trading partner's code (none first) and the kind, so two runs of the same figures number them alike. With totals over the filter: the local amounts per local currency, and the booked and translated group amounts in the group currency (each company's translated rows sum to zero). Filters: company, group account, company account, trading partner and kind. A run still queued shows none, a running one those of the companies translated so far. Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
+      x-permission: consolidation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-snapshot: true
+      x-problem-codes:
+        - config.unknown_version
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: group_account
+          in: query
+          required: false
+          description: Only the rows on the group account with this number.
+          schema:
+            type: string
+            pattern: "^[0-9A-Z]{1,10}$"
+        - name: account_id
+          in: query
+          required: false
+          description: Only the rows of this company account.
+          schema:
+            type: string
+            format: uuid
+        - name: trading_partner_id
+          in: query
+          required: false
+          description: Only the rows naming this trading partner (a legal entity).
+          schema:
+            type: string
+            format: uuid
+        - name: kind
+          in: query
+          required: false
+          description: Only the rows of this kind.
+          schema:
+            type: string
+            description: "Translated balance kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [balance, prior_results, cta]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the run's translated balances, with the totals over the filter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsolidationBalancePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/close-calendar:
@@ -15644,6 +16101,8 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -15772,6 +16231,8 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - request.version_mismatch
       parameters:
@@ -15947,6 +16408,8 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -16073,6 +16536,8 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - request.version_mismatch
       parameters:
@@ -16253,6 +16718,8 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -16379,6 +16846,8 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - request.version_mismatch
       parameters:
@@ -19400,6 +19869,8 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -20995,6 +21466,8 @@ paths:
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
         - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -21014,6 +21487,7 @@ paths:
         - partner.duplicate_payment_method
         - partner.duplicate_tax_scheme
         - partner.duplicate_withholding_tax_code
+        - partner.group_company_unknown
         - partner.invalid_account_number
         - partner.invalid_end
         - partner.invalid_iban
@@ -25899,6 +26373,15 @@ components:
               $ref: "#/components/schemas/Extensions"
               description: Custom fields.
               readOnly: true
+            group_company_id:
+              type: string
+              format: uuid
+              description: "The legal entity of the tenant this partner is, when it is one of the group's companies (ADR-0059 §4): the trading partner the ledger gives the lines that name the partner from then on. Absent: none."
+              readOnly: true
+            group_company:
+              $ref: "#/components/schemas/GroupCompany"
+              description: "`group_company_id` by its company code and its name as they are now; absent with it."
+              readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"
           version: 1
@@ -25929,6 +26412,36 @@ components:
               value_last4: "6789"
           extensions:
             cost_object_hint: MKT-2026
+          group_company_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc0"
+          group_company:
+            id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc0"
+            code: "2000"
+            name: Muster Holding GmbH
+    GroupCompany:
+      type: object
+      description: "The company of the group a business partner is (ADR-0059 §4): a legal entity of the tenant, by id, company code and its name as it is now."
+      required:
+        - id
+        - code
+        - name
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The legal entity.
+          readOnly: true
+        code:
+          type: string
+          description: Its company code.
+          readOnly: true
+        name:
+          type: string
+          description: "Its name, as it is now: renaming the company changes no partner's ETag."
+          readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc0"
+          code: "2000"
+          name: Muster Holding GmbH
     BusinessPartnerCreate:
       type: object
       description: Request a new business partner. Duplicate tax identifiers or bank accounts are reported as warnings on the partner change.
@@ -26001,6 +26514,10 @@ components:
         extensions:
           $ref: "#/components/schemas/Extensions"
           description: Custom fields.
+        group_company_id:
+          type: string
+          format: uuid
+          description: "The legal entity of the tenant this partner is, when it is one of the group's companies (ADR-0059 §4); any legal entity of the tenant, whatever the caller's access to it (422 `partner.group_company_unknown` otherwise). The ledger derives the trading partner of the lines naming the partner from it."
         reason:
           type: string
           description: "Why the partner is needed; recorded on the partner change."
@@ -26067,6 +26584,12 @@ components:
         extensions:
           $ref: "#/components/schemas/Extensions"
           description: Custom fields.
+        group_company_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: "The legal entity of the tenant this partner is, when it is one of the group's companies (ADR-0059 §4; 422 `partner.group_company_unknown` for one that is not). Send null to unlink. Applies to postings from approval on; posted lines keep their trading partner."
       additionalProperties: false
       examples:
         - name: Muster Industrie GmbH
@@ -28298,6 +28821,31 @@ components:
               created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
               updated_at: "2026-10-09T14:03:11Z"
               updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
+    TradingPartner:
+      type: object
+      description: "A journal line's trading partner (ADR-0059 §4): a legal entity of the tenant, by id, company code and its name as it is now."
+      required:
+        - id
+        - code
+        - name
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The legal entity.
+          readOnly: true
+        code:
+          type: string
+          description: Its company code.
+          readOnly: true
+        name:
+          type: string
+          description: "Its name, as it is now: renaming the company changes no entry's ETag."
+          readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbe"
+          code: "1000"
+          name: Acme Corp US
     JournalLine:
       type: object
       description: One posted line.
@@ -28399,6 +28947,10 @@ components:
         segment_code:
           type: string
           description: "Code of the segment, set with `segment_id`."
+          readOnly: true
+        trading_partner:
+          $ref: "#/components/schemas/TradingPartner"
+          description: "The line's trading partner (ADR-0059 §4): the tenant's company on the other side of an intercompany transaction, as entered (JournalLineInput `trading_partner_id`) or copied from the line a reversal or clearing offsets; absent when it has none."
           readOnly: true
         line_text:
           type: string
@@ -28674,6 +29226,10 @@ components:
           type: string
           format: uuid
           description: "Segment of the line: derived from the profit center, so one given must be its profit center's (422 `ledger.segment_mismatch`)."
+        trading_partner_id:
+          type: string
+          format: uuid
+          description: "Trading partner of the line (ADR-0059 §4): the tenant's company on the other side of an intercompany transaction, a legal entity of the tenant other than the entry's own (422 `ledger.trading_partner_invalid` on the line's field). Consolidation matches and eliminates intercompany balances by it."
         line_text:
           type: string
           description: Line text.
@@ -28905,6 +29461,10 @@ components:
         segment_code:
           type: string
           description: "Code of the segment, set with `segment_id`."
+          readOnly: true
+        trading_partner:
+          $ref: "#/components/schemas/TradingPartner"
+          description: "The trading partner entered on the line (JournalLineInput `trading_partner_id`), absent when none was."
           readOnly: true
         line_text:
           type: string
@@ -38446,6 +39006,385 @@ components:
       additionalProperties: false
       examples:
         - {note: "Last invoices entered on the 2nd."}
+    ConsolidationGroupPage:
+      type: object
+      description: One page of consolidation groups.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsolidationGroup"
+          description: The groups on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+    ConsolidationGroup:
+      type: object
+      description: "A consolidation group (ADR-0059 §3): a parent company and the subsidiaries it holds directly. From the active configuration."
+      required:
+        - code
+        - name
+        - group_currency
+        - parent
+        - members
+      properties:
+        code:
+          type: string
+          description: "The group's code: 1-30 upper-case letters, digits or underscores."
+          pattern: "^[A-Z0-9_]{1,30}$"
+          readOnly: true
+        name:
+          type: string
+          description: The group's name.
+          readOnly: true
+        group_currency:
+          type: string
+          description: "The currency the group is consolidated in: the tenant's group currency (ISO 4217), which the parent's local currency must be (ADR-0059 §3)."
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+        parent:
+          $ref: "#/components/schemas/ConsolidationCompany"
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsolidationMember"
+          description: "The subsidiaries, by company code."
+          readOnly: true
+      examples:
+        - code: MAPLE
+          name: Maple group
+          group_currency: CAD
+          parent:
+            legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+            company_code: "3000"
+            company_name: Maple Industries Canada
+            local_currency: CAD
+          members:
+            - legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c
+              company_code: "1000"
+              company_name: Acme Corp US
+              local_currency: USD
+              ownership_percent: "80"
+              first_fiscal_year: 2026
+              first_fiscal_period: 11
+              investment_account: {number: "1700", name: Investment in Acme Corp US}
+    ConsolidationCompany:
+      type: object
+      description: "A company of a consolidation group: its legal entity, company code, name and local currency."
+      required:
+        - legal_entity_id
+        - company_code
+        - company_name
+        - local_currency
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The company's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The company's name.
+          readOnly: true
+        local_currency:
+          type: string
+          description: The company's local currency (ISO 4217).
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+    ConsolidationMember:
+      type: object
+      description: "A subsidiary of a consolidation group (ADR-0059 §3): its company, the parent's ownership of it, the period it is first consolidated in and the parent's account holding the investment in it."
+      required:
+        - legal_entity_id
+        - company_code
+        - company_name
+        - local_currency
+        - ownership_percent
+        - first_fiscal_year
+        - first_fiscal_period
+        - investment_account
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The subsidiary's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The subsidiary's company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The subsidiary's name.
+          readOnly: true
+        local_currency:
+          type: string
+          description: The subsidiary's local currency (ISO 4217).
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+        ownership_percent:
+          type: string
+          description: "The parent's ownership in percent, a plain decimal above 0 and at most 100 with up to four decimals, as configured."
+          readOnly: true
+        first_fiscal_year:
+          type: integer
+          format: int32
+          description: The fiscal year of the period the subsidiary is first consolidated in.
+          readOnly: true
+        first_fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 12
+          description: "The regular period (1-12) from whose first day the subsidiary is consolidated."
+          readOnly: true
+        investment_account:
+          $ref: "#/components/schemas/AssetAccountRef"
+    ConsolidationRunStart:
+      type: object
+      description: "The consolidation run to start: a group of the active configuration and a regular period of its parent's fiscal calendar."
+      required: [group_code, fiscal_year, period]
+      properties:
+        group_code: {type: string, pattern: "^[A-Z0-9_]{1,30}$", description: "The group's code.", example: MAPLE}
+        fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2999, description: The fiscal year.}
+        period: {type: integer, format: int32, minimum: 1, maximum: 16, description: "The period; a regular one (1-12)."}
+    ConsolidationRunPage:
+      type: object
+      description: One page of consolidation runs, newest first.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ConsolidationRun"}
+          description: The runs on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    ConsolidationRun:
+      type: object
+      description: "A consolidation run of a group for a regular period (ADR-0059 §6): its companies, each with the closing rate it was translated at and its period's status and version when the run read its figures. The translated figures are `GET /v1/consolidation-runs/{id}/balances`."
+      required: [id, group_code, group_name, fiscal_year, period, period_start, period_end, status, config_version, group_currency, rate_type, operation_id, members, version, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid, description: The run., readOnly: true}
+        group_code: {type: string, description: "The group's code.", readOnly: true}
+        group_name: {type: string, description: "The group's name, in the configuration version the run read.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: The fiscal year., readOnly: true}
+        period: {type: integer, format: int32, description: The regular period., readOnly: true}
+        period_start: {type: string, format: date, description: "The period's first day, in the parent's leading ledger.", readOnly: true}
+        period_end: {type: string, format: date, description: "The period's last day: the closing rate's date.", readOnly: true}
+        status:
+          type: string
+          x-extensible-enum: [queued, running, computed, failed, final, superseded, discarded]
+          description: "queued until its workflow starts it, running while its companies are translated, then computed, or failed with its problem; a computed or failed run may be discarded. final and superseded follow finalization (ADR-0059 §10). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        problem: {$ref: "#/components/schemas/ConsolidationRunProblem"}
+        config_version: {type: integer, format: int32, description: "The configuration version whose group, group chart and mapping the run read (`GET /v1/config-versions`).", readOnly: true}
+        group_currency: {type: string, pattern: "^[A-Z]{3}$", description: "The group currency (ISO 4217), every translated amount's.", readOnly: true}
+        rate_type: {type: string, description: "The rate type of the closing rates (`consolidation.rate_type`).", readOnly: true}
+        operation_id: {type: string, format: uuid, description: "Its Operation (`GET /v1/operations/{id}`).", readOnly: true}
+        members:
+          type: array
+          description: "Its companies, the parent first and then the members by company code, once the run started running (none while queued)."
+          items: {$ref: "#/components/schemas/ConsolidationRunMember"}
+          readOnly: true
+        computed_at: {type: string, format: date-time, description: "When it was computed; absent before.", readOnly: true}
+        version: {type: integer, format: int32, description: "The run's version (ETag).", readOnly: true}
+        created_at: {type: string, format: date-time, description: When it was started., readOnly: true}
+        updated_at: {type: string, format: date-time, description: When it last changed., readOnly: true}
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000c01
+          group_code: MAPLE
+          group_name: Maple group
+          fiscal_year: 2026
+          period: 11
+          period_start: "2026-11-01"
+          period_end: "2026-11-30"
+          status: computed
+          config_version: 12
+          group_currency: CAD
+          rate_type: average
+          operation_id: 0192a000-0000-7000-8000-000000000c02
+          members:
+            - {legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b, company_code: "3000", company_name: Maple Industries Canada, local_currency: CAD, role: parent, closing_rate: "1", period_status: open, period_version: 3, translated_at: "2026-11-20T10:00:01Z"}
+            - {legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c, company_code: "1000", company_name: Acme Corp US, local_currency: USD, role: member, ownership_percent: "80", first_fiscal_year: 2026, first_fiscal_period: 11, closing_rate: "1.4", rate_valid_from: "2026-11-30", period_status: open, period_version: 2, translated_at: "2026-11-20T10:00:01Z"}
+          computed_at: "2026-11-20T10:00:02Z"
+          version: 4
+          created_at: "2026-11-20T10:00:00Z"
+          updated_at: "2026-11-20T10:00:02Z"
+    ConsolidationRunProblem:
+      type: object
+      description: "The problem that failed a run: its code and detail, as its Operation's error gives them; `consolidation.run_cancelled` when its Operation was cancelled, which stays `cancelled` without an error, `identity.principal_blocked` when the person who started it was blocked or deprovisioned since, and `platform.internal` when a step's error outlasted its retries."
+      required: [code, detail]
+      properties:
+        code: {type: string, description: "The problem's code, such as `consolidation.rate_stale`.", readOnly: true}
+        detail: {type: string, description: "The problem's detail.", readOnly: true}
+    ConsolidationRunMember:
+      type: object
+      description: "A company of a consolidation run: the parent, or a member whose first period is on or before the run's, with the closing rate its assets and liabilities were translated at and its leading ledger's period as the run read it."
+      required: [legal_entity_id, company_code, company_name, local_currency, role, closing_rate]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company's legal entity.", readOnly: true}
+        company_code: {type: string, description: "The company code, as the run read it.", readOnly: true}
+        company_name: {type: string, description: "The company's name as it is now.", readOnly: true}
+        local_currency: {type: string, pattern: "^[A-Z]{3}$", description: "Its local currency (ISO 4217), its local amounts'.", readOnly: true}
+        role:
+          type: string
+          x-extensible-enum: [parent, member]
+          description: "Its role in the group. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        ownership_percent: {type: string, description: "A member's: the parent's ownership in percent, a plain decimal; absent for the parent.", readOnly: true}
+        first_fiscal_year: {type: integer, format: int32, description: "A member's: the fiscal year of its first consolidated period.", readOnly: true}
+        first_fiscal_period: {type: integer, format: int32, minimum: 1, maximum: 12, description: "A member's: its first consolidated period.", readOnly: true}
+        closing_rate: {type: string, description: "The closing rate from its local currency into the group currency, a plain decimal of up to 12 decimals; 1 for a company in the group currency.", readOnly: true}
+        rate_valid_from: {type: string, format: date, description: "The date the closing rate is valid from; absent for a company in the group currency.", readOnly: true}
+        period_status:
+          type: string
+          x-extensible-enum: [open, closed, locked]
+          description: "Its leading ledger's period's status when the run read its figures; absent until translated. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        period_version: {type: integer, format: int32, description: "That period's version when the run read its figures; absent until translated.", readOnly: true}
+        translated_at: {type: string, format: date-time, description: "When its figures were read and translated; absent before.", readOnly: true}
+    ConsolidationBalancePage:
+      type: object
+      description: "One page of a consolidation run's translated balances, with the totals over the filter."
+      required: [items, totals]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ConsolidationBalance"}
+          description: The rows on this page.
+        totals: {$ref: "#/components/schemas/ConsolidationBalanceTotals"}
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    ConsolidationBalanceTotals:
+      type: object
+      description: "The totals of every row the filter selects, over all pages: the local amounts per local currency (by currency code), and the booked and translated group amounts in the group currency."
+      required: [local, group_booked, group]
+      properties:
+        local:
+          type: array
+          items: {$ref: "#/components/schemas/Money"}
+          description: "The local amounts' sum per local currency, by currency code; the translation differences have none."
+        group_booked: {$ref: "#/components/schemas/Money", description: "The booked group amounts' sum; the translation differences have none."}
+        group: {$ref: "#/components/schemas/Money", description: "The translated group amounts' sum; zero over every row of a company."}
+    ConsolidationBalance:
+      type: object
+      description: "A translated balance of a consolidation run (ADR-0059 §7): a company account's balance with a trading partner or none (`balance`), a company's results of earlier fiscal years (`prior_results`), or its translation difference (`cta`). Amounts are debit positive."
+      required: [legal_entity_id, company_code, company_name, line_no, kind, group_account, amount_gc]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company's legal entity.", readOnly: true}
+        company_code: {type: string, description: "The company code, as the run read it.", readOnly: true}
+        company_name: {type: string, description: "The company's name as it is now.", readOnly: true}
+        line_no: {type: integer, format: int32, description: "The row's number within its company.", readOnly: true}
+        kind:
+          type: string
+          x-extensible-enum: [balance, prior_results, cta]
+          description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        group_account: {$ref: "#/components/schemas/GroupAccountRef"}
+        account_id: {type: string, format: uuid, description: "A `balance` row's company account.", readOnly: true}
+        account: {$ref: "#/components/schemas/AssetAccountRef"}
+        trading_partner: {$ref: "#/components/schemas/TradingPartner"}
+        amount_lc: {$ref: "#/components/schemas/Money", description: "The local amount, in the company's local currency; absent on a `cta` row."}
+        amount_gc_booked: {$ref: "#/components/schemas/Money", description: "The group amount as booked, each line at its posting date's rate; absent on a `cta` row."}
+        amount_gc: {$ref: "#/components/schemas/Money", description: "The translated group amount: the local amount at the closing rate for asset and liability accounts, rounded once half away from zero; the booked group amount otherwise; the translation difference on a `cta` row."}
+        closing_rate: {type: string, description: "The closing rate the row was translated at, where one applied (asset and liability accounts).", readOnly: true}
+      examples:
+        - legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c
+          company_code: "1000"
+          company_name: Acme Corp US
+          line_no: 3
+          kind: balance
+          group_account: {number: G2000, name: Liabilities}
+          account_id: 0192a000-0000-7000-8000-000000000402
+          account: {number: "211000", name: Accounts Payable - Domestic}
+          trading_partner: {id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b, code: "3000", name: Maple Industries Canada}
+          amount_lc: {amount: "-1500.00", currency: USD}
+          amount_gc_booked: {amount: "-2025.00", currency: CAD}
+          amount_gc: {amount: "-2100.00", currency: CAD}
+          closing_rate: "1.4"
+    GroupAccountRef:
+      type: object
+      description: "An account of the group chart, by number and name, in the configuration version a run read."
+      required: [number, name]
+      properties:
+        number: {type: string, description: "The group account's number.", readOnly: true}
+        name: {type: string, description: "The group account's name.", readOnly: true}
+    GroupAccountPage:
+      type: object
+      description: One page of the group chart of accounts.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GroupAccount"
+          description: The group accounts on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+    GroupAccount:
+      type: object
+      description: "An account of the group chart (ADR-0059 §3; SAP's financial statement item). From the active configuration."
+      required:
+        - number
+        - name
+        - type
+        - mapped_accounts
+      properties:
+        number:
+          type: string
+          description: "The group account's number: 1-10 upper-case letters or digits."
+          pattern: "^[0-9A-Z]{1,10}$"
+          readOnly: true
+        name:
+          type: string
+          description: The group account's name.
+          readOnly: true
+        type:
+          type: string
+          description: "Account type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [asset, liability, equity, revenue, expense]
+          readOnly: true
+        role:
+          type: string
+          description: "The role a consolidation run gives the account, if any; no company account maps to one. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [cta, retained_earnings, nci, goodwill]
+          readOnly: true
+        elimination:
+          $ref: "#/components/schemas/EliminationRef"
+        mapped_accounts:
+          type: integer
+          format: int32
+          description: "The number of company accounts mapped to it, in the companies the caller may act in."
+          readOnly: true
+      examples:
+        - number: G1250
+          name: Intercompany receivables
+          type: asset
+          elimination: {code: IC_BALANCES, name: Intercompany receivables and payables}
+          mapped_accounts: 1
+    EliminationRef:
+      type: object
+      description: "An elimination of the configuration (ADR-0059 §8), by code and name."
+      required:
+        - code
+        - name
+      properties:
+        code:
+          type: string
+          description: "The elimination's code: 1-30 upper-case letters, digits or underscores."
+          readOnly: true
+        name:
+          type: string
+          description: The elimination's name.
+          readOnly: true
     AssetClassPage:
       type: object
       description: One page of asset classes.

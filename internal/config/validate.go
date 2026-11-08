@@ -98,6 +98,7 @@ func Validate(c *Config, exponents currency.Exponents) []Finding {
 	v.cash(c)
 	v.assetClasses(c)
 	v.closeTemplate(c)
+	v.consolidation(c)
 	switch c.Output.PurchaseOrderChannel {
 	case "email", "edi", "print":
 	default:

@@ -584,6 +584,7 @@ erDiagram
     text name
     char country_code
     text status
+    uuid group_company_id "tenancy; T68c"
     int version }
   partner_role { uuid partner_id PK
     text role PK "supplier | customer" }
@@ -622,6 +623,15 @@ erDiagram
     smallint discount2_days "tier 2"
     numeric discount2_pct }
 ```
+
+`business_partner.group_company_id` (T68c, ADR-0059 §4, migration 000219)
+is the tenant's legal entity a partner is, when it is one of the group's
+companies (SAP's trading partner on the business partner), from which the
+ledger derives the trading partner of the lines naming the partner. A
+legal entity id without a foreign key (02 §2.1), nullable, NULL on
+partners created before; partner checks it is a legal entity of the tenant
+when it is set on creation or an update change is requested (422
+`partner.group_company_unknown`).
 
 One business partner can be both supplier and customer (SAP business partner
 model). Company-specific supplier data lives in `supplier_company`. Bank
@@ -733,7 +743,8 @@ erDiagram
     int po_item_no
     uuid cost_center_id "T56d"
     uuid profit_center_id
-    uuid segment_id }
+    uuid segment_id
+    uuid trading_partner_id "T68b" }
   clearing { uuid id PK
     uuid legal_entity_id
     date clearing_date
@@ -758,6 +769,15 @@ erDiagram
     smallint fiscal_year
     smallint fiscal_period
     char currency_tc
+    bigint debit_lc
+    bigint credit_lc }
+  trading_partner_balance { uuid ledger_id PK "T68b"
+    uuid legal_entity_id PK
+    uuid account_id PK
+    uuid trading_partner_id PK
+    smallint fiscal_year PK
+    smallint fiscal_period PK
+    char currency_tc PK
     bigint debit_lc
     bigint credit_lc }
 ```
@@ -1332,6 +1352,39 @@ before it. The two center reports read it with the lines still pending,
 as the trial balance reads `period_balance`, through the partial indexes
 `assignment_balance_cost_center` and `assignment_balance_profit_center`
 (company, ledger, year, period, center).
+
+The trading partner on the journal line (T68b, ADR-0059 §4, migrations
+000216-000218). `journal_line.trading_partner_id` is the tenant's company
+on the other side of an intercompany line (SAP's RASSC), nullable, NULL on
+lines posted before; a legal entity id without a foreign key (tenancy is
+another context, 02 §2.1), which the ledger checks is a legal entity of the
+tenant before it posts or parks a line naming it (422
+`ledger.trading_partner_invalid`). The database holds the other half: a
+line's trading partner is never its own company
+(`journal_line_trading_partner`, added `NOT VALID` and validated partition
+by partition; a partition created later gets it validated). The partial
+index `journal_line_by_trading_partner` (company, trading partner, year,
+period) serves the journal list's `trading_partner_id` filter. A parked
+entry's and a template's lines keep the trading partner entered
+(`parked_entry_line.trading_partner_id`, `entry_template_line.trading_partner_id`),
+checked again when the entry is posted. A reversal copies each line's; a
+clearing's lines take the items they offset, and a settlement's or bank
+posting's exchange difference and cash discount lines the items' when they
+all name the same one. Since T68c the ledger also derives it, in the one
+place every posting but a reversal passes: a line naming a partner linked
+to a group company (`partner.business_partner.group_company_id`) takes that
+company (none when it is the posting company), a line naming another is
+refused (422 `ledger.trading_partner_conflict`), the entry's other lines
+take the one all its partner lines share, and lines offsetting open items
+keep their items'. `trading_partner_balance` holds, per ledger,
+company, account, trading partner, year, period and transaction currency,
+the totals of the lines that name one, never the company's own
+(`trading_partner_balance_partner`); like `assignment_balance` it is
+written only by the projection (`erp_projector`), by the trigger
+`balance_projection_trading_partner` in the statement that marks an entry
+projected, and consolidation reads it with the lines still pending
+(ADR-0059 §4a, T68d). No line carried a trading partner before, so nothing
+was backfilled.
 
 ## 3.8 Procurement (`procurement`)
 
@@ -2728,6 +2781,9 @@ line or reservation. An agent's budget is identity's
 | T030 | `ledger.account_determination` (VST, BNK, WRX, PRD, SKE) |
 | AGR_* | `identity.role`, `role_permission`, `principal_role` |
 | NRIV | `config.number_range` |
+| Group Reporting FS items, consolidation groups and units (from memory, for an SAP specialist) (planned, ADR-0059) | configuration `consolidation.accounts`, `consolidation.groups`, `companies[].chart_of_accounts[].group_account` (not built) |
+| Trading partner (LFA1-VBUND, ACDOCA-RASSC; from memory, for an SAP specialist) (planned, ADR-0059) | `partner.business_partner.group_company_id` (T68c), `ledger.journal_line.trading_partner_id` (T68b) |
+| ACDOCU consolidation journal (from memory, for an SAP specialist) (planned, ADR-0059) | `consolidation.run_entry` + `run_entry_line` (not built) |
 
 ## 3.18 Cash management (`cash`)
 
@@ -3517,3 +3573,36 @@ Saved reports, and the analytical store's bookkeeping in PostgreSQL
 | `analytics.snapshot` | The pointer to a tenant's current manifest (T55b, 000114), one row per tenant, so all of its datasets are swapped together and a reader never sees two runs mixed: the manifest's key, named by its watermark and a digest of what it lists (`snapshot_manifest_key_check`, T55c, 000115), the watermark (the cutoff of the run that wrote the manifest), `as_of`, `published_at`, and `checked_at` (T55c, 000115): the snapshot time of the last run that read every dataset and left no journal entry above its watermark, on which freshness is judged. A run publishes by moving the pointer, guarded by the manifest it read. Derived data: rebuilt after a restore or a move |
 | `analytics.extract_due` | The tenants due an extract (T55c, 000115), one row per tenant: the outbox relay marks a tenant changed (`changed_at`) in the transaction that publishes its events, once per batch; the scheduler claims a due tenant at most once per interval (`started_at`) and records the start of the last run that finished (`done_at`, never after the claim: `extract_due_done_at_claim`), so a change after it is still due; `claimed_lsn` (T55f, 000116) is the primary's WAL position at the claim, and the run reads on the replica only once it has replayed past it |
 | `analytics.superseded` | The manifests a publication replaced (T55f, 000116), kept seven days so a running query never loses a file, each with the keys it listed that its successor does not (`dropped`), which the lifecycle then deletes, but for what the current manifest or a later supersession lists, without reading other manifests. Bookkeeping of derived data: no audit record |
+
+## 3.24 Consolidation (`consolidation`)
+
+ADR-0059, T68a-T68h. Consolidation is a leaf context: it reads tenancy,
+the configuration and the ledger through ports the composition root
+adapts, and no context reads it. The group chart (`consolidation.accounts`,
+with the roles `cta`, `retained_earnings`, `nci` and `goodwill`), the
+mapping of each company's accounts (`companies[].chart_of_accounts[].group_account`,
+required on every account of a company in a group), the eliminations
+(`consolidation.eliminations`) and the groups (`consolidation.groups`:
+parent, members with ownership, first period and investment account) are
+configuration, built in T68a (ADR-0059 §3, As built T68a): they keep no
+table, and migration 000220 adds the permission `consolidation.read`.
+T68b, T68c and T68d are built; the tables marked T68e-T68h below are
+planned, not built.
+The ledger gained, in T68b, `journal_line.trading_partner_id` (the legal
+entity on the other side of an intercompany line, nullable, no foreign key)
+and the projection `ledger.trading_partner_balance`, maintained as
+`assignment_balance` is (§3.7); partner gained `business_partner.group_company_id`
+in T68c, from which the ledger derives it (ADR-0059 §4). Migration 000221
+creates the schema `consolidation` (with its outbox, for
+`ConsolidationRunChanged`), its first three tables below and the permission
+`consolidation.run.manage` (T68d, ADR-0059 §5, As built T68d):
+
+| Table | Purpose |
+|---|---|
+| `consolidation.run` | A run of a group, fiscal year and regular period (T68d): its parent and every company of its group as its configuration version has them (`companies`, which a caller must all be allowed to act in to see the run), the parent's period dates, its configuration version, group currency and rate type, status (queued, running, computed, failed, final, superseded, discarded; a trigger keeps the transitions and what the run consolidates), its Operation, problem when failed (kept when discarded), when computed, finalizer and the final run superseding it. One run of a group queued or running at a time and one final per group and period (partial unique indexes `consolidation_run_one_at_a_time`, `consolidation_run_one_final`) |
+| `consolidation.run_member` | Each company a run consolidates (T68d), written when it starts running: its code as read, parent or member, ownership and first period (a member's), local currency, closing rate (numeric(28,12)) and the date it is valid from (none in the group currency), the status and version of the run's period in its leading ledger when the run read its figures, and when it was translated, recorded once (a trigger; the only columns `erp_app` may update) |
+| `consolidation.run_balance` | A company's translated figures (T68d, insert-only, written while the run runs): per company account and trading partner (`balance`), the local, booked group and translated amounts on its group account, plus the earlier results (`prior_results`, on the retained earnings account) and translation difference (`cta`, a group amount alone) rows, which make each company's rows sum to zero; numbered per company by group account, company account, trading partner code and kind |
+| `consolidation.run_entry`, `consolidation.run_entry_line` | The run's eliminations (T68f, T68h; insert-only): intercompany, investment and non-controlling interest entries, each line on a group account with its company, company account, trading partner and component; each entry sums to zero (a deferred constraint trigger) |
+| `consolidation.run_difference` | The intercompany pairs a run matched (T68f): per elimination and pair of members, both amounts, the difference and the tolerance; matched, within tolerance, open, accepted (T68g, with who, when and why), outside the group, or without a trading partner (per company) |
+| `consolidation.run_acquisition` | A member's acquisition figures as a run computed them (T68h): net assets, closing rate, investment, goodwill, non-controlling interest, and whether they were frozen |
+| `consolidation.acquisition`, `consolidation.acquisition_equity` | A member's acquisition figures frozen by its first final run (T68h; insert-only, one per group and member), and its acquisition equity per group account; later runs read them and refuse a changed ownership, first period, investment account or investment |

@@ -65,6 +65,10 @@ type Config struct {
 	// Close is the tenant's close template (ADR-0058 §3): the tasks each
 	// company's period close is given.
 	Close Close `yaml:"close,omitempty" json:"close,omitzero"`
+	// Consolidation is the tenant's group reporting (ADR-0059 §3): the
+	// group chart, its eliminations and the consolidation groups; each
+	// company's accounts map to the group chart (Account.GroupAccount).
+	Consolidation Consolidation `yaml:"consolidation,omitempty" json:"consolidation,omitzero"`
 }
 
 // Calendar is a company's weekend and holidays, each date once.
@@ -403,6 +407,10 @@ type Account struct {
 	// (ADR-0050 §4); empty takes the default of the account's type
 	// (CostElementOrDefault).
 	CostElement CostElement `yaml:"cost_element,omitempty" json:"cost_element,omitempty"`
+	// GroupAccount is the account of the group chart this account's
+	// balances are consolidated on (ADR-0059 §3), required on every
+	// account of a company in a consolidation group.
+	GroupAccount string `yaml:"group_account,omitempty" json:"group_account,omitempty"`
 }
 
 // AccountDetermination says which accounts automatic postings use (SAP T030).

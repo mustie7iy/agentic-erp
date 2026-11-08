@@ -614,6 +614,41 @@ type Handler interface {
 	//
 	// POST /v1/connectors
 	CreateConnector(ctx context.Context, req *ConnectorCreate, params CreateConnectorParams) (CreateConnectorRes, error)
+	// CreateConsolidationRun implements createConsolidationRun operation.
+	//
+	// Starts the consolidation run of a group for a regular period (ADR-0059 §6, T68d; SAP's
+	// consolidation monitor): the run is written `queued` with the active configuration's version and its
+	// Operation (kind `consolidation.run`, its `resource` the run), and carried out as a workflow, or in
+	// process in a cell without a workflow engine. It includes the parent and every member whose first
+	// period is on or before the run's, reads each one's leading-ledger balances through the period
+	// (balance sheet accounts over every fiscal year, profit and loss accounts per fiscal year, per
+	// account and trading partner) and translates them into the group currency (§7): assets and
+	// liabilities at the closing rate, the latest of the configuration's `consolidation.rate_type` from
+	// the company's local currency into the group currency valid on the period's last day; income,
+	// expenses and equity at their booked group amounts; earlier fiscal years' results, and for a member
+	// in the fiscal year of its first period those of the periods before it, as one row on the group
+	// chart's `retained_earnings` account; and the translation difference, which makes each company's
+	// translated rows sum to zero, as one row on its `cta` account. The method is to be confirmed by an
+	// accounting specialist (ADR-0059, question 1). A run may be made for any period, open or not: a draft
+	// shows the figures as they stand. Refused when the group is unknown to the caller (404
+	// `consolidation.group_unknown`: one that does not exist, or whose parent or a member the caller may
+	// not act in), for a special period (422 `consolidation.special_period`), a period the parent's
+	// leading ledger does not have (422 `consolidation.period_unknown`), a member included on another
+	// fiscal calendar (422 `consolidation.calendar_mismatch`, naming it), a parent whose local currency is
+	// not the group currency (422 `consolidation.parent_currency`), a company currency without a closing
+	// rate of the period (422 `consolidation.rate_missing`) or with one valid from before the period's
+	// first day (422 `consolidation.rate_stale`, ADR-0042's rule), each naming the pair and the date; and
+	// while another run of the group is queued or running (409 `consolidation.run_in_progress`, whose
+	// detail and `Location` name it). A business problem while the run is carried out (a rate recorded
+	// since, a company account with a balance and no group account, `consolidation.account_unmapped`, a
+	// member's period gone, its requester blocked since) fails the run and its Operation with the problem.
+	// Cancelling the Operation (`POST /v1/operations/{id}:cancel`) fails the run at its next step with
+	// `consolidation.run_cancelled`, the Operation staying `cancelled`. A step failing on an error of the
+	// machinery is tried five times; one that outlasts them fails the run with `platform.internal`. Each
+	// change of the run's status is published as ConsolidationRunChanged and audited. Human-only.
+	//
+	// POST /v1/consolidation-runs
+	CreateConsolidationRun(ctx context.Context, req *ConsolidationRunStart, params CreateConsolidationRunParams) (CreateConsolidationRunRes, error)
 	// CreateContract implements createContract operation.
 	//
 	// Creates a draft contract.
@@ -947,6 +982,17 @@ type Handler interface {
 	//
 	// POST /v1/connectors/{id}:disable
 	DisableConnector(ctx context.Context, req *ReasonInput, params DisableConnectorParams) (DisableConnectorRes, error)
+	// DiscardConsolidationRun implements discardConsolidationRun operation.
+	//
+	// Discards a computed or failed consolidation run (ADR-0059 §6, §10): a draft no longer wanted. Its
+	// figures stay readable, and it is `discarded` from then on; a final run is never discarded, and a
+	// queued, running, superseded or discarded run is refused (409 `consolidation.run_not_discardable`).
+	// `If-Match` is the run's ETag (412 `request.version_mismatch` when it moved since). Published as
+	// ConsolidationRunChanged and audited. A run of a group whose parent or a member the caller may not
+	// act in is not found (404), as a run that does not exist. Human-only.
+	//
+	// POST /v1/consolidation-runs/{id}:discard
+	DiscardConsolidationRun(ctx context.Context, params DiscardConsolidationRunParams) (DiscardConsolidationRunRes, error)
 	// EnableConnector implements enableConnector operation.
 	//
 	// Allows the connector to exchange messages again. Requires status `disabled`.
@@ -1383,6 +1429,30 @@ type Handler interface {
 	//
 	// GET /v1/connectors/{id}
 	GetConnector(ctx context.Context, params GetConnectorParams) (GetConnectorRes, error)
+	// GetConsolidationGroup implements getConsolidationGroup operation.
+	//
+	// One consolidation group of the active configuration by its code (ADR-0059 §3, T68a), as
+	// `listConsolidationGroups` gives it. A group that does not exist, or whose parent or any member the
+	// caller may not act in, is unknown to the caller (404 `consolidation.group_unknown`, ADR-0059 §12),
+	// so its existence and its companies do not leak. Besides `consolidation.read` the caller needs
+	// `ledger.entry.read` (`x-also-permissions`).
+	//
+	// GET /v1/consolidation-groups/{code}
+	GetConsolidationGroup(ctx context.Context, params GetConsolidationGroupParams) (GetConsolidationGroupRes, error)
+	// GetConsolidationRun implements getConsolidationRun operation.
+	//
+	// One consolidation run (ADR-0059 §6, T68d): its group by code and name, its period with its dates,
+	// its status and the problem that failed it, the configuration version it read, the group currency and
+	// the closing rate type, and its companies, the parent first and the members by company code, each
+	// with its local currency, closing rate and the date it is valid from, its role, ownership and first
+	// period, and the status and version of its leading ledger's period when the run read its figures. A
+	// run of a group whose parent or a member the caller may not act in is not found (404), as a run that
+	// does not exist, so neither its existence nor its companies leak (ADR-0059 §12). Besides
+	// `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). Read from one
+	// database state (a repeatable-read snapshot).
+	//
+	// GET /v1/consolidation-runs/{id}
+	GetConsolidationRun(ctx context.Context, params GetConsolidationRunParams) (GetConsolidationRunRes, error)
 	// GetContract implements getContract operation.
 	//
 	// Returns one contract.
@@ -2258,6 +2328,54 @@ type Handler interface {
 	//
 	// GET /v1/connectors
 	ListConnectors(ctx context.Context, params ListConnectorsParams) (ListConnectorsRes, error)
+	// ListConsolidationBalances implements listConsolidationBalances operation.
+	//
+	// A consolidation run's translated balances (ADR-0059 §7, T68d), by company code and line: per
+	// company, one row per company account and trading partner (`balance`, with the local amount, the
+	// booked group amount and the translated group amount, and the closing rate where one applied: on
+	// asset and liability accounts), the results of earlier fiscal years on the `retained_earnings`
+	// account (`prior_results`, translated at their booked group amounts) and the translation difference
+	// on the `cta` account (`cta`, a group amount alone), each with the company's code and name, the group
+	// account's number and name, the company account's number and name and the trading partner's code and
+	// name. Within a company the rows follow the group account's number, the company account's (none
+	// first), the trading partner's code (none first) and the kind, so two runs of the same figures number
+	// them alike. With totals over the filter: the local amounts per local currency, and the booked and
+	// translated group amounts in the group currency (each company's translated rows sum to zero).
+	// Filters: company, group account, company account, trading partner and kind. A run still queued shows
+	// none, a running one those of the companies translated so far. Besides `consolidation.read` the
+	// caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member
+	// the caller may not act in is not found (404), as a run that does not exist. Read from one database
+	// state (a repeatable-read snapshot), so its page and totals agree.
+	//
+	// GET /v1/consolidation-runs/{id}/balances
+	ListConsolidationBalances(ctx context.Context, params ListConsolidationBalancesParams) (ListConsolidationBalancesRes, error)
+	// ListConsolidationGroups implements listConsolidationGroups operation.
+	//
+	// The consolidation groups of the active configuration (ADR-0059 §3, T68a), in code order: each
+	// group's parent company and its members, held directly by the parent, by legal entity id, company
+	// code, name and local currency, each member with the parent's ownership in percent, the fiscal year
+	// and regular period from whose first day it is consolidated, and the parent's account holding the
+	// investment in it (number and name); and the group currency, the tenant's, which the parent's local
+	// currency must be. Groups change only through the configuration's approval loop
+	// (`consolidation.groups`, tier 4). A group's figures are only meaningful whole, so a group is listed
+	// only when the caller may act in its parent and every member (ADR-0059 §12); one outside that is
+	// left out and none of its companies named. Besides `consolidation.read` the caller needs
+	// `ledger.entry.read`, as for every consolidation read naming a group's companies and, in later
+	// slices, their figures (ADR-0059 §12; `x-also-permissions`; 403 `identity.permission_missing`
+	// otherwise). At most 50 groups exist (ADR-0059 §3).
+	//
+	// GET /v1/consolidation-groups
+	ListConsolidationGroups(ctx context.Context, params ListConsolidationGroupsParams) (ListConsolidationGroupsRes, error)
+	// ListConsolidationRuns implements listConsolidationRuns operation.
+	//
+	// The consolidation runs of the groups whose parent and every member the caller may act in (ADR-0059
+	// §6, §12), newest first, each as `getConsolidationRun` gives it. Filters: group, fiscal year,
+	// period and status. Besides `consolidation.read` the caller needs `ledger.entry.read`
+	// (`x-also-permissions`). Read from one database state (a repeatable-read snapshot), so each run's
+	// status and members agree whatever the workflow writes meanwhile.
+	//
+	// GET /v1/consolidation-runs
+	ListConsolidationRuns(ctx context.Context, params ListConsolidationRunsParams) (ListConsolidationRunsRes, error)
 	// ListContracts implements listContracts operation.
 	//
 	// Purchasing contracts. Sortable by: `valid_from`, `document_number`.
@@ -2423,6 +2541,20 @@ type Handler interface {
 	//
 	// GET /v1/purchase-orders/{id}/gr-ir-clearings
 	ListGrIrClearings(ctx context.Context, params ListGrIrClearingsParams) (ListGrIrClearingsRes, error)
+	// ListGroupAccounts implements listGroupAccounts operation.
+	//
+	// The group chart of accounts of the active configuration (ADR-0059 §3, T68a; SAP's financial
+	// statement items), in number order: each account's number, name and type, its role if a consolidation
+	// run computes it (`cta`, the currency translation reserve; `retained_earnings`; `nci`,
+	// non-controlling interests; `goodwill`), the elimination whose intercompany balances it holds, if
+	// any, by code and name, and the number of company accounts mapped to it
+	// (`companies[].chart_of_accounts[].group_account`) in the companies the caller may act in, so a
+	// company outside the caller's access reaches no figure (ADR-0010). The group chart and the mapping
+	// change only through the configuration's approval loop (tier 4). Filters: `type`, `role`,
+	// `elimination` (an elimination's code).
+	//
+	// GET /v1/group-accounts
+	ListGroupAccounts(ctx context.Context, params ListGroupAccountsParams) (ListGroupAccountsRes, error)
 	// ListHierarchies implements listHierarchies operation.
 	//
 	// Standard and alternative hierarchies of cost and profit centers (ADR-0050 §3), without their trees.

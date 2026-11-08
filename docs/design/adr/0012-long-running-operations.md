@@ -130,3 +130,35 @@ a retry after the commit records nothing twice. The other operation-backed
 jobs already audit their failures on their own object
 (`payments.payment_run.fail`, `payments.bank_file.fail`,
 `integration.migration_run.fail`, `assets.depreciation_run.fail`).
+
+**A run's failure is retried until it is recorded (review:T68d).** The
+workflows that end a run through a failure step of their own,
+`ConsolidationRun`, `DepreciationRun` and `ReleasePaymentRun`, ran that
+step (`FailConsolidationRun`, `FailDepreciationRun`, `FailRelease`) under
+the five-attempt policy of their other steps. A failure of the machinery
+outlasting it left the run `queued`, `running` or `releasing` for good:
+a consolidation run held its group (`consolidation_run_one_at_a_time`),
+a depreciation run its company and ledger
+(`depreciation_run_one_at_a_time`), a release its Operation running.
+The failure step now runs under the same policy without an attempt
+limit (`workflows.recording`): the backoff from a second to a minute
+stays, a business problem stays non-retryable. Decided by default, the
+smallest mechanism that always reaches a terminal state: the step is
+idempotent, guarded by the run's expected status (a run no longer queued
+or running, a release no longer under the workflow's operation, is left
+alone), so retrying it is safe, and the workflows have no execution
+timeout, so it is retried for as long as the cause lasts. A reaper that
+fails runs whose workflow is gone was not built: it would need the
+engine's visibility API and a second writer of the run's status. A
+workflow still ends without its failure recorded when an operator
+terminates it, when the failure step itself returns a business problem
+(not retried), or, for `ReleasePaymentRun`, whose steps run on the
+workflow's own context, when the Operation's `:cancel` cancels the step;
+the release run then stays `releasing` with its Operation cancelled,
+which `:release` resumes (payments.FailRelease). The retry policy is not
+part of the command a replay matches (the SDK compares the activity's id
+and type), so no `workflow.GetVersion` is needed and the recorded
+histories replay. The one-activity workflows (`ProposePaymentRun`,
+`MigrateRun`, `SimulateChange`) have no failure step of this shape: their
+activity records its own failures and its exhausted retries leave the
+Operation for the operator, as before.

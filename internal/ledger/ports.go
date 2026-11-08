@@ -63,6 +63,10 @@ type PostingLine struct {
 	// or invoice item's cost center, a profit center for a P&L line
 	// without one; nil: derived by the ledger.
 	CostCenterID, ProfitCenterID, SegmentID *uuid.UUID
+	// TradingPartner is the tenant's company on the other side of the line
+	// (ADR-0059 §4): a legal entity of the tenant other than the entry's
+	// (422 ledger.trading_partner_invalid). nil: Posting.TradingPartner.
+	TradingPartner *uuid.UUID
 }
 
 // PostingTaxItem is a tax item a context calculated (ADR-0049 §5, T61d):
@@ -124,6 +128,19 @@ type Posting struct {
 	// reconciliation account (ADR-0057 §4, T57f: a depreciation run posts
 	// in its ledger alone). nil: every ledger the company keeps.
 	LedgerID *uuid.UUID
+	// TradingPartner is the trading partner of each of Lines that names
+	// none of its own (PostingLine.TradingPartner): the company a
+	// document's intercompany transaction is with. nil: none.
+	TradingPartner *uuid.UUID
+}
+
+// tradingPartnerOf is the line's trading partner: its own, else the
+// posting's.
+func (in Posting) tradingPartnerOf(l PostingLine) *uuid.UUID {
+	if l.TradingPartner != nil {
+		return l.TradingPartner
+	}
+	return in.TradingPartner
 }
 
 // ItemTerms are the payment terms an open item was posted with, as SAP
@@ -389,7 +406,7 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 	for i, l := range in.Lines {
 		entry.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.Amount.Plain(exps[in.Currency]), Currency: in.Currency,
 			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, SpecialGL: l.SpecialGL, lc: l.LC, gc: l.GC,
-			CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID}
+			CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID, TradingPartnerID: in.tradingPartnerOf(l)}
 	}
 	posted, err := p.endpoints().postJournalEntry(ctx, tx, principal, entry)
 	if err != nil {

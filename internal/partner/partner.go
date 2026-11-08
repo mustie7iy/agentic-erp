@@ -246,11 +246,15 @@ type Partner struct {
 	SupplierCompanies []SupplierCompany
 	Addresses         []Address
 	TaxIdentifiers    []TaxIdentifier
-	Version           int32
-	CreatedAt         time.Time
-	CreatedBy         uuid.UUID
-	UpdatedAt         time.Time
-	UpdatedBy         uuid.UUID
+	// GroupCompanyID is the legal entity of the tenant the partner is, when
+	// it is one of the group's companies: the trading partner the ledger
+	// derives for lines naming the partner (ADR-0059 §4, T68c).
+	GroupCompanyID *uuid.UUID
+	Version        int32
+	CreatedAt      time.Time
+	CreatedBy      uuid.UUID
+	UpdatedAt      time.Time
+	UpdatedBy      uuid.UUID
 }
 
 const partnerSelect = `SELECT p.id, p.number, p.kind, p.name, p.legal_name, p.country_code, p.language, p.status, p.extensions, p.extensions_schema,
@@ -265,13 +269,15 @@ const partnerSelect = `SELECT p.id, p.number, p.kind, p.name, p.legal_name, p.co
 			'postal_code', a.postal_code, 'region', a.region, 'country_code', a.country_code, 'valid_from', a.valid_from, 'valid_to', a.valid_to)
 			ORDER BY a.purpose, a.valid_from) FROM partner.address a WHERE a.tenant_id = p.tenant_id AND a.partner_id = p.id), '[]'),
 		coalesce((SELECT json_agg(json_build_object('scheme', t.scheme, 'value_last4', t.value_last4) ORDER BY t.scheme)
-			FROM partner.tax_identifier t WHERE t.tenant_id = p.tenant_id AND t.partner_id = p.id), '[]')
+			FROM partner.tax_identifier t WHERE t.tenant_id = p.tenant_id AND t.partner_id = p.id), '[]'),
+		p.group_company_id
 	FROM partner.business_partner p`
 
 func scanPartner(row pgx.Row) (Partner, error) {
 	var p Partner
 	err := row.Scan(&p.ID, &p.Number, &p.Kind, &p.Name, &p.LegalName, &p.CountryCode, &p.Language, &p.Status, &p.Extensions, &p.ExtensionsSchema,
-		&p.Version, &p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy, &p.Roles, &p.SupplierCompanies, &p.Addresses, &p.TaxIdentifiers)
+		&p.Version, &p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy, &p.Roles, &p.SupplierCompanies, &p.Addresses, &p.TaxIdentifiers,
+		&p.GroupCompanyID)
 	return p, errs.Wrapf(err, "scan business partner")
 }
 

@@ -1,0 +1,11 @@
+-- The group company a business partner is (T68c; ADR-0059 §4; 03-data-model
+-- §3.6): the tenant's legal entity on the other side when the partner is
+-- one of the group's own companies, as SAP's business partner carries the
+-- trading partner (VBUND), from which the ledger derives the trading
+-- partner of the lines that name the partner. A legal entity id without a
+-- foreign key (tenancy is another context, 02 §2.1): the partner context
+-- checks that it is a legal entity of the tenant when it is set. Expand only
+-- (06 §6.4): a nullable column without a default rewrites no row; partners
+-- created before keep NULL, linked to no company, and nothing is
+-- backfilled. The table's row-level security covers the column.
+ALTER TABLE partner.business_partner ADD COLUMN group_company_id uuid;

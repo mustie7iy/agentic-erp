@@ -42,7 +42,53 @@ func partnerToAPI(p Partner) gen.BusinessPartner {
 	for _, t := range p.TaxIdentifiers {
 		out.TaxIdentifiers = append(out.TaxIdentifiers, gen.TaxIdentifier(t))
 	}
+	if p.GroupCompanyID != nil {
+		out.GroupCompanyID = gen.NewOptUUID(*p.GroupCompanyID)
+		out.GroupCompany = gen.NewOptGroupCompany(gen.GroupCompany{ID: *p.GroupCompanyID})
+	}
 	return out
+}
+
+// nameGroupCompanies gives each partner's group company its company code
+// and its name as tenancy has them now, reading each legal entity once,
+// whatever the caller's access to it, as a journal line's trading partner
+// is named (ADR-0059 As built, T68b). The ETag is the partner's version, so
+// renaming a company changes none. A group company was a legal entity of
+// the tenant when it was set, and legal entities are never deleted, so one
+// tenancy does not know is an error.
+func nameGroupCompanies(ctx context.Context, les LegalEntities, reps ...*gen.BusinessPartner) error {
+	names := map[uuid.UUID]gen.GroupCompany{}
+	for _, rep := range reps {
+		gc, ok := rep.GroupCompany.Get()
+		if !ok {
+			continue
+		}
+		named, seen := names[gc.ID]
+		if !seen {
+			le, found, err := les.Entity(ctx, gc.ID)
+			if err != nil {
+				return fmt.Errorf("partner: name group company %s: %w", gc.ID, err)
+			}
+			if !found {
+				return fmt.Errorf("partner: name group company %s: no legal entity of the tenant has the id", gc.ID)
+			}
+			named = gen.GroupCompany{ID: gc.ID, Code: le.Code, Name: le.Name}
+			names[gc.ID] = named
+		}
+		rep.GroupCompany.SetTo(named)
+	}
+	return nil
+}
+
+// partnerOut is the partner as the caller sees it: the company data of
+// the legal entities the caller may act in, the group company named.
+func (e *Endpoints) partnerOut(ctx context.Context, p Partner) (gen.BusinessPartner, error) {
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return gen.BusinessPartner{}, err
+	}
+	out := partnerToAPI(visible(p, access))
+	return out, nameGroupCompanies(ctx, e.LegalEntities, &out)
 }
 
 func changeToAPI(c Change) gen.PartnerChange {
@@ -126,7 +172,8 @@ func (e *Endpoints) CreateBusinessPartner(ctx context.Context, req *gen.Business
 	}
 	in := NewPartner{Kind: req.Kind, Name: req.Name, LegalName: apitypes.Ptr[string](req.LegalName), CountryCode: req.CountryCode,
 		Language: apitypes.Ptr[string](req.Language), Roles: req.Roles, SupplierCompanies: companiesIn(req.SupplierCompanies),
-		Addresses: addressesIn(req.Addresses), TaxIdentifiers: taxesIn(req.TaxIdentifiers), Extensions: apitypes.DecodeObject(req.Extensions.Or(nil)), Reason: req.Reason}
+		Addresses: addressesIn(req.Addresses), TaxIdentifiers: taxesIn(req.TaxIdentifiers), Extensions: apitypes.DecodeObject(req.Extensions.Or(nil)), Reason: req.Reason,
+		GroupCompanyID: apitypes.Ptr[uuid.UUID](req.GroupCompanyID)}
 	for _, b := range req.BankAccounts {
 		in.BankAccounts = append(in.BankAccounts, BankInput{Purpose: b.Purpose.Value, AccountNumber: b.AccountNumber, AccountScheme: b.AccountScheme,
 			BIC: apitypes.Ptr[string](b.Bic), BankCountryCode: b.BankCountryCode, HolderName: b.HolderName, ValidFrom: b.ValidFrom,
@@ -142,12 +189,12 @@ func (e *Endpoints) CreateBusinessPartner(ctx context.Context, req *gen.Business
 	if p, err = getPartner(ctx, tx, p.ID, false); err != nil {
 		return nil, err
 	}
-	access, err := authz.Companies(ctx)
+	out, err := e.partnerOut(ctx, p)
 	if err != nil {
 		return nil, err
 	}
 	return &gen.BusinessPartnerHeaders{ETag: gen.NewOptString(etag.Format(p.Version)), Location: gen.NewOptString("/v1/business-partners/" + p.ID.String()),
-		Response: partnerToAPI(visible(p, access))}, nil
+		Response: out}, nil
 }
 
 // GetBusinessPartner implements GET /v1/business-partners/{id}.
@@ -160,11 +207,11 @@ func (e *Endpoints) GetBusinessPartner(ctx context.Context, params gen.GetBusine
 	if err != nil {
 		return nil, err
 	}
-	access, err := authz.Companies(ctx)
+	out, err := e.partnerOut(ctx, p)
 	if err != nil {
 		return nil, err
 	}
-	return &gen.GetBusinessPartnerOKHeaders{ETag: gen.NewOptString(etag.Format(p.Version)), Response: partnerToAPI(visible(p, access))}, nil
+	return &gen.GetBusinessPartnerOKHeaders{ETag: gen.NewOptString(etag.Format(p.Version)), Response: out}, nil
 }
 
 var partnerSort = pagination.Sort{Default: "number", Fields: []pagination.Field{
@@ -215,6 +262,13 @@ func (e *Endpoints) ListBusinessPartners(ctx context.Context, params gen.ListBus
 		}
 		return p.Number, p.ID
 	}, func(p Partner) gen.BusinessPartner { return partnerToAPI(visible(p, access)) })
+	reps := make([]*gen.BusinessPartner, len(items))
+	for i := range items {
+		reps[i] = &items[i]
+	}
+	if err := nameGroupCompanies(ctx, e.LegalEntities, reps...); err != nil { // each company once for the page
+		return nil, err
+	}
 	return &gen.BusinessPartnerPage{Items: items, NextPageToken: next}, nil
 }
 
@@ -247,7 +301,7 @@ func (e *Endpoints) CreatePartnerChange(ctx context.Context, req *gen.PartnerCha
 	pl := req.Payload
 	ch := Changes{Name: apitypes.Ptr[string](pl.Name), LegalName: apitypes.OptNilString(pl.LegalName), Language: apitypes.OptNilString(pl.Language), Roles: pl.Roles,
 		SupplierCompanies: companiesIn(pl.SupplierCompanies), Addresses: addressesIn(pl.Addresses), TaxIdentifiers: taxesIn(pl.TaxIdentifiers),
-		Extensions: apitypes.DecodeObject(pl.Extensions.Or(nil))}
+		Extensions: apitypes.DecodeObject(pl.Extensions.Or(nil)), GroupCompanyID: apitypes.OptNilUUID(pl.GroupCompanyID)}
 	c, err := RequestUpdate(ctx, e.ports(), req.PartnerID, ch, req.Reason)
 	if err == nil {
 		c, err = RequestApproval(ctx, e.Approvals, e.Schemas, c)

@@ -19,7 +19,7 @@ func TestCodecErrors(t *testing.T) {
 		}
 	})
 	t.Run("nullable", func(t *testing.T) {
-		var n nullable
+		var n nullable[string]
 		err := n.UnmarshalJSON([]byte(`5`))
 		var typ *json.UnmarshalTypeError
 		if !errors.As(err, &typ) {

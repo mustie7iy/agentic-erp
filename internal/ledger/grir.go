@@ -322,7 +322,7 @@ func (g grirPosting) ownLines() ([]Line, []bool, error) {
 	kept := make([]bool, 0, cap(lines))
 	for _, l := range g.in.Lines {
 		line := Line{AccountID: l.AccountID, TC: l.Amount, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text,
-			SpecialGL: l.SpecialGL, CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID}
+			SpecialGL: l.SpecialGL, CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID, TradingPartnerID: g.in.tradingPartnerOf(l)}
 		if l.LC != nil {
 			gc, err := convert(*l.LC, g.rates.toGC, g.rates.expLC, g.rates.expGC)
 			if err != nil {
@@ -491,6 +491,9 @@ func (p Postings) postGRIR(ctx context.Context, in Posting) (Entry, error) {
 	}
 	e := p.endpoints()
 	if err := e.checkAccounts(ctx, tx, g.le.ID, lines, true); err != nil {
+		return Entry{}, err
+	}
+	if err := e.checkTradingPartners(ctx, g.le.ID, lines); err != nil {
 		return Entry{}, err
 	}
 	taxDate := in.PostingDate

@@ -54,11 +54,14 @@ type LegalEntities interface {
 }
 
 // Partners is what the ledger asks the partner context before posting a
-// line on a reconciliation account.
+// line naming a partner.
 type Partners interface {
 	// PostingBlock says why the partner may not be posted on a
 	// reconciliation account of the kind in the legal entity, or "".
 	PostingBlock(ctx context.Context, partnerID, legalEntity uuid.UUID, kind string) (string, error)
+	// GroupCompany is the legal entity of the tenant the partner is, when
+	// it is one of the group's companies, or nil (ADR-0059 §4a, T68c).
+	GroupCompany(ctx context.Context, partnerID uuid.UUID) (*uuid.UUID, error)
 }
 
 // Numbers issues document numbers (configuration context).

@@ -34,6 +34,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/cash"
 	"github.com/mustie7iy/agentic-erp/internal/closing"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/consolidation"
 	"github.com/mustie7iy/agentic-erp/internal/controlling"
 	"github.com/mustie7iy/agentic-erp/internal/countrypack"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
@@ -84,6 +85,7 @@ type (
 	cashAPI        = cash.Endpoints
 	assetsAPI      = assets.Endpoints
 	closingAPI     = closing.Endpoints
+	consolAPI      = consolidation.Endpoints
 	controllingAPI = controlling.Endpoints
 	taxfilingAPI   = taxfiling.Endpoints
 )
@@ -108,6 +110,7 @@ type handler struct {
 	*cashAPI
 	*assetsAPI
 	*closingAPI
+	*consolAPI
 	*controllingAPI
 	*taxfilingAPI
 }
@@ -226,6 +229,7 @@ func New(cfg Config) (http.Handler, error) {
 		cashAPI:        Cash(cfg),
 		assetsAPI:      Assets(cfg),
 		closingAPI:     Closing(cfg),
+		consolAPI:      Consolidation(cfg),
 		controllingAPI: &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{}},
 		taxfilingAPI: &taxfiling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now,
 			Items: ledger.TaxItems{}, Packs: library, Approvals: opener(), Periods: ledger.ReturnPeriods{}},
@@ -300,7 +304,8 @@ func Configuration(cfg Config) configuration.Dependencies {
 			// After the other sections that lock supplier codes: a partner
 			// change takes the planning group lock last too.
 			cash.Setup{}, partner.PlanningGroupCodes{LegalEntities: tenancy.Directory{}},
-			taxfiling.Setup{LegalEntities: tenancy.Directory{}, Keys: cfg.FieldKeys}, closing.Setup{Plans: closingPlans{}}},
+			taxfiling.Setup{LegalEntities: tenancy.Directory{}, Keys: cfg.FieldKeys}, closing.Setup{Plans: closingPlans{}},
+			consolidation.Setup{Companies: consolidationCompanies{}}},
 		Approvals: opener(),
 		Simulator: configuration.Simulators{payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
 			endpoint.Simulation{Endpoints: analyticsEndpoints(cfg, nil), Now: cfg.Now},
