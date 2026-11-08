@@ -758,7 +758,8 @@ for the product owner to overrule:
 2. *The opened count.* A trigger (`period_status_opened_count`) adds one on
    every change of the status to `open`, so the previous release's
    `OpenPeriod` and the tests that set `open` directly count too; an insert
-   starts at 0 and any other change of the count is refused.
+   starts at 0 (1 when inserted `open`, as test fixtures do) and any other
+   change of the count is refused.
 3. *The rows.* Computed in one statement from the predecessor's rows (when
    chained) and the ledger's balances of the year (chained) or of every
    year up to it, read as the trial balance reads them: projected
@@ -783,7 +784,10 @@ for the product owner to overrule:
    ledger first, then by code) and no `Location`, since one request makes
    several runs; `GET /v1/balance-carry-forwards/{id}` carries the totals
    per transaction currency (result, debits and credits in transaction,
-   local and group currency) and the local and group currency codes;
+   local and group currency) and, over every currency, the year's result
+   and the debits and credits in local and group currency (review round 1:
+   a company with results in several currencies reads its result in its
+   own currency without adding them up);
    `stale`, the list and the balances are T64m3's.
 6. *Who ran it.* The ledger names the person through a new port,
    `ledger.PersonNames` (`app.LedgerPeople` over `identity.People.Named`,
@@ -797,8 +801,9 @@ for the product owner to overrule:
    administrators, not a migration.
 8. *Event and audit.* `BalanceCarriedForward` (ledger channel) carries the
    run, company, ledger, years, basis, the run it chained from and the one
-   it superseded, the retained earnings account, the row count and the
-   result per currency with a result row (signed, debit positive); the
+   it superseded, the retained earnings account, the row count, the result
+   in local and group currency over every currency and the result per
+   currency with a result row (signed, debit positive); the
    audit record `ledger.carry_forward_run.run` names the run superseded.
 9. *Budget.* `TestCarryForwardBudget`: a chained run over 5,000 accounts
    with balances in 3 currencies in every period 1-16 of two years: median

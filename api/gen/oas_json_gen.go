@@ -19819,6 +19819,30 @@ func (s *BalanceCarryForward) encodeFields(e *jx.Encoder) {
 		e.Str(s.GroupCurrency)
 	}
 	{
+		e.FieldStart("result_lc")
+		s.ResultLc.Encode(e)
+	}
+	{
+		e.FieldStart("result_gc")
+		s.ResultGc.Encode(e)
+	}
+	{
+		e.FieldStart("debit_lc")
+		s.DebitLc.Encode(e)
+	}
+	{
+		e.FieldStart("credit_lc")
+		s.CreditLc.Encode(e)
+	}
+	{
+		e.FieldStart("debit_gc")
+		s.DebitGc.Encode(e)
+	}
+	{
+		e.FieldStart("credit_gc")
+		s.CreditGc.Encode(e)
+	}
+	{
 		e.FieldStart("totals")
 		e.ArrStart()
 		for _, elem := range s.Totals {
@@ -19840,7 +19864,7 @@ func (s *BalanceCarryForward) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfBalanceCarryForward = [22]string{
+var jsonFieldsNameOfBalanceCarryForward = [28]string{
 	0:  "id",
 	1:  "legal_entity_id",
 	2:  "company_code",
@@ -19859,10 +19883,16 @@ var jsonFieldsNameOfBalanceCarryForward = [22]string{
 	15: "row_count",
 	16: "local_currency",
 	17: "group_currency",
-	18: "totals",
-	19: "created_at",
-	20: "created_by",
-	21: "created_by_name",
+	18: "result_lc",
+	19: "result_gc",
+	20: "debit_lc",
+	21: "credit_lc",
+	22: "debit_gc",
+	23: "credit_gc",
+	24: "totals",
+	25: "created_at",
+	26: "created_by",
+	27: "created_by_name",
 }
 
 // Decode decodes BalanceCarryForward from json.
@@ -19870,7 +19900,7 @@ func (s *BalanceCarryForward) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode BalanceCarryForward to nil")
 	}
-	var requiredBitSet [3]uint8
+	var requiredBitSet [4]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -20082,8 +20112,68 @@ func (s *BalanceCarryForward) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"group_currency\"")
 			}
-		case "totals":
+		case "result_lc":
 			requiredBitSet[2] |= 1 << 2
+			if err := func() error {
+				if err := s.ResultLc.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"result_lc\"")
+			}
+		case "result_gc":
+			requiredBitSet[2] |= 1 << 3
+			if err := func() error {
+				if err := s.ResultGc.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"result_gc\"")
+			}
+		case "debit_lc":
+			requiredBitSet[2] |= 1 << 4
+			if err := func() error {
+				if err := s.DebitLc.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"debit_lc\"")
+			}
+		case "credit_lc":
+			requiredBitSet[2] |= 1 << 5
+			if err := func() error {
+				if err := s.CreditLc.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"credit_lc\"")
+			}
+		case "debit_gc":
+			requiredBitSet[2] |= 1 << 6
+			if err := func() error {
+				if err := s.DebitGc.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"debit_gc\"")
+			}
+		case "credit_gc":
+			requiredBitSet[2] |= 1 << 7
+			if err := func() error {
+				if err := s.CreditGc.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"credit_gc\"")
+			}
+		case "totals":
+			requiredBitSet[3] |= 1 << 0
 			if err := func() error {
 				s.Totals = make([]CarryForwardTotal, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -20101,7 +20191,7 @@ func (s *BalanceCarryForward) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"totals\"")
 			}
 		case "created_at":
-			requiredBitSet[2] |= 1 << 3
+			requiredBitSet[3] |= 1 << 1
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -20113,7 +20203,7 @@ func (s *BalanceCarryForward) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_at\"")
 			}
 		case "created_by":
-			requiredBitSet[2] |= 1 << 4
+			requiredBitSet[3] |= 1 << 2
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.CreatedBy = v
@@ -20125,7 +20215,7 @@ func (s *BalanceCarryForward) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_by\"")
 			}
 		case "created_by_name":
-			requiredBitSet[2] |= 1 << 5
+			requiredBitSet[3] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.CreatedByName = string(v)
@@ -20145,10 +20235,11 @@ func (s *BalanceCarryForward) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [3]uint8{
+	for i, mask := range [4]uint8{
 		0b11111111,
 		0b10011011,
-		0b00111111,
+		0b11111111,
+		0b00001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

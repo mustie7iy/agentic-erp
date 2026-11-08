@@ -406,6 +406,14 @@ func carriedForward(ctx context.Context, tx pgx.Tx, r carryForwardRequest, run C
 				"result_lc": money.EventAmount(t.result.lc, t.currencyLC, t.expLC), "result_gc": money.EventAmount(t.result.gc, t.currencyGC, t.expGC)})
 		}
 	}
+	all, err := carryForwardRunTotals(ctx, tx, run.ID)
+	if err != nil {
+		return err
+	}
+	exps, err := exponents(ctx, tx, r.entity.LocalCurrency, r.group)
+	if err != nil {
+		return err
+	}
 	var supersededID *uuid.UUID
 	if superseded != nil {
 		supersededID = &superseded.ID
@@ -416,5 +424,6 @@ func carriedForward(ctx context.Context, tx pgx.Tx, r carryForwardRequest, run C
 		outbox.Event{Context: "ledger", Name: "balance_carried_forward", AggregateType: "ledger.carry_forward_run", AggregateID: run.ID,
 			Payload: map[string]any{"run_id": run.ID, "legal_entity_id": run.LegalEntityID, "ledger_id": run.LedgerID, "from_fiscal_year": run.FromYear,
 				"to_fiscal_year": run.ToYear, "basis": run.Basis, "chained_from_id": run.ChainedFromID, "superseded_run_id": supersededID,
-				"retained_earnings_account_id": run.RetainedEarnings.ID, "row_count": run.RowCount, "results": results}})
+				"retained_earnings_account_id": run.RetainedEarnings.ID, "row_count": run.RowCount, "result_lc": money.EventAmount(all.result.lc, r.entity.LocalCurrency, exps[r.entity.LocalCurrency]),
+				"result_gc": money.EventAmount(all.result.gc, r.group, exps[r.group]), "results": results}})
 }

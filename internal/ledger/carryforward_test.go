@@ -244,6 +244,16 @@ func (s cfEnv) representation(t *testing.T, posted map[string]any) {
 	if got := fmt.Sprint(results); got != "map[EUR:-3000.00 -3000.00 USD:333.33 300.00]" {
 		t.Errorf("2026's results per currency: got %s, want the sale's EUR -3000.00 and the expense's USD 333.33 (EUR 300.00)", got)
 	}
+	for k, want := range map[string]string{"result_lc": "-2700.00", "result_gc": "-2700.00"} {
+		if got := apitest.Object(t, run, k)["amount"]; got != want {
+			t.Errorf("2026's %s over every currency: got %v, want %s", k, got, want)
+		}
+	}
+	for _, c := range []string{"lc", "gc"} {
+		if d, cr := apitest.Object(t, run, "debit_"+c)["amount"], apitest.Object(t, run, "credit_"+c)["amount"]; d != cr {
+			t.Errorf("the run's %s totals: got debit %v and credit %v, want them equal", c, d, cr)
+		}
+	}
 	eur := apitest.List(t, run, "totals")[0].(map[string]any)
 	if d, c := apitest.Object(t, eur, "debit_lc")["amount"], apitest.Object(t, eur, "credit_lc")["amount"]; d != c {
 		t.Errorf("EUR's local totals: got debit %v and credit %v, want them equal", d, c)
@@ -294,6 +304,9 @@ func TestCarryForwardRerun(t *testing.T) {
 	if last["run_id"] != second["id"] || last["superseded_run_id"] != first["id"] {
 		t.Errorf("the rerun's event: got run %v superseding %v, want %v superseding %v", last["run_id"], last["superseded_run_id"], second["id"], first["id"])
 	}
+	if got := apitest.Object(t, last, "result_lc")["amount"]; got != second["result_lc"].(map[string]any)["amount"] {
+		t.Errorf("the event's local result: got %v, want the run's %v", got, second["result_lc"])
+	}
 	var currencies []string
 	for _, r := range last["results"].([]any) {
 		currencies = append(currencies, r.(map[string]any)["currency"].(string))
@@ -323,6 +336,26 @@ func TestCarryForwardStale(t *testing.T) {
 	again := s.run(t, s.us, 2025)[0]
 	if got := s.run(t, s.us, 2026)[0]; got["chained_from_id"] != again["id"] {
 		t.Errorf("2026 after 2025 again: got chained from %v, want %v", got["chained_from_id"], again["id"])
+	}
+}
+
+// TestCarryForwardStaleUnrecorded: a period of an earlier year set up
+// after the previous year's run, which the run did not read, makes it
+// stale once opened (ADR-0059 §6), though it is closed again.
+func TestCarryForwardStaleUnrecorded(t *testing.T) {
+	s := setupCarryForward(t)
+	s.years(t)
+	s.run(t, s.us, 2025)
+	doc := carryForwardDoc(t)
+	for _, dt := range []string{"journal_sa", "journal_ab"} {
+		doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: "1000", DocumentType: dt, FiscalYear: 2023, First: 100000, Last: 999999})
+	}
+	s.apply(t, doc) // 2023's periods, closed, read by no run
+	s.setPeriods(t, s.us, 2023, 2023, 1, ledger.Open)
+	s.setPeriods(t, s.us, 2023, 2023, 1, ledger.Closed)
+	p := s.Problem(409, "ledger.carry_forward_stale", "POST", "/v1/balance-carry-forwards", fmt.Sprintf(`{"legal_entity_id": %q, "fiscal_year": 2026}`, s.us), "")
+	if detail := p["detail"].(string); !strings.Contains(detail, "periods 2023/1 were opened") {
+		t.Errorf("detail: got %q, want 2023/1 named", detail)
 	}
 }
 

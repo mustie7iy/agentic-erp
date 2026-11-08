@@ -12,7 +12,8 @@
 -- open period, so a period whose count has not moved since a run read it
 -- and that is not open now has taken no posting since. The trigger adds one
 -- on every change of the status to open, whoever writes it, and refuses
--- any other change of the count; a period starts at 0.
+-- any other change of the count; a period starts at 0, or 1 when it is
+-- inserted open.
 ALTER TABLE ledger.period_status
   ADD COLUMN opened_count integer NOT NULL DEFAULT 0,
   ADD CONSTRAINT period_status_opened_count CHECK (opened_count >= 0) NOT VALID;
@@ -25,6 +26,8 @@ BEGIN
       RAISE EXCEPTION 'period %/% starts with an opened count of 0, not %', NEW.fiscal_year, NEW.period, NEW.opened_count
         USING ERRCODE = 'check_violation', CONSTRAINT = 'period_status_opened_count_set';
     END IF;
+    -- A period inserted open (test fixtures do) has been opened once.
+    NEW.opened_count := (NEW.status = 'open')::int;
     RETURN NEW;
   END IF;
   IF NEW.opened_count IS DISTINCT FROM OLD.opened_count THEN

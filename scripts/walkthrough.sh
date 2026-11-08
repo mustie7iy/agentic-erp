@@ -3231,16 +3231,22 @@ year_end_carry_forward() {
   say "Each run's opening balances sum to zero in every currency: its debits equal its credits in transaction,"
   say "local and group currency."
   for run in $(jq -r '.items[] | "\(.ledger_code)=\(.id)"' "$WORK/carry-forward.json"); do
-    api 200 '"  \(.ledger_code), run by \(.created_by_name):", (.totals[] | "    \(.currency): result \(.result.amount) (\(.result_lc.amount) \(.result_lc.currency)), debit \(.debit.amount) = credit \(.credit.amount), local \(.debit_lc.amount) = \(.credit_lc.amount), group \(.debit_gc.amount) = \(.credit_gc.amount)")' \
+    api 200 '"  \(.ledger_code), run by \(.created_by_name): result \(.result_lc.amount) \(.result_lc.currency), debits \(.debit_lc.amount) = credits \(.credit_lc.amount) in local currency, \(.debit_gc.amount) = \(.credit_gc.amount) in group currency", (.totals[] | "    \(.currency): result \(.result.amount) (\(.result_lc.amount) \(.result_lc.currency)), debit \(.debit.amount) = credit \(.credit.amount), local \(.debit_lc.amount) = \(.credit_lc.amount), group \(.debit_gc.amount) = \(.credit_gc.amount)")' \
       getBalanceCarryForward -p "id=${run#*=}"
+    expect "${run%%=*}'s rows summing to zero in local and group currency" "$(field '"\(.debit_lc.amount == .credit_lc.amount) \(.debit_gc.amount == .credit_gc.amount)"')" "true true"
     expect "${run%%=*}'s rows summing to zero" "$(field '[.totals[] | select(.debit.amount != .credit.amount or .debit_lc.amount != .credit_lc.amount or .debit_gc.amount != .credit_gc.amount)] | length')" 0
     printf '%s\t%s carry-forward of %s\n' "${run#*=}" "${run%%=*}" "$PREV" >>"$WORK/names"
   done
   local result
   result=$(jq -r '[.items[0].totals[] | select(.result.amount != "0.00") | "\(.currency) \(.result.amount)"] | join(", ")' "$WORK/carry-forward.json")
-  say "0L's result per currency, $result, is $PREV's profit and loss in the trial balance (revenue and expense"
-  say "accounts, debit positive):"
+  local local_result
+  local_result=$(jq -r '.items[0] | "\(.result_lc.amount) \(.result_lc.currency)"' "$WORK/carry-forward.json")
+  say "0L's result per currency, $result, $local_result in all, is $PREV's profit and loss in the trial balance"
+  say "(revenue and expense accounts, debit positive):"
   api 200 '"  \(.items | length) balances of \(.items | map(.account_id) | unique | length) accounts"' listBalances -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=500
+  expect "the trial balance's profit and loss in local currency" "$(jq -r --slurpfile acc "$WORK/accounts.json" '($acc[0].items | map({(.id): .account_type}) | add) as $t
+    | [.items[] | select($t[.account_id] == "revenue" or $t[.account_id] == "expense") | (.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)]
+    | add * 100 | round' "$WORK/last.json")" "$(jq -r '.items[0].result_lc.amount | tonumber * 100 | round' "$WORK/carry-forward.json")"
   expect "the trial balance's profit and loss" "$(jq -r --slurpfile acc "$WORK/accounts.json" '($acc[0].items | map({(.id): .account_type}) | add) as $t
     | [.items[] | select($t[.account_id] == "revenue" or $t[.account_id] == "expense")] | group_by(.currency)
     | map({c: .[0].currency, v: (map((.debit.amount | tonumber) - (.credit.amount | tonumber)) | add)}) | map(select(.v != 0))

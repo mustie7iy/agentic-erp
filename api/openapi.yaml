@@ -30189,6 +30189,12 @@ components:
         - status
         - row_count
         - totals
+        - result_lc
+        - result_gc
+        - debit_lc
+        - credit_lc
+        - debit_gc
+        - credit_gc
         - local_currency
         - group_currency
         - created_at
@@ -30281,6 +30287,30 @@ components:
           description: The group currency, of every row's group amount.
           pattern: "^[A-Z]{3}$"
           readOnly: true
+        result_lc:
+          $ref: "#/components/schemas/Money"
+          description: "The year's result over every transaction currency in local currency, debit positive: a profit is negative."
+          readOnly: true
+        result_gc:
+          $ref: "#/components/schemas/Money"
+          description: The year's result over every transaction currency in group currency.
+          readOnly: true
+        debit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total of every row in local currency.
+          readOnly: true
+        credit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total of every row in local currency (positive); equal to the debits.
+          readOnly: true
+        debit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total of every row in group currency.
+          readOnly: true
+        credit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total of every row in group currency (positive); equal to the debits.
+          readOnly: true
         totals:
           type: array
           description: "Per transaction currency, by currency code: the year's result carried to retained earnings and the totals of the run's rows."
@@ -30320,6 +30350,12 @@ components:
           row_count: 4
           local_currency: CAD
           group_currency: CAD
+          result_lc: {amount: "-1750.00", currency: CAD}
+          result_gc: {amount: "-1750.00", currency: CAD}
+          debit_lc: {amount: "1750.00", currency: CAD}
+          credit_lc: {amount: "1750.00", currency: CAD}
+          debit_gc: {amount: "1750.00", currency: CAD}
+          credit_gc: {amount: "1750.00", currency: CAD}
           totals:
             - currency: CAD
               result: {amount: "-1750.00", currency: CAD}

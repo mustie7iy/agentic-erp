@@ -8609,6 +8609,19 @@ type BalanceCarryForward struct {
 	LocalCurrency string `json:"local_currency"`
 	// The group currency, of every row's group amount.
 	GroupCurrency string `json:"group_currency"`
+	// The year's result over every transaction currency in local currency, debit positive: a profit is
+	// negative.
+	ResultLc Money `json:"result_lc"`
+	// The year's result over every transaction currency in group currency.
+	ResultGc Money `json:"result_gc"`
+	// Debit total of every row in local currency.
+	DebitLc Money `json:"debit_lc"`
+	// Credit total of every row in local currency (positive); equal to the debits.
+	CreditLc Money `json:"credit_lc"`
+	// Debit total of every row in group currency.
+	DebitGc Money `json:"debit_gc"`
+	// Credit total of every row in group currency (positive); equal to the debits.
+	CreditGc Money `json:"credit_gc"`
 	// Per transaction currency, by currency code: the year's result carried to retained earnings and the
 	// totals of the run's rows.
 	Totals []CarryForwardTotal `json:"totals"`
@@ -8708,6 +8721,36 @@ func (s *BalanceCarryForward) GetLocalCurrency() string {
 // GetGroupCurrency returns the value of GroupCurrency.
 func (s *BalanceCarryForward) GetGroupCurrency() string {
 	return s.GroupCurrency
+}
+
+// GetResultLc returns the value of ResultLc.
+func (s *BalanceCarryForward) GetResultLc() Money {
+	return s.ResultLc
+}
+
+// GetResultGc returns the value of ResultGc.
+func (s *BalanceCarryForward) GetResultGc() Money {
+	return s.ResultGc
+}
+
+// GetDebitLc returns the value of DebitLc.
+func (s *BalanceCarryForward) GetDebitLc() Money {
+	return s.DebitLc
+}
+
+// GetCreditLc returns the value of CreditLc.
+func (s *BalanceCarryForward) GetCreditLc() Money {
+	return s.CreditLc
+}
+
+// GetDebitGc returns the value of DebitGc.
+func (s *BalanceCarryForward) GetDebitGc() Money {
+	return s.DebitGc
+}
+
+// GetCreditGc returns the value of CreditGc.
+func (s *BalanceCarryForward) GetCreditGc() Money {
+	return s.CreditGc
 }
 
 // GetTotals returns the value of Totals.
@@ -8818,6 +8861,36 @@ func (s *BalanceCarryForward) SetLocalCurrency(val string) {
 // SetGroupCurrency sets the value of GroupCurrency.
 func (s *BalanceCarryForward) SetGroupCurrency(val string) {
 	s.GroupCurrency = val
+}
+
+// SetResultLc sets the value of ResultLc.
+func (s *BalanceCarryForward) SetResultLc(val Money) {
+	s.ResultLc = val
+}
+
+// SetResultGc sets the value of ResultGc.
+func (s *BalanceCarryForward) SetResultGc(val Money) {
+	s.ResultGc = val
+}
+
+// SetDebitLc sets the value of DebitLc.
+func (s *BalanceCarryForward) SetDebitLc(val Money) {
+	s.DebitLc = val
+}
+
+// SetCreditLc sets the value of CreditLc.
+func (s *BalanceCarryForward) SetCreditLc(val Money) {
+	s.CreditLc = val
+}
+
+// SetDebitGc sets the value of DebitGc.
+func (s *BalanceCarryForward) SetDebitGc(val Money) {
+	s.DebitGc = val
+}
+
+// SetCreditGc sets the value of CreditGc.
+func (s *BalanceCarryForward) SetCreditGc(val Money) {
+	s.CreditGc = val
 }
 
 // SetTotals sets the value of Totals.

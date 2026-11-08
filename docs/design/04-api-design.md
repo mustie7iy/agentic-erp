@@ -262,7 +262,7 @@ transaction, so no single `Location` names them; each is read with `GET
 /v1/balance-carry-forwards/{id}` (`ledger.entry.read`, ETag), which names
 the company, ledger, retained earnings account and who ran it, with the
 year's result and the rows' debit and credit totals per transaction
-currency. A run is never a journal entry; the trial balance is unchanged.
+currency and, over every currency, in local and group currency. A run is never a journal entry; the trial balance is unchanged.
 
 Plan values (ADR-0050 §8, T56g) are the controlling context's.
 `/v1/plan-categories` (`controlling.plan.read`, `.write`) are open or

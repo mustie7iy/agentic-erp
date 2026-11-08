@@ -110,6 +110,16 @@ func TestPeriodOpenedCount(t *testing.T) {
 			return exec(tx, `UPDATE ledger.period_status SET opened_count = 5, version = version + 1 WHERE legal_entity_id = $1 AND fiscal_year = 2026 AND period = 2`, f.entity)
 		}), "period_status_opened_count_set")
 	})
+	t.Run("inserted open", func(t *testing.T) {
+		var n int
+		mustApp(t, f.tenant, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(), `SELECT opened_count FROM ledger.period_status WHERE legal_entity_id = $1 AND fiscal_year = 2026
+				AND period = 2`, f.entity).Scan(&n)
+		})
+		if n != 1 {
+			t.Errorf("a period inserted open: got a count of %d, want 1", n)
+		}
+	})
 	t.Run("inserted above 0", func(t *testing.T) {
 		refused(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
 			if err := exec(tx, "INSERT INTO ledger.fiscal_period VALUES ($1,$2,2026,13,'2026-12-01','2026-12-31',true)", f.tenant, f.calendar); err != nil {
@@ -147,6 +157,19 @@ func TestCarryForwardRunRules(t *testing.T) {
 	}{
 		{"chained from the previous year", func(tx pgx.Tx) error { return c.insertRun(tx, id(), 2026, &c.run, c.equity) }, ""},
 		{"chained from another year", func(tx pgx.Tx) error { return c.insertRun(tx, id(), 2026, &other, c.equity) }, "carry_forward_run_chain"},
+		{"chained from another ledger's run", func(tx pgx.Tx) error {
+			ledger2, run := id(), id()
+			if err := exec(tx, `INSERT INTO ledger.ledger (tenant_id, id, code, name, is_leading, accounting_principle, created_by)
+				VALUES ($1,$2,'2L','Local',false,'HGB',$3)`, c.tenant, ledger2, c.actor); err != nil {
+				return err
+			}
+			if err := exec(tx, `INSERT INTO ledger.carry_forward_run (tenant_id, id, legal_entity_id, ledger_id, from_fiscal_year, to_fiscal_year, basis,
+				retained_earnings_account_id, row_count, created_by) VALUES ($1,$2,$3,$4,2025,2026,'all_years',$5,0,$6)`,
+				c.tenant, run, c.entity, ledger2, c.equity, c.actor); err != nil {
+				return err
+			}
+			return c.insertRun(tx, id(), 2026, &run, c.equity)
+		}, "carry_forward_run_chain"},
 		{"a second current run of the year", func(tx pgx.Tx) error { return c.insertRun(tx, id(), 2025, nil, c.equity) }, "carry_forward_run_current"},
 		{"to an expense account", func(tx pgx.Tx) error { return c.insertRun(tx, id(), 2024, nil, c.expense) }, "carry_forward_run_retained_earnings"},
 		{"years not consecutive", func(tx pgx.Tx) error {
@@ -200,6 +223,19 @@ func TestCarryForwardRunSuperseded(t *testing.T) {
 			return func(tx pgx.Tx) error {
 				return exec(tx, `UPDATE ledger.carry_forward_run SET status = 'superseded', superseded_at = now(), version = version + 1 WHERE id = $1`, c.run)
 			}
+		}, "carry_forward_run_superseded"},
+		{"superseded with its rows' count changed", func(c carryForward) func(tx pgx.Tx) error {
+			return func(tx pgx.Tx) error {
+				next := id()
+				if err := exec(tx, `UPDATE ledger.carry_forward_run SET status = 'superseded', superseded_by_id = $2, superseded_at = now(), row_count = 3,
+					version = version + 1 WHERE id = $1`, c.run, next); err != nil {
+					return err
+				}
+				return c.insertRun(tx, next, 2025, nil, c.equity)
+			}
+		}, "carry_forward_run_fixed"},
+		{"superseded by itself", func(c carryForward) func(tx pgx.Tx) error {
+			return func(tx pgx.Tx) error { return supersede(c, tx, c.run) }
 		}, "carry_forward_run_superseded"},
 		{"its rows' count changed", func(c carryForward) func(tx pgx.Tx) error {
 			return func(tx pgx.Tx) error {

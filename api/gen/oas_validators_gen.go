@@ -6624,6 +6624,72 @@ func (s *BalanceCarryForward) Validate() error {
 		})
 	}
 	if err := func() error {
+		if err := s.ResultLc.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "result_lc",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ResultGc.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "result_gc",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.DebitLc.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "debit_lc",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.CreditLc.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "credit_lc",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.DebitGc.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "debit_gc",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.CreditGc.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "credit_gc",
+			Error: err,
+		})
+	}
+	if err := func() error {
 		if s.Totals == nil {
 			return errors.New("nil is invalid value")
 		}

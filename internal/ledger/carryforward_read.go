@@ -118,6 +118,24 @@ type carryForwardTotal struct {
 	result, debit, credit            amounts
 }
 
+// runTotals are a run's figures over every transaction currency, in local
+// and group currency (the tc amounts are not summed: they are in different
+// currencies).
+type runTotals struct {
+	result, debit, credit amounts
+}
+
+// carryForwardRunTotals sums all of a run's rows in local and group
+// currency: the year's result and the debits and credits.
+func carryForwardRunTotals(ctx context.Context, tx pgx.Tx, run uuid.UUID) (runTotals, error) {
+	var t runTotals
+	err := tx.QueryRow(ctx, `SELECT coalesce(sum(amount_lc) FILTER (WHERE kind = 'result'), 0)::bigint, coalesce(sum(amount_gc) FILTER (WHERE kind = 'result'), 0)::bigint,
+			coalesce(sum(greatest(amount_lc, 0)), 0)::bigint, coalesce(sum(greatest(-amount_lc, 0)), 0)::bigint,
+			coalesce(sum(greatest(amount_gc, 0)), 0)::bigint, coalesce(sum(greatest(-amount_gc, 0)), 0)::bigint
+		FROM ledger.carry_forward_balance WHERE run_id = $1`, run).Scan(&t.result.lc, &t.result.gc, &t.debit.lc, &t.credit.lc, &t.debit.gc, &t.credit.gc)
+	return t, errs.Wrapf(err, "ledger: totals of carry-forward run %s in local and group currency", run)
+}
+
 // carryForwardTotals sums a run's rows per transaction currency, by code;
 // lc and gc are the run's local and group currencies.
 func carryForwardTotals(ctx context.Context, tx pgx.Tx, run uuid.UUID, lc, gc string) ([]carryForwardTotal, error) {
@@ -181,19 +199,28 @@ func (e *Endpoints) carryForwardToAPI(ctx context.Context, tx pgx.Tx, run CarryF
 	if err != nil {
 		return gen.BalanceCarryForward{}, err
 	}
+	all, err := carryForwardRunTotals(ctx, tx, run.ID)
+	if err != nil {
+		return gen.BalanceCarryForward{}, err
+	}
+	exps, err := exponents(ctx, tx, le.LocalCurrency, group)
+	if err != nil {
+		return gen.BalanceCarryForward{}, err
+	}
+	lc := func(m money.Minor) gen.Money { return apitypes.Money(m, le.LocalCurrency, exps[le.LocalCurrency]) }
+	gc := func(m money.Minor) gen.Money { return apitypes.Money(m, group, exps[group]) }
 	out := gen.BalanceCarryForward{ID: run.ID, LegalEntityID: run.LegalEntityID, CompanyCode: le.Code, CompanyName: le.Name, LedgerID: run.LedgerID,
 		LedgerCode: run.LedgerCode, LedgerName: run.LedgerName, FromFiscalYear: int32(run.FromYear), ToFiscalYear: int32(run.ToYear), Basis: run.Basis,
 		ChainedFromID: apitypes.OptUUID(run.ChainedFromID), RetainedEarningsAccount: gen.CarryForwardAccount{ID: run.RetainedEarnings.ID,
 			Number: run.RetainedEarnings.Number, Name: run.RetainedEarnings.Name}, Status: run.Status, SupersededByID: apitypes.OptUUID(run.SupersededByID),
 		RowCount: run.RowCount, LocalCurrency: le.LocalCurrency, GroupCurrency: group, Totals: make([]gen.CarryForwardTotal, len(totals)),
-		CreatedAt: run.CreatedAt, CreatedBy: run.CreatedBy, CreatedByName: names[run.CreatedBy]}
+		ResultLc: lc(all.result.lc), ResultGc: gc(all.result.gc), DebitLc: lc(all.debit.lc), CreditLc: lc(all.credit.lc), DebitGc: gc(all.debit.gc),
+		CreditGc: gc(all.credit.gc), CreatedAt: run.CreatedAt, CreatedBy: run.CreatedBy, CreatedByName: names[run.CreatedBy]}
 	if run.SupersededAt != nil {
 		out.SupersededAt.SetTo(*run.SupersededAt)
 	}
 	for i, t := range totals {
 		tc := func(m money.Minor) gen.Money { return apitypes.Money(m, t.currency, t.expTC) }
-		lc := func(m money.Minor) gen.Money { return apitypes.Money(m, t.currencyLC, t.expLC) }
-		gc := func(m money.Minor) gen.Money { return apitypes.Money(m, t.currencyGC, t.expGC) }
 		out.Totals[i] = gen.CarryForwardTotal{Currency: t.currency, Result: tc(t.result.tc), ResultLc: lc(t.result.lc), ResultGc: gc(t.result.gc),
 			Debit: tc(t.debit.tc), Credit: tc(t.credit.tc), DebitLc: lc(t.debit.lc), CreditLc: lc(t.credit.lc), DebitGc: gc(t.debit.gc), CreditGc: gc(t.credit.gc)}
 	}
