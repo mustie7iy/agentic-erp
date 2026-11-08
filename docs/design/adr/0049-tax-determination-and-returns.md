@@ -614,6 +614,20 @@ commit-time check, like the balance trigger).
   `supplier_tax_id`, `pending_sign_off: true` (Executive Regulation Art. 59
   is read only through secondary summaries). The working papers' filter on
   these warnings comes with the returns (§11).
+- **As built (T62f):** UAE pack 2026.1 states the tier as above (`above:
+  "10000"`, `requires: [supplier_tax_id]`, `pending_sign_off: true`, its
+  source Art. 59), with `rate_type: average` and `rounding: document`,
+  pending the tax specialist like every UAE fact it holds
+  (`packs/ae/TAX-PENDING-T62f.md`; ADR-0048 As built, T62f). Payables'
+  `TestUAEPackDocumentaryWarning` holds an invoice of a UAE company to the
+  pack's settings: above 10,000 without a UAE tax identifier warned
+  (`supplier_tax_id_missing`, exclusive, pending), exactly 10,000, below it
+  and with an `AE_` identifier not; the walkthrough's step 41 posts one
+  above and one below through the API. The tier is measured on the
+  invoice's gross total, as every tier is; whether Art. 59's AED 10,000 is
+  the supply's value instead is listed for the specialist. Every UAE code
+  of the pack carries its UN/CEFACT category (§1) but import VAT, IM5,
+  for which this ADR records none (pending the specialist).
 
 
 ### 7. Output tax and the pilot's sales
@@ -1354,6 +1368,83 @@ companies (all in the tenant, under RLS). A registration change is financial
     it), so it runs ahead of the code; an adjustment code is configured
     once the rollout is complete, as an instance of the previous release
     validating that document would refuse it.
+- **As built (T61k): the VAT 201.** Decided by default from the Context,
+  §7, §9, this section, P7 and T61j's precedent, each listed for the
+  product owner to overrule. No migration, no contract change.
+  - **The boxes.** UAE pack 2026.2 is 2026.1 plus `returns.yaml`, the
+    return type `VAT201` (a registration's `return_type`), 42 boxes in
+    one list whose order the stored return keeps: a box per column, coded
+    `<box>_<column>` (`1a_amount`, `1a_vat`, `1a_adjustment`, ..., `9_vat`,
+    `10_vat`) and `12`, `13`, `14`. What a box means is the Context's
+    record of the FTA's VAT return user guide (v. 2021, before EmaraTax)
+    **through the secondary summaries of Zoho and ClearTax**, which the
+    pack's manifest already cites (not fetched again); the EmaraTax labels
+    are not checked. The Context records the columns of 1a-1g (amount,
+    VAT, adjustment), 9 (amount, recoverable VAT, adjustment) and 10
+    (recoverable VAT), and 14 = 12 - 13 here; it names 2-7 without their
+    columns and 8, 11, 12 and 13 as totals without their sums. The pack
+    reads 2 and 7 as VAT, 3 and 6 as amount and VAT, 4 and 5 as amount,
+    each label saying "column pending the tax specialist"; the totals'
+    sums are written from memory and their labels say so (8's amount over
+    1a-1g, 3-6; its VAT over 1a-1g, 2, 3, 6, 7; its adjustment over
+    1a-1g; 11 over 9 and 10; 12 and 13 as 8's and 11's VAT plus
+    adjustment). 14 is one signed figure, negative when refundable.
+    `prior_period_threshold: "10000"` is P7's AED 10,000 of tax, its
+    measure still open (T61h above).
+  - **Emirate by fixed establishment.** 1a-1g select S5's items by the
+    emirate each line names (§7 As built: one code levying the line's
+    subdivision), lettered in the order the Context lists the emirates;
+    the line names the emirate of the fixed establishment that made the
+    supply, which whoever posts it states (the ERP holds no fixed
+    establishments; the step table's "the registration's fixed
+    establishment" would allow one emirate per registration only). The
+    emirates' ISO 3166-2 codes are written from memory but for AE-DU and
+    AE-AZ, and each box 1 label says the code is pending; a line naming
+    another subdivision of AE is on no box and its item stays unreported
+    (the ledger checks only the country). A guard refusing an emirate the
+    pack does not list is its own tracker leaf (review:T61k), to land
+    before the sign-off.
+  - **The mapping.** Box 3 takes the owed part (`vat_due`, `self_output`)
+    of reverse-charge codes, RC5 and DR5, as §9 As built reports the
+    domestic reverse charge in box 3 (the Context lists imports only);
+    box 6 an import's (IM5, the declared value its amount, from a customs
+    declaration's entry, §9 As built); box 10 the part recovered of both
+    claims (`vat`, `self_input`; the Context's "Box 3/6 output, Box 10
+    input" for imported services and goods); box 9 standard-rated
+    purchases, VB5's blocked VAT adding its amount and no VAT. Adjustments are codes of kind `adjustment` the
+    tenant adds (T61j): output, component `vat`, levying the line's emirate
+    (box 1's adjustment column), input `vat` (box 9's), output
+    `tourist_refund` (box 2) and `import_adjustment` (box 7). The step's
+    plan has box 7 "from import entries", but an import code's entry is
+    box 6's, so a customs entry reversed later is a negative box 6 item of
+    its period or its amendment, and box 7 takes the manual code alone
+    (decided by default, pending the specialist). OS is on no box.
+  - **Not signed off.** 2026.2 carries no `sign_off`; the specialist
+    confirms the boxes, columns, sums, letters and codes, and the mapping,
+    listed in `packs/ae/TAX-PENDING-T61k.md`, which `TestUAEPackVAT201`
+    holds the pack to box by box (code, label, selection or expression,
+    basis); the sign-off is a later version, its own tracker leaf (split
+    from T61k), with T62f's.
+  - **Golden test** (`TestVAT201Golden`, taxfiling): a worked quarter of
+    Maple Gulf Trading (5000, AED) on the released pack through the API:
+    sales in Dubai (with a credit note), Abu Dhabi and Sharjah, an Ajman
+    sale posted twice and reversed, zero-rated, exempt and out-of-scope
+    supplies, purchases with recoverable and blocked VAT, imported
+    services and the domestic reverse charge, import VAT from a customs
+    declaration, and an adjustment for each of boxes 1b, 2, 7 and 9: 8's
+    amount 35,500.00 and VAT 1,570.00, 12 1,600.00, 13 1,125.00, 14 475.00
+    payable; prepared, the out-of-scope item stays unclaimed; filed, an
+    amendment reversing the import and taking a late invoice gives 14's
+    correction -100.00 (375.00 after); the next quarter shows a late
+    invoice's VAT apart, below the threshold and then, at 11,050.00 of
+    earlier input VAT, above it.
+  - **Walkthrough.** Step 41 applies 2026.2 to Maple Gulf Trading, whose
+    proposed company carries its FTA registration (quarterly, from the
+    latest quarter ended in Dubai); Carla posts the quarter's sales by
+    emirate, an export, an exempt supply and a customs declaration's
+    import VAT, Alex the domestic reverse charge and a blocked purchase;
+    the VAT 201 is computed (14 700.00), drilled down, prepared, approved
+    by Fiona and filed.
 
 ### 12. Audit
 Every change of a registration, code or rate is a configuration change request
@@ -1478,7 +1569,7 @@ coverage 100%, reviewer) like every step.
 | T61i (done) | **Return lifecycle** | `tax.tax_return` with snapshot (box values, item ids, hash, pack version); prepare (needs closed periods; sets `reported_in` under a registration lock, once), approve (another person, approvals context), file (a person records the confirmation; locks the periods via T32), withdraw, amendment; human-only transitions; audit and outbox events; run-twice tests for any worker; immutability trigger on filed snapshots |
 | T61o (done) | **Chosen tax dates held to open returns** (P6; product owner 2026-11-01) | A manual entry with tax, and a supplier invoice whose tax date a person set, dated in a period whose return is prepared, approved or filed is refused with 409 `ledger.tax_date_in_return` naming the period, return and status; dates the document decides are not held, so late items reach the amendment; a post racing a prepare serializes on the registration; walkthrough step 11 |
 | T61j (done, not signed off) | **GST/HST return for Canada** | The GST34 lines in the Canada pack's `returns.yaml` (101-115 incl. 205 and 405), golden tests from a worked set of invoices, entries and adjustments, signed off by the tax specialist; the FPZ-500 (GST/HST + QST) if P4 includes it |
-| T61k | **VAT 201 for the UAE** | Boxes 1a-14 in the UAE pack (with T62f), emirate by the registration's fixed establishment, Box 6/7 from import entries, golden tests, specialist sign-off; checked against the EmaraTax form labels |
+| T61k (done, not signed off) | **VAT 201 for the UAE** | Boxes 1a-14 in the UAE pack (with T62f), emirate by the registration's fixed establishment, Box 6/7 from import entries, golden tests, specialist sign-off; checked against the EmaraTax form labels |
 | T61l | **Tax agent** | Prepares draft returns, explains variances against the last period and the tax accounts, proposes adjustment entries (parked) and code corrections; evaluation suite (ADR-0039); never transitions a return. Split: T61l1 (done) drafts and explanations, T61l2 adjustment entries and code corrections (§13 As built) |
 | T61m | **Engine connector port** (deferred unless P1 says otherwise) | Quote stored on parked documents, posting uses the stored quote, commit through the outbox; a fake engine in tests; provider recorded in this ADR when chosen |
 
@@ -1596,7 +1687,11 @@ confirm or for the tax specialist stand confirmed.
   scope of the five-year limit, the VAT 201 labels on EmaraTax, the
   Executive Regulation's Art. 51, 53 and 59 texts, the UAE documentary tier
   (`pending_sign_off`, §6 As built), UAE rounding, and the FTA's side of
-  the amended return. For Canada, the GST34 lines (T61j) and the FPZ-500
+  the amended return. (T62f wrote the UAE pack's codes and tax settings
+  in 2026.1, unsigned; what the specialist confirms is in
+  `packs/ae/TAX-PENDING-T62f.md`, ADR-0048 As built, T62f. T61k wrote the
+  VAT 201's boxes in 2026.2, unsigned; what the specialist confirms is in
+  `packs/ae/TAX-PENDING-T61k.md`, §11 As built, T61k.) For Canada, the GST34 lines (T61j) and the FPZ-500
   lines (P4) are signed off with the step that writes them. (T61j wrote
   the GST34's lines in Canada 2026.6, unsigned; what the specialist
   confirms is in `packs/ca/TAX-PENDING-T61j.md`, §11 As built, T61j.)
