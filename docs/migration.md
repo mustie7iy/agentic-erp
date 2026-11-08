@@ -200,6 +200,53 @@ values its payables account at period end (`fx_valuation.accounts`, with an
 adjustment account; ADR-0042), or its revaluation is refused naming the
 account.
 
+## Cost centers, profit centers and segments
+
+In either mode a run loads the controlling master data of its company codes
+first (ADR-0050 §10, T56h): SAP's segments (FAGL_SEGM, with their names
+from FAGL_SEGMT), the profit centers assigned to the scope's company codes
+(CEPC, CEPCT, CEPC_BUKRS) and the company codes' cost centers (CSKS,
+CSKT), each through the ledger's own operations, which check what a
+controller's approved request is checked for. The run is their approval:
+each center is created active at once, its creation recorded as an applied
+center change (`GET /v1/center-changes`) naming the run in its reason,
+without an approval request of its own, as the suppliers a run creates are:
+ADR-0050 §10 has them "approved by the migration run's approval, not one
+by one", and the run, started by a person with `integration.migration.run`
+and reconciled, is the governed act (ADR-0050 As built). A
+center's time slices (DATAB to DATBI) become its periods, valid_to the
+day after DATBI and DATBI 99991231 open-ended, slices saying the same of
+what the platform keeps joined into one: a cost center's category (KOSAR),
+profit center (PRCTR) and locks (BKZKP actual costs, BKZER actual
+revenues, PKZKP plan), a profit center's lock (LOCK_IND). A center's name
+and description are its text in English (CSKT and CEPCT KTEXT and LTEXT,
+FAGL_SEGMT NAME, language key E or EN) of its latest slice, else its text
+in another language with a warning; its person responsible is VERAK of its
+latest slice. Centers go to the standard hierarchy's UNASSIGNED leaf, as a
+center created without a node does; SAP's hierarchies (sets 0101 and 0106)
+are T56h2, the default assignments (OKB9) T56h3 and the centers on
+migrated journal lines (ACDOCA RCNTR, PRCTR, SEGMENT) T56h4.
+
+A later run keeps what an earlier one loaded: it assigns a profit center
+it finds there to the run's company codes it is not yet assigned to
+(`profit_centers_extended`; refused, failing the run, while a change of
+the profit center requested through the API is pending), and a change SAP made to a loaded center
+since shows as a difference in the reconciliation rather than being
+applied. The quality gate refuses what the platform cannot hold rather
+than guess: a code that is not one (up to 10 of 0-9, A-Z, _ and -), a
+category the configuration does not have (`controlling.cost_center_categories`;
+add it there first), a center without a person responsible or a name in
+any language, slices that do not read, do not adjoin or put a cost center
+in two company codes, a profit center whose slices name different
+segments (a reorganisation) or a segment not in FAGL_SEGM, a profit center
+code in two controlling areas (the tenant holds one of a code; prefixing
+codes per area is the migration lead's to decide and not built), and a
+cost center's profit center that is unknown (not in CEPC), not assigned to
+its company code or not valid over its slice. It warns of a cost center in
+another currency (WAERS) than its company's, which the platform does not
+keep. A center or segment whose code a tenant already has, created through
+the API, is refused by the load and fails the run.
+
 ## Reconciliation controls
 
 Each control is computed twice: from the raw SAP extract and from the
@@ -220,6 +267,13 @@ They must be equal.
   any: the controls in company currency cannot tell an item loaded with the
   wrong document amount
 - Vendor count per company code
+- Cost centers and profit centers per company code, where either side has
+  any: SAP's of the company code against the platform's active ones that
+  runs loaded in it, and each one's periods (validity, category, profit
+  center and locks of a cost center; validity, lock and segment of a
+  profit center) as SAP's slices give them against the platform's
+  (differences listed by `cost center <KOKRS>/<KOSTL>` and
+  `profit center <KOKRS>/<PRCTR>`; T56h)
 - Each vendor's payments bank account: SAP's first LFBK row as it loads
   (scheme, bank country, Canadian routing, last four characters) against the
   supplier's account valid today (differences listed by vendor; T72d). The
@@ -262,8 +316,9 @@ grows with the run:
   noted, and `loaded`, what it created by kind: `suppliers`,
   `suppliers_extended`, `suppliers_blocked`, `purchase_orders`,
   `goods_receipts`, `supplier_invoices`, `posted_invoices_invoiced`,
-  `journal_entries`, `down_payments`, `clearings`, `gr_ir_positions` and
-  `gr_ir_top_ups`. A kind it created none of is absent. A rehearsal, and a
+  `journal_entries`, `down_payments`, `clearings`, `gr_ir_positions`,
+  `gr_ir_top_ups`, `segments`, `profit_centers`, `profit_centers_extended`
+  and `cost_centers`. A kind it created none of is absent. A rehearsal, and a
   load with an `error` refusal, are rolled back: their counts are what the
   load created before the rollback, and nothing of it stays. A kept load
   counts only what no earlier kept run loaded, so a run of the same extract
@@ -355,6 +410,24 @@ stopped the run before the load.
   street but no city, a city but no street, or a text longer than an
   address holds is warned of by the quality gate and loads without one. A
   vendor an earlier run created keeps the address it has.
+- The controlling master data (T56h; ADR-0050 §10 states the tables from
+  memory, and internal/sap's types say which fields are not even in its
+  list): that CSKS carries KOKRS, KOSTL, DATAB, DATBI, BUKRS, KOSAR, VERAK,
+  PRCTR, KHINR, BKZKP, BKZER, PKZKP and WAERS; that CSKT is keyed by
+  KOKRS, KOSTL, DATBI and SPRAS with KTEXT the name and LTEXT the
+  description; that CEPC carries KOKRS, PRCTR, DATAB, DATBI, SEGMENT,
+  KHINR, LOCK_IND and the person responsible VERAK; that CEPCT is keyed as
+  CSKT, CEPC_BUKRS by KOKRS, PRCTR and BUKRS, and FAGL_SEGMT names a
+  segment by SEGMENT, LANGU and NAME. What the load takes them to mean:
+  DATAB and DATBI both days included, 99991231 open-ended; BKZKP the lock
+  of actual primary costs, BKZER of actual revenues, PKZKP of plan primary
+  costs (the platform's one plan lock), LOCK_IND a profit center's lock,
+  each "X" set and blank not; E as SPRAS and LANGU English. That a company
+  code belongs to one controlling area. Which KOSAR keys the pilot uses,
+  for the configuration's categories of the same codes (the mock's are
+  the walkthrough's ADMIN and SALES). The OData mapping reads none of
+  these tables yet: an OData run loads no centers until the cost and
+  profit center read APIs are mapped against the pilot's `$metadata`.
 - Amounts for currencies with no decimals or three decimals (JPY, KWD) come in
   external format.
 - **SAP digital-access licensing:** reading data is usually fine, but agents

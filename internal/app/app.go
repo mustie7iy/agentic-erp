@@ -366,7 +366,7 @@ func Integration(cfg Config) *integration.Endpoints {
 		PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, PlanningGroups: cash.PlanningGroups{}}
 	return &integration.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Settings: configuration.Settings{},
 		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{}, Orders: procurementEndpoints(cfg), OrderLocks: procurement.Orders{}, OrderValues: procurement.Orders{},
-		Invoices: payablesEndpoints(cfg, uploads(cfg)), InvoiceCounts: payables.Invoices{}, Invoiced: payables.Invoices{}, Postings: postings(), Reports: ledger.Reports{},
+		Invoices: payablesEndpoints(cfg, uploads(cfg)), InvoiceCounts: payables.Invoices{}, Invoiced: payables.Invoices{}, Postings: postings(), Reports: ledger.Reports{}, Centers: ledger.CenterMigration{},
 		Secrets: resolver(cfg.Secrets), Requesters: identity.Actors{}, Keys: cfg.FieldKeys, Resolver: net.DefaultResolver, Receiver: cfg.WebhookReceiver, ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil, RefuseEBICS: cfg.RefuseEBICS}
 }
 

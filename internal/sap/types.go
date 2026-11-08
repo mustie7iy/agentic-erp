@@ -227,6 +227,97 @@ type ACDOCA struct {
 	EBELP string `json:"EBELP,omitempty"`
 }
 
+// --- Controlling master data (ADR-0050 §10, T56h) ---
+//
+// The tables and the fields below are those ADR-0050 §10 lists for the
+// migration of cost and profit centers and segments, which it states from
+// memory; where a field is not in its list, its comment says so. Every
+// name, and what each field is taken to mean here, is pending the SAP
+// specialist's confirmation on the pilot's release (docs/migration.md,
+// "What to check on a real SAP system").
+
+// CSKS - cost center master data: a cost center (KOSTL) of a controlling
+// area (KOKRS), one row per time slice valid from DATAB to DATBI, both
+// days included, DATBI 99991231 open-ended. A slice gives the cost center's
+// company code (BUKRS), category (KOSAR), person responsible (VERAK),
+// profit center (PRCTR), place in the standard hierarchy (KHINR, loaded
+// by T56h2) and currency (WAERS), and its locks: actual primary costs
+// (BKZKP), actual revenues (BKZER) and plan primary costs (PKZKP), "X" set.
+type CSKS struct {
+	KOKRS string `json:"KOKRS"`
+	KOSTL string `json:"KOSTL"`
+	DATAB string `json:"DATAB"`
+	DATBI string `json:"DATBI"`
+	BUKRS string `json:"BUKRS"`
+	KOSAR string `json:"KOSAR"`
+	VERAK string `json:"VERAK"`
+	PRCTR string `json:"PRCTR,omitempty"`
+	KHINR string `json:"KHINR,omitempty"`
+	BKZKP string `json:"BKZKP,omitempty"`
+	BKZER string `json:"BKZER,omitempty"`
+	PKZKP string `json:"PKZKP,omitempty"`
+	WAERS string `json:"WAERS,omitempty"`
+}
+
+// CSKT - cost center texts: the name (KTEXT) and description (LTEXT) of a
+// cost center's slice ending on DATBI, in language SPRAS. KOKRS, KOSTL
+// and DATBI as its key are not in ADR-0050's list.
+type CSKT struct {
+	KOKRS string `json:"KOKRS"`
+	KOSTL string `json:"KOSTL"`
+	DATBI string `json:"DATBI"`
+	SPRAS string `json:"SPRAS"`
+	KTEXT string `json:"KTEXT"`
+	LTEXT string `json:"LTEXT,omitempty"`
+}
+
+// CEPC - profit center master data, one row per time slice as CSKS: its
+// segment (SEGMENT), place in the standard hierarchy (KHINR, T56h2) and
+// lock (LOCK_IND, "X" locked). KOKRS and the person responsible VERAK are
+// not in ADR-0050's list.
+type CEPC struct {
+	KOKRS    string `json:"KOKRS"`
+	PRCTR    string `json:"PRCTR"`
+	DATAB    string `json:"DATAB"`
+	DATBI    string `json:"DATBI"`
+	SEGMENT  string `json:"SEGMENT,omitempty"`
+	KHINR    string `json:"KHINR,omitempty"`
+	LOCK_IND string `json:"LOCK_IND,omitempty"`
+	VERAK    string `json:"VERAK"`
+}
+
+// CEPCT - profit center texts, as CSKT. Its fields are not in ADR-0050's
+// list.
+type CEPCT struct {
+	KOKRS string `json:"KOKRS"`
+	PRCTR string `json:"PRCTR"`
+	DATBI string `json:"DATBI"`
+	SPRAS string `json:"SPRAS"`
+	KTEXT string `json:"KTEXT"`
+	LTEXT string `json:"LTEXT,omitempty"`
+}
+
+// CEPCBukrs - CEPC_BUKRS, a profit center's assignment to a company code.
+// Its fields are not in ADR-0050's list.
+type CEPCBukrs struct {
+	KOKRS string `json:"KOKRS"`
+	PRCTR string `json:"PRCTR"`
+	BUKRS string `json:"BUKRS"`
+}
+
+// FAGLSegm - FAGL_SEGM, a segment.
+type FAGLSegm struct {
+	SEGMENT string `json:"SEGMENT"`
+}
+
+// FAGLSegmt - FAGL_SEGMT, a segment's name (NAME) in language LANGU. Its
+// fields are not in ADR-0050's list.
+type FAGLSegmt struct {
+	SEGMENT string `json:"SEGMENT"`
+	LANGU   string `json:"LANGU"`
+	NAME    string `json:"NAME"`
+}
+
 // --- Customizing (configuration) tables, read by the configuration agent ---
 
 // T052 - payment terms.
@@ -425,6 +516,14 @@ type Extract struct {
 	RSEG   []RSEG   `json:"RSEG"`
 	ACDOCA []ACDOCA `json:"ACDOCA"`
 
+	CSKS       []CSKS      `json:"CSKS,omitempty"`
+	CSKT       []CSKT      `json:"CSKT,omitempty"`
+	CEPC       []CEPC      `json:"CEPC,omitempty"`
+	CEPCT      []CEPCT     `json:"CEPCT,omitempty"`
+	CEPC_BUKRS []CEPCBukrs `json:"CEPC_BUKRS,omitempty"`
+	FAGL_SEGM  []FAGLSegm  `json:"FAGL_SEGM,omitempty"`
+	FAGL_SEGMT []FAGLSegmt `json:"FAGL_SEGMT,omitempty"`
+
 	T052       []T052      `json:"T052,omitempty"`
 	T007A      []T007A     `json:"T007A,omitempty"`
 	T030       []T030      `json:"T030,omitempty"`
@@ -458,5 +557,7 @@ func (e *Extract) Counts() map[string]int {
 		"RBKP": len(e.RBKP), "RSEG": len(e.RSEG), "ACDOCA": len(e.ACDOCA),
 		"T052": len(e.T052), "T007A": len(e.T007A), "T030": len(e.T030), "T169G": len(e.T169G),
 		"T012K": len(e.T012K), "T074": len(e.T074), "AGR_DEFINE": len(e.AGR_DEFINE), "AGR_TCODES": len(e.AGR_TCODES), "AGR_USERS": len(e.AGR_USERS),
+		"CSKS": len(e.CSKS), "CSKT": len(e.CSKT), "CEPC": len(e.CEPC), "CEPCT": len(e.CEPCT), "CEPC_BUKRS": len(e.CEPC_BUKRS),
+		"FAGL_SEGM": len(e.FAGL_SEGM), "FAGL_SEGMT": len(e.FAGL_SEGMT),
 	}
 }

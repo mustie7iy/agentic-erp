@@ -16646,7 +16646,7 @@ type CenterChange struct {
 	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	Status string `json:"status"`
-	// Approval request (workflow context).
+	// Approval request (workflow context); absent for a change a migration run applied (ADR-0050 §10).
 	WorkflowRequestID OptUUID `json:"workflow_request_id"`
 	// Principal that requested the change.
 	RequestedBy uuid.UUID `json:"requested_by"`
@@ -42223,13 +42223,17 @@ type MigrationDiff struct {
 	// `partner <id> (<name>)` or `down payments of partner <id> (<name>)` (a platform supplier that is no
 	// migrated vendor, by its id and name), `bank account of vendor <LIFNR>`,
 	// `order item <EBELN>/<EBELP>`, `GR/IR of order item <EBELN>/<EBELP>`, `open items of vendor <LIFNR>`
-	// or `open items of partner <id> (<name>)` (the number of open payable items), or
+	// or `open items of partner <id> (<name>)` (the number of open payable items),
 	// `<currency> items of vendor <LIFNR>` or `<currency> items of partner <id> (<name>)` (the open items
-	// in a foreign document currency, in it).
+	// in a foreign document currency, in it), or `cost center <KOKRS>/<KOSTL>` or
+	// `profit center <KOKRS>/<PRCTR>` (a center's periods, ADR-0050 §10).
 	Key string `json:"key"`
 	// SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a count of open items, a
-	// GR/IR position as its balance and quantity (`750.00 EUR, quantity 5`), or a bank account as the load
-	// writes it.
+	// GR/IR position as its balance and quantity (`750.00 EUR, quantity 5`), a bank account as the load
+	// writes it, or a center's periods
+	// (`2020-01-01 to 2026-06-30: ADMIN, profit center P3100; from 2026-07-01: ADMIN, profit center P3200`,
+	// a profit center's with its segment; `none` for a center one side lacks, `unreadable` for SAP's
+	// slices that do not read).
 	Sap string `json:"sap"`
 	// The platform's value, in the same form.
 	Platform string `json:"platform"`
@@ -42319,6 +42323,20 @@ type MigrationExtractCounts struct {
 	AgrTcodes int `json:"agr_tcodes"`
 	// Rows of SAP table AGR_USERS (role assignments).
 	AgrUsers int `json:"agr_users"`
+	// Rows of SAP table CSKS (cost center master data, a row per time slice; ADR-0050 §10, T56h).
+	Csks int `json:"csks"`
+	// Rows of SAP table CSKT (cost center texts; ADR-0050 §10, T56h).
+	Cskt int `json:"cskt"`
+	// Rows of SAP table CEPC (profit center master data, a row per time slice; ADR-0050 §10, T56h).
+	Cepc int `json:"cepc"`
+	// Rows of SAP table CEPCT (profit center texts; ADR-0050 §10, T56h).
+	Cepct int `json:"cepct"`
+	// Rows of SAP table CEPC_BUKRS (profit centers' company code assignments; ADR-0050 §10, T56h).
+	CepcBukrs int `json:"cepc_bukrs"`
+	// Rows of SAP table FAGL_SEGM (segments; ADR-0050 §10, T56h).
+	FaglSegm int `json:"fagl_segm"`
+	// Rows of SAP table FAGL_SEGMT (segment texts; ADR-0050 §10, T56h).
+	FaglSegmt int `json:"fagl_segmt"`
 }
 
 // GetT001 returns the value of T001.
@@ -42421,6 +42439,41 @@ func (s *MigrationExtractCounts) GetAgrUsers() int {
 	return s.AgrUsers
 }
 
+// GetCsks returns the value of Csks.
+func (s *MigrationExtractCounts) GetCsks() int {
+	return s.Csks
+}
+
+// GetCskt returns the value of Cskt.
+func (s *MigrationExtractCounts) GetCskt() int {
+	return s.Cskt
+}
+
+// GetCepc returns the value of Cepc.
+func (s *MigrationExtractCounts) GetCepc() int {
+	return s.Cepc
+}
+
+// GetCepct returns the value of Cepct.
+func (s *MigrationExtractCounts) GetCepct() int {
+	return s.Cepct
+}
+
+// GetCepcBukrs returns the value of CepcBukrs.
+func (s *MigrationExtractCounts) GetCepcBukrs() int {
+	return s.CepcBukrs
+}
+
+// GetFaglSegm returns the value of FaglSegm.
+func (s *MigrationExtractCounts) GetFaglSegm() int {
+	return s.FaglSegm
+}
+
+// GetFaglSegmt returns the value of FaglSegmt.
+func (s *MigrationExtractCounts) GetFaglSegmt() int {
+	return s.FaglSegmt
+}
+
 // SetT001 sets the value of T001.
 func (s *MigrationExtractCounts) SetT001(val int) {
 	s.T001 = val
@@ -42521,6 +42574,41 @@ func (s *MigrationExtractCounts) SetAgrUsers(val int) {
 	s.AgrUsers = val
 }
 
+// SetCsks sets the value of Csks.
+func (s *MigrationExtractCounts) SetCsks(val int) {
+	s.Csks = val
+}
+
+// SetCskt sets the value of Cskt.
+func (s *MigrationExtractCounts) SetCskt(val int) {
+	s.Cskt = val
+}
+
+// SetCepc sets the value of Cepc.
+func (s *MigrationExtractCounts) SetCepc(val int) {
+	s.Cepc = val
+}
+
+// SetCepct sets the value of Cepct.
+func (s *MigrationExtractCounts) SetCepct(val int) {
+	s.Cepct = val
+}
+
+// SetCepcBukrs sets the value of CepcBukrs.
+func (s *MigrationExtractCounts) SetCepcBukrs(val int) {
+	s.CepcBukrs = val
+}
+
+// SetFaglSegm sets the value of FaglSegm.
+func (s *MigrationExtractCounts) SetFaglSegm(val int) {
+	s.FaglSegm = val
+}
+
+// SetFaglSegmt sets the value of FaglSegmt.
+func (s *MigrationExtractCounts) SetFaglSegmt(val int) {
+	s.FaglSegmt = val
+}
+
 // A finding of the quality gate, the load or the reconciliation on a row of the extract.
 // Ref: #/components/schemas/MigrationIssue
 type MigrationIssue struct {
@@ -42614,6 +42702,16 @@ type MigrationLoadedCounts struct {
 	// Order items whose GR/IR position, taken over by an earlier run, this run topped up to SAP's balance
 	// and open quantity, in an entry per order.
 	GrIrTopUps OptInt `json:"gr_ir_top_ups"`
+	// Segments (FAGL_SEGM, FAGL_SEGMT) the scope's profit centers name (ADR-0050 §10, T56h).
+	Segments OptInt `json:"segments"`
+	// Profit centers assigned to the scope's company codes (CEPC, CEPCT, CEPC_BUKRS), active at once with
+	// their time slices as periods: the run is their approval (ADR-0050 §10).
+	ProfitCenters OptInt `json:"profit_centers"`
+	// Profit centers an earlier run created that this run assigned to more company codes (CEPC_BUKRS).
+	ProfitCentersExtended OptInt `json:"profit_centers_extended"`
+	// Cost centers of the scope's company codes (CSKS, CSKT), active at once with their time slices as
+	// periods, at the standard hierarchy's UNASSIGNED leaf: the run is their approval (ADR-0050 §10).
+	CostCenters OptInt `json:"cost_centers"`
 }
 
 // GetSuppliers returns the value of Suppliers.
@@ -42676,6 +42774,26 @@ func (s *MigrationLoadedCounts) GetGrIrTopUps() OptInt {
 	return s.GrIrTopUps
 }
 
+// GetSegments returns the value of Segments.
+func (s *MigrationLoadedCounts) GetSegments() OptInt {
+	return s.Segments
+}
+
+// GetProfitCenters returns the value of ProfitCenters.
+func (s *MigrationLoadedCounts) GetProfitCenters() OptInt {
+	return s.ProfitCenters
+}
+
+// GetProfitCentersExtended returns the value of ProfitCentersExtended.
+func (s *MigrationLoadedCounts) GetProfitCentersExtended() OptInt {
+	return s.ProfitCentersExtended
+}
+
+// GetCostCenters returns the value of CostCenters.
+func (s *MigrationLoadedCounts) GetCostCenters() OptInt {
+	return s.CostCenters
+}
+
 // SetSuppliers sets the value of Suppliers.
 func (s *MigrationLoadedCounts) SetSuppliers(val OptInt) {
 	s.Suppliers = val
@@ -42734,6 +42852,26 @@ func (s *MigrationLoadedCounts) SetGrIrPositions(val OptInt) {
 // SetGrIrTopUps sets the value of GrIrTopUps.
 func (s *MigrationLoadedCounts) SetGrIrTopUps(val OptInt) {
 	s.GrIrTopUps = val
+}
+
+// SetSegments sets the value of Segments.
+func (s *MigrationLoadedCounts) SetSegments(val OptInt) {
+	s.Segments = val
+}
+
+// SetProfitCenters sets the value of ProfitCenters.
+func (s *MigrationLoadedCounts) SetProfitCenters(val OptInt) {
+	s.ProfitCenters = val
+}
+
+// SetProfitCentersExtended sets the value of ProfitCentersExtended.
+func (s *MigrationLoadedCounts) SetProfitCentersExtended(val OptInt) {
+	s.ProfitCentersExtended = val
+}
+
+// SetCostCenters sets the value of CostCenters.
+func (s *MigrationLoadedCounts) SetCostCenters(val OptInt) {
+	s.CostCenters = val
 }
 
 // Merged schema.

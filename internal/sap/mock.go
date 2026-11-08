@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 )
@@ -45,7 +46,8 @@ import (
 // currency (foreignInvoice), and an order in USD it valued through GR/IR,
 // received and not yet invoiced, an open GR/IR position in that currency
 // (receivedInUSD). Its other orders' receipts post nothing to SAP's
-// journal, as 1000's and 2000's do.
+// journal, as 1000's and 2000's do. It alone has controlling master data
+// (centers): cost and profit centers and a segment.
 //
 // Revenue follows a monthly trend that grows about 7% a year, so extracts
 // for consecutive years support year-over-year analytics.
@@ -72,6 +74,7 @@ func GenerateMockThrough(seed uint64, fiscalYear string, throughMonth int) *Extr
 	g.receivedNotInvoiced("3000")
 	g.foreignInvoice("3000")
 	g.receivedInUSD("3000")
+	g.centers("3000")
 	g.customizing()
 	return g.e
 }
@@ -738,4 +741,54 @@ func (g *mockGen) customizing() {
 			g.e.AGR_USERS = append(g.e.AGR_USERS, AGRUser{AGR_NAME: r.name, UNAME: u})
 		}
 	}
+}
+
+// mockArea is the mock's controlling area (KOKRS).
+const mockArea = "1000"
+
+// openEnded is DATBI of a slice without an end (CSKS, CEPC).
+const openEnded = "99991231"
+
+// centers adds the company's controlling master data (ADR-0050 §10,
+// T56h): segment SEG-CAN, profit centers P3100 and P3200 assigned to it,
+// P3200 locked from 1 October, and four cost centers, 3120 moving from
+// P3100 to P3200 on 1 July and 3300 locked for actual revenues, with texts
+// in English and, for 3100, German. Their categories (KOSAR) are the
+// mock's own codes, those the walkthrough's configuration has (ADMIN,
+// SALES); the pilot's KOSAR keys are pending the SAP specialist
+// (docs/migration.md), and the configuration needs a category for each. It
+// draws nothing from the generator, so the rest of the extract is the same
+// as without it.
+func (g *mockGen) centers(cc string) {
+	g.e.FAGL_SEGM = append(g.e.FAGL_SEGM, FAGLSegm{SEGMENT: "SEG-CAN"})
+	g.e.FAGL_SEGMT = append(g.e.FAGL_SEGMT, FAGLSegmt{SEGMENT: "SEG-CAN", LANGU: "E", NAME: "Canada"})
+	lockFrom := g.date(10, 1)
+	g.e.CEPC = append(g.e.CEPC,
+		CEPC{KOKRS: mockArea, PRCTR: "P3100", DATAB: "20200101", DATBI: openEnded, SEGMENT: "SEG-CAN", VERAK: "R. Gagnon"},
+		CEPC{KOKRS: mockArea, PRCTR: "P3200", DATAB: "20200101", DATBI: dayBefore(lockFrom), SEGMENT: "SEG-CAN", VERAK: "R. Gagnon"},
+		CEPC{KOKRS: mockArea, PRCTR: "P3200", DATAB: lockFrom, DATBI: openEnded, SEGMENT: "SEG-CAN", VERAK: "R. Gagnon", LOCK_IND: "X"})
+	for _, pc := range [][2]string{{"P3100", "Ontario operations"}, {"P3200", "Quebec operations"}} {
+		g.e.CEPC_BUKRS = append(g.e.CEPC_BUKRS, CEPCBukrs{KOKRS: mockArea, PRCTR: pc[0], BUKRS: cc})
+		g.e.CEPCT = append(g.e.CEPCT, CEPCT{KOKRS: mockArea, PRCTR: pc[0], DATBI: openEnded, SPRAS: "E", KTEXT: pc[1]})
+	}
+	moveOn := g.date(7, 1)
+	g.e.CSKS = append(g.e.CSKS,
+		CSKS{KOKRS: mockArea, KOSTL: "3100", DATAB: "20200101", DATBI: openEnded, BUKRS: cc, KOSAR: "ADMIN", VERAK: "M. Tremblay", PRCTR: "P3100", WAERS: "CAD"},
+		CSKS{KOKRS: mockArea, KOSTL: "3120", DATAB: "20200101", DATBI: dayBefore(moveOn), BUKRS: cc, KOSAR: "ADMIN", VERAK: "M. Tremblay", PRCTR: "P3100", WAERS: "CAD"},
+		CSKS{KOKRS: mockArea, KOSTL: "3120", DATAB: moveOn, DATBI: openEnded, BUKRS: cc, KOSAR: "ADMIN", VERAK: "M. Tremblay", PRCTR: "P3200", WAERS: "CAD"},
+		CSKS{KOKRS: mockArea, KOSTL: "3200", DATAB: "20200101", DATBI: openEnded, BUKRS: cc, KOSAR: "SALES", VERAK: "L. Roy", PRCTR: "P3200", WAERS: "CAD"},
+		CSKS{KOKRS: mockArea, KOSTL: "3300", DATAB: "20200101", DATBI: openEnded, BUKRS: cc, KOSAR: "SALES", VERAK: "L. Roy", PRCTR: "P3100", BKZER: "X", WAERS: "CAD"})
+	g.e.CSKT = append(g.e.CSKT,
+		CSKT{KOKRS: mockArea, KOSTL: "3100", DATBI: openEnded, SPRAS: "D", KTEXT: "Finanzen"},
+		CSKT{KOKRS: mockArea, KOSTL: "3100", DATBI: openEnded, SPRAS: "E", KTEXT: "Finance", LTEXT: "Finance and controlling, Toronto"},
+		CSKT{KOKRS: mockArea, KOSTL: "3120", DATBI: openEnded, SPRAS: "E", KTEXT: "Facilities"},
+		CSKT{KOKRS: mockArea, KOSTL: "3200", DATBI: openEnded, SPRAS: "E", KTEXT: "Sales Quebec"},
+		CSKT{KOKRS: mockArea, KOSTL: "3300", DATBI: openEnded, SPRAS: "E", KTEXT: "Sales Ontario"})
+}
+
+// dayBefore is the SAP date before d, the DATBI of a slice the next starts
+// after.
+func dayBefore(d string) string {
+	t, _ := time.Parse("20060102", d) // the mock's own dates (date)
+	return t.AddDate(0, 0, -1).Format("20060102")
 }

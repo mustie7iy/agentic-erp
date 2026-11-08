@@ -45,9 +45,13 @@ type target struct {
 	taxes     map[string]map[string]config.TaxCode // by company code, then tax code
 	// methods are the payment methods of each company code's configuration
 	// (ADR-0038), which its vendors' LFB1-ZWELS must name.
-	methods  map[string]map[string]bool
-	year     int32
-	balances bool // balances mode
+	methods map[string]map[string]bool
+	// categories are the configuration's cost center categories
+	// (controlling.cost_center_categories), which a migrated cost center's
+	// KOSAR must name (ADR-0050 §10).
+	categories map[string]bool
+	year       int32
+	balances   bool // balances mode
 	// posted are the currencies earlier runs posted the extract's
 	// documents in, by document key (postedCurrencies), which a document
 	// SAP cleared together with them posts in too (foreignDocuments).
@@ -121,6 +125,7 @@ func checkQuality(e *sap.Extract, t target) []Issue {
 	q.foreign, q.conflicts = foreignDocuments(e, t)
 	q.companies()
 	q.accounts()
+	q.centers()
 	q.vendors()
 	q.vendorCompanies()
 	q.vendorBanks()

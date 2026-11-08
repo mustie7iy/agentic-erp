@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -201,4 +202,56 @@ func TestODataOptionsAndErrors(t *testing.T) {
 		t.Fatalf("default entities: %v", err)
 	}
 	_ = bufio.NewReader
+}
+
+// TestFilterScopeKeepsTheScopesCenters: a scope keeps its company codes'
+// cost centers with every slice, one in another company code too (which
+// the gate refuses), the profit centers assigned to them with all their
+// assignments, the segments those name, and the texts of each (T56h).
+func TestFilterScopeKeepsTheScopesCenters(t *testing.T) {
+	all := GenerateMock(42, "2026")
+	all.CSKS = append(all.CSKS, CSKS{KOKRS: mockArea, KOSTL: "1100", BUKRS: "1000"})
+	all.CSKT = append(all.CSKT, CSKT{KOKRS: mockArea, KOSTL: "1100", SPRAS: "E", KTEXT: "US"})
+	all.CSKS = append(all.CSKS, CSKS{KOKRS: mockArea, KOSTL: "3300", BUKRS: "1000"}) // a slice of 3000's 3300 in 1000
+	all.CEPC = append(all.CEPC, CEPC{KOKRS: mockArea, PRCTR: "P1100", SEGMENT: "SEG-US"})
+	all.CEPC_BUKRS = append(all.CEPC_BUKRS, CEPCBukrs{KOKRS: mockArea, PRCTR: "P1100", BUKRS: "1000"}, CEPCBukrs{KOKRS: mockArea, PRCTR: "P3100", BUKRS: "1000"})
+	all.FAGL_SEGM = append(all.FAGL_SEGM, FAGLSegm{SEGMENT: "SEG-US"})
+	ca := FilterScope(all, Scope{CompanyCodes: []string{"3000"}, FiscalYear: "2026"})
+	for table, want := range map[string]int{"CSKS": 6, "CSKT": 5, "CEPC": 3, "CEPCT": 2, "CEPC_BUKRS": 3, "FAGL_SEGM": 1, "FAGL_SEGMT": 1} {
+		if got := ca.Counts()[table]; got != want {
+			t.Errorf("%s rows of company 3000: got %d, want %d", table, got, want)
+		}
+	}
+	us := FilterScope(all, Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026"})
+	for table, want := range map[string]int{"CSKS": 3, "CSKT": 2, "CEPC": 2, "CEPCT": 1, "CEPC_BUKRS": 3, "FAGL_SEGM": 2, "FAGL_SEGMT": 1} {
+		if got := us.Counts()[table]; got != want {
+			t.Errorf("%s rows of company 1000: got %d, want %d", table, got, want)
+		}
+	}
+	de := FilterScope(all, Scope{CompanyCodes: []string{"2000"}, FiscalYear: "2026"})
+	if n := len(de.CSKS) + len(de.CEPC) + len(de.FAGL_SEGM); n != 0 {
+		t.Errorf("controlling rows of company 2000: got %d, want none", n)
+	}
+}
+
+// TestMockCenters: the mock's company 3000 has a segment, two profit
+// centers (P3200 locked from 1 October) and four cost centers (3120 moving
+// to P3200 on 1 July), each slice ending the day before the next starts.
+func TestMockCenters(t *testing.T) {
+	e := GenerateMock(42, "2026")
+	var got []string
+	for _, c := range e.CSKS {
+		got = append(got, c.KOSTL+" "+c.DATAB+"-"+c.DATBI+" "+c.PRCTR)
+	}
+	want := []string{"3100 20200101-99991231 P3100", "3120 20200101-20260630 P3100", "3120 20260701-99991231 P3200", "3200 20200101-99991231 P3200",
+		"3300 20200101-99991231 P3100"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("cost center slices: got %v, want %v", got, want)
+	}
+	if e.CEPC[1].DATBI != "20260930" || e.CEPC[2].DATAB != "20261001" || e.CEPC[2].LOCK_IND != "X" {
+		t.Errorf("P3200's slices: got %v, want unlocked to 30 September, locked from 1 October", e.CEPC[1:])
+	}
+	if dayBefore("20260301") != "20260228" {
+		t.Errorf("the day before 1 March 2026: got %s, want 20260228", dayBefore("20260301"))
+	}
 }

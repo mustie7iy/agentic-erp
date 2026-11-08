@@ -81,6 +81,7 @@ func FilterScope(all *Extract, scope Scope) *Extract {
 	}
 	out.RSEG = keep(all.RSEG, func(r RSEG) bool { return invs[r.BELNR+"/"+r.GJAHR] })
 	out.ACDOCA = keep(all.ACDOCA, func(r ACDOCA) bool { return r.RLDNR == "0L" && inCC(r.RBUKRS) && r.GJAHR == scope.FiscalYear })
+	filterCenters(all, out, inCC)
 	// Customizing: company-specific tables by company code; client-wide
 	// tables (payment terms, payment methods per country, roles) unchanged.
 	out.T052 = all.T052
@@ -95,6 +96,39 @@ func FilterScope(all *Extract, scope Scope) *Extract {
 	out.T042I = keep(all.T042I, func(r T042I) bool { return inCC(r.ZBUKR) })
 	out.AGR_DEFINE, out.AGR_TCODES, out.AGR_USERS = all.AGR_DEFINE, all.AGR_TCODES, all.AGR_USERS
 	return out
+}
+
+// filterCenters keeps the controlling master data of the scope's company
+// codes: their cost centers (CSKS) with every slice of each, also one in
+// another company code, which the quality gate refuses rather than load a
+// truncated center, the profit centers assigned to them
+// (CEPC_BUKRS) with every company assignment of those, so a run sees
+// what a profit center shares with other companies, the segments those
+// profit centers name, and the texts of all of them.
+func filterCenters(all, out *Extract, inCC func(string) bool) {
+	costCenters := map[string]bool{}
+	for _, r := range all.CSKS {
+		if inCC(r.BUKRS) {
+			costCenters[r.KOKRS+"/"+r.KOSTL] = true
+		}
+	}
+	out.CSKS = keep(all.CSKS, func(r CSKS) bool { return costCenters[r.KOKRS+"/"+r.KOSTL] })
+	out.CSKT = keep(all.CSKT, func(r CSKT) bool { return costCenters[r.KOKRS+"/"+r.KOSTL] })
+	profitCenters := map[string]bool{}
+	for _, r := range all.CEPC_BUKRS {
+		if inCC(r.BUKRS) {
+			profitCenters[r.KOKRS+"/"+r.PRCTR] = true
+		}
+	}
+	out.CEPC_BUKRS = keep(all.CEPC_BUKRS, func(r CEPCBukrs) bool { return profitCenters[r.KOKRS+"/"+r.PRCTR] })
+	out.CEPC = keep(all.CEPC, func(r CEPC) bool { return profitCenters[r.KOKRS+"/"+r.PRCTR] })
+	out.CEPCT = keep(all.CEPCT, func(r CEPCT) bool { return profitCenters[r.KOKRS+"/"+r.PRCTR] })
+	segments := map[string]bool{}
+	for _, r := range out.CEPC {
+		segments[r.SEGMENT] = true
+	}
+	out.FAGL_SEGM = keep(all.FAGL_SEGM, func(r FAGLSegm) bool { return segments[r.SEGMENT] })
+	out.FAGL_SEGMT = keep(all.FAGL_SEGMT, func(r FAGLSegmt) bool { return segments[r.SEGMENT] })
 }
 
 // keep returns the rows that match, in order. It returns nil, not an empty
