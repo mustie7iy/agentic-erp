@@ -9853,6 +9853,13 @@
       "r": "deploy/images/upstream.txt · .grype.yaml · ADR-0032 As built",
       "src": "ci:batch56",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "Go module advisories GO-2026-6888 (andybalholm/brotli, excessive memory on crafted streams) and GO-2026-6865 (klauspost/compress, panic on two-block frames), reachable per govulncheck, found by main's full run after batch 56: brotli bumped to v1.2.7 and klauspost/compress to v1.20.2 in the main and temporal modules (the product owner allowed the download, 2026-11-08)",
+      "r": "go.mod · go.sum · temporal/go.mod · temporal/go.sum · govulncheck in scripts/each-module.sh",
+      "src": "ci:batch56",
+      "c": []
      }
     ]
    },
