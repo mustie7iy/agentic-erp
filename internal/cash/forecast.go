@@ -107,13 +107,17 @@ type Paying struct {
 // (negative for a credit memo it nets), its offsetting lines, its journal
 // entry, the supplier invoice that entry was posted for and the purchase
 // order that invoice was entered on (nil for none): the documents the
-// variance matches a payment to (T53f3, T53g).
+// variance matches a payment to (T53f3, T53g). FiscalYear, Entry and
+// LineNo are the item's ledger line, which the payment settles once: what
+// tells two items of one entry apart in the variance's documents (T53i).
 type Paid struct {
-	Amount  money.Minor
-	Lines   []DocumentLine
-	Entry   uuid.UUID
-	Invoice *uuid.UUID
-	Order   *uuid.UUID
+	Amount     money.Minor
+	Lines      []DocumentLine
+	FiscalYear int16
+	Entry      uuid.UUID
+	LineNo     int32
+	Invoice    *uuid.UUID
+	Order      *uuid.UUID
 }
 
 // Sources and certainties of the forecast's flows (ADR-0051 §4).

@@ -126,42 +126,67 @@ func errVarianceTooLarge() *problem.Problem {
 // grain's limit, is refused; a period whose snapshot was not taken is a
 // conflict.
 func (e *Endpoints) Variance(ctx context.Context, q VarianceQuery) (Variance, error) {
-	from, to, grain := clock.Day(q.From), clock.Day(q.To), cmp.Or(q.Grain, config.GrainDay)
-	if err := checkLag(q.Lag); err != nil {
+	vr, err := e.readVariance(ctx, q)
+	if err != nil {
 		return Variance{}, err
 	}
-	if _, err := actualBuckets(from, to, grain); err != nil {
+	v := vr.v
+	if v.Currencies, v.Beyond, err = vr.compare(ctx); err != nil {
 		return Variance{}, err
+	}
+	if vr.ar.r.sums.overflow {
+		return Variance{}, errVarianceTooLarge()
+	}
+	return v, nil
+}
+
+// varianceRead is what a variance compares, read and matched: the
+// variance's request as checked (its figures not yet computed), the
+// actuals, the snapshot's lines and their matching to the actuals' pieces.
+type varianceRead struct {
+	v     Variance
+	ar    actualsRead
+	lines []keptLine
+	m     *matching
+}
+
+// readVariance reads and matches what the variance of q compares,
+// refusing q as Variance does.
+func (e *Endpoints) readVariance(ctx context.Context, q VarianceQuery) (varianceRead, error) {
+	from, to, grain := clock.Day(q.From), clock.Day(q.To), cmp.Or(q.Grain, config.GrainDay)
+	if err := checkLag(q.Lag); err != nil {
+		return varianceRead{}, err
+	}
+	if _, err := actualBuckets(from, to, grain); err != nil {
+		return varianceRead{}, err
 	}
 	taken := from.AddDate(0, 0, -q.Lag)
 	docEnd := taken.AddDate(0, 0, documentLevelDays)
 	ar, err := e.readActuals(ctx, q.LegalEntity, taken, maxDay(to, docEnd))
 	if err != nil {
-		return Variance{}, err
+		return varianceRead{}, err
 	}
 	if err := checkPassed(to, ar.r.read); err != nil {
-		return Variance{}, err
+		return varianceRead{}, err
 	}
 	s, err := snapshotOn(ctx, ar.tx, q.LegalEntity, taken)
 	if err != nil {
-		return Variance{}, err
+		return varianceRead{}, err
 	}
 	s.CompanyCode = ar.co.Code
 	if err := checkHorizon(to, s); err != nil {
-		return Variance{}, err
+		return varianceRead{}, err
 	}
 	v := Variance{LegalEntity: q.LegalEntity, CompanyCode: ar.co.Code, ReadDate: ar.r.read, TimeZone: ar.zone, From: from, To: to, Lag: q.Lag,
 		Grain: grain, Snapshot: s}
 	// Safe to ignore: the period's buckets were checked above, and these end
 	// no later.
 	v.Buckets, _ = actualBuckets(from, minDay(to, docEnd), grain)
-	if v.Currencies, v.Beyond, err = e.compare(ctx, ar, s, v.Buckets, to); err != nil {
-		return Variance{}, err
+	vr := varianceRead{v: v, ar: ar}
+	if vr.lines, vr.m, err = matched(ctx, ar, s, v.Buckets, to); err != nil {
+		return varianceRead{}, err
 	}
-	if ar.r.sums.overflow {
-		return Variance{}, errVarianceTooLarge()
-	}
-	return v, nil
+	return vr, nil
 }
 
 // checkLag refuses a lag a variance does not compare at.
@@ -218,12 +243,14 @@ func snapshotOn(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, date time
 
 // keptLine is a snapshot's line as the variance reads it.
 type keptLine struct {
+	lineNo   int32
 	date     time.Time
 	end      *time.Time
 	currency string
 	item     string
 	amount   money.Minor
 	payment  *uuid.UUID
+	supplier *uuid.UUID
 	doc      *Document
 }
 
@@ -233,17 +260,18 @@ type keptLine struct {
 // suppliers were owed: the forecast's totals did not count them
 // (ADR-0051 §9, T53e2), so neither does the variance.
 func keptLines(ctx context.Context, tx pgx.Tx, snapshot uuid.UUID, last time.Time) ([]keptLine, error) {
-	rows, _ := tx.Query(ctx, `SELECT f.value_date, f.bucket_end, f.currency, coalesce(f.liquidity_item, ''), f.amount, f.payment_id,
-			f.document_kind, f.document_id
+	rows, _ := tx.Query(ctx, `SELECT f.line_no, f.value_date, f.bucket_end, f.currency, coalesce(f.liquidity_item, ''), f.amount, f.payment_id,
+			f.supplier_id, f.document_kind, f.document_id, coalesce(f.document_number, '')
 		FROM cash.snapshot_flow f WHERE f.snapshot_id = $1 AND f.source <> 'payable_blocked'
 			AND (f.bucket_end IS NULL OR f.value_date <= $2) ORDER BY f.line_no`, snapshot, last)
 	lines, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (keptLine, error) {
 		var l keptLine
 		var kind *string
 		var id *uuid.UUID
-		err := r.Scan(&l.date, &l.end, &l.currency, &l.item, &l.amount, &l.payment, &kind, &id)
+		var number string
+		err := r.Scan(&l.lineNo, &l.date, &l.end, &l.currency, &l.item, &l.amount, &l.payment, &l.supplier, &kind, &id, &number)
 		if id != nil {
-			l.doc = &Document{Kind: *kind, ID: *id}
+			l.doc = &Document{Kind: *kind, ID: *id, Number: number}
 		}
 		return l, errs.Wrapf(err, "scan cash snapshot line")
 	})

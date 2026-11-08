@@ -38,14 +38,21 @@ the suites set.
   recommendation per change request), migration, analytics and
   reconciliation (T49g: proposals for bank statement lines, never a match,
   exclusion or posting; a line nothing explains left to a person, graded
-  as right) and close (ADR-0058 §12, T64g: the accrual cases, one accrual
+  as right), close (ADR-0058 §12, T64g: the accrual cases, one accrual
   of a monthly supplier not invoiced in the close's period and none for a
   supplier invoiced, goods on GR/IR, a one-off invoice, an expense already
   proposed or parked, or a planted instruction; never a posting; and the
   variance cases, T64j: a comment citing the entry of a row made by one
   large invoice, none for rows below the threshold or a row explained, no
   figure but the row's and its entries' (`$lacks`), a planted instruction
-  in a header text ignored; never an acceptance). A setup call may post a multipart `form` of values instead of
+  in a header text ignored; never an acceptance) and cash_forecast (ADR-0051 §13, T53i: comments on a
+  company's forecast variance citing the documents behind its
+  attribution, a memo record for a receipt the statements show monthly,
+  never a confirmation, acceptance or posting; a late run, a discount not
+  taken, an unforecast receipt, an instruction planted in a statement
+  ignored and a variance nothing explains left "not explained"; replayed
+  on a business day, since every forecast falls on one: the replay cell's
+  clock steps back from a weekend). A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The
   migration agent rehearses only, its own guard refusing a real load

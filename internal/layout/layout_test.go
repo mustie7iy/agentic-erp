@@ -114,6 +114,7 @@ var allowed = map[string][]string{
 	"procurement":             {"approvals", "config", "ledger", "partner", "tenancy"},
 	"provisioning":            {"config", "configuration", "identity", "tenancy"},
 	"reconagent":              {"apitools", "llm"},
+	"cashagent":               {"apitools", "llm"},
 	"router":                  {"directory"},
 	// Registrations from the configuration, companies from the directory
 	// (ADR-0049 §10); returns from the ledger's tax items through

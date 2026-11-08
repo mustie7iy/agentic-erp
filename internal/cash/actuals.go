@@ -124,10 +124,12 @@ type actual struct {
 }
 
 // actualPiece is the part of a statement line one document behind it
-// pays, by liquidity item: the keys it is known by in a snapshot
-// (docKey), most specific first, and its shares. A line no payment
-// traces is one piece of no key.
+// pays, by liquidity item: what it is within its line (pieceIDs; "" for a
+// line's only piece), the keys it is known by in a snapshot (docKey),
+// most specific first, and its shares. A line no payment traces is one
+// piece of no key.
 type actualPiece struct {
+	id     string
 	keys   []string
 	shares []Share
 }
@@ -292,9 +294,11 @@ func actualShares(d *rules, s *sums, l ActualLine, paying map[uuid.UUID]Paying) 
 	if l.Match == MatchPayment && len(l.Payments) > 0 {
 		var parts []part
 		var keys [][]string
+		var ids []string
 		for _, p := range l.Payments {
 			parts = append(parts, paymentParts(-p.Amount, paying[p.ID])...)
 			keys = append(keys, paymentKeys(p.ID, paying[p.ID])...)
+			ids = append(ids, pieceIDs(p.ID, paying[p.ID])...)
 		}
 		each, err := partsShares(d, l.Amount, parts)
 		if err != nil {
@@ -302,14 +306,14 @@ func actualShares(d *rules, s *sums, l ActualLine, paying map[uuid.UUID]Paying) 
 		}
 		if len(each) != len(keys) {
 			// Parts that cancel out are one, the line's: known by its payments.
-			keys = [][]string{{}}
+			keys, ids = [][]string{{}}, []string{""}
 			for _, p := range l.Payments {
 				keys[0] = append(keys[0], paymentKey(p.ID))
 			}
 		}
 		pieces := make([]actualPiece, len(each))
 		for i, shares := range each {
-			pieces[i] = actualPiece{keys: keys[i], shares: shares}
+			pieces[i] = actualPiece{id: ids[i], keys: keys[i], shares: shares}
 		}
 		return sumShares(s, each), pieces, nil
 	}
