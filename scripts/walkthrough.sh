@@ -4041,12 +4041,14 @@ year_end_retained_earnings() {
   as ada
   say "A carry-forward carries each year's profit or loss to the company's retained earnings account, which $CC"
   say "does not have yet. Ada adds account 330000 to the chart and names it in year_end; a new account changes the"
-  say "chart, so the change is tier 4 and the last year's invoices are replayed under it."
+  say "chart, so the change is tier 4 and the last year's invoices are replayed under it. $CC is in group MAPLE (step"
+  say "40), so the account maps to the group's equity account G3000 (ADR-0059 §3)."
   api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
   local base cr request
   base=$(field '.items[0].number')
   jq "{title: \"Retained earnings of $CC\", rationale: \"The year's result is carried to it (ADR-0060 §4)\", base_version: $base,
-    proposed: (.items[0].document | (.companies[] | select(.code == \"$CC\")) |= (.chart_of_accounts += [{\"number\": \"330000\", \"name\": \"Retained earnings\", \"type\": \"equity\"}]
+    proposed: (.items[0].document | (.companies[] | select(.code == \"$CC\")) |= (.chart_of_accounts += [{\"number\": \"330000\", \"name\": \"Retained earnings\", \"type\": \"equity\"}
+      + if any(.chart_of_accounts[]; .group_account) then {group_account: \"G3000\"} else {} end]
       | .year_end.retained_earnings_account = \"330000\"))}" "$WORK/last.json" >"$WORK/retained.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @retained.json
   cr=$(field .id)
