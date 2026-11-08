@@ -21,6 +21,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/reconagent"
+	"github.com/mustie7iy/agentic-erp/internal/taxagent"
 )
 
 type parkedInvoice struct {
@@ -273,7 +274,7 @@ func agentInvoices(ctx context.Context) error {
 // agentCmd runs a delivery agent with the agents' token.
 func agentCmd(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance")
+		return errors.New("agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance | tax-draft")
 	}
 	switch args[0] {
 	case "invoices":
@@ -292,6 +293,8 @@ func agentCmd(ctx context.Context, args []string) error {
 		return agentCloseVariances(ctx, args[1:])
 	case "cash-variance":
 		return agentCashVariance(ctx, args[1:])
+	case "tax-draft":
+		return agentTaxDraft(ctx, args[1:])
 	}
 	return fmt.Errorf("unknown agent %q", args[0])
 }
@@ -504,4 +507,38 @@ func agentCashVariance(ctx context.Context, args []string) error {
 		}
 	}
 	return runErr
+}
+
+// agentTaxDraft has the tax agent explain a registration's draft return
+// of a period (ADR-0049 §13, T61l1): a person reads its recommendation
+// and prepares the return, or not.
+func agentTaxDraft(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent tax-draft", flag.ContinueOnError)
+	reg := fs.String("registration", "", "tax registration id or code")
+	period := fs.String("period", "", "the period's first day (YYYY-MM-DD)")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if *reg == "" || *period == "" {
+		return errors.New("agent tax-draft: -registration and -period name the draft return")
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := (&taxagent.Agent{LLM: newRunner(c), API: c}).Explain(ctx, *reg, *period)
+	if res.Session == "" {
+		return runErr
+	}
+	// What the run recommended is printed even when it failed afterwards:
+	// its recommendations wait for a person either way.
+	w := printer()
+	fmt.Fprintf(w, "Session %s: recommendations made %d, refused %d.\n", res.Session, len(res.Recommendations), res.Refused)
+	for _, id := range res.Recommendations {
+		fmt.Fprintf(w, "  recommendation %s\n", id)
+	}
+	if res.Reply != "" {
+		fmt.Fprintln(w, res.Reply)
+	}
+	return errors.Join(runErr, errs.Wrapf(w.Flush(), "agent tax-draft: print"))
 }

@@ -396,6 +396,8 @@ func TestAdapterFailures(t *testing.T) {
 		"cash_forecast, a lag no number":     cashForecastEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"company": "c", "from": "f", "to": "t", "lag": "x"}}),
 		"cash_forecast without its API": cashForecastEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{},
 			Task: map[string]any{"company": "c", "from": "f", "to": "t", "lag": 0}}),
+		"tax without a registration": taxEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"period": "2026-04-01"}}),
+		"tax without its API":        taxEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"registration": "r", "period": "2026-04-01"}}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err == nil {

@@ -417,8 +417,9 @@ start() {
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
   say "  - the tax specialist's sign-off of the GST34's lines (T61j: Canada $CA_PACK is not signed off), the FPZ-500 for a"
-  say "    Quebec registrant, the UAE's VAT 201 and the tax agent (T61k-T61l): step 11 prepares, approves and files the"
-  say "    GST/HST returns in order with the pack's lines"
+  say "    Quebec registrant, the UAE's VAT 201 and the tax agent's adjustment entries and code corrections (T61k,"
+  say "    T61l2): step 11 prepares, approves and files the GST/HST returns in order with the pack's lines, the tax agent"
+  say "    explaining the draft before Carla prepares it"
   say "  - the liquidity forecast's SAP migration (T53k): step 13 shows the"
   say "    daily cash position with a memo record and the forecast of the supplier open items, payment runs, parked"
   say "    invoices, down payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening,"
@@ -517,10 +518,11 @@ hook_stub() {
 }
 
 # model_stub starts the stand-in for the model provider (step 18's capture,
-# the forecast agent's run in step 39, the close agent's in step_close) and
-# points erp-server's model gateway at it. While model-script.json exists
-# it answers each call with its next turn (the forecast agent's, which
-# step 39 writes and removes, and the close agent's, which
+# the tax agent's run in step 11, the forecast agent's in step 39, the close
+# agent's in step_close) and points erp-server's model gateway at it. While
+# model-script.json exists it answers each call with its next turn (the
+# tax agent's, which tax_agent writes and removes, the forecast agent's,
+# which step 39 writes and removes, and the close agent's, which
 # close_accrual_agent and close_variance_agent write and remove);
 # otherwise with the text of model-answer.json, which step 18 writes.
 model_stub() {
@@ -1919,7 +1921,7 @@ billing() {
 }
 
 step_tax() {
-  heading "Step 11 — Tax: the billing system's sales entries, their tax checked by the ledger, large ones parked for a person, and the return that files them"
+  heading "Step 11 — Tax: the billing system's sales entries, their tax checked by the ledger, large ones parked for a person, and the return that files them, explained first by the tax agent"
   as carla
   api 200 '.items[] | select(.country == "CA") | "pack CA \(.version): \(.contents.tax_codes) tax codes; signed off: \(.sign_off // {} | if .tax_specialist then "\(.tax_specialist), \(.date)" else "no" end)"' listCountryPacks
   expect "Canada 2026.4's tax codes" "$(field '.items[] | select(.country == "CA" and .version == "2026.4") | .contents.tax_codes')" 10
@@ -2010,6 +2012,7 @@ step_tax() {
   say "A registration nobody may see, or none, is not found:"
   refused 404 request.not_found listTaxPeriods -p "id=00000000-0000-7000-8000-000000000000"
   tax_return "$cash" "$sales" "$gst" "$registration" "$start" "$end" "$before" "$running"
+  tax_agent "$gst" "$registration" "$start" "$end"
   file_return "$registration" "$start" "$end"
   passed
 }
@@ -2073,6 +2076,92 @@ gst_adjustments() {
   say "alone, kind adjustment, whose tax is what the entry posts (ADR-0049 §11):"
   api 201 "$entry" postJournalEntry -body "$(sale "GST/HST adjustment decreasing the net tax" "$(line "$itc" 5.00 GA), $(line "$expense" -5.00)" "$end")"
   api 201 "$entry" postJournalEntry -body "$(sale "GST/HST instalment paid" "$(line "$payable" 100.00 GI), $(line "$cash" -100.00)" "$end")"
+}
+
+# tax_agent GST REGISTRATION START END is T61l1's part of step 11 (ADR-0049
+# §13): before Carla prepares the return of START to END, the tax agent,
+# erp agent tax-draft through the model stand-in answering from a script
+# of turns (its suite's replay, evals/tax), computes the draft, reads the
+# first period's filed return, line 103's items and the GST/HST account's
+# balances, and records an explanation of the draft for a person: line
+# 103 against the first period's, citing invoice 1039's entry, and why the
+# tax account shows that tax in another fiscal period. It prepares
+# nothing: the return's moves are a person's, and the API refuses the
+# agent's own call. Carla reads the explanation and accepts it.
+tax_agent() {
+  local gst=$1 registration=$2 start=$3 end=$4 role agent got session rec first now prev doc posted
+  as ada
+  say "Ada sets up the tax agent (ADR-0049 §13): an agent principal of type tax at autonomy level 1 on erp-default, with"
+  say "a monthly budget of USD 2.00; its role reads registrations, draft returns and returns, the ledger's entries,"
+  say "accounts and balances, and records its sessions and recommendations. It holds no permission that moves a return."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "tax_agent", "name": "Tax agent"}'
+  role=$(field .id)
+  grant "$role" tax.registration.read tax.return.read ledger.entry.read ledger.account.read agents.session.read \
+    agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model), budget \(.agent_profile.monthly_budget.amount) \(.agent_profile.monthly_budget.currency)"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "tax-agent", "display_name": "Tax agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "tax", "model": "erp-default", "description": "Explains draft tax returns for people to decide (ADR-0049)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  agent=$(field .id)
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$agent\", \"role_id\": \"$role\"}"
+  token tax-agent "Tax agent"
+  printf '%s\tTax agent\n' "$agent" >>"$WORK/names"
+  as carla
+  QUIET=1 api 200 '' listTaxReturns -p "id=$registration" -p status=filed
+  first=$(field '.items[0].id')
+  prev=$(field '.items[0].boxes[] | select(.code == "103") | .amount.amount')
+  QUIET=1 api 200 '' getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
+  now=$(field '.boxes[] | select(.code == "103") | .amount.amount')
+  QUIET=1 api 200 '' listTaxReturnDraftItems -p "id=$registration" -p "period_start=$start" -p box=103
+  doc=$(field '.items[] | select(.header_text == "Billing: invoice 1039, sent late") | .document_number')
+  posted=$(field '.items[] | select(.header_text == "Billing: invoice 1039, sent late") | .posting_date')
+  [ -n "$doc" ] || fail "invoice 1039 is not among line 103's items"
+  say "The agent runs: erp agent tax-draft computes the draft of $start to $end and starts a session. The model is the"
+  say "stand-in, answering from a script of turns as the agent's evaluation suite replays them (evals/tax): it reads the"
+  say "draft, the first period's filed return, line 103's items and the GST/HST account's balances, and records one"
+  say "explanation for a person: line 103 is $now against $prev, the difference invoice 1039's entry $doc, posted on $posted"
+  say "with its tax date $end, so the tax account shows it in the period it was posted in."
+  jq -n --arg reg "$registration" --arg start "$start" --arg end "$end" --arg first "$first" --arg le "$LE" --arg gst "$gst" \
+    --argjson year "${start%%-*}" --arg now "$now" --arg prev "$prev" --arg doc "$doc" --arg posted "$posted" '{
+    vars: {session: "session id is ([0-9a-f-]{36})"},
+    turns: [
+      {tool: "getTaxReturnDraft", input: {id: $reg, period_start: $start}},
+      {tool: "listTaxReturns", input: {id: $reg, status: "filed"}},
+      {tool: "getTaxReturn", input: {id: $first}},
+      {tool: "listTaxReturnDraftItems", input: {id: $reg, period_start: $start, box: "103"}},
+      {tool: "listBalances", input: {legal_entity_id: $le, fiscal_year: $year, account_id: $gst}},
+      {tool: "createRecommendation", input: {body: {session_id: "{{session}}", object_type: "tax_registration", object_id: $reg,
+        kind: "explain_draft_return", content: "GST34 of \($start) to \($end): line 103 \($now) against \($prev) in the first period'"'"'s filed return; the difference is invoice 1039 (entry \($doc)), posted on \($posted) with its tax date \($end), so 2300 GST/HST payable shows its tax in the fiscal period it was posted in, not in this tax period'"'"'s. Lines 107 and 110 are the adjustment and the instalment entered for the period. A person should confirm the late invoice before preparing the return."}}},
+      {final: "Explained the draft; a person prepares the return."}]}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent tax-draft -registration GSTHST -period "$start"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/tax-agent") "$ERP" agent tax-draft -registration GSTHST -period "$start" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent tax-draft failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 0."
+  rec=$(printf '%s\n' "$got" | sed -nE 's/^  recommendation ([0-9a-f-]{36})$/\1/p')
+  as tax-agent
+  say "Recommending is all it may do: preparing, approving, filing and withdrawing a return are a person's (x-agent:"
+  say "false), whatever its level, and erp agent builds it no tool for them; the API refuses its own call:"
+  refused 403 identity.agent_not_allowed prepareTaxReturn -p "id=$registration" -body "{\"period_start\": \"$start\"}"
+  say "Its session, which the command named, records each tool call:"
+  api 200 '"  session \(.id[0:8])… \(.status) on \(.model): \(.purpose)"' getAgentSession -p "id=$session"
+  expect "the session" "$(field .status)" completed
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "getTaxReturnDraft listTaxReturns getTaxReturn listTaxReturnDraftItems listBalances createRecommendation"
+  as carla
+  say "Carla reads the agent's explanation on the registration; nothing was prepared:"
+  api 200 '(.items[] | "  \(.kind) by \(.agent_id[0:8])…, \(.outcome // "open"): \(.content)")' listRecommendations -p "object_id=$registration"
+  expect "the explanations of the registration's draft" "$(field '[.items[] | select(.kind == "explain_draft_return")] | length')" 1
+  expect "the explanation the agent printed" "$(field '.items[0].id')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "citing invoice 1039's entry" "$(jq -r --arg d "$doc" '.items[0].content | contains("entry \($d)")' "$WORK/last.json")" true
+  QUIET=1 api 200 '' listTaxReturns -p "id=$registration" -p "period_start=$start"
+  expect "returns of $start after the agent ran" "$(field '.items | length')" 0
+  say "She checked invoice 1039 and accepts the explanation; she prepares the return herself:"
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "Invoice 1039 checked: it belongs to the period."}'
+  expect "the explanation's outcome" "$(field .outcome)" accepted
 }
 
 # close_tax_periods START END BODY REGISTRATION closes the leading

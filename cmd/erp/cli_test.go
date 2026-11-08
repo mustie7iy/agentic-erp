@@ -415,7 +415,7 @@ func TestAgentErrors(t *testing.T) {
 	t.Chdir(t.TempDir())
 	model(t)
 	fakeAPI(t, routes{})
-	fails(t, "agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance", "agent")
+	fails(t, "agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance | tax-draft", "agent")
 	fails(t, "unknown agent", "agent", "bogus")
 	fails(t, "flag provided", "agent", "config", "-x")
 	fails(t, "say what to change", "agent", "config")
@@ -459,11 +459,46 @@ func TestAgentErrors(t *testing.T) {
 	fails(t, "500", "agent", "cash-variance", "-company", "3000", "-period", "2026-04-17..2026-04-17")
 	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
 	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "cash-variance", "-company", "3000", "-period", "2026-04-17..2026-04-17")
-	for _, a := range [][]string{{"config", "do", "it"}, {"migration", "do", "it"}, {"test", "do", "it"}, {"reconcile", "do", "it"}, {"close-accruals", "-close", "c"}, {"close-variances", "-close", "c"}} {
+	for _, a := range [][]string{{"config", "do", "it"}, {"migration", "do", "it"}, {"test", "do", "it"}, {"reconcile", "do", "it"}, {"close-accruals", "-close", "c"}, {"close-variances", "-close", "c"},
+		{"tax-draft", "-registration", "r", "-period", "2026-04-01"}} {
 		t.Run(a[0]+" without a token", func(t *testing.T) {
 			fails(t, "ERP_AGENT_TOKEN is not set", append([]string{"agent"}, a...)...)
 		})
 	}
+}
+
+// TestAgentTaxDraft: erp agent tax-draft needs -registration and -period,
+// computes the draft, runs the tax agent's session and prints what it
+// recommended and the model's reply, also when the run failed after
+// starting its session (ADR-0049 §13, T61l1).
+func TestAgentTaxDraft(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	fails(t, "flag provided", "agent", "tax-draft", "-x")
+	fails(t, "-registration and -period name the draft return", "agent", "tax-draft", "-registration", "GSTHST")
+	fails(t, "404", "agent", "tax-draft", "-registration", "GSTHST", "-period", "2026-04-01")
+	const reg = "01a1aa00-0000-7000-8000-000000000e01"
+	drafted := routes{"GET /v1/tax-registrations": {ok(`{"items": [{"id": "` + reg + `", "code": "GSTHST"}]}`)},
+		"GET /v1/tax-registrations/" + reg + "/draft-return": {ok(`{"return_type": "GST34", "period_start": "2026-04-01", "period_end": "2026-06-30"}`)},
+		"POST /v1/agent-sessions":                            {ok(`{"id": "s1", "autonomy_level": 1}`)}, "POST /v1/agent-sessions/s1:end": {ok(`{}`)},
+		"POST /v1/agent-sessions/s1/tool-calls": {{201, `{}`}}, "POST /v1/recommendations": {{201, `{"id": "r1"}`}}}
+	model(t, llmtest.Tool("createRecommendation", map[string]any{"body": map[string]any{"session_id": "s1", "object_type": "tax_registration",
+		"object_id": reg, "kind": "explain_draft_return", "content": "GST34 2026-04-01 to 2026-06-30: line 103 70.00."}}),
+		llmtest.Final("Explained; a person prepares it."))
+	fakeAPI(t, drafted)
+	got := must(t, "agent", "tax-draft", "-registration", "GSTHST", "-period", "2026-04-01")
+	for _, want := range []string{"Session s1: recommendations made 1, refused 0.", "  recommendation r1", "Explained; a person prepares it."} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output: got\n%s\nwant it to contain %q", got, want)
+		}
+	}
+	model(t)
+	// A failed run still names its session, then fails.
+	fails(t, "Session s1: recommendations made 0, refused 0.", "agent", "tax-draft", "-registration", "GSTHST", "-period", "2026-04-01")
+	fails(t, "500", "agent", "tax-draft", "-registration", "GSTHST", "-period", "2026-04-01")
+	model(t, llmtest.Final("Nothing."))
+	printFails(t, "agent", "tax-draft", "-registration", "GSTHST", "-period", "2026-04-01")
 }
 
 // TestAgentCloseAccruals: erp agent close-accruals needs -close, reads the

@@ -23763,6 +23763,7 @@ components:
             - reconciliation
             - close
             - cash_forecast
+            - tax
           maxLength: 50
         model:
           type: string

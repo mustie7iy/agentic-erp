@@ -2203,10 +2203,17 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Tax agent: prepares draft returns, explains variances, proposes adjustment entries (parked) and code corrections; evaluation suite; never transitions a return",
-        "r": "T61l",
+        "s": "D",
+        "t": "Tax agent, drafts and explanations: for a registration's ended period it computes the draft return and records one explanation for a person (a recommendation on the registration, x-autonomy propose) of its figures and its variances against the last period's return and the tax accounts, citing the entries by document number; agent type tax; never prepares, approves, files or withdraws a return (x-agent false: no tool of them is built, the API refuses the agent); evaluation suite evals/tax replayed in CI",
+        "r": "internal/taxagent · erp agent tax-draft · evals/tax · eval $contains · modelstub -script · autonomy.Types tax · ADR-0049 §13 As built (T61l1) · walkthrough step 11 · T61l · T61l1 (the proposals split to T61l2)",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Tax agent, proposals: adjustment entries proposed by parking them and tax code corrections on captured and parked documents proposed for a person, with their evaluation cases; never transitions a return",
+        "r": "after T61l1 · ADR-0049 §13 · T61l2",
+        "src": "split:T61l · adr:ADR-0049",
         "c": []
        },
        {
