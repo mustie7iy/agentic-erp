@@ -1524,6 +1524,13 @@
        },
        {
         "s": "D",
+        "t": "Commenting a forecast variance also needs cash.forecast.read, the variance's own read: createForecastVarianceComment declares it in x-also-permissions beside cash.variance.comment (403 identity.permission_missing without it); the forecast agent's proposals and their decisions (T53i) declare it likewise",
+        "r": "api/openapi.yaml createForecastVarianceComment x-also-permissions · TestVarianceCommentRefusals · walkthrough step 30 unchanged (Tom reads the variance first) · ADR-0051 §13, §11 (As built T53f4) · T53f5",
+        "src": "po:2026-11-04 · adr:ADR-0051",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "No shared problem values (pre-existing finding on T53f4): six refusals (ledger, cash position, forecast, actuals and variance amount_too_large, payables tax too large) were package-level *problem.Problem values that problem.Write stamped with the first refused request's instance and trace id and WithCause gave its cause, a data race that sent them to every later refusal, of any tenant; each is now a function returning a new problem, Write and WithCause work on a copy, and internal/layout's TestNoSharedProblems refuses a package-level variable holding a problem",
         "r": "internal/platform/problem Write, WithCause, package doc · TestWriteSharedProblem, TestWithCauseCopies (-race) · internal/layout TestNoSharedProblems · internal/ledger journal.go errTooLarge · internal/cash errTooLarge, errForecastTooLarge, errActualsTooLarge, errVarianceTooLarge · internal/payables tax.go errTaxTooLarge (review:T53f4)",
         "src": "review:T53f4",
@@ -1551,9 +1558,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Forecast agent: agent type cash_forecast, read tools, variance comment and memo record proposals (x-autonomy: propose), citations checked against the attribution; evals/cash with the cases of ADR-0051 §13; never confirms or posts",
-        "r": "T53i",
+        "s": "D",
+        "t": "Forecast agent: agent type cash_forecast, read tools, variance comment and memo record proposals (x-autonomy: propose), citations checked against the attribution; evals/cash with the cases of ADR-0051 §13; never confirms or posts; a proposal of a variance comment, and a decision on one, also need cash.forecast.read (product owner 2026-11-04, ADR-0051 §13)",
+        "r": "GET /v1/liquidity-forecast-variance/documents (listForecastVarianceDocuments: ForecastVarianceDocuments, ForecastVarianceDocument, ForecastVarianceDocumentRef) · POST /v1/liquidity-forecast-variance/comment-proposals, :acceptProposal, :rejectProposal (proposeForecastVarianceComment, acceptForecastVarianceCommentProposal, rejectForecastVarianceCommentProposal: ForecastVarianceCommentProposal, ForecastVarianceCitation; ForecastVarianceCommentAccept; ForecastVarianceComment's session_id, citations, decision_reason, proposed_text, ETag) · VarianceCommentProposed event · migration 000218 (cash.variance_comment session_id, citations, decision_reason, proposed_text, version, cash.check_variance_comment_decision, cash.variance.propose) · cash.Endpoints.VarianceDocuments, readVariance, ProposeComment, AcceptComment, RejectComment · agent type cash_forecast · internal/cashagent · erp agent cash-variance · evals/cash · modelstub -script · TestVarianceDocuments, TestVarianceDocumentsGated, TestProposeVarianceComment, TestProposeVarianceCommentRefusals (cash.forecast.read on the proposal and its decisions, x-also-permissions), TestProposeVarianceCommentFailures, TestRefOf, TestCashVarianceCommentRules, TestCashVarianceCommentPrivileges, TestExplain, TestExplainRefusals, TestEvalSuites/cash · walkthrough step 39 · ADR-0051 (as built, T53i) · ADR-0039 · 03-data-model §3.18 · 04-api-design §4.13 · T53i",
         "src": "baseline",
         "c": []
        },
@@ -1648,7 +1655,7 @@
      {
       "s": "P",
       "t": "Financial close designed (ADR-0058, decided by default under ADR-0053 d): a leaf closing context; the close template and a company weekend in configuration; one close per company and regular period with its checklist, checks run on demand and at sign-off; sign-off locking each covered period through T32; accrual proposals parked for a person to post; the variance report and comments; the close agent proposing only",
-      "r": "ADR-0058 · T64 (split T64a-T64k)",
+      "r": "ADR-0058 · T64 (split T64a-T64n)",
       "c": [
        {
         "s": "D",
@@ -1693,14 +1700,14 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Deciding accrual proposals: ledger.ParkedEntries.Statuses and Cancel (the ledger's owner rule); the status derived from the parked entry (proposed, pending_approval, posted, modified with the posted amount, reversed, rejected); totals per status and currency; :reject (closing.accrual.decide and ledger.entry.park; closing.accrual_not_open, ledger.not_entry_owner); checks accruals_decided and accruals_reversed; AccrualProposalRejected; walkthrough: the proposal reads posted with its entry's number, a second one rejected with a reason, the totals per status in CAD, accruals_decided passing",
         "r": "ADR-0058 · T64f",
         "src": "adr:ADR-0058",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The close agent, accruals: agent type close, internal/closeagent (tools, prompt, untrusted data; internal/layout entry apitools and llm), erp agent close-accruals -close ID, alias erp-close; evals/close with the accrual cases of ADR-0058 §12 replayed in CI; the model stand-in answering from a script of turns; walkthrough: the agent through the stand-in proposes the missing monthly accrual and nothing for a supplier already invoiced",
         "r": "ADR-0058 · T64g",
         "src": "adr:ADR-0058",
@@ -1721,7 +1728,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The close agent, variances: erp agent close-variances -close ID, the variance tools and prompt, the variance cases of ADR-0058 §12 in evals/close; walkthrough: the agent through the stand-in proposes a comment for the flagged row citing its entry and none for rows below the threshold",
         "r": "ADR-0058 · T64j",
         "src": "adr:ADR-0058",
@@ -1732,6 +1739,34 @@
         "t": "Depreciation check: depreciation_posted per covered ledger (the latest posted run of the period, or nothing the run's own selection would select; failed, cancelled, queued and running runs do not count), the result naming each ledger with its run or its assets to depreciate; closing.Depreciation over the new assets.CloseChecks, adapted in internal/app; walkthrough: the check fails naming 2L before the period's run there (step 29 ran 0L's) and passes after it",
         "r": "ADR-0058 · T64k",
         "src": "adr:ADR-0058",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Late assets warn (PO 2026-11-04): depreciation_posted passes for a ledger without a posted run of the period once a later period's run has posted there, each asset a run of the period would select a depreciation_catch_up warning (asset, ledger, periods missing, the later run, the catch-up a run of its period posts); warnings and warnings_count on every check result; without a later run the check fails as before; walkthrough: a machine valued in the previous period after step 29's run warns in 0L on that period's close, 2L failing until its run",
+        "r": "ADR-0058 · T64l",
+        "src": "po:2026-11-04 · adr:ADR-0058",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Close sign-off: the signer must differ from the preparer before go-live (the pilot runs without separation of duties on sign-off and records who signed; what counts as the preparer, the people who completed the close's tasks, is set when it is built)",
+        "r": "ADR-0058 Questions (segregation of duties on sign-off), As built (product owner 2026-11-04) · T64o",
+        "src": "po:2026-11-04 · adr:ADR-0058",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Year-end close designed as its own step before the pilots' first year end: special periods 13-16, closing profit and loss into retained earnings and carrying balances forward (the ledger has no carry-forward today)",
+        "r": "ADR-0058 §1, Questions (year-end close), As built (product owner 2026-11-04) · T64m",
+        "src": "po:2026-11-04 · adr:ADR-0058",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A close task's assignee must have access to the close's company: PATCH /v1/period-closes/{id}/tasks/{code} refuses an active person without it with 422 closing.assignee_invalid (authz.CompaniesOf, another principal's company access as its own requests read it)",
+        "r": "internal/closing/tasks.go person · authz.CompaniesOf · updateCloseTask description · TestCloseTaskRefusals (a person of another company) · TestCompaniesOf · walkthrough step_close (close_checklist: Olga refused) · ADR-0058 As built (T64b, product owner 2026-11-04) · T64n",
+        "src": "po:2026-11-04 · adr:ADR-0058",
         "c": []
        }
       ]
@@ -2168,10 +2203,17 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Tax agent: prepares draft returns, explains variances, proposes adjustment entries (parked) and code corrections; evaluation suite; never transitions a return",
-        "r": "T61l",
+        "s": "D",
+        "t": "Tax agent, drafts and explanations: for a registration's ended period it computes the draft return and records one explanation for a person (a recommendation on the registration, x-autonomy propose) of its figures and its variances against the last period's return and the tax accounts, citing the entries by document number; agent type tax; never prepares, approves, files or withdraws a return (x-agent false: no tool of them is built, the API refuses the agent); evaluation suite evals/tax replayed in CI",
+        "r": "internal/taxagent · erp agent tax-draft · evals/tax · eval $contains · modelstub -script · autonomy.Types tax · ADR-0049 §13 As built (T61l1) · walkthrough step 11 · T61l · T61l1 (the proposals split to T61l2)",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Tax agent, proposals: adjustment entries proposed by parking them and tax code corrections on captured and parked documents proposed for a person, with their evaluation cases; never transitions a return",
+        "r": "after T61l1 · ADR-0049 §13 · T61l2",
+        "src": "split:T61l · adr:ADR-0049",
         "c": []
        },
        {
@@ -2810,6 +2852,13 @@
         "t": "The purchase order document prints each item's delivery date, else the requisition's needed-by date, qualified when an order holds both",
         "r": "ADR-0054 As built (podate) · ADR-0051 As built T53g (procurement.purchase_order_item.delivery_date, 000205) · internal/procurement/order_document.go · walkthrough step 4",
         "src": "adr:ADR-0054 · adr:ADR-0051",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "The purchase order document prints the buyer company's configured postal address, delivers to it while no item names an address of its own, and prints migrated suppliers' streets from SAP's vendor master",
+        "r": "config companies[].postal_address (tier 2, optional) · internal/procurement/order_document.go (Buyer, Deliver to; none configured is said, never invented) · sap.LFA1 STRAS/ORT01/PSTLZ/REGIO (optional, pending the SAP specialist) · integration vendorAddress, quality gate warning · ADR-0054 As built (podocb) · docs/migration.md · walkthrough step 4",
+        "src": "po:2026-11-04 · adr:ADR-0054",
         "c": []
        },
        {
@@ -7267,6 +7316,13 @@
         "t": "A webhook delivered in the walkthrough: an embedded event bus and a subscriber on the walkthrough's machine, the one loopback address and port a development server may deliver to (ERP_WALKTHROUGH_RECEIVER, refused outside development); CashSnapshotTaken delivered, its signature verified and a changed body refused",
         "r": "egress.WalkthroughReceiver, CheckURL's receiver · config.Walkthrough (ERP_WALKTHROUGH_RECEIVER, ERP_WALKTHROUGH_RECEIVER_CA) · integration.Endpoints.Receiver · app.Config.WebhookReceiver · erp-server webhookClient · natstest/natsstub · webhooktest/webhookstub · TestWalkthroughReceiverOption, TestAllowReceiver, TestWalkthroughReceiver, TestCheckURLReceiver, TestWebhookWalkthroughReceiver, TestWebhookClient, TestProductionFailsClosed · walkthrough step 35 · ADR-0041 (as built, T50i) · ADR-0051 (as built) · T50i",
         "src": "po:2026-11-04 · adr:ADR-0041",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "No supplier's name in an event offered to webhooks (product owner 2026-11-05, security posture: a partner may be a person); a supplier's number may be given. ContractExpired and ContractExpiring gave supplier_name since review:batch27: their .v1 is no longer offered to webhooks and is published beside a new .v2 without the name (its later fields required) until 2027-11-05, as ADR-0041 has a breaking event change (eventcompat refuses a field removed within .v1). No other x-webhook event gave a partner's name; a test refuses supplier_name, partner_name, holder_name, bank_account_holder_name and counterparty_name in any marked event",
+        "r": "secpost · api/asyncapi.yaml ContractExpiredV2, ContractExpiringV2 · internal/procurement expiry_names.go publish · api/asyncapi_test.go webhookExcludedFields · TestContractExpiry · TestContractExpiryAlerts · ADR-0041 As built · ADR-0034 As built · 03 §3.8",
+        "src": "po:2026-11-05 · adr:ADR-0041",
         "c": []
        }
       ]

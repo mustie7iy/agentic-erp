@@ -62,6 +62,23 @@ func paymentKeys(id uuid.UUID, p Paying) [][]string {
 	return out
 }
 
+// pieceIDs are what each piece paymentParts splits a payment into is
+// within its statement line, in the same order: per item it settles, the
+// payment and the item's ledger line (payment_item's primary key, so no
+// two pieces of one payment are alike, even of one entry); a payment of
+// no item, the payment. Never a position: a piece read between two pages
+// of the variance's documents moves no other's cursor key (T53i).
+func pieceIDs(id uuid.UUID, p Paying) []string {
+	if len(p.Items) == 0 {
+		return []string{id.String()}
+	}
+	out := make([]string, len(p.Items))
+	for i, it := range p.Items {
+		out[i] = fmt.Sprintf("%s|%d|%s|%d", id, it.FiscalYear, it.Entry, it.LineNo)
+	}
+	return out
+}
+
 // keptKey is the key a snapshot's line at document level names its
 // document by: the payment of a run's or an in-transit flow, a series'
 // occurrence by the series and its day, else the document; "" for a
@@ -146,13 +163,16 @@ type matching struct {
 	kept           []keptLine
 	keys           []string // kept's keys
 	pieces         []matchedPiece
+	numbers        map[string]string // a document's number as the snapshot kept it, by kind and id; a run's payment by the run's
 }
 
 // matchedPiece is a piece of a statement line with the key it was matched
-// to ("" for none).
+// to ("" for none) and every key it is known by.
 type matchedPiece struct {
 	a      actual
+	id     string // what it is within its line (actualPiece)
 	key    string
+	keys   []string // every key it is known by, the memo records its line realised last
 	shares []Share
 }
 
@@ -177,10 +197,16 @@ func mark(in map[string]map[int]bool, key string, b int) {
 // bucket) to the actuals' pieces; a line naming no document is kept, and
 // counts as missing.
 func newMatching(bs []Bucket, lines []keptLine, actuals []actual, series map[uuid.UUID]bool, realised map[lineRef][]string) *matching {
-	m := &matching{bs: bs, forecast: map[string]map[int]bool{}, paid: map[string]map[int]bool{}}
+	m := &matching{bs: bs, forecast: map[string]map[int]bool{}, paid: map[string]map[int]bool{}, numbers: map[string]string{}}
 	for _, l := range lines {
 		if l.end != nil {
 			continue
+		}
+		if l.doc != nil && l.doc.Number != "" {
+			m.numbers[docKey(l.doc.Kind, l.doc.ID)] = l.doc.Number
+			if l.payment != nil {
+				m.numbers[paymentKey(*l.payment)] = l.doc.Number
+			}
 		}
 		k := keptKey(l, series)
 		m.kept, m.keys = append(m.kept, l), append(m.keys, k)
@@ -197,7 +223,7 @@ func newMatching(bs []Bucket, lines []keptLine, actuals []actual, series map[uui
 				key = keys[i]
 				mark(m.paid, key, m.bucket(a.ValueDate))
 			}
-			m.pieces = append(m.pieces, matchedPiece{a: a, key: key, shares: p.shares})
+			m.pieces = append(m.pieces, matchedPiece{a: a, id: p.id, key: key, keys: keys, shares: p.shares})
 		}
 	}
 	return m
@@ -252,9 +278,9 @@ func beyondOf(lines []keptLine, docEnd, last time.Time) *Period {
 	return &Period{From: docEnd.AddDate(0, 0, 1), To: end}
 }
 
-// compare is the variance per currency of the snapshot's lines and the
-// actuals over the period's buckets and the days beyond them.
-func (e *Endpoints) compare(ctx context.Context, ar actualsRead, s Snapshot, bs []Bucket, last time.Time) ([]VarianceCurrency, *Period, error) {
+// matched is the snapshot's lines and their matching to the actuals'
+// pieces over the period's buckets, up to the last day.
+func matched(ctx context.Context, ar actualsRead, s Snapshot, bs []Bucket, last time.Time) ([]keptLine, *matching, error) {
 	lines, err := keptLines(ctx, ar.tx, s.ID, last)
 	if err != nil {
 		return nil, nil, err
@@ -265,15 +291,19 @@ func (e *Endpoints) compare(ctx context.Context, ar actualsRead, s Snapshot, bs 
 	if err != nil {
 		return nil, nil, err
 	}
-	docEnd := s.DocumentLevelUntil()
-	m := newMatching(bs, lines, ar.lines, series, realised)
-	beyond := beyondOf(lines, docEnd, last)
-	t := newVarianceTable(ar.r, len(bs))
-	m.attribute(t)
+	return lines, newMatching(bs, lines, ar.lines, series, realised), nil
+}
+
+// compare is the variance per currency of the snapshot's lines and the
+// actuals over the period's buckets and the days beyond them.
+func (vr varianceRead) compare(ctx context.Context) ([]VarianceCurrency, *Period, error) {
+	beyond := beyondOf(vr.lines, vr.v.Snapshot.DocumentLevelUntil(), vr.v.To)
+	t := newVarianceTable(vr.ar.r, len(vr.v.Buckets))
+	vr.m.attribute(t)
 	if beyond != nil {
-		m.beyond(t, lines, *beyond)
+		vr.m.beyond(t, vr.lines, *beyond)
 	}
-	out, err := t.currencies(ctx, ar.tx)
+	out, err := t.currencies(ctx, vr.ar.tx)
 	return out, beyond, err
 }
 

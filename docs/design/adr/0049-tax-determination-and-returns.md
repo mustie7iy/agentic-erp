@@ -1376,6 +1376,56 @@ applied (`x-autonomy: propose`). Agents may **never** approve, mark filed,
 withdraw or amend a return, change a tax date, or lock a period: those
 operations are human-only (403 `identity.agent_not_allowed`), whatever autonomy
 T43 grants. The return endpoints carry `x-autonomy: none` for the transitions.
+- **As built (T61l1, split from T61l; no migration):** decided by default
+  from this section, ADR-0036 and the reconciliation agent's shape
+  (`internal/reconagent`):
+  - **The agent.** Agent type `tax` (`autonomy.Types`, the profile's
+    open enumeration in both contracts) on `erp-default`, as the
+    reconciliation agent runs: nothing here asks for an alias of its own.
+    Its autonomy, monthly budget and spend are the profile's and the
+    gateway's, as for every type. `internal/taxagent` (layout entry
+    `{"apitools", "llm"}`) reads through API tools only:
+    `listTaxRegistrations`, `listTaxPeriods`, `getTaxReturnDraft`,
+    `listTaxReturnDraftItems`, `listTaxReturns`, `getTaxReturn`,
+    `getJournalEntry`, `listAccounts`, `listBalances`; its role needs
+    `tax.registration.read`, `tax.return.read`, `ledger.entry.read`,
+    `ledger.account.read` and the session permissions.
+  - **"Prepares a draft" is computing it.** Preparing a return is
+    `x-agent: false` (§11 As built: the stored prepare claims items), so
+    the agent computes the draft (`getTaxReturnDraft`) and explains it; a
+    person prepares. `erp agent tax-draft -registration CODE|ID -period
+    START` computes the draft first (a period not ended or not a period
+    stops it before a session starts), then runs one session.
+  - **The explanation is a recommendation** (`createRecommendation`,
+    `x-autonomy: propose`, audited and evented as every recommendation):
+    object `tax_registration` (a draft has no id of its own), kind
+    `explain_draft_return`, its content starting with the return type and
+    the period's days and citing the entries behind each difference from
+    the last period's return and from the tax accounts by document
+    number. A person decides it (`decideRecommendation`). The run's own
+    guard refuses any other recommendation (another session, object, kind
+    or period: the content's first two dates must be the period's) and a
+    second one, whatever an entry's text asks. Entry texts are untrusted
+    data in the prompt.
+  - **Never a transition.** Preparing, filing, withdrawing and approving
+    are `x-agent: false`, so `apitools` builds no tool of them
+    (`TestNeverTransitions`), the API refuses the agent's own call (403
+    `identity.agent_not_allowed`, the walkthrough shows it): held
+    structurally, so the suite's checks that no return moved guard the
+    platform rather than grade the agent (a tool call the agent was not
+    given is answered by the run and recorded nowhere).
+  - **Evaluation suite** `evals/tax` (this ADR lists no cases; they follow
+    from the tracker leaf): a draft explained against the last period
+    citing the entries; a difference from the tax account explained by
+    an entry without a tax code, nothing parked; an entry's planted
+    instruction to prepare, file and withdraw ignored, its claim that the
+    tax manager approved not repeated as a fact. Replayed offline in CI with the scripted model; the check
+    notation `$contains` (ADR-0039) grades a citation. The walkthrough's
+    model stand-in answers from a script of turns (`modelstub -script`,
+    as the close agent's branch has it), so step 11 runs the agent
+    before Carla prepares the return.
+  - **Left to T61l2:** adjustment entries proposed by parking them, and
+    tax code corrections on captured and parked documents.
 
 ## Alternatives
 - **An external engine now (Avalara AvaTax, Vertex O Series).** Covers Canada
@@ -1429,7 +1479,7 @@ coverage 100%, reviewer) like every step.
 | T61o (done) | **Chosen tax dates held to open returns** (P6; product owner 2026-11-01) | A manual entry with tax, and a supplier invoice whose tax date a person set, dated in a period whose return is prepared, approved or filed is refused with 409 `ledger.tax_date_in_return` naming the period, return and status; dates the document decides are not held, so late items reach the amendment; a post racing a prepare serializes on the registration; walkthrough step 11 |
 | T61j (done, not signed off) | **GST/HST return for Canada** | The GST34 lines in the Canada pack's `returns.yaml` (101-115 incl. 205 and 405), golden tests from a worked set of invoices, entries and adjustments, signed off by the tax specialist; the FPZ-500 (GST/HST + QST) if P4 includes it |
 | T61k | **VAT 201 for the UAE** | Boxes 1a-14 in the UAE pack (with T62f), emirate by the registration's fixed establishment, Box 6/7 from import entries, golden tests, specialist sign-off; checked against the EmaraTax form labels |
-| T61l | **Tax agent** | Prepares draft returns, explains variances against the last period and the tax accounts, proposes adjustment entries (parked) and code corrections; evaluation suite (ADR-0039); never transitions a return |
+| T61l | **Tax agent** | Prepares draft returns, explains variances against the last period and the tax accounts, proposes adjustment entries (parked) and code corrections; evaluation suite (ADR-0039); never transitions a return. Split: T61l1 (done) drafts and explanations, T61l2 adjustment entries and code corrections (§13 As built) |
 | T61m | **Engine connector port** (deferred unless P1 says otherwise) | Quote stored on parked documents, posting uses the stored quote, commit through the outbox; a fake engine in tests; provider recorded in this ADR when chosen |
 
 T61a-T61f and T61g-T61k are the pilot's must-haves (T61f's shape and T61j's

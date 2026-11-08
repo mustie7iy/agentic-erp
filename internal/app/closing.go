@@ -45,7 +45,8 @@ func (closingCompanies) Company(ctx context.Context, id uuid.UUID) (closing.Comp
 // what a close's checks read (parked entries and revaluation runs), the
 // period lock a sign-off takes, the variance report's profit and loss and
 // the journal entries its comments cite, and an accrual proposal's
-// accounts, centers and parked entry.
+// accounts, centers and parked entry, that entry's status and its
+// cancellation.
 type closingLedger struct {
 	parked ledger.ParkedEntries
 }
@@ -145,6 +146,20 @@ func (l closingLedger) Park(ctx context.Context, entry closing.ParkEntry) (uuid.
 	return p.ID, err
 }
 
+func (l closingLedger) Statuses(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]closing.EntryStatus, error) {
+	ss, err := l.parked.Statuses(ctx, ids)
+	out := make(map[uuid.UUID]closing.EntryStatus, len(ss))
+	for id, s := range ss {
+		out[id] = closing.EntryStatus{Status: s.Status, Debits: s.Debits, Currency: s.Currency, JournalEntryID: s.JournalEntryID,
+			DocumentNumber: s.DocumentNumber, ReversalID: s.ReversalEntryID, ReversalNumber: s.ReversalNumber}
+	}
+	return out, err
+}
+
+func (l closingLedger) Cancel(ctx context.Context, id uuid.UUID, reason string) error {
+	return l.parked.Cancel(ctx, id, reason)
+}
+
 func closingPeriod(p ledger.Period) closing.Period {
 	return closing.Period{ID: p.ID, Number: p.Period, StartDate: p.StartDate, EndDate: p.EndDate, Status: p.Status, Version: p.Version}
 }
@@ -179,9 +194,21 @@ func (closingPlans) Amounts(ctx context.Context, legalEntity, category uuid.UUID
 // depreciation of a period, the depreciation check's (T64k).
 type closingDepreciation struct{}
 
-func (closingDepreciation) Posted(ctx context.Context, legalEntity, ledgerID uuid.UUID, fiscalYear, period int16, end time.Time) (*uuid.UUID, int, error) {
-	d, err := assets.CloseChecks{}.Depreciation(ctx, legalEntity, ledgerID, fiscalYear, period, end)
-	return d.Run, d.Selected, err
+func (closingDepreciation) Posted(ctx context.Context, legalEntity, ledgerID uuid.UUID, fiscalYear, period int16, end time.Time,
+	limit int) (closing.PeriodDepreciation, error) {
+	d, err := assets.CloseChecks{}.Depreciation(ctx, legalEntity, ledgerID, fiscalYear, period, end, limit)
+	out := closing.PeriodDepreciation{Run: d.Run, Selected: d.Selected, Late: make([]closing.LateAsset, len(d.Late))}
+	if d.Later != nil {
+		out.Later = &closing.LaterDepreciation{ID: d.Later.ID, Of: closing.FiscalPeriod(d.Later.Of), Currency: d.Later.Currency}
+	}
+	for i, a := range d.Late {
+		out.Late[i] = closing.LateAsset{ID: a.ID, Number: a.Number, Description: a.Description, CatchUp: a.CatchUp}
+		if a.MissingFrom != nil {
+			from := closing.FiscalPeriod(*a.MissingFrom)
+			out.Late[i].MissingFrom = &from
+		}
+	}
+	return out, err
 }
 
 // closingEvidence gives the closing context what an accrual proposal

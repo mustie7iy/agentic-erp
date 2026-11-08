@@ -51,6 +51,9 @@ func TestCloseAccountsAccess(t *testing.T) {
 	if _, err := (ledger.CloseAccounts{}).Accounts(context.Background(), uuid.New(), nil, []string{"100000"}); err == nil {
 		t.Error("an accrual's accounts outside a unit of work: got no error, want one")
 	}
+	if _, err := (ledger.ParkedEntries{}).Statuses(context.Background(), []uuid.UUID{uuid.New()}); err == nil {
+		t.Error("parked entries' statuses outside a unit of work: got no error, want one")
+	}
 	if _, err := (ledger.CloseAccounts{}).ProfitCenter(context.Background(), uuid.New(), 2026, time.Now(), uuid.New(), nil, nil); err == nil {
 		t.Error("an accrual's profit center outside a unit of work: got no error, want one")
 	}

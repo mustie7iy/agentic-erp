@@ -43,7 +43,13 @@
 // or posted journal entries (read through the payables, procurement and
 // ledger contexts' ports), parked through the ledger as the agent, debiting
 // the expense and crediting the company's accrual account on the period's
-// last day, for a person to post in the ledger.
+// last day, for a person to post in the ledger. T64f decides them
+// (ADR-0058 §6, §8): a proposal's status is derived at the read from its
+// parked entry (proposed, pending approval, posted and whether changed
+// before, reversed, rejected), read through the ledger's port; a person
+// rejects one, its entry cancelled under the ledger's owner rule; and two
+// checks find the close's proposals undecided and the previous close's
+// posted accruals not reversed.
 package closing
 
 import (
@@ -164,6 +170,19 @@ type ParkEntry struct {
 	Lines         []ParkLine
 }
 
+// EntryStatus is a parked entry as an accrual proposal's status is
+// derived from it: its status (parked, pending_approval, posted, rejected,
+// cancelled); its debit total in Currency, once posted its journal
+// entry's in local currency; once posted, its journal entry and document
+// number; once that is reversed, the reversal's id and document number.
+type EntryStatus struct {
+	Status                         string
+	Debits                         money.Minor
+	Currency                       string
+	JournalEntryID, ReversalID     *uuid.UUID
+	DocumentNumber, ReversalNumber *string
+}
+
 // Ledger reads the ledger context: the leading ledger's regular periods
 // of a legal entity in a fiscal year, by period; the ledgers it keeps with
 // their period of a fiscal year and period, the leading one first, then by
@@ -182,7 +201,10 @@ type ParkEntry struct {
 // date, as a posting derives and checks it, nil for none. Lock locks a closed period as the period lock does
 // (T32), refusing one whose version is no longer the one read. Park parks
 // an entry as the request's principal, as parkJournalEntry does (its
-// checks and problems), and returns its id.
+// checks and problems), and returns its id. Statuses reads the parked
+// entries among ids by id (one the caller may not see is absent); Cancel
+// cancels one as cancelParkedJournalEntry does, as the request's
+// principal, under the ledger's owner rule.
 type Ledger interface {
 	LeadingPeriods(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]Period, error)
 	PeriodsOf(ctx context.Context, legalEntity uuid.UUID, fiscalYear, period int16) ([]LedgerPeriod, error)
@@ -195,6 +217,8 @@ type Ledger interface {
 	Centers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Center, error)
 	ProfitCenter(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16, date time.Time, account uuid.UUID, costCenter, profitCenter *uuid.UUID) (*uuid.UUID, error)
 	Park(ctx context.Context, entry ParkEntry) (uuid.UUID, error)
+	Statuses(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]EntryStatus, error)
+	Cancel(ctx context.Context, id uuid.UUID, reason string) error
 }
 
 // Document is a supplier invoice or a purchase order as an accrual's
@@ -246,9 +270,43 @@ type Plans interface {
 // Depreciation reads the assets context: a legal entity's latest posted
 // depreciation run of a fiscal year and period, ending on end, in a
 // ledger, nil without one; and, only without one, how many of its assets
-// a run of that period in that ledger would select (ADR-0057 §7).
+// a run of that period in that ledger would select, the latest posted run
+// of a later period and, with one, the first limit of those assets late
+// for it with their catch-up (ADR-0057 §7, PO 2026-11-04).
 type Depreciation interface {
-	Posted(ctx context.Context, legalEntity, ledger uuid.UUID, fiscalYear, period int16, end time.Time) (run *uuid.UUID, selected int, err error)
+	Posted(ctx context.Context, legalEntity, ledger uuid.UUID, fiscalYear, period int16, end time.Time, limit int) (PeriodDepreciation, error)
+}
+
+// PeriodDepreciation is a ledger's depreciation of a period as the
+// depreciation check reads it (Depreciation).
+type PeriodDepreciation struct {
+	Run      *uuid.UUID
+	Selected int
+	Later    *LaterDepreciation
+	Late     []LateAsset
+}
+
+// FiscalPeriod is a fiscal year and regular period.
+type FiscalPeriod struct{ FiscalYear, Period int16 }
+
+// LaterDepreciation is a posted depreciation run of a later period: its
+// id, period and currency.
+type LaterDepreciation struct {
+	ID       uuid.UUID
+	Of       FiscalPeriod
+	Currency string
+}
+
+// LateAsset is an asset a run of the period would select after a later
+// period's run posted: its number and description, the first period it
+// has no depreciation booked for (nil when it has neither a booked period
+// nor a depreciation start) and the catch-up a run of the later run's
+// period posts for it, in the run's currency.
+type LateAsset struct {
+	ID                  uuid.UUID
+	Number, Description string
+	MissingFrom         *FiscalPeriod
+	CatchUp             money.Minor
 }
 
 // Person is a principal as the closing context names it: its name, kind

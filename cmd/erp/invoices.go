@@ -13,11 +13,15 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/agent"
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/cashagent"
+	"github.com/mustie7iy/agentic-erp/internal/closeagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/configagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/migrationagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/testagent"
+	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/reconagent"
+	"github.com/mustie7iy/agentic-erp/internal/taxagent"
 )
 
 type parkedInvoice struct {
@@ -270,7 +274,7 @@ func agentInvoices(ctx context.Context) error {
 // agentCmd runs a delivery agent with the agents' token.
 func agentCmd(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("agent invoices | config | migration | test | reconcile")
+		return errors.New("agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance | tax-draft")
 	}
 	switch args[0] {
 	case "invoices":
@@ -283,6 +287,14 @@ func agentCmd(ctx context.Context, args []string) error {
 		return agentTest(ctx, args[1:])
 	case "reconcile":
 		return agentReconcile(ctx, args[1:])
+	case "close-accruals":
+		return agentCloseAccruals(ctx, args[1:])
+	case "close-variances":
+		return agentCloseVariances(ctx, args[1:])
+	case "cash-variance":
+		return agentCashVariance(ctx, args[1:])
+	case "tax-draft":
+		return agentTaxDraft(ctx, args[1:])
 	}
 	return fmt.Errorf("unknown agent %q", args[0])
 }
@@ -384,4 +396,149 @@ func agentReconcile(ctx context.Context, args []string) error {
 		return fmt.Errorf("agent reconcile: %s", strings.Join(res.Errors, "; "))
 	}
 	return nil
+}
+
+// agentCloseAccruals has the close agent propose the close's accruals
+// (ADR-0058 §12, T64g), on erp-close unless ERP_AGENT_MODEL names an
+// alias: a person posts or cancels each proposal's parked entry.
+func agentCloseAccruals(ctx context.Context, args []string) error {
+	return agentClose(ctx, "close-accruals", args, func(a *closeagent.Agent, closeID, _ string) (closeagent.Result, error) {
+		return a.Accruals(ctx, closeID)
+	}, func(p closeagent.Proposal) string {
+		return fmt.Sprintf("proposal %s, parked entry %s", p.ID, p.ParkedEntryID)
+	})
+}
+
+// agentCloseVariances has the close agent propose comments on the close's
+// variance rows (ADR-0058 §12, T64j), against -basis or every basis the
+// company configures, on erp-close unless ERP_AGENT_MODEL names an alias:
+// a person accepts or rejects each comment.
+func agentCloseVariances(ctx context.Context, args []string) error {
+	return agentClose(ctx, "close-variances", args, func(a *closeagent.Agent, closeID, basis string) (closeagent.Result, error) {
+		return a.Variances(ctx, closeID, basis)
+	}, func(p closeagent.Proposal) string {
+		return fmt.Sprintf("comment %s on %s against %s", p.ID, p.AccountNumber, p.Basis)
+	})
+}
+
+// agentClose runs one of the close agent's runs on -close (and, for the
+// variances, -basis) and prints its session, what it proposed, each as
+// line says, and the model's reply.
+func agentClose(ctx context.Context, name string, args []string, run func(*closeagent.Agent, string, string) (closeagent.Result, error),
+	line func(closeagent.Proposal) string) error {
+	fs := flag.NewFlagSet("agent "+name, flag.ContinueOnError)
+	closeID := fs.String("close", "", "period close id")
+	basis := new(string)
+	if name == "close-variances" {
+		basis = fs.String("basis", "", "variance basis (default: every basis the company configures)")
+	}
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if *closeID == "" {
+		return fmt.Errorf("agent %s: -close names the period close", name)
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := run(&closeagent.Agent{LLM: closeRunner(c), API: c}, *closeID, *basis)
+	if res.Session == "" {
+		return runErr
+	}
+	// What the run made is printed even when it failed afterwards: its
+	// proposals wait for a person either way.
+	w := printer()
+	fmt.Fprintf(w, "Session %s: proposals made %d, refused %d.\n", res.Session, len(res.Proposals), res.Refused)
+	for _, p := range res.Proposals {
+		fmt.Fprintf(w, "  %s\n", line(p))
+	}
+	if res.Reply != "" {
+		fmt.Fprintln(w, res.Reply)
+	}
+	return errors.Join(runErr, errs.Wrapf(w.Flush(), "agent %s: print", name))
+}
+
+// closeRunner is newRunner on the close agent's alias, unless
+// ERP_AGENT_MODEL names another.
+func closeRunner(c *apitools.Client) *llm.Runner {
+	r := newRunner(c)
+	if getenv("ERP_AGENT_MODEL") == "" {
+		r.Model = closeagent.Alias
+	}
+	return r
+}
+
+// agentCashVariance has the forecast agent explain a company's forecast
+// variance over a period (ADR-0051 §13, T53i): it proposes comments citing
+// the documents behind the attribution and memo records for flows the
+// statements show recurring, and prints its session, each proposal and
+// its reply; a person accepts or rejects each.
+func agentCashVariance(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent cash-variance", flag.ContinueOnError)
+	company := fs.String("company", "", "company code")
+	period := fs.String("period", "", "the period, FROM..TO (YYYY-MM-DD..YYYY-MM-DD)")
+	lag := fs.Int("lag", cashagent.DefaultLag, "the snapshot's lag in days: 0, 7 or 30")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	from, to, ok := strings.Cut(*period, "..")
+	if *company == "" || !ok || from == "" || to == "" {
+		return errors.New("agent cash-variance: want -company CODE -period FROM..TO [-lag 7]")
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := (&cashagent.Agent{LLM: newRunner(c), API: c}).Explain(ctx, cashagent.Period{Company: *company, From: from, To: to, Lag: *lag})
+	if res.Session != "" {
+		out := fmt.Sprintf("Session %s: comments proposed %d, memo records proposed %d, refused %d.\n", res.Session, len(res.Comments), len(res.Memos), res.Refused)
+		for _, id := range res.Comments {
+			out += "  comment " + id + "\n"
+		}
+		for _, id := range res.Memos {
+			out += "  memo record " + id + "\n"
+		}
+		if res.Reply != "" {
+			out += res.Reply + "\n"
+		}
+		if err := printf("agent cash-variance", "%s", out); err != nil {
+			return errors.Join(runErr, err)
+		}
+	}
+	return runErr
+}
+
+// agentTaxDraft has the tax agent explain a registration's draft return
+// of a period (ADR-0049 §13, T61l1): a person reads its recommendation
+// and prepares the return, or not.
+func agentTaxDraft(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent tax-draft", flag.ContinueOnError)
+	reg := fs.String("registration", "", "tax registration id or code")
+	period := fs.String("period", "", "the period's first day (YYYY-MM-DD)")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if *reg == "" || *period == "" {
+		return errors.New("agent tax-draft: -registration and -period name the draft return")
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := (&taxagent.Agent{LLM: newRunner(c), API: c}).Explain(ctx, *reg, *period)
+	if res.Session == "" {
+		return runErr
+	}
+	// What the run recommended is printed even when it failed afterwards:
+	// its recommendations wait for a person either way.
+	w := printer()
+	fmt.Fprintf(w, "Session %s: recommendations made %d, refused %d.\n", res.Session, len(res.Recommendations), res.Refused)
+	for _, id := range res.Recommendations {
+		fmt.Fprintf(w, "  recommendation %s\n", id)
+	}
+	if res.Reply != "" {
+		fmt.Fprintln(w, res.Reply)
+	}
+	return errors.Join(runErr, errs.Wrapf(w.Flush(), "agent tax-draft: print"))
 }

@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
@@ -36,8 +36,14 @@ func (e env) address(t *testing.T, partnerID uuid.UUID, purpose, line1, line2 st
 		VALUES ($1, gen_random_uuid(), $2, $3, $4, $5, 'Springfield', '62701', 'IL', 'US', current_date - 1, $6)`, e.Tenant.ID, partnerID, purpose, line1, l2, e.Tenant.Human.ID)
 }
 
+// berlin is company 2000's postal address in the configuration.
+func berlin(doc *config.Config) {
+	doc.Company("2000").PostalAddress = &config.PostalAddress{Line1: "Friedrichstrasse 100", Line2: "Wareneingang Tor 2", City: "Berlin",
+		PostalCode: "10117", CountryCode: "DE"}
+}
+
 func TestOrderDocument(t *testing.T) {
-	e := setup(t)
+	e := setupWith(t, berlin)
 	org := e.orgUnit(t, "purchasing_org", "P1")
 	e.address(t, e.Supplier, "legal", "1 Legal Way", "")
 	e.address(t, e.Supplier, "order_from", "2 Order Street", "Building B")
@@ -66,6 +72,9 @@ Revision 1, order date 2026-03-10, currency EUR
 
 Buyer
   Acme GmbH (company 2000)
+  Friedrichstrasse 100
+  Wareneingang Tor 2
+  Berlin, 10117
   Country DE
   Purchasing organisation P1 P1
 
@@ -75,6 +84,13 @@ Supplier
   Building B
   Springfield, IL, 62701
   Country US
+
+Deliver to
+  Acme GmbH
+  Friedrichstrasse 100
+  Wareneingang Tor 2
+  Berlin, 10117
+  Country DE
 
 Payment terms: NT30 Net 30 days
 
@@ -178,6 +194,9 @@ func TestOrderDocumentTexts(t *testing.T) {
 	_, body, _ := e.document(t, id(o), e.Tenant.Human)
 	for _, s := range []string{
 		"  Vendor Total 0.00 EUR (supplier BP90000002)\n  Country US (no order or legal address held)\n",
+		// No postal address configured for the buyer: none is invented.
+		"Buyer\n  Acme GmbH (company 2000)\n  Country DE (no postal address configured)\n\nSupplier\n",
+		"\nDeliver to\n  No delivery address held: ask the buyer where to deliver.\n\nPayment terms",
 		"  Item 1: Paper  Pay to IBAN XX00 Total 0.00 EUR  \n",
 	} {
 		if !strings.Contains(body, s) {
@@ -201,8 +220,20 @@ func (e env) orderOf(t *testing.T, supplier uuid.UUID, its string) map[string]an
 type gone struct {
 	procurement.LegalEntities
 	procurement.Suppliers
+	procurement.Settings
 	what string
 	err  error
+}
+
+// Document fails as settings, and as company holds no company at all.
+func (g gone) Document(ctx context.Context) (*config.Config, int32, error) {
+	switch g.what {
+	case "settings":
+		return nil, 0, g.err
+	case "company":
+		return &config.Config{}, 1, nil
+	}
+	return g.Settings.Document(ctx)
 }
 
 func (g gone) Entity(ctx context.Context, id uuid.UUID) (tenancy.Entity, bool, error) {
@@ -240,17 +271,26 @@ func TestOrderDocumentMasterDataGone(t *testing.T) {
 	o := e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), fmt.Sprintf(`, "purchasing_org_id": %q`, e.orgUnit(t, "purchasing_org", "P1")))
 	e.act(t, "/v1/purchase-orders/"+id(o), "release", "")
 	broken := errors.New("broken")
-	for _, what := range []string{"entity", "org", "supplier", "term"} {
+	render := func(t *testing.T, what string, cause error) (string, error) {
+		t.Helper()
+		var body string
+		err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+			h := endpoints()
+			g := gone{LegalEntities: h.LegalEntities, Suppliers: h.Suppliers, Settings: h.Settings, what: what, err: cause}
+			h.LegalEntities, h.Suppliers, h.Settings = g, g, g
+			var err error
+			body, err = h.OrderDocument(ctx, uuid.MustParse(id(o)))
+			return err
+		})
+		return body, err
+	}
+	for _, what := range []string{"entity", "org", "supplier", "term", "settings"} {
 		for _, cause := range []error{nil, broken} {
+			if what == "settings" && cause == nil {
+				continue // Settings.Document answers config.not_bootstrapped, never nothing
+			}
 			t.Run(fmt.Sprintf("%s %v", what, cause), func(t *testing.T) {
-				e := e.in(t)
-				err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-					h := endpoints()
-					g := gone{LegalEntities: h.LegalEntities, Suppliers: h.Suppliers, what: what, err: cause}
-					h.LegalEntities, h.Suppliers = g, g
-					_, err := h.GetPurchaseOrderDocument(ctx, gen.GetPurchaseOrderDocumentParams{ID: uuid.MustParse(id(o))})
-					return err
-				})
+				_, err := render(t, what, cause)
 				if err == nil {
 					t.Fatal("got no error, want one")
 				}
@@ -260,4 +300,14 @@ func TestOrderDocumentMasterDataGone(t *testing.T) {
 			})
 		}
 	}
+	t.Run("a company the configuration does not hold", func(t *testing.T) {
+		// Its address is not configured, which the document says.
+		body, err := render(t, "company", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := "  Country DE (no postal address configured)\n"; !strings.Contains(body, want) {
+			t.Errorf("document: got\n%s\nwant it to contain %q", body, want)
+		}
+	})
 }

@@ -75,6 +75,7 @@ func TestContractExpiryAlerts(t *testing.T) {
 	want(t, "second alert", byID[last["id"]], map[string]any{"legal_entity_code": "2000"})
 	want(t, "alert target", byID[soon["id"]]["target_value"].(map[string]any), map[string]any{"amount": "1000.00", "currency": "EUR"})
 	want(t, "alert on the last day", byID[last["id"]], map[string]any{"days_left": float64(30)})
+	webhookEvents(t, e, "contract_expiring", alerts)
 	got, _ := e.Must(200, "GET", soonPath, "", "")
 	if got["expiry_alerted_on"] != "2026-03-01" {
 		t.Errorf("alerted contract: got expiry_alerted_on %v, want the day of the alert, 2026-03-01", got["expiry_alerted_on"])
@@ -103,6 +104,7 @@ func TestContractExpiryAlerts(t *testing.T) {
 	if n := len(events(t, e, "contract_expiring")); n != 2 {
 		t.Errorf("ContractExpiring events after the second round: got %d, want 2", n)
 	}
+	webhookEvents(t, e, "contract_expiring", alerts)
 }
 
 // renewalOf is a renewal body for the contract at path: a year after it ends.

@@ -49,6 +49,26 @@ func encodeAcceptBankStatementLineProposalRequest(
 	return nil
 }
 
+func encodeAcceptForecastVarianceCommentProposalRequest(
+	req OptForecastVarianceCommentAccept,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	if !req.Set {
+		// Keep request with empty body if value is not set.
+		return nil
+	}
+	e := new(jx.Encoder)
+	{
+		if req.Set {
+			req.Encode(e)
+		}
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeAcceptMemoRecordProposalRequest(
 	req OptMemoRecordAccept,
 	r *http.Request,
@@ -1457,6 +1477,20 @@ func encodeProposeBankStatementLineRequest(
 	return nil
 }
 
+func encodeProposeForecastVarianceCommentRequest(
+	req *ForecastVarianceCommentProposal,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeProposeMemoRecordRequest(
 	req *MemoRecordProposal,
 	r *http.Request,
@@ -1561,6 +1595,20 @@ func encodeRedateProfitCenterRequest(
 	return nil
 }
 
+func encodeRejectAccrualProposalRequest(
+	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeRejectApprovalRequestRequest(
 	req *CommentRequiredInput,
 	r *http.Request,
@@ -1576,6 +1624,20 @@ func encodeRejectApprovalRequestRequest(
 }
 
 func encodeRejectBankStatementLineProposalRequest(
+	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeRejectForecastVarianceCommentProposalRequest(
 	req *ReasonInput,
 	r *http.Request,
 ) error {

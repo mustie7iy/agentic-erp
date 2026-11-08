@@ -487,6 +487,16 @@ suppliers a migration run creates, whose date is their bank account's
 `valid_from`, one UTC rule for the whole supplier (product owner
 2026-10-31, ADR-0051 as built).
 
+A company's postal address is its `companies[].postal_address`, in a
+business partner address's shape without purpose or validity (`line1`,
+`city` and `country_code` required, `line2`, `postal_code` and `region`
+optional, the contract's `Address` lengths; the configuration versions
+are its history). It is optional, and a change is tier 2: it posts
+nothing and routes deliveries. The purchase order document prints it as
+the buyer's address and as the address to deliver to, no order item
+naming one of its own; without it the document says that none is
+configured (product owner 2026-11-04, ADR-0054 As built).
+
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
 in the currency of the requisition's company), the order release
@@ -1420,7 +1430,10 @@ Both judge on the contract's company's date in its time zone at the round
 (T72n6), which the events give with the zone (`expired_on`, `alerted_on`,
 `time_zone`). Both name the company by `legal_entity_code` and the supplier
 by `supplier_number` and `supplier_name` beside their ids (ADR-0034 as
-built, review:batch27). An
+built, review:batch27). Each is written twice: `.v1` as described, and
+`.v2` without `supplier_name`, the one offered to webhooks, since a
+supplier's name never goes to a webhook (product owner 2026-11-05;
+ADR-0041 as built); `.v1` is published until 2027-11-05. An
 alert is an event only: buyers renew the contract or let it expire. A
 configuration activated before the key existed reads 0: the round alerts
 nothing and logs a warning until a change request adds it. Received quantity per PO item is the sum of goods
@@ -2693,7 +2706,7 @@ line or reservation. An agent's budget is identity's
 | ACDOCA | `ledger.journal_entry` + `ledger.journal_line` (TC/LC/GC amounts); migrated lines post HSL in company code currency, so an open item (vendor item, down payment, GR/IR position line) whose RWCUR is not the company's currency, or is absent, stops the load until foreign-currency open items are migrated (WSL is carried, not yet read) |
 | BSEG clearing (AUGBL) | `ledger.clearing` + `ledger.clearing_item` |
 | ACDOCA lines on the GR/IR account (T030 WRX) with EBELN/EBELP | the order valued `gr_ir`; per open order item, SAP's balance and open quantity (posted RSEG invoiced less MSEG 101 received) taken over onto `ledger.gr_ir_position` (`migrated`) by an integration entry of `GRIRItem.TakesOver` items (T72f) |
-| LFA1/LFB1/LFBK, BUT000 | `partner.business_partner`, `supplier_company`, `bank_account`, `tax_identifier`; a Canadian LFBK (BANKS CA) as scheme `ca`, its institution and transit from BANKL as 0 + institution + transit (T72d) |
+| LFA1/LFB1/LFBK, BUT000 | `partner.business_partner`, `supplier_company`, `bank_account`, `tax_identifier`; a Canadian LFBK (BANKS CA) as scheme `ca`, its institution and transit from BANKL as 0 + institution + transit (T72d); the vendor's street, city, postal code and region (LFA1 STRAS, ORT01, PSTLZ, REGIO, optional, field names pending the SAP specialist) as its `legal` `partner.address` when street and city are both given (ADR-0054 As built) |
 | FLQLITEM/FLQLITEMT liquidity items, T035 planning groups, LFB1-FDGRV | `cash.liquidity_item`, `cash.planning_group`, `supplier_company.planning_group` (T53b) |
 | EBAN | `procurement.requisition` |
 | EKKO/EKPO | `procurement.purchase_order` + items |
@@ -2793,7 +2806,12 @@ erDiagram
     text text
     text status "proposed | accepted | rejected"
     uuid decided_by
-    uuid created_by "the author" }
+    uuid created_by "the author"
+    uuid session_id "agents context: a proposal's"
+    jsonb citations "a proposal's documents"
+    text decision_reason "a rejection's"
+    text proposed_text "the agent's, when accepted edited"
+    int version }
   snapshot ||--o{ export : "sent as"
   export { uuid id PK
     uuid snapshot_id FK
@@ -2817,7 +2835,7 @@ erDiagram
 | `cash.memo_record` | An expected receipt or payment (SAP's memo records, ADR-0051 §7; T53d): a signed, non-zero amount in minor units of its currency, a value date and an expiry date on or after it, a certainty, an active liquidity item of the amount's direction (`cash.check_memo_item`, when the item or amount is written; `cash.Setup` refuses taking away an item an open record names), a house bank or none (forecast only), optionally a series (`weekly`, `monthly` on the value date's day, `quarterly`; until a day or a count of 2-520, or neither) expanded at read time, `counts_until` the last occurrence's expiry (a one-off record's `expires_on`, null for a series without end; an active record past it is shown `expired`). An override (`recurrence_of`, `occurrence_date`) replaces one occurrence of a series, once per occurrence (`memo_record_override_once`). `origin` `agent` records carry their session and reason and are the only ones `proposed` or `rejected`; `upload` ones carry their batch key and a reference unique per company and key (`memo_record_batch_reference`). Realised by a statement line or by a person; a series only through an override of an occurrence. Changes are versions; never deleted |
 | `cash.snapshot` | A snapshot of a company's liquidity forecast (ADR-0051 §6, T53f, 000198): `daily` (the TakeCashSnapshot workflow's, one per company and date, `snapshot_daily`) or `on_demand` (a person's, named, `snapshot_name`), its date and zone, the last day of its buckets and the configuration version that classified it. Insert-only (no version, no update or delete granted); deleted with its lines 25 months after its date by the workflow through `cash.delete_expired_snapshots`, which computes the 25 months and refuses a day after UTC's tomorrow, unless a variance comment refers to it (000201) |
 | `cash.snapshot_flow` | A snapshot's lines in transaction currency: within 31 days of its date, what one forecast flow (`flow_no`) pays of one document under one liquidity item, with its day at the bank, house bank, source, certainty, lateness, supplier and payment (`flow_count` 1, `snapshot_flow_count`); beyond, a bucket's sum (`bucket_end`) per currency, source, certainty, item and house bank, naming no document, supplier or payment and never late (`snapshot_flow_bucket`). A document is named whole (`snapshot_flow_document`); an item is the tenant's (null: unclassified). Insert-only |
-| `cash.variance_comment` | A comment on one row of a company's forecast variance (ADR-0051 §11, T53f4, 000201): its period (`variance_comment_period`), lag (0, 7 or 30), liquidity item (the tenant's, active or not; null: what no rule assigns) and the snapshot that variance compares with, of the same company (`variance_comment_snapshot`, which keeps the snapshot past its retention); a text of 1 to 2,000 characters, not blank; `proposed` (an agent's, T53i), `accepted` or `rejected`, decided exactly when not proposed (`variance_comment_decided`; a person's is accepted as written, decided by its author). Insert-only, never deleted |
+| `cash.variance_comment` | A comment on one row of a company's forecast variance (ADR-0051 §11, T53f4, 000201): its period (`variance_comment_period`), lag (0, 7 or 30), liquidity item (the tenant's, active or not; null: what no rule assigns) and the snapshot that variance compares with, of the same company (`variance_comment_snapshot`, which keeps the snapshot past its retention); a text of 1 to 2,000 characters, not blank; `proposed` (an agent's, T53i), `accepted` or `rejected`, decided exactly when not proposed (`variance_comment_decided`; a person's is accepted as written, decided by its author). The forecast agent's proposal (T53i, 000218) names its session and cites 1 to 50 documents its variance's attribution lists (checked by the application; `variance_comment_session`, `variance_comment_citations`); a person decides it once, from `proposed`, by another than its author, raising its `version` (`cash.check_variance_comment_decision`), with a reason exactly when rejected (`variance_comment_rejected`), its text changed only by an accepted edit that keeps the agent's as `proposed_text` (`variance_comment_edited`); the application may update only the status, who decided, when, why, the text, the proposed text and the version. Never deleted |
 | `cash.export` | An export of a snapshot to a treasury system (ADR-0051 §14, T53h, 000209) through a `treasury_export` connector, in the cash export schema v1 (`api/schemas/cash-export.v1.json`) and the connector's format: queued with the snapshot for every active such connector naming its company, or by a person; `pending` until the exporter (`cash.Exporter`) delivers it, waiting `next_attempt_at` between attempts (at most six, `export_pending`), then `delivered` (`delivered_at` and `resend` set, `export_delivered`) or `failed` with the last attempt's problem code. Its file is named by company, snapshot date and content hash (`export_file`, which ties the name to the hash's form and the format), so the same snapshot exported again is the same file, `resend` when its connector was delivered that hash before. Of the snapshot's company (`export_snapshot`), deleted with it by retention (ON DELETE CASCADE); never deleted otherwise. `erp_worker` reads `tenant_id`, `status` and `next_attempt_at` to find the tenants with exports due |
 | `cash.outbox`, `cash.inbox` | The context's events (`MemoRecordChanged`, `CashSnapshotTaken`, offered to webhooks since T53h, `VarianceCommentDecided`, `CashExportDelivered`), relayed as every context's (000152, `outbox.Contexts`) |
 
@@ -3335,7 +3353,10 @@ the count and the first 20 parked entries with who parked them; for
 `revaluation_posted`, each covered ledger with its key date and posted
 run; for `depreciation_posted` (T64k), each covered ledger with its
 latest posted depreciation run of the period or, without one, how many
-assets a run would select), names included as they were then. The four are set together, on a
+assets a run would select and the latest posted run of a later period;
+for any check, its warnings, counted, the first 20 named: from T64l,
+`depreciation_catch_up` for each asset a run of the period would select
+in a ledger whose later period's run posted, with its catch-up), names included as they were then. The four are set together, on a
 check task only (`close_task_checked`), never when the task is created,
 and once recorded are replaced by the next check, never removed
 (`closing.check_close_task`). A check task is `done` only while its latest
@@ -3350,7 +3371,9 @@ the depreciation check reads the assets context through its port
 fiscal year and period (`assets.depreciation_run`,
 `depreciation_run_by_company`) and, without one, the assets a run would
 select (the run's and the preview's selection over `assets.asset`,
-`asset_terms`, `asset_assignment` and `movement`, ADR-0057 §7).
+`asset_terms`, `asset_assignment` and `movement`, ADR-0057 §7) and the
+latest `posted` run of a later period, with the selected assets'
+`booked_through` and movements for their catch-up (T64l).
 
 A close's sign-offs (T64d, migration 000199):
 
@@ -3415,6 +3438,25 @@ filters by session (`accrual_proposal_by_session`). The accounts, centers,
 supplier, documents, parked entry, session and principals are other
 contexts', by id, without foreign keys. Schema tests:
 `db/closing_test.go` (`TestAccrualProposalRules`).
+
+Deciding them (T64f, migration 000217: the permission
+`closing.accrual.decide`; `AccrualProposalRejected`) stores nothing new.
+`status` keeps what the closing context decided (`rejected` by
+`:reject`, with who, when and why); every other status is derived at the
+read from the parked entry through the ledger's port
+(`ledger.ParkedEntries.Statuses`, one statement per read over
+`ledger.parked_entry`, `ledger.journal_entry` and `ledger.reversal`):
+`proposed` while it is parked, `pending_approval`, `posted` with its
+journal entry and the debit total posted in local currency (`modified`
+when it differs from `amount`), `reversed` once that entry is reversed,
+and `rejected` too when the ledger cancelled the entry or rejected its
+approval. The duplicate rule reads the close's proposals of the key under
+the close's lock (`accrual_proposal_by_close`) and skips those whose
+derived status is `rejected`, so a proposal whose entry was cancelled in
+the ledger no longer blocks a new one. A list's totals per status and
+currency read the whole filtered set's proposals and their entries' status
+in two statements. Schema test: `db/closing_test.go`
+(`TestClosePermissions`).
 
 The variance report (T64h) stores nothing. A company's settings are
 configuration (`companies[].close.variance`: bases, amount and percent

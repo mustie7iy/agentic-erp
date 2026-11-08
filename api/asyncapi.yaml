@@ -252,6 +252,8 @@ channels:
       GrIrCleared: {$ref: '#/components/messages/GrIrCleared'}
       ContractExpired: {$ref: '#/components/messages/ContractExpired'}
       ContractExpiring: {$ref: '#/components/messages/ContractExpiring'}
+      ContractExpiredV2: {$ref: '#/components/messages/ContractExpiredV2'}
+      ContractExpiringV2: {$ref: '#/components/messages/ContractExpiringV2'}
   payables:
     address: 'erp.{cell}.payables.{tenant}.{event}'
     title: Accounts payable events
@@ -340,6 +342,7 @@ channels:
     messages:
       MemoRecordChanged: {$ref: '#/components/messages/MemoRecordChanged'}
       CashSnapshotTaken: {$ref: '#/components/messages/CashSnapshotTaken'}
+      VarianceCommentProposed: {$ref: '#/components/messages/VarianceCommentProposed'}
       VarianceCommentDecided: {$ref: '#/components/messages/VarianceCommentDecided'}
       CashExportDelivered: {$ref: '#/components/messages/CashExportDelivered'}
   controlling:
@@ -384,6 +387,7 @@ channels:
       PeriodCloseChanged: {$ref: '#/components/messages/PeriodCloseChanged'}
       PeriodCloseSignedOff: {$ref: '#/components/messages/PeriodCloseSignedOff'}
       AccrualProposed: {$ref: '#/components/messages/AccrualProposed'}
+      AccrualProposalRejected: {$ref: '#/components/messages/AccrualProposalRejected'}
       VarianceCommentChanged: {$ref: '#/components/messages/VarianceCommentChanged'}
   platform:
     address: 'erp.{cell}.platform.{tenant}.{event}'
@@ -501,6 +505,8 @@ operations:
       - $ref: '#/channels/procurement/messages/GrIrCleared'
       - $ref: '#/channels/procurement/messages/ContractExpired'
       - $ref: '#/channels/procurement/messages/ContractExpiring'
+      - $ref: '#/channels/procurement/messages/ContractExpiredV2'
+      - $ref: '#/channels/procurement/messages/ContractExpiringV2'
   publishPayablesEvents:
     action: send
     title: Payables publishes
@@ -577,6 +583,7 @@ operations:
     messages:
       - $ref: '#/channels/cash/messages/MemoRecordChanged'
       - $ref: '#/channels/cash/messages/CashSnapshotTaken'
+      - $ref: '#/channels/cash/messages/VarianceCommentProposed'
       - $ref: '#/channels/cash/messages/VarianceCommentDecided'
       - $ref: '#/channels/cash/messages/CashExportDelivered'
   publishControllingEvents:
@@ -613,6 +620,7 @@ operations:
       - $ref: '#/channels/closing/messages/PeriodCloseChanged'
       - $ref: '#/channels/closing/messages/PeriodCloseSignedOff'
       - $ref: '#/channels/closing/messages/AccrualProposed'
+      - $ref: '#/channels/closing/messages/AccrualProposalRejected'
       - $ref: '#/channels/closing/messages/VarianceCommentChanged'
   publishPlatformEvents:
     action: send
@@ -2706,10 +2714,9 @@ components:
           payload: {"gr_ir_clearing_id": "0192a000-0000-7000-8000-000000000611", "purchase_order_id": "0192a000-0000-7000-8000-000000000602", "document_number": "4500001234", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "posting_date": "2026-10-27", "journal_entry_id": "0192a000-0000-7000-8000-000000000612", "journal_entry_year": 2026, "journal_entry_number": "5000000017", "items": [{"po_item_no": 1, "quantity": "-1", "unit": "EA", "amount": {"amount": "-470.00", "currency": "CAD"}}]}
     ContractExpired:
       name: ContractExpired
-      x-webhook: true
       title: Contract expired
       summary: "An active contract reached the end of its validity."
-      description: "Emitted when an active contract moves to `expired` after `valid_to` has passed in its company's time zone (by a scheduled job, so the actor is a service; T72n6). Subject is the contract id."
+      description: "Emitted when an active contract moves to `expired` after `valid_to` has passed in its company's time zone (by a scheduled job, so the actor is a service; T72n6). Subject is the contract id. Not offered to webhooks since 2026-11-05: it gives `supplier_name`, and a supplier's name never goes to a webhook (product owner 2026-11-05, security posture; ADR-0041). Published beside ContractExpiredV2, which is offered and gives the supplier by `supplier_number` only, until 2027-11-05 (12 months, ADR-0041)."
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -2723,10 +2730,9 @@ components:
           payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_to": "2027-09-30", "consumed_value": {"amount": "212400.00", "currency": "EUR"}, "previous_status": "active", "status": "expired", "expired_on": "2027-10-01", "time_zone": "Europe/Berlin", "legal_entity_code": "DE01", "supplier_number": "BP-100231", "supplier_name": "Acme Industrial Supplies Ltd"}
     ContractExpiring:
       name: ContractExpiring
-      x-webhook: true
       title: Contract expiring
       summary: "An active contract without a renewal ends within the notice period."
-      description: "Emitted once per contract (its `expiry_alerted_on` is set once), by a scheduled job, so the actor is a service, when an active contract that no live renewal continues ends within `purchasing.contract_expiry_notice_days` of its company's date in its time zone (T72n6). An alert only: buyers renew it by `contracts/{id}:renew` or let it expire. Subject is the contract id."
+      description: "Emitted once per contract (its `expiry_alerted_on` is set once), by a scheduled job, so the actor is a service, when an active contract that no live renewal continues ends within `purchasing.contract_expiry_notice_days` of its company's date in its time zone (T72n6). An alert only: buyers renew it by `contracts/{id}:renew` or let it expire. Subject is the contract id. Not offered to webhooks since 2026-11-05: it gives `supplier_name`, and a supplier's name never goes to a webhook (product owner 2026-11-05, security posture; ADR-0041). Published beside ContractExpiringV2, which is offered and gives the supplier by `supplier_number` only, until 2027-11-05 (12 months, ADR-0041)."
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -2738,6 +2744,40 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000065", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.contract_expiring.v1", "subject": "0192a000-0000-7000-8000-000000000607", "time": "2027-08-31T00:05:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
           payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_to": "2027-09-30", "days_left": 30, "consumed_value": {"amount": "212400.00", "currency": "EUR"}, "target_value": {"amount": "250000.00", "currency": "EUR"}, "alerted_on": "2027-08-31", "time_zone": "Europe/Berlin", "legal_entity_code": "DE01", "supplier_number": "BP-100231", "supplier_name": "Acme Industrial Supplies Ltd"}
+    ContractExpiredV2:
+      name: ContractExpiredV2
+      x-webhook: true
+      title: Contract expired (v2)
+      summary: "An active contract reached the end of its validity."
+      description: "ContractExpired without the supplier's name, offered to webhooks (product owner 2026-11-05, security posture: a supplier may be a person; ADR-0041). Written in the same transaction as ContractExpired (.v1), on the same subject, whenever that one is. Emitted when an active contract moves to `expired` after `valid_to` has passed in its company's time zone (by a scheduled job, so the actor is a service). Subject is the contract id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.contract_expired.v2}
+      payload: {$ref: '#/components/schemas/ContractExpiredV2'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000073", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.contract_expired.v2", "subject": "0192a000-0000-7000-8000-000000000607", "time": "2027-10-01T00:05:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
+          payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_to": "2027-09-30", "consumed_value": {"amount": "212400.00", "currency": "EUR"}, "previous_status": "active", "status": "expired", "expired_on": "2027-10-01", "time_zone": "Europe/Berlin", "legal_entity_code": "DE01", "supplier_number": "BP-100231"}
+    ContractExpiringV2:
+      name: ContractExpiringV2
+      x-webhook: true
+      title: Contract expiring (v2)
+      summary: "An active contract without a renewal ends within the notice period."
+      description: "ContractExpiring without the supplier's name, offered to webhooks (product owner 2026-11-05, security posture: a supplier may be a person; ADR-0041). Written in the same transaction as ContractExpiring (.v1), on the same subject, whenever that one is: once per contract, by a scheduled job, so the actor is a service, when an active contract that no live renewal continues ends within `purchasing.contract_expiry_notice_days` of its company's date in its time zone. An alert only: buyers renew it by `contracts/{id}:renew` or let it expire. Subject is the contract id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.contract_expiring.v2}
+      payload: {$ref: '#/components/schemas/ContractExpiringV2'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000074", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.contract_expiring.v2", "subject": "0192a000-0000-7000-8000-000000000607", "time": "2027-08-31T00:05:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
+          payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_to": "2027-09-30", "days_left": 30, "consumed_value": {"amount": "212400.00", "currency": "EUR"}, "target_value": {"amount": "250000.00", "currency": "EUR"}, "alerted_on": "2027-08-31", "time_zone": "Europe/Berlin", "legal_entity_code": "DE01", "supplier_number": "BP-100231"}
     InvoiceHoldReleased:
       name: InvoiceHoldReleased
       x-webhook: true
@@ -2890,6 +2930,31 @@ components:
         - name: daily
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000601, source: /erp/eu-1/cash, type: com.example.erp.cash.cash_snapshot_taken.v1, subject: 0192a000-0000-7000-8000-000000000e01, time: '2026-10-21T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {cash_snapshot_id: 0192a000-0000-7000-8000-000000000e01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: '3000', kind: daily, snapshot_date: '2026-10-21', line_count: 42}
+    VarianceCommentProposed:
+      name: VarianceCommentProposed
+      title: Variance comment proposed
+      summary: The forecast agent proposed a comment on a row of a company's forecast variance.
+      description: |
+        Emitted by `liquidity-forecast-variance/comment-proposals` (POST):
+        the forecast agent proposed, in its session, an explanation of a
+        row of a company's variance citing the documents behind its
+        attribution, for a person to accept or reject (ADR-0051 §13, §15,
+        T53i). It names the row (the liquidity item, null for what no rule
+        assigns), period, lag, snapshot and session, and how many
+        documents it cites; the text and citations are
+        `GET /v1/liquidity-forecast-variance/comments/{id}`. Subject is the
+        comment id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.cash.variance_comment_proposed.v1}
+      payload: {$ref: '#/components/schemas/VarianceCommentProposedV1'}
+      examples:
+        - name: proposed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000622, source: /erp/eu-1/cash, type: com.example.erp.cash.variance_comment_proposed.v1, subject: 0192a000-0000-7000-8000-000000000e22, time: '2026-05-04T13:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000a11}
+          payload: {variance_comment_id: 0192a000-0000-7000-8000-000000000e22, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: '3000', from: '2026-04-24', to: '2026-04-30', lag: 7, liquidity_item: PAY_SUPPLIERS, snapshot_id: 0192a000-0000-7000-8000-000000000e01, session_id: 0192a000-0000-7000-8000-000000000a01, citation_count: 1}
     VarianceCommentDecided:
       name: VarianceCommentDecided
       title: Variance comment decided
@@ -2897,7 +2962,9 @@ components:
       description: |
         Emitted by `liquidity-forecast-variance/comments` (POST): a person's
         comment is decided as it is written (`accepted`, decided by its
-        author) (ADR-0051 §11, §15). It names the row the comment explains
+        author) (ADR-0051 §11, §15); and by `:acceptProposal` and
+        `:rejectProposal`, when a person decides the forecast agent's
+        proposal (`accepted` or `rejected`, decided by that person; T53i). It names the row the comment explains
         (the liquidity item, null for what no rule assigns), its period and
         lag, and the snapshot that variance compares with; the comment
         itself is `GET /v1/liquidity-forecast-variance/comments/{id}`.
@@ -3241,6 +3308,31 @@ components:
         - name: proposed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000804, source: /erp/eu-1/closing, type: com.example.erp.closing.accrual_proposed.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-03T14:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
           payload: {accrual_proposal_id: 0192a000-0000-7000-8000-000000000f41, period_close_id: 0192a000-0000-7000-8000-000000000f01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: DE01, fiscal_year: 2026, fiscal_period: 10, session_id: 0192a000-0000-7000-8000-000000000d01, account_id: 0192a000-0000-7000-8000-000000000402, accrual_account_id: 0192a000-0000-7000-8000-000000000403, cost_center_id: 0192a000-0000-7000-8000-000000000501, profit_center_id: null, supplier_id: 0192a000-0000-7000-8000-000000000301, supplier_number: BP-100231, amount: {amount: '1200.00', currency: CAD}, evidence: [{kind: supplier_invoice, document_id: 0192a000-0000-7000-8000-000000000611}], parked_entry_id: 0192a000-0000-7000-8000-000000000c51, posting_date: '2026-10-31', status: proposed, version: 1}
+    AccrualProposalRejected:
+      name: AccrualProposalRejected
+      x-webhook: true
+      title: Accrual proposal rejected
+      summary: A person rejected the close agent's accrual proposal, and its parked entry was cancelled.
+      description: |
+        Emitted by `accrual-proposals/{id}:rejectProposal` (ADR-0058 §8, T64f): a
+        person rejected an accrual proposal for a reason, and the ledger
+        cancelled its parked entry in the same transaction (published by
+        the ledger as ParkedJournalEntryChanged). A proposal whose entry
+        was cancelled or whose approval was rejected in the ledger reads
+        `rejected` too, without this event: the ledger's event says so.
+        `GET /v1/accrual-proposals/{id}` returns the proposal at `version`.
+        Subject is the accrual proposal id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.closing.accrual_proposal_rejected.v1}
+      payload: {$ref: '#/components/schemas/AccrualProposalRejectedV1'}
+      examples:
+        - name: rejected
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000805, source: /erp/eu-1/closing, type: com.example.erp.closing.accrual_proposal_rejected.v1, subject: 0192a000-0000-7000-8000-000000000f42, time: '2026-11-04T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {accrual_proposal_id: 0192a000-0000-7000-8000-000000000f42, period_close_id: 0192a000-0000-7000-8000-000000000f01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2026, fiscal_period: 10, account_id: 0192a000-0000-7000-8000-000000000404, supplier_id: null, amount: {amount: '80.00', currency: CAD}, parked_entry_id: 0192a000-0000-7000-8000-000000000c52, decided_by: 0192a000-0000-7000-8000-000000000101, reason: 'The office cleaning is invoiced quarterly; nothing is owed for this month.', status: rejected, version: 2}
     VarianceCommentChanged:
       name: VarianceCommentChanged
       x-webhook: true
@@ -3722,6 +3814,20 @@ components:
         file_name: {type: string, description: 'cash-<company code>-<snapshot date>-<sha256>.<format>.'}
         sha256: {type: string, description: "The file content's SHA-256, in hexadecimal."}
         resend: {type: boolean, description: Whether the channel had been delivered this file before.}
+    VarianceCommentProposedV1:
+      type: object
+      required: [variance_comment_id, legal_entity_id, company_code, from, to, lag, liquidity_item, snapshot_id, session_id, citation_count]
+      properties:
+        variance_comment_id: {$ref: '#/components/schemas/Uuid', description: '`cash.variance_comment.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        company_code: {type: string, description: "The legal entity's company code."}
+        from: {$ref: '#/components/schemas/Date'}
+        to: {$ref: '#/components/schemas/Date'}
+        lag: {type: integer, description: "The variance's lag in days: 0, 7 or 30."}
+        liquidity_item: {type: [string, 'null'], description: "The liquidity item's code; null for the row of what no rule assigns."}
+        snapshot_id: {$ref: '#/components/schemas/Uuid', description: The snapshot the variance compares with.}
+        session_id: {$ref: '#/components/schemas/Uuid', description: "The forecast agent's session it was proposed in."}
+        citation_count: {type: integer, minimum: 1, description: How many documents it cites.}
     VarianceCommentDecidedV1:
       type: object
       required: [variance_comment_id, legal_entity_id, company_code, from, to, lag, liquidity_item, snapshot_id, status, decided_by]
@@ -3883,6 +3989,23 @@ components:
         posting_date: {$ref: '#/components/schemas/Date', description: "The parked entry's posting date, the period's last day."}
         status: {type: string, description: "The proposal's status. Open enum: proposed."}
         version: {type: integer, description: "The proposal's version."}
+    AccrualProposalRejectedV1:
+      type: object
+      required: [accrual_proposal_id, period_close_id, legal_entity_id, fiscal_year, fiscal_period, account_id, supplier_id, amount, parked_entry_id, decided_by, reason, status, version]
+      properties:
+        accrual_proposal_id: {$ref: '#/components/schemas/Uuid', description: '`closing.accrual_proposal.id`.'}
+        period_close_id: {$ref: '#/components/schemas/Uuid', description: '`closing.period_close.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        fiscal_year: {type: integer}
+        fiscal_period: {type: integer, description: The regular period (1-12).}
+        account_id: {$ref: '#/components/schemas/Uuid', description: The expense account.}
+        supplier_id: {$ref: '#/components/schemas/NullableUuid', description: The supplier the expense was for; null without one.}
+        amount: {$ref: '#/components/schemas/Money', description: "The expense proposed, in the company's local currency."}
+        parked_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.parked_entry.id`: the entry cancelled.'}
+        decided_by: {$ref: '#/components/schemas/Uuid', description: The person who rejected it.}
+        reason: {type: string, description: Why it was rejected.}
+        status: {type: string, description: "The proposal's status. Open enum: rejected."}
+        version: {type: integer, description: "The proposal's version after the rejection."}
     VarianceCommentChangedV1:
       type: object
       required: [variance_comment_id, period_close_id, legal_entity_id, fiscal_year, fiscal_period, basis, account_id, change, author_kind, edited, reason, status, version]
@@ -4974,7 +5097,7 @@ components:
         change: {"type": "string", "description": "Open enum: created, updated."}
         changed_fields: {"type": "array", "items": {"type": "string"}, "description": "Profile fields that changed (all fields on created)."}
         autonomy_level: {"type": "integer", "minimum": 0, "maximum": 3}
-        agent_type: {"type": ["string", "null"], "description": "The agent's type, whose certification bounds its level (ADR-0039); null: none named. Open enum: ap_exceptions, configuration, migration, test, analytics."}
+        agent_type: {"type": ["string", "null"], "description": "The agent's type, whose certification bounds its level (ADR-0039); null: none named. Open enum: ap_exceptions, configuration, migration, test, analytics, reconciliation, close, cash_forecast, tax."}
         model: {"type": "string"}
         monthly_budget: {"oneOf": [{"$ref": "#/components/schemas/Money"}, {"type": "null"}], "description": "Null when unlimited."}
         description: {"type": "string"}
@@ -5160,7 +5283,7 @@ components:
         time_zone: {"type": "string", "description": "The IANA time zone `expired_on` is in: the contract's company's configured `time_zone`, or `UTC` when it has none. At 22:00 in America/Toronto a contract whose last day is that day has not expired."}
         legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch27); consumers ignore it if absent."}
         supplier_number: {"type": "string", "description": "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it. Added within v1 (review:batch27); consumers ignore it if absent."}
-        supplier_name: {"type": "string", "description": "The supplier's name when the event was published. Added within v1 (review:batch27); consumers ignore it if absent."}
+        supplier_name: {"type": "string", "description": "The supplier's name when the event was published. Added within v1 (review:batch27); consumers ignore it if absent. Not in .v2, the version offered to webhooks (product owner 2026-11-05)."}
     ContractExpiringV1:
       type: object
       required: ["contract_id", "document_number", "legal_entity_id", "supplier_id", "valid_to", "days_left", "consumed_value", "target_value"]
@@ -5177,7 +5300,41 @@ components:
         time_zone: {"type": "string", "description": "The IANA time zone `alerted_on` and `days_left` are counted in: the contract's company's configured `time_zone`, or `UTC` when it has none."}
         legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch27); consumers ignore it if absent."}
         supplier_number: {"type": "string", "description": "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it. Added within v1 (review:batch27); consumers ignore it if absent."}
-        supplier_name: {"type": "string", "description": "The supplier's name when the event was published. Added within v1 (review:batch27); consumers ignore it if absent."}
+        supplier_name: {"type": "string", "description": "The supplier's name when the event was published. Added within v1 (review:batch27); consumers ignore it if absent. Not in .v2, the version offered to webhooks (product owner 2026-11-05)."}
+    ContractExpiredV2:
+      type: object
+      description: "ContractExpiredV1 without `supplier_name`; the fields .v1 added later are required, since the job gives them on every event."
+      required: ["contract_id", "document_number", "legal_entity_id", "supplier_id", "valid_to", "consumed_value", "previous_status", "status", "expired_on", "time_zone", "legal_entity_code", "supplier_number"]
+      properties:
+        contract_id: {"$ref": "#/components/schemas/Uuid"}
+        document_number: {"type": "string"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        supplier_id: {"$ref": "#/components/schemas/Uuid"}
+        valid_to: {"$ref": "#/components/schemas/Date"}
+        consumed_value: {"$ref": "#/components/schemas/Money", "description": "Sum of contract releases at expiry."}
+        previous_status: {"type": "string", "description": "Open enum; active in v2."}
+        status: {"type": "string", "description": "Open enum; expired in v2."}
+        expired_on: {"$ref": "#/components/schemas/Date", "description": "The company's date, in `time_zone`, at the round that expired the contract: the first day after `valid_to` unless a round was missed."}
+        time_zone: {"type": "string", "description": "The IANA time zone `expired_on` is in: the contract's company's configured `time_zone`, or `UTC` when it has none."}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it."}
+        supplier_number: {"type": "string", "description": "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it; the supplier's name is not given (product owner 2026-11-05)."}
+    ContractExpiringV2:
+      type: object
+      description: "ContractExpiringV1 without `supplier_name`; the fields .v1 added later are required, since the job gives them on every event."
+      required: ["contract_id", "document_number", "legal_entity_id", "supplier_id", "valid_to", "days_left", "consumed_value", "target_value", "alerted_on", "time_zone", "legal_entity_code", "supplier_number"]
+      properties:
+        contract_id: {"$ref": "#/components/schemas/Uuid"}
+        document_number: {"type": "string"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        supplier_id: {"$ref": "#/components/schemas/Uuid"}
+        valid_to: {"$ref": "#/components/schemas/Date"}
+        days_left: {"type": "integer", "minimum": 0, "description": "Days from `alerted_on` to valid_to."}
+        consumed_value: {"$ref": "#/components/schemas/Money", "description": "Sum of contract releases at the alert."}
+        target_value: {"$ref": "#/components/schemas/Money"}
+        alerted_on: {"$ref": "#/components/schemas/Date", "description": "The company's date of the alert in `time_zone`, the contract's `expiry_alerted_on`."}
+        time_zone: {"type": "string", "description": "The IANA time zone `alerted_on` and `days_left` are counted in: the contract's company's configured `time_zone`, or `UTC` when it has none."}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it."}
+        supplier_number: {"type": "string", "description": "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it; the supplier's name is not given (product owner 2026-11-05)."}
     InvoiceHoldReleasedV1:
       type: object
       required: ["supplier_invoice_id", "supplier_id", "legal_entity_id", "previous_status", "status"]

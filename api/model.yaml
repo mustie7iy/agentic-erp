@@ -10,7 +10,7 @@ info:
   description: |-
     Agents reach models only through their cell's gateway, with their own bearer tokens (certificate-bound in production, ADR-0033); they hold no provider key. The gateway speaks the provider's Messages API, so an agent keeps its SDK and points its base URL at `/v1/model`: the SDK's requests arrive at `POST /v1/model/v1/messages`.
 
-    The request names a model alias, `erp-default`, `erp-extraction` or `erp-analytics`, which the gateway routes to a concrete model; a concrete model id is refused. Only the fields listed in `ModelRequest` are forwarded; server tools, streaming and provider fallbacks are refused, so the model the alias routes to, and prices, is the one that answers. Every call, answered or not, is one row of the tenant's model call ledger with its tokens and cost, never its content (ADR-0036); a model without a recorded price is refused before the call, so no call goes unmetered. A call made within an agent session (`Erp-Agent-Session`) adds its tokens and cost to the session.
+    The request names a model alias, `erp-default`, `erp-extraction`, `erp-analytics` or `erp-close`, which the gateway routes to a concrete model; a concrete model id is refused. Only the fields listed in `ModelRequest` are forwarded; server tools, streaming and provider fallbacks are refused, so the model the alias routes to, and prices, is the one that answers. Every call, answered or not, is one row of the tenant's model call ledger with its tokens and cost, never its content (ADR-0036); a model without a recorded price is refused before the call, so no call goes unmetered. A call made within an agent session (`Erp-Agent-Session`) adds its tokens and cost to the session.
 
     The gateway authenticates in a short transaction of its own and writes the ledger in another after the call: no database transaction is held while the model works. A call is not idempotent: a retried call is another call, billed again.
   contact:
@@ -134,8 +134,8 @@ components:
       properties:
         model:
           type: string
-          description: "A model alias: `erp-default`, `erp-extraction` or `erp-analytics`."
-          enum: ["erp-default", "erp-extraction", "erp-analytics"]
+          description: "A model alias: `erp-default`, `erp-extraction`, `erp-analytics` or `erp-close`."
+          enum: ["erp-default", "erp-extraction", "erp-analytics", "erp-close"]
           example: erp-default
         max_tokens:
           type: integer

@@ -113,7 +113,8 @@ stored, or whether producing it is audited.
 - The document shows what is held. Missing from what a supplier usually
   needs, and not held anywhere: the buyer company's postal address and
   tax registration, a delivery address per item, and a contact person
-  (a delivery date per item is held since T53g and printed: As built).
+  (a delivery date per item is held since T53g and printed, and the
+  buyer's postal address is configuration since 2026-11-04: As built).
   Adding them is new master data, a product owner decision.
 - The contract an order is placed against, and a contract item's
   material key (often the supplier's own part number), are held but not
@@ -138,6 +139,53 @@ stored, or whether producing it is audited.
   own, so a supplier never reads two dates for one item without being
   told which applies. Dates are formatted by the renderer, not typed
   text, so §6's escaping has nothing to add.
+- **The buyer's postal address and where to deliver (podocb, 2026-11-04;
+  product owner 2026-11-04, decision sheet question 2, option B without
+  the full registration number).** A company's postal address is
+  configuration, `companies[].postal_address`: `line1`, `line2`, `city`,
+  `postal_code`, `region`, `country_code`, the shape of a business
+  partner's address (the contract's `Address`, its lengths and required
+  fields) without purpose or validity, a configuration version being its
+  history. Decided by default: it is set through a change request as every
+  configuration key is, audited as each change request's steps are, and a
+  change is **tier 2 (operational)**: it posts nothing, so it is not tier
+  3, and it decides where suppliers deliver, a route, so it is not tier 1
+  as the company's name is. It is **optional**, as nothing requires it
+  today (making it required, as `time_zone` became, is the product
+  owner's call). The document prints it in the buyer block (lines as the
+  supplier's address), and again under `Deliver to`, after the supplier,
+  with the buyer's name: no item names a delivery address of its own (none
+  is held per item; plants and delivery locations are out of scope), so
+  the buyer's address is every item's. It is read from the active
+  configuration at each read (§3), and its texts are printed as the other
+  texts are (§6). **Without one** the document is still issued, decided by
+  default as the supplier's missing address already is (§3): refusing it
+  would turn every released order's document of a tenant without the key
+  into a 409, and the document never prints an address nobody gave. The
+  buyer block then prints `Country <code> (no postal address configured)`
+  and the delivery block `No delivery address held: ask the buyer where to
+  deliver.` A legal entity the configuration has no company for reads as
+  one without an address. The buyer's tax registration number is not
+  printed (product owner: it stays as it is, the last four characters
+  only where shown).
+- **The supplier's street from SAP (podocb).** The document prints the
+  supplier's address lines as before (street lines, city with region and
+  postal code, country; an empty optional line is no longer printed as a
+  blank one). Migrated suppliers now have one: the extract's LFA1 carries
+  optional STRAS, ORT01, PSTLZ and REGIO (field names from memory, pending
+  the SAP specialist, who is to say whether the address is taken from
+  LFA1 or the central address ADRC by ADRNR; docs/migration.md "What to
+  check on a real SAP system"), and the load gives a vendor with a street
+  and a city its `legal` address, valid from the day of the run. An
+  extract without the fields (an OData one) loads suppliers without an
+  address; a street without a city, a city without a street, or a text
+  longer than an address holds is warned of by the quality gate and the
+  supplier loads without one: the run never fails on it. A supplier an
+  earlier run created is only extended with companies, so it keeps the
+  address it has. The configuration draft generated from SAP (sapconfig)
+  carries no company address: its reviewers enter it in the draft (where
+  SAP keeps a company code's address is not read; no tracker item, as the
+  product owner placed the address in configuration).
 - **No version of its own.** The document has no ETag and no cache
   header: it is rendered on every read (§3). A released order's item
   changes its delivery date only through an order change (ADR-0034),

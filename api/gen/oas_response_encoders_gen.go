@@ -524,6 +524,249 @@ func encodeAcceptBankStatementLineProposalResponse(response AcceptBankStatementL
 	}
 }
 
+func encodeAcceptForecastVarianceCommentProposalResponse(response AcceptForecastVarianceCommentProposalRes, w http.ResponseWriter, span trace.Span) error {
+	switch response := response.(type) {
+	case *AcceptForecastVarianceCommentProposalOKHeaders:
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Access-Control-Expose-Headers", "Etag,Idempotent-Replayed")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "ETag" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "ETag",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.ETag.Get(); ok {
+						return e.EncodeValue(conv.StringToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode ETag header")
+				}
+			}
+			// Encode "Idempotent-Replayed" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Idempotent-Replayed",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.IdempotentReplayed.Get(); ok {
+						return e.EncodeValue(conv.BoolToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Idempotent-Replayed header")
+				}
+			}
+		}
+		w.WriteHeader(200)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *AcceptForecastVarianceCommentProposalBadRequest:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(400)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *UnauthorizedHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Www-Authenticate")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "WWW-Authenticate" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "WWW-Authenticate",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.WWWAuthenticate.Get(); ok {
+						return e.EncodeValue(conv.StringToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode WWW-Authenticate header")
+				}
+			}
+		}
+		w.WriteHeader(401)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *AcceptForecastVarianceCommentProposalForbidden:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(403)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *AcceptForecastVarianceCommentProposalNotFound:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(404)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ConflictHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Retry-After")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Retry-After" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Retry-After",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.RetryAfter.Get(); ok {
+						return e.EncodeValue(conv.Int32ToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Retry-After header")
+				}
+			}
+		}
+		w.WriteHeader(409)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *AcceptForecastVarianceCommentProposalPreconditionFailed:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(412)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *AcceptForecastVarianceCommentProposalPreconditionRequired:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(428)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *TooManyRequestsHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Retry-After")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Retry-After" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Retry-After",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.RetryAfter.Get(); ok {
+						return e.EncodeValue(conv.Int32ToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Retry-After header")
+				}
+			}
+		}
+		w.WriteHeader(429)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ServiceUnavailableHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Retry-After")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Retry-After" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Retry-After",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.RetryAfter.Get(); ok {
+						return e.EncodeValue(conv.Int32ToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Retry-After header")
+				}
+			}
+		}
+		w.WriteHeader(503)
+		span.SetStatus(codes.Error, http.StatusText(503))
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	default:
+		return errors.Errorf("unexpected response type: %T", response)
+	}
+}
+
 func encodeAcceptMemoRecordProposalResponse(response AcceptMemoRecordProposalRes, w http.ResponseWriter, span trace.Span) error {
 	switch response := response.(type) {
 	case *UpdateMemoRecordOKHeaders:
@@ -12426,7 +12669,7 @@ func encodeCreateExchangeRateResponse(response CreateExchangeRateRes, w http.Res
 
 func encodeCreateForecastVarianceCommentResponse(response CreateForecastVarianceCommentRes, w http.ResponseWriter, span trace.Span) error {
 	switch response := response.(type) {
-	case *ForecastVarianceCommentHeaders:
+	case *CreateForecastVarianceCommentCreatedHeaders:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Access-Control-Expose-Headers", "Idempotent-Replayed,Location")
 		// Encoding response headers.
@@ -27002,12 +27245,32 @@ func encodeGetFiscalPeriodResponse(response GetFiscalPeriodRes, w http.ResponseW
 
 func encodeGetForecastVarianceCommentResponse(response GetForecastVarianceCommentRes, w http.ResponseWriter, span trace.Span) error {
 	switch response := response.(type) {
-	case *ForecastVarianceComment:
+	case *GetForecastVarianceCommentOKHeaders:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Access-Control-Expose-Headers", "Etag")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "ETag" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "ETag",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.ETag.Get(); ok {
+						return e.EncodeValue(conv.StringToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode ETag header")
+				}
+			}
+		}
 		w.WriteHeader(200)
 
 		e := new(jx.Encoder)
-		response.Encode(e)
+		response.Response.Encode(e)
 		if _, err := e.WriteTo(w); err != nil {
 			return errors.Wrap(err, "write")
 		}
@@ -38919,6 +39182,169 @@ func encodeListForecastVarianceCommentsResponse(response ListForecastVarianceCom
 		return nil
 
 	case *ListForecastVarianceCommentsUnprocessableEntity:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(422)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *TooManyRequestsHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Retry-After")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Retry-After" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Retry-After",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.RetryAfter.Get(); ok {
+						return e.EncodeValue(conv.Int32ToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Retry-After header")
+				}
+			}
+		}
+		w.WriteHeader(429)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	default:
+		return errors.Errorf("unexpected response type: %T", response)
+	}
+}
+
+func encodeListForecastVarianceDocumentsResponse(response ListForecastVarianceDocumentsRes, w http.ResponseWriter, span trace.Span) error {
+	switch response := response.(type) {
+	case *ForecastVarianceDocuments:
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(200)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ListForecastVarianceDocumentsBadRequest:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(400)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *UnauthorizedHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Www-Authenticate")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "WWW-Authenticate" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "WWW-Authenticate",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.WWWAuthenticate.Get(); ok {
+						return e.EncodeValue(conv.StringToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode WWW-Authenticate header")
+				}
+			}
+		}
+		w.WriteHeader(401)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ListForecastVarianceDocumentsForbidden:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(403)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ListForecastVarianceDocumentsNotFound:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(404)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ConflictHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Retry-After")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Retry-After" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Retry-After",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.RetryAfter.Get(); ok {
+						return e.EncodeValue(conv.Int32ToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Retry-After header")
+				}
+			}
+		}
+		w.WriteHeader(409)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ListForecastVarianceDocumentsUnprocessableEntity:
 		w.Header().Set("Content-Type", "application/problem+json")
 		w.WriteHeader(422)
 
@@ -51872,6 +52298,264 @@ func encodeProposeBankStatementLineResponse(response ProposeBankStatementLineRes
 	}
 }
 
+func encodeProposeForecastVarianceCommentResponse(response ProposeForecastVarianceCommentRes, w http.ResponseWriter, span trace.Span) error {
+	switch response := response.(type) {
+	case *ForecastVarianceCommentHeaders:
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Access-Control-Expose-Headers", "Etag,Idempotent-Replayed,Location")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "ETag" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "ETag",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.ETag.Get(); ok {
+						return e.EncodeValue(conv.StringToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode ETag header")
+				}
+			}
+			// Encode "Idempotent-Replayed" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Idempotent-Replayed",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.IdempotentReplayed.Get(); ok {
+						return e.EncodeValue(conv.BoolToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Idempotent-Replayed header")
+				}
+			}
+			// Encode "Location" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Location",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.Location.Get(); ok {
+						return e.EncodeValue(conv.StringToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Location header")
+				}
+			}
+		}
+		w.WriteHeader(201)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ProposeForecastVarianceCommentBadRequest:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(400)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *UnauthorizedHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Www-Authenticate")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "WWW-Authenticate" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "WWW-Authenticate",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.WWWAuthenticate.Get(); ok {
+						return e.EncodeValue(conv.StringToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode WWW-Authenticate header")
+				}
+			}
+		}
+		w.WriteHeader(401)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ProposeForecastVarianceCommentForbidden:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(403)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ProposeForecastVarianceCommentNotFound:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(404)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ConflictHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Retry-After")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Retry-After" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Retry-After",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.RetryAfter.Get(); ok {
+						return e.EncodeValue(conv.Int32ToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Retry-After header")
+				}
+			}
+		}
+		w.WriteHeader(409)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ProposeForecastVarianceCommentUnprocessableEntity:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(422)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ProposeForecastVarianceCommentPreconditionRequired:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(428)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *TooManyRequestsHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Retry-After")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Retry-After" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Retry-After",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.RetryAfter.Get(); ok {
+						return e.EncodeValue(conv.Int32ToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Retry-After header")
+				}
+			}
+		}
+		w.WriteHeader(429)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ServiceUnavailableHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Retry-After")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Retry-After" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Retry-After",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.RetryAfter.Get(); ok {
+						return e.EncodeValue(conv.Int32ToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Retry-After header")
+				}
+			}
+		}
+		w.WriteHeader(503)
+		span.SetStatus(codes.Error, http.StatusText(503))
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	default:
+		return errors.Errorf("unexpected response type: %T", response)
+	}
+}
+
 func encodeProposeMemoRecordResponse(response ProposeMemoRecordRes, w http.ResponseWriter, span trace.Span) error {
 	switch response := response.(type) {
 	case *MemoRecordHeaders:
@@ -54243,6 +54927,261 @@ func encodeRedeliverWebhookDeliveryResponse(response RedeliverWebhookDeliveryRes
 	}
 }
 
+func encodeRejectAccrualProposalResponse(response RejectAccrualProposalRes, w http.ResponseWriter, span trace.Span) error {
+	switch response := response.(type) {
+	case *RejectAccrualProposalOKHeaders:
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Access-Control-Expose-Headers", "Etag,Idempotent-Replayed")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "ETag" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "ETag",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.ETag.Get(); ok {
+						return e.EncodeValue(conv.StringToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode ETag header")
+				}
+			}
+			// Encode "Idempotent-Replayed" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Idempotent-Replayed",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.IdempotentReplayed.Get(); ok {
+						return e.EncodeValue(conv.BoolToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Idempotent-Replayed header")
+				}
+			}
+		}
+		w.WriteHeader(200)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *RejectAccrualProposalBadRequest:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(400)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *UnauthorizedHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Www-Authenticate")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "WWW-Authenticate" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "WWW-Authenticate",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.WWWAuthenticate.Get(); ok {
+						return e.EncodeValue(conv.StringToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode WWW-Authenticate header")
+				}
+			}
+		}
+		w.WriteHeader(401)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *RejectAccrualProposalForbidden:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(403)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *RejectAccrualProposalNotFound:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(404)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ConflictHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Retry-After")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Retry-After" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Retry-After",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.RetryAfter.Get(); ok {
+						return e.EncodeValue(conv.Int32ToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Retry-After header")
+				}
+			}
+		}
+		w.WriteHeader(409)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *RejectAccrualProposalPreconditionFailed:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(412)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *RejectAccrualProposalUnprocessableEntity:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(422)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *RejectAccrualProposalPreconditionRequired:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(428)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *TooManyRequestsHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Retry-After")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Retry-After" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Retry-After",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.RetryAfter.Get(); ok {
+						return e.EncodeValue(conv.Int32ToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Retry-After header")
+				}
+			}
+		}
+		w.WriteHeader(429)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ServiceUnavailableHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Retry-After")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Retry-After" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Retry-After",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.RetryAfter.Get(); ok {
+						return e.EncodeValue(conv.Int32ToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Retry-After header")
+				}
+			}
+		}
+		w.WriteHeader(503)
+		span.SetStatus(codes.Error, http.StatusText(503))
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	default:
+		return errors.Errorf("unexpected response type: %T", response)
+	}
+}
+
 func encodeRejectApprovalRequestResponse(response RejectApprovalRequestRes, w http.ResponseWriter, span trace.Span) error {
 	switch response := response.(type) {
 	case *ApproveApprovalRequestOKHeaders:
@@ -54672,6 +55611,261 @@ func encodeRejectBankStatementLineProposalResponse(response RejectBankStatementL
 		return nil
 
 	case *RejectBankStatementLineProposalPreconditionRequired:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(428)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *TooManyRequestsHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Retry-After")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Retry-After" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Retry-After",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.RetryAfter.Get(); ok {
+						return e.EncodeValue(conv.Int32ToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Retry-After header")
+				}
+			}
+		}
+		w.WriteHeader(429)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ServiceUnavailableHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Retry-After")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Retry-After" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Retry-After",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.RetryAfter.Get(); ok {
+						return e.EncodeValue(conv.Int32ToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Retry-After header")
+				}
+			}
+		}
+		w.WriteHeader(503)
+		span.SetStatus(codes.Error, http.StatusText(503))
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	default:
+		return errors.Errorf("unexpected response type: %T", response)
+	}
+}
+
+func encodeRejectForecastVarianceCommentProposalResponse(response RejectForecastVarianceCommentProposalRes, w http.ResponseWriter, span trace.Span) error {
+	switch response := response.(type) {
+	case *AcceptForecastVarianceCommentProposalOKHeaders:
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Access-Control-Expose-Headers", "Etag,Idempotent-Replayed")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "ETag" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "ETag",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.ETag.Get(); ok {
+						return e.EncodeValue(conv.StringToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode ETag header")
+				}
+			}
+			// Encode "Idempotent-Replayed" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Idempotent-Replayed",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.IdempotentReplayed.Get(); ok {
+						return e.EncodeValue(conv.BoolToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Idempotent-Replayed header")
+				}
+			}
+		}
+		w.WriteHeader(200)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *RejectForecastVarianceCommentProposalBadRequest:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(400)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *UnauthorizedHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Www-Authenticate")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "WWW-Authenticate" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "WWW-Authenticate",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.WWWAuthenticate.Get(); ok {
+						return e.EncodeValue(conv.StringToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode WWW-Authenticate header")
+				}
+			}
+		}
+		w.WriteHeader(401)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *RejectForecastVarianceCommentProposalForbidden:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(403)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *RejectForecastVarianceCommentProposalNotFound:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(404)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ConflictHeaders:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Access-Control-Expose-Headers", "Retry-After")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Retry-After" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Retry-After",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.RetryAfter.Get(); ok {
+						return e.EncodeValue(conv.Int32ToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Retry-After header")
+				}
+			}
+		}
+		w.WriteHeader(409)
+
+		e := new(jx.Encoder)
+		response.Response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *RejectForecastVarianceCommentProposalPreconditionFailed:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(412)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *RejectForecastVarianceCommentProposalUnprocessableEntity:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(422)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *RejectForecastVarianceCommentProposalPreconditionRequired:
 		w.Header().Set("Content-Type", "application/problem+json")
 		w.WriteHeader(428)
 

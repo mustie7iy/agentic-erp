@@ -9542,9 +9542,10 @@ paths:
       tags:
         - procurement
       summary: Get the purchase order document for the supplier
-      description: "The order as a plain-text document (UTF-8) to send to the supplier, rendered from the stored order at the time of the call (ADR-0054): the buyer company, the supplier's name, number and address (its `order_from` address valid today, else its `legal` one; none when neither is held), the document number, revision, order date and currency, the purchasing organisation, the payment term with its description, and each item with its quantity, unit, price per price unit, tax code, amount and its own delivery date when it has one, with the order's total; the date the requisition needed the goods by is printed for the items without a delivery date of their own. Only a `released` or `closed` order has one (409 `procurement.invalid_status`). Producing it changes nothing: transmission to the supplier by email or EDI is not built (post-pilot)."
+      description: "The order as a plain-text document (UTF-8) to send to the supplier, rendered from the stored order at the time of the call (ADR-0054): the buyer company with its postal address from the active configuration (`companies[].postal_address`; when none is configured, its country and a line saying so), the supplier's name, number and address (its `order_from` address valid today, else its `legal` one, a migrated supplier's from SAP's vendor master; none when neither is held), the address to deliver to (the buyer's postal address, as no item names a delivery address of its own; when none is configured, a line asking the supplier to ask the buyer, never an address of its own), the document number, revision, order date and currency, the purchasing organisation, the payment term with its description, and each item with its quantity, unit, price per price unit, tax code, amount and its own delivery date when it has one, with the order's total; the date the requisition needed the goods by is printed for the items without a delivery date of their own. Only a `released` or `closed` order has one (409 `procurement.invalid_status`). Producing it changes nothing: transmission to the supplier by email or EDI is not built (post-pilot)."
       x-permission: procurement.order.read
       x-problem-codes:
+        - config.not_bootstrapped
         - procurement.amount_too_large
         - procurement.invalid_status
       parameters:
@@ -13977,7 +13978,7 @@ paths:
       tags:
         - closing
       summary: Assign a close task
-      description: "Sets or clears (null) the person a task of a period close is assigned to (ADR-0058 §6, T64b): an active person of the tenant (422 `closing.assignee_invalid` for an agent, a service, a blocked or unknown principal). `If-Match` is the close's ETag, so a change made on a stale view of the checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_assigned`). A signed-off close whose covered periods are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d)."
+      description: "Sets or clears (null) the person a task of a period close is assigned to (ADR-0058 §6, T64b): an active person of the tenant who may act in the close's company (422 `closing.assignee_invalid` for an agent, a service, a blocked or unknown principal, or a person without access to the close's company; product owner 2026-11-04). `If-Match` is the close's ETag, so a change made on a stale view of the checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited, and published as PeriodCloseChanged (`task_assigned`). A signed-off close whose covered periods are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
@@ -14391,10 +14392,11 @@ paths:
       tags:
         - closing
       summary: List accrual proposals
-      description: "The accrual proposals of the period closes of the legal entities the caller may act in (ADR-0058 §8, T64e), oldest first (sortable by `created_at`, the default), each with its company, its accounts and centers named, its supplier, its amount with its currency, its evidence and its parked entry. Filters: the close, the company, the agent's session and the parked entry. A supplier's number and name, the proposal's and each evidence item's, are shown only to a caller who may read business partners (`partner.supplier.read`); the ids are always shown. Besides `closing.close.read` the caller needs `ledger.entry.read`, since a proposal shows a ledger entry (`x-also-permissions`)."
+      description: "The accrual proposals of the period closes of the legal entities the caller may act in (ADR-0058 §8, T64e, T64f), oldest first (sortable by `created_at`, the default), each with its company, its accounts and centers named, its supplier, its amount with its currency, its evidence, its parked entry and its status derived from that entry (`proposed`, `pending_approval`, `posted` with the journal entry's number and whether the amount posted differs, `reversed`, `rejected`). Filters: the close, the company, the agent's session, the parked entry and the derived status. `totals` sum the whole filtered set, on every page alike, per status and currency (the proposals' local currencies are never summed together): how many, the amount proposed and, for those posted or reversed, the amount posted and how many were changed before posting. Read from one database state (a repeatable-read snapshot), so `totals`, the page and each proposal's status agree whatever is proposed, posted or reversed meanwhile. A supplier's number and name, the proposal's and each evidence item's, are shown only to a caller who may read business partners (`partner.supplier.read`); the ids are always shown. Besides `closing.close.read` the caller needs `ledger.entry.read`, since a proposal shows a ledger entry (`x-also-permissions`)."
       x-permission: closing.close.read
       x-also-permissions:
         - ledger.entry.read
+      x-snapshot: true
       x-problem-codes:
         - config.not_bootstrapped
         - request.invalid_order_by
@@ -14429,6 +14431,14 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: status
+          in: query
+          required: false
+          description: "Only the proposals of this status, as derived from their parked entries at the read."
+          schema:
+            type: string
+            description: "Accrual proposal status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [proposed, pending_approval, posted, reversed, rejected]
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -14485,6 +14495,69 @@ paths:
           $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/accrual-proposals/{id}:rejectProposal":
+    post:
+      operationId: rejectAccrualProposal
+      tags:
+        - closing
+      summary: Reject an accrual proposal
+      description: "A person rejects the close agent's accrual proposal, with a reason (ADR-0058 §8, T64f): its parked entry is cancelled in the ledger, as `cancelParkedJournalEntry` cancels it and under the ledger's owner rule (the person rejecting an agent's entry no person has taken on becomes its owner for this; an entry another person took on is theirs to cancel, 403 `ledger.not_entry_owner`), and the proposal is `rejected` with who decided, when and why. Only a proposal whose parked entry is still `parked` is rejected (409 `closing.accrual_not_open`, naming its status, for one pending approval, posted, reversed or rejected; a posted one is reversed in the ledger). `If-Match` is the proposal's ETag. Under a lock on the close; a signed-off close whose covered periods are all locked refuses it (409 `closing.close_signed_off`), and once one of them was unlocked it sets the close open again first. People only. Since it cancels a ledger entry, besides `closing.accrual.decide` the caller needs `ledger.entry.park` (`x-also-permissions`). Audited, and published as AccrualProposalRejected (and ParkedJournalEntryChanged for the entry)."
+      x-permission: closing.accrual.decide
+      x-also-permissions:
+        - ledger.entry.park
+      x-agent: false
+      x-problem-codes:
+        - closing.accrual_not_open
+        - closing.close_exists
+        - closing.close_signed_off
+        - config.not_bootstrapped
+        - ledger.invalid_parked_status
+        - ledger.not_entry_owner
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of rejectAccrualProposal.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "200":
+          description: "The proposal, `rejected`, with its new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccrualProposal"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/variance-comment-proposals:
     post:
       operationId: proposeVarianceComment
@@ -17429,13 +17502,185 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/liquidity-forecast-variance/documents:
+    get:
+      operationId: listForecastVarianceDocuments
+      tags:
+        - cash
+      summary: List the documents behind a company's attributed forecast variance
+      description: "The documents behind the attribution of a legal entity's forecast variance (ADR-0051 §11, §13, T53i), as `getLiquidityForecastVariance` attributes it for the same `from`, `to`, `lag` and `grain`, computed at the read from one database state: one entry per contribution in the days kept per document (from `from` to the earlier of `to` and the snapshot's `document_level_until`), each a forecast line of the snapshot (`side` `forecast`) or the part of a statement line one document behind it pays, per liquidity item (`side` `actual`), with its attribution (`timing`, `amount`, `new`, `missing` or `unclassified`), currency, liquidity item, value date, the bucket it falls in, its signed amount, and the documents it is known by: a payment, a supplier item's journal entry, the supplier invoice it was posted for, the purchase order that invoice was entered on, a down payment request, a memo record (a series' occurrence with its `occurrence_date`), and, for a statement line, its bank statement and `line_no`. These are the documents the forecast agent's comment proposals may cite (`proposeForecastVarianceComment`). Of one row with `liquidity_item` (the item and its descendants) or `unclassified` (what no rule assigns), not both (422); of every row without either; narrowed by `side`, `attribution` and `currency`. Each document is shown, with its number (a document's number as the snapshot kept it, a run's number for a payment, a statement's reference), only to a caller who may use its context's read permission (a payment `payments.run.read`, a bank statement `payments.statement.read` (and with it the line's number and bank reference), a journal entry `ledger.entry.read`, an invoice or down payment request `payables.invoice.read`, an order `procurement.order.read`, a memo record `cash.memo.read`), and the supplier a contribution pays only with `partner.supplier.read`, as the snapshot's lines and the actuals' lines show them, and otherwise left out (`document_count` counts them all). Ordered by side (the forecast's first), value date, then a digest of the line, so the page token names no document; `count` counts the entries of every page. Refused as the variance is: 409 `cash.snapshot_not_taken`, 422 for a lag, period or grain the variance refuses, 404 for a legal entity the caller cannot act in."
+      x-permission: cash.forecast.read
+      x-slo-class: report
+      x-snapshot: true
+      x-problem-codes:
+        - cash.snapshot_not_taken
+        - config.not_bootstrapped
+        - request.invalid_page_size
+        - request.invalid_page_token
+        - request.validation_failed
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: true
+          description: "The period's first day."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: "The period's last day, as the variance's `to`."
+          schema:
+            type: string
+            format: date
+        - name: lag
+          in: query
+          required: false
+          description: "How many days before `from` the snapshot compared against was taken: 0, 7 (default) or 30."
+          schema:
+            type: integer
+            format: int32
+            default: 7
+        - name: grain
+          in: query
+          required: false
+          description: "The buckets' length, as the variance's `grain`: whether a document paid in another bucket than forecast is `timing` or `amount` depends on it."
+          schema:
+            type: string
+            description: "A bucket's length. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [day, week, month]
+        - name: liquidity_item
+          in: query
+          required: false
+          description: "Only the row of this liquidity item (its code) and its descendants."
+          schema:
+            type: string
+        - name: unclassified
+          in: query
+          required: false
+          description: "Only the row of what no rule assigns; not with `liquidity_item`."
+          schema:
+            type: boolean
+        - name: side
+          in: query
+          required: false
+          description: "Only the forecast's lines (`forecast`) or the statements' (`actual`)."
+          schema:
+            type: string
+            description: "A contribution's side. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [forecast, actual]
+        - name: attribution
+          in: query
+          required: false
+          description: Only the contributions of this attribution.
+          schema:
+            type: string
+            description: "An attribution. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [timing, amount, new, missing, unclassified]
+        - name: currency
+          in: query
+          required: false
+          description: Only the contributions in this currency (ISO 4217).
+          schema:
+            type: string
+            pattern: "^[A-Z]{3}$"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the documents behind the attributed variance.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForecastVarianceDocuments"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/liquidity-forecast-variance/comment-proposals:
+    post:
+      operationId: proposeForecastVarianceComment
+      tags:
+        - cash
+      summary: Propose a comment on a row of the forecast variance
+      description: "The forecast agent proposes an explanation of one row of a legal entity's forecast variance (ADR-0051 §11, §13, T53i) in its running session (`session_id`; another's or an ended one is refused as `createRecommendation` refuses it): the row, period and lag as `createForecastVarianceComment` names and checks them, the text, and the documents behind the attributed variance it explains (`citations`, 1 to 50, each a kind and id), checked against the attribution: every document it cites must be one `listForecastVarianceDocuments` lists, as the caller may see it, for that row (the item and its descendants, or what no rule assigns) over the period at the lag, else 422 `cash.citation_not_attributed` naming each (`citations[N]`). The comment is `proposed` and names the session and its citations until a person accepts it (`:acceptProposal`), as it stands or in their own words (the agent's kept as `proposed_text`), or rejects it with a reason (`:rejectProposal`), kept as evidence of what the agent said. Agents never write, accept or reject a comment otherwise. A proposal explains a variance its agent reads, so besides `cash.variance.propose` the caller needs `cash.forecast.read` (product owner 2026-11-04; `x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as VarianceCommentProposed."
+      x-permission: cash.variance.propose
+      x-also-permissions:
+        - cash.forecast.read
+      x-autonomy: propose
+      x-slo-class: report
+      x-problem-codes:
+        - agents.not_your_session
+        - agents.session_ended
+        - cash.citation_not_attributed
+        - cash.snapshot_not_taken
+        - config.not_bootstrapped
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The proposal.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForecastVarianceCommentProposal"
+      responses:
+        "201":
+          description: "Proposed; the comment, `proposed`."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForecastVarianceComment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/liquidity-forecast-variance/comments:
     get:
       operationId: listForecastVarianceComments
       tags:
         - cash
       summary: List comments on the forecast variance
-      description: "The comments people wrote on the forecast variance of the legal entities the caller may act in (ADR-0051 §11, T53f4), newest first: each explains one row of a company's variance (`getLiquidityForecastVariance`), a liquidity item or what no rule assigns (`unclassified`), over a period at a lag, against the snapshot that variance compares with. Filters: the legal entity, the liquidity item or the unclassified row (not both, 422), the lag, the status, and the periods that end on or after `from` and start on or before `to`. Sortable by: `created_at` (default descending)."
+      description: "The comments on the forecast variance of the legal entities the caller may act in (ADR-0051 §11, T53f4), newest first: those people wrote and the forecast agent's proposals (T53i; `status=proposed` lists those waiting for a person); each explains one row of a company's variance (`getLiquidityForecastVariance`), a liquidity item or what no rule assigns (`unclassified`), over a period at a lag, against the snapshot that variance compares with. Filters: the legal entity, the liquidity item or the unclassified row (not both, 422), the lag, the status, and the periods that end on or after `from` and start on or before `to`. Sortable by: `created_at` (default descending)."
       x-permission: cash.forecast.read
       x-problem-codes:
         - request.invalid_order_by
@@ -17510,8 +17755,10 @@ paths:
       tags:
         - cash
       summary: Comment on a row of the forecast variance
-      description: "A person explains one row of a legal entity's forecast variance (ADR-0051 §11, §13, T53f4): a liquidity item (`liquidity_item`, its code; a tenant's item, active or not) or what no rule assigns (`unclassified: true`), exactly one of the two, over the period `from` to `to` at `lag`, as `getLiquidityForecastVariance` reads that variance. The comment is checked as the variance's request is: a lag other than 0, 7 and 30, a period ending before it starts or more than 36 months long, ending after the company's date or after the snapshot's horizon is 422; a period whose snapshot was not taken is 409 `cash.snapshot_not_taken`; a legal entity the caller cannot act in is 404. It names the snapshot that variance compares with (the daily one taken `lag` days before `from`, else the last taken on demand that day), which is then kept as long as the comment, past its 25 months. A person's comment is `accepted` as written, decided by its author; the forecast agent's proposals are other statuses. Audited, and published as VarianceCommentDecided."
+      description: "A person explains one row of a legal entity's forecast variance (ADR-0051 §11, §13, T53f4): a liquidity item (`liquidity_item`, its code; a tenant's item, active or not) or what no rule assigns (`unclassified: true`), exactly one of the two, over the period `from` to `to` at `lag`, as `getLiquidityForecastVariance` reads that variance. The comment is checked as the variance's request is: a lag other than 0, 7 and 30, a period ending before it starts or more than 36 months long, ending after the company's date or after the snapshot's horizon is 422; a period whose snapshot was not taken is 409 `cash.snapshot_not_taken`; a legal entity the caller cannot act in is 404. It names the snapshot that variance compares with (the daily one taken `lag` days before `from`, else the last taken on demand that day), which is then kept as long as the comment, past its 25 months. A person's comment is `accepted` as written, decided by its author; the forecast agent's proposals are other statuses. A comment explains a variance its writer reads, so besides `cash.variance.comment` the caller needs `cash.forecast.read` (product owner 2026-11-04; `x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as VarianceCommentDecided."
       x-permission: cash.variance.comment
+      x-also-permissions:
+        - cash.forecast.read
       x-agent: false
       x-problem-codes:
         - cash.snapshot_not_taken
@@ -17562,7 +17809,7 @@ paths:
       tags:
         - cash
       summary: Get a comment on the forecast variance
-      description: "One comment on a legal entity's forecast variance (ADR-0051 §11, T53f4). A comment on a legal entity the caller cannot act in is not found."
+      description: "One comment on a legal entity's forecast variance (ADR-0051 §11, T53f4), its version the ETag that a decision on a proposal names (`If-Match`). A comment on a legal entity the caller cannot act in is not found."
       x-permission: cash.forecast.read
       x-problem-codes: []
       parameters:
@@ -17570,6 +17817,9 @@ paths:
       responses:
         "200":
           description: The comment.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
           content:
             application/json:
               schema:
@@ -17584,6 +17834,122 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/liquidity-forecast-variance/comments/{id}:acceptProposal":
+    post:
+      operationId: acceptForecastVarianceCommentProposal
+      tags:
+        - cash
+      summary: Accept the forecast agent's proposed variance comment
+      description: "A person accepts the forecast agent's `proposed` comment on the forecast variance (ADR-0051 §13, T53i; 409 `cash.variance_comment_not_proposed` otherwise), as it stands or with their own `text` (1 to 2,000 characters, not blank), the agent's then kept as `proposed_text`: it becomes `accepted`, decided by the person, and keeps its session and citations. A person decides on a comment explaining a variance they read, so besides `cash.variance.comment` the caller needs `cash.forecast.read` (product owner 2026-11-04; `x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as VarianceCommentDecided."
+      x-permission: cash.variance.comment
+      x-also-permissions:
+        - cash.forecast.read
+      x-agent: false
+      x-problem-codes:
+        - cash.snapshot_not_taken
+        - cash.variance_comment_not_proposed
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The person's own text, if they edit the proposal.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForecastVarianceCommentAccept"
+      responses:
+        "200":
+          description: "The comment, `accepted`."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForecastVarianceComment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/liquidity-forecast-variance/comments/{id}:rejectProposal":
+    post:
+      operationId: rejectForecastVarianceCommentProposal
+      tags:
+        - cash
+      summary: Reject the forecast agent's proposed variance comment
+      description: "A person rejects the forecast agent's `proposed` comment on the forecast variance, with a reason (ADR-0051 §13, T53i; 409 `cash.variance_comment_not_proposed` otherwise): it becomes `rejected`, decided by the person, and is kept with its text and citations as evidence of what the agent said, and its snapshot with it. A person decides on a comment explaining a variance they read, so besides `cash.variance.comment` the caller needs `cash.forecast.read` (product owner 2026-11-04; `x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as VarianceCommentDecided."
+      x-permission: cash.variance.comment
+      x-also-permissions:
+        - cash.forecast.read
+      x-agent: false
+      x-problem-codes:
+        - cash.snapshot_not_taken
+        - cash.variance_comment_not_proposed
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Why it is rejected.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "200":
+          description: "The comment, `rejected`."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForecastVarianceComment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/memo-records:
     get:
       operationId: listMemoRecords
@@ -23401,10 +23767,13 @@ components:
             - test
             - analytics
             - reconciliation
+            - close
+            - cash_forecast
+            - tax
           maxLength: 50
         model:
           type: string
-          description: "The model alias the agent runs on, which the model gateway routes under the tenant's AI policy (ADR-0036): `erp-default`, `erp-extraction` or `erp-analytics`; another value is 422 `identity.unknown_model_alias`. Profiles that named a Claude model before were moved to `erp-default`."
+          description: "The model alias the agent runs on, which the model gateway routes under the tenant's AI policy (ADR-0036): `erp-default`, `erp-extraction`, `erp-analytics` or `erp-close`; another value is 422 `identity.unknown_model_alias`. Profiles that named a Claude model before were moved to `erp-default`."
           minLength: 1
           maxLength: 100
         monthly_budget:
@@ -36342,11 +36711,13 @@ components:
         - checked_by
         - checked_by_name
         - summary
+        - warnings_count
+        - warnings
       properties:
         check:
           type: string
           description: "The check run. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-          x-extensible-enum: [no_parked_entries, revaluation_posted, variances_explained, depreciation_posted]
+          x-extensible-enum: [no_parked_entries, revaluation_posted, variances_explained, depreciation_posted, accruals_decided, accruals_reversed]
           readOnly: true
         passed:
           type: boolean
@@ -36388,7 +36759,7 @@ components:
           maxItems: 20
           items:
             $ref: "#/components/schemas/CloseCheckLedger"
-          description: "`revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted revaluation run keyed on its period's last day, if it has one; `depreciation_posted`: each covered ledger, in the same order, with its latest posted depreciation run of the period, if it has one, or how many assets a run would select; absent for another check."
+          description: "`revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted revaluation run keyed on its period's last day, if it has one; `depreciation_posted`: each covered ledger, in the same order, with its latest posted depreciation run of the period, if it has one, or how many assets a run would select and the latest posted run of a later period, if there is one; absent for another check."
           readOnly: true
         unexplained_rows_count:
           type: integer
@@ -36402,6 +36773,49 @@ components:
           items:
             $ref: "#/components/schemas/CloseCheckVariance"
           description: "`variances_explained`: the first 20 of them, by basis as the company configures them, then by account number; absent for another check."
+          readOnly: true
+        warnings_count:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "How many warnings the check found: what it reports without failing (ADR-0058 §6 as built, PO 2026-11-04). 0 for a check that warns of nothing, and on a result recorded before checks warned."
+          readOnly: true
+        warnings:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/CloseCheckWarning"
+          description: "The first 20 of them (`warnings_count` says how many there are), each ledger's in the order of `ledgers`, then by asset number; empty without any."
+          readOnly: true
+        previous_fiscal_year:
+          type: integer
+          format: int32
+          description: "`accruals_reversed`: the fiscal year of the company's previous regular period, whose close it looked for; absent for another check."
+          readOnly: true
+        previous_fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 12
+          description: "`accruals_reversed`: that period (12 of the previous fiscal year for period 1); absent for another check."
+          readOnly: true
+        previous_close_id:
+          type: string
+          format: uuid
+          description: "`accruals_reversed`: the company's close of the previous regular period, whose posted accruals it looked at (`GET /v1/period-closes/{id}`); absent when there is none (the check passes), and for another check."
+          readOnly: true
+        accruals_count:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "`accruals_decided`: how many accrual proposals of this close are `proposed` or `pending_approval`; `accruals_reversed`: how many of the previous close's are `posted` and not reversed; absent for another check (T64f)."
+          readOnly: true
+        accruals:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/CloseCheckAccrual"
+          description: "`accruals_decided` and `accruals_reversed`: the first 20 of them, oldest first; absent for another check."
           readOnly: true
       examples:
         - check: no_parked_entries
@@ -36420,6 +36834,39 @@ components:
               created_by: 0192a000-0000-7000-8000-000000000101
               created_by_kind: human
               created_by_name: Carla Controller
+          warnings_count: 0
+          warnings: []
+        - check: depreciation_posted
+          passed: true
+          checked_at: "2026-11-03T15:00:00Z"
+          checked_by: 0192a000-0000-7000-8000-000000000101
+          checked_by_name: Carla Controller
+          summary: "Every covered ledger has a posted depreciation run of 2026/1, nothing to depreciate or a posted run of a later period; ledger 0L (1 late asset, caught up by a run of 2026/2 or later), see the warnings."
+          ledgers:
+            - ledger_id: 0192a000-0000-7000-8000-000000000d01
+              ledger_code: 0L
+              ledger_name: Leading ledger
+              key_date: "2026-01-31"
+              posted: false
+              assets_to_depreciate: 1
+              later_depreciation_run_id: 0192a000-0000-7000-8000-000000000e01
+              later_depreciation_fiscal_year: 2026
+              later_depreciation_period: 2
+          warnings_count: 1
+          warnings:
+            - code: depreciation_catch_up
+              message: "Asset 1000002 (Press) in ledger 0L has no depreciation booked from 2026/1 through 2026/2, whose run posted before it; a run of 2026/2 or later catches up 20.00 EUR."
+              ledger_id: 0192a000-0000-7000-8000-000000000d01
+              ledger_code: 0L
+              asset_id: 0192a000-0000-7000-8000-000000000f01
+              asset_number: "1000002"
+              asset_description: Press
+              missing_from_year: 2026
+              missing_from_period: 1
+              missing_through_year: 2026
+              missing_through_period: 2
+              later_depreciation_run_id: 0192a000-0000-7000-8000-000000000e01
+              catch_up: {amount: "20.00", currency: EUR}
     CloseCheckParkedEntry:
       type: object
       description: "A parked entry a `no_parked_entries` check found (`GET /v1/parked-journal-entries/{id}`), as it was when the check ran."
@@ -36503,7 +36950,7 @@ components:
           readOnly: true
         posted:
           type: boolean
-          description: "Whether it has a posted run of the check's kind: a revaluation run at the key date, or a depreciation run of the period. A ledger without a posted depreciation run still passes `depreciation_posted` when `assets_to_depreciate` is 0."
+          description: "Whether it has a posted run of the check's kind: a revaluation run at the key date, or a depreciation run of the period. A ledger without a posted depreciation run still passes `depreciation_posted` when `assets_to_depreciate` is 0, or when it has `later_depreciation_run_id`: a run of the period is then refused as out of order, and each asset to depreciate is a `depreciation_catch_up` warning (PO 2026-11-04)."
           readOnly: true
         revaluation_run_id:
           type: string
@@ -36520,6 +36967,88 @@ components:
           format: int32
           minimum: 0
           description: "`depreciation_posted` without a posted run: how many of the company's assets a run of the period in this ledger would select (`POST /v1/depreciation-runs/preview`); 0, nothing to depreciate, passes. Absent with a posted run and for another check."
+          readOnly: true
+        later_depreciation_run_id:
+          type: string
+          format: uuid
+          description: "`depreciation_posted` without a posted run of the period and with assets to depreciate: the latest posted depreciation run of a later period in this ledger (`GET /v1/depreciation-runs/{id}`), with which the check passes, the assets warned of; absent otherwise and for another check."
+          readOnly: true
+        later_depreciation_fiscal_year:
+          type: integer
+          format: int32
+          description: "With `later_depreciation_run_id`: that run's fiscal year; a run of its period or a later one posts the assets' catch-up."
+          readOnly: true
+        later_depreciation_period:
+          type: integer
+          format: int32
+          description: "With `later_depreciation_run_id`: that run's period."
+          readOnly: true
+    CloseCheckWarning:
+      type: object
+      description: "What a check reports without failing (ADR-0058 §6 as built, PO 2026-11-04), as it was when the check ran. `depreciation_catch_up`: an asset a depreciation run of the closed period would select in a ledger whose later period's run has posted, so that no run of the closed period may post (`assets.run_out_of_order`); a run of the later run's period or after posts its catch-up (ADR-0057 §7)."
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: "What it warns of. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [depreciation_catch_up]
+          readOnly: true
+        message:
+          type: string
+          description: "The warning in one sentence. Every warning has a `code` and a `message`; the other fields are those its code names, each absent for a code that does not name it."
+          readOnly: true
+        ledger_id:
+          type: string
+          format: uuid
+          description: "`depreciation_catch_up`: the ledger."
+          readOnly: true
+        ledger_code:
+          type: string
+          description: "`depreciation_catch_up`: its code."
+          readOnly: true
+        asset_id:
+          type: string
+          format: uuid
+          description: "`depreciation_catch_up`: the asset (`GET /v1/assets/{id}`)."
+          readOnly: true
+        asset_number:
+          type: string
+          description: "`depreciation_catch_up`: its number."
+          readOnly: true
+        asset_description:
+          type: string
+          description: "`depreciation_catch_up`: its description."
+          readOnly: true
+        missing_from_year:
+          type: integer
+          format: int32
+          description: "`depreciation_catch_up`: the fiscal year of the first period whose depreciation the asset has not booked in the ledger: the period after the one it is booked through, else its depreciation start's; absent when it has neither."
+          readOnly: true
+        missing_from_period:
+          type: integer
+          format: int32
+          description: "That period, with `missing_from_year`."
+          readOnly: true
+        missing_through_year:
+          type: integer
+          format: int32
+          description: "`depreciation_catch_up`: the fiscal year of the later run's period, the last period whose depreciation the asset misses."
+          readOnly: true
+        missing_through_period:
+          type: integer
+          format: int32
+          description: "That period, with `missing_through_year`."
+          readOnly: true
+        later_depreciation_run_id:
+          type: string
+          format: uuid
+          description: "`depreciation_catch_up`: the later period's posted run (`GET /v1/depreciation-runs/{id}`)."
+          readOnly: true
+        catch_up:
+          $ref: "#/components/schemas/Money"
+          description: "`depreciation_catch_up`: what a run of the later run's period would post for the asset when the check ran: its depreciation planned through that period less what is booked (`POST /v1/depreciation-runs/preview`, ADR-0057 §7), in the run's currency. Negative when more is booked than planned, as for an asset whose acquisition was reversed after depreciation posted (`missing_from_year` absent); a run of a period after it posts that period's depreciation on top."
           readOnly: true
     CloseTaskPage:
       type: object
@@ -36700,7 +37229,7 @@ components:
         check:
           type: string
           description: "The check. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-          x-extensible-enum: [no_parked_entries, revaluation_posted, variances_explained, depreciation_posted]
+          x-extensible-enum: [no_parked_entries, revaluation_posted, variances_explained, depreciation_posted, accruals_decided, accruals_reversed]
         summary:
           type: string
           description: "What it found, in one sentence; `:check` on the task records it whole."
@@ -37112,7 +37641,7 @@ components:
           readOnly: true
     AccrualProposal:
       type: object
-      description: "An accrual the close agent proposed for a period close (ADR-0058 §8, T64e): one expense of the close's period, in the company's local currency, parked as a journal entry for a person to post, with the evidence it rests on."
+      description: "An accrual the close agent proposed for a period close (ADR-0058 §8, T64e, T64f): one expense of the close's period, in the company's local currency, parked as a journal entry for a person to post, with the evidence it rests on, and its status derived from that entry."
       required:
         - id
         - close_id
@@ -37137,6 +37666,7 @@ components:
         - parked_entry_id
         - posting_date
         - status
+        - modified
         - version
         - created_at
         - updated_at
@@ -37277,7 +37807,7 @@ components:
         parked_entry_id:
           type: string
           format: uuid
-          description: "The journal entry parked for it (`GET /v1/parked-journal-entries/{id}`), which a person posts, edits or cancels; what was done with it is read there."
+          description: "The journal entry parked for it (`GET /v1/parked-journal-entries/{id}`), which a person posts, edits or cancels; the proposal's status is derived from it."
           readOnly: true
         posting_date:
           type: string
@@ -37286,8 +37816,52 @@ components:
           readOnly: true
         status:
           type: string
-          description: "`proposed`: its parked entry waits for a person, who decides it in the ledger. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-          x-extensible-enum: [proposed]
+          description: "Derived at the read from its parked entry (ADR-0058 §8, T64f): `proposed`, the entry is parked and waits for a person; `pending_approval`, it was submitted for a second person's approval; `posted`, it was posted (`journal_entry_id`, `journal_entry_number`; `modified` when the amount posted differs from the one proposed); `reversed`, its journal entry was reversed (`reversal_entry_id`, `reversal_entry_number`); `rejected`, rejected here (`:rejectProposal`, with `decided_by` and `decision_reason`), or its entry cancelled or its approval rejected in the ledger. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [proposed, pending_approval, posted, reversed, rejected]
+          readOnly: true
+        modified:
+          type: boolean
+          description: "Whether a person changed the entry before posting it, so the amount posted (`posted_amount`) differs from the one proposed; false until it is posted."
+          readOnly: true
+        posted_amount:
+          $ref: "#/components/schemas/Money"
+          description: "The parked entry's debit total as posted, with its currency; absent until it is posted."
+          readOnly: true
+        journal_entry_id:
+          type: string
+          format: uuid
+          description: "The journal entry it was posted as (`GET /v1/journal-entries/{id}`); absent until it is posted."
+          readOnly: true
+        journal_entry_number:
+          type: string
+          description: "Its document number; absent as `journal_entry_id` is."
+          readOnly: true
+        reversal_entry_id:
+          type: string
+          format: uuid
+          description: "The journal entry that reversed it (`reverseJournalEntry`); absent until it is reversed."
+          readOnly: true
+        reversal_entry_number:
+          type: string
+          description: "Its document number; absent as `reversal_entry_id` is."
+          readOnly: true
+        decided_by:
+          type: string
+          format: uuid
+          description: "The person who rejected it (`:rejectProposal`); absent otherwise, also when its entry was cancelled in the ledger."
+          readOnly: true
+        decided_by_name:
+          type: string
+          description: "Their name; absent as `decided_by` is."
+          readOnly: true
+        decided_at:
+          type: string
+          format: date-time
+          description: "When it was rejected; absent as `decided_by` is."
+          readOnly: true
+        decision_reason:
+          type: string
+          description: "Why it was rejected; absent as `decided_by` is."
           readOnly: true
         version:
           type: integer
@@ -37334,25 +37908,79 @@ components:
             - {kind: supplier_invoice, document_id: 0192a000-0000-7000-8000-000000000611, document_number: "5100000042", supplier_id: 0192a000-0000-7000-8000-000000000301, supplier_number: "100042", supplier_name: Tyrell Logistics}
           parked_entry_id: 0192a000-0000-7000-8000-000000000c51
           posting_date: "2026-10-31"
-          status: proposed
+          status: posted
+          modified: false
+          posted_amount: {amount: "1200.00", currency: CAD}
+          journal_entry_id: 0192a000-0000-7000-8000-000000000c61
+          journal_entry_number: "100000042"
           version: 1
           created_at: "2026-11-03T14:00:00Z"
           updated_at: "2026-11-03T14:00:00Z"
     AccrualProposalPage:
       type: object
-      description: One page of accrual proposals.
+      description: "One page of accrual proposals, with the totals of the whole filtered set."
       required:
         - items
+        - totals
       properties:
         items:
           type: array
           items:
             $ref: "#/components/schemas/AccrualProposal"
           description: The accrual proposals on this page.
+        totals:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/AccrualProposalTotal"
+          description: "The filtered set's proposals summed per status and currency, by status (`proposed`, `pending_approval`, `posted`, `reversed`, `rejected`), then currency; the same on every page, and empty when none matches."
+          readOnly: true
         next_page_token:
           type: string
           description: "Opaque cursor for the next page; absent on the last page."
           maxLength: 2048
+    AccrualProposalTotal:
+      type: object
+      description: "The accrual proposals of one status and currency in a filtered set (ADR-0058 §8, T64f): how much of what the agent proposed was posted as proposed, changed or rejected."
+      required:
+        - status
+        - currency
+        - count
+        - amount
+        - modified_count
+      properties:
+        status:
+          type: string
+          description: "The proposals' derived status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [proposed, pending_approval, posted, reversed, rejected]
+          readOnly: true
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+          description: "The proposals' currency, their companies' local currency."
+          readOnly: true
+        count:
+          type: integer
+          format: int32
+          minimum: 1
+          description: How many proposals.
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "The sum of the amounts proposed."
+          readOnly: true
+        posted_amount:
+          $ref: "#/components/schemas/Money"
+          description: "`posted` and `reversed`: the sum of the amounts posted; absent for another status."
+          readOnly: true
+        modified_count:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "How many of them were posted with an amount other than the one proposed (`modified`); 0 for a status not posted."
+          readOnly: true
+      examples:
+        - {status: posted, currency: CAD, count: 2, amount: {amount: "1500.00", currency: CAD}, posted_amount: {amount: "1450.00", currency: CAD}, modified_count: 1}
     VarianceCommentProposal:
       type: object
       description: "An agent's proposed comment explaining one row of a period close's variance report, in its running session (ADR-0058 §10)."
@@ -37719,6 +38347,59 @@ components:
           type: integer
           format: int32
           description: "The comment's version, its ETag."
+          readOnly: true
+    CloseCheckAccrual:
+      type: object
+      description: "An accrual proposal an `accruals_decided` check found undecided, or an `accruals_reversed` check found posted and not reversed (`GET /v1/accrual-proposals/{id}`), as it was when the check ran."
+      required:
+        - id
+        - account_id
+        - account_number
+        - account_name
+        - amount
+        - status
+        - parked_entry_id
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The accrual proposal.
+          readOnly: true
+        account_id:
+          type: string
+          format: uuid
+          description: Its expense account.
+          readOnly: true
+        account_number:
+          type: string
+          description: "The account's number."
+          readOnly: true
+        account_name:
+          type: string
+          description: "The account's name, as it was when proposed."
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "The amount proposed, or the amount posted once posted."
+          readOnly: true
+        status:
+          type: string
+          description: "Its derived status then. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [proposed, pending_approval, posted]
+          readOnly: true
+        parked_entry_id:
+          type: string
+          format: uuid
+          description: "Its parked entry (`GET /v1/parked-journal-entries/{id}`)."
+          readOnly: true
+        journal_entry_id:
+          type: string
+          format: uuid
+          description: "The journal entry it was posted as, to reverse (`reverseJournalEntry`); absent until posted."
+          readOnly: true
+        journal_entry_number:
+          type: string
+          description: "Its document number; absent as `journal_entry_id` is."
           readOnly: true
     CloseCheckVariance:
       type: object
@@ -40379,7 +41060,7 @@ components:
     ForecastVarianceComment:
       type: object
       description: "A comment on one row of a legal entity's forecast variance (ADR-0051 §11, T53f4), with the snapshot that variance compares with, which is kept as long as the comment."
-      required: [id, legal_entity_id, company_code, from, to, lag, unclassified, snapshot_id, snapshot_date, text, status, created_at, created_by]
+      required: [id, legal_entity_id, company_code, from, to, lag, unclassified, snapshot_id, snapshot_date, text, status, created_at, created_by, citations]
       properties:
         id: {type: string, format: uuid, description: Comment id., readOnly: true}
         legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
@@ -40401,7 +41082,15 @@ components:
         decided_by: {type: string, format: uuid, description: "The person who decided it: a person's comment, its author; absent while proposed.", readOnly: true}
         decided_at: {type: string, format: date-time, description: "When it was decided; absent while proposed.", readOnly: true}
         created_at: {type: string, format: date-time, description: When it was written., readOnly: true}
-        created_by: {type: string, format: uuid, description: "Its author.", readOnly: true}
+        created_by: {type: string, format: uuid, description: "Its author: a person, or the agent that proposed it.", readOnly: true}
+        session_id: {type: string, format: uuid, description: "The forecast agent's session it was proposed in; absent on a person's comment.", readOnly: true}
+        citations:
+          type: array
+          items: {$ref: "#/components/schemas/ForecastVarianceCitation"}
+          description: "The documents behind the attributed variance a proposal cites, checked against it when proposed; empty on a person's comment."
+          readOnly: true
+        decision_reason: {type: string, description: "Why a person rejected the proposal; present when `rejected`.", readOnly: true}
+        proposed_text: {type: string, description: "The agent's text, when a person accepted the proposal with their own (`text`); absent otherwise.", readOnly: true}
       examples:
         - id: 0192a000-0000-7000-8000-000000000e21
           legal_entity_id: 0192a000-0000-7000-8000-000000000201
@@ -40420,6 +41109,159 @@ components:
           decided_at: "2026-05-04T14:00:00Z"
           created_at: "2026-05-04T14:00:00Z"
           created_by: 0192a000-0000-7000-8000-000000000101
+          citations: []
+    ForecastVarianceCommentProposal:
+      type: object
+      description: "The forecast agent's proposed comment on one row of a legal entity's forecast variance (ADR-0051 §13): the row, period and lag as a person's comment names them, the session it is proposed in, and the documents behind the attributed variance it cites."
+      required: [legal_entity_id, from, to, text, session_id, citations]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The legal entity whose variance it explains."}
+        from: {type: string, format: date, description: "The period's first day, as the variance's `from`."}
+        to: {type: string, format: date, description: "The period's last day, as the variance's `to`."}
+        lag: {type: integer, format: int32, default: 7, description: "The variance's lag: 0, 7 (default) or 30 days."}
+        liquidity_item: {type: string, minLength: 1, description: "The code of the liquidity item whose row it explains; absent with `unclassified`."}
+        unclassified: {type: boolean, default: false, description: "True: it explains the row of what no rule assigns, and names no `liquidity_item`."}
+        text: {type: string, minLength: 1, maxLength: 2000, pattern: '\S', description: "The explanation, naming the documents behind it, such as \"Kurier Express's invoice KE-7 of EUR 300.00 was forecast for today and not paid: no payment run was released.\""}
+        session_id: {type: string, format: uuid, description: "The proposing agent's running session."}
+        citations:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: {$ref: "#/components/schemas/ForecastVarianceCitation"}
+          description: "The documents behind the attributed variance the text explains, each one `listForecastVarianceDocuments` lists for the row."
+      examples:
+        - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          from: "2026-04-24"
+          to: "2026-04-30"
+          lag: 7
+          liquidity_item: PAY_SUPPLIERS
+          text: "Kurier Express's invoice of EUR 300.00 was forecast on the 24th and paid on 1 May: the run of the 24th was released a week late."
+          session_id: 0192a000-0000-7000-8000-000000000a01
+          citations:
+            - {kind: payment, id: 0192a000-0000-7000-8000-000000000c01}
+    ForecastVarianceCommentAccept:
+      type: object
+      description: "A person's acceptance of the forecast agent's proposed comment: as it stands, or with their own text."
+      properties:
+        text: {type: string, minLength: 1, maxLength: 2000, pattern: '\S', description: "The person's text in place of the agent's, which is kept as `proposed_text`; absent: accepted as it stands."}
+      examples:
+        - {text: "The run of the 24th was released a week late, on 1 May, after the approver's leave."}
+    ForecastVarianceCitation:
+      type: object
+      description: "A document a variance comment cites: one the attribution of the variance it explains lists (`listForecastVarianceDocuments`)."
+      required: [kind, id]
+      properties:
+        kind:
+          type: string
+          description: "The document's kind: `payment`, `journal_entry`, `supplier_invoice`, `purchase_order`, `down_payment_request`, `memo_record` or `bank_statement`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [payment, journal_entry, supplier_invoice, purchase_order, down_payment_request, memo_record, bank_statement]
+        id: {type: string, format: uuid, description: The document.}
+      additionalProperties: false
+      examples:
+        - {kind: supplier_invoice, id: 0192a000-0000-7000-8000-000000000c11}
+    ForecastVarianceDocuments:
+      type: object
+      description: "The documents behind a legal entity's attributed forecast variance (ADR-0051 §11, §13): one entry per contribution in the days kept per document, of one row or of every row."
+      required: [legal_entity_id, company_code, from, to, lag, grain, snapshot_id, snapshot_date, document_level_until, count, items]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        company_code: {type: string, description: "The legal entity's company code.", readOnly: true}
+        from: {type: string, format: date, description: "The period's first day.", readOnly: true}
+        to: {type: string, format: date, description: "The period's last day.", readOnly: true}
+        lag: {type: integer, format: int32, description: "The variance's lag in days.", readOnly: true}
+        grain: {type: string, description: "The buckets' length. Open enumeration: values may be added within /v1.", x-extensible-enum: [day, week, month], readOnly: true}
+        liquidity_item: {type: string, description: "The row asked for, its liquidity item's code; absent for every row or the unclassified row.", readOnly: true}
+        unclassified: {type: boolean, description: "True: the row of what no rule assigns was asked for.", readOnly: true}
+        snapshot_id: {type: string, format: uuid, description: "The snapshot the variance compares with.", readOnly: true}
+        snapshot_date: {type: string, format: date, description: "The snapshot's date.", readOnly: true}
+        document_level_until: {type: string, format: date, description: "The last day the snapshot kept per document: entries are of days up to it and `to`.", readOnly: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ForecastVarianceDocument"}
+          description: "The page's contributions, the forecast's then the actuals', each by value date, within a day in a stable order (a digest of what each is)."
+          readOnly: true
+        count: {type: integer, format: int32, minimum: 0, description: "The contributions of every page.", readOnly: true}
+        next_page_token: {type: string, description: "Opaque cursor for the next page; absent on the last page.", readOnly: true}
+      examples:
+        - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "3000"
+          from: "2026-04-24"
+          to: "2026-04-30"
+          lag: 7
+          grain: week
+          liquidity_item: OP_SUPPLIERS
+          unclassified: false
+          snapshot_id: 0192a000-0000-7000-8000-000000000e01
+          snapshot_date: "2026-04-17"
+          document_level_until: "2026-05-17"
+          count: 2
+          items:
+            - side: forecast
+              attribution: timing
+              currency: CAD
+              liquidity_item: OP_SUPPLIERS
+              value_date: "2026-04-24"
+              bucket_start: "2026-04-24"
+              amount: {amount: "-300.00", currency: CAD}
+              documents:
+                - {kind: payment, id: 0192a000-0000-7000-8000-000000000c01, number: PR100004}
+              document_count: 1
+            - side: actual
+              attribution: timing
+              currency: CAD
+              liquidity_item: OP_SUPPLIERS
+              value_date: "2026-05-01"
+              bucket_start: "2026-04-24"
+              amount: {amount: "-300.00", currency: CAD}
+              documents:
+                - {kind: payment, id: 0192a000-0000-7000-8000-000000000c01, number: PR100004}
+                - {kind: journal_entry, id: 0192a000-0000-7000-8000-000000000c02, number: "1900000412"}
+                - {kind: bank_statement, id: 0192a000-0000-7000-8000-000000000c03, number: RBC-1000001-2026-05-01}
+              document_count: 3
+              line_no: 4
+              bank_reference: B4
+    ForecastVarianceDocument:
+      type: object
+      description: "One contribution to an attributed variance: a forecast line of the snapshot, or the part of a statement line that one document behind it pays, in one liquidity item."
+      required: [side, attribution, currency, value_date, bucket_start, amount, documents, document_count]
+      properties:
+        side:
+          type: string
+          description: "`forecast` (a line of the snapshot) or `actual` (a statement line's part). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [forecast, actual]
+          readOnly: true
+        attribution:
+          type: string
+          description: "Its part of the variance: `timing`, `amount`, `new`, `missing` or `unclassified`, as the variance attributes it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [timing, amount, new, missing, unclassified]
+          readOnly: true
+        currency: {type: string, description: The currency (ISO 4217)., readOnly: true}
+        liquidity_item: {type: string, description: "The liquidity item it is classified in; absent for what no rule assigns.", readOnly: true}
+        value_date: {type: string, format: date, description: "The day it was forecast for, or the statement line's value date.", readOnly: true}
+        bucket_start: {type: string, format: date, description: "The first day of the bucket it falls in.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money"}
+        documents:
+          type: array
+          items: {$ref: "#/components/schemas/ForecastVarianceDocumentRef"}
+          description: "The documents it is known by that the caller may see, most specific first; a statement line's bank statement last."
+          readOnly: true
+        document_count: {type: integer, format: int32, minimum: 0, description: "How many documents it is known by, shown or not.", readOnly: true}
+        line_no: {type: integer, format: int32, description: "The statement line's number in its bank statement; present when the statement is shown.", readOnly: true}
+        bank_reference: {type: string, description: "The statement line's reference at the bank; present when the statement is shown and the bank gave one.", readOnly: true}
+        supplier: {$ref: "#/components/schemas/PartnerName"}
+    ForecastVarianceDocumentRef:
+      type: object
+      description: "A document behind a contribution to the variance."
+      required: [kind, id]
+      properties:
+        kind:
+          type: string
+          description: "`payment`, `journal_entry`, `supplier_invoice`, `purchase_order`, `down_payment_request`, `memo_record` or `bank_statement`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [payment, journal_entry, supplier_invoice, purchase_order, down_payment_request, memo_record, bank_statement]
+          readOnly: true
+        id: {type: string, format: uuid, description: The document., readOnly: true}
+        number: {type: string, description: "Its number where known: a document's number as the snapshot kept it (a memo record's reference), a payment's run number, a bank statement's reference.", readOnly: true}
+        occurrence_date: {type: string, format: date, description: "A memo series' occurrence: the day the snapshot forecast it.", readOnly: true}
     ForecastVarianceCommentPage:
       type: object
       description: One page of comments on the forecast variance.

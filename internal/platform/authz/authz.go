@@ -358,9 +358,21 @@ func Visible(err error, access Access, legalEntity uuid.UUID, notFound error, fo
 // every read and write of company-scoped resources with it, and answer 404
 // for resources outside it, so ids cannot be probed (04-api-design §4.9).
 func Companies(ctx context.Context) (Access, error) {
+	p, ok := reqctx.PrincipalFrom(ctx)
+	if !ok {
+		return Access{}, errOutsideRequest
+	}
+	return CompaniesOf(ctx, p.ID)
+}
+
+// CompaniesOf returns the legal entity access of a principal of the tenant,
+// read in the request's transaction: a context that hands work to another
+// person checks that person may act in the work's company (a close task's
+// assignee, ADR-0058 §6). Access is judged on the database's date, as the
+// principal's own requests judge it.
+func CompaniesOf(ctx context.Context, principal uuid.UUID) (Access, error) {
 	tx, ok := reqctx.TxFrom(ctx)
-	p, ok2 := reqctx.PrincipalFrom(ctx)
-	if !ok || !ok2 {
+	if !ok {
 		return Access{}, errOutsideRequest
 	}
 	var a Access
@@ -369,9 +381,9 @@ func Companies(ctx context.Context) (Access, error) {
 		LEFT JOIN identity.company_access ca ON ca.tenant_id = p.tenant_id AND ca.principal_id = p.id
 		  AND current_date >= ca.valid_from AND (ca.valid_to IS NULL OR current_date < ca.valid_to)
 		WHERE p.id = $1
-		GROUP BY p.all_companies`, p.ID).Scan(&a.All, &a.IDs)
+		GROUP BY p.all_companies`, principal).Scan(&a.All, &a.IDs)
 	if err != nil {
-		return Access{}, fmt.Errorf("authz: company access: %w", err)
+		return Access{}, fmt.Errorf("authz: company access of %s: %w", principal, err)
 	}
 	return a, nil
 }

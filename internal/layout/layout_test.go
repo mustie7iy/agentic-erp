@@ -89,6 +89,7 @@ var allowed = map[string][]string{
 	"audit":                   {"operations"},
 	"capture":                 {"llm"},
 	"cash":                    {"config"}, // a leaf (ADR-0051 §2): the ledger, payments, payables and procurement through ports the composition root wires
+	"closeagent":              {"apitools", "llm"},
 	"closing":                 {"config"}, // a leaf (ADR-0058 §2): configuration, tenancy, the ledger and controlling through ports the composition root wires
 	"config":                  {"bankfile"},
 	"configuration":           {"approvals", "config", "countrypack", "operations"},
@@ -113,7 +114,9 @@ var allowed = map[string][]string{
 	"procurement":             {"approvals", "config", "ledger", "partner", "tenancy"},
 	"provisioning":            {"config", "configuration", "identity", "tenancy"},
 	"reconagent":              {"apitools", "llm"},
+	"cashagent":               {"apitools", "llm"},
 	"router":                  {"directory"},
+	"taxagent":                {"apitools", "llm"},
 	// Registrations from the configuration, companies from the directory
 	// (ADR-0049 §10); returns from the ledger's tax items through
 	// ledger.TaxItems and the country packs' returns.yaml (§11, T61h);

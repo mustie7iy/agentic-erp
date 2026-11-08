@@ -37,7 +37,8 @@ import (
 // DefaultRoutes are the aliases callers name (modelalias.Aliases,
 // TestRoutesAreTheAliases) and the models they route to
 // when nothing else is configured.
-var DefaultRoutes = map[string]string{"erp-default": "claude-opus-5-5", "erp-extraction": "claude-opus-5-5", "erp-analytics": "claude-opus-5-5"}
+var DefaultRoutes = map[string]string{"erp-default": "claude-opus-5-5", "erp-extraction": "claude-opus-5-5", "erp-analytics": "claude-opus-5-5",
+	"erp-close": "claude-opus-5-5"}
 
 // SessionHeader ties a call to the caller's agent session.
 const SessionHeader = "Erp-Agent-Session"

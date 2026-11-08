@@ -9,6 +9,10 @@ type AcceptBankStatementLineProposalRes interface {
 	acceptBankStatementLineProposalRes()
 }
 
+type AcceptForecastVarianceCommentProposalRes interface {
+	acceptForecastVarianceCommentProposalRes()
+}
+
 type AcceptMemoRecordProposalRes interface {
 	acceptMemoRecordProposalRes()
 }
@@ -869,6 +873,10 @@ type ListForecastVarianceCommentsRes interface {
 	listForecastVarianceCommentsRes()
 }
 
+type ListForecastVarianceDocumentsRes interface {
+	listForecastVarianceDocumentsRes()
+}
+
 type ListGoodsReceiptsRes interface {
 	listGoodsReceiptsRes()
 }
@@ -1189,6 +1197,10 @@ type ProposeBankStatementLineRes interface {
 	proposeBankStatementLineRes()
 }
 
+type ProposeForecastVarianceCommentRes interface {
+	proposeForecastVarianceCommentRes()
+}
+
 type ProposeMemoRecordRes interface {
 	proposeMemoRecordRes()
 }
@@ -1225,12 +1237,20 @@ type RedeliverWebhookDeliveryRes interface {
 	redeliverWebhookDeliveryRes()
 }
 
+type RejectAccrualProposalRes interface {
+	rejectAccrualProposalRes()
+}
+
 type RejectApprovalRequestRes interface {
 	rejectApprovalRequestRes()
 }
 
 type RejectBankStatementLineProposalRes interface {
 	rejectBankStatementLineProposalRes()
+}
+
+type RejectForecastVarianceCommentProposalRes interface {
+	rejectForecastVarianceCommentProposalRes()
 }
 
 type RejectMemoRecordProposalRes interface {

@@ -10,7 +10,7 @@
 //	erp migrate -connector ID -legal-entities ID,... -year 2026 [-rehearsal]
 //	erp invoices [-agent]          match parked invoices, post clean ones
 //	erp capture -legal-entity ID -file F   capture an invoice document (large ones through an upload)
-//	erp agent invoices|config|migration|test
+//	erp agent invoices|config|migration|test|reconcile|cash-variance
 //	erp metrics | query | ask | report
 //	erp gen-mock-sap | config generate | config validate
 //	erp tenants list|get|create|suspend|resume|offboard   (operators: the control plane)
@@ -149,7 +149,10 @@ the API (ERP_API_URL, ERP_TOKEN):
   report         rerun a saved report on current data
 
 agents (ERP_AGENT_TOKEN; models through the cell's gateway, ERP_AGENT_MODEL an alias):
-  agent invoices | config | migration | test | reconcile -statement ID
+  agent invoices | config | migration | test | reconcile -statement ID | close-accruals -close ID
+                 | close-variances -close ID [-basis B]
+                 | cash-variance -company CODE -period FROM..TO [-lag 7]
+                 | tax-draft -registration CODE -period YYYY-MM-DD
 
 agent evaluations (ADR-0039; live, on demand: they spend model money):
   eval run -suite evals/<agent>/suite.yaml [-repeats 3] [-max-cost 5.00] [-out evals/results]

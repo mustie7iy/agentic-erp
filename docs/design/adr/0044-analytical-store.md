@@ -857,7 +857,9 @@ the lag 7 ones, as `forecast` does. Decisions:
   day forecast or a past day of no snapshot is not a variance. The
   company's date is read when the cells are (the store's at its run, so
   a day passing shows in the store's answer at its next run, within the
-  freshness target, as any change does).
+  freshness target, as any change does). Product owner 2026-11-04
+  confirmed: the variance and the accuracy count only passed days with a
+  snapshot taken the lag before, as the variance report does.
 - *Rounding: 100 less the rounded WAPE.* The product owner's accuracy is
   100 less WAPE rounded as `money.AbsPercentOf`, two decimals half away
   from zero, so that for one cell it is 100 less the variance report's
@@ -865,7 +867,8 @@ the lag 7 ones, as `forecast` does. Decisions:
   (12.345% gives 87.66%, not 87.65%), so the op `complement` is `1 −
   left / right` with the quotient rounded to a ratio's four digits (two
   of a percentage) first; a ratio as the semantic layer shows every ratio
-  (0.8765 is 87.65%, as `operating_margin`). It is an op of the same
+  (0.8765 is 87.65%, as `operating_margin`; product owner 2026-11-04
+  confirmed the accuracy shown as a ratio). It is an op of the same
   derivation (two metrics, a type `ratio` required), since the semantic
   layer has no constant to subtract from; `AnalyticsDerived.op` is an
   open enumeration, so it is not a breaking change.

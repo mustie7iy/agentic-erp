@@ -199,7 +199,7 @@ func (c cashPayments) Paying(ctx context.Context, legalEntity uuid.UUID, ids []u
 	for id, p := range ps {
 		items := make([]cash.Paid, len(p.Items))
 		for i, it := range p.Items {
-			items[i] = cash.Paid{Amount: it.Amount, Lines: cashLines(it.Lines), Entry: it.Entry, Invoice: it.Invoice, Order: it.Order}
+			items[i] = cash.Paid{Amount: it.Amount, Lines: cashLines(it.Lines), FiscalYear: it.FiscalYear, Entry: it.Entry, LineNo: it.LineNo, Invoice: it.Invoice, Order: it.Order}
 		}
 		out[id] = cash.Paying{PlanningGroup: p.PlanningGroup, Items: items, Request: p.Request}
 	}

@@ -200,6 +200,9 @@ func (q *qualityCheck) vendors() {
 		if strings.TrimSpace(v.STCD1) == "" {
 			q.add(SevWarning, "LFA1", v.LIFNR, "vendor %q has no tax number", v.NAME1)
 		}
+		if _, _, why := vendorAddress(v, time.Time{}); why != "" {
+			q.add(SevWarning, "LFA1", v.LIFNR, "vendor %q has %s: it loads without an address", v.NAME1, why)
+		}
 		key := strings.ToUpper(strings.Join(strings.Fields(v.NAME1), " "))
 		byName[key] = append(byName[key], v.LIFNR)
 	}

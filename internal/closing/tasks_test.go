@@ -65,21 +65,33 @@ func TestCloseTasks(t *testing.T) {
 		"task_completed REPORT <nil> 4", "task_reopened AP_CUTOFF A late invoice arrived 5", "task_assigned AP_CUTOFF <nil> 6"})
 }
 
-// TestCloseTaskRefusals: a task is assigned to an active person of the
-// tenant only; an unknown task or close is not found; a change needs
-// If-Match; agents do not work the checklist.
+// TestCloseTaskRefusals: a task is assigned only to an active person of
+// the tenant who may act in the close's company; an unknown task or close
+// is not found; a change needs If-Match; agents do not work the checklist.
 func TestCloseTaskRefusals(t *testing.T) {
 	e := fixture.NewWith(t, nil, withTemplate, closePermissions...)
 	got, tag := open(t, e.Client, e.US, 1, "")
 	base := "/v1/period-closes/" + apitest.String(t, got, "id") + "/tasks/"
 	blocked := e.Person(t, "blocked")
 	pgtest.Exec(t, `UPDATE identity.principal SET status = 'blocked', version = version + 1 WHERE id = $1`, blocked.ID)
-	for name, id := range map[string]uuid.UUID{"an agent": e.Tenant.Agent.ID, "a service": e.Tenant.Service.ID, "a blocked person": blocked.ID,
-		"an unknown principal": uuid.New()} {
+	person, access := "an active person of the tenant", "a person with access to the close's company"
+	for name, c := range map[string]struct {
+		id   uuid.UUID
+		want string
+	}{"an agent": {e.Tenant.Agent.ID, person}, "a service": {e.Tenant.Service.ID, person}, "a blocked person": {blocked.ID, person},
+		"an unknown principal": {uuid.New(), person}, "a person of another company": {e.Reader(t, "reader of 2000", e.DE).ID, access}} {
 		t.Run(name, func(t *testing.T) {
-			p := e.Client.In(t).Problem(422, "closing.assignee_invalid", "PATCH", base+"REVIEW", fmt.Sprintf(`{"assignee_id": %q}`, id), tag)
-			if errs, _ := p["errors"].([]any); len(errs) != 1 || errs[0].(map[string]any)["field"] != "assignee_id" {
-				t.Errorf("field: got %v, want assignee_id", p["errors"])
+			p := e.Client.In(t).Problem(422, "closing.assignee_invalid", "PATCH", base+"REVIEW", fmt.Sprintf(`{"assignee_id": %q}`, c.id), tag)
+			errs, _ := p["errors"].([]any)
+			if len(errs) != 1 {
+				t.Fatalf("errors: got %v, want one on assignee_id", p["errors"])
+			}
+			fe := errs[0].(map[string]any)
+			if fe["field"] != "assignee_id" {
+				t.Errorf("field: got %v, want assignee_id", fe["field"])
+			}
+			if fe["message"] != c.want {
+				t.Errorf("message: got %v, want %q", fe["message"], c.want)
 			}
 		})
 	}

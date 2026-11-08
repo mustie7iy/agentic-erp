@@ -45,8 +45,9 @@ const (
 // revaluation posted at the period's last day. T64i: every variance
 // requiring a comment explained by an accepted, current one. T64k: each
 // covered ledger's depreciation of the period posted, or nothing to
-// depreciate.
-var CloseChecks = []string{"no_parked_entries", "revaluation_posted", "variances_explained", "depreciation_posted"}
+// depreciate. T64f: no accrual proposal of the close left undecided; every
+// accrual posted for the previous period's close reversed.
+var CloseChecks = []string{"no_parked_entries", "revaluation_posted", "variances_explained", "depreciation_posted", "accruals_decided", "accruals_reversed"}
 
 // Close template bounds (ADR-0058 §3).
 const (

@@ -415,7 +415,7 @@ func TestAgentErrors(t *testing.T) {
 	t.Chdir(t.TempDir())
 	model(t)
 	fakeAPI(t, routes{})
-	fails(t, "agent invoices | config | migration | test | reconcile", "agent")
+	fails(t, "agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance | tax-draft", "agent")
 	fails(t, "unknown agent", "agent", "bogus")
 	fails(t, "flag provided", "agent", "config", "-x")
 	fails(t, "say what to change", "agent", "config")
@@ -435,12 +435,153 @@ func TestAgentErrors(t *testing.T) {
 		t.Errorf("agent reconcile: got %s", got)
 	}
 	printFails(t, "agent", "reconcile", "-statement", "s")
+	fails(t, "flag provided", "agent", "cash-variance", "-x")
+	fails(t, "want -company CODE -period FROM..TO", "agent", "cash-variance", "-company", "3000", "-period", "2026-04-17")
+	fails(t, "want -company CODE -period FROM..TO", "agent", "cash-variance", "-period", "2026-04-17..2026-04-17")
+	fails(t, "404", "agent", "cash-variance", "-company", "3000", "-period", "2026-04-17..2026-04-17")
+	fakeAPI(t, routes{"GET /v1/legal-entities": {ok(`{"items": [{"id": "le", "code": "3000"}]}`)}, "GET /v1/liquidity-forecast-variance": {ok(`{}`)},
+		"POST /v1/agent-sessions": {reply{201, `{"id": "01a1aa00-0000-7000-8000-000000000a01", "autonomy_level": 1}`}},
+		"POST /v1/agent-sessions/01a1aa00-0000-7000-8000-000000000a01:end":        {ok(`{}`)},
+		"POST /v1/agent-sessions/01a1aa00-0000-7000-8000-000000000a01/tool-calls": {reply{201, `{}`}},
+		"POST /v1/liquidity-forecast-variance/comment-proposals":                  {reply{201, `{"id": "c1"}`}},
+		"POST /v1/memo-record-proposals":                                          {reply{201, `{"id": "m1"}`}}})
+	model(t, llmtest.Tool("proposeForecastVarianceComment", map[string]any{"body": map[string]any{"legal_entity_id": "le", "from": "2026-04-17",
+		"to": "2026-04-17", "lag": 7}}), llmtest.Tool("proposeMemoRecord", map[string]any{"body": map[string]any{"legal_entity_id": "le"}}),
+		llmtest.Final("OP_SUPPLIERS: proposed."))
+	got := must(t, "agent", "cash-variance", "-company", "3000", "-period", "2026-04-17..2026-04-17")
+	if want := "Session 01a1aa00-0000-7000-8000-000000000a01: comments proposed 1, memo records proposed 1, refused 0.\n  comment c1\n  memo record m1\n" +
+		"OP_SUPPLIERS: proposed.\n"; got != want {
+		t.Errorf("agent cash-variance: got %q, want %q", got, want)
+	}
+	model(t, llmtest.Final("Nothing to explain."))
+	printFails(t, "agent", "cash-variance", "-company", "3000", "-period", "2026-04-17..2026-04-17")
+	model(t)
+	fails(t, "500", "agent", "cash-variance", "-company", "3000", "-period", "2026-04-17..2026-04-17")
 	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
-	for _, a := range []string{"config", "migration", "test", "reconcile"} {
-		t.Run(a+" without a token", func(t *testing.T) {
-			fails(t, "ERP_AGENT_TOKEN is not set", "agent", a, "do", "it")
+	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "cash-variance", "-company", "3000", "-period", "2026-04-17..2026-04-17")
+	for _, a := range [][]string{{"config", "do", "it"}, {"migration", "do", "it"}, {"test", "do", "it"}, {"reconcile", "do", "it"}, {"close-accruals", "-close", "c"}, {"close-variances", "-close", "c"},
+		{"tax-draft", "-registration", "r", "-period", "2026-04-01"}} {
+		t.Run(a[0]+" without a token", func(t *testing.T) {
+			fails(t, "ERP_AGENT_TOKEN is not set", append([]string{"agent"}, a...)...)
 		})
 	}
+}
+
+// TestAgentTaxDraft: erp agent tax-draft needs -registration and -period,
+// computes the draft, runs the tax agent's session and prints what it
+// recommended and the model's reply, also when the run failed after
+// starting its session (ADR-0049 §13, T61l1).
+func TestAgentTaxDraft(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	fails(t, "flag provided", "agent", "tax-draft", "-x")
+	fails(t, "-registration and -period name the draft return", "agent", "tax-draft", "-registration", "GSTHST")
+	fails(t, "404", "agent", "tax-draft", "-registration", "GSTHST", "-period", "2026-04-01")
+	const reg = "01a1aa00-0000-7000-8000-000000000e01"
+	drafted := routes{"GET /v1/tax-registrations": {ok(`{"items": [{"id": "` + reg + `", "code": "GSTHST"}]}`)},
+		"GET /v1/tax-registrations/" + reg + "/draft-return": {ok(`{"return_type": "GST34", "period_start": "2026-04-01", "period_end": "2026-06-30"}`)},
+		"POST /v1/agent-sessions":                            {ok(`{"id": "s1", "autonomy_level": 1}`)}, "POST /v1/agent-sessions/s1:end": {ok(`{}`)},
+		"POST /v1/agent-sessions/s1/tool-calls": {{201, `{}`}}, "POST /v1/recommendations": {{201, `{"id": "r1"}`}}}
+	model(t, llmtest.Tool("createRecommendation", map[string]any{"body": map[string]any{"session_id": "s1", "object_type": "tax_registration",
+		"object_id": reg, "kind": "explain_draft_return", "content": "GST34 2026-04-01 to 2026-06-30: line 103 70.00."}}),
+		llmtest.Final("Explained; a person prepares it."))
+	fakeAPI(t, drafted)
+	got := must(t, "agent", "tax-draft", "-registration", "GSTHST", "-period", "2026-04-01")
+	for _, want := range []string{"Session s1: recommendations made 1, refused 0.", "  recommendation r1", "Explained; a person prepares it."} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output: got\n%s\nwant it to contain %q", got, want)
+		}
+	}
+	model(t)
+	// A failed run still names its session, then fails.
+	fails(t, "Session s1: recommendations made 0, refused 0.", "agent", "tax-draft", "-registration", "GSTHST", "-period", "2026-04-01")
+	fails(t, "500", "agent", "tax-draft", "-registration", "GSTHST", "-period", "2026-04-01")
+	model(t, llmtest.Final("Nothing."))
+	printFails(t, "agent", "tax-draft", "-registration", "GSTHST", "-period", "2026-04-01")
+}
+
+// TestAgentCloseAccruals: erp agent close-accruals needs -close, reads the
+// close, runs the close agent's session on erp-close unless
+// ERP_AGENT_MODEL names an alias, and prints what it proposed and the
+// model's reply (ADR-0058 §12, T64g).
+func TestAgentCloseAccruals(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	fails(t, "flag provided", "agent", "close-accruals", "-x")
+	fails(t, "-close names the period close", "agent", "close-accruals")
+	fails(t, "404", "agent", "close-accruals", "-close", "c")
+	closed := routes{"GET /v1/period-closes/c": {ok(`{"id": "c", "company_code": "2000", "fiscal_year": 2026, "fiscal_period": 6}`)},
+		"POST /v1/agent-sessions": {ok(`{"id": "s1", "autonomy_level": 1}`)}, "POST /v1/agent-sessions/s1:end": {ok(`{}`)},
+		"POST /v1/agent-sessions/s1/tool-calls": {{201, `{}`}}, "POST /v1/accrual-proposals": {{201, `{"id": "p1", "parked_entry_id": "e1"}`}}}
+	for _, c := range []struct{ name, alias, model string }{
+		{"on erp-close", "", "erp-close"},
+		{"on the alias ERP_AGENT_MODEL names", "erp-default", "erp-default"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			srv := llmtest.New(t, llmtest.Tool("proposeAccrual", map[string]any{"body": map[string]any{"close_id": "c"}}), llmtest.Final("Nothing more recurs uninvoiced."))
+			newRunner = func(*apitools.Client) *llm.Runner { return srv.Runner() }
+			t.Cleanup(func() { newRunner = gatewayRunner })
+			fakeAPI(t, closed, "ERP_AGENT_MODEL", c.alias)
+			got := must(t, "agent", "close-accruals", "-close", "c")
+			for _, want := range []string{"Session s1: proposals made 1, refused 0.", "  proposal p1, parked entry e1", "Nothing more recurs uninvoiced."} {
+				if !strings.Contains(got, want) {
+					t.Errorf("output: got\n%s\nwant it to contain %q", got, want)
+				}
+			}
+			if want := `"model":"` + c.model + `"`; !strings.Contains(srv.Requests[0], want) {
+				t.Errorf("model: got %s, want %s", srv.Requests[0], want)
+			}
+		})
+	}
+	model(t)
+	fakeAPI(t, closed)
+	// A failed run still names its session, then fails.
+	fails(t, "Session s1: proposals made 0, refused 0.", "agent", "close-accruals", "-close", "c")
+	fails(t, "500", "agent", "close-accruals", "-close", "c")
+	model(t, llmtest.Final("Nothing."))
+	printFails(t, "agent", "close-accruals", "-close", "c")
+}
+
+// TestAgentCloseVariances: erp agent close-variances needs -close, reads
+// the close and the report against -basis, or against every basis the
+// company configures, runs the close agent's session on erp-close and
+// prints each comment it proposed with its row, and the model's reply
+// (ADR-0058 §12, T64j).
+func TestAgentCloseVariances(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	fails(t, "flag provided", "agent", "close-variances", "-x")
+	fails(t, "-close names the period close", "agent", "close-variances")
+	closed := routes{"GET /v1/period-closes/c": {ok(`{"id": "c", "company_code": "2000", "fiscal_year": 2026, "fiscal_period": 6}`)},
+		"GET /v1/period-closes/c/variances": {ok(`{"items": []}`)},
+		"POST /v1/agent-sessions":           {ok(`{"id": "s1", "autonomy_level": 1}`)}, "POST /v1/agent-sessions/s1:end": {ok(`{}`)},
+		"POST /v1/agent-sessions/s1/tool-calls": {{201, `{}`}},
+		"POST /v1/variance-comment-proposals":   {{201, `{"id": "v1", "basis": "prior_period", "account_number": "530000"}`}}}
+	for _, args := range [][]string{{}, {"-basis", "prior_period"}} {
+		t.Run("basis "+strings.Join(args, " "), func(t *testing.T) {
+			srv := llmtest.New(t, llmtest.Tool("proposeVarianceComment", map[string]any{"body": map[string]any{"close_id": "c", "basis": "prior_period"}}),
+				llmtest.Final("The other rows need no comment."))
+			newRunner = func(*apitools.Client) *llm.Runner { return srv.Runner() }
+			t.Cleanup(func() { newRunner = gatewayRunner })
+			fakeAPI(t, closed)
+			got := must(t, append([]string{"agent", "close-variances", "-close", "c"}, args...)...)
+			for _, want := range []string{"Session s1: proposals made 1, refused 0.", "  comment v1 on 530000 against prior_period", "The other rows need no comment."} {
+				if !strings.Contains(got, want) {
+					t.Errorf("output: got\n%s\nwant it to contain %q", got, want)
+				}
+			}
+			if want := `"model":"erp-close"`; !strings.Contains(srv.Requests[0], want) {
+				t.Errorf("model: got %s, want %s", srv.Requests[0], want)
+			}
+		})
+	}
+	model(t)
+	fakeAPI(t, routes{"GET /v1/period-closes/c": closed["GET /v1/period-closes/c"]})
+	// A report the agent cannot read stops the run before its session.
+	fails(t, "variances of close c against prior_period", "agent", "close-variances", "-close", "c", "-basis", "prior_period")
 }
 
 // answer is erp-server's answer to an analytics query: invoices and

@@ -567,6 +567,12 @@ fiscal year. Tracked as the item that follows this one.
   integration moved the code read into `companyDays`: the lane had read the
   legal entity a second time, apart from the dates, while the helper was
   built in parallel.
+- **Without the name for webhooks (product owner 2026-11-05).** A
+  supplier's name never goes into an event offered to webhooks (security
+  posture; ADR-0041 as built), so both events' `.v1`, which gives
+  `supplier_name`, is no longer offered and a `.v2` without it is: the job
+  writes both (`eventNames.publish`), in the round's transaction, until
+  2027-11-05. The partner read stays, for `supplier_number` and for `.v1`.
 
 ## As built (apqty): a receipt's reversal is held to what is invoiced
 

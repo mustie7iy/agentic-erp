@@ -32,6 +32,21 @@ type LFA1 struct {
 	STCD1 string `json:"STCD1"`
 	// SPERR "X" = central posting block.
 	SPERR string `json:"SPERR"`
+	// STRAS, ORT01, PSTLZ and REGIO are the vendor's street with house
+	// number, city, postal code and region, which the load gives the
+	// supplier as its legal address when the street and city are both
+	// there (product owner 2026-11-04, ADR-0054 As built). They are
+	// optional: an extract without them, as an OData one is, loads its
+	// suppliers without an address. The field names are written from
+	// memory, pending the SAP specialist: whether a release keeps the
+	// address in LFA1 itself or only in the central address (ADRC, by
+	// LFA1-ADRNR), and which fields an extract should take it from, is
+	// for them to confirm (docs/migration.md, "What to check on a real
+	// SAP system").
+	STRAS string `json:"STRAS,omitempty"`
+	ORT01 string `json:"ORT01,omitempty"`
+	PSTLZ string `json:"PSTLZ,omitempty"`
+	REGIO string `json:"REGIO,omitempty"`
 }
 
 // LFB1 - vendor company code data.

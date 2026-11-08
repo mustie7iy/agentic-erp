@@ -643,8 +643,27 @@ released purchase orders or posted journal entries (ADR-0058 §8, T64e:
 `proposeAccrual`, `x-autonomy: propose`, with `ledger.entry.park` as
 `x-also-permissions`), whose journal entry the closing context parks as
 the agent's for a person to post, edit or cancel with the ledger's own
-parked-entry operations (`postParkedJournalEntry`, `x-agent: false`);
-free-text advice is a recommendation. Bank statements reach agents with the accounts masked to
+parked-entry operations (`postParkedJournalEntry`, `x-agent: false`) or
+reject with `rejectAccrualProposal` (T64f, `x-agent: false`, which cancels
+the entry under the ledger's owner rule), the proposal's status derived
+from that entry.
+The close agent (`erp agent close-accruals -close ID`, agent type `close`
+on the alias `erp-close`, T64g) finds those accruals itself through read
+tools and `proposeAccrual`, in one session per close, and
+(`erp agent close-variances -close ID [-basis B]`, T64j) proposes the
+comments that explain a close's flagged variance rows through read tools
+and `proposeVarianceComment` (`x-autonomy: propose`), citing the entries
+behind each, for a person to accept.
+The forecast agent
+(`erp agent cash-variance`, agent type `cash_forecast`) proposes a comment
+explaining a row of a company's liquidity forecast variance in its
+session, citing documents its attribution lists (ADR-0051 §13, T53i:
+`proposeForecastVarianceComment`, `x-autonomy: propose`, each citation
+checked against `listForecastVarianceDocuments` as the agent may see it; a
+person takes it up, as it stands or in their own words, with
+`acceptForecastVarianceCommentProposal` or turns it down with
+`rejectForecastVarianceCommentProposal`, `x-agent: false`); free-text
+advice is a recommendation. Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation
 (`getBankReconciliation`, ADR-0047, T49h: its statements' balances against
@@ -666,7 +685,7 @@ with the month's total against the tenant's cap.
 | configuration | `change-requests`, `config-versions`, `number-ranges` | `:submit`, `:withdraw`, `:activate`, `:simulate` |
 | partner | `business-partners`, `bank-accounts`, `partner-changes` | `:block`, `:unblock`, `:submit` |
 | ledger | `accounts`, `fiscal-periods`, `journal-entries`, `parked-journal-entries`, `clearings`, `open-items`, `balances`, `exchange-rates` | `:reverse`, `:open`, `:close`, `:lock`, `:post`, `:cancel`, `:unlock` |
-| procurement | `requisitions`, `purchase-orders` (with `{id}/document`, the order's plain-text document for the supplier, ADR-0054; an item's optional `delivery_date`, which the liquidity forecast expects its invoice on, T53g, and the document prints, ADR-0054 As built), `contracts`, `goods-receipts` | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse` |
+| procurement | `requisitions`, `purchase-orders` (with `{id}/document`, the order's plain-text document for the supplier, ADR-0054; an item's optional `delivery_date`, which the liquidity forecast expects its invoice on, T53g, and the document prints, ADR-0054 As built; the document also prints the buyer's configured postal address, `companies[].postal_address`, as the buyer's and the delivery address, ADR-0054 As built), `contracts`, `goods-receipts` | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse` |
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:submit`, `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
 | cash | `cash-position`, `liquidity-forecast` (computed on read, ADR-0051; its sources include the released purchase orders' open values, `purchase_order`, T53g), `group-liquidity-forecast` (the companies the caller may act in, summed in group currency, T53e5), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key), `cash-snapshots` and their `exports` to treasury systems (`cash-exports`, the cash export schema v1 over a `treasury_export` connector's SFTP directory, T53h), `liquidity-forecast-variance` (computed on read) and its `comments` (a person's, T53f4) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
