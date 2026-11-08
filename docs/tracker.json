@@ -2397,7 +2397,7 @@
     "ph": 2,
     "c": [
      {
-      "s": "P",
+      "s": "T",
       "t": "E-invoicing and statutory reports designed (ADR-0061, decided by default under ADR-0053 d): a leaf einvoicing context; the accredited provider as a port behind an einvoice_provider connector with a stand-in, polled, never pushed to; UAE suppliers' PINT AE e-invoices recorded once and acknowledged, validated, refused or entered by capture's rules without a model, tax codes from the lines' categories, every refusal of the entering a hold people resolve; the FTA Audit File in tax filing once specified; sending with phase 3's sales invoices",
       "r": "ADR-0061 · T65 (split T65a-T65h)",
       "c": [
