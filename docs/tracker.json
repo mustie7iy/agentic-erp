@@ -1814,7 +1814,7 @@
        {
         "s": "D",
         "t": "Group chart, mapping and groups in configuration: consolidation.accounts (roles cta, retained_earnings, nci, goodwill), eliminations (accounts, difference account, tolerance) and groups (parent, members with ownership, first period and investment account), companies[].chart_of_accounts[].group_account required for every company in a group, validated with tiers; the consolidation leaf (internal/layout) and consolidation.Companies; GET /v1/consolidation-groups (and /{code}) and GET /v1/group-accounts, a group visible only with access to its parent and every member; consolidation.read; walkthrough step_consolidation: Ada configures the group MAPLE (Maple holding Acme Corp US at 80%), Carla reads it, Cory (consolidation.read, Maple alone) reads no group",
-        "r": "db/migrations/000220 · consolidation.accounts · consolidation.eliminations · consolidation.groups · companies[].chart_of_accounts[].group_account · GET /v1/consolidation-groups · GET /v1/group-accounts · ADR-0059 · T68a",
+        "r": "db/migrations/000223 · consolidation.accounts · consolidation.eliminations · consolidation.groups · companies[].chart_of_accounts[].group_account · GET /v1/consolidation-groups · GET /v1/group-accounts · ADR-0059 · T68a",
         "src": "adr:ADR-0059",
         "c": []
        },
@@ -1835,7 +1835,7 @@
        {
         "s": "D",
         "t": "The consolidation run and currency translation: schema consolidation (run, run_member, run_balance; RLS, tenant_id first, state triggers, schema tests); POST/GET/list /v1/consolidation-runs (202 with the Operation), :discard; workflow ConsolidationRun (prepare, translate per member, complete, fail; run-twice tests; in process without an engine); assets and liabilities at the closing rate, income, expenses and equity at booked group amounts, prior results on retained earnings, the translation difference per member; GET .../balances with totals; consolidation.run.manage; ConsolidationRunChanged; audit; ledger.BalancesThrough reading trading_partner_balance with the lines not yet projected, exactly as balanceRows reads period_balance (ADR-0059 §4a); the run's budget; walkthrough: Carla runs MAPLE for today's period, Acme Corp US's balance sheet at 1.40, its expenses at 1.35, its translation difference on the reserve",
-        "r": "db/migrations/000221 · consolidation.run · consolidation.run_member · consolidation.run_balance · POST/GET /v1/consolidation-runs · :discard · GET /v1/consolidation-runs/{id}/balances · workflow ConsolidationRun · ledger.ConsolidationReads · TestConsolidationRunBudget · ADR-0059 · T68d",
+        "r": "db/migrations/000224 · consolidation.run · consolidation.run_member · consolidation.run_balance · POST/GET /v1/consolidation-runs · :discard · GET /v1/consolidation-runs/{id}/balances · workflow ConsolidationRun · ledger.ConsolidationReads · TestConsolidationRunBudget · ADR-0059 · T68d",
         "src": "adr:ADR-0059",
         "c": []
        },
@@ -1848,7 +1848,7 @@
        },
        {
         "s": "D",
-        "t": "Trading partner and group company names by company access: a journal, parked or template line's trading_partner, a business partner's group_company and a consolidation run's translated balance's trading_partner show the company's code and name only to a caller who may act in that company (ADR-0010), the id alone otherwise; ETags independent of the caller; events carry ids only, unchanged; walkthrough: in step 39 Cory, who may act in Maple alone, reads the intercompany entry with company 1000's id alone",
+        "t": "Trading partner and group company names by company access: a journal, parked or template line's trading_partner, a business partner's group_company and a consolidation run's translated balance's trading_partner show the company's code and name only to a caller who may act in that company (ADR-0010), the id alone otherwise; ETags independent of the caller; events carry ids only, unchanged; walkthrough: in step 40 Cory, who may act in Maple alone, reads the intercompany entry with company 1000's id alone",
         "r": "TradingPartner · GroupCompany · ADR-0059 As built · 04-api-design · T68b, T68c, T68d",
         "src": "po:2026-11-05 · adr:ADR-0059",
         "c": []

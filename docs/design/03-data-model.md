@@ -624,7 +624,7 @@ erDiagram
     numeric discount2_pct }
 ```
 
-`business_partner.group_company_id` (T68c, ADR-0059 §4, migration 000219)
+`business_partner.group_company_id` (T68c, ADR-0059 §4, migration 000222)
 is the tenant's legal entity a partner is, when it is one of the group's
 companies (SAP's trading partner on the business partner), from which the
 ledger derives the trading partner of the lines naming the partner. A
@@ -1354,7 +1354,7 @@ as the trial balance reads `period_balance`, through the partial indexes
 (company, ledger, year, period, center).
 
 The trading partner on the journal line (T68b, ADR-0059 §4, migrations
-000216-000218). `journal_line.trading_partner_id` is the tenant's company
+000219-000221). `journal_line.trading_partner_id` is the tenant's company
 on the other side of an intercompany line (SAP's RASSC), nullable, NULL on
 lines posted before; a legal entity id without a foreign key (tenancy is
 another context, 02 §2.1), which the ledger checks is a legal entity of the
@@ -3585,14 +3585,14 @@ required on every account of a company in a group), the eliminations
 (`consolidation.eliminations`) and the groups (`consolidation.groups`:
 parent, members with ownership, first period and investment account) are
 configuration, built in T68a (ADR-0059 §3, As built T68a): they keep no
-table, and migration 000220 adds the permission `consolidation.read`.
+table, and migration 000223 adds the permission `consolidation.read`.
 T68b, T68c and T68d are built; the tables marked T68e-T68h below are
 planned, not built.
 The ledger gained, in T68b, `journal_line.trading_partner_id` (the legal
 entity on the other side of an intercompany line, nullable, no foreign key)
 and the projection `ledger.trading_partner_balance`, maintained as
 `assignment_balance` is (§3.7); partner gained `business_partner.group_company_id`
-in T68c, from which the ledger derives it (ADR-0059 §4). Migration 000221
+in T68c, from which the ledger derives it (ADR-0059 §4). Migration 000224
 creates the schema `consolidation` (with its outbox, for
 `ConsolidationRunChanged`), its first three tables below and the permission
 `consolidation.run.manage` (T68d, ADR-0059 §5, As built T68d):

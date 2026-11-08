@@ -1074,10 +1074,10 @@ and, by `x-also-permissions`, `ledger.entry.read`) and
 from the active document through the ports `consolidation.Settings` and
 `consolidation.Companies` (the tenant's legal entities with code, name,
 local currency and fiscal calendar, and its group currency, adapted over
-tenancy in `internal/app`). Migration 000220 adds `consolidation.read`
+tenancy in `internal/app`). Migration 000223 adds `consolidation.read`
 (000216 on its branch, the next after its base's 000215; renumbered when
-merged after T68b-T68c's 000216-000219). The slice keeps no table. The walkthrough's
-`step_consolidation` (step 39, after step 38 and before `step_close`):
+merged after T68b-T68c's, and again at batch58's integration). The slice keeps no table. The walkthrough's
+`step_consolidation` (step 40, after step 39 and before `step_close`):
 Ada adds Acme Corp US (1000, USD, leading ledger alone, number ranges of
 this and the previous fiscal year) to the configuration, Maple's
 intercompany receivables and revenue accounts and its investment account
@@ -1119,7 +1119,7 @@ product owner to overrule:
   same approval loop.
 
 **T68b (trading partner on journal lines).** Built as §4 and §4a say, in
-`internal/ledger/tradingpartner.go` and migrations 000216-000218 (the
+`internal/ledger/tradingpartner.go` and migrations 000219-000221 (the
 column and projection, the check's validation, the index). Decided by
 default, for the product owner to overrule:
 - **The check.** A line's trading partner must be a legal entity tenancy
@@ -1166,7 +1166,7 @@ default, for the product owner to overrule:
   (every part of its key is set) and a check that the trading partner is
   never the company; the trigger `balance_projection_trading_partner`
   writes it in the projector's statement. No line carried a trading
-  partner before 000216, so nothing was backfilled. Its exact read (the
+  partner before 000219, so nothing was backfilled. Its exact read (the
   projection plus pending lines) is T68d's `BalancesThrough` (§4a): T68b
   has no reader of it, and its tests compare it with the lines projected.
 - **Events.** JournalEntryPosted's lines carry `trading_partner_id` when
@@ -1190,7 +1190,7 @@ default, for the product owner to overrule:
 **T68c (trading partner from the business partner).** Built as §4 and
 §4a say, in `internal/partner` (the group company) and
 `internal/ledger/tradingpartner.go` (`deriveTradingPartners`), migration
-000219 (`partner.business_partner.group_company_id`, a nullable legal
+000222 (`partner.business_partner.group_company_id`, a nullable legal
 entity id without a foreign key, 02 §2.1). Decided by default, for the
 product owner to overrule:
 - **Setting it.** `createBusinessPartner` takes `group_company_id`, and an
@@ -1259,7 +1259,9 @@ product owner to overrule:
 
 **Merging T68a with T68b-T68c (on T68d's branch).** T68a's migration
 000216 became 000220, after T68b-T68c's 000216-000219, which kept their
-numbers. `step_trading_partner` was folded into `step_consolidation` as
+numbers. At batch58's integration main's T64e, T64f and T53i held 000216-000218,
+so the chain's 000216-000221 became 000219-000224 (integration owns migration numbers);
+this record names the numbers as merged. `step_trading_partner` was folded into `step_consolidation` as
 its part `consolidation_trading_partner`, after the group's reads: the
 governed change adding 1250 was dropped, since T68a's change adds Maple's
 1250 Intercompany receivables and 4250 Intercompany revenue, and Carla's
@@ -1268,7 +1270,7 @@ manual invoice to Acme Corp US now credits 4250 rather than 4000.
 **T68d (the consolidation run and currency translation).** Built as §5,
 §6 and §7 say, with the method of §7 as designed (question 1, answered
 po:2026-11-05: to confirm against IAS 21 with an accounting specialist
-before T68d ships, a tracker leaf). Migration 000221 creates the schema `consolidation` with its
+before T68d ships, a tracker leaf). Migration 000224 creates the schema `consolidation` with its
 outbox, `run`, `run_member` and `run_balance` with §5's rules and their
 schema tests (`db/consolidation_test.go`), and `consolidation.run.manage`.
 The ledger publishes `ConsolidationReads` (§4a): `LeadingLedger`,
@@ -1388,6 +1390,6 @@ owner to overrule:
   `group_company_id` and ConsolidationRunChanged's `group_code` are ids or
   a group's code, never a company's code or name, so the rule for events
   offered to webhooks (po:2026-11-05, ADR-0041) needs nothing here.
-- Walkthrough: `consolidation_trading_partner` (step 39) has Cory, who may
+- Walkthrough: `consolidation_trading_partner` (step 40) has Cory, who may
   act in Maple alone, read Carla's intercompany entry and see company
   1000's id alone on its lines.

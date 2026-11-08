@@ -23,8 +23,8 @@ import (
 // line's own company. Tenancy is another context, so no foreign key holds
 // the first half (02 §2.1): the ledger asks tenancy before it posts or
 // parks a line that names one, and the database holds the second
-// (journal_line_trading_partner, 000216). The balance projection's trigger
-// adds the lines with one to ledger.trading_partner_balance (000216), which
+// (journal_line_trading_partner, 000219). The balance projection's trigger
+// adds the lines with one to ledger.trading_partner_balance (000219), which
 // consolidation reads (T68d). Reads name each trading partner by its
 // company code and its name as it is now, to a caller with access to that
 // company only, after a journal entry's ETag is taken, so neither renaming

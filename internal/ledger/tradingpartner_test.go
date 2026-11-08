@@ -569,7 +569,7 @@ func TestTradingPartnerOnClearingDifferences(t *testing.T) {
 }
 
 // TestTradingPartnerConstraint: the database's refusal of a line naming
-// its own company (journal_line_trading_partner, 000216) is the same 422
+// its own company (journal_line_trading_partner, 000219) is the same 422
 // as the ledger's own check.
 func TestTradingPartnerConstraint(t *testing.T) {
 	p := problem.From(&pgconn.PgError{Code: "23514", ConstraintName: "journal_line_trading_partner"})

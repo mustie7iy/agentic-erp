@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestConsolidationPermissions (T68a, T68d; migrations 000220, 000221): the
+// TestConsolidationPermissions (T68a, T68d; migrations 000223, 000224): the
 // consolidation read and run permissions are seeded and are no approval
 // permissions.
 func TestConsolidationPermissions(t *testing.T) {
@@ -27,7 +27,7 @@ func TestConsolidationPermissions(t *testing.T) {
 	}
 }
 
-// TestConsolidationRunRules (T68d, migration 000221; ADR-0059 §5): a run
+// TestConsolidationRunRules (T68d, migration 000224; ADR-0059 §5): a run
 // of a regular period starts queued and moves only along §5's
 // transitions, one of a group queued or running at a time and one final
 // per group and period; its problem, computation, finalization and

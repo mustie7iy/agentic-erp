@@ -6,7 +6,7 @@
 -- check below that it is not the line's own company. Expand only
 -- (06 §6.4): nullable columns without a default rewrite no partition, and
 -- the check is added NOT VALID, reading none of the rows under the lock;
--- 000217 validates it partition by partition and 000218 indexes the lines
+-- 000220 validates it partition by partition and 000221 indexes the lines
 -- by trading partner. Lines posted before keep NULL; nothing is backfilled.
 ALTER TABLE ledger.journal_line ADD COLUMN trading_partner_id uuid;
 -- Added to the parent, it is each partition's too, and a partition created

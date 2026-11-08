@@ -380,7 +380,7 @@ func entryFilter(params gen.ListJournalEntriesParams) (string, []any) {
 		args = append(args, account)
 	}
 	// A trading partner is asked as an account is, for the same reason:
-	// its lines (journal_line_by_trading_partner, 000218) carry the entry's
+	// its lines (journal_line_by_trading_partner, 000221) carry the entry's
 	// company and period.
 	if partner, ok := params.TradingPartnerID.Get(); ok {
 		where += ` AND EXISTS (SELECT FROM ledger.journal_line l WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year

@@ -11,7 +11,7 @@ import (
 )
 
 // The trading partner on journal lines (T68b, ADR-0059 §4; migrations
-// 000216-000218): a line's trading partner is never its own company, the
+// 000219-000221): a line's trading partner is never its own company, the
 // check holds on every partition, and marking an entry projected adds its
 // lines with a trading partner to ledger.trading_partner_balance once.
 
@@ -184,7 +184,7 @@ func TestTradingPartnerBalance(t *testing.T) {
 }
 
 // TestBusinessPartnerGroupCompany: a business partner's group company
-// (000219, T68c) is a legal entity id, nullable, written and cleared by
+// (000222, T68c) is a legal entity id, nullable, written and cleared by
 // the partner context in the tenant's own rows, and another tenant reads
 // none of them (the table's row-level security).
 func TestBusinessPartnerGroupCompany(t *testing.T) {
