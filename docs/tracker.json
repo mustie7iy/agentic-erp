@@ -1805,6 +1805,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A run's failure always ends it (review:T68d): the Fail activity of ConsolidationRun, DepreciationRun and ReleasePaymentRun is retried until it is recorded (no attempt limit, backoff up to a minute, a business problem not retried), so a failure of the machinery outlasting the five tries no longer leaves the run queued, running or releasing for good, holding its group, or its company and ledger; tests where the failure fails seven times and the run still ends failed",
+        "r": "internal/workflows recording · TestConsolidationRunInterrupted · TestDepreciationRunInterrupted · TestReleaseWorkflow · ADR-0012 As built",
+        "src": "review:T68d",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "An accounting specialist confirms the consolidation run's translation method (ADR-0059 §7: assets and liabilities at the closing rate, non-monetary ones included; income, expenses and equity at booked group amounts; prior results on retained earnings; the difference to the translation reserve per member) against IAS 21 before T68d ships",
         "r": "ADR-0059 §7, question 1 · T68d",

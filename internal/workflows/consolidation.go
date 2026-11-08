@@ -125,9 +125,10 @@ func (s consolidationSteps) run() error {
 // under way commits or not as a whole and the failing step still runs. A
 // failure of the machinery is tried five times with backoff, as the
 // other workflows' (ADR-0012); one that outlasts them fails the run as an
-// internal error and fails the workflow with it. A business problem is
-// not retried. The steps return Future.Get's error unwrapped, as
-// DepreciationRun's do.
+// internal error and fails the workflow with it. The run's failure is
+// tried until it is recorded (recording), so the run always ends and
+// frees its group. A business problem is not retried. The steps return
+// Future.Get's error unwrapped, as DepreciationRun's do.
 func ConsolidationRun(ctx workflow.Context, in ConsolidationInput) error {
 	ctx, cancel := workflow.NewDisconnectedContext(ctx)
 	defer cancel()
@@ -151,7 +152,7 @@ func ConsolidationRun(ctx workflow.Context, in ConsolidationInput) error {
 			return workflow.ExecuteActivity(ctx, a.CompleteConsolidationRun, in).Get(ctx, nil)
 		},
 		fail: func(why problem.Problem) error {
-			return workflow.ExecuteActivity(ctx, a.FailConsolidationRun, in, why).Get(ctx, nil)
+			return workflow.ExecuteActivity(recording(ctx), a.FailConsolidationRun, in, why).Get(ctx, nil)
 		},
 		final: true,
 	}.run()

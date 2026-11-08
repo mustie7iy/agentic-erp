@@ -1294,7 +1294,8 @@ Decided by default, for the product owner to overrule:
   its Operation staying `cancelled`, and a requester blocked since the
   start fails it with `identity.principal_blocked` (PO 2026-11-03), as a
   depreciation run does (ADR-0057 §7); a step's error outlasting five
-  tries fails it with `platform.internal`.
+  tries fails it with `platform.internal`, the failure itself retried
+  until it is recorded (ADR-0012 As built), so the group is always freed.
 - **The steps.** Preparation checks again, under the configuration
   version the run recorded, everything creation checked (group, period,
   calendars, closing rates), so a run queued before a rate went stale

@@ -159,11 +159,13 @@ func TestConsolidationRunWorkflow(t *testing.T) {
 }
 
 // stuckTranslations is the consolidation context with every translation
-// failing on the machinery, and with stuck, its failure of a run too.
+// failing on the machinery, and its failure of a run failing so too, on
+// its first stuck tries (failTries counts them all).
 type stuckTranslations struct {
 	workflows.Consolidation
-	tries *atomic.Int32
-	stuck bool
+	tries, failTries *atomic.Int32
+	stuck            int32
+	refused          bool // the failure refused with a business problem on every try
 }
 
 func (s stuckTranslations) TranslateMember(context.Context, uuid.UUID, uuid.UUID) error {
@@ -172,8 +174,11 @@ func (s stuckTranslations) TranslateMember(context.Context, uuid.UUID, uuid.UUID
 }
 
 func (s stuckTranslations) FailConsolidationRun(ctx context.Context, run uuid.UUID, why *problem.Problem) error {
-	if s.stuck {
+	if s.failTries.Add(1) <= s.stuck {
 		return errors.New("audit unreachable")
+	}
+	if s.refused {
+		return problem.Conflict("test.fail_refused", "Refused.")
 	}
 	return s.Consolidation.FailConsolidationRun(ctx, run, why)
 }
@@ -181,30 +186,42 @@ func (s stuckTranslations) FailConsolidationRun(ctx context.Context, run uuid.UU
 // TestConsolidationRunInterrupted: a translation failing on the machinery
 // is tried five times; then the run fails as an internal error, freeing
 // its group, its Operation fails with it, and so does the workflow, with
-// the translation's error. A run whose failure fails too stays running,
-// its workflow failed with the failure's error.
+// the translation's error. A failure of the run failing on the machinery
+// is tried past the five, until it is recorded (review:T68d): the run
+// still ends failed and its group is free. A failure refused with a
+// business problem is not retried: the workflow fails with the problem
+// and the run stays running (ADR-0012 As built).
 func TestConsolidationRunInterrupted(t *testing.T) {
+	cases := []struct {
+		name         string
+		stuck, tries int32
+		refused      bool
+		err, run     string
+	}{
+		{"the failure recorded at once", 0, 1, false, "ledger unreachable", "failed platform.internal failed"},
+		{"the failure failing seven times first", 7, 8, false, "ledger unreachable", "failed platform.internal failed"},
+		{"the failure refused", 0, 1, true, "Refused.", "running  running"}, // last: the run keeps its group
+	}
 	s := conSetup(t)
-	tries := &atomic.Int32{}
-	s.c.Runs = stuckTranslations{Consolidation: app.Consolidation(app.Config{}), tries: tries}
-	in := s.start(t)
-	if err := s.runConsolidation(t, in); err == nil || !strings.Contains(err.Error(), "ledger unreachable") {
-		t.Errorf("the workflow: got %v, want the translation's error", err)
-	}
-	if n := tries.Load(); n != 5 {
-		t.Errorf("the translation's tries: got %d, want 5", n)
-	}
-	got := conStateOf(t, in)
-	if run := fmt.Sprint(strings.Split(got.Run, "/")[0], " ", got.Problem, " ", strings.Split(got.Operation, "/")[0]); run != "failed platform.internal failed" {
-		t.Errorf("the run: got %s, want it and its Operation failed with platform.internal", run)
-	}
-	s.c.Runs = stuckTranslations{Consolidation: app.Consolidation(app.Config{}), tries: tries, stuck: true}
-	again := s.start(t)
-	if err := s.runConsolidation(t, again); err == nil || !strings.Contains(err.Error(), "audit unreachable") {
-		t.Errorf("the workflow whose failure fails: got %v, want the failure's error", err)
-	}
-	if got := conStateOf(t, again); !strings.HasPrefix(got.Run, "running/") {
-		t.Errorf("the run whose failure fails: got %s, want it running", got.Run)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tries, failTries := &atomic.Int32{}, &atomic.Int32{}
+			s.c.Runs = stuckTranslations{Consolidation: app.Consolidation(app.Config{}), tries: tries, failTries: failTries, stuck: c.stuck, refused: c.refused}
+			in := s.start(t)
+			if err := s.runConsolidation(t, in); err == nil || !strings.Contains(err.Error(), c.err) {
+				t.Errorf("the workflow: got %v, want an error with %q", err, c.err)
+			}
+			if n := tries.Load(); n != 5 {
+				t.Errorf("the translation's tries: got %d, want 5", n)
+			}
+			if n := failTries.Load(); n != c.tries {
+				t.Errorf("the failure's tries: got %d, want %d", n, c.tries)
+			}
+			got := conStateOf(t, in)
+			if run := fmt.Sprint(strings.Split(got.Run, "/")[0], " ", got.Problem, " ", strings.Split(got.Operation, "/")[0]); run != c.run {
+				t.Errorf("the run, its problem and its Operation: got %s, want %s", run, c.run)
+			}
+		})
 	}
 }
 

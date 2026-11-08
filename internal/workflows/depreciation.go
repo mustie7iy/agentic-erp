@@ -121,7 +121,9 @@ func (s depreciationSteps) run() error {
 // whole and the failing step still runs. A failure of the machinery is
 // tried five times with backoff, as the other workflows' (ADR-0012);
 // one that outlasts them fails the run as an internal error and fails the
-// workflow with it. A business problem is not retried.
+// workflow with it. The run's failure is tried until it is recorded
+// (recording), so the run always ends and frees its company and ledger. A
+// business problem is not retried.
 //
 // The steps return Future.Get's error unwrapped: it is the workflow result,
 // and the engine records Get's ActivityError, which carries the activity
@@ -147,7 +149,7 @@ func DepreciationRun(ctx workflow.Context, in DepreciationInput) error {
 			return workflow.ExecuteActivity(ctx, a.FinishDepreciationRun, in).Get(ctx, nil)
 		},
 		fail: func(why problem.Problem) error {
-			return workflow.ExecuteActivity(ctx, a.FailDepreciationRun, in, why).Get(ctx, nil)
+			return workflow.ExecuteActivity(recording(ctx), a.FailDepreciationRun, in, why).Get(ctx, nil)
 		},
 		final: true,
 	}.run()

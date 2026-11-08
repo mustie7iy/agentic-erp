@@ -87,8 +87,27 @@ func problemOf(err error) (problem.Problem, bool) {
 	return problem.Problem{}, false
 }
 
+// recording is ctx for the step that records how a run ended, its Fail
+// activity: ctx's retry policy with no limit on attempts. A failure the
+// step does not record leaves the run queued, running or releasing for
+// good, and for a consolidation or depreciation run blocks every later run
+// of its group or company (one queued or running at a time), so a failure
+// of the machinery is tried until it clears, with ctx's backoff up to its
+// maximum interval (ADR-0012 As built). The step is idempotent, guarded by
+// the run's expected status, so the retries record it once; a business
+// problem the step returns as ProblemError (asProblem) is not retried.
+// The retry policy is not part of the command a replay matches, so
+// histories recorded before replay alike. ctx must carry activity options
+// with a retry policy, as every workflow here sets.
+func recording(ctx workflow.Context) workflow.Context {
+	retry := *workflow.GetActivityOptions(ctx).RetryPolicy
+	retry.MaximumAttempts = 0
+	return workflow.WithRetryPolicy(ctx, retry)
+}
+
 // ReleasePaymentRun posts the run's payments one activity each and ends
-// the release; a problem fails the release instead.
+// the release; a problem fails the release instead, its failure tried
+// until it is recorded (recording).
 //
 // The steps return Future.Get's error unwrapped: it is the workflow result,
 // and the engine records Get's ActivityError, which carries the activity
@@ -112,7 +131,7 @@ func ReleasePaymentRun(ctx workflow.Context, in ReleaseInput) error {
 			return workflow.ExecuteActivity(ctx, a.FinishRelease, in).Get(ctx, nil)
 		},
 		fail: func(why problem.Problem) error {
-			return workflow.ExecuteActivity(ctx, a.FailRelease, in, why).Get(ctx, nil)
+			return workflow.ExecuteActivity(recording(ctx), a.FailRelease, in, why).Get(ctx, nil)
 		},
 	}.run()
 }
