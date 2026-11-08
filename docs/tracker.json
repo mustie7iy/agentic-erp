@@ -1524,6 +1524,13 @@
        },
        {
         "s": "D",
+        "t": "Commenting a forecast variance also needs cash.forecast.read, the variance's own read: createForecastVarianceComment declares it in x-also-permissions beside cash.variance.comment (403 identity.permission_missing without it); the forecast agent's proposals and their decisions (T53i) declare it likewise",
+        "r": "api/openapi.yaml createForecastVarianceComment x-also-permissions · TestVarianceCommentRefusals · walkthrough step 30 unchanged (Tom reads the variance first) · ADR-0051 §13, §11 (As built T53f4) · T53f5",
+        "src": "po:2026-11-04 · adr:ADR-0051",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "No shared problem values (pre-existing finding on T53f4): six refusals (ledger, cash position, forecast, actuals and variance amount_too_large, payables tax too large) were package-level *problem.Problem values that problem.Write stamped with the first refused request's instance and trace id and WithCause gave its cause, a data race that sent them to every later refusal, of any tenant; each is now a function returning a new problem, Write and WithCause work on a copy, and internal/layout's TestNoSharedProblems refuses a package-level variable holding a problem",
         "r": "internal/platform/problem Write, WithCause, package doc · TestWriteSharedProblem, TestWithCauseCopies (-race) · internal/layout TestNoSharedProblems · internal/ledger journal.go errTooLarge · internal/cash errTooLarge, errForecastTooLarge, errActualsTooLarge, errVarianceTooLarge · internal/payables tax.go errTaxTooLarge (review:T53f4)",
         "src": "review:T53f4",
@@ -1552,7 +1559,7 @@
        },
        {
         "s": "T",
-        "t": "Forecast agent: agent type cash_forecast, read tools, variance comment and memo record proposals (x-autonomy: propose), citations checked against the attribution; evals/cash with the cases of ADR-0051 §13; never confirms or posts",
+        "t": "Forecast agent: agent type cash_forecast, read tools, variance comment and memo record proposals (x-autonomy: propose), citations checked against the attribution; evals/cash with the cases of ADR-0051 §13; never confirms or posts; a proposal of a variance comment, and a decision on one, also need cash.forecast.read (product owner 2026-11-04, ADR-0051 §13)",
         "r": "T53i",
         "src": "baseline",
         "c": []
@@ -1648,7 +1655,7 @@
      {
       "s": "P",
       "t": "Financial close designed (ADR-0058, decided by default under ADR-0053 d): a leaf closing context; the close template and a company weekend in configuration; one close per company and regular period with its checklist, checks run on demand and at sign-off; sign-off locking each covered period through T32; accrual proposals parked for a person to post; the variance report and comments; the close agent proposing only",
-      "r": "ADR-0058 · T64 (split T64a-T64k)",
+      "r": "ADR-0058 · T64 (split T64a-T64n)",
       "c": [
        {
         "s": "D",
@@ -1738,6 +1745,27 @@
         "s": "D",
         "t": "Late assets warn (PO 2026-11-04): depreciation_posted passes for a ledger without a posted run of the period once a later period's run has posted there, each asset a run of the period would select a depreciation_catch_up warning (asset, ledger, periods missing, the later run, the catch-up a run of its period posts); warnings and warnings_count on every check result; without a later run the check fails as before; walkthrough: a machine valued in the previous period after step 29's run warns in 0L on that period's close, 2L failing until its run",
         "r": "ADR-0058 · T64l",
+         "src": "po:2026-11-04 · adr:ADR-0058",
+         "c": []
+        },
+        {
+        "s": "T",
+        "t": "Close sign-off: the signer must differ from the preparer before go-live (the pilot runs without separation of duties on sign-off and records who signed; what counts as the preparer, the people who completed the close's tasks, is set when it is built)",
+        "r": "ADR-0058 Questions (segregation of duties on sign-off), As built (product owner 2026-11-04) · T64o",
+        "src": "po:2026-11-04 · adr:ADR-0058",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Year-end close designed as its own step before the pilots' first year end: special periods 13-16, closing profit and loss into retained earnings and carrying balances forward (the ledger has no carry-forward today)",
+        "r": "ADR-0058 §1, Questions (year-end close), As built (product owner 2026-11-04) · T64m",
+        "src": "po:2026-11-04 · adr:ADR-0058",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A close task's assignee must have access to the close's company: PATCH /v1/period-closes/{id}/tasks/{code} refuses an active person without it with 422 closing.assignee_invalid (authz.CompaniesOf, another principal's company access as its own requests read it)",
+        "r": "internal/closing/tasks.go person · authz.CompaniesOf · updateCloseTask description · TestCloseTaskRefusals (a person of another company) · TestCompaniesOf · walkthrough step_close (close_checklist: Olga refused) · ADR-0058 As built (T64b, product owner 2026-11-04) · T64n",
         "src": "po:2026-11-04 · adr:ADR-0058",
         "c": []
        }

@@ -144,7 +144,7 @@ func TestVarianceComments(t *testing.T) {
 
 // TestVarianceCommentRefusals: a comment is refused as the variance's
 // request is, and for its row; an agent, and a person without the
-// permission, may not comment.
+// permission or without the forecast's read, may not comment.
 func TestVarianceCommentRefusals(t *testing.T) {
 	e := setupComments(t)
 	e.snapshotOn(t, "2026-04-15", "2026-04-16")
@@ -195,6 +195,11 @@ func TestVarianceCommentRefusals(t *testing.T) {
 	e.Problem(404, "request.not_found", "GET", "/v1/liquidity-forecast-variance/comments/"+uuid.NewString(), "", "")
 	e.Problem(422, "request.validation_failed", "GET", "/v1/liquidity-forecast-variance/comments?liquidity_item=TAX&unclassified=true", "", "")
 	e.As(e.Tenant.Agent).Problem(403, "identity.agent_not_allowed", "POST", "/v1/liquidity-forecast-variance/comments", e.body(fields), "")
+	// A comment explains a variance its writer reads (product owner
+	// 2026-11-04): without the forecast's read it is refused.
+	e.Tenant.Revoke(t, "cash.forecast.read", e.Tenant.Human)
+	e.Problem(403, "identity.permission_missing", "POST", "/v1/liquidity-forecast-variance/comments", e.body(fields), "")
+	e.Tenant.Grant(t, "cash.forecast.read", e.Tenant.Human)
 	e.Tenant.Revoke(t, "cash.variance.comment", e.Tenant.Human)
 	e.Problem(403, "identity.permission_missing", "POST", "/v1/liquidity-forecast-variance/comments", e.body(fields), "")
 	want(t, "comments written", len(e.listed(t, "")), 0)

@@ -10385,7 +10385,9 @@ func (s *Server) handleCreateExchangeRateRequest(args [0]string, argsEscaped boo
 // the snapshot that variance compares with (the daily one taken `lag` days before `from`, else the
 // last taken on demand that day), which is then kept as long as the comment, past its 25 months. A
 // person's comment is `accepted` as written, decided by its author; the forecast agent's proposals are
-// other statuses. Audited, and published as VarianceCommentDecided.
+// other statuses. A comment explains a variance its writer reads, so besides `cash.variance.comment`
+// the caller needs `cash.forecast.read` (product owner 2026-11-04; `x-also-permissions`; 403
+// `identity.permission_missing` otherwise). Audited, and published as VarianceCommentDecided.
 //
 // POST /v1/liquidity-forecast-variance/comments
 func (s *Server) handleCreateForecastVarianceCommentRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -73571,12 +73573,13 @@ func (s *Server) handleUpdateChangeRequestRequest(args [1]string, argsEscaped bo
 // handleUpdateCloseTaskRequest handles updateCloseTask operation.
 //
 // Sets or clears (null) the person a task of a period close is assigned to (ADR-0058 §6, T64b): an
-// active person of the tenant (422 `closing.assignee_invalid` for an agent, a service, a blocked or
-// unknown principal). `If-Match` is the close's ETag, so a change made on a stale view of the
-// checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited,
-// and published as PeriodCloseChanged (`task_assigned`). A signed-off close whose covered periods are
-// all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved
-// `unlockFiscalPeriod` request), the change sets the close open again first, published as
+// active person of the tenant who may act in the close's company (422 `closing.assignee_invalid` for
+// an agent, a service, a blocked or unknown principal, or a person without access to the close's
+// company; product owner 2026-11-04). `If-Match` is the close's ETag, so a change made on a stale view
+// of the checklist is refused (412); the answer is the task, with the close's new ETag. People only.
+// Audited, and published as PeriodCloseChanged (`task_assigned`). A signed-off close whose covered
+// periods are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked
+// (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as
 // PeriodCloseChanged (`reopened`) (ADR-0058 §7, T64d).
 //
 // PATCH /v1/period-closes/{id}/tasks/{code}

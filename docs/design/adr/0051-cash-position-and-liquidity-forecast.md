@@ -560,7 +560,9 @@ and horizon; the open items read gains a functional index on the net due
 date (`baseline_date + net_days`) if the performance budget needs it
 (T53e measures against 05: a company with 100,000 open items answers
 within 2 s p95, a budget to confirm; T53e4 measured it, declared p95 3 s
-and left 2 s to the flow table, see As built T53e4 in §9).
+and left 2 s to the flow table, see As built T53e4 in §9; the product
+owner, 2026-11-04, kept p95 3 s at 100,000 open items with no stored flow
+table, so decision P3 stands as written).
 
 **Snapshots** are stored: once a day per company, after the statements of
 the day are usually in (`cash.snapshot_time`, local time, default 07:00),
@@ -1735,7 +1737,14 @@ default where §7, §9 and §10 leave it open):
   once a page: otherwise they are left out, never refused (04 §4.4, as
   T45e's bank details and the expansions). The question for the product
   owner: whether a single supplier payment's amount and day, unnamed,
-  should need more than `cash.forecast.read`.
+  should need more than `cash.forecast.read`. Answered by the product
+  owner on 2026-11-04: no. `cash.forecast.read` alone may show a single
+  payment's amount and day, without its supplier, whose number and name
+  stay behind `partner.supplier.read`, for the forecast's lines (this
+  drill-down and a snapshot's flows, `listCashSnapshotFlows`) and the
+  actuals' (`listCashActualLines`, T53f2). That is how it was built
+  (`TestLiquidityForecastDrillDownGated`, `TestCashSnapshotLines`'s
+  "the forecast alone", `TestCashActualLinesGated`), so nothing changed.
 - **Budget** (§6). `TestLiquidityForecastBudget`: 100,000 open supplier
   items (two suppliers set up in the company and a blocked vendor, each
   item with terms and an expense line), the forecast in the company's
@@ -1751,7 +1760,10 @@ default where §7, §9 and §10 leave it open):
   included). The budget is declared at **p95 3 s** (scaled by
   `ERP_BUDGET_SCALE`, 01 §Performance), and §6's 2 s is reached by P3 (b),
   the stored flow table, which the product owner deferred: listed for the
-  product owner. On the way the forecast stopped asking the database for
+  product owner, who decided on 2026-11-04 that the budget stays p95 3 s
+  at 100,000 open items with no stored flow table (01 §1.3); P3's path
+  (b) stays as written, the way on if a larger tenant breaks that budget.
+  On the way the forecast stopped asking the database for
   a house bank's code once per item (`withBankCodes`), and the derivation
   compares an account with the rules once per read (`rules`), taking a
   document whose lines all fall to one item whole without the
@@ -1992,9 +2004,10 @@ leave it open):
   a line of two payments names who received what) only with `partner.supplier.read`,
   each as `authz.MayUse` decides it, read once a page, else left out
   (`payment_count` counts them all). The product
-  owner's open question of T53e4 covers these lines too: whether a single
+  owner's open question of T53e4 covered these lines too: whether a single
   line's amount and day, unnamed, should need more than
-  `cash.forecast.read`.
+  `cash.forecast.read`; answered on 2026-11-04 that it should not (As
+  built T53e4 in §9), as built.
 - **Budget.** §6 and §11 name none for the actuals. The port reads every
   line of the company's statements in the range (no index on the value
   date; a company's statements are read by legal entity under row-level
@@ -2235,6 +2248,23 @@ As built (T53f4, variance comments by people; decided by default where
   `VarianceComment` names with `/v1/variance-comments`, and one contract
   cannot hold two schemas or operations of one name; the list's page
   token is scoped to `listForecastVarianceComments` (batch 51's merge).
+- **The forecast's read too** (product owner 2026-11-04). Writing a
+  comment also needs `cash.forecast.read`, the variance's own read:
+  `createForecastVarianceComment` declares it in `x-also-permissions`
+  beside `cash.variance.comment`, so a caller lacking it is 403
+  `identity.permission_missing` (`TestVarianceCommentRefusals`). T53i's
+  proposals (`cash.variance.propose`) and the decisions on them declare
+  it likewise when they are built. The operation is stricter than
+  before: a caller holding `cash.variance.comment` alone was answered
+  and now is 403. `oasdiff` does not see an `x-` extension, so there is
+  no `api/breaking-accepted.txt` entry; it is accepted as the product
+  owner's decision before a pilot uses `/v1` (ADR-0041), and no seeded
+  role grants `cash.variance.comment` (migration 000201), so no role
+  loses the operation. The walkthrough is unchanged: step 30 already
+  shows the 403 for a reader (Rita), and Tom, who comments, reads the
+  variance first; a person holding the comment's permission without the
+  forecast's read would need a role made for the refusal alone, so the
+  refusal's evidence is `TestVarianceCommentRefusals`.
 - **What it does not do.** A comment does not carry the variance's
   figures (they are read again from the snapshot it keeps); T64's
   threshold on which variances need a comment is T64's.
@@ -2293,7 +2323,10 @@ items, `getBankStatement` masked as ADR-0047 shows it to agents,
   in history and not in the forecast (a monthly receipt from a customer,
   quarterly tax instalments), with the evidence (statement lines).
 A person accepts, edits or rejects each (`cash.variance.comment`,
-`cash.memo.write`, `x-agent: false`). The agent never confirms a memo
+`cash.memo.write`, `x-agent: false`). A comment, a person's or an
+agent's proposal, and a person's decision on one, also need
+`cash.forecast.read`: it explains a variance its writer reads (product
+owner 2026-11-04; As built T53f4 in §11). The agent never confirms a memo
 record, changes configuration, releases or proposes a payment run,
 blocks an item or moves money. Its evaluation suite `evals/cash`
 (ADR-0039): a late run, a discount not taken, an unforecast receipt, an
