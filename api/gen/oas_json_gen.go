@@ -82823,12 +82823,16 @@ func (s *GroupCompany) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.ID)
 	}
 	{
-		e.FieldStart("code")
-		e.Str(s.Code)
+		if s.Code.Set {
+			e.FieldStart("code")
+			s.Code.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("name")
-		e.Str(s.Name)
+		if s.Name.Set {
+			e.FieldStart("name")
+			s.Name.Encode(e)
+		}
 	}
 }
 
@@ -82860,11 +82864,9 @@ func (s *GroupCompany) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"id\"")
 			}
 		case "code":
-			requiredBitSet[0] |= 1 << 1
 			if err := func() error {
-				v, err := d.Str()
-				s.Code = string(v)
-				if err != nil {
+				s.Code.Reset()
+				if err := s.Code.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -82872,11 +82874,9 @@ func (s *GroupCompany) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"code\"")
 			}
 		case "name":
-			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
-				v, err := d.Str()
-				s.Name = string(v)
-				if err != nil {
+				s.Name.Reset()
+				if err := s.Name.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -82893,7 +82893,7 @@ func (s *GroupCompany) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00000111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -159245,12 +159245,16 @@ func (s *TradingPartner) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.ID)
 	}
 	{
-		e.FieldStart("code")
-		e.Str(s.Code)
+		if s.Code.Set {
+			e.FieldStart("code")
+			s.Code.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("name")
-		e.Str(s.Name)
+		if s.Name.Set {
+			e.FieldStart("name")
+			s.Name.Encode(e)
+		}
 	}
 }
 
@@ -159282,11 +159286,9 @@ func (s *TradingPartner) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"id\"")
 			}
 		case "code":
-			requiredBitSet[0] |= 1 << 1
 			if err := func() error {
-				v, err := d.Str()
-				s.Code = string(v)
-				if err != nil {
+				s.Code.Reset()
+				if err := s.Code.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -159294,11 +159296,9 @@ func (s *TradingPartner) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"code\"")
 			}
 		case "name":
-			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
-				v, err := d.Str()
-				s.Name = string(v)
-				if err != nil {
+				s.Name.Reset()
+				if err := s.Name.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -159315,7 +159315,7 @@ func (s *TradingPartner) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00000111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

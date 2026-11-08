@@ -726,7 +726,8 @@ cursor-paged with filters, 04 §4.5):
   so no entry in `api/breaking-accepted.txt`.
 - Representations carry names beside ids (group code and name, company
   codes and names, account numbers and names, trading partners' codes and
-  names, principals' names), every amount its currency, each list its
+  names (to a caller who may act in that company, its id alone otherwise:
+  product owner 2026-11-05, As built), principals' names), every amount its currency, each list its
   totals, and each action's response the object it created or changed (the
   run with its `Operation`, the accepted difference, the finalized run with
   the run it superseded) (REVIEW.md's API-consumer classes).
@@ -1149,10 +1150,11 @@ default, for the product owner to overrule:
   partner lines gives them theirs).
 - **Reads.** Journal and parked lines (templates share the parked lines'
   representation) show `trading_partner` with the company's code and its
-  name as tenancy has them now, each company read once per response,
-  whatever the caller's access to that company (the line is a record of
-  the entry's company, which the caller may read; §13 names the
-  representation). A
+  name as tenancy has them now, each company read once per response.
+  As first built this was whatever the caller's access to that company,
+  an open question for the product owner; answered po:2026-11-05: the code
+  and name only to a caller with access to that company, the id alone
+  otherwise ("Names by company access" below). A
   journal entry's ETag is taken before the names are added, as the
   business partners' expansion is, so renaming a company changes no
   entry's ETag (`JournalEntry`'s contract). `listJournalEntries` filters
@@ -1202,8 +1204,8 @@ product owner to overrule:
   `partner.group_company_unknown` on `group_company_id` or
   `payload.group_company_id`. The partner shows `group_company_id` and
   `group_company` (id, company code and name as they are now, each company
-  read once per response, whatever the caller's access, as T68b names
-  trading partners; the open question on names stays open); the partner's
+  read once per response, the code and name only to a caller with access
+  to that company since po:2026-11-05, as T68b's trading partners); the partner's
   ETag is its version, so renaming a company changes none.
   `BusinessPartnerCreated` carries it when set, `BusinessPartnerUpdated`
   when changed (`changed_fields` names `group_company_id`, null when
@@ -1351,3 +1353,40 @@ Decided by default, for the product owner to overrule:
   period: computed, Acme Corp US's payable at the closing 1.40
   (-2,800.00 CAD), its expense at the booked 1.35 (2,700.00 CAD), 100.00
   on the reserve; Maple at rate 1 with no translation difference.
+
+**Names by company access (fix step, po:2026-11-05).** The product owner
+answered T68b's and T68c's open question: a trading partner's or group
+company's company code and name are shown only to a caller who may act in
+that company (ADR-0010, `authz.Companies`); any other caller gets its id
+alone, without `code` and `name` (both now optional in `TradingPartner` and
+`GroupCompany`). Applied to every response T68b-T68d added that names
+one: journal entry lines (`postJournalEntry`, `getJournalEntry`,
+`listJournalEntries`, `reverseJournalEntry`), parked entry and entry
+template lines (their reads, lists and the answers of their writes), the
+business partner's `group_company` (`createBusinessPartner`,
+`getBusinessPartner` and `listBusinessPartners`), and a consolidation run's translated
+balances (`listConsolidationBalances`, whose trading partner may be a
+company outside the run's group; the run's own companies are all in the
+access a run's reader has, §12). Decided by default, for the product
+owner to overrule:
+- The ledger reads the caller's access only when a response has a
+  trading partner to name, and names no company outside it, so a
+  response reads tenancy for no company the caller may not see.
+- ETags stay independent of the caller: a journal entry's is taken before
+  the names are added (T68b), parked entries', templates' and partners'
+  are their versions, and the balances list has none; a caller without
+  access holds the same ETag and its If-Match succeeds.
+- No list echoes a filter's trading partner or group company (the
+  `trading_partner_id` filters of `listJournalEntries` and
+  `listConsolidationBalances` take an id and answer rows), so there is
+  nothing more to hide. Problems name no company: `ledger.trading_partner_invalid`,
+  `ledger.trading_partner_conflict` and `partner.group_company_unknown`
+  give line numbers and fields only.
+- Events are unchanged: JournalEntryPosted's `trading_partner_id`,
+  BusinessPartnerCreated's and BusinessPartnerUpdated's
+  `group_company_id` and ConsolidationRunChanged's `group_code` are ids or
+  a group's code, never a company's code or name, so the rule for events
+  offered to webhooks (po:2026-11-05, ADR-0041) needs nothing here.
+- Walkthrough: `consolidation_trading_partner` (step 39) has Cory, who may
+  act in Maple alone, read Carla's intercompany entry and see company
+  1000's id alone on its lines.

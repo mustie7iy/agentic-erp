@@ -14113,7 +14113,7 @@ paths:
       tags:
         - consolidation
       summary: List a consolidation run's translated balances
-      description: "A consolidation run's translated balances (ADR-0059 §7, T68d), by company code and line: per company, one row per company account and trading partner (`balance`, with the local amount, the booked group amount and the translated group amount, and the closing rate where one applied: on asset and liability accounts), the results of earlier fiscal years on the `retained_earnings` account (`prior_results`, translated at their booked group amounts) and the translation difference on the `cta` account (`cta`, a group amount alone), each with the company's code and name, the group account's number and name, the company account's number and name and the trading partner's code and name. Within a company the rows follow the group account's number, the company account's (none first), the trading partner's code (none first) and the kind, so two runs of the same figures number them alike. With totals over the filter: the local amounts per local currency, and the booked and translated group amounts in the group currency (each company's translated rows sum to zero). Filters: company, group account, company account, trading partner and kind. A run still queued shows none, a running one those of the companies translated so far. Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
+      description: "A consolidation run's translated balances (ADR-0059 §7, T68d), by company code and line: per company, one row per company account and trading partner (`balance`, with the local amount, the booked group amount and the translated group amount, and the closing rate where one applied: on asset and liability accounts), the results of earlier fiscal years on the `retained_earnings` account (`prior_results`, translated at their booked group amounts) and the translation difference on the `cta` account (`cta`, a group amount alone), each with the company's code and name, the group account's number and name, the company account's number and name and the trading partner's code and name (to a caller who may act in that company; its id alone otherwise, as a journal line's). Within a company the rows follow the group account's number, the company account's (none first), the trading partner's code (none first) and the kind, so two runs of the same figures number them alike. With totals over the filter: the local amounts per local currency, and the booked and translated group amounts in the group currency (each company's translated rows sum to zero). Filters: company, group account, company account, trading partner and kind. A run still queued shows none, a running one those of the companies translated so far. Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
       x-permission: consolidation.read
       x-also-permissions:
         - ledger.entry.read
@@ -25799,7 +25799,7 @@ components:
               readOnly: true
             group_company:
               $ref: "#/components/schemas/GroupCompany"
-              description: "`group_company_id` by its company code and its name as they are now; absent with it."
+              description: "`group_company_id` by its company code and its name as they are now, both only to a caller who may act in that company (the id alone otherwise); absent with it."
               readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"
@@ -25838,11 +25838,9 @@ components:
             name: Muster Holding GmbH
     GroupCompany:
       type: object
-      description: "The company of the group a business partner is (ADR-0059 §4): a legal entity of the tenant, by id, company code and its name as it is now."
+      description: "The company of the group a business partner is (ADR-0059 §4): a legal entity of the tenant, by id and, to a caller who may act in that company (ADR-0010), its company code and its name as it is now. To any other caller the id alone (product owner 2026-11-05)."
       required:
         - id
-        - code
-        - name
       properties:
         id:
           type: string
@@ -25851,11 +25849,11 @@ components:
           readOnly: true
         code:
           type: string
-          description: Its company code.
+          description: "Its company code; absent when the caller may not act in the company."
           readOnly: true
         name:
           type: string
-          description: "Its name, as it is now: renaming the company changes no partner's ETag."
+          description: "Its name, as it is now: renaming the company changes no partner's ETag, and neither does who reads it. Absent when the caller may not act in the company."
           readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc0"
@@ -28242,11 +28240,9 @@ components:
               updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
     TradingPartner:
       type: object
-      description: "A journal line's trading partner (ADR-0059 §4): a legal entity of the tenant, by id, company code and its name as it is now."
+      description: "A journal line's trading partner (ADR-0059 §4): a legal entity of the tenant, by id and, to a caller who may act in that company (ADR-0010), its company code and its name as it is now. To any other caller the id alone (product owner 2026-11-05): the line is the entry's company's record, the other company's master data is not."
       required:
         - id
-        - code
-        - name
       properties:
         id:
           type: string
@@ -28255,11 +28251,11 @@ components:
           readOnly: true
         code:
           type: string
-          description: Its company code.
+          description: "Its company code; absent when the caller may not act in the company."
           readOnly: true
         name:
           type: string
-          description: "Its name, as it is now: renaming the company changes no entry's ETag."
+          description: "Its name, as it is now: renaming the company changes no entry's ETag, and neither does who reads it. Absent when the caller may not act in the company."
           readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbe"

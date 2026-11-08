@@ -42145,15 +42145,16 @@ func (s *Server) handleListConnectorsRequest(args [0]string, argsEscaped bool, w
 // account (`prior_results`, translated at their booked group amounts) and the translation difference
 // on the `cta` account (`cta`, a group amount alone), each with the company's code and name, the group
 // account's number and name, the company account's number and name and the trading partner's code and
-// name. Within a company the rows follow the group account's number, the company account's (none
-// first), the trading partner's code (none first) and the kind, so two runs of the same figures number
-// them alike. With totals over the filter: the local amounts per local currency, and the booked and
-// translated group amounts in the group currency (each company's translated rows sum to zero).
-// Filters: company, group account, company account, trading partner and kind. A run still queued shows
-// none, a running one those of the companies translated so far. Besides `consolidation.read` the
-// caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member
-// the caller may not act in is not found (404), as a run that does not exist. Read from one database
-// state (a repeatable-read snapshot), so its page and totals agree.
+// name (to a caller who may act in that company; its id alone otherwise, as a journal line's). Within
+// a company the rows follow the group account's number, the company account's (none first), the
+// trading partner's code (none first) and the kind, so two runs of the same figures number them alike.
+// With totals over the filter: the local amounts per local currency, and the booked and translated
+// group amounts in the group currency (each company's translated rows sum to zero). Filters: company,
+// group account, company account, trading partner and kind. A run still queued shows none, a running
+// one those of the companies translated so far. Besides `consolidation.read` the caller needs
+// `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may
+// not act in is not found (404), as a run that does not exist. Read from one database state (a
+// repeatable-read snapshot), so its page and totals agree.
 //
 // GET /v1/consolidation-runs/{id}/balances
 func (s *Server) handleListConsolidationBalancesRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

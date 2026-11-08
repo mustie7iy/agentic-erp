@@ -49,18 +49,19 @@ func partnerToAPI(p Partner) gen.BusinessPartner {
 	return out
 }
 
-// nameGroupCompanies gives each partner's group company its company code
-// and its name as tenancy has them now, reading each legal entity once,
-// whatever the caller's access to it, as a journal line's trading partner
-// is named (ADR-0059 As built, T68b). The ETag is the partner's version, so
-// renaming a company changes none. A group company was a legal entity of
-// the tenant when it was set, and legal entities are never deleted, so one
-// tenancy does not know is an error.
-func nameGroupCompanies(ctx context.Context, les LegalEntities, reps ...*gen.BusinessPartner) error {
+// nameGroupCompanies gives each partner's group company the caller may
+// act in (access, ADR-0010) its company code and its name as tenancy has
+// them now, reading each legal entity once; one outside access keeps its
+// id alone (product owner 2026-11-05), as a journal line's trading partner
+// (ADR-0059 As built, T68b). The ETag is the partner's version, so neither
+// renaming a company nor who reads it changes it. A group company was a
+// legal entity of the tenant when it was set, and legal entities are
+// never deleted, so one tenancy does not know is an error.
+func nameGroupCompanies(ctx context.Context, les LegalEntities, access authz.Access, reps ...*gen.BusinessPartner) error {
 	names := map[uuid.UUID]gen.GroupCompany{}
 	for _, rep := range reps {
 		gc, ok := rep.GroupCompany.Get()
-		if !ok {
+		if !ok || !access.Allows(gc.ID) {
 			continue
 		}
 		named, seen := names[gc.ID]
@@ -72,7 +73,7 @@ func nameGroupCompanies(ctx context.Context, les LegalEntities, reps ...*gen.Bus
 			if !found {
 				return fmt.Errorf("partner: name group company %s: no legal entity of the tenant has the id", gc.ID)
 			}
-			named = gen.GroupCompany{ID: gc.ID, Code: le.Code, Name: le.Name}
+			named = gen.GroupCompany{ID: gc.ID, Code: gen.NewOptString(le.Code), Name: gen.NewOptString(le.Name)}
 			names[gc.ID] = named
 		}
 		rep.GroupCompany.SetTo(named)
@@ -88,7 +89,7 @@ func (e *Endpoints) partnerOut(ctx context.Context, p Partner) (gen.BusinessPart
 		return gen.BusinessPartner{}, err
 	}
 	out := partnerToAPI(visible(p, access))
-	return out, nameGroupCompanies(ctx, e.LegalEntities, &out)
+	return out, nameGroupCompanies(ctx, e.LegalEntities, access, &out)
 }
 
 func changeToAPI(c Change) gen.PartnerChange {
@@ -266,7 +267,7 @@ func (e *Endpoints) ListBusinessPartners(ctx context.Context, params gen.ListBus
 	for i := range items {
 		reps[i] = &items[i]
 	}
-	if err := nameGroupCompanies(ctx, e.LegalEntities, reps...); err != nil { // each company once for the page
+	if err := nameGroupCompanies(ctx, e.LegalEntities, access, reps...); err != nil { // each company once for the page
 		return nil, err
 	}
 	return &gen.BusinessPartnerPage{Items: items, NextPageToken: next}, nil
