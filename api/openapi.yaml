@@ -14878,6 +14878,7 @@ paths:
         - ledger.ledger_or_group
         - ledger.ledger_specific_reconciliation
         - ledger.legal_entity_not_active
+        - ledger.no_fiscal_period
         - ledger.no_tax_rate
         - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
@@ -14888,11 +14889,14 @@ paths:
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.special_period_date
+        - ledger.special_period_tax_code
         - ledger.tax_base_inconsistent
         - ledger.tax_base_mismatch
         - ledger.tax_base_not_import
         - ledger.tax_code_components
         - ledger.tax_code_off_leading
+        - ledger.trading_partner_invalid
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
