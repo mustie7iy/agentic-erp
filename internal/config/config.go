@@ -282,13 +282,13 @@ type Company struct {
 	// Close is how the company's period close works (ADR-0058 §3): its
 	// variance report's bases and thresholds (T64h).
 	Close CompanyClose `yaml:"close,omitempty" json:"close,omitzero"`
-	// YearEnd is how the company's fiscal year is closed (ADR-0059 §4):
+	// YearEnd is how the company's fiscal year is closed (ADR-0060 §4):
 	// the retained earnings account a carry-forward carries the year's
 	// profit or loss to, one for every ledger the company keeps.
 	YearEnd YearEnd `yaml:"year_end,omitempty" json:"year_end,omitzero"`
 }
 
-// YearEnd is a company's year-end settings (ADR-0059 §4). Without a
+// YearEnd is a company's year-end settings (ADR-0060 §4). Without a
 // retained earnings account the company's carry-forward is refused
 // (ledger.retained_earnings_missing); it is not required at activation.
 type YearEnd struct {

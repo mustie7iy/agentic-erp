@@ -1,4 +1,4 @@
-# ADR-0059: Year-end close
+# ADR-0060: Year-end close
 
 **Status:** accepted (T64m design step, 2026-11-05; decided by default under
 ADR-0053 d; `go-reviewer` approved in round 2 with no blocking finding). The
@@ -6,7 +6,8 @@ decisions taken by default and the questions for the product owner are
 listed at the end; the slices T64m1-T64m6 are in the tracker under
 Financial close. The design leaf T64m itself is added by the product
 owner's items of 2026-11-04 on another branch; integration marks it done
-with this ADR.
+with this ADR. Written as ADR-0059 on its branch; renumbered ADR-0060 at
+batch58's integration, where group reporting and consolidation kept 0059.
 
 ## Context
 ADR-0058 §1 left the year-end close out of T64 and asked the product owner

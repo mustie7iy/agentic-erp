@@ -13,7 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
-// Postings into the special periods 13-16 (ADR-0059 §3, T64m1): a year-end
+// Postings into the special periods 13-16 (ADR-0060 §3, T64m1): a year-end
 // adjustment is a manual entry, posted directly or parked first, or a
 // reversal through the API, that names its special period. The contexts'
 // postings never do: only these paths set NewEntry.special or call
@@ -38,7 +38,7 @@ func checkSpecial(ctx context.Context, tx pgx.Tx, v prepared, in NewEntry) error
 // line carries a tax code (422 ledger.special_period_tax_code): tax
 // returns select their items by the tax period's dates, and the product
 // owner keeps the refusal until the tax specialist confirms how year-end
-// adjustments enter the returns (ADR-0059 question 2, 2026-11-05).
+// adjustments enter the returns (ADR-0060 question 2, 2026-11-05).
 // Whether the period is open is postingPeriod's to say.
 func specialPeriod(ctx context.Context, tx pgx.Tx, calendar uuid.UUID, date time.Time, n int16, lines []Line) error {
 	day := date.Format(time.DateOnly)
@@ -64,7 +64,7 @@ func specialPeriod(ctx context.Context, tx pgx.Tx, calendar uuid.UUID, date time
 	for i, l := range lines {
 		if l.TaxCode != nil {
 			return problem.Unprocessable("ledger.special_period_tax_code", fmt.Sprintf("Line %d carries tax code %s; a posting into special period %d/%d carries no tax code "+
-				"(ADR-0059 question 2: refused until the tax specialist confirms how year-end adjustments enter the returns).", i+1, *l.TaxCode, year, n),
+				"(ADR-0060 question 2: refused until the tax specialist confirms how year-end adjustments enter the returns).", i+1, *l.TaxCode, year, n),
 				problem.FieldError{Field: fmt.Sprintf("lines[%d].tax_code", i), Code: "special_period_tax_code", Message: "no tax code in a special period"})
 		}
 	}

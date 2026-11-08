@@ -334,7 +334,7 @@ func checkActivated(base, proposed *config.Config, out *findings) {
 			out.add(p+".account_determination.down_payment", "the down payment account cannot change once activated")
 		}
 		// The determination is never deleted (no grant); the account may be
-		// changed for the next carry-forward, not removed (ADR-0059 §4).
+		// changed for the next carry-forward, not removed (ADR-0060 §4).
 		if old.YearEnd.RetainedEarningsAccount != "" && co.YearEnd.RetainedEarningsAccount == "" {
 			out.add(p+".year_end.retained_earnings_account", "the retained earnings account can be changed but not removed once activated")
 		}

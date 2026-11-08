@@ -1386,7 +1386,7 @@ projected, and consolidation reads it with the lines still pending
 (ADR-0059 §4a, T68d). No line carried a trading partner before, so nothing
 was backfilled.
 
-Year-end close, special-period postings (ADR-0059 §3, T64m1, migrations
+Year-end close, special-period postings (ADR-0060 §3, T64m1, migrations
 000225 and 000226): special periods 13-16 take manual and parked entries
 and the API's reversals, dated in the year's last regular period, whose
 dates they share. A parked entry keeps the special period it names in a
@@ -1402,7 +1402,7 @@ period), and refuses a tax code on a special-period line
 parked-entry check (`ledger.CloseChecks.Parked`) leaves out entries naming
 a special period.
 
-The balance carry-forward (ADR-0059 §4-§6, T64m2, migrations 000227 and
+The balance carry-forward (ADR-0060 §4-§6, T64m2, migrations 000227 and
 000228) stores the opening balances of the next fiscal year as balances,
 never as journal lines. `period_status.opened_count` counts a period's
 openings: the trigger `period_status_opened_count` starts it at 0 and adds
@@ -2543,7 +2543,7 @@ the leading ledger's periods by legal entity, year and period through
 `LockPeriod`. A transaction that takes period locks over several
 statements (the migration load) is not covered by this. No write takes a
 period lock before a close's lock, so close-then-period never crosses
-either. A balance carry-forward (ADR-0059 §5, T64m2) first takes an
+either. A balance carry-forward (ADR-0060 §5, T64m2) first takes an
 advisory lock per ledger run (`'ledger.carry_forward:' || tenant || ':' ||
 company || ':' || ledger || ':' || year`), in one call in the ledgers'
 order (leading first, then by code), so runs of the same company, ledger
@@ -3473,7 +3473,7 @@ and when become its completion, unless it was done already) and a failure
 open; reopening it keeps the result. The checks read the ledger through
 its port (`ledger.CloseChecks`): parked entries of the company by posting
 date in the leading ledger's period (`ledger.parked_entry`), those naming a
-special period left out (ADR-0059 §3, T64m1), and posted
+special period left out (ADR-0060 §3, T64m1), and posted
 revaluation runs per ledger and key date (`ledger.revaluation_run`);
 the depreciation check reads the assets context through its port
 (`assets.CloseChecks`): the latest `posted` run of the company, ledger,
@@ -3615,7 +3615,7 @@ first. The report and the check read a close's comments of a basis
 principals are other contexts', by id, without foreign keys. Schema
 tests: `db/closing_test.go` (`TestVarianceCommentRules`).
 
-The year close (ADR-0059 §8, T64m4-T64m6) is **planned, not built**: a
+The year close (ADR-0060 §8, T64m4-T64m6) is **planned, not built**: a
 company's close of a fiscal year, stored apart from period closes in
 `year_close` (unique per company and year), `year_close_ledger`,
 `year_close_task` and `year_sign_off`, with the same columns and rules as

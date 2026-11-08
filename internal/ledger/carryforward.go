@@ -19,7 +19,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
-// Carry-forward bases and row kinds (ADR-0059 §5).
+// Carry-forward bases and row kinds (ADR-0060 §5).
 const (
 	BasisChained  = "chained"
 	BasisAllYears = "all_years"
@@ -54,7 +54,7 @@ type carryForwardRequest struct {
 
 // RunBalanceCarryForward implements POST /v1/balance-carry-forwards: the
 // carry-forward of a company's fiscal year into the next in each ledger
-// named, one run per ledger in one transaction (ADR-0059 §5). People only.
+// named, one run per ledger in one transaction (ADR-0060 §5). People only.
 func (e *Endpoints) RunBalanceCarryForward(ctx context.Context, req *gen.BalanceCarryForwardRequest, _ gen.RunBalanceCarryForwardParams) (gen.RunBalanceCarryForwardRes, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -139,7 +139,7 @@ func carryForwardLedgers(ctx context.Context, tx pgx.Tx, le uuid.UUID, named []u
 	return ledgers, nil
 }
 
-// retainedEarnings is the company's retained earnings account (ADR-0059
+// retainedEarnings is the company's retained earnings account (ADR-0060
 // §4), one for every ledger it keeps; without one the carry-forward is
 // refused.
 func retainedEarnings(ctx context.Context, tx pgx.Tx, le tenancy.Entity) (AccountRef, error) {
@@ -156,7 +156,7 @@ func retainedEarnings(ctx context.Context, tx pgx.Tx, le tenancy.Entity) (Accoun
 	return a, nil
 }
 
-// lockCarryForward takes the carry-forward's locks (ADR-0059 §5): first a
+// lockCarryForward takes the carry-forward's locks (ADR-0060 §5): first a
 // transaction-scoped advisory lock per ledger run, in the ledgers' order,
 // so two runs of a company, ledger and year wait for each other; then
 // every period of the year and of every earlier year of the ledgers, FOR
@@ -189,7 +189,7 @@ func lockCarryForward(ctx context.Context, tx pgx.Tx, le uuid.UUID, ledgers []ke
 }
 
 // carryForwardReady refuses a carry-forward a ledger is not ready for
-// (ADR-0059 §5): the year not set up in it, the next year not set up, or a
+// (ADR-0060 §5): the year not set up in it, the next year not set up, or a
 // period of the year or an earlier year still open, naming them.
 func carryForwardReady(ctx context.Context, tx pgx.Tx, r carryForwardRequest, ledgers []keptLedger, periods []readPeriod) error {
 	var open []string
@@ -311,7 +311,7 @@ type carriedRow struct {
 	tc, lc, gc money.Minor
 }
 
-// carriedRows computes a run's rows (ADR-0059 §5) from the previous
+// carriedRows computes a run's rows (ADR-0060 §5) from the previous
 // year's run's rows when chained, whose result rows fold into the retained
 // earnings account's balance as it is a balance sheet account, and the
 // ledger's balances of the year (chained) or of every year up to it, as

@@ -62,7 +62,7 @@ yet posted. A posting's fiscal period follows from its posting date (the
 regular period it falls in); a request names a period only for a year-end
 adjustment, a special period 13-16 on a manual entry, a parked one or the
 API's reversal, dated in the year's last regular period (`fiscal_period`,
-ADR-0059 §3).
+ADR-0060 §3).
 
 **Effective-dated assignments** (role assignments, role permissions, company
 access, SoD rules) are created and then ended with `POST {id}:end`
@@ -281,7 +281,7 @@ projected. A row's lines are the entries `GET /v1/journal-entries` lists
 for its center (`cost_center_id`, `profit_center_id`) with the company,
 ledger and year; the reports add no journal filter.
 
-The balance carry-forward (ADR-0059 §5, §7, T64m2) is a run per ledger:
+The balance carry-forward (ADR-0060 §5, §7, T64m2) is a run per ledger:
 `POST /v1/balance-carry-forwards` (`ledger.carry_forward.run` with
 `ledger.entry.read` as `x-also-permissions`, `x-agent: false`,
 `Idempotency-Key`) takes a company, a fiscal year and optional

@@ -54,7 +54,7 @@ type ParkedEntry struct {
 	ApprovalRequestID *uuid.UUID
 	JournalFiscalYear *int16
 	JournalEntryID    *uuid.UUID
-	FiscalPeriod      *int16 // the special period it is to be posted into (ADR-0059 §3); nil: its posting date's
+	FiscalPeriod      *int16 // the special period it is to be posted into (ADR-0060 §3); nil: its posting date's
 	Lines             []Line
 	Debits            money.Minor // the debit total of Lines
 	Limit             *ParkLimit  // why the ERP parked it instead of posting it; nil: a principal parked it

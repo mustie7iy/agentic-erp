@@ -3738,7 +3738,7 @@ uae_return() {
 }
 
 # step_year_end is the year-end close of the fiscal year before today's,
-# PREV (ADR-0059): the walkthrough's configuration has no number range for
+# PREV (ADR-0060): the walkthrough's configuration has no number range for
 # it until here, so no other step posts into it. Each slice of T64m adds
 # its part in order; T64m1's: PREV set up through a change request, the
 # business the later parts carry forward (an expense, a revenue, a USD
@@ -3768,7 +3768,7 @@ year_end_setup() {
   api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
   local base cr
   base=$(field '.items[0].number')
-  jq "{title: \"Fiscal year $PREV\", rationale: \"The year-end close of $PREV (ADR-0059)\", base_version: $base,
+  jq "{title: \"Fiscal year $PREV\", rationale: \"The year-end close of $PREV (ADR-0060)\", base_version: $base,
     proposed: (.items[0].document | .number_ranges += [.number_ranges[] | select(.company == \"$CC\" and .document_type == \"journal_sa\" and .fiscal_year == $YEAR)
       | .fiscal_year = $PREV])}" "$WORK/last.json" >"$WORK/prev-year.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @prev-year.json
@@ -3884,7 +3884,7 @@ relock_period() {
   api 200 '"  period \(.fiscal_year)/\(.period): \(.status) again"' lockFiscalPeriod -p "id=$1" -if-match "$ETAG"
 }
 
-# year_end_adjustment is T64m1's capability (ADR-0059 §3): Carla opens
+# year_end_adjustment is T64m1's capability (ADR-0060 §3): Carla opens
 # special period 13 of PREV in each ledger and posts the auditors'
 # adjustment into it, dated the year's last day; the trial balance shows
 # it under period 13. A posting dated in period 11 naming period 13 is
@@ -3924,7 +3924,7 @@ year_end_adjustment() {
 }
 
 # year_end_retained_earnings has Ada give the company its retained
-# earnings account (ADR-0059 §4): a new equity account in the chart, a
+# earnings account (ADR-0060 §4): a new equity account in the chart, a
 # tier 4 change with its evidence, and the account the year's result is
 # carried to, one for every ledger.
 year_end_retained_earnings() {
@@ -3935,7 +3935,7 @@ year_end_retained_earnings() {
   api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
   local base cr request
   base=$(field '.items[0].number')
-  jq "{title: \"Retained earnings of $CC\", rationale: \"The year's result is carried to it (ADR-0059 §4)\", base_version: $base,
+  jq "{title: \"Retained earnings of $CC\", rationale: \"The year's result is carried to it (ADR-0060 §4)\", base_version: $base,
     proposed: (.items[0].document | (.companies[] | select(.code == \"$CC\")) |= (.chart_of_accounts += [{\"number\": \"330000\", \"name\": \"Retained earnings\", \"type\": \"equity\"}]
       | .year_end.retained_earnings_account = \"330000\"))}" "$WORK/last.json" >"$WORK/retained.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @retained.json
@@ -3958,7 +3958,7 @@ year_end_retained_earnings() {
   expect "status after activation" "$(field .status)" active
 }
 
-# year_end_carry_forward is T64m2's capability (ADR-0059 §5): Carla closes
+# year_end_carry_forward is T64m2's capability (ADR-0060 §5): Carla closes
 # PREV's open periods and carries PREV forward into this year in every
 # ledger, stored as balances, not journal entries. Each run's rows sum to
 # zero per currency (debits equal credits in every amount), and the

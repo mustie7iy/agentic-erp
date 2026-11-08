@@ -22,7 +22,7 @@ import (
 
 // cfEnv is a tenant whose companies 1000 (USD, leading ledger alone) and
 // 2000 (EUR, 0L and 2L) have the retained earnings account 330000 and
-// fiscal years 2024 to 2027 (ADR-0059 §4, §5).
+// fiscal years 2024 to 2027 (ADR-0060 §4, §5).
 type cfEnv struct {
 	parallelEnv
 }
@@ -167,7 +167,7 @@ func (s cfEnv) strings(tb testing.TB, sql string, args ...any) []string {
 }
 
 // sumsToZero fails unless a run's rows sum to zero per transaction
-// currency in transaction, local and group currency (ADR-0059 §5).
+// currency in transaction, local and group currency (ADR-0060 §5).
 func (s cfEnv) sumsToZero(tb testing.TB, run any) {
 	tb.Helper()
 	if off := s.strings(tb, `SELECT currency_tc || ' ' || sum(amount_tc) || ' ' || sum(amount_lc) || ' ' || sum(amount_gc) FROM ledger.carry_forward_balance
@@ -180,7 +180,7 @@ func (s cfEnv) sumsToZero(tb testing.TB, run any) {
 // other in each ledger, the first from every year and the next two chained,
 // hold what the journal lines sum to, each ledger its own figures, the
 // result being each year's alone, and every run sums to zero per currency
-// in every amount (ADR-0059 §5, §10). A company in USD with the group in
+// in every amount (ADR-0060 §5, §10). A company in USD with the group in
 // EUR carries local and group amounts apart.
 func TestCarryForwardChained(t *testing.T) {
 	s := setupCarryForward(t)
@@ -341,7 +341,7 @@ func TestCarryForwardStale(t *testing.T) {
 
 // TestCarryForwardStaleUnrecorded: a period of an earlier year set up
 // after the previous year's run, which the run did not read, makes it
-// stale once opened (ADR-0059 §6), though it is closed again.
+// stale once opened (ADR-0060 §6), though it is closed again.
 func TestCarryForwardStaleUnrecorded(t *testing.T) {
 	s := setupCarryForward(t)
 	s.years(t)
@@ -359,7 +359,7 @@ func TestCarryForwardStaleUnrecorded(t *testing.T) {
 	}
 }
 
-// TestCarryForwardRefusals: each precondition refuses the run (ADR-0059
+// TestCarryForwardRefusals: each precondition refuses the run (ADR-0060
 // §5) and nothing is kept.
 func TestCarryForwardRefusals(t *testing.T) {
 	s := setupCarryForward(t)
@@ -406,7 +406,7 @@ func TestCarryForwardRefusals(t *testing.T) {
 }
 
 // TestRetainedEarningsKept: once activated, the retained earnings account
-// can be changed but not removed (ADR-0059 §4: the determination is never
+// can be changed but not removed (ADR-0060 §4: the determination is never
 // deleted).
 func TestRetainedEarningsKept(t *testing.T) {
 	s := setupCarryForward(t)

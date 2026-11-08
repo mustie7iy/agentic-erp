@@ -7,7 +7,7 @@ import (
 )
 
 // withRetainedEarnings is the fixture with company 1000's retained earnings
-// account 330000, an equity account added to its chart (ADR-0059 §4).
+// account 330000, an equity account added to its chart (ADR-0060 §4).
 func withRetainedEarnings(t *testing.T) *Config {
 	t.Helper()
 	c := fixture(t)
@@ -48,7 +48,7 @@ func TestRetainedEarningsValid(t *testing.T) {
 }
 
 // TestRetainedEarningsTier: setting or changing the account is tier 3,
-// posting-relevant (ADR-0059 §4).
+// posting-relevant (ADR-0060 §4).
 func TestRetainedEarningsTier(t *testing.T) {
 	base := withRetainedEarnings(t)
 	base.Company("1000").YearEnd.RetainedEarningsAccount = ""

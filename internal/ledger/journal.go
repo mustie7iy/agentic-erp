@@ -238,7 +238,7 @@ type draft struct {
 	// by the reversal's copy in that ledger.
 	reversedCopies map[uuid.UUID]uuid.UUID
 	lines          []Line
-	// special is the special period it posts into (ADR-0059 §3), checked
+	// special is the special period it posts into (ADR-0060 §3), checked
 	// by its maker (specialPeriod); 0: the regular period of postingDate.
 	special int16
 	// sourcedItems are the entry's tax items when they come from other
@@ -609,7 +609,7 @@ type NewEntry struct {
 	// taxDateChosen: a person chose TaxDate (Posting.TaxDateChosen), so
 	// it is held to the open returns as a manual entry's is.
 	taxDateChosen bool
-	// special is the special period a manual entry names (ADR-0059 §3), or
+	// special is the special period a manual entry names (ADR-0060 §3), or
 	// nil: the regular period of PostingDate. Only the API's manual entries
 	// set it, so no other context's posting reaches a special period.
 	special *int16
@@ -1245,7 +1245,7 @@ func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMat
 }
 
 // reverseManually is the API's reverseJournalEntry, whose reversal may
-// name a special period (ADR-0059 §3): a person's year-end adjustment,
+// name a special period (ADR-0060 §3): a person's year-end adjustment,
 // held to a manual entry's rules for one (specialPeriod). The contexts'
 // reversals (Postings.Reverse) stay in regular periods.
 func (e *Endpoints) reverseManually(ctx context.Context, id uuid.UUID, ifMatch func(Entry) error, postingDate *time.Time, special *int16,

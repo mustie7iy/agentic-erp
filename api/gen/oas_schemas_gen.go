@@ -9606,7 +9606,7 @@ func (s *Balance) SetUpdatedAt(val time.Time) {
 	s.UpdatedAt = val
 }
 
-// A balance carry-forward run of a company and ledger from one fiscal year into the next (ADR-0059
+// A balance carry-forward run of a company and ledger from one fiscal year into the next (ADR-0060
 // §5): its rows are the opening balances of the next year. Fixed once run, except that a later run of
 // the same year supersedes it.
 // Ref: #/components/schemas/BalanceCarryForward
@@ -18713,7 +18713,7 @@ type CloseCheckResult struct {
 	Summary string `json:"summary"`
 	// `no_parked_entries`: how many parked entries of the company dated in the period (posting date from
 	// the leading ledger's period's first to its last day) are `parked` or `pending_approval`, leaving out
-	// those parked for a special period (ADR-0059 §3); absent for another check.
+	// those parked for a special period (ADR-0060 §3); absent for another check.
 	ParkedEntriesCount OptInt32 `json:"parked_entries_count"`
 	// `no_parked_entries`: the first 20 of them by posting date (`parked_entries_count` says how many
 	// there are); absent for another check.
@@ -35832,14 +35832,14 @@ type JournalEntryCreate struct {
 	// refused at posting with 409 `ledger.tax_date_in_return`, naming the period, the return and its
 	// status (decision P6): such a period's late items go to its amendment or the next return.
 	TaxDate OptDate `json:"tax_date"`
-	// A special period for a year-end adjustment (ADR-0059 §3), 13 up to 12 plus the special periods of
+	// A special period for a year-end adjustment (ADR-0060 §3), 13 up to 12 plus the special periods of
 	// the company's fiscal calendar: the entry posts into it instead of the regular period of its posting
 	// date. The posting date must be in the year's last regular period, whose dates the special periods
 	// share (422 `ledger.special_period_date`); a special period the calendar does not have in the posting
 	// date's year is 422 `ledger.no_fiscal_period`; it must be open in every ledger posted to (409
 	// `ledger.period_not_open`). No line may carry a tax code (422 `ledger.special_period_tax_code`:
 	// refused until the tax specialist confirms how year-end adjustments enter the returns, product owner
-	// 2026-11-05, ADR-0059 question 2). Absent: the regular period of the posting date. A parked entry
+	// 2026-11-05, ADR-0060 question 2). Absent: the regular period of the posting date. A parked entry
 	// (`parkJournalEntry`) keeps it and is held to these rules again when it is posted.
 	FiscalPeriod OptInt32 `json:"fiscal_period"`
 	// Transaction currency; every line amount must use it.
@@ -36089,7 +36089,7 @@ func (*JournalEntryPage) listJournalEntriesRes() {}
 type JournalEntryReverse struct {
 	// Posting date of the reversal; defaults to the original posting date if that period is open.
 	PostingDate OptDate `json:"posting_date"`
-	// A special period for the reversal (ADR-0059 §3), by the rules of a manual entry's `fiscal_period`:
+	// A special period for the reversal (ADR-0060 §3), by the rules of a manual entry's `fiscal_period`:
 	// its posting date, the original's unless `posting_date` is given, in the year's last regular period
 	// (422 `ledger.special_period_date`), a special period the calendar has (422
 	// `ledger.no_fiscal_period`), open in every ledger of the original's posting group (409
@@ -49003,7 +49003,7 @@ type ParkedJournalEntry struct {
 	PostingDate time.Time `json:"posting_date"`
 	// Tax date the entry was parked with; absent: its posting date.
 	TaxDate OptDate `json:"tax_date"`
-	// The special period (ADR-0059 §3) it is to be posted into, held to a manual entry's rules for one
+	// The special period (ADR-0060 §3) it is to be posted into, held to a manual entry's rules for one
 	// when it is parked, changed and posted; absent: the regular period of its posting date. A period
 	// close's `no_parked_entries` check leaves an entry naming one out: it is the year's.
 	FiscalPeriod OptInt32 `json:"fiscal_period"`
@@ -49444,7 +49444,7 @@ type ParkedJournalEntryUpdate struct {
 	// posting with 409 `ledger.tax_date_in_return`, naming the period, the return and its status (decision
 	// P6): such a period's late items go to its amendment or the next return.
 	TaxDate OptNilDate `json:"tax_date"`
-	// The special period to post into, by the rules of a manual entry's `fiscal_period` (ADR-0059 §3).
+	// The special period to post into, by the rules of a manual entry's `fiscal_period` (ADR-0060 §3).
 	// Send null to remove it: the regular period of the posting date then.
 	FiscalPeriod OptNilInt32 `json:"fiscal_period"`
 	// Transaction currency; every line amount must use it, so a change of currency comes with the lines.

@@ -37,7 +37,7 @@ type OpenParked struct {
 // limit of them by posting date and id: none for a legal entity the
 // caller may not act in. An entry parked for a special period is left
 // out: dated in the year's last regular period, it would hold that
-// period's close for months, and it is the year close's (ADR-0059 §3).
+// period's close for months, and it is the year close's (ADR-0060 §3).
 func (CloseChecks) Parked(ctx context.Context, legalEntity uuid.UUID, from, to time.Time, statuses []string, limit int) (int, []OpenParked, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {

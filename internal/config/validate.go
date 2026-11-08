@@ -285,13 +285,13 @@ func (v *validator) company(p string, co *Company) {
 }
 
 // closes checks how the company's periods and years are closed: the
-// period close's settings (ADR-0058 §3) and the year end's (ADR-0059 §4).
+// period close's settings (ADR-0058 §3) and the year end's (ADR-0060 §4).
 func (v *validator) closes(p string, co *Company, exp int, known bool) {
 	v.companyClose(p, co, exp, known)
 	v.yearEnd(p, co)
 }
 
-// yearEnd checks a company's retained earnings account (ADR-0059 §4): in
+// yearEnd checks a company's retained earnings account (ADR-0060 §4): in
 // the company's chart, where every account is postable, an equity
 // account, reconciling nothing (supplier or asset) and not open-item
 // managed, since a carry-forward's result is a balance, not an item.

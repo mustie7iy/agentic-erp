@@ -6338,7 +6338,7 @@ func (s *Server) handleCaptureSupplierInvoiceRequest(args [0]string, argsEscaped
 // name; the task is set done when it passed (who ran it and when become its completion; a task already
 // done keeps its completion) and open when it did not. `no_parked_entries` passes when no parked entry
 // of the company dated in the period (the leading ledger's period's first to last day) is `parked` or
-// `pending_approval`, an entry parked for a special period left out (the year close's, ADR-0059 §3),
+// `pending_approval`, an entry parked for a special period left out (the year close's, ADR-0060 §3),
 // and names the first 20 with who parked them and their kind; `revaluation_posted` passes when each
 // covered ledger has a posted revaluation run keyed on its period's last day, and names each ledger
 // with its run; `depreciation_posted` (T64k) passes when each covered ledger has a posted depreciation
@@ -21215,7 +21215,7 @@ func (s *Server) handleGetAssetTransferRequest(args [1]string, argsEscaped bool,
 
 // handleGetBalanceCarryForwardRequest handles getBalanceCarryForward operation.
 //
-// One carry-forward run (ADR-0059 §7) with its company, ledger, years, basis, retained earnings
+// One carry-forward run (ADR-0060 §7) with its company, ledger, years, basis, retained earnings
 // account, status, who ran it, and its totals per transaction currency: the year's result carried to
 // retained earnings and the debit and credit totals of its rows in transaction, local and group
 // currency (debits equal credits). A run of a company the caller cannot act in is not found.
@@ -72179,7 +72179,7 @@ func (s *Server) handleRunAnalyticsQueryRequest(args [0]string, argsEscaped bool
 
 // handleRunBalanceCarryForwardRequest handles runBalanceCarryForward operation.
 //
-// Carries a company's fiscal year forward into the next one in each ledger named (ADR-0059 §5,
+// Carries a company's fiscal year forward into the next one in each ledger named (ADR-0060 §5,
 // T64m2): one run per ledger, all in one transaction, stored as balances, never as journal entries, so
 // the trial balance and every reader of journal lines are unchanged. A run's rows are the opening
 // balances of the next year per account and transaction currency, with local and group amounts as

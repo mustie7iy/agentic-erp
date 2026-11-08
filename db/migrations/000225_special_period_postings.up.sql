@@ -1,4 +1,4 @@
--- Postings into the special periods 13-16 (ADR-0059 §3, T64m1): manual
+-- Postings into the special periods 13-16 (ADR-0060 §3, T64m1): manual
 -- and parked entries and their reversals, dated in the year's last
 -- regular period, whose dates the special periods share.
 --

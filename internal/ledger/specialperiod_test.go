@@ -55,7 +55,7 @@ func (s specialEnv) setPeriod(t *testing.T, code string, n int, status string) {
 // TestSpecialPeriodPosting: a manual entry naming special period 13 and
 // dated in the year's last regular period posts into it in every ledger
 // its company keeps, and the trial balance shows it under period 13
-// (ADR-0059 §3, T64m1).
+// (ADR-0060 §3, T64m1).
 func TestSpecialPeriodPosting(t *testing.T) {
 	s := setupSpecial(t)
 	je, _ := s.Must(201, "POST", "/v1/journal-entries", s.adjustment("2026-12-31", 13), "")
@@ -242,7 +242,7 @@ func TestApprovedIntoASpecialPeriod(t *testing.T) {
 
 // TestCloseChecksLeaveSpecialOut: a period close's parked-entry check
 // leaves out an entry parked for a special period, dated in the period it
-// checks: it is the year close's (ADR-0059 §3, decision 14).
+// checks: it is the year close's (ADR-0060 §3, decision 14).
 func TestCloseChecksLeaveSpecialOut(t *testing.T) {
 	s := setupSpecial(t)
 	regular, _ := s.Must(201, "POST", "/v1/parked-journal-entries", entry(s.de, "2026-12-15", "EUR", line{s.bank, "1.00", ""}, line{s.revenue, "-1.00", ""}), "")

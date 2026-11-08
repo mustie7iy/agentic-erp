@@ -21,7 +21,7 @@ import (
 )
 
 // CarryForwardRun is a balance carry-forward run of a company and ledger
-// from one fiscal year into the next (ADR-0059 §5).
+// from one fiscal year into the next (ADR-0060 §5).
 type CarryForwardRun struct {
 	ID, LegalEntityID, LedgerID uuid.UUID
 	LedgerCode, LedgerName      string
@@ -85,7 +85,7 @@ func getCarryForward(ctx context.Context, tx pgx.Tx, id uuid.UUID) (CarryForward
 	return r, nil
 }
 
-// openedSince are the periods that make a run stale (ADR-0059 §6): of the
+// openedSince are the periods that make a run stale (ADR-0060 §6): of the
 // periods of its ledger in its year and every earlier year, those open now
 // or opened since the run read them, and those it did not read (set up
 // later) that are open or have been opened. A posting needs an open

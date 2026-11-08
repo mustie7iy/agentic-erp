@@ -1,4 +1,4 @@
--- The balance carry-forward (ADR-0059 §4-§6, §14, T64m2; 03-data-model
+-- The balance carry-forward (ADR-0060 §4-§6, §14, T64m2; 03-data-model
 -- §3.7): the opening balances of fiscal year Y+1 of a company and ledger,
 -- stored as balances per run, never as journal lines, and the retained
 -- earnings account that takes year Y's profit or loss.
@@ -8,7 +8,7 @@
 -- which the previous release writes. The previous release's OpenPeriod
 -- updates period_status as before; the trigger counts its openings too.
 
--- How many times a period has been opened (ADR-0059 §6): a posting needs an
+-- How many times a period has been opened (ADR-0060 §6): a posting needs an
 -- open period, so a period whose count has not moved since a run read it
 -- and that is not open now has taken no posting since. The trigger adds one
 -- on every change of the status to open, whoever writes it, and refuses
@@ -44,7 +44,7 @@ CREATE TRIGGER period_status_opened_count BEFORE INSERT OR UPDATE ON ledger.peri
   FOR EACH ROW EXECUTE FUNCTION ledger.count_period_openings();
 
 -- The company's retained earnings account, one for every ledger it keeps
--- (ADR-0059 §4, the product owner 2026-11-05): an account determination key,
+-- (ADR-0060 §4, the product owner 2026-11-05): an account determination key,
 -- applied from companies[].year_end.retained_earnings_account.
 ALTER TABLE ledger.account_determination DROP CONSTRAINT account_determination_key_check;
 ALTER TABLE ledger.account_determination ADD CONSTRAINT account_determination_key_check
@@ -136,7 +136,7 @@ CREATE TRIGGER carry_forward_run_check BEFORE INSERT OR UPDATE OR DELETE ON ledg
   FOR EACH ROW EXECUTE FUNCTION ledger.check_carry_forward_run();
 SELECT platform.secure_table('ledger.carry_forward_run'::regclass);
 
--- A run's opening balances (ADR-0059 §5): per account and transaction
+-- A run's opening balances (ADR-0060 §5): per account and transaction
 -- currency, the amount in transaction, local and group currency, debit
 -- positive. A balance sheet account carries its balance (kind balance);
 -- year Y's profit or loss is carried per currency to the run's retained
@@ -175,7 +175,7 @@ CREATE TRIGGER carry_forward_balance_result BEFORE INSERT ON ledger.carry_forwar
 SELECT platform.secure_table('ledger.carry_forward_balance'::regclass);
 
 -- The opened count of every period of year Y and every earlier year of the
--- run's ledger when it ran (ADR-0059 §6): what its staleness is judged by.
+-- run's ledger when it ran (ADR-0060 §6): what its staleness is judged by.
 -- Insert-only.
 CREATE TABLE ledger.carry_forward_period (
   tenant_id     uuid NOT NULL,
@@ -190,7 +190,7 @@ CREATE TRIGGER carry_forward_period_immutable BEFORE UPDATE OR DELETE ON ledger.
   FOR EACH ROW EXECUTE FUNCTION platform.forbid_mutation();
 SELECT platform.secure_table('ledger.carry_forward_period'::regclass);
 
--- Running a carry-forward (ADR-0059 §12): people only, granted with
+-- Running a carry-forward (ADR-0060 §12): people only, granted with
 -- ledger.period.lock.
 INSERT INTO ref.permission (code, description, is_approval) VALUES
   ('ledger.carry_forward.run', 'Carry a fiscal year''s balances forward into the next year', false);

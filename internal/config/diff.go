@@ -175,7 +175,7 @@ var tierRules = []struct {
 	{rx(`^consolidation\.eliminations`), TierPostingRelated},
 	{rx(`^consolidation(\.|$)`), TierStructural},
 	// Where a year's result is carried decides what the next carry-forward
-	// run carries (ADR-0059 §4): posting-relevant, applied from the next run.
+	// run carries (ADR-0060 §4): posting-relevant, applied from the next run.
 	{rx(`^companies\[\*\]\.year_end(\.|$)`), TierPostingRelated},
 }
 

@@ -2357,7 +2357,7 @@ components:
       name: BalanceCarriedForward
       title: Balances carried forward into the next fiscal year
       summary: "A company's fiscal year was carried forward in one ledger: a carry-forward run with the opening balances of the next year."
-      description: "Emitted by `POST /v1/balance-carry-forwards` (ADR-0059 §5, §12, T64m2), once per ledger run, when a `ledger.carry_forward_run` is recorded. No journal entry is posted. A run of a year already carried forward supersedes the current one (`superseded_run_id`). `result_lc` and `result_gc` are the year's profit or loss over every currency in local and group currency; `results` is it per transaction currency, debit positive (a profit is negative), in transaction, local and group currency; a currency without a result is absent. Subject is the run id."
+      description: "Emitted by `POST /v1/balance-carry-forwards` (ADR-0060 §5, §12, T64m2), once per ledger run, when a `ledger.carry_forward_run` is recorded. No journal entry is posted. A run of a year already carried forward supersedes the current one (`superseded_run_id`). `result_lc` and `result_gc` are the year's profit or loss over every currency in local and group currency; `results` is it per transaction currency, debit positive (a profit is negative), in transaction, local and group currency; a currency without a result is absent. Subject is the run id."
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:

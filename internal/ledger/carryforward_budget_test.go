@@ -13,7 +13,7 @@ import (
 )
 
 // TestCarryForwardBudget holds a chained carry-forward of one company and
-// ledger to its budget (ADR-0059 §13, 01 §1.3: p95 3 s) at the ADR's
+// ledger to its budget (ADR-0060 §13, 01 §1.3: p95 3 s) at the ADR's
 // volume: 5,000 accounts, half balance sheet and half expense, with
 // projected balances in three currencies in every period, 1-16, of 2025
 // and 2026 (480,000 rows). 2025 is carried forward once, from every year;

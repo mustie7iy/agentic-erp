@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// The balance carry-forward (ADR-0059 §4-§6, §14, T64m2, migrations 000227
+// The balance carry-forward (ADR-0060 §4-§6, §14, T64m2, migrations 000227
 // and 000228): a period counts its openings; a run's years are consecutive,
 // it chains only from the previous year's run, carries to an equity
 // account, moves only from current to superseded naming its successor, is
@@ -75,7 +75,7 @@ func (c carryForward) insertRun(tx pgx.Tx, run uuid.UUID, year int, chained *uui
 
 // TestPeriodOpenedCount: a period starts at 0 openings (1 when inserted
 // open), each change to open adds one whoever writes it, closing and
-// locking add none, and the count is never set (ADR-0059 §6).
+// locking add none, and the count is never set (ADR-0060 §6).
 func TestPeriodOpenedCount(t *testing.T) {
 	need(t)
 	f := newFixture(t)

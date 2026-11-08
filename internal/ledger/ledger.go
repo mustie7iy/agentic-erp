@@ -98,7 +98,7 @@ type Endpoints struct {
 	// People tells whether a person is still active: the owner of an entry
 	// template, for whom the recurrer parks (ADR-0056).
 	People People
-	// PersonNames names the people who ran a carry-forward (ADR-0059 §7).
+	// PersonNames names the people who ran a carry-forward (ADR-0060 §7).
 	PersonNames PersonNames
 }
 
