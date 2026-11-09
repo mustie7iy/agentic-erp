@@ -32,6 +32,16 @@ func investedEnv(t *testing.T) fixture.Env {
 	return e
 }
 
+// setOctober moves October 2026's leading-ledger period of company 1000,
+// the period its acquisition is measured at, to each status in turn.
+func setOctober(t *testing.T, e fixture.Env, statuses ...string) {
+	t.Helper()
+	for _, s := range statuses {
+		pgtest.Exec(t, `UPDATE ledger.period_status SET status = $3, version = version + 1 WHERE tenant_id = $1 AND legal_entity_id = $2
+			AND fiscal_year = 2026 AND period = 10 AND ledger_id = (SELECT id FROM ledger.ledger WHERE tenant_id = $1 AND is_leading)`, e.Tenant.ID, e.US, s)
+	}
+}
+
 // investmentLines are a run's investment entries, as entryLines shows
 // them, each line with its component.
 func investmentLines(t *testing.T, e fixture.Env, run uuid.UUID) string {
@@ -103,8 +113,15 @@ func TestInvestmentElimination(t *testing.T) {
 	if got := acquisitionOf(t, e, run); got != measured {
 		t.Errorf("the acquisition: got %s, want %s", got, measured)
 	}
-	if got := finalize(t, e, run); got["status"] != "final" {
-		t.Fatalf("the run: got %v, want final", got["status"])
+	_, tag := e.Must(200, "GET", runsPath+"/"+run.String(), "", "")
+	p := e.Problem(409, "consolidation.period_not_locked", "POST", runsPath+"/"+run.String()+":finalize", "", tag)
+	if d := p["detail"].(string); !strings.Contains(d, "company 1000's 2026/10 (open)") {
+		t.Errorf("freezing from an open October: got %s, want 1000's October named", d)
+	}
+	setOctober(t, e, "closed", "locked")
+	got := finalize(t, e, run)
+	if by := got["members"].([]any)[1].(map[string]any)["acquisition"].(map[string]any)["frozen_by_run_id"]; got["status"] != "final" || by != run.String() {
+		t.Fatalf("the run: got %v, frozen by %v, want final, frozen by itself", got["status"], by)
 	}
 	var frozen, equity string
 	pgtest.Scan(t, `SELECT concat_ws(' ', origin, ownership_percent, first_fiscal_year, first_fiscal_period, local_currency, net_assets_lc, closing_rate,
@@ -125,6 +142,12 @@ func TestInvestmentElimination(t *testing.T) {
 		t.Errorf("the freeze's audit records: got %d, want 1", audited)
 	}
 	// October moves: 1000's acquisition as frozen does not.
+	// Unlocked as an approved unlock request does (finalize_test).
+	pgtest.Exec(t, `UPDATE ledger.period_status SET unlock_request_id = gen_random_uuid(), version = version + 1 WHERE tenant_id = $1
+		AND legal_entity_id = $2 AND fiscal_year = 2026 AND period = 10`, e.Tenant.ID, e.US)
+	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'closed', unlock_request_id = NULL, version = version + 1 WHERE tenant_id = $1
+		AND legal_entity_id = $2 AND fiscal_year = 2026 AND period = 10`, e.Tenant.ID, e.US)
+	setOctober(t, e, "open")
 	post(t, e, e.US, "1000", "USD", "2026-10-20", "100000", "400000", "100.00", nil)
 	later := computed(t, e)
 	if got := investmentLines(t, e, later); got != want {
@@ -132,6 +155,10 @@ func TestInvestmentElimination(t *testing.T) {
 	}
 	if got, w := acquisitionOf(t, e, later), strings.Replace(measured, "frozen false", "frozen true", 1); got != w {
 		t.Errorf("the later run's acquisition: got %s, want %s", got, w)
+	}
+	again, _ := e.Must(200, "GET", runsPath+"/"+later.String(), "", "")
+	if by := again["members"].([]any)[1].(map[string]any)["acquisition"].(map[string]any)["frozen_by_run_id"]; by != run.String() {
+		t.Errorf("the later run's acquisition: frozen by %v, want %s", by, run)
 	}
 	post(t, e, e.DE, "2000", "EUR", "2026-10-20", "150000", "100000", "10.00", nil)
 	changed, _ := start(t, e)
@@ -209,7 +236,8 @@ func TestInvestmentFirstPeriodOne(t *testing.T) {
 // closing rate for the period before its first, or without that period,
 // is refused at creation; and a member whose investment differs from its
 // net assets at acquisition fails the elimination step
-// (consolidation.investment_mismatch): the difference would be goodwill.
+// (consolidation.investment_mismatch): an incorporated subsidiary has no
+// goodwill, and the difference waits for the specialist.
 func TestInvestmentRefusals(t *testing.T) {
 	for _, c := range []struct{ name, ownership, origin, detail string }{
 		{"held at 80%", "80", config.OriginIncorporated, "held at 80% and was incorporated by the parent"},
@@ -278,6 +306,7 @@ func TestFinalizeAgainstAnotherFrozen(t *testing.T) {
 	post(t, e, e.US, "1000", "USD", "2026-10-20", "100000", "400000", "100.00", nil)
 	post(t, e, e.DE, "2000", "EUR", "2026-10-20", "150000", "100000", "85.00", nil)
 	second := computed(t, e)
+	setOctober(t, e, "closed", "locked")
 	if got := acquisitionOf(t, e, second); !strings.Contains(got, "net assets 1400.00 USD = 1190.00 EUR, investment 1190.00 EUR") {
 		t.Fatalf("the second run's acquisition: got %s, want October's move in it", got)
 	}

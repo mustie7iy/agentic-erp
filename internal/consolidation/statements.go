@@ -145,8 +145,9 @@ func (e *Endpoints) statementOf(ctx context.Context, tx pgx.Tx, r Run) (statemen
 // interests (ADR-0059 §9, §11), debit positive as the profit: minus the
 // profit components of the run's nci entries, which debit retained
 // earnings with the interest's share of a profit. A run consolidates only
-// members held whole (As built T68h), so it writes no nci entry and the
-// share is zero; the step that computes the interest writes them.
+// members held whole (As built T68h), so it writes no nci entry, and
+// 000243 allows no profit component yet: the share is zero until the
+// step that computes the interest widens the check and writes them.
 func nciProfit(ctx context.Context, tx pgx.Tx, r Run) (money.Minor, error) {
 	var share money.Minor
 	err := tx.QueryRow(ctx, `SELECT coalesce(-sum(l.amount_gc), 0)::bigint FROM consolidation.run_entry en

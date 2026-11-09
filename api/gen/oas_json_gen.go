@@ -51481,19 +51481,26 @@ func (s *ConsolidationAcquisition) encodeFields(e *jx.Encoder) {
 		e.FieldStart("frozen")
 		e.Bool(s.Frozen)
 	}
+	{
+		if s.FrozenByRunID.Set {
+			e.FieldStart("frozen_by_run_id")
+			s.FrozenByRunID.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfConsolidationAcquisition = [10]string{
-	0: "fiscal_year",
-	1: "period",
-	2: "closing_rate",
-	3: "rate_valid_from",
-	4: "net_assets",
-	5: "net_assets_group",
-	6: "investment",
-	7: "goodwill",
-	8: "non_controlling_interest",
-	9: "frozen",
+var jsonFieldsNameOfConsolidationAcquisition = [11]string{
+	0:  "fiscal_year",
+	1:  "period",
+	2:  "closing_rate",
+	3:  "rate_valid_from",
+	4:  "net_assets",
+	5:  "net_assets_group",
+	6:  "investment",
+	7:  "goodwill",
+	8:  "non_controlling_interest",
+	9:  "frozen",
+	10: "frozen_by_run_id",
 }
 
 // Decode decodes ConsolidationAcquisition from json.
@@ -51612,6 +51619,16 @@ func (s *ConsolidationAcquisition) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"frozen\"")
+			}
+		case "frozen_by_run_id":
+			if err := func() error {
+				s.FrozenByRunID.Reset()
+				if err := s.FrozenByRunID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"frozen_by_run_id\"")
 			}
 		default:
 			return d.Skip()

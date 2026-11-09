@@ -157,34 +157,33 @@ func (in investing) member(group, code string) config.GroupMember {
 // frozenAcquisitions are the group's frozen acquisitions by member, with
 // their equity.
 func frozenAcquisitions(ctx context.Context, tx pgx.Tx, group string) (map[uuid.UUID]acquired, error) {
-	rows, _ := tx.Query(ctx, `SELECT legal_entity_id, origin, ownership_percent::text, first_fiscal_year, first_fiscal_period, investment_account_id,
-			net_assets_lc, closing_rate::text, rate_valid_from, net_assets_gc, investment_gc, run_id
-		FROM consolidation.acquisition WHERE group_code = $1`, group)
+	// One statement, so an acquisition another finalization freezes
+	// meanwhile is read whole or not at all (read committed).
+	rows, _ := tx.Query(ctx, `SELECT a.legal_entity_id, a.origin, a.ownership_percent::text, a.first_fiscal_year, a.first_fiscal_period,
+			a.investment_account_id, a.net_assets_lc, a.closing_rate::text, a.rate_valid_from, a.net_assets_gc, a.investment_gc, a.run_id,
+			coalesce((SELECT jsonb_object_agg(e.group_account, e.amount_gc) FROM consolidation.acquisition_equity e
+				WHERE e.tenant_id = a.tenant_id AND e.group_code = a.group_code AND e.legal_entity_id = a.legal_entity_id), '{}')
+		FROM consolidation.acquisition a WHERE a.group_code = $1`, group)
 	out := map[uuid.UUID]acquired{}
 	var a acquired
 	var by uuid.UUID
-	if _, err := pgx.ForEachRow(rows, []any{&a.company, &a.origin, &a.ownership, &a.firstYear, &a.firstP, &a.investmentAccount, &a.netLC, &a.rate,
-		&a.rateFrom, &a.netGC, &a.investment, &by}, func() error {
+	var equity map[string]int64
+	_, err := pgx.ForEachRow(rows, []any{&a.company, &a.origin, &a.ownership, &a.firstYear, &a.firstP, &a.investmentAccount, &a.netLC, &a.rate,
+		&a.rateFrom, &a.netGC, &a.investment, &by, &equity}, func() error {
 		x, frozenBy := a, by
-		x.rate, x.frozenBy, x.equity = plainRate(a.rate), &frozenBy, map[string]money.Minor{}
+		x.rate, x.frozenBy, x.equity = plainRate(a.rate), &frozenBy, make(map[string]money.Minor, len(equity))
 		if a.rateFrom != nil {
 			from := *a.rateFrom
 			x.rateFrom = &from
 		}
+		for account, amount := range equity {
+			x.equity[account] = money.Minor(amount)
+		}
 		out[x.company] = x
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("consolidation: frozen acquisitions of %s: %w", group, err)
-	}
-	rows, _ = tx.Query(ctx, `SELECT legal_entity_id, group_account, amount_gc FROM consolidation.acquisition_equity WHERE group_code = $1`, group)
-	var company uuid.UUID
-	var account string
-	var amount money.Minor
-	_, err := pgx.ForEachRow(rows, []any{&company, &account, &amount}, func() error {
-		out[company].equity[account] = amount
+		equity = nil
 		return nil
 	})
-	return out, errs.Wrapf(err, "consolidation: frozen acquisition equity of %s", group)
+	return out, errs.Wrapf(err, "consolidation: frozen acquisitions of %s", group)
 }
 
 // acquisitionOf is a member's acquisition: the frozen one, checked against
@@ -204,7 +203,7 @@ func (e *Endpoints) acquisitionOf(ctx context.Context, tx pgx.Tx, r Run, in inve
 	if invested != a.netGC {
 		return acquired{}, problem.Unprocessable("consolidation.investment_mismatch", fmt.Sprintf("The parent's investment in company %s, %s %s on "+
 			"account %s, differs from its net assets at acquisition, %s %s; for a member the parent incorporated and holds whole the investment is "+
-			"eliminated against its equity, and a difference would be goodwill: %s.", m.CompanyCode, invested.Plain(in.exp), r.GroupCurrency, acc.Number,
+			"eliminated against its equity at acquisition without goodwill (B5(a)), and a difference waits for the accounting specialist: %s.", m.CompanyCode, invested.Plain(in.exp), r.GroupCurrency, acc.Number,
 			a.netGC.Plain(in.exp), r.GroupCurrency, nonPilot), problem.FieldError{Field: "group_code", Code: "investment_mismatch",
 			Message: "company " + m.CompanyCode + "'s investment equal to its net assets at acquisition"})
 	}

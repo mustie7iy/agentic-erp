@@ -1772,8 +1772,8 @@ the product owner to overrule:
   or the interest.
 - **No goodwill.** A member whose investment differs from its net assets
   at acquisition fails the run (`consolidation.investment_mismatch`,
-  naming both): for an incorporated subsidiary held whole the difference
-  would be goodwill, which is not built; `consolidation.negative_goodwill`
+  naming both): an incorporated subsidiary has no goodwill (B5(a)), so
+  the run does not explain a difference; `consolidation.negative_goodwill`
   stays B7's. `run_acquisition` and `acquisition` keep `goodwill_gc` and
   `nci_gc` (zero), goodwill held to §9's residual by a check.
 - **Where it is measured.** §6 has `TranslateMember` write the
@@ -1798,7 +1798,11 @@ the product owner to overrule:
   the acquisition with the run's origin, ownership, first period and
   investment account, and its equity from the investment entry, each
   audited as `consolidation.acquisition.frozen` (no event: §13 names
-  none); a trigger lets only a final run of the group insert one (an
+  none), and only once each member's period F-1 is locked now (409
+  `consolidation.period_not_locked`, naming it: a frozen acquisition is
+  never changed, so it comes from locked figures, as §10 asks of the run's
+  own period; F-1's version is not recorded, so a change while it was open
+  after the run measured it is not detected); a trigger lets only a final run of the group insert one (an
   import excepted, 000230's `platform.importing`). Finalizing a run that
   measured a member whose acquisition another final run froze since,
   differently, is refused (409 `consolidation.acquisition_changed`: run
@@ -1810,7 +1814,8 @@ the product owner to overrule:
   first final run freezes what it measured.
 - **Reads.** A run's member shows its `acquisition` (the period measured,
   closing rate and validity, net assets in both currencies, investment,
-  goodwill, interest, `frozen`) once eliminated; an entry line its
+  goodwill, interest, `frozen` and `frozen_by_run_id`, the run that froze
+  it, the run itself once finalized) once eliminated; an entry line its
   `component`; the profit and loss's totals `non_controlling_interests`
   (minus the profit components of the run's `nci` entries, none written,
   so zero) and `owners_of_the_parent` (the profit less it).
@@ -1833,3 +1838,17 @@ the product owner to overrule:
   the pilot's `first_period` then has to follow the opening entry's
   period, or the specialist says how an incorporated subsidiary's equity
   before the first consolidated period is treated.
+- **Open accounting question (review:T68h, for the product owner and the
+  specialist):** as built, an incorporated subsidiary's equity at F-1 is
+  eliminated whole, its results through F-1 and its translation reserve
+  with its share capital, as §9 and the brief ("pre-acquisition results
+  eliminated", B8) have it. The reviewer reads B5(a) ("the investment is
+  simply eliminated against share capital") and B8 (results count from
+  when control is obtained, for an incorporated subsidiary its
+  incorporation) as keeping those earlier results and the reserve in the
+  group, eliminating only the share capital. Under that reading a
+  subsidiary whose retained earnings at F-1 are not zero is refused today
+  (`consolidation.investment_mismatch`), and one whose investment happened
+  to equal all its equity would lose its earlier results from the group's
+  retained earnings. Which applies is an accounting rule; it is asked, not
+  decided here.

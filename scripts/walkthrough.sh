@@ -3738,13 +3738,13 @@ consolidation_run() {
 # last day, which step_year_end records too, so that the final run of
 # step_close measures the acquisition at the same rate); and Maple's
 # investment, its CAD amount, on the month's first day against its bank.
-# CAPITAL is that amount in cents.
+# CAPITAL is that amount in cents, ACQ_PERIOD that period (YYYY-MM).
 consolidation_investment() {
   local us=$1 first="${TODAY:0:7}-01" end rate=135 p year period
   end=$(date_add "$first" -1)
   [ "${TODAY:5:2}" = 01 ] && rate=138
   year=$((10#${end:0:4})) period=$((10#${end:5:2}))
-  CAPITAL=$((5000 * rate))
+  CAPITAL=$((5000 * rate)) ACQ_PERIOD=${end:0:7}
   as tom
   say "Maple founded Acme Corp US with USD 5,000.00 of share capital, booked on $end, the last day of the period before"
   say "the group's first; Tom records the USD rate of that day, so that the period has a closing rate:"
@@ -3801,8 +3801,8 @@ consolidation_eliminations() {
   say "The payable at the closing 1.40 and the receivable as booked at 1.35 differ by more than the tolerance: the"
   say "difference is open, and stops only finalizing the run until it is accepted or corrected (T68g). Each pair is"
   say "eliminated: its rows reversed, its difference on the intercompany differences account:"
-  api 200 '.items[] | "  entry \(.entry_no) \(.kind) \(.elimination.code): \(.company_code) and \(.partner.code), debits \(.debits.amount) \(.debits.currency)",
-    (.lines[] | "    \(.group_account.number) \(.group_account.name)\(if .company_code then " / \(.company_code) \(.account.number) \(.account.name)" else "" end)\(if .trading_partner then ", trading partner \(.trading_partner.code)" else "" end): \(.amount.amount)")' \
+  api 200 '.items[] | "  entry \(.entry_no) \(.kind)\(if .elimination then " \(.elimination.code)" else "" end): \(.company_code)\(if .partner then " and \(.partner.code)" else "" end), debits \(.debits.amount) \(.debits.currency)",
+    (.lines[] | "    \(.group_account.number) \(.group_account.name)\(if .company_code then " / \(.company_code)\(if .account then " \(.account.number) \(.account.name)" else "" end)" else "" end)\(if .trading_partner then ", trading partner \(.trading_partner.code)" else "" end)\(if .component then " (\(.component))" else "" end): \(.amount.amount)")' \
     listConsolidationEntries -p "id=$run"
   expect "the entries' lines" "$(field '[.items[] | "\(.entry_no):" + ([.lines[] | "\(.group_account.number)=\(.amount.amount)"] | join(" "))] | join(", ")')" \
     "1:G1250=-2700.00 G2250=2800.00 G6950=-100.00, 2:G4250=2700.00 G5250=-2700.00, 3:G1700=-$(amount "$CAPITAL") G3000=$(amount "$CAPITAL")"
@@ -5705,6 +5705,12 @@ close_consolidation() {
   p=$(field ".items[] | select(.period == $period) | \"\(.id)/\(.version)\"")
   api 200 '"  period \(.fiscal_year)-\(.period) of Acme Corp US: \(.status)"' closeFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
   api 200 '"  period \(.fiscal_year)-\(.period) of Acme Corp US: \(.status)"' lockFiscalPeriod -p "id=${p%/*}" -if-match "$ETAG"
+  say "Acme Corp US's acquisition is measured at $ACQ_PERIOD, the period before its first; finalizing freezes it for good,"
+  say "so Carla closes and locks that period too (ADR-0059 §9):"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$us" -p "fiscal_year=${ACQ_PERIOD%-*}" -p "ledger_id=$LEADING" -p page_size=100
+  p=$(field ".items[] | select(.period == $((10#${ACQ_PERIOD#*-}))) | \"\(.id)/\(.version)\"")
+  api 200 '"  period \(.fiscal_year)-\(.period) of Acme Corp US: \(.status)"' closeFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  api 200 '"  period \(.fiscal_year)-\(.period) of Acme Corp US: \(.status)"' lockFiscalPeriod -p "id=${p%/*}" -if-match "$ETAG"
   QUIET=1 api 200 '' listConsolidationRuns -p group_code=MAPLE -p status=computed
   draft=$(field '.items[0].id')
   say "She runs the group again: the run reads both companies' figures from their locked periods."
@@ -5728,6 +5734,7 @@ close_consolidation() {
   api 200 '"run of \(.group_code) for \(.fiscal_year)-\(.period): \(.status), finalized by \(.finalized_by_name) at \(.finalized_at), stale \(.stale)"' \
     finalizeConsolidationRun -p "id=$run" -if-match "$ETAG"
   expect "the final run" "$(field '"\(.status) \(.finalized_by_name) \(.stale)"')" "final Carla Controller false"
+  expect "the acquisition it froze" "$(field '[.members[] | select(.acquisition) | .acquisition.frozen_by_run_id] | join(" ")')" "$run"
   api 200 '"\(.statement), run \(.run_status), stale \(.stale): assets \(.totals.assets.consolidated.amount), profit \(.totals.profit.consolidated.amount) \(.group_currency)"' \
     getConsolidatedStatement -p "id=$run" -p statement=balance_sheet -p page_size=500
   expect "the final run's statement" "$(field '"\(.run_status) \(.stale)"')" "final false"

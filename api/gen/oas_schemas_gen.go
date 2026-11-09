@@ -22077,6 +22077,10 @@ type ConsolidationAcquisition struct {
 	// Whether the run read these figures from the acquisition an earlier final run froze rather than
 	// measuring them; a final run including a member for the first time freezes them (`:finalize`).
 	Frozen bool `json:"frozen"`
+	// The final run that froze the member's acquisition (`GET /v1/consolidation-runs/{id}`): the one this
+	// run read it from, or this run once its finalization froze the figures it measured; absent while none
+	// has.
+	FrozenByRunID OptUUID `json:"frozen_by_run_id"`
 }
 
 // GetFiscalYear returns the value of FiscalYear.
@@ -22129,6 +22133,11 @@ func (s *ConsolidationAcquisition) GetFrozen() bool {
 	return s.Frozen
 }
 
+// GetFrozenByRunID returns the value of FrozenByRunID.
+func (s *ConsolidationAcquisition) GetFrozenByRunID() OptUUID {
+	return s.FrozenByRunID
+}
+
 // SetFiscalYear sets the value of FiscalYear.
 func (s *ConsolidationAcquisition) SetFiscalYear(val int32) {
 	s.FiscalYear = val
@@ -22177,6 +22186,11 @@ func (s *ConsolidationAcquisition) SetNonControllingInterest(val Money) {
 // SetFrozen sets the value of Frozen.
 func (s *ConsolidationAcquisition) SetFrozen(val bool) {
 	s.Frozen = val
+}
+
+// SetFrozenByRunID sets the value of FrozenByRunID.
+func (s *ConsolidationAcquisition) SetFrozenByRunID(val OptUUID) {
+	s.FrozenByRunID = val
 }
 
 // A translated balance of a consolidation run (ADR-0059 §7): a company account's balance with a

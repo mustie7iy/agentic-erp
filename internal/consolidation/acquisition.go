@@ -147,7 +147,10 @@ func (e *Endpoints) measurePeriod(ctx context.Context, rateType, group string, c
 // from its investment entries, each audited; and refuses the run when a
 // member's acquisition it measured differs from one another final run
 // froze since it was computed (409 consolidation.acquisition_changed).
-func freeze(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run) error {
+func (e *Endpoints) freeze(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run) error {
+	if err := e.measuredLocked(ctx, tx, r); err != nil {
+		return err
+	}
 	rows, _ := tx.Query(ctx, `INSERT INTO consolidation.acquisition (tenant_id, group_code, legal_entity_id, origin, ownership_percent, first_fiscal_year,
 			first_fiscal_period, investment_account_id, local_currency, net_assets_lc, closing_rate, rate_valid_from, net_assets_gc, investment_gc,
 			goodwill_gc, nci_gc, run_id, created_by)
@@ -191,6 +194,37 @@ func freeze(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run) error {
 			"legal_entity_id": f.company, "run_id": r.ID, "net_assets_gc": f.assets, "investment_gc": f.invested, "group_currency": r.GroupCurrency})
 	}
 	return errors.Join(recorded...)
+}
+
+// measuredLocked refuses to freeze an acquisition measured at a period
+// that is not locked now (409 consolidation.period_not_locked, as §10
+// refuses a run's own period): a frozen acquisition is never changed, so
+// it is taken from locked figures only. A member in the group currency
+// without that period in its ledger has nothing there to change.
+func (e *Endpoints) measuredLocked(ctx context.Context, tx pgx.Tx, r Run) error {
+	rows, _ := tx.Query(ctx, memberSelect+` m WHERE m.run_id = $1 AND EXISTS (SELECT FROM consolidation.run_acquisition a
+		WHERE a.tenant_id = m.tenant_id AND a.run_id = m.run_id AND a.legal_entity_id = m.legal_entity_id AND NOT a.frozen) ORDER BY m.company_code`, r.ID)
+	ms, err := pgx.CollectRows(rows, scanMember)
+	if err != nil {
+		return fmt.Errorf("consolidation: members measured by run %s: %w", r.ID, err)
+	}
+	var not []string
+	for _, m := range ms {
+		year, per := previousPeriod(*m.FirstYear, *m.FirstPeriod)
+		p, ok, err := e.Ledger.PeriodOf(ctx, m.LegalEntityID, year, per)
+		if err != nil {
+			return fmt.Errorf("consolidation: period %d/%d of %s: %w", year, per, m.CompanyCode, err)
+		}
+		if (ok || m.LocalCurrency != r.GroupCurrency) && p.Status != "locked" {
+			not = append(not, fmt.Sprintf("company %s's %d/%d (%s)", m.CompanyCode, year, per, orNone(p.Status)))
+		}
+	}
+	if len(not) == 0 {
+		return nil
+	}
+	return problem.Conflict("consolidation.period_not_locked", fmt.Sprintf("Run %s would freeze the acquisitions it measured at periods that are not "+
+		"locked: %s. A frozen acquisition is never changed (ADR-0059 §9): lock each period before a member's first and finalize again.", r.ID,
+		strings.Join(not, ", ")))
 }
 
 // frozenElsewhere refuses a run one of whose measured acquisitions differs
@@ -248,18 +282,24 @@ func acquisitionsShown(ctx context.Context, tx pgx.Tx, rs []Run, ms map[uuid.UUI
 			local[memberKey{run, m.LegalEntityID}] = m
 		}
 	}
-	rows, _ := tx.Query(ctx, `SELECT run_id, legal_entity_id, net_assets_lc, closing_rate::text, rate_valid_from, net_assets_gc, investment_gc, goodwill_gc,
-			nci_gc, frozen FROM consolidation.run_acquisition WHERE run_id = ANY($1)`, ids)
+	// The run that froze a member's acquisition: the one a run read it
+	// from, or the run itself once its finalization froze what it measured.
+	rows, _ := tx.Query(ctx, `SELECT a.run_id, a.legal_entity_id, a.net_assets_lc, a.closing_rate::text, a.rate_valid_from, a.net_assets_gc, a.investment_gc,
+			a.goodwill_gc, a.nci_gc, a.frozen, CASE WHEN a.frozen OR q.run_id = a.run_id THEN q.run_id END
+		FROM consolidation.run_acquisition a JOIN consolidation.run r ON r.tenant_id = a.tenant_id AND r.id = a.run_id
+		LEFT JOIN consolidation.acquisition q ON q.tenant_id = a.tenant_id AND q.group_code = r.group_code AND q.legal_entity_id = a.legal_entity_id
+		WHERE a.run_id = ANY($1)`, ids)
 	type stored struct {
 		k                               memberKey
 		lc, gc, invested, goodwill, nci money.Minor
 		rate                            string
 		from                            *time.Time
 		frozen                          bool
+		by                              *uuid.UUID
 	}
 	all, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (stored, error) {
 		var s stored
-		return s, row.Scan(&s.k.run, &s.k.company, &s.lc, &s.rate, &s.from, &s.gc, &s.invested, &s.goodwill, &s.nci, &s.frozen)
+		return s, row.Scan(&s.k.run, &s.k.company, &s.lc, &s.rate, &s.from, &s.gc, &s.invested, &s.goodwill, &s.nci, &s.frozen, &s.by)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("consolidation: acquisitions of %d runs: %w", len(rs), err)
@@ -282,6 +322,9 @@ func acquisitionsShown(ctx context.Context, tx pgx.Tx, rs []Run, ms map[uuid.UUI
 		a := gen.ConsolidationAcquisition{FiscalYear: int32(year), Period: int32(per), ClosingRate: plainRate(s.rate), Frozen: s.frozen}
 		if s.from != nil {
 			a.RateValidFrom = gen.NewOptDate(*s.from)
+		}
+		if s.by != nil {
+			a.FrozenByRunID = gen.NewOptUUID(*s.by)
 		}
 		for _, f := range []struct {
 			to   *gen.Money

@@ -39,8 +39,8 @@ type conScenario struct {
 
 // conSetup is a tenant with fixture.Consolidation's group ACME (2000, in
 // EUR, holding 1000, in USD, from 2026-11), both companies on one fiscal
-// calendar, November's closing rate USD/EUR 0.9 and an entry of 100.00 in
-// each company. The test's own runs are carried out by the test, never by
+// calendar, October's and November's closing rate USD/EUR 0.9, an entry of
+// 100.00 in each company, 1000's share capital and 2000's investment. The test's own runs are carried out by the test, never by
 // the dispatcher, which reads every tenant's queue: at the end their
 // Operations still without a workflow are marked as taken, as deprSetup's.
 func conSetup(t *testing.T) *conScenario {
@@ -66,6 +66,17 @@ func conSetup(t *testing.T) *conScenario {
 			"currency": %q, "lines": [{"account_id": %q, "amount": {"amount": "100.00", "currency": %q}},
 			{"account_id": %q, "amount": {"amount": "-100.00", "currency": %q}}]}`, c.le, c.currency, e.Account(t, c.code, "100000"), c.currency,
 			e.Account(t, c.code, "400000"), c.currency), "")
+	}
+	// 1000's share capital before its first period and 2000's investment
+	// equal to it (USD 100.00 at October's 0.9), which a run eliminates
+	// (ADR-0059 §9).
+	for _, x := range []struct {
+		le                                         uuid.UUID
+		code, day, currency, debit, credit, amount string
+	}{{e.US, "1000", "2026-10-15", "USD", "100000", "300000", "100.00"}, {e.DE, "2000", "2026-11-05", "EUR", "150000", "100000", "90.00"}} {
+		e.Must(201, "POST", "/v1/journal-entries", fmt.Sprintf(`{"legal_entity_id": %q, "document_date": %q, "posting_date": %q, "currency": %q,
+			"lines": [{"account_id": %q, "amount": {"amount": %q, "currency": %q}}, {"account_id": %q, "amount": {"amount": "-%s", "currency": %q}}]}`,
+			x.le, x.day, x.day, x.currency, e.Account(t, x.code, x.debit), x.amount, x.currency, e.Account(t, x.code, x.credit), x.amount, x.currency), "")
 	}
 	return &conScenario{e: e, c: &workflows.Consolidations{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker",
 		Runs: app.Consolidation(app.Config{}), Actors: identity.Actors{}}}
@@ -93,6 +104,7 @@ func (s *conScenario) cancel(t *testing.T, in workflows.ConsolidationInput) {
 type conState struct {
 	Run, Operation, Problem         string
 	Translated, Rows, Events, Audit int
+	Entries, Acquisitions           int
 }
 
 func conStateOf(t *testing.T, in workflows.ConsolidationInput) conState {
@@ -102,9 +114,11 @@ func conStateOf(t *testing.T, in workflows.ConsolidationInput) conState {
 			(SELECT count(*) FROM consolidation.run_member m WHERE m.run_id = r.id AND m.translated_at IS NOT NULL),
 			(SELECT count(*) FROM consolidation.run_balance b WHERE b.run_id = r.id),
 			(SELECT count(*) FROM consolidation.outbox x WHERE x.tenant_id = r.tenant_id),
-			(SELECT count(*) FROM audit.audit_event a WHERE a.tenant_id = r.tenant_id)
+			(SELECT count(*) FROM audit.audit_event a WHERE a.tenant_id = r.tenant_id),
+			(SELECT count(*) FROM consolidation.run_entry n WHERE n.run_id = r.id),
+			(SELECT count(*) FROM consolidation.run_acquisition q WHERE q.run_id = r.id)
 		FROM consolidation.run r JOIN platform.operation o ON o.id = r.operation_id WHERE r.id = $1`, []any{in.RunID},
-		&s.Run, &s.Operation, &s.Problem, &s.Translated, &s.Rows, &s.Events, &s.Audit)
+		&s.Run, &s.Operation, &s.Problem, &s.Translated, &s.Rows, &s.Events, &s.Audit, &s.Entries, &s.Acquisitions)
 	return s
 }
 
@@ -138,8 +152,8 @@ func TestConsolidationRunWorkflow(t *testing.T) {
 		t.Fatalf("the run: %v", err)
 	}
 	got := conStateOf(t, in)
-	if run := fmt.Sprint(got.Run, " ", strings.Split(got.Operation, "/")[0], " ", got.Translated, " ", got.Rows); run != "computed/3 succeeded 2 4" {
-		t.Errorf("the run: got %s, want computed, its Operation succeeded, two companies translated in four rows", run)
+	if run := fmt.Sprint(got.Run, " ", strings.Split(got.Operation, "/")[0], " ", got.Translated, " ", got.Rows, " ", got.Entries, " ", got.Acquisitions); run != "computed/3 succeeded 2 6 1 1" {
+		t.Errorf("the run: got %s, want computed, its Operation succeeded, two companies translated in six rows, 1000's investment eliminated", run)
 	}
 	again := s.start(t)
 	cancelAfterFirst := func(env *testsuite.TestWorkflowEnvironment) {
@@ -244,8 +258,9 @@ func TestConsolidationActivitiesRunTwice(t *testing.T) {
 	}
 	twiceCon(t, "EliminateConsolidationRun", in, func() error { return s.c.EliminateConsolidationRun(ctx, in) })
 	twiceCon(t, "CompleteConsolidationRun", in, func() error { return s.c.CompleteConsolidationRun(ctx, in) })
-	if got := conStateOf(t, in); got.Run != "computed/3" {
-		t.Errorf("the run: got %s, want computed", got.Run)
+	if got := conStateOf(t, in); got.Run != "computed/3" || got.Entries != 1 || got.Acquisitions != 1 {
+		t.Errorf("the run: got %s with %d entries and %d acquisitions, want computed with 1000's investment entry and acquisition", got.Run,
+			got.Entries, got.Acquisitions)
 	}
 	if companies, err := s.c.PrepareConsolidationRun(ctx, in); err != nil || len(companies) != 0 {
 		t.Errorf("a computed run's preparation: got %v %v, want no company", companies, err)
