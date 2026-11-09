@@ -292,6 +292,16 @@ transaction, so no single `Location` names them; each is read with `GET
 the company, ledger, retained earnings account and who ran it, with the
 year's result and the rows' debit and credit totals per transaction
 currency and, over every currency, in local and group currency. A run is never a journal entry; the trial balance is unchanged.
+Every representation of a run (T64m3) carries `stale` and
+`opened_since` (the periods of its years opened since it ran, or set up
+later and opened), judged at the read, so its ETag is the
+representation's rather than its version. `GET /v1/balance-carry-forwards`
+lists runs (company, fiscal year, ledger, status; by `created_at` or
+`fiscal_year`), each as `GET` shows it; `GET
+/v1/balance-carry-forwards/{id}/balances` pages a run's rows by account
+number, currency and kind, each with its account's number, name and type,
+and carries the whole run's totals on every page, whatever `account_id`
+filters.
 
 Plan values (ADR-0050 §8, T56g) are the controlling context's.
 `/v1/plan-categories` (`controlling.plan.read`, `.write`) are open or

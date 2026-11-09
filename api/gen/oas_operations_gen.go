@@ -200,6 +200,8 @@ const (
 	ListAssetTransfersOperation                    OperationName = "ListAssetTransfers"
 	ListAssetsOperation                            OperationName = "ListAssets"
 	ListAuditEventsOperation                       OperationName = "ListAuditEvents"
+	ListBalanceCarryForwardBalancesOperation       OperationName = "ListBalanceCarryForwardBalances"
+	ListBalanceCarryForwardsOperation              OperationName = "ListBalanceCarryForwards"
 	ListBalancesOperation                          OperationName = "ListBalances"
 	ListBankAccountsOperation                      OperationName = "ListBankAccounts"
 	ListBankFilesOperation                         OperationName = "ListBankFiles"

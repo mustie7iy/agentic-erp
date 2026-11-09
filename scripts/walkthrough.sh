@@ -3900,15 +3900,20 @@ uae_return() {
 # revaluation in every ledger), and an audit adjustment posted into
 # special period 13, dated the year's last day. T64m2's: the retained
 # earnings account set through a change request, PREV's periods closed
-# and PREV carried forward into this year in every ledger.
+# and PREV carried forward into this year in every ledger. T64m3's: the
+# runs listed and their balances read, a late adjustment into period 13
+# making them stale, and the re-run superseding them.
 step_year_end() {
-  heading "Step 42 — Year-end close of $PREV: the year set up, its business and year-end revaluation, an audit adjustment in special period 13, the year carried forward"
+  heading "Step 42 — Year-end close of $PREV: the year set up, its business and year-end revaluation, an audit adjustment in special period 13, the year carried forward, a late adjustment and the re-run"
   year_end_setup
   year_end_business
   year_end_revaluation
   year_end_adjustment
   year_end_retained_earnings
   year_end_carry_forward
+  year_end_carry_forward_balances
+  year_end_late_adjustment
+  year_end_rerun
   passed
 }
 
@@ -4160,6 +4165,89 @@ year_end_carry_forward() {
     | map({c: .[0].currency, v: (map((.debit.amount | tonumber) - (.credit.amount | tonumber)) | add)}) | map(select(.v != 0))
     | map("\(.c) \(.v * 100 | round)") | join(", ")' "$WORK/last.json")" \
     "$(jq -r '[.items[0].totals[] | select(.result.amount != "0.00") | "\(.currency) \(.result.amount | tonumber * 100 | round)"] | join(", ")' "$WORK/carry-forward.json")"
+}
+# year_end_carry_forward_balances is T64m3's read (ADR-0060 §7): Carla
+# lists PREV's runs, current and not stale, and reads the leading
+# ledger's opening balances of this year: the retained earnings account's
+# result row and the RBC USD account in USD and in CAD (the revaluation's
+# gain, posted in local currency), with the whole run's totals on every
+# page.
+year_end_carry_forward_balances() {
+  as carla
+  say "Carla lists $PREV's carry-forward runs: each current, and not stale, no period of $PREV opened since."
+  api 200 '.items[] | "  \(.ledger_code): run \(.id[0:8])…, \(.status), stale: \(.stale)"' listBalanceCarryForwards -p "legal_entity_id=$LE" -p "fiscal_year=$PREV"
+  expect "$PREV's runs" "$(field '[.items[] | "\(.ledger_code) \(.status) \(.stale)"] | sort | join(", ")')" "0L current false, 2L current false"
+  local run
+  run=$(jq -r '.items[0].id' "$WORK/carry-forward.json")
+  say "She reads 0L's opening balances of $YEAR, a page at a time, each page with the whole run's totals:"
+  api 200 '(.items[] | "  \(.account.number) \(.account.name) (\(.account.type)), \(.kind), \(.currency): \(.amount.amount) = \(.amount_lc.amount) \(.amount_lc.currency)"), "  totals: debits \(.debit_lc.amount) = credits \(.credit_lc.amount) \(.local_currency), result \(.result_lc.amount)"' \
+    listBalanceCarryForwardBalances -p "id=$run" -p page_size=500
+  expect "the page's totals, the run's" "$(field '"\(.debit_lc.amount) \(.credit_lc.amount) \(.result_lc.amount)"')" \
+    "$(jq -r '.items[0] | "\(.debit_lc.amount) \(.credit_lc.amount) \(.result_lc.amount)"' "$WORK/carry-forward.json")"
+  expect "the retained earnings account's result" "$(field '[.items[] | select(.account.number == "330000" and .kind == "result") | "\(.currency) \(.amount.amount)"] | join(", ")')" \
+    "$(jq -r '[.items[0].totals[] | select(.result.amount != "0.00") | "\(.currency) \(.result.amount)"] | join(", ")' "$WORK/carry-forward.json")"
+  expect "the RBC USD account's opening balances" "$(field '[.items[] | select(.account.number == "1030") | "\(.currency) \(.amount.amount) \(.amount_lc.amount)"] | join(", ")')" \
+    "CAD 40.00 40.00, USD 2000.00 2720.00"
+}
+
+# year_end_late_adjustment: the auditors find one more adjustment after
+# the carry-forward. Carla opens special period 13 again and posts it;
+# every run of PREV reads stale, naming the period, and re-running while
+# the period is open is refused.
+year_end_late_adjustment() {
+  as carla
+  local p bank expense
+  bank=$(account 100000)
+  expense=$(account 6000)
+  say "The auditors send one more adjustment after the carry-forward: CAD 100.00 of audit fees for $PREV. Carla opens"
+  say "special period 13 again in each ledger and posts it:"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=100
+  for p in $(field '.items[] | select(.period == 13) | "\(.id)/\(.version)"'); do
+    api 200 '"  period \(.fiscal_year)/\(.period) of ledger \(.ledger_id[0:8])…: \(.status)"' openFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+  api 201 '"journal entry \(.document_number) of \(.posting_date), period \(.fiscal_year)/\(.fiscal_period): \(.header_text)"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$PREV-12-31\", \"posting_date\": \"$PREV-12-31\", \"fiscal_period\": 13, \"currency\": \"CAD\", \"header_text\": \"Late audit adjustment: audit fees\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"100.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-100.00\", \"currency\": \"CAD\"}}]}"
+  say "$PREV's carry-forward no longer holds every posting of the year: each run reads stale, naming the period"
+  say "opened since it ran."
+  api 200 '.items[] | "  \(.ledger_code): stale: \(.stale), opened since: \([.opened_since[] | "\(.fiscal_year)/\(.period) in \(.ledger_code)"] | join(", "))"' \
+    listBalanceCarryForwards -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p status=current
+  expect "the runs' staleness" "$(field '[.items[] | "\(.ledger_code) \(.stale) \([.opened_since[] | "\(.fiscal_year)/\(.period)"] | join(" "))"] | sort | join(", ")')" \
+    "0L true $PREV/13, 2L true $PREV/13"
+  say "Carrying $PREV forward again while period 13 is open is refused: nothing may be posted into what is carried."
+  refused 409 ledger.carry_forward_periods_open runBalanceCarryForward -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $PREV}"
+}
+
+# year_end_rerun: Carla closes period 13 and carries PREV forward again;
+# the new runs supersede the stale ones, are current and not stale, and
+# 0L's result carries the late adjustment.
+year_end_rerun() {
+  as carla
+  local p
+  say "Carla closes period 13 again; the runs stay stale, the period having been opened since they ran:"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=100
+  for p in $(field '.items[] | select(.status == "open") | "\(.id)/\(.version)"'); do
+    api 200 '"  period \(.fiscal_year)/\(.period) of ledger \(.ledger_id[0:8])…: \(.status)"' closeFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+  local old
+  old=$(jq -r '.items[0].id' "$WORK/carry-forward.json")
+  api 200 '"  0L run \(.id[0:8])…: \(.status), stale: \(.stale)"' getBalanceCarryForward -p "id=$old"
+  expect "0L's run with period 13 closed again" "$(field '"\(.status) \(.stale)"')" "current true"
+  say "and carries $PREV forward again in every ledger:"
+  api 201 '.items[] | "  \(.ledger_code): run \(.id[0:8])…, \(.basis), \(.status), stale: \(.stale), result \(.result_lc.amount) \(.result_lc.currency)"' \
+    runBalanceCarryForward -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $PREV}"
+  expect "the new runs" "$(field '[.items[] | "\(.ledger_code) \(.status) \(.stale)"] | join(", ")')" "0L current false, 2L current false"
+  expect "0L's result with the late adjustment" "$(field '.items[0].result_lc.amount | tonumber * 100 | round')" \
+    "$(jq -r '.items[0].result_lc.amount | tonumber * 100 + 10000 | round' "$WORK/carry-forward.json")"
+  cp "$WORK/last.json" "$WORK/carry-forward-again.json"
+  local run
+  for run in $(jq -r '.items[] | "\(.ledger_code)=\(.id)"' "$WORK/carry-forward-again.json"); do
+    printf '%s\t%s carry-forward of %s, again\n' "${run#*=}" "${run%%=*}" "$PREV" >>"$WORK/names"
+  done
+  say "The first runs read superseded by the new ones, which the list shows as $PREV's current carry-forward:"
+  api 200 '"  0L run \(.id[0:8])…: \(.status) by \(.superseded_by_id[0:8])… at \(.superseded_at)"' getBalanceCarryForward -p "id=$old"
+  expect "the first 0L run" "$(field '"\(.status) \(.superseded_by_id)"')" "superseded $(jq -r '.items[0].id' "$WORK/carry-forward-again.json")"
+  api 200 '.items[] | "  \(.ledger_code): run \(.id[0:8])…, \(.status)"' listBalanceCarryForwards -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p status=current
+  expect "$PREV's current runs" "$(field '[.items[].id] | sort | join(" ")')" "$(jq -r '[.items[].id] | sort | join(" ")' "$WORK/carry-forward-again.json")"
 }
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off

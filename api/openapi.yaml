@@ -7584,6 +7584,53 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/balance-carry-forwards:
+    get:
+      operationId: listBalanceCarryForwards
+      tags:
+        - ledger
+      summary: List balance carry-forward runs
+      description: "The carry-forward runs of the legal entities the caller may act in (ADR-0060 §7, T64m3), each as `getBalanceCarryForward` shows it: its company, ledger, years, basis, retained earnings account, status, who ran it, whether it is stale with the periods opened since, and its totals. Filters: the company, the fiscal year carried forward (`fiscal_year`), the ledger and the status (`current` or `superseded`). Sortable by: `created_at` (the default) and `fiscal_year`; ties by run id."
+      x-permission: ledger.entry.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - $ref: "#/components/parameters/FiscalYear"
+        - name: ledger_id
+          in: query
+          required: false
+          description: Only the runs of this ledger.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only the runs in this status.
+          schema:
+            type: string
+            description: "Carry-forward run status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [current, superseded]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of carry-forward runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BalanceCarryForwardPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
     post:
       operationId: runBalanceCarryForward
       tags:
@@ -7648,7 +7695,7 @@ paths:
       tags:
         - ledger
       summary: Get a balance carry-forward run
-      description: "One carry-forward run (ADR-0060 §7) with its company, ledger, years, basis, retained earnings account, status, who ran it, and its totals per transaction currency: the year's result carried to retained earnings and the debit and credit totals of its rows in transaction, local and group currency (debits equal credits). A run of a company the caller cannot act in is not found."
+      description: "One carry-forward run (ADR-0060 §7) with its company, ledger, years, basis, retained earnings account, status, who ran it, and its totals per transaction currency: the year's result carried to retained earnings and the debit and credit totals of its rows in transaction, local and group currency (debits equal credits). `stale` is judged at the read (ADR-0060 §6, T64m3): a run is stale when a period of its ledger in its year or an earlier year that it read is open now or has been opened since, or one it did not read (set up later) is open or has been opened; `opened_since` names them. A posting needs an open period, so a run that is not stale carries every posting of its years; a stale one is carried forward again once the periods are closed, and the new run supersedes it. A run of a company the caller cannot act in is not found. The run's rows are `listBalanceCarryForwardBalances`'s. The ETag is the representation's, which `stale` moves without the run changing."
       x-permission: ledger.entry.read
       x-problem-codes: []
       parameters:
@@ -7663,6 +7710,45 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BalanceCarryForward"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/balance-carry-forwards/{id}/balances":
+    get:
+      operationId: listBalanceCarryForwardBalances
+      tags:
+        - ledger
+      summary: List a balance carry-forward run's balances
+      description: "A carry-forward run's rows (ADR-0060 §7, T64m3), the opening balances of the next fiscal year: per account, kind and transaction currency, each with its account's number, name and type, its kind (`balance`: a balance sheet account's balance at the year's end; `result`: the year's profit or loss in that currency carried to the retained earnings account) and its amounts in transaction, local and group currency, debit positive. Ordered and paged by account number (as the database orders text, byte by byte), then currency, then kind, then account id; `account_id` keeps one account's rows. `totals` and the run's figures beside them are those of the whole run, every row whatever the filter, on every page alike: per transaction currency the year's result and the debit and credit totals, and over every currency the result, debits and credits in local and group currency (debits equal credits). A run's rows never change, so the pages and the totals agree. A run of a company the caller cannot act in is not found."
+      x-permission: ledger.entry.read
+      x-problem-codes:
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: account_id
+          in: query
+          required: false
+          description: Only the rows of this account.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: "One page of the run's rows, with the run's totals."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CarryForwardBalancePage"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -31405,6 +31491,8 @@ components:
         - created_at
         - created_by
         - created_by_name
+        - stale
+        - opened_since
       properties:
         id:
           type: string
@@ -31536,6 +31624,16 @@ components:
           type: string
           description: Their name.
           readOnly: true
+        stale:
+          type: boolean
+          description: "Whether a period of the run's years has been opened since it ran (`opened_since`), judged at the read: its figures may have changed, so the year is carried forward again (ADR-0060 §6)."
+          readOnly: true
+        opened_since:
+          type: array
+          description: "The periods that make the run stale, by fiscal year and period; empty when it is not."
+          items:
+            $ref: "#/components/schemas/CarryForwardOpenedPeriod"
+          readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
           legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
@@ -31575,6 +31673,226 @@ components:
           created_at: "2027-01-20T15:04:05Z"
           created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d04"
           created_by_name: Carla Controller
+          stale: false
+          opened_since: []
+    BalanceCarryForwardPage:
+      type: object
+      description: One page of balance carry-forward runs.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BalanceCarryForward"
+          description: The runs on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
+    CarryForwardOpenedPeriod:
+      type: object
+      description: "A posting period opened since a carry-forward run read it, or of the run's years and set up after it, which makes the run stale."
+      required:
+        - ledger_id
+        - ledger_code
+        - fiscal_year
+        - period
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: The period's ledger, the run's.
+          readOnly: true
+        ledger_code:
+          type: string
+          description: The ledger's code.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: The period's fiscal year.
+          readOnly: true
+        period:
+          type: integer
+          format: int32
+          description: "The period, 1-16 (13-16 special)."
+          minimum: 1
+          maximum: 16
+          readOnly: true
+    CarryForwardBalancePage:
+      type: object
+      description: "One page of a carry-forward run's rows, with the totals of the whole run on every page."
+      required:
+        - items
+        - run_id
+        - local_currency
+        - group_currency
+        - totals
+        - result_lc
+        - result_gc
+        - debit_lc
+        - credit_lc
+        - debit_gc
+        - credit_gc
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CarryForwardBalance"
+          description: The rows on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        run_id:
+          type: string
+          format: uuid
+          description: The run.
+          readOnly: true
+        local_currency:
+          type: string
+          description: The company's local currency, of every row's local amount.
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+        group_currency:
+          type: string
+          description: The group currency, of every row's group amount.
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+        totals:
+          type: array
+          description: "The whole run's figures per transaction currency, by currency code, whatever the filter: the year's result carried to retained earnings and the debit and credit totals of its rows."
+          items:
+            $ref: "#/components/schemas/CarryForwardTotal"
+          readOnly: true
+        result_lc:
+          $ref: "#/components/schemas/Money"
+          description: "The year's result over every transaction currency in local currency, debit positive: a profit is negative."
+          readOnly: true
+        result_gc:
+          $ref: "#/components/schemas/Money"
+          description: The year's result over every transaction currency in group currency.
+          readOnly: true
+        debit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total of every row of the run in local currency.
+          readOnly: true
+        credit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total of every row of the run in local currency (positive); equal to the debits.
+          readOnly: true
+        debit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total of every row of the run in group currency.
+          readOnly: true
+        credit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total of every row of the run in group currency (positive); equal to the debits.
+          readOnly: true
+      examples:
+        - items:
+            - account: {id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d03", number: "330000", name: Retained earnings, type: equity}
+              kind: result
+              currency: CAD
+              amount: {amount: "-1750.00", currency: CAD}
+              amount_lc: {amount: "-1750.00", currency: CAD}
+              amount_gc: {amount: "-1750.00", currency: CAD}
+          run_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+          local_currency: CAD
+          group_currency: CAD
+          totals:
+            - currency: CAD
+              result: {amount: "-1750.00", currency: CAD}
+              result_lc: {amount: "-1750.00", currency: CAD}
+              result_gc: {amount: "-1750.00", currency: CAD}
+              debit: {amount: "1750.00", currency: CAD}
+              credit: {amount: "1750.00", currency: CAD}
+              debit_lc: {amount: "1750.00", currency: CAD}
+              credit_lc: {amount: "1750.00", currency: CAD}
+              debit_gc: {amount: "1750.00", currency: CAD}
+              credit_gc: {amount: "1750.00", currency: CAD}
+          result_lc: {amount: "-1750.00", currency: CAD}
+          result_gc: {amount: "-1750.00", currency: CAD}
+          debit_lc: {amount: "1750.00", currency: CAD}
+          credit_lc: {amount: "1750.00", currency: CAD}
+          debit_gc: {amount: "1750.00", currency: CAD}
+          credit_gc: {amount: "1750.00", currency: CAD}
+    CarryForwardBalance:
+      type: object
+      description: "A row of a carry-forward run: an opening balance of the next fiscal year of one account, kind and transaction currency, debit positive."
+      required:
+        - account
+        - kind
+        - currency
+        - amount
+        - amount_lc
+        - amount_gc
+      properties:
+        account:
+          $ref: "#/components/schemas/CarryForwardBalanceAccount"
+        kind:
+          type: string
+          description: "balance: a balance sheet account's balance at the year's end (on the retained earnings account, with the results of earlier years); result: the year's profit or loss in this currency, on the retained earnings account alone. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [balance, result]
+          readOnly: true
+        currency:
+          type: string
+          description: The transaction currency.
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "The amount in transaction currency, debit positive."
+          readOnly: true
+        amount_lc:
+          $ref: "#/components/schemas/Money"
+          description: The amount in the company's local currency.
+          readOnly: true
+        amount_gc:
+          $ref: "#/components/schemas/Money"
+          description: The amount in the group currency.
+          readOnly: true
+      examples:
+        - account:
+            id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d03"
+            number: "330000"
+            name: Retained earnings
+            type: equity
+          kind: result
+          currency: CAD
+          amount: {amount: "-1750.00", currency: CAD}
+          amount_lc: {amount: "-1750.00", currency: CAD}
+          amount_gc: {amount: "-1750.00", currency: CAD}
+    CarryForwardBalanceAccount:
+      type: object
+      description: The account of a carry-forward row.
+      required:
+        - id
+        - number
+        - name
+        - type
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Account.
+          readOnly: true
+        number:
+          type: string
+          description: Its number.
+          readOnly: true
+        name:
+          type: string
+          description: Its name.
+          readOnly: true
+        type:
+          type: string
+          description: "Its type (asset, liability, equity; a result row's is the retained earnings account's). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [asset, liability, equity, revenue, expense]
+          readOnly: true
     CarryForwardAccount:
       type: object
       description: An account a carry-forward names.

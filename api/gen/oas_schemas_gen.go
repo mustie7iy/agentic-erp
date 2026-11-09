@@ -9670,6 +9670,11 @@ type BalanceCarryForward struct {
 	CreatedBy uuid.UUID `json:"created_by"`
 	// Their name.
 	CreatedByName string `json:"created_by_name"`
+	// Whether a period of the run's years has been opened since it ran (`opened_since`), judged at the
+	// read: its figures may have changed, so the year is carried forward again (ADR-0060 §6).
+	Stale bool `json:"stale"`
+	// The periods that make the run stale, by fiscal year and period; empty when it is not.
+	OpenedSince []CarryForwardOpenedPeriod `json:"opened_since"`
 }
 
 // GetID returns the value of ID.
@@ -9812,6 +9817,16 @@ func (s *BalanceCarryForward) GetCreatedByName() string {
 	return s.CreatedByName
 }
 
+// GetStale returns the value of Stale.
+func (s *BalanceCarryForward) GetStale() bool {
+	return s.Stale
+}
+
+// GetOpenedSince returns the value of OpenedSince.
+func (s *BalanceCarryForward) GetOpenedSince() []CarryForwardOpenedPeriod {
+	return s.OpenedSince
+}
+
 // SetID sets the value of ID.
 func (s *BalanceCarryForward) SetID(val uuid.UUID) {
 	s.ID = val
@@ -9952,6 +9967,16 @@ func (s *BalanceCarryForward) SetCreatedByName(val string) {
 	s.CreatedByName = val
 }
 
+// SetStale sets the value of Stale.
+func (s *BalanceCarryForward) SetStale(val bool) {
+	s.Stale = val
+}
+
+// SetOpenedSince sets the value of OpenedSince.
+func (s *BalanceCarryForward) SetOpenedSince(val []CarryForwardOpenedPeriod) {
+	s.OpenedSince = val
+}
+
 // BalanceCarryForwardHeaders wraps BalanceCarryForward with response headers.
 type BalanceCarryForwardHeaders struct {
 	ETag     OptString
@@ -9979,6 +10004,37 @@ func (s *BalanceCarryForwardHeaders) SetResponse(val BalanceCarryForward) {
 }
 
 func (*BalanceCarryForwardHeaders) getBalanceCarryForwardRes() {}
+
+// One page of balance carry-forward runs.
+// Ref: #/components/schemas/BalanceCarryForwardPage
+type BalanceCarryForwardPage struct {
+	// The runs on this page.
+	Items []BalanceCarryForward `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *BalanceCarryForwardPage) GetItems() []BalanceCarryForward {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *BalanceCarryForwardPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *BalanceCarryForwardPage) SetItems(val []BalanceCarryForward) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *BalanceCarryForwardPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*BalanceCarryForwardPage) listBalanceCarryForwardsRes() {}
 
 // Parameters of a balance carry-forward.
 // Ref: #/components/schemas/BalanceCarryForwardRequest
@@ -13768,6 +13824,348 @@ func (s *CarryForwardAccount) SetNumber(val string) {
 // SetName sets the value of Name.
 func (s *CarryForwardAccount) SetName(val string) {
 	s.Name = val
+}
+
+// A row of a carry-forward run: an opening balance of the next fiscal year of one account, kind and
+// transaction currency, debit positive.
+// Ref: #/components/schemas/CarryForwardBalance
+type CarryForwardBalance struct {
+	Account CarryForwardBalanceAccount `json:"account"`
+	// Balance: a balance sheet account's balance at the year's end (on the retained earnings account, with
+	// the results of earlier years); result: the year's profit or loss in this currency, on the retained
+	// earnings account alone. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Kind string `json:"kind"`
+	// The transaction currency.
+	Currency string `json:"currency"`
+	// The amount in transaction currency, debit positive.
+	Amount Money `json:"amount"`
+	// The amount in the company's local currency.
+	AmountLc Money `json:"amount_lc"`
+	// The amount in the group currency.
+	AmountGc Money `json:"amount_gc"`
+}
+
+// GetAccount returns the value of Account.
+func (s *CarryForwardBalance) GetAccount() CarryForwardBalanceAccount {
+	return s.Account
+}
+
+// GetKind returns the value of Kind.
+func (s *CarryForwardBalance) GetKind() string {
+	return s.Kind
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CarryForwardBalance) GetCurrency() string {
+	return s.Currency
+}
+
+// GetAmount returns the value of Amount.
+func (s *CarryForwardBalance) GetAmount() Money {
+	return s.Amount
+}
+
+// GetAmountLc returns the value of AmountLc.
+func (s *CarryForwardBalance) GetAmountLc() Money {
+	return s.AmountLc
+}
+
+// GetAmountGc returns the value of AmountGc.
+func (s *CarryForwardBalance) GetAmountGc() Money {
+	return s.AmountGc
+}
+
+// SetAccount sets the value of Account.
+func (s *CarryForwardBalance) SetAccount(val CarryForwardBalanceAccount) {
+	s.Account = val
+}
+
+// SetKind sets the value of Kind.
+func (s *CarryForwardBalance) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CarryForwardBalance) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *CarryForwardBalance) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetAmountLc sets the value of AmountLc.
+func (s *CarryForwardBalance) SetAmountLc(val Money) {
+	s.AmountLc = val
+}
+
+// SetAmountGc sets the value of AmountGc.
+func (s *CarryForwardBalance) SetAmountGc(val Money) {
+	s.AmountGc = val
+}
+
+// The account of a carry-forward row.
+// Ref: #/components/schemas/CarryForwardBalanceAccount
+type CarryForwardBalanceAccount struct {
+	// Account.
+	ID uuid.UUID `json:"id"`
+	// Its number.
+	Number string `json:"number"`
+	// Its name.
+	Name string `json:"name"`
+	// Its type (asset, liability, equity; a result row's is the retained earnings account's). Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Type string `json:"type"`
+}
+
+// GetID returns the value of ID.
+func (s *CarryForwardBalanceAccount) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetNumber returns the value of Number.
+func (s *CarryForwardBalanceAccount) GetNumber() string {
+	return s.Number
+}
+
+// GetName returns the value of Name.
+func (s *CarryForwardBalanceAccount) GetName() string {
+	return s.Name
+}
+
+// GetType returns the value of Type.
+func (s *CarryForwardBalanceAccount) GetType() string {
+	return s.Type
+}
+
+// SetID sets the value of ID.
+func (s *CarryForwardBalanceAccount) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *CarryForwardBalanceAccount) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetName sets the value of Name.
+func (s *CarryForwardBalanceAccount) SetName(val string) {
+	s.Name = val
+}
+
+// SetType sets the value of Type.
+func (s *CarryForwardBalanceAccount) SetType(val string) {
+	s.Type = val
+}
+
+// One page of a carry-forward run's rows, with the totals of the whole run on every page.
+// Ref: #/components/schemas/CarryForwardBalancePage
+type CarryForwardBalancePage struct {
+	// The rows on this page.
+	Items []CarryForwardBalance `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// The run.
+	RunID uuid.UUID `json:"run_id"`
+	// The company's local currency, of every row's local amount.
+	LocalCurrency string `json:"local_currency"`
+	// The group currency, of every row's group amount.
+	GroupCurrency string `json:"group_currency"`
+	// The whole run's figures per transaction currency, by currency code, whatever the filter: the year's
+	// result carried to retained earnings and the debit and credit totals of its rows.
+	Totals []CarryForwardTotal `json:"totals"`
+	// The year's result over every transaction currency in local currency, debit positive: a profit is
+	// negative.
+	ResultLc Money `json:"result_lc"`
+	// The year's result over every transaction currency in group currency.
+	ResultGc Money `json:"result_gc"`
+	// Debit total of every row of the run in local currency.
+	DebitLc Money `json:"debit_lc"`
+	// Credit total of every row of the run in local currency (positive); equal to the debits.
+	CreditLc Money `json:"credit_lc"`
+	// Debit total of every row of the run in group currency.
+	DebitGc Money `json:"debit_gc"`
+	// Credit total of every row of the run in group currency (positive); equal to the debits.
+	CreditGc Money `json:"credit_gc"`
+}
+
+// GetItems returns the value of Items.
+func (s *CarryForwardBalancePage) GetItems() []CarryForwardBalance {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CarryForwardBalancePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetRunID returns the value of RunID.
+func (s *CarryForwardBalancePage) GetRunID() uuid.UUID {
+	return s.RunID
+}
+
+// GetLocalCurrency returns the value of LocalCurrency.
+func (s *CarryForwardBalancePage) GetLocalCurrency() string {
+	return s.LocalCurrency
+}
+
+// GetGroupCurrency returns the value of GroupCurrency.
+func (s *CarryForwardBalancePage) GetGroupCurrency() string {
+	return s.GroupCurrency
+}
+
+// GetTotals returns the value of Totals.
+func (s *CarryForwardBalancePage) GetTotals() []CarryForwardTotal {
+	return s.Totals
+}
+
+// GetResultLc returns the value of ResultLc.
+func (s *CarryForwardBalancePage) GetResultLc() Money {
+	return s.ResultLc
+}
+
+// GetResultGc returns the value of ResultGc.
+func (s *CarryForwardBalancePage) GetResultGc() Money {
+	return s.ResultGc
+}
+
+// GetDebitLc returns the value of DebitLc.
+func (s *CarryForwardBalancePage) GetDebitLc() Money {
+	return s.DebitLc
+}
+
+// GetCreditLc returns the value of CreditLc.
+func (s *CarryForwardBalancePage) GetCreditLc() Money {
+	return s.CreditLc
+}
+
+// GetDebitGc returns the value of DebitGc.
+func (s *CarryForwardBalancePage) GetDebitGc() Money {
+	return s.DebitGc
+}
+
+// GetCreditGc returns the value of CreditGc.
+func (s *CarryForwardBalancePage) GetCreditGc() Money {
+	return s.CreditGc
+}
+
+// SetItems sets the value of Items.
+func (s *CarryForwardBalancePage) SetItems(val []CarryForwardBalance) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CarryForwardBalancePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetRunID sets the value of RunID.
+func (s *CarryForwardBalancePage) SetRunID(val uuid.UUID) {
+	s.RunID = val
+}
+
+// SetLocalCurrency sets the value of LocalCurrency.
+func (s *CarryForwardBalancePage) SetLocalCurrency(val string) {
+	s.LocalCurrency = val
+}
+
+// SetGroupCurrency sets the value of GroupCurrency.
+func (s *CarryForwardBalancePage) SetGroupCurrency(val string) {
+	s.GroupCurrency = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *CarryForwardBalancePage) SetTotals(val []CarryForwardTotal) {
+	s.Totals = val
+}
+
+// SetResultLc sets the value of ResultLc.
+func (s *CarryForwardBalancePage) SetResultLc(val Money) {
+	s.ResultLc = val
+}
+
+// SetResultGc sets the value of ResultGc.
+func (s *CarryForwardBalancePage) SetResultGc(val Money) {
+	s.ResultGc = val
+}
+
+// SetDebitLc sets the value of DebitLc.
+func (s *CarryForwardBalancePage) SetDebitLc(val Money) {
+	s.DebitLc = val
+}
+
+// SetCreditLc sets the value of CreditLc.
+func (s *CarryForwardBalancePage) SetCreditLc(val Money) {
+	s.CreditLc = val
+}
+
+// SetDebitGc sets the value of DebitGc.
+func (s *CarryForwardBalancePage) SetDebitGc(val Money) {
+	s.DebitGc = val
+}
+
+// SetCreditGc sets the value of CreditGc.
+func (s *CarryForwardBalancePage) SetCreditGc(val Money) {
+	s.CreditGc = val
+}
+
+func (*CarryForwardBalancePage) listBalanceCarryForwardBalancesRes() {}
+
+// A posting period opened since a carry-forward run read it, or of the run's years and set up after
+// it, which makes the run stale.
+// Ref: #/components/schemas/CarryForwardOpenedPeriod
+type CarryForwardOpenedPeriod struct {
+	// The period's ledger, the run's.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The period's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period, 1-16 (13-16 special).
+	Period int32 `json:"period"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *CarryForwardOpenedPeriod) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *CarryForwardOpenedPeriod) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *CarryForwardOpenedPeriod) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *CarryForwardOpenedPeriod) GetPeriod() int32 {
+	return s.Period
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *CarryForwardOpenedPeriod) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *CarryForwardOpenedPeriod) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *CarryForwardOpenedPeriod) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *CarryForwardOpenedPeriod) SetPeriod(val int32) {
+	s.Period = val
 }
 
 // A carry-forward run's figures in one transaction currency: the year's result carried to retained
@@ -39925,6 +40323,26 @@ func (*ListAuditEventsBadRequest) listAuditEventsRes() {}
 type ListAuditEventsForbidden Problem
 
 func (*ListAuditEventsForbidden) listAuditEventsRes() {}
+
+type ListBalanceCarryForwardBalancesBadRequest Problem
+
+func (*ListBalanceCarryForwardBalancesBadRequest) listBalanceCarryForwardBalancesRes() {}
+
+type ListBalanceCarryForwardBalancesForbidden Problem
+
+func (*ListBalanceCarryForwardBalancesForbidden) listBalanceCarryForwardBalancesRes() {}
+
+type ListBalanceCarryForwardBalancesNotFound Problem
+
+func (*ListBalanceCarryForwardBalancesNotFound) listBalanceCarryForwardBalancesRes() {}
+
+type ListBalanceCarryForwardsBadRequest Problem
+
+func (*ListBalanceCarryForwardsBadRequest) listBalanceCarryForwardsRes() {}
+
+type ListBalanceCarryForwardsForbidden Problem
+
+func (*ListBalanceCarryForwardsForbidden) listBalanceCarryForwardsRes() {}
 
 type ListBalancesBadRequest Problem
 
@@ -66705,6 +67123,8 @@ func (*TooManyRequestsHeaders) listAssetRetirementsRes()                  {}
 func (*TooManyRequestsHeaders) listAssetTransfersRes()                    {}
 func (*TooManyRequestsHeaders) listAssetsRes()                            {}
 func (*TooManyRequestsHeaders) listAuditEventsRes()                       {}
+func (*TooManyRequestsHeaders) listBalanceCarryForwardBalancesRes()       {}
+func (*TooManyRequestsHeaders) listBalanceCarryForwardsRes()              {}
 func (*TooManyRequestsHeaders) listBalancesRes()                          {}
 func (*TooManyRequestsHeaders) listBankAccountsRes()                      {}
 func (*TooManyRequestsHeaders) listBankFilesRes()                         {}
@@ -67192,6 +67612,8 @@ func (*UnauthorizedHeaders) listAssetRetirementsRes()                  {}
 func (*UnauthorizedHeaders) listAssetTransfersRes()                    {}
 func (*UnauthorizedHeaders) listAssetsRes()                            {}
 func (*UnauthorizedHeaders) listAuditEventsRes()                       {}
+func (*UnauthorizedHeaders) listBalanceCarryForwardBalancesRes()       {}
+func (*UnauthorizedHeaders) listBalanceCarryForwardsRes()              {}
 func (*UnauthorizedHeaders) listBalancesRes()                          {}
 func (*UnauthorizedHeaders) listBankAccountsRes()                      {}
 func (*UnauthorizedHeaders) listBankFilesRes()                         {}

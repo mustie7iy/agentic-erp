@@ -1791,7 +1791,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Reading the carry-forward, staleness and re-runs: stale with the periods opened since (recorded ones moved or open, unrecorded ones of the year or earlier opened) on every read of a run; GET /v1/balance-carry-forwards (list) and /{id}/balances (names, kinds, totals with every page); the from-every-year and page budgets; walkthrough: a late posting into period 13 makes the run stale, re-running supersedes it and carries the adjustment",
         "r": "ADR-0060 §6, §7 · T64m3",
         "src": "adr:ADR-0060",

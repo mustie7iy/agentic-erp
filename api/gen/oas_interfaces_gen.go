@@ -777,6 +777,14 @@ type ListAuditEventsRes interface {
 	listAuditEventsRes()
 }
 
+type ListBalanceCarryForwardBalancesRes interface {
+	listBalanceCarryForwardBalancesRes()
+}
+
+type ListBalanceCarryForwardsRes interface {
+	listBalanceCarryForwardsRes()
+}
+
 type ListBalancesRes interface {
 	listBalancesRes()
 }
