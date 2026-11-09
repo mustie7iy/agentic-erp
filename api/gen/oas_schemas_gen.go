@@ -61799,6 +61799,10 @@ type RevaluationItem struct {
 	AccountID uuid.UUID `json:"account_id"`
 	// The open item's supplier or customer; absent for a balance.
 	PartnerID OptUUID `json:"partner_id"`
+	// The item's trading partner (ADR-0059 §4): an open item's is its journal line's; a balance is one
+	// per account, currency and trading partner, so an intercompany balance is valued apart from the
+	// account's other lines. Absent when it has none.
+	TradingPartner OptTradingPartner `json:"trading_partner"`
 	// The partner's number (its business partner's `number`), as it is now; absent for a balance, and for
 	// a caller who may not read business partners (`partner.supplier.read`), who gets `partner_id` alone.
 	PartnerNumber OptString `json:"partner_number"`
@@ -61852,6 +61856,11 @@ func (s *RevaluationItem) GetAccountID() uuid.UUID {
 // GetPartnerID returns the value of PartnerID.
 func (s *RevaluationItem) GetPartnerID() OptUUID {
 	return s.PartnerID
+}
+
+// GetTradingPartner returns the value of TradingPartner.
+func (s *RevaluationItem) GetTradingPartner() OptTradingPartner {
+	return s.TradingPartner
 }
 
 // GetPartnerNumber returns the value of PartnerNumber.
@@ -61952,6 +61961,11 @@ func (s *RevaluationItem) SetAccountID(val uuid.UUID) {
 // SetPartnerID sets the value of PartnerID.
 func (s *RevaluationItem) SetPartnerID(val OptUUID) {
 	s.PartnerID = val
+}
+
+// SetTradingPartner sets the value of TradingPartner.
+func (s *RevaluationItem) SetTradingPartner(val OptTradingPartner) {
+	s.TradingPartner = val
 }
 
 // SetPartnerNumber sets the value of PartnerNumber.
@@ -62483,11 +62497,15 @@ func (s *RevaluationRunPage) SetNextPageToken(val OptString) {
 
 func (*RevaluationRunPage) listRevaluationRunsRes() {}
 
-// The items of one account and currency with a gain, or with a loss, summed.
+// The items of one account, currency and trading partner with a gain, or with a loss, summed. A run
+// posts each total as two lines, the difference and its offset, both carrying the total's trading
+// partner (ADR-0059 §4).
 // Ref: #/components/schemas/RevaluationTotal
 type RevaluationTotal struct {
 	// The revalued account.
 	AccountID uuid.UUID `json:"account_id"`
+	// The items' trading partner; absent for the items naming none.
+	TradingPartner OptTradingPartner `json:"trading_partner"`
 	// Transaction currency (ISO 4217).
 	Currency string `json:"currency"`
 	// Gain or loss.
@@ -62513,6 +62531,11 @@ type RevaluationTotal struct {
 // GetAccountID returns the value of AccountID.
 func (s *RevaluationTotal) GetAccountID() uuid.UUID {
 	return s.AccountID
+}
+
+// GetTradingPartner returns the value of TradingPartner.
+func (s *RevaluationTotal) GetTradingPartner() OptTradingPartner {
+	return s.TradingPartner
 }
 
 // GetCurrency returns the value of Currency.
@@ -62568,6 +62591,11 @@ func (s *RevaluationTotal) GetDifferenceGc() Money {
 // SetAccountID sets the value of AccountID.
 func (s *RevaluationTotal) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
+}
+
+// SetTradingPartner sets the value of TradingPartner.
+func (s *RevaluationTotal) SetTradingPartner(val OptTradingPartner) {
+	s.TradingPartner = val
 }
 
 // SetCurrency sets the value of Currency.

@@ -1980,9 +1980,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Revaluation of intercompany items by trading partner: a foreign currency revaluation's lines of open items and balances that name a trading partner carry it (grouped by account, currency, direction and trading partner), so revalued intercompany balances match by trading partner instead of showing as no_trading_partner",
-        "r": "ADR-0059 §4, §8 · ADR-0042 · before T68f",
+        "r": "db/migrations/000234–000236 · ledger.revaluation_item.trading_partner_id · RevaluationItem and RevaluationTotal trading_partner · TestRevaluationByTradingPartner · walkthrough consolidation_revaluation · ADR-0059 As built · ADR-0042 As built · T68b2",
         "src": "review:T68b",
         "c": []
        },

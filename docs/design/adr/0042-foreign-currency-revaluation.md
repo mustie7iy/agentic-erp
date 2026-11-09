@@ -145,6 +145,17 @@ posting.
   record (ADR-0011) and publishes `RevaluationRunPosted` or
   `RevaluationRunCancelled` through the outbox (ADR-0007).
 
+## As built
+- **Trading partners (T68b2, ADR-0059 §4 and its As built).** An item
+  carries its trading partner: an open item its journal line's, and a
+  flagged account's balance is one per currency and trading partner (none
+  being one). Totals are per account, currency, direction and trading
+  partner, and both lines of a total carry it, so a consolidation run
+  matches a revalued intercompany balance by trading partner. Items
+  naming none are valued and posted as before; `revaluation_item` records
+  each item's (`trading_partner_id`, migrations 000234–000236), and the
+  preview and runs return it as `trading_partner`.
+
 ## Out of scope
 - Delta mode (valuing against the previous run instead of resetting).
 - Separate debit and credit rate types (SAP's rate types per balance sign).

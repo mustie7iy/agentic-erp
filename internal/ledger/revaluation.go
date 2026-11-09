@@ -37,10 +37,13 @@ type Revaluation struct {
 // RevaluedItem is one valued open item or flagged account balance. Local
 // and group currency are each valued from the transaction-currency amount
 // at the key date's rate into them (SAP's parallel-currency valuation), so
-// their differences can differ in size and sign.
+// their differences can differ in size and sign. Its trading partner is
+// an open item's line's, or the one a balance is kept for (ADR-0059 §4,
+// T68b2).
 type RevaluedItem struct {
 	AccountID       uuid.UUID
 	PartnerID       *uuid.UUID
+	TradingPartner  *uuid.UUID
 	Line            *ItemRef // the open item; nil for a balance
 	CurrencyTC      string
 	ExpTC           int
@@ -75,10 +78,11 @@ func (it RevaluedItem) Direction() string {
 	return "none"
 }
 
-// RevaluationTotal sums the items of one account and currency with a gain,
-// or with a loss.
+// RevaluationTotal sums the items of one account, currency and trading
+// partner (none being one) with a gain, or with a loss.
 type RevaluationTotal struct {
 	AccountID                                  uuid.UUID
+	TradingPartner                             *uuid.UUID
 	CurrencyTC                                 string
 	ExpTC                                      int
 	Direction                                  string
@@ -97,15 +101,19 @@ type RevaluationTotal struct {
 // than the GR/IR account, per currency, where the balance is not zero in
 // one of the three currencies: a balance cleared to zero in its currency
 // whose local or group balance is not is valued at zero, its residual
-// being what the run corrects. Each row says whether its account has an active
-// valuation (fx_valuation_account), so a run without one fails closed. The
-// account, partner and line of an item are the journal line's own. $1
+// being what the run corrects. A balance is one per trading partner, none
+// being one, so an intercompany balance is valued and posted with its
+// trading partner (ADR-0059 §4, T68b2). Each row says whether its account
+// has an active valuation (fx_valuation_account), so a run without one
+// fails closed. The account, partner, trading partner and line of an item
+// are the journal line's own. $1
 // legal entity; $2 ledger; $3 key date; $4 its fiscal year, which prunes
 // later years' partitions. The scope is materialized: as the inner side of
 // a join with the chart's accounts it was run once per account (T48b's
 // budget).
 const revaluationScope = `WITH scope AS MATERIALIZED (
-		SELECT l.tenant_id, l.account_id, l.partner_id, l.fiscal_year, l.journal_entry_id, l.line_no, e.currency_tc, l.amount_tc, l.amount_lc, l.amount_gc
+		SELECT l.tenant_id, l.account_id, l.partner_id, l.trading_partner_id, l.fiscal_year, l.journal_entry_id, l.line_no, e.currency_tc, l.amount_tc,
+			l.amount_lc, l.amount_gc
 		FROM ledger.journal_line l
 		JOIN ledger.gl_account g ON g.tenant_id = l.tenant_id AND g.id = l.account_id AND g.reconciliation_kind IN ('supplier', 'customer')
 		JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id AND e.fiscal_year <= $4
@@ -120,7 +128,8 @@ const revaluationScope = `WITH scope AS MATERIALIZED (
 					AND ((r.original_year = l.fiscal_year AND r.original_entry_id = l.journal_entry_id)
 						OR (r.reversal_year = l.fiscal_year AND r.reversal_entry_id = l.journal_entry_id)))
 		UNION ALL
-		SELECT l.tenant_id, l.account_id, NULL, NULL, NULL, NULL, e.currency_tc, sum(l.amount_tc)::bigint, sum(l.amount_lc)::bigint, sum(l.amount_gc)::bigint
+		SELECT l.tenant_id, l.account_id, NULL, l.trading_partner_id, NULL, NULL, NULL, e.currency_tc, sum(l.amount_tc)::bigint, sum(l.amount_lc)::bigint,
+			sum(l.amount_gc)::bigint
 		FROM ledger.journal_line l
 		JOIN ledger.company_account ca ON ca.tenant_id = l.tenant_id AND ca.legal_entity_id = l.legal_entity_id AND ca.account_id = l.account_id
 			AND ca.revalue_foreign_currency
@@ -128,16 +137,16 @@ const revaluationScope = `WITH scope AS MATERIALIZED (
 		WHERE l.legal_entity_id = $1 AND l.ledger_id = $2 AND l.fiscal_year <= $4 AND l.posting_date <= $3 AND e.currency_tc <> e.currency_lc
 			AND NOT EXISTS (SELECT FROM ledger.account_determination d WHERE d.tenant_id = l.tenant_id AND d.legal_entity_id = l.legal_entity_id
 				AND d.key = 'gr_ir' AND d.account_id = l.account_id)
-		GROUP BY l.tenant_id, l.account_id, e.currency_tc
+		GROUP BY l.tenant_id, l.account_id, e.currency_tc, l.trading_partner_id
 		HAVING sum(l.amount_tc) <> 0 OR sum(l.amount_lc) <> 0 OR sum(l.amount_gc) <> 0
 	)
-	SELECT s.account_id, s.partner_id, s.fiscal_year, s.journal_entry_id, s.line_no, s.currency_tc, c.exponent, s.amount_tc, s.amount_lc, s.amount_gc,
-		g.number, v.account_id IS NOT NULL
+	SELECT s.account_id, s.partner_id, s.trading_partner_id, s.fiscal_year, s.journal_entry_id, s.line_no, s.currency_tc, c.exponent, s.amount_tc,
+		s.amount_lc, s.amount_gc, g.number, v.account_id IS NOT NULL
 	FROM scope s
 	JOIN ledger.gl_account g ON g.tenant_id = s.tenant_id AND g.id = s.account_id
 	JOIN ref.currency c ON c.code = s.currency_tc
 	LEFT JOIN ledger.fx_valuation_account v ON v.tenant_id = s.tenant_id AND v.legal_entity_id = $1 AND v.account_id = s.account_id AND v.is_active
-	ORDER BY g.number, s.currency_tc, s.fiscal_year, s.journal_entry_id, s.line_no`
+	ORDER BY g.number, s.currency_tc, s.fiscal_year, s.journal_entry_id, s.line_no, s.trading_partner_id NULLS FIRST`
 
 // valueRevaluation values what a run of the legal entity and ledger at the
 // key date would value, without writing anything: the ledger's own lines,
@@ -223,18 +232,13 @@ func revaluationItems(ctx context.Context, tx pgx.Tx, r Revaluation, keyDate tim
 	var missing []string
 	var it RevaluedItem
 	var year *int16
-	var partner, entry *uuid.UUID
+	var partner, tradingPartner, entry *uuid.UUID
 	var lineNo *int32
 	var number string
 	var valued bool
-	_, err := pgx.ForEachRow(rows, []any{&it.AccountID, &partner, &year, &entry, &lineNo, &it.CurrencyTC, &it.ExpTC, &it.AmountTC, &it.AmountLC,
-		&it.AmountGC, &number, &valued}, func() error {
-		// Copied: pgx scans the next row into the same pointers.
-		it.PartnerID, it.Line = nil, nil
-		if partner != nil {
-			p := *partner
-			it.PartnerID = &p
-		}
+	_, err := pgx.ForEachRow(rows, []any{&it.AccountID, &partner, &tradingPartner, &year, &entry, &lineNo, &it.CurrencyTC, &it.ExpTC, &it.AmountTC,
+		&it.AmountLC, &it.AmountGC, &number, &valued}, func() error {
+		it.PartnerID, it.TradingPartner, it.Line = copied(partner), copied(tradingPartner), nil
 		if entry != nil {
 			it.Line = &ItemRef{FiscalYear: *year, EntryID: *entry, LineNo: *lineNo}
 		}
@@ -312,21 +316,44 @@ func valued(tc, booked money.Minor, x exchange, expTC, exp int) (at, diff money.
 	return at, diff, nil
 }
 
-// Totals sums the items with a difference per account, currency and
-// direction, in the items' order.
+// copied is a copy of the uuid id points to, nil for none: pgx scans
+// each row into the same pointers.
+func copied(id *uuid.UUID) *uuid.UUID {
+	if id == nil {
+		return nil
+	}
+	c := *id
+	return &c
+}
+
+// totalKey is what a total sums items by: account, currency, direction
+// and trading partner, uuid.Nil for none (ADR-0059 §4, T68b2).
+type totalKey struct {
+	account, tradingPartner uuid.UUID
+	currency, direction     string
+}
+
+// Totals sums the items with a difference per account, currency,
+// direction and trading partner, in the items' order: an intercompany
+// item's difference posts with its trading partner, and the items naming
+// none sum as they did before trading partners.
 func (r Revaluation) Totals() ([]RevaluationTotal, error) {
 	var out []RevaluationTotal
-	at := map[string]int{}
+	at := map[totalKey]int{}
 	for _, it := range r.Items {
 		d := it.Direction()
 		if d == "none" {
 			continue
 		}
-		k := it.AccountID.String() + "/" + it.CurrencyTC + "/" + d
+		k := totalKey{account: it.AccountID, currency: it.CurrencyTC, direction: d}
+		if it.TradingPartner != nil {
+			k.tradingPartner = *it.TradingPartner
+		}
 		i, ok := at[k]
 		if !ok {
 			i, at[k] = len(out), len(out)
-			out = append(out, RevaluationTotal{AccountID: it.AccountID, CurrencyTC: it.CurrencyTC, ExpTC: it.ExpTC, Direction: d})
+			out = append(out, RevaluationTotal{AccountID: it.AccountID, TradingPartner: it.TradingPartner, CurrencyTC: it.CurrencyTC, ExpTC: it.ExpTC,
+				Direction: d})
 		}
 		t := &out[i]
 		t.Count++
@@ -365,7 +392,7 @@ func (e *Endpoints) PreviewRevaluation(ctx context.Context, req *gen.Revaluation
 		return nil, err
 	}
 	rep := revaluationToAPI(r, totals)
-	if err := e.nameItems(ctx, rep.Items); err != nil {
+	if err := e.nameRevaluation(ctx, rep.Items, rep.Totals); err != nil {
 		return nil, err
 	}
 	return &gen.RevaluationPreviewHeaders{Response: rep}, nil
@@ -427,6 +454,7 @@ func revaluationItemsToAPI(r Revaluation, totals []RevaluationTotal) ([]gen.Reva
 		if it.PartnerID != nil {
 			item.PartnerID.SetTo(*it.PartnerID)
 		}
+		item.TradingPartner = tradingPartnerRef(it.TradingPartner)
 		if it.Line != nil {
 			item.FiscalYear.SetTo(int32(it.Line.FiscalYear))
 			item.JournalEntryID.SetTo(it.Line.EntryID)
@@ -435,7 +463,8 @@ func revaluationItemsToAPI(r Revaluation, totals []RevaluationTotal) ([]gen.Reva
 		items[i] = item
 	}
 	for i, t := range totals {
-		sums[i] = gen.RevaluationTotal{AccountID: t.AccountID, Currency: t.CurrencyTC, Direction: t.Direction, ItemCount: t.Count,
+		sums[i] = gen.RevaluationTotal{AccountID: t.AccountID, TradingPartner: tradingPartnerRef(t.TradingPartner), Currency: t.CurrencyTC,
+			Direction: t.Direction, ItemCount: t.Count,
 			Amount: apitypes.Money(t.AmountTC, t.CurrencyTC, t.ExpTC), AmountLc: lc(t.AmountLC), ValuedLc: lc(t.ValuedLC),
 			DifferenceLc: lc(t.DifferenceLC), AmountGc: gc(t.AmountGC), ValuedGc: gc(t.ValuedGC), DifferenceGc: gc(t.DifferenceGC)}
 	}

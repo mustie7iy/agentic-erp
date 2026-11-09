@@ -156465,6 +156465,12 @@ func (s *RevaluationItem) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TradingPartner.Set {
+			e.FieldStart("trading_partner")
+			s.TradingPartner.Encode(e)
+		}
+	}
+	{
 		if s.PartnerNumber.Set {
 			e.FieldStart("partner_number")
 			s.PartnerNumber.Encode(e)
@@ -156558,27 +156564,28 @@ func (s *RevaluationItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfRevaluationItem = [20]string{
+var jsonFieldsNameOfRevaluationItem = [21]string{
 	0:  "account_id",
 	1:  "partner_id",
-	2:  "partner_number",
-	3:  "partner_name",
-	4:  "fiscal_year",
-	5:  "journal_entry_id",
-	6:  "document_number",
-	7:  "line_no",
-	8:  "amount",
-	9:  "amount_lc",
-	10: "amount_gc",
-	11: "rate",
-	12: "rate_valid_from",
-	13: "valued_lc",
-	14: "difference_lc",
-	15: "rate_gc",
-	16: "rate_gc_valid_from",
-	17: "valued_gc",
-	18: "difference_gc",
-	19: "direction",
+	2:  "trading_partner",
+	3:  "partner_number",
+	4:  "partner_name",
+	5:  "fiscal_year",
+	6:  "journal_entry_id",
+	7:  "document_number",
+	8:  "line_no",
+	9:  "amount",
+	10: "amount_lc",
+	11: "amount_gc",
+	12: "rate",
+	13: "rate_valid_from",
+	14: "valued_lc",
+	15: "difference_lc",
+	16: "rate_gc",
+	17: "rate_gc_valid_from",
+	18: "valued_gc",
+	19: "difference_gc",
+	20: "direction",
 }
 
 // Decode decodes RevaluationItem from json.
@@ -156611,6 +156618,16 @@ func (s *RevaluationItem) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"partner_id\"")
+			}
+		case "trading_partner":
+			if err := func() error {
+				s.TradingPartner.Reset()
+				if err := s.TradingPartner.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"trading_partner\"")
 			}
 		case "partner_number":
 			if err := func() error {
@@ -156673,7 +156690,7 @@ func (s *RevaluationItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"line_no\"")
 			}
 		case "amount":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				if err := s.Amount.Decode(d); err != nil {
 					return err
@@ -156683,7 +156700,7 @@ func (s *RevaluationItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"amount\"")
 			}
 		case "amount_lc":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				if err := s.AmountLc.Decode(d); err != nil {
 					return err
@@ -156693,7 +156710,7 @@ func (s *RevaluationItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"amount_lc\"")
 			}
 		case "amount_gc":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				if err := s.AmountGc.Decode(d); err != nil {
 					return err
@@ -156723,7 +156740,7 @@ func (s *RevaluationItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"rate_valid_from\"")
 			}
 		case "valued_lc":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				if err := s.ValuedLc.Decode(d); err != nil {
 					return err
@@ -156733,7 +156750,7 @@ func (s *RevaluationItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"valued_lc\"")
 			}
 		case "difference_lc":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				if err := s.DifferenceLc.Decode(d); err != nil {
 					return err
@@ -156763,7 +156780,7 @@ func (s *RevaluationItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"rate_gc_valid_from\"")
 			}
 		case "valued_gc":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				if err := s.ValuedGc.Decode(d); err != nil {
 					return err
@@ -156773,7 +156790,7 @@ func (s *RevaluationItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"valued_gc\"")
 			}
 		case "difference_gc":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				if err := s.DifferenceGc.Decode(d); err != nil {
 					return err
@@ -156783,7 +156800,7 @@ func (s *RevaluationItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"difference_gc\"")
 			}
 		case "direction":
-			requiredBitSet[2] |= 1 << 3
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.Direction = string(v)
@@ -156805,8 +156822,8 @@ func (s *RevaluationItem) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [3]uint8{
 		0b00000001,
-		0b01100111,
-		0b00001110,
+		0b11001110,
+		0b00011100,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -157711,6 +157728,12 @@ func (s *RevaluationTotal) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.AccountID)
 	}
 	{
+		if s.TradingPartner.Set {
+			e.FieldStart("trading_partner")
+			s.TradingPartner.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("currency")
 		e.Str(s.Currency)
 	}
@@ -157752,18 +157775,19 @@ func (s *RevaluationTotal) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfRevaluationTotal = [11]string{
+var jsonFieldsNameOfRevaluationTotal = [12]string{
 	0:  "account_id",
-	1:  "currency",
-	2:  "direction",
-	3:  "item_count",
-	4:  "amount",
-	5:  "amount_lc",
-	6:  "valued_lc",
-	7:  "difference_lc",
-	8:  "amount_gc",
-	9:  "valued_gc",
-	10: "difference_gc",
+	1:  "trading_partner",
+	2:  "currency",
+	3:  "direction",
+	4:  "item_count",
+	5:  "amount",
+	6:  "amount_lc",
+	7:  "valued_lc",
+	8:  "difference_lc",
+	9:  "amount_gc",
+	10: "valued_gc",
+	11: "difference_gc",
 }
 
 // Decode decodes RevaluationTotal from json.
@@ -157787,8 +157811,18 @@ func (s *RevaluationTotal) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"account_id\"")
 			}
+		case "trading_partner":
+			if err := func() error {
+				s.TradingPartner.Reset()
+				if err := s.TradingPartner.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"trading_partner\"")
+			}
 		case "currency":
-			requiredBitSet[0] |= 1 << 1
+			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
 				v, err := d.Str()
 				s.Currency = string(v)
@@ -157800,7 +157834,7 @@ func (s *RevaluationTotal) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"currency\"")
 			}
 		case "direction":
-			requiredBitSet[0] |= 1 << 2
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.Direction = string(v)
@@ -157812,7 +157846,7 @@ func (s *RevaluationTotal) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"direction\"")
 			}
 		case "item_count":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				v, err := d.Int32()
 				s.ItemCount = int32(v)
@@ -157824,7 +157858,7 @@ func (s *RevaluationTotal) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"item_count\"")
 			}
 		case "amount":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				if err := s.Amount.Decode(d); err != nil {
 					return err
@@ -157834,7 +157868,7 @@ func (s *RevaluationTotal) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"amount\"")
 			}
 		case "amount_lc":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				if err := s.AmountLc.Decode(d); err != nil {
 					return err
@@ -157844,7 +157878,7 @@ func (s *RevaluationTotal) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"amount_lc\"")
 			}
 		case "valued_lc":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				if err := s.ValuedLc.Decode(d); err != nil {
 					return err
@@ -157854,7 +157888,7 @@ func (s *RevaluationTotal) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"valued_lc\"")
 			}
 		case "difference_lc":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				if err := s.DifferenceLc.Decode(d); err != nil {
 					return err
@@ -157864,7 +157898,7 @@ func (s *RevaluationTotal) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"difference_lc\"")
 			}
 		case "amount_gc":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				if err := s.AmountGc.Decode(d); err != nil {
 					return err
@@ -157874,7 +157908,7 @@ func (s *RevaluationTotal) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"amount_gc\"")
 			}
 		case "valued_gc":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				if err := s.ValuedGc.Decode(d); err != nil {
 					return err
@@ -157884,7 +157918,7 @@ func (s *RevaluationTotal) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"valued_gc\"")
 			}
 		case "difference_gc":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				if err := s.DifferenceGc.Decode(d); err != nil {
 					return err
@@ -157903,8 +157937,8 @@ func (s *RevaluationTotal) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b11111111,
-		0b00000111,
+		0b11111101,
+		0b00001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
