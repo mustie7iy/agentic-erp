@@ -738,7 +738,7 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   validates them; an instance of the previous release refuses a service
   principal's entry outright (403, `x-agent: false`) and never writes the
   columns, so the key fails closed in a mixed cell and needs no ordering.
-- **As built (the emirate guard, review:T61k, migration 000233):** a
+- **As built (the emirate guard, review:T61k, migration 000245):** a
   component levying its lines' subdivision lists the subdivisions it
   accepts (`subdivisions`, each a subdivision of its country, listed once;
   only on such a component: `config.Validate`, and the database's
@@ -756,7 +756,7 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   tenant's own code levying its lines' subdivision (an adjustment code for
   box 1's adjustment column) is valid without it; the 422 keeps the
   existing code and its field error (`not_levied`), its message listing
-  what the code levies. **Rolling upgrade (06 §6.4):** 000233 is additive
+  what the code levies. **Rolling upgrade (06 §6.4):** 000245 is additive
   (a null list accepts what it did); an instance of the previous release
   never writes the list, and a configuration activated by it leaves the
   list as it was, so a pack listing subdivisions is applied once the
@@ -1529,9 +1529,10 @@ companies (all in the tenant, under RLS). A registration change is financial
     labels keep the markers ("column pending the tax specialist", "from
     memory, pending the tax specialist", "its ISO code pending") they had,
     since the sign-off froze the content and dropping them is a content
-    change (a later version, for the product owner). **Still open:** the
-    threshold's measure (T61h above), which declaration the FTA takes an
-    amendment in, and the due dates (§10, not built), questions the
+    change (a later version, for the product owner). The threshold's
+    measure (T61h above) was answered and built apart from the sign-off
+    (C11, As built above). **Still open:** which declaration the FTA takes
+    an amendment in, and the due dates (§10, not built), questions the
     approval of what exists does not answer.
   - **Walkthrough.** Step 41 applies 2026.2 (2026.4 since the sign-off) to Maple Gulf Trading, whose
     proposed company carries its FTA registration (quarterly, from the
@@ -1899,10 +1900,10 @@ rewritten.
   letters, ISO codes and mapping of `packs/ae/TAX-PENDING-T61k.md` (§11 As
   built, T61k: Signed off), in 2026.4 with the pack's. With the UAE pack's
   and the VAT 201's sign-offs, the UAE items of "Still pending" under
-  T62h's note above are confirmed as written but these: the threshold's
-  measure after the 2026 procedures amendments, the scope of the five-year
-  limit and the FTA's side of the amended return, which stay open as
-  questions.
+  T62h's note above are confirmed as written but these: the scope of the
+  five-year limit and the FTA's side of the amended return, which stay open
+  as questions (the threshold's measure was answered and built apart, C11,
+  §11 As built).
 - **Confirmed as written (GST34, T61j, 2026-11-09):** the lines, sums and
   mapping of `packs/ca/TAX-PENDING-T61j.md` (§11 As built, T61j: Signed
   off), in Canada pack 2026.7. The FPZ-500's lines (P4) wait for the

@@ -1849,7 +1849,7 @@
        {
         "s": "D",
         "t": "Year-close sign-off locks the year: :sign-off needing every task done, checks passing when re-run, every regular period of each covered ledger locked (closing.year_periods_not_locked) and every special period closed or locked (closing.period_not_closed); the special periods read FOR UPDATE in one statement by period, leading ledger, code and locked through LockPeriod in that order; year_sign_off with the signer's name; YearCloseSignedOff; reopening after an unlock and a second sign-off; a concurrency test with a posting into a special period on three ledgers whose ids and codes sort differently; walkthrough: sign-off refused while a regular period is unlocked, then signed off, every period of the year locked and a posting into period 13 refused",
-        "r": "ADR-0060 §8 · T64m6 · db/migrations/000243 · internal/closing yearsignoff.go, signoff.go · internal/ledger closeperiods.go · walkthrough year_end_sign_off",
+        "r": "ADR-0060 §8 · T64m6 · db/migrations/000244 · internal/closing yearsignoff.go, signoff.go · internal/ledger closeperiods.go · walkthrough year_end_sign_off",
         "src": "adr:ADR-0060",
         "c": []
        },
@@ -2459,7 +2459,7 @@
        {
         "s": "D",
         "t": "Emirate guard: a tax code component that levies its lines' subdivision lists the subdivisions it accepts (the UAE pack's seven emirates, their ISO 3166-2 codes confirmed by the tax specialist), and the ledger refuses a line naming another with 422 ledger.jurisdiction_not_levied, so a mistyped emirate cannot leave a sale's output VAT off the VAT 201's boxes 1a-1g unreported (today the ledger checks only the country prefix); a schema or ledger test",
-        "r": "config.TaxComponent.Subdivisions · ledger checkJurisdictions · db/migrations/000233 (tax_component_subdivisions, journal_line_tax_jurisdiction_code) · TestLineJurisdictionRules · TestOutputTaxRefused · packs/ae/2026.3 · TestUAEPack2026_3 · ADR-0049 §7 As built (the emirate guard) · ADR-0048 As built (the emirate guard) · walkthrough step 41 · after T61k · before the VAT 201's sign-off",
+        "r": "config.TaxComponent.Subdivisions · ledger checkJurisdictions · db/migrations/000245 (tax_component_subdivisions, journal_line_tax_jurisdiction_code) · TestLineJurisdictionRules · TestOutputTaxRefused · packs/ae/2026.3 · TestUAEPack2026_3 · ADR-0049 §7 As built (the emirate guard) · ADR-0048 As built (the emirate guard) · walkthrough step 41 · after T61k · before the VAT 201's sign-off",
         "src": "review:T61k",
         "pilot": "po:2026-10-31 · adr:ADR-0049",
         "c": []

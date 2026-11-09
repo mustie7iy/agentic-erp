@@ -1103,7 +1103,7 @@ ADR-0049 §7), exactly where a component of its code levies its lines'
 (`journal_line_tax_jurisdiction`), one of the component's country (trigger
 `journal_line_tax_jurisdiction_code`, passed by reversals) and, where that
 component lists the subdivisions it accepts (`tax_component.subdivisions`,
-migration 000233, the emirate guard: only on a component levying its
+migration 000245, the emirate guard: only on a component levying its
 lines', each a subdivision of its country, `tax_component_subdivisions`;
 null accepts any), one of them. The items are
 per jurisdiction. A parked line keeps it (`parked_entry_line.tax_jurisdiction`).
@@ -3551,7 +3551,7 @@ constraints `year_close_task_check_kind`, `year_close_task_completed`,
 `year_close_task_check_passed`; the ledgers are written once. Schema
 tests: `db/closing_test.go` (`TestYearCloseRules`).
 
-A year close's sign-offs (T64m6, migration 000243; ADR-0060 §8):
+A year close's sign-offs (T64m6, migration 000244; ADR-0060 §8):
 
 ```
 closing.year_sign_off (tenant_id, id, close_id, signed_by, signed_by_name, signed_at, note, locked jsonb)

@@ -512,7 +512,7 @@ func TestTaxBaseRules(t *testing.T) {
 // the original's; a component levies its lines' subdivisions only as a
 // country; the items are per jurisdiction. A component levying its lines'
 // subdivision may list those it accepts, each a subdivision of its
-// country, and a line naming another is refused (000233, the emirate
+// country, and a line naming another is refused (000245, the emirate
 // guard); no other component lists any.
 func TestLineJurisdictionRules(t *testing.T) {
 	need(t)

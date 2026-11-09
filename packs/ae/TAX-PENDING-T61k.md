@@ -168,6 +168,7 @@ tax specialist, Musto Ibrahim, confirmed the boxes, their columns and
 totals, the letters and ISO codes and the mapping above, items 1-10, as
 written on 2026-11-09 (reported by the product owner); 2026.4's
 `returns.yaml` is 2026.2's byte for byte, its labels' "pending" markers
-included (ADR-0049 §11 As built, T61k: Signed off). Items 11-13 (the
-threshold's measure, the FTA's side of the amendment, due dates) stay
-open as questions the approval of what exists does not answer.
+included (ADR-0049 §11 As built, T61k: Signed off). Item 11, the
+threshold's measure, is answered and built separately (C11, above); items
+12-13 (the FTA's side of the amendment, due dates) stay open as questions
+the approval of what exists does not answer.

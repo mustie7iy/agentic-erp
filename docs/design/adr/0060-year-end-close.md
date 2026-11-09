@@ -1039,7 +1039,7 @@ choices taken by default (ADR-0053 d), for the product owner to overrule:
    in 0L and 2L, and passes, naming the new runs, once she carries `PREV`
    forward again.
 
-**T64m6, year-close sign-off locks the year** (migration 000243). Built as
+**T64m6, year-close sign-off locks the year** (migration 000244). Built as
 §8 and §12 say; the choices taken by default (ADR-0053 d), for the product
 owner to overrule:
 1. *The operation.* `POST /v1/year-closes/{id}:signOff`

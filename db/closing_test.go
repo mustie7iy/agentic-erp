@@ -435,7 +435,7 @@ func TestCloseSignOffRules(t *testing.T) {
 	})
 }
 
-// Year sign-offs (T64m6, migration 000243): a year close's sign-off names
+// Year sign-offs (T64m6, migration 000244): a year close's sign-off names
 // the signer's name, at least one covered ledger and at most twenty, as a
 // list; its note, when given, is text of at most 2,000 characters; it
 // belongs to a year close of its tenant, not a period close; and it is
