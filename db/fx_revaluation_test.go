@@ -233,10 +233,12 @@ func TestRevaluationRuns(t *testing.T) {
 
 // TestRevaluationItems: an item is an open item (a journal line, with its
 // partner) or a flagged account's balance in one currency and trading
-// partner, none being one (no line, no partner; T68b2), valued once per run, at positive rates into local and group
-// currency, except a balance zero in its currency, which has none; an open item has an amount in its currency, a balance one in
-// some currency (a residual in local or group currency of a balance that
-// is zero in its own is what a run corrects); items are insert-only.
+// partner, none being one (no line, no partner; T68b2), valued once per
+// run, at positive rates into local and group currency, except a balance
+// zero in its currency, which has none; an open item has an amount in its
+// currency, a balance one in some currency (a residual in local or group
+// currency of a balance that is zero in its own is what a run corrects);
+// items are insert-only.
 func TestRevaluationItems(t *testing.T) {
 	need(t)
 	f := newFixture(t)
