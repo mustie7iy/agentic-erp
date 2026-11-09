@@ -502,6 +502,18 @@ stopped the run before the load.
   primary costs and 11 and 12 revenues and sales deductions; and whether
   the extract should read TKA02 to tell a company code's controlling area.
   The OData mapping reads none of these tables.
+- The default account assignments (OKB9, T56h3; not built, waiting on
+  these answers): ADR-0050 §10 names their tables from memory as TKA3A
+  "and its detail tables", and no field of them is written down, so the
+  extract does not read them. To be confirmed: which tables and fields of
+  the pilot's release hold a default cost center per company code and
+  account (the platform's `default_assignments` hold exactly that); the
+  names of the detail tables and the key of each; whether a default is
+  time-dependent; what a default given by business area, valuation area
+  or profit center, rather than by company code alone, should become
+  (the platform has one cost center per company and account); and whether
+  a default naming an order or another object than a cost center can
+  occur and is to be noted only.
 - Amounts for currencies with no decimals or three decimals (JPY, KWD) come in
   external format.
 - **SAP digital-access licensing:** reading data is usually fine, but agents
