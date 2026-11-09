@@ -522,7 +522,7 @@ func TestConsolidationDifferenceAcceptance(t *testing.T) {
 	}
 }
 
-// TestConsolidationAcquisitionRules (T68h, migrations 000243 and 000244;
+// TestConsolidationAcquisitionRules (T68h, migrations 000243 and 000246;
 // ADR-0059 §5, §9, As built T68h2): a run's acquisitions are written while
 // it runs, of its companies, never changed, an incorporated member's
 // without goodwill whatever its net assets (its investment is eliminated

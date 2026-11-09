@@ -1849,7 +1849,7 @@ incorporated is its incorporation, so none of its results is
 pre-acquisition; and the product owner's answer to open question 4
 (po:2026-11-05): migrated equity's group amounts are at the migration
 date's rate, and the translation reserve starts at zero at go-live.
-Built in `internal/consolidation/investment.go` and migration 000244:
+Built in `internal/consolidation/investment.go` and migration 000246:
 - **What is eliminated.** For an `incorporated` member the investment
   entry reverses its share capital only, per group account (component
   `acquisition_equity`, kept as the name of the frozen part), against the
@@ -1886,7 +1886,7 @@ Built in `internal/consolidation/investment.go` and migration 000244:
 - **The refusal.** `consolidation.investment_mismatch` compares the
   investment with the share capital and names both; there is no goodwill
   for an incorporated member.
-- **Goodwill held to zero.** Migration 000244 replaces both goodwill
+- **Goodwill held to zero.** Migration 000246 replaces both goodwill
   checks: an `incorporated` member's goodwill is zero whatever its net
   assets, an `acquired` member's §9's residual (investment - net assets +
   the interest). Expand only: the previous version wrote an incorporated

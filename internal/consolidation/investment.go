@@ -342,7 +342,7 @@ func investmentEntry(a acquired, parent Member, rows []investmentRow) (entry, bo
 
 // writeAcquisitions writes a run's acquisitions in one statement, without
 // goodwill or an interest: a run includes only members the parent
-// incorporated and holds whole (000244).
+// incorporated and holds whole (000246).
 func writeAcquisitions(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run uuid.UUID, acqs []acquired) error {
 	n := len(acqs)
 	companies, accounts, origins, rates := make([]uuid.UUID, n), make([]uuid.UUID, n), make([]string, n), make([]string, n)
