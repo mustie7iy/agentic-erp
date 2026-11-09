@@ -37,9 +37,8 @@ type statementCursor struct {
 
 // columns are a statement row's or total's amounts in the group
 // currency's minor units, debit positive: the companies' translated rows
-// summed and the run's eliminations. A run has no eliminations until
-// T68f and T68h build its entries (ADR-0059 §8, §9), so eliminations
-// stays zero until then.
+// summed and the run's elimination entries' lines summed (ADR-0059 §8,
+// §9).
 type columns struct {
 	reported, eliminations money.Minor
 }
@@ -121,14 +120,18 @@ func (e *Endpoints) GetConsolidatedStatement(ctx context.Context, params gen.Get
 	return &out, nil
 }
 
-// accountSums are a run's translated rows summed per group account.
+// accountSums are a run's translated rows and its elimination entries'
+// lines summed per group account.
 func accountSums(ctx context.Context, tx pgx.Tx, r Run) (map[string]columns, error) {
-	rows, _ := tx.Query(ctx, `SELECT group_account, sum(amount_gc)::bigint FROM consolidation.run_balance WHERE run_id = $1 GROUP BY group_account`, r.ID)
+	rows, _ := tx.Query(ctx, `SELECT group_account, sum(reported)::bigint, sum(eliminated)::bigint FROM (
+			SELECT group_account, amount_gc AS reported, 0 AS eliminated FROM consolidation.run_balance WHERE run_id = $1
+			UNION ALL SELECT group_account, 0, amount_gc FROM consolidation.run_entry_line WHERE run_id = $1) x
+		GROUP BY group_account`, r.ID)
 	out := map[string]columns{}
 	var account string
-	var sum money.Minor
-	_, err := pgx.ForEachRow(rows, []any{&account, &sum}, func() error {
-		out[account] = columns{reported: sum}
+	var c columns
+	_, err := pgx.ForEachRow(rows, []any{&account, &c.reported, &c.eliminations}, func() error {
+		out[account] = c
 		return nil
 	})
 	if err != nil {

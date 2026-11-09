@@ -351,6 +351,14 @@ func TestConsolidationDatabaseFailures(t *testing.T) {
 			_, err := fresh().GetConsolidatedStatement(ctx, gen.GetConsolidatedStatementParams{ID: run, Statement: "balance_sheet"})
 			return err
 		},
+		"differences": func(ctx context.Context) error {
+			_, err := fresh().ListIntercompanyDifferences(ctx, gen.ListIntercompanyDifferencesParams{ID: run})
+			return err
+		},
+		"entries": func(ctx context.Context) error {
+			_, err := fresh().ListConsolidationEntries(ctx, gen.ListConsolidationEntriesParams{ID: run})
+			return err
+		},
 		"discard": func(ctx context.Context) error {
 			_, err := fresh().DiscardConsolidationRun(ctx, gen.DiscardConsolidationRunParams{ID: run, IfMatch: `"3"`})
 			return err

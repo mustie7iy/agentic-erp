@@ -21,11 +21,13 @@ import (
 
 // runView is what runs are shown with: the documents of the configuration
 // versions they read (their groups' names), the tenant's companies by id
-// (their names now) and the runs' members.
+// (their names now), the runs' members and their differences counted per
+// status.
 type runView struct {
-	docs      map[int32]*config.Config
-	companies map[uuid.UUID]Company
-	members   map[uuid.UUID][]Member
+	docs        map[int32]*config.Config
+	companies   map[uuid.UUID]Company
+	members     map[uuid.UUID][]Member
+	differences map[uuid.UUID][]gen.ConsolidationDifferenceCount
 }
 
 // viewOf reads what the runs are shown with.
@@ -50,8 +52,23 @@ func (e *Endpoints) viewOf(ctx context.Context, tx pgx.Tx, rs []Run) (runView, e
 	for _, c := range entities {
 		v.companies[c.ID] = c
 	}
-	v.members, err = members(ctx, tx, ids)
+	if v.members, err = members(ctx, tx, ids); err != nil {
+		return runView{}, err
+	}
+	v.differences, err = differenceCounts(ctx, tx, ids)
 	return v, err
+}
+
+// differenceCounts are runs' differences counted per status, in the
+// statuses' order, by run.
+func differenceCounts(ctx context.Context, tx pgx.Tx, runs []uuid.UUID) (map[uuid.UUID][]gen.ConsolidationDifferenceCount, error) {
+	rows, _ := tx.Query(ctx, `SELECT run_id, status, count(*)::int FROM consolidation.run_difference WHERE run_id = ANY($1)
+		GROUP BY run_id, status ORDER BY run_id, array_position($2::text[], status)`, runs, differenceStatuses)
+	out := map[uuid.UUID][]gen.ConsolidationDifferenceCount{}
+	var run uuid.UUID
+	var c gen.ConsolidationDifferenceCount
+	_, err := pgx.ForEachRow(rows, []any{&run, &c.Status, &c.Count}, func() error { out[run] = append(out[run], c); return nil })
+	return out, errs.Wrapf(err, "consolidation: differences of %d runs", len(runs))
 }
 
 // runAPI shows a run with its companies; validation keeps the run's group
@@ -60,7 +77,8 @@ func (v runView) runAPI(r Run) gen.ConsolidationRun {
 	out := gen.ConsolidationRun{ID: r.ID, GroupCode: r.GroupCode, GroupName: v.docs[r.ConfigVersion].Consolidation.Group(r.GroupCode).Name,
 		FiscalYear: int32(r.FiscalYear), Period: int32(r.Period), PeriodStart: r.PeriodStart, PeriodEnd: r.PeriodEnd, Status: r.Status,
 		ConfigVersion: r.ConfigVersion, GroupCurrency: r.GroupCurrency, RateType: r.RateType, OperationID: r.OperationID,
-		Members: []gen.ConsolidationRunMember{}, Version: r.Version, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
+		Members: []gen.ConsolidationRunMember{}, DifferenceCounts: append([]gen.ConsolidationDifferenceCount{}, v.differences[r.ID]...), Version: r.Version,
+		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
 	if r.Problem != nil {
 		out.Problem = gen.NewOptConsolidationRunProblem(gen.ConsolidationRunProblem{Code: r.Problem.Code, Detail: r.Problem.Detail})
 	}

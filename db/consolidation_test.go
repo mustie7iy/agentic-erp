@@ -243,3 +243,153 @@ func TestConsolidationRunIsTheTenants(t *testing.T) {
 	})
 	failsWith(t, err, "is <NULL>, not running")
 }
+
+// TestConsolidationEliminationRules (T68f, migration 000233; ADR-0059 §5,
+// §8): a run's differences, entries and entry lines are written while it
+// runs and neither changed nor removed; a pair has both sides, their sum
+// and the tolerance, and its status is the difference's against the
+// tolerance; outside_group and no_trading_partner have the amount alone,
+// the latter no partner; one difference per elimination, company and
+// partner, none included; an intercompany entry names its elimination and
+// partner, a company of the run, once per pair, and the others neither;
+// a line is never zero, names an account or trading partner only with
+// its company, and never its own company as partner; each entry has two
+// lines or more summing to zero at commit.
+func TestConsolidationEliminationRules(t *testing.T) {
+	need(t)
+	const (
+		runRow = `INSERT INTO consolidation.run (tenant_id, id, group_code, parent_id, companies, fiscal_year, fiscal_period, period_start, period_end,
+			config_version, group_currency, rate_type, status, operation_id, created_by, updated_by)
+			VALUES ($1, $2, 'MAPLE', $3, ARRAY[$3, $4]::uuid[], 2026, 11, '2026-11-01', '2026-11-30', 7, 'CAD', 'average', 'queued', gen_random_uuid(), $5, $5)`
+		memberRow = `INSERT INTO consolidation.run_member (tenant_id, run_id, legal_entity_id, company_code, role, ownership_percent, first_fiscal_year,
+			first_fiscal_period, local_currency, closing_rate) VALUES ($1, $2, $3, '3000', 'parent', NULL, NULL, NULL, 'CAD', 1),
+			($1, $2, $4, '1000', 'member', 80, 2026, 11, 'USD', 1.4)`
+		diffRow = `INSERT INTO consolidation.run_difference (tenant_id, id, run_id, line_no, elimination_code, legal_entity_id, partner_id, status, amount,
+			partner_amount, difference, tolerance) VALUES ($1, gen_random_uuid(), $2, $3, 'IC_BALANCES', $4, $5, $6, $7, $8, $9, $10)`
+		entryRow = `INSERT INTO consolidation.run_entry (tenant_id, run_id, entry_no, kind, legal_entity_id, partner_id, elimination_code)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)`
+		lineRow = `INSERT INTO consolidation.run_entry_line (tenant_id, run_id, entry_no, line_no, group_account, legal_entity_id, account_id,
+			trading_partner_id, amount_gc) VALUES ($1, $2, 1, $3, 'G1250', $4, $5, $6, $7)`
+	)
+	type scene struct{ tenant, actor, parent, member, run uuid.UUID }
+	running := func(s scene) stmt {
+		return step(`WITH r AS (`+runRow+` RETURNING 1) SELECT 1`, s.tenant, s.run, s.parent, s.member, s.actor)
+	}
+	start := func(s scene) []stmt {
+		return []stmt{running(s), step(`UPDATE consolidation.run SET status = 'running', version = version + 1`),
+			step(memberRow, s.tenant, s.run, s.parent, s.member)}
+	}
+	pair := func(s scene, status string, amount, partner, diff, tol any) stmt {
+		return step(diffRow, s.tenant, s.run, 1, s.member, s.parent, status, amount, partner, diff, tol)
+	}
+	alone := func(s scene, status string, partner any) stmt {
+		return step(diffRow, s.tenant, s.run, 2, s.member, partner, status, 45, nil, nil, nil)
+	}
+	entry := func(s scene) stmt {
+		return step(entryRow, s.tenant, s.run, 1, "intercompany", s.member, s.parent, "IC_BALANCES")
+	}
+	line := func(s scene, no int, company, account, partner, amount any) stmt {
+		return step(lineRow, s.tenant, s.run, no, company, account, partner, amount)
+	}
+	balanced := func(s scene) []stmt {
+		return []stmt{entry(s), line(s, 1, s.member, id(), s.parent, -2800), line(s, 2, s.parent, id(), s.member, 2700), line(s, 3, nil, nil, nil, 100)}
+	}
+	atCommit := step(`SET CONSTRAINTS ALL IMMEDIATE`)
+	with := func(s scene, rest ...stmt) []stmt { return append(start(s), rest...) }
+	cases := []struct {
+		name string
+		run  func(s scene) []stmt
+		want string // empty: allowed
+	}{
+		{"differences of every status and a balanced entry", func(s scene) []stmt {
+			return with(s, append([]stmt{pair(s, "open", -2800, 2700, -100, 10), alone(s, "no_trading_partner", nil),
+				step(diffRow, s.tenant, s.run, 3, s.member, id(), "outside_group", 45, nil, nil, nil),
+				step(diffRow, s.tenant, s.run, 4, s.parent, s.member, "matched", 10, -10, 0, 0),
+				step(strings.Replace(diffRow, "'IC_BALANCES'", "'IC_RESULTS'", 1), s.tenant, s.run, 5, s.member, s.parent, "within_tolerance", 10, -9, 1, 100)},
+				append(balanced(s), atCommit)...)...)
+		}, ""},
+		{"a difference after the run computed", func(s scene) []stmt {
+			return with(s, step(`UPDATE consolidation.run SET status = 'computed', computed_at = now(), version = version + 1`), pair(s, "matched", 1, -1, 0, 0))
+		}, "its rows are written while it runs"},
+		{"a difference changed", func(s scene) []stmt {
+			return with(s, pair(s, "open", -2800, 2700, -100, 10), step(`UPDATE consolidation.run_difference SET amount = 0`))
+		}, "permission denied"},
+		{"a difference removed", func(s scene) []stmt {
+			return with(s, pair(s, "open", -2800, 2700, -100, 10), step(`DELETE FROM consolidation.run_difference`))
+		}, "permission denied"},
+		{"a match with a difference", func(s scene) []stmt { return with(s, pair(s, "matched", -2800, 2700, -100, 1000)) }, "run_difference_status"},
+		{"within a tolerance it exceeds", func(s scene) []stmt { return with(s, pair(s, "within_tolerance", -2800, 2700, -100, 10)) }, "run_difference_status"},
+		{"open above its tolerance", func(s scene) []stmt { return with(s, pair(s, "open", -2800, 2700, -100, 10)) }, ""},
+		{"open below its tolerance", func(s scene) []stmt { return with(s, pair(s, "open", -2800, 2795, -5, 1000)) }, "run_difference_status"},
+		{"a pair without its partner's amount", func(s scene) []stmt { return with(s, pair(s, "open", -2800, nil, -100, 10)) }, "run_difference_pair"},
+		{"a difference that is not the sum", func(s scene) []stmt { return with(s, pair(s, "open", -2800, 2700, -50, 10)) }, "run_difference_pair"},
+		{"a negative tolerance", func(s scene) []stmt { return with(s, pair(s, "matched", 1, -1, 0, -1)) }, "run_difference_tolerance_check"},
+		{"outside the group with a tolerance", func(s scene) []stmt {
+			return with(s, step(diffRow, s.tenant, s.run, 2, s.member, id(), "outside_group", 45, nil, nil, 10))
+		}, "run_difference_pair"},
+		{"no trading partner naming one", func(s scene) []stmt { return with(s, alone(s, "no_trading_partner", id())) }, "run_difference_partner"},
+		{"outside the group naming none", func(s scene) []stmt { return with(s, alone(s, "outside_group", nil)) }, "run_difference_partner"},
+		{"a pair of a company with itself", func(s scene) []stmt {
+			return with(s, step(diffRow, s.tenant, s.run, 1, s.member, s.member, "matched", 1, -1, 0, 0))
+		}, "run_difference_partner"},
+		{"a pair twice", func(s scene) []stmt {
+			return with(s, pair(s, "matched", 1, -1, 0, 0), step(diffRow, s.tenant, s.run, 2, s.member, s.parent, "matched", 1, -1, 0, 0))
+		}, "duplicate key"},
+		{"a company without a trading partner twice", func(s scene) []stmt {
+			return with(s, alone(s, "no_trading_partner", nil), step(diffRow, s.tenant, s.run, 3, s.member, nil, "no_trading_partner", 5, nil, nil, nil))
+		}, "duplicate key"},
+		{"a difference of no company of the run", func(s scene) []stmt {
+			return with(s, step(diffRow, s.tenant, s.run, 1, id(), s.parent, "matched", 1, -1, 0, 0))
+		}, "run_difference_tenant_id_run_id_legal_entity_id_fkey"},
+		{"an entry after the run computed", func(s scene) []stmt {
+			return with(s, step(`UPDATE consolidation.run SET status = 'computed', computed_at = now(), version = version + 1`), entry(s))
+		}, "its rows are written while it runs"},
+		{"an entry line changed", func(s scene) []stmt {
+			return with(s, append(balanced(s), step(`UPDATE consolidation.run_entry_line SET amount_gc = 1`))...)
+		}, "permission denied"},
+		{"an entry removed", func(s scene) []stmt {
+			return with(s, append(balanced(s), step(`DELETE FROM consolidation.run_entry_line`))...)
+		}, "permission denied"},
+		{"an unbalanced entry", func(s scene) []stmt {
+			return with(s, entry(s), line(s, 1, s.member, id(), s.parent, -2800), line(s, 2, s.parent, id(), s.member, 2700), atCommit)
+		}, "2 line(s) summing to -100"},
+		{"an entry of one line", func(s scene) []stmt { return with(s, entry(s), line(s, 1, nil, nil, nil, 100), atCommit) }, "1 line(s) summing to 100"},
+		{"a line of zero", func(s scene) []stmt { return with(s, entry(s), line(s, 1, nil, nil, nil, 0)) }, "run_entry_line_amount_gc_check"},
+		{"a line's account without its company", func(s scene) []stmt { return with(s, entry(s), line(s, 1, nil, id(), nil, 1)) }, "run_entry_line_company"},
+		{"a line's trading partner without its company", func(s scene) []stmt {
+			return with(s, entry(s), line(s, 1, nil, nil, s.parent, 1))
+		}, "run_entry_line_company"},
+		{"a line naming its own company as partner", func(s scene) []stmt {
+			return with(s, entry(s), line(s, 1, s.member, id(), s.member, 1))
+		}, "run_entry_line_company"},
+		{"a line of no entry", func(s scene) []stmt { return with(s, line(s, 1, nil, nil, nil, 1)) }, "run_entry_line_tenant_id_run_id_entry_no_fkey"},
+		{"an intercompany entry without its partner", func(s scene) []stmt {
+			return with(s, step(entryRow, s.tenant, s.run, 1, "intercompany", s.member, nil, "IC_BALANCES"))
+		}, "run_entry_pair"},
+		{"an investment entry of an elimination", func(s scene) []stmt {
+			return with(s, step(entryRow, s.tenant, s.run, 1, "investment", s.member, nil, "IC_BALANCES"))
+		}, "run_entry_pair"},
+		{"an entry of a company with itself", func(s scene) []stmt {
+			return with(s, step(entryRow, s.tenant, s.run, 1, "intercompany", s.member, s.member, "IC_BALANCES"))
+		}, "run_entry_pair"},
+		{"an entry with a partner outside the run", func(s scene) []stmt {
+			return with(s, step(entryRow, s.tenant, s.run, 1, "intercompany", s.member, id(), "IC_BALANCES"))
+		}, "run_entry_tenant_id_run_id_partner_id_fkey"},
+		{"a pair's entry twice", func(s scene) []stmt {
+			return with(s, entry(s), step(entryRow, s.tenant, s.run, 2, "intercompany", s.member, s.parent, "IC_BALANCES"))
+		}, "run_entry_one_per_pair"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), actor: id(), parent: id(), member: id(), run: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}

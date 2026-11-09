@@ -1917,9 +1917,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Intercompany matching and eliminations: run_entry, run_entry_line (balanced per entry), run_difference; matching per elimination and pair of members in group currency with its tolerance (matched, within_tolerance, open, outside_group, no_trading_partner) and the intercompany entries; GET .../differences and GET .../entries with names and totals; walkthrough: the revenue and expense pair matches, the receivable and payable pair is open (1.35 against 1.40), the consolidated statements show no intercompany balance",
-        "r": "ADR-0059 · T68f",
+        "r": "db/migrations/000233 · consolidation.run_difference · consolidation.run_entry · consolidation.run_entry_line · listIntercompanyDifferences · listConsolidationEntries · ADR-0059 As built · T68f",
         "src": "adr:ADR-0059",
         "c": []
        },

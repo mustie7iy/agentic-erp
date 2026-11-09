@@ -869,6 +869,10 @@ type ListConsolidationBalancesRes interface {
 	listConsolidationBalancesRes()
 }
 
+type ListConsolidationEntriesRes interface {
+	listConsolidationEntriesRes()
+}
+
 type ListConsolidationGroupsRes interface {
 	listConsolidationGroupsRes()
 }
@@ -955,6 +959,10 @@ type ListHierarchiesRes interface {
 
 type ListHouseBanksRes interface {
 	listHouseBanksRes()
+}
+
+type ListIntercompanyDifferencesRes interface {
+	listIntercompanyDifferencesRes()
 }
 
 type ListJournalEntriesRes interface {

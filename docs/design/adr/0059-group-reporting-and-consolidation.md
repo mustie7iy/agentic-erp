@@ -1442,3 +1442,85 @@ owner to overrule:
   reported and consolidated columns, the profit is the profit and loss's,
   revenue and expenses make it, and every row's reported figure equals the
   balances list's group total for its group account.
+
+**T68f (intercompany matching and eliminations).** Built as §5 and §8
+say, in `internal/consolidation/eliminate.go` (the matching and the
+entries, `EliminateConsolidationRun`) and `differences.go` (the reads),
+migration 000233: `run_difference`, `run_entry` and `run_entry_line`,
+written while the run runs and never changed or removed (no update
+grant, the insert-while-running trigger), each entry's lines summing to
+zero at commit with two lines or more (`run_entry_balanced`, a deferred
+constraint trigger, as the ledger's), with their schema tests
+(`TestConsolidationEliminationRules`). The workflow is unchanged: its
+`EliminateConsolidationRun` step, which wrote nothing in T68d, now
+matches and eliminates in one transaction. The context answers
+`listIntercompanyDifferences` and `listConsolidationEntries`
+(`consolidation.read` and, by `x-also-permissions`, `ledger.entry.read`;
+read from one database state), and a run's read gains
+`difference_counts`; the statements' `eliminations` column (T68e) is now
+the entry lines on each group account. Decided by default, for the
+product owner to overrule:
+- **Pairs.** Every two companies of the run, the parent included, are a
+  pair; a difference is recorded only for a pair with translated rows on
+  an elimination's accounts naming each other, its company the one with
+  the lower code. `outside_group` is per company and partner (a trading
+  partner that is not a company of the run, a member before its first
+  period included) and `no_trading_partner` per company, each with its
+  amount alone (`partner_amount`, `difference` and `tolerance` absent);
+  neither is eliminated. A pair's status is its difference's against
+  the tolerance in the configuration version the run read, converted to
+  the group currency's minor units.
+- **Entries.** One `intercompany` entry per pair whose lines are not all
+  zero: each translated row reversed on its group account with its
+  company, company account and trading partner, and the difference, when
+  not zero, on the elimination's difference account as a line of no
+  company, account or trading partner (the entry names the pair). Lines
+  of zero are not written (`run_entry_line.amount_gc <> 0`), so a pair
+  whose rows are all zero has its `matched` difference and no entry.
+  Entries are numbered by elimination code and the pair's codes, lines by
+  group account, company code (none first) and the reversed row's line
+  number, which follows the company account's number and the trading
+  partner's code (§5).
+- **Columns left to later slices.** `run_difference` has `line_no`, its
+  place in §5's list order, so the list pages by one key; the `accepted`
+  status with `accepted_by`, `accepted_at`, `reason` and a difference's
+  `version` are T68g's, which adds its transition, and
+  `run_entry_line.component` T68h's, with its entries (the kinds
+  `investment` and `nci` are already allowed by `run_entry`'s check).
+- **The step.** It is a no-op on a run that has differences or entries
+  already, or is no longer running, so run again after a lost completion
+  it writes nothing twice; it is refused (an error, retried and then
+  `platform.internal`) while a company of the run is not translated, so
+  figures are matched only whole. A tolerance finer than the group
+  currency, which `consolidation.Setup` refuses when a change is
+  submitted, is the step's error too.
+- **Reads.** `listIntercompanyDifferences` pages by `line_no`, filters by
+  status, elimination and company (the differences whose company or
+  partner it is), and totals per status present: the count, the amounts,
+  the partners' amounts and the differences. `listConsolidationEntries`
+  answers entries, each with its lines and its debits, paged by entry
+  number (the page size counts entries), filters by kind, elimination and
+  company (the entry's company or partner), and totals per kind present:
+  the count and the debits. Names as the balances list's: a partner or a
+  line's trading partner by code and name only to a caller who may act in
+  that company (po:2026-11-05), so a partner outside the group may show
+  its id alone; the run's own companies are all in a reader's access.
+- **Budget (§14).** `TestConsolidationRunBudget` and
+  `TestConsolidatedStatementBudget` now put the group accounts of the
+  budget's asset and liability accounts in the elimination, so a run
+  matches 99 pairs and eliminates 400 rows with a trading partner per
+  company: @RUNBUDGET@
+- **Walkthrough.** `step_consolidation` gains `consolidation_eliminations`
+  between `consolidation_run` and `consolidation_statements`: the run has
+  one difference matched and one open; IC_RESULTS matches Maple's
+  intercompany revenue with Acme Corp US's intercompany expense (2,700.00
+  CAD each, booked at 1.35); IC_BALANCES is open, Acme Corp US's payable
+  at the closing 1.40 (-2,800.00) against Maple's receivable as booked
+  (2,700.00), a difference of -100.00 above its 10.00; the two entries
+  reverse the pairs' rows, the difference on G6950. The statements then
+  show G1250, G2250, G4250 and G5250 consolidated at zero and -100.00 on
+  G6950.
+- **Still open.** A revaluation's lines of a foreign currency
+  intercompany item carry no trading partner until the tracker leaf
+  "Revaluation of intercompany items by trading partner" (review:T68b) is
+  built, so such revaluation differences show as `no_trading_partner`.

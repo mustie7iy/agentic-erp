@@ -3446,7 +3446,7 @@ CONSOLIDATION_SETTINGS='(.consolidation = {
 # approved and activated; Carla reads the group with its companies named
 # and the group chart; Cory, who may act in Maple alone, sees no group.
 step_consolidation() {
-  heading "Step 40 — Group reporting: the group chart, the companies' mapping and the group MAPLE through a governed change, trading partners, a consolidation run and its consolidated statements"
+  heading "Step 40 — Group reporting: the group chart, the companies' mapping and the group MAPLE through a governed change, trading partners, a consolidation run, its intercompany eliminations and its consolidated statements"
   as ada
   local base settings first cr request
   first="$YEAR-${TODAY:5:2}"
@@ -3515,6 +3515,7 @@ step_consolidation() {
   refused 404 consolidation.group_unknown getConsolidationGroup -p code=MAPLE
   consolidation_trading_partner
   consolidation_run
+  consolidation_eliminations
   consolidation_statements
   as tom
   passed
@@ -3672,11 +3673,44 @@ consolidation_run() {
   expect "Maple's translation differences" "$(field '.items | length')" 0
 }
 
+# consolidation_eliminations is intercompany matching and eliminations
+# (T68f, ADR-0059 §8), part of step_consolidation: consolidation_run's run
+# matched Maple's intercompany revenue with Acme Corp US's intercompany
+# expense, both booked at 1.35 (2,700.00 CAD each), and found the
+# receivable and payable pair open: Maple's USD receivable as booked at
+# 1.35 (2,700.00 CAD), Acme Corp US's payable at the closing 1.40
+# (-2,800.00 CAD), a difference of -100.00 above IC_BALANCES' 10.00. Each
+# pair's entry reverses its rows, the difference on G6950, so the
+# consolidated statements show no balance between the two companies.
+consolidation_eliminations() {
+  local run
+  as carla
+  QUIET=1 api 200 '' listConsolidationRuns -p group_code=MAPLE -p status=computed
+  run=$(field '.items[0].id')
+  say "The run matched the group's intercompany balances (ADR-0059 §8): for each elimination, the two companies' rows"
+  say "naming each other, in CAD as translated: balance sheet rows at the closing rate, income and expenses as booked."
+  api 200 '"run \(.status): \([.difference_counts[] | "\(.count) \(.status)"] | join(", "))"' getConsolidationRun -p "id=$run"
+  api 200 '(.items[] | "  \(.line_no) \(.elimination.code) \(.elimination.name): \(.company_code) \(.company_name) and \(.partner.code) \(.partner.name): \(.amount.amount) + \(.partner_amount.amount) = \(.difference.amount) \(.difference.currency) against a tolerance of \(.tolerance.amount), \(.status)"),
+    (.totals[] | "  total \(.status): \(.count), difference \(.difference.amount // "-")")' listIntercompanyDifferences -p "id=$run"
+  expect "the differences" "$(field '[.items[] | "\(.elimination.code) \(.company_code)/\(.partner.code) \(.amount.amount) \(.partner_amount.amount) \(.difference.amount) \(.status)"] | join(", ")')" \
+    "IC_BALANCES 1000/$CC -2800.00 2700.00 -100.00 open, IC_RESULTS 1000/$CC 2700.00 -2700.00 0.00 matched"
+  say "The payable at the closing 1.40 and the receivable as booked at 1.35 differ by more than the tolerance: the"
+  say "difference is open, and stops only finalizing the run until it is accepted or corrected (T68g). Each pair is"
+  say "eliminated: its rows reversed, its difference on the intercompany differences account:"
+  api 200 '.items[] | "  entry \(.entry_no) \(.kind) \(.elimination.code): \(.company_code) and \(.partner.code), debits \(.debits.amount) \(.debits.currency)",
+    (.lines[] | "    \(.group_account.number) \(.group_account.name)\(if .company_code then " / \(.company_code) \(.account.number) \(.account.name)" else "" end)\(if .trading_partner then ", trading partner \(.trading_partner.code)" else "" end): \(.amount.amount)")' \
+    listConsolidationEntries -p "id=$run"
+  expect "the entries' lines" "$(field '[.items[] | "\(.entry_no):" + ([.lines[] | "\(.group_account.number)=\(.amount.amount)"] | join(" "))] | join(", ")')" \
+    "1:G1250=-2700.00 G2250=2800.00 G6950=-100.00, 2:G4250=2700.00 G5250=-2700.00"
+  expect "the entries' debits" "$(field '[.totals[] | "\(.kind) \(.count) \(.debits.amount)"] | join(", ")')" "intercompany 2 5500.00"
+}
+
 # consolidation_statements is the consolidated statements of a run (T68e,
 # ADR-0059 §11), part of step_consolidation: Carla reads the balance sheet
 # and the profit and loss of consolidation_run's run, one row per group
 # account with the companies' translated figures summed, the eliminations
-# (none until T68f) and the consolidated figure; the balance sheet's
+# (T68f's intercompany entries) and the consolidated figure; the balance
+# sheet's
 # assets, liabilities and equity and the fiscal year's profit sum to zero,
 # the profit is the profit and loss's, and each row's reported figure is
 # the balances list's total for its group account.
@@ -3687,7 +3721,7 @@ consolidation_statements() {
   run=$(field '.items[0].id')
   say "Carla reads the run's consolidated balance sheet (ADR-0059 §11): each account of the group chart, the companies'"
   say "translated figures summed, the eliminations and the consolidated figure, in CAD and debit positive, so a credit"
-  say "balance, and a profit, is negative. Eliminations come with intercompany matching (T68f):"
+  say "balance, and a profit, is negative. The eliminations are the run's intercompany entries (T68f):"
   api 200 '"\(.statement) of \(.group_code) \(.group_name) at \(.period_end), run \(.run_status), in \(.group_currency):",
     (.items[] | "  \(.number) \(.name) (\(.type)\(if .role then ", \(.role)" else "" end)): reported \(.reported.amount), eliminations \(.eliminations.amount), consolidated \(.consolidated.amount)"),
     (.totals | to_entries[] | "  total \(.key): reported \(.value.reported.amount), eliminations \(.value.eliminations.amount), consolidated \(.value.consolidated.amount)")' \
@@ -3696,6 +3730,8 @@ consolidation_statements() {
   expect "the balance sheet's totals" "$(field '.totals | keys | join(" ")')" "assets equity liabilities profit"
   expect "assets, liabilities, equity and the profit, consolidated" "$(field "[.totals[].consolidated | $cents] | add")" 0
   expect "assets, liabilities, equity and the profit, reported" "$(field "[.totals[].reported | $cents] | add")" 0
+  expect "the intercompany accounts, consolidated" "$(field '[.items[] | select(.number | IN("G1250", "G2250")) | "\(.number) \(.consolidated.amount)"] | join(", ")')" \
+    "G1250 0.00, G2250 0.00"
   say "And the profit and loss, whose profit closes the balance sheet:"
   api 200 '"\(.statement) of \(.group_code) for \(.fiscal_year)-\(.period):",
     (.items[] | "  \(.number) \(.name) (\(.type)): reported \(.reported.amount), eliminations \(.eliminations.amount), consolidated \(.consolidated.amount)"),
@@ -3704,6 +3740,9 @@ consolidation_statements() {
   cp "$WORK/last.json" "$WORK/profit-and-loss.json"
   expect "the profit of both statements" "$(field .totals.profit.consolidated.amount)" "$(jq -r .totals.profit.consolidated.amount "$WORK/balance-sheet.json")"
   expect "revenue and expenses make the profit" "$(field "[.totals.revenue, .totals.expenses | .reported | $cents] | add")" "$(field ".totals.profit.reported | $cents")"
+  expect "the intercompany results and their difference" \
+    "$(field '[.items[] | select(.number | IN("G4250", "G5250", "G6950")) | "\(.number) \(.eliminations.amount) \(.consolidated.amount)"] | join(", ")')" \
+    "G4250 2700.00 0.00, G5250 -2700.00 0.00, G6950 -100.00 -100.00"
   say "Each row's reported figure is the run's translated balances on its group account (the drill-down):"
   for statement in balance-sheet profit-and-loss; do
     while read -r number reported; do

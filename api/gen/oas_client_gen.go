@@ -1514,12 +1514,14 @@ type Invoker interface {
 	// without figures has a row of zeros. With totals over the whole statement, each with the same three
 	// columns: for the balance sheet, the assets, liabilities and equity and the fiscal year's profit
 	// through the period (the profit and loss's), which together sum to zero; for the profit and loss, the
-	// revenue, the expenses and the profit. A run has no eliminations until intercompany matching and the
-	// investment's elimination are built (ADR-0059 §8, §9: T68f, T68h), so its eliminations are zero and
-	// its consolidated figures its reported ones. The statement is read from the run's stored rows alone,
-	// so a computed, final or superseded run's never changes. Refused for a run that is queued, running,
-	// failed or discarded (409 `consolidation.run_not_computed`) and for a statement other than these two
-	// (404 `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read`
+	// revenue, the expenses and the profit. The eliminations are the run's elimination entries' lines on
+	// the account summed (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f),
+	// which leave no balance between the run's companies on an elimination's accounts and put each pair's
+	// difference on the elimination's difference account; the investment's elimination follows with T68h.
+	// The statement is read from the run's stored rows alone, so a computed, final or superseded run's
+	// never changes. Refused for a run that is queued, running, failed or discarded (409
+	// `consolidation.run_not_computed`) and for a statement other than these two (404
+	// `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read`
 	// (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not
 	// found (404), as a run that does not exist. Read from one database state (a repeatable-read
 	// snapshot), so its page and totals agree.
@@ -1542,11 +1544,12 @@ type Invoker interface {
 	// its status and the problem that failed it, the configuration version it read, the group currency and
 	// the closing rate type, and its companies, the parent first and the members by company code, each
 	// with its local currency, closing rate and the date it is valid from, its role, ownership and first
-	// period, and the status and version of its leading ledger's period when the run read its figures. A
-	// run of a group whose parent or a member the caller may not act in is not found (404), as a run that
-	// does not exist, so neither its existence nor its companies leak (ADR-0059 §12). Besides
-	// `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). Read from one
-	// database state (a repeatable-read snapshot).
+	// period, and the status and version of its leading ledger's period when the run read its figures; and
+	// the number of its intercompany differences per status (T68f). A run of a group whose parent or a
+	// member the caller may not act in is not found (404), as a run that does not exist, so neither its
+	// existence nor its companies leak (ADR-0059 §12). Besides `consolidation.read` the caller needs
+	// `ledger.entry.read` (`x-also-permissions`). Read from one database state (a repeatable-read
+	// snapshot).
 	//
 	// GET /v1/consolidation-runs/{id}
 	GetConsolidationRun(ctx context.Context, params GetConsolidationRunParams) (GetConsolidationRunRes, error)
@@ -2481,6 +2484,30 @@ type Invoker interface {
 	//
 	// GET /v1/consolidation-runs/{id}/balances
 	ListConsolidationBalances(ctx context.Context, params ListConsolidationBalancesParams) (ListConsolidationBalancesRes, error)
+	// ListConsolidationEntries invokes listConsolidationEntries operation.
+	//
+	// A consolidation run's elimination entries with their lines (ADR-0059 §8, §9; T68f; SAP's
+	// consolidation journal), kept by the run and never posted to a company's ledger. An `intercompany`
+	// entry per elimination and pair of the run's companies with rows on its accounts naming each other
+	// (`listIntercompanyDifferences`): a line reversing each of those translated rows, on its group
+	// account with its company, company account and trading partner, and the pair's difference, when it is
+	// not zero, on the elimination's difference account (a line of no company: the entry's two companies
+	// are the pair), so each entry sums to zero and the consolidated statements show no balance between
+	// the run's companies on the elimination's accounts. The investment and non-controlling interest
+	// entries follow with T68h. Entries are in the order of their kind, the elimination's code and the
+	// pair's company codes, paged by entry number; each entry's lines by group account number, company
+	// code (none first), company account number and trading partner code. Each entry names its kind,
+	// elimination (code and name), company and partner (code and name) and has its debits' sum; each line
+	// its group account (number and name), company (code and name), company account (number and name) and
+	// trading partner, every amount in the group currency, debit positive. With totals over the filter per
+	// kind: the count of entries and their debits summed (each entry's credits equal its debits). Filters:
+	// kind, elimination and company (the entries whose company or partner it is). Besides
+	// `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group
+	// whose parent or a member the caller may not act in is not found (404), as a run that does not exist.
+	// Read from one database state (a repeatable-read snapshot), so its page and totals agree.
+	//
+	// GET /v1/consolidation-runs/{id}/entries
+	ListConsolidationEntries(ctx context.Context, params ListConsolidationEntriesParams) (ListConsolidationEntriesRes, error)
 	// ListConsolidationGroups invokes listConsolidationGroups operation.
 	//
 	// The consolidation groups of the active configuration (ADR-0059 §3, T68a), in code order: each
@@ -2716,6 +2743,36 @@ type Invoker interface {
 	//
 	// GET /v1/house-banks
 	ListHouseBanks(ctx context.Context, params ListHouseBanksParams) (ListHouseBanksRes, error)
+	// ListIntercompanyDifferences invokes listIntercompanyDifferences operation.
+	//
+	// A consolidation run's intercompany matching (ADR-0059 §8, T68f; SAP's intercompany matching and
+	// reconciliation): for each elimination of the configuration version the run read and each pair of the
+	// run's companies with translated rows on its accounts naming each other, the company with the lower
+	// code first, its rows' sum (`amount`) and the partner's (`partner_amount`), in the group currency,
+	// debit positive, as the run translated them (balance sheet rows at the closing rate, income and
+	// expenses at their booked group amounts), their sum (`difference`) and the elimination's `tolerance`:
+	// `matched` when the difference is zero, `within_tolerance` when its absolute value is at most the
+	// tolerance, `open` otherwise. Every pair is eliminated, its difference to the elimination's
+	// difference account (`listConsolidationEntries`); an open difference stops only finalization (T68g).
+	// Rows on an elimination's accounts naming a trading partner that is not one of the run's companies (a
+	// company outside the group, or a member before its first period) are listed per company and partner
+	// as `outside_group`, and rows naming none per company as `no_trading_partner` (lines posted before
+	// trading partners existed, or whose business partner was not linked to its group company), each with
+	// its `amount` alone: neither is eliminated, so the consolidated figures still carry them. In the
+	// order of the elimination's code, the company's code and the partner's code (`no_trading_partner`
+	// first within its company), so two runs of the same figures list them alike. Each names the
+	// elimination by code and name, the company by code and name, and the partner by id and, to a caller
+	// who may act in it, its code and name (as a journal line's trading partner; a partner outside the
+	// group may be a company the caller may not act in). With totals over the filter per status: the
+	// count, and the amounts, partner amounts and differences summed. Filters: status, elimination and
+	// company. A run has differences once its companies are translated; a queued or running run may show
+	// none. Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A
+	// run of a group whose parent or a member the caller may not act in is not found (404), as a run that
+	// does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals
+	// agree.
+	//
+	// GET /v1/consolidation-runs/{id}/differences
+	ListIntercompanyDifferences(ctx context.Context, params ListIntercompanyDifferencesParams) (ListIntercompanyDifferencesRes, error)
 	// ListJournalEntries invokes listJournalEntries operation.
 	//
 	// Posted journal entries of one ledger, the leading ledger unless `ledger_id` names another: a
@@ -23291,12 +23348,14 @@ func (c *Client) sendGetConnector(ctx context.Context, params GetConnectorParams
 // without figures has a row of zeros. With totals over the whole statement, each with the same three
 // columns: for the balance sheet, the assets, liabilities and equity and the fiscal year's profit
 // through the period (the profit and loss's), which together sum to zero; for the profit and loss, the
-// revenue, the expenses and the profit. A run has no eliminations until intercompany matching and the
-// investment's elimination are built (ADR-0059 §8, §9: T68f, T68h), so its eliminations are zero and
-// its consolidated figures its reported ones. The statement is read from the run's stored rows alone,
-// so a computed, final or superseded run's never changes. Refused for a run that is queued, running,
-// failed or discarded (409 `consolidation.run_not_computed`) and for a statement other than these two
-// (404 `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read`
+// revenue, the expenses and the profit. The eliminations are the run's elimination entries' lines on
+// the account summed (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f),
+// which leave no balance between the run's companies on an elimination's accounts and put each pair's
+// difference on the elimination's difference account; the investment's elimination follows with T68h.
+// The statement is read from the run's stored rows alone, so a computed, final or superseded run's
+// never changes. Refused for a run that is queued, running, failed or discarded (409
+// `consolidation.run_not_computed`) and for a statement other than these two (404
+// `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read`
 // (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not
 // found (404), as a run that does not exist. Read from one database state (a repeatable-read
 // snapshot), so its page and totals agree.
@@ -23626,11 +23685,12 @@ func (c *Client) sendGetConsolidationGroup(ctx context.Context, params GetConsol
 // its status and the problem that failed it, the configuration version it read, the group currency and
 // the closing rate type, and its companies, the parent first and the members by company code, each
 // with its local currency, closing rate and the date it is valid from, its role, ownership and first
-// period, and the status and version of its leading ledger's period when the run read its figures. A
-// run of a group whose parent or a member the caller may not act in is not found (404), as a run that
-// does not exist, so neither its existence nor its companies leak (ADR-0059 §12). Besides
-// `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). Read from one
-// database state (a repeatable-read snapshot).
+// period, and the status and version of its leading ledger's period when the run read its figures; and
+// the number of its intercompany differences per status (T68f). A run of a group whose parent or a
+// member the caller may not act in is not found (404), as a run that does not exist, so neither its
+// existence nor its companies leak (ADR-0059 §12). Besides `consolidation.read` the caller needs
+// `ledger.entry.read` (`x-also-permissions`). Read from one database state (a repeatable-read
+// snapshot).
 //
 // GET /v1/consolidation-runs/{id}
 func (c *Client) GetConsolidationRun(ctx context.Context, params GetConsolidationRunParams) (GetConsolidationRunRes, error) {
@@ -39991,6 +40051,245 @@ func (c *Client) sendListConsolidationBalances(ctx context.Context, params ListC
 	return result, nil
 }
 
+// ListConsolidationEntries invokes listConsolidationEntries operation.
+//
+// A consolidation run's elimination entries with their lines (ADR-0059 §8, §9; T68f; SAP's
+// consolidation journal), kept by the run and never posted to a company's ledger. An `intercompany`
+// entry per elimination and pair of the run's companies with rows on its accounts naming each other
+// (`listIntercompanyDifferences`): a line reversing each of those translated rows, on its group
+// account with its company, company account and trading partner, and the pair's difference, when it is
+// not zero, on the elimination's difference account (a line of no company: the entry's two companies
+// are the pair), so each entry sums to zero and the consolidated statements show no balance between
+// the run's companies on the elimination's accounts. The investment and non-controlling interest
+// entries follow with T68h. Entries are in the order of their kind, the elimination's code and the
+// pair's company codes, paged by entry number; each entry's lines by group account number, company
+// code (none first), company account number and trading partner code. Each entry names its kind,
+// elimination (code and name), company and partner (code and name) and has its debits' sum; each line
+// its group account (number and name), company (code and name), company account (number and name) and
+// trading partner, every amount in the group currency, debit positive. With totals over the filter per
+// kind: the count of entries and their debits summed (each entry's credits equal its debits). Filters:
+// kind, elimination and company (the entries whose company or partner it is). Besides
+// `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group
+// whose parent or a member the caller may not act in is not found (404), as a run that does not exist.
+// Read from one database state (a repeatable-read snapshot), so its page and totals agree.
+//
+// GET /v1/consolidation-runs/{id}/entries
+func (c *Client) ListConsolidationEntries(ctx context.Context, params ListConsolidationEntriesParams) (ListConsolidationEntriesRes, error) {
+	res, err := c.sendListConsolidationEntries(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListConsolidationEntries(ctx context.Context, params ListConsolidationEntriesParams) (res ListConsolidationEntriesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listConsolidationEntries"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/consolidation-runs/{id}/entries"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListConsolidationEntriesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/consolidation-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/entries"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "kind" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Kind.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "elimination" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "elimination",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Elimination.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListConsolidationEntriesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListConsolidationEntriesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListConsolidationGroups invokes listConsolidationGroups operation.
 //
 // The consolidation groups of the active configuration (ADR-0059 §3, T68a), in code order: each
@@ -45273,6 +45572,251 @@ func (c *Client) sendListHouseBanks(ctx context.Context, params ListHouseBanksPa
 
 	stage = "DecodeResponse"
 	result, err := decodeListHouseBanksResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListIntercompanyDifferences invokes listIntercompanyDifferences operation.
+//
+// A consolidation run's intercompany matching (ADR-0059 §8, T68f; SAP's intercompany matching and
+// reconciliation): for each elimination of the configuration version the run read and each pair of the
+// run's companies with translated rows on its accounts naming each other, the company with the lower
+// code first, its rows' sum (`amount`) and the partner's (`partner_amount`), in the group currency,
+// debit positive, as the run translated them (balance sheet rows at the closing rate, income and
+// expenses at their booked group amounts), their sum (`difference`) and the elimination's `tolerance`:
+// `matched` when the difference is zero, `within_tolerance` when its absolute value is at most the
+// tolerance, `open` otherwise. Every pair is eliminated, its difference to the elimination's
+// difference account (`listConsolidationEntries`); an open difference stops only finalization (T68g).
+// Rows on an elimination's accounts naming a trading partner that is not one of the run's companies (a
+// company outside the group, or a member before its first period) are listed per company and partner
+// as `outside_group`, and rows naming none per company as `no_trading_partner` (lines posted before
+// trading partners existed, or whose business partner was not linked to its group company), each with
+// its `amount` alone: neither is eliminated, so the consolidated figures still carry them. In the
+// order of the elimination's code, the company's code and the partner's code (`no_trading_partner`
+// first within its company), so two runs of the same figures list them alike. Each names the
+// elimination by code and name, the company by code and name, and the partner by id and, to a caller
+// who may act in it, its code and name (as a journal line's trading partner; a partner outside the
+// group may be a company the caller may not act in). With totals over the filter per status: the
+// count, and the amounts, partner amounts and differences summed. Filters: status, elimination and
+// company. A run has differences once its companies are translated; a queued or running run may show
+// none. Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A
+// run of a group whose parent or a member the caller may not act in is not found (404), as a run that
+// does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals
+// agree.
+//
+// GET /v1/consolidation-runs/{id}/differences
+func (c *Client) ListIntercompanyDifferences(ctx context.Context, params ListIntercompanyDifferencesParams) (ListIntercompanyDifferencesRes, error) {
+	res, err := c.sendListIntercompanyDifferences(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListIntercompanyDifferences(ctx context.Context, params ListIntercompanyDifferencesParams) (res ListIntercompanyDifferencesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listIntercompanyDifferences"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/consolidation-runs/{id}/differences"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListIntercompanyDifferencesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/consolidation-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/differences"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "elimination" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "elimination",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Elimination.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListIntercompanyDifferencesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListIntercompanyDifferencesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

@@ -34,8 +34,16 @@
 // GetConsolidatedStatement): a run's balance sheet or profit and loss,
 // one row per group account with the companies' translated figures
 // summed, the eliminations and the consolidated figure, and the totals,
-// read from the run's stored rows alone (§14). Matching, eliminations and
-// finalization follow in T68f-T68h.
+// read from the run's stored rows alone (§14).
+//
+// T68f adds intercompany matching and eliminations (ADR-0059 §8,
+// eliminate): EliminateConsolidationRun matches each elimination's rows
+// per pair of the run's companies within its tolerance, lists the rows
+// naming a company outside the run or none, and writes each pair's
+// intercompany entry; ListIntercompanyDifferences and
+// ListConsolidationEntries read them, and the statements' eliminations
+// are the entries' lines. Accepting differences, finalization and the
+// investment's elimination follow in T68g-T68h.
 package consolidation
 
 import (

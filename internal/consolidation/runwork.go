@@ -18,7 +18,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// A consolidation run's work (ADR-0059 §6): five steps, each one
+// A consolidation run's work (ADR-0059 §6): five steps (the elimination
+// step in eliminate.go), each one
 // transaction in the tenant's scope as the run's requester, which the
 // workflow ConsolidationRun calls as its activities through the
 // workflows.Consolidation port (or the in-process runner, without a
@@ -300,19 +301,6 @@ func (e *Endpoints) progress(ctx context.Context, tx pgx.Tx, r Run) error {
 		return fmt.Errorf("consolidation: progress of run %s: %w", r.ID, err)
 	}
 	return errs.Wrapf(e.Runs.Report(ctx, r.OperationID, done, total), "consolidation: progress of run %s", r.ID)
-}
-
-// EliminateConsolidationRun matches and eliminates a running run's
-// intercompany balances and its investments (ADR-0059 §8, §9): T68f and
-// T68h write them; until then it checks the run and writes nothing, so
-// the workflow's steps are those it will keep.
-func (e *Endpoints) EliminateConsolidationRun(ctx context.Context, id uuid.UUID) error {
-	tx, _, err := reqctx.Request(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = e.liveRun(ctx, tx, id, false)
-	return err
 }
 
 // CompleteConsolidationRun sets a running run whose companies are all

@@ -14230,7 +14230,7 @@ paths:
       tags:
         - consolidation
       summary: Get a consolidation run
-      description: "One consolidation run (ADR-0059 §6, T68d): its group by code and name, its period with its dates, its status and the problem that failed it, the configuration version it read, the group currency and the closing rate type, and its companies, the parent first and the members by company code, each with its local currency, closing rate and the date it is valid from, its role, ownership and first period, and the status and version of its leading ledger's period when the run read its figures. A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist, so neither its existence nor its companies leak (ADR-0059 §12). Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). Read from one database state (a repeatable-read snapshot)."
+      description: "One consolidation run (ADR-0059 §6, T68d): its group by code and name, its period with its dates, its status and the problem that failed it, the configuration version it read, the group currency and the closing rate type, and its companies, the parent first and the members by company code, each with its local currency, closing rate and the date it is valid from, its role, ownership and first period, and the status and version of its leading ledger's period when the run read its figures; and the number of its intercompany differences per status (T68f). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist, so neither its existence nor its companies leak (ADR-0059 §12). Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). Read from one database state (a repeatable-read snapshot)."
       x-permission: consolidation.read
       x-also-permissions:
         - ledger.entry.read
@@ -14373,6 +14373,110 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/consolidation-runs/{id}/differences":
+    get:
+      operationId: listIntercompanyDifferences
+      tags:
+        - consolidation
+      summary: List a consolidation run's intercompany differences
+      description: "A consolidation run's intercompany matching (ADR-0059 §8, T68f; SAP's intercompany matching and reconciliation): for each elimination of the configuration version the run read and each pair of the run's companies with translated rows on its accounts naming each other, the company with the lower code first, its rows' sum (`amount`) and the partner's (`partner_amount`), in the group currency, debit positive, as the run translated them (balance sheet rows at the closing rate, income and expenses at their booked group amounts), their sum (`difference`) and the elimination's `tolerance`: `matched` when the difference is zero, `within_tolerance` when its absolute value is at most the tolerance, `open` otherwise. Every pair is eliminated, its difference to the elimination's difference account (`listConsolidationEntries`); an open difference stops only finalization (T68g). Rows on an elimination's accounts naming a trading partner that is not one of the run's companies (a company outside the group, or a member before its first period) are listed per company and partner as `outside_group`, and rows naming none per company as `no_trading_partner` (lines posted before trading partners existed, or whose business partner was not linked to its group company), each with its `amount` alone: neither is eliminated, so the consolidated figures still carry them. In the order of the elimination's code, the company's code and the partner's code (`no_trading_partner` first within its company), so two runs of the same figures list them alike. Each names the elimination by code and name, the company by code and name, and the partner by id and, to a caller who may act in it, its code and name (as a journal line's trading partner; a partner outside the group may be a company the caller may not act in). With totals over the filter per status: the count, and the amounts, partner amounts and differences summed. Filters: status, elimination and company. A run has differences once its companies are translated; a queued or running run may show none. Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
+      x-permission: consolidation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-snapshot: true
+      x-problem-codes:
+        - config.unknown_version
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: status
+          in: query
+          required: false
+          description: Only the differences of this status.
+          schema:
+            type: string
+            description: "Intercompany difference status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [matched, within_tolerance, open, outside_group, no_trading_partner]
+        - name: elimination
+          in: query
+          required: false
+          description: "Only the differences of the elimination with this code (`consolidation.eliminations[].code`)."
+          schema:
+            type: string
+            pattern: "^[A-Z0-9_]{1,30}$"
+        - $ref: "#/components/parameters/LegalEntityId"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the run's intercompany differences, with the totals over the filter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntercompanyDifferencePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/consolidation-runs/{id}/entries":
+    get:
+      operationId: listConsolidationEntries
+      tags:
+        - consolidation
+      summary: List a consolidation run's elimination entries
+      description: "A consolidation run's elimination entries with their lines (ADR-0059 §8, §9; T68f; SAP's consolidation journal), kept by the run and never posted to a company's ledger. An `intercompany` entry per elimination and pair of the run's companies with rows on its accounts naming each other (`listIntercompanyDifferences`): a line reversing each of those translated rows, on its group account with its company, company account and trading partner, and the pair's difference, when it is not zero, on the elimination's difference account (a line of no company: the entry's two companies are the pair), so each entry sums to zero and the consolidated statements show no balance between the run's companies on the elimination's accounts. The investment and non-controlling interest entries follow with T68h. Entries are in the order of their kind, the elimination's code and the pair's company codes, paged by entry number; each entry's lines by group account number, company code (none first), company account number and trading partner code. Each entry names its kind, elimination (code and name), company and partner (code and name) and has its debits' sum; each line its group account (number and name), company (code and name), company account (number and name) and trading partner, every amount in the group currency, debit positive. With totals over the filter per kind: the count of entries and their debits summed (each entry's credits equal its debits). Filters: kind, elimination and company (the entries whose company or partner it is). Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
+      x-permission: consolidation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-snapshot: true
+      x-problem-codes:
+        - config.unknown_version
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: kind
+          in: query
+          required: false
+          description: Only the entries of this kind.
+          schema:
+            type: string
+            description: "Elimination entry kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [intercompany, investment, nci]
+        - name: elimination
+          in: query
+          required: false
+          description: "Only the entries of the elimination with this code (`consolidation.eliminations[].code`)."
+          schema:
+            type: string
+            pattern: "^[A-Z0-9_]{1,30}$"
+        - $ref: "#/components/parameters/LegalEntityId"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the run's elimination entries, with the totals over the filter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsolidationEntryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   "/v1/e-invoices:fetch":
@@ -14578,7 +14682,7 @@ paths:
       tags:
         - consolidation
       summary: Get a consolidated statement of a run
-      description: "A consolidated statement of a computed, final or superseded consolidation run (ADR-0059 §11, T68e): the balance sheet (`balance_sheet`: the group chart's asset, liability and equity accounts, the `cta`, `retained_earnings` and `nci` accounts among them) or the profit and loss (`profit_and_loss`: its revenue and expense accounts), one row per group account of the statement's types in the configuration version the run read, in number order, cursor-paged by number. Each row has the account's number, name, type and role, the companies' translated figures on it summed (`reported`: the total of `listConsolidationBalances?group_account=` for it), the run's eliminations on it (`eliminations`) and their sum (`consolidated`), each in the group currency and debit positive, as the trial balance shows them: a credit balance, and so a profit, is negative. A group account without figures has a row of zeros. With totals over the whole statement, each with the same three columns: for the balance sheet, the assets, liabilities and equity and the fiscal year's profit through the period (the profit and loss's), which together sum to zero; for the profit and loss, the revenue, the expenses and the profit. A run has no eliminations until intercompany matching and the investment's elimination are built (ADR-0059 §8, §9: T68f, T68h), so its eliminations are zero and its consolidated figures its reported ones. The statement is read from the run's stored rows alone, so a computed, final or superseded run's never changes. Refused for a run that is queued, running, failed or discarded (409 `consolidation.run_not_computed`) and for a statement other than these two (404 `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
+      description: "A consolidated statement of a computed, final or superseded consolidation run (ADR-0059 §11, T68e): the balance sheet (`balance_sheet`: the group chart's asset, liability and equity accounts, the `cta`, `retained_earnings` and `nci` accounts among them) or the profit and loss (`profit_and_loss`: its revenue and expense accounts), one row per group account of the statement's types in the configuration version the run read, in number order, cursor-paged by number. Each row has the account's number, name, type and role, the companies' translated figures on it summed (`reported`: the total of `listConsolidationBalances?group_account=` for it), the run's eliminations on it (`eliminations`) and their sum (`consolidated`), each in the group currency and debit positive, as the trial balance shows them: a credit balance, and so a profit, is negative. A group account without figures has a row of zeros. With totals over the whole statement, each with the same three columns: for the balance sheet, the assets, liabilities and equity and the fiscal year's profit through the period (the profit and loss's), which together sum to zero; for the profit and loss, the revenue, the expenses and the profit. The eliminations are the run's elimination entries' lines on the account summed (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f), which leave no balance between the run's companies on an elimination's accounts and put each pair's difference on the elimination's difference account; the investment's elimination follows with T68h. The statement is read from the run's stored rows alone, so a computed, final or superseded run's never changes. Refused for a run that is queued, running, failed or discarded (409 `consolidation.run_not_computed`) and for a statement other than these two (404 `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
       x-permission: consolidation.read
       x-also-permissions:
         - ledger.entry.read
@@ -40250,8 +40354,8 @@ components:
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     ConsolidationRun:
       type: object
-      description: "A consolidation run of a group for a regular period (ADR-0059 §6): its companies, each with the closing rate it was translated at and its period's status and version when the run read its figures. The translated figures are `GET /v1/consolidation-runs/{id}/balances`."
-      required: [id, group_code, group_name, fiscal_year, period, period_start, period_end, status, config_version, group_currency, rate_type, operation_id, members, version, created_at, updated_at]
+      description: "A consolidation run of a group for a regular period (ADR-0059 §6): its companies, each with the closing rate it was translated at and its period's status and version when the run read its figures. The translated figures are `GET /v1/consolidation-runs/{id}/balances`, the intercompany differences `/differences` and the elimination entries `/entries`."
+      required: [id, group_code, group_name, fiscal_year, period, period_start, period_end, status, config_version, group_currency, rate_type, operation_id, members, difference_counts, version, created_at, updated_at]
       properties:
         id: {type: string, format: uuid, description: The run., readOnly: true}
         group_code: {type: string, description: "The group's code.", readOnly: true}
@@ -40276,6 +40380,11 @@ components:
           items: {$ref: "#/components/schemas/ConsolidationRunMember"}
           readOnly: true
         computed_at: {type: string, format: date-time, description: "When it was computed; absent before.", readOnly: true}
+        difference_counts:
+          type: array
+          description: "The number of its intercompany differences per status present (`GET /v1/consolidation-runs/{id}/differences`), in the order matched, within_tolerance, open, outside_group, no_trading_partner; empty until its companies are matched (ADR-0059 §8)."
+          items: {$ref: "#/components/schemas/ConsolidationDifferenceCount"}
+          readOnly: true
         version: {type: integer, format: int32, description: "The run's version (ETag).", readOnly: true}
         created_at: {type: string, format: date-time, description: When it was started., readOnly: true}
         updated_at: {type: string, format: date-time, description: When it last changed., readOnly: true}
@@ -40296,6 +40405,9 @@ components:
             - {legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b, company_code: "3000", company_name: Maple Industries Canada, local_currency: CAD, role: parent, closing_rate: "1", period_status: open, period_version: 3, translated_at: "2026-11-20T10:00:01Z"}
             - {legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c, company_code: "1000", company_name: Acme Corp US, local_currency: USD, role: member, ownership_percent: "80", first_fiscal_year: 2026, first_fiscal_period: 11, closing_rate: "1.4", rate_valid_from: "2026-11-30", period_status: open, period_version: 2, translated_at: "2026-11-20T10:00:01Z"}
           computed_at: "2026-11-20T10:00:02Z"
+          difference_counts:
+            - {status: matched, count: 1}
+            - {status: open, count: 1}
           version: 4
           created_at: "2026-11-20T10:00:00Z"
           updated_at: "2026-11-20T10:00:02Z"
@@ -40390,6 +40502,151 @@ components:
           amount_gc_booked: {amount: "-2025.00", currency: CAD}
           amount_gc: {amount: "-2100.00", currency: CAD}
           closing_rate: "1.4"
+    IntercompanyDifferencePage:
+      type: object
+      description: "One page of a consolidation run's intercompany differences, with the totals over the filter."
+      required: [items, totals]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/IntercompanyDifference"}
+          description: The differences on this page.
+        totals:
+          type: array
+          items: {$ref: "#/components/schemas/IntercompanyDifferenceTotal"}
+          description: "The totals of every difference the filter selects, over all pages, one per status present, in the order matched, within_tolerance, open, outside_group, no_trading_partner."
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    IntercompanyDifferenceTotal:
+      type: object
+      description: "The differences of one status summed, in the group currency, debit positive."
+      required: [status, count, amount]
+      properties:
+        status:
+          type: string
+          x-extensible-enum: [matched, within_tolerance, open, outside_group, no_trading_partner]
+          description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        count: {type: integer, format: int32, description: "The number of differences of the status.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "Their amounts summed."}
+        partner_amount: {$ref: "#/components/schemas/Money", description: "Their partners' amounts summed; absent for `outside_group` and `no_trading_partner`."}
+        difference: {$ref: "#/components/schemas/Money", description: "Their differences summed; absent for `outside_group` and `no_trading_partner`."}
+    IntercompanyDifference:
+      type: object
+      description: "A consolidation run's intercompany difference (ADR-0059 §8): a pair of its companies on an elimination's accounts (`matched`, `within_tolerance`, `open`), or a company's rows on them naming a company outside the run (`outside_group`) or none (`no_trading_partner`). Amounts in the group currency, debit positive."
+      required: [id, line_no, elimination, legal_entity_id, company_code, company_name, status, amount]
+      properties:
+        id: {type: string, format: uuid, description: The difference., readOnly: true}
+        line_no: {type: integer, format: int32, description: "Its number within the run, in the list's order.", readOnly: true}
+        elimination: {$ref: "#/components/schemas/EliminationRef"}
+        legal_entity_id: {type: string, format: uuid, description: "The company: of a pair, the one with the lower company code.", readOnly: true}
+        company_code: {type: string, description: "The company code, as the run read it.", readOnly: true}
+        company_name: {type: string, description: "The company's name as it is now.", readOnly: true}
+        partner: {$ref: "#/components/schemas/TradingPartner", description: "The partner: the pair's other company, or the trading partner outside the run; absent for `no_trading_partner`."}
+        status:
+          type: string
+          x-extensible-enum: [matched, within_tolerance, open, outside_group, no_trading_partner]
+          description: "`matched`: the difference is zero; `within_tolerance`: its absolute value is at most the tolerance; `open`: above it, which stops finalization until it is accepted or the companies correct their postings (T68g); `outside_group`, `no_trading_partner`: rows the run does not eliminate. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        amount: {$ref: "#/components/schemas/Money", description: "The company's translated rows on the elimination's accounts naming the partner (or, for `no_trading_partner`, none) summed."}
+        partner_amount: {$ref: "#/components/schemas/Money", description: "Of a pair: the partner's translated rows on them naming the company summed."}
+        difference: {$ref: "#/components/schemas/Money", description: "Of a pair: the amount and the partner amount summed, eliminated to the elimination's difference account."}
+        tolerance: {$ref: "#/components/schemas/Money", description: "Of a pair: the elimination's tolerance, in the configuration version the run read."}
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000d01
+          line_no: 1
+          elimination: {code: IC_BALANCES, name: Intercompany receivables and payables}
+          legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c
+          company_code: "1000"
+          company_name: Acme Corp US
+          partner: {id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b, code: "3000", name: Maple Industries Canada}
+          status: open
+          amount: {amount: "-2800.00", currency: CAD}
+          partner_amount: {amount: "2700.00", currency: CAD}
+          difference: {amount: "-100.00", currency: CAD}
+          tolerance: {amount: "10.00", currency: CAD}
+    ConsolidationEntryPage:
+      type: object
+      description: "One page of a consolidation run's elimination entries, with the totals over the filter."
+      required: [items, totals]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ConsolidationEntry"}
+          description: The entries on this page, each with its lines.
+        totals:
+          type: array
+          items: {$ref: "#/components/schemas/ConsolidationEntryTotal"}
+          description: "The totals of every entry the filter selects, over all pages, one per kind present, in the order intercompany, investment, nci."
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    ConsolidationEntryTotal:
+      type: object
+      description: "The entries of one kind summed, in the group currency."
+      required: [kind, count, debits]
+      properties:
+        kind:
+          type: string
+          x-extensible-enum: [intercompany, investment, nci]
+          description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        count: {type: integer, format: int32, description: "The number of entries of the kind.", readOnly: true}
+        debits: {$ref: "#/components/schemas/Money", description: "Their debit lines summed; their credits are the same amount."}
+    ConsolidationEntry:
+      type: object
+      description: "An elimination entry of a consolidation run (ADR-0059 §8, §9): its lines sum to zero; the run keeps it, no company's ledger."
+      required: [entry_no, kind, legal_entity_id, company_code, company_name, debits, lines]
+      properties:
+        entry_no: {type: integer, format: int32, description: "Its number within the run.", readOnly: true}
+        kind:
+          type: string
+          x-extensible-enum: [intercompany, investment, nci]
+          description: "`intercompany`: a pair's balances on an elimination's accounts reversed, with their difference; `investment` and `nci`: a member's investment and non-controlling interest (T68h). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        elimination: {$ref: "#/components/schemas/EliminationRef"}
+        legal_entity_id: {type: string, format: uuid, description: "Its company: of an intercompany entry, the pair's with the lower code.", readOnly: true}
+        company_code: {type: string, description: "The company code, as the run read it.", readOnly: true}
+        company_name: {type: string, description: "The company's name as it is now.", readOnly: true}
+        partner: {$ref: "#/components/schemas/TradingPartner", description: "Of an intercompany entry: the pair's other company."}
+        debits: {$ref: "#/components/schemas/Money", description: "Its debit lines summed, in the group currency; its credits are the same amount."}
+        lines:
+          type: array
+          items: {$ref: "#/components/schemas/ConsolidationEntryLine"}
+          description: "Its lines, by group account number, company code (none first), company account number and trading partner code."
+          readOnly: true
+    ConsolidationEntryLine:
+      type: object
+      description: "A line of an elimination entry: an amount in the group currency, debit positive, on a group account, with the company, company account and trading partner of the translated row it reverses, if any."
+      required: [line_no, group_account, amount]
+      properties:
+        line_no: {type: integer, format: int32, description: "Its number within the entry.", readOnly: true}
+        group_account: {$ref: "#/components/schemas/GroupAccountRef"}
+        legal_entity_id: {type: string, format: uuid, description: "The company of the row it reverses; absent on an intercompany difference's line, which is the pair's.", readOnly: true}
+        company_code: {type: string, description: "That company's code, as the run read it.", readOnly: true}
+        company_name: {type: string, description: "That company's name as it is now.", readOnly: true}
+        account_id: {type: string, format: uuid, description: "The company account of the row it reverses.", readOnly: true}
+        account: {$ref: "#/components/schemas/AssetAccountRef"}
+        trading_partner: {$ref: "#/components/schemas/TradingPartner"}
+        amount: {$ref: "#/components/schemas/Money", description: "The amount in the group currency, debit positive."}
+      examples:
+        - line_no: 1
+          group_account: {number: G2250, name: Intercompany payables}
+          legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c
+          company_code: "1000"
+          company_name: Acme Corp US
+          account_id: 0192a000-0000-7000-8000-000000000402
+          account: {number: "225000", name: Intercompany payables}
+          trading_partner: {id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b, code: "3000", name: Maple Industries Canada}
+          amount: {amount: "2800.00", currency: CAD}
+    ConsolidationDifferenceCount:
+      type: object
+      description: "The number of a run's intercompany differences of one status."
+      required: [status, count]
+      properties:
+        status:
+          type: string
+          x-extensible-enum: [matched, within_tolerance, open, outside_group, no_trading_partner]
+          description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        count: {type: integer, format: int32, description: "How many there are.", readOnly: true}
     ConsolidatedStatement:
       type: object
       description: "One page of a consolidated statement of a consolidation run (ADR-0059 §11), with its run and the totals over the whole statement. Every figure is in the group currency, debit positive."
@@ -40465,7 +40722,7 @@ components:
           description: "The role a consolidation run gives the account, if any (`GroupAccount.role`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
         reported: {$ref: "#/components/schemas/Money", description: "The companies' translated figures on the account summed (ADR-0059 §7)."}
-        eliminations: {$ref: "#/components/schemas/Money", description: "The run's eliminations on the account (ADR-0059 §8, §9); zero until they are built (T68f, T68h)."}
+        eliminations: {$ref: "#/components/schemas/Money", description: "The run's elimination entries' lines on the account summed (ADR-0059 §8, §9; `listConsolidationEntries`)."}
         consolidated: {$ref: "#/components/schemas/Money", description: "The reported figure and the eliminations summed: the group's consolidated figure."}
     ConsolidatedFigures:
       type: object
@@ -40473,7 +40730,7 @@ components:
       required: [reported, eliminations, consolidated]
       properties:
         reported: {$ref: "#/components/schemas/Money", description: "The companies' translated figures summed (ADR-0059 §7)."}
-        eliminations: {$ref: "#/components/schemas/Money", description: "The run's eliminations (ADR-0059 §8, §9); zero until they are built (T68f, T68h)."}
+        eliminations: {$ref: "#/components/schemas/Money", description: "The run's elimination entries' lines summed (ADR-0059 §8, §9)."}
         consolidated: {$ref: "#/components/schemas/Money", description: "The reported figures and the eliminations summed."}
     ConsolidatedStatementTotals:
       type: object
