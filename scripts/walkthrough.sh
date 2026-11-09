@@ -4763,6 +4763,46 @@ year_end_checks() {
     "$(jq -r '[.items[].id] | sort | join(" ")' "$WORK/carry-forward-third.json")"
 }
 
+# step_asset_estimate is the year-end review's change in estimate (T57j,
+# ADR-0057 §7; IAS 16.51, IAS 8.36-38): the lathe of step 22, booked
+# through this period in the leading ledger by step 29's run, gets a
+# shorter useful life and a residual value from the next period on.
+step_asset_estimate() {
+  heading "Step 44 — A change in estimate: the lathe's useful life and residual value changed from the next period on, the periods booked untouched"
+  as carla
+  say "At the year-end review Carla finds the lathe will last five years in all, not ten, and fetch CAD 500.00 at"
+  say "the end (IAS 16.51). Its depreciation is booked through this period in the leading ledger, so its terms there"
+  say "change only by a change in estimate, prospectively from a later period (IAS 8.36-38): the periods before keep"
+  say "what was planned and booked, and from the next period the net book value then is spread over the life left."
+  local lathe period year next tag
+  QUIET=1 api 200 '' listAssets -p "legal_entity_id=$LE" -p status=active
+  lathe=$(field '[.items[] | select(.description == "CNC lathe") | .id][0]')
+  api 200 '(.terms[] | "  \(.ledger_code): \(.method) over \(.useful_life_months) months, residual value \(.residual_value.amount) \(.residual_value.currency), booked through \(.booked_through_year // "-")/\(.booked_through_period // "-")")' \
+    getAsset -p "id=$lathe"
+  tag=$ETAG
+  year=$(field '.terms[] | select(.ledger_code == "0L") | .booked_through_year')
+  period=$(field '.terms[] | select(.ledger_code == "0L") | .booked_through_period')
+  expect "the lathe booked through this period" "$year/$period" "$YEAR/$((10#${TODAY:5:2}))"
+  if [ "$period" -lt 12 ]; then next="$year, \"period\": $((period + 1))"; else next="$((year + 1)), \"period\": 1"; fi
+  estimate_body() { echo "{\"terms\": [{\"ledger_id\": \"$LEADING\", \"useful_life_months\": 60, \"residual_value\": {\"amount\": \"500.00\", \"currency\": \"CAD\"}$1}]}"; }
+  say "A change of the booked terms without the period it applies from is refused, and so is one from this period:"
+  refused 409 assets.terms_in_use updateAsset -p "id=$lathe" -if-match "$tag" -body "$(estimate_body '')"
+  refused 422 assets.change_not_prospective updateAsset -p "id=$lathe" -if-match "$tag" \
+    -body "$(estimate_body ", \"effective_from\": {\"fiscal_year\": $year, \"period\": $period}")"
+  api 200 '(.terms[] | select(.ledger_code == "0L") | "  \(.ledger_code): \(.method) over \(.useful_life_months) months, residual value \(.residual_value.amount) \(.residual_value.currency)",
+    (.estimate_changes[] | "    changed from \(.fiscal_year)/\(.period) (\(.effective_from)): was \(.before.useful_life_months) months, residual \(.before.residual_value.amount)"))' \
+    updateAsset -p "id=$lathe" -if-match "$tag" -body "$(estimate_body ", \"effective_from\": {\"fiscal_year\": $next}")"
+  expect "the change" "$(field '.terms[] | select(.ledger_code == "0L") | .estimate_changes | map("\(.before.useful_life_months)>\(.useful_life_months) \(.residual_value.amount)") | join(" ")')" "120>60 500.00"
+  say "The schedule: this period keeps its 41.67, booked; the next one depreciates the net book value then, 4,958.33,"
+  say "less the residual value over the 59 periods left of 60: (4,958.33 - 500.00) / 59 = 75.56."
+  QUIET=1 api 200 '' getAssetSchedule -p "id=$lathe" -p "fiscal_year=$YEAR"
+  expect "this period, planned and booked" "$(field ".periods[] | select(.period == $period) | \"\(.planned.amount) \(.booked.amount)\"")" "41.67 41.67"
+  api 200 '.periods[] | select(.planned.amount != "0.00") | "  \(.fiscal_year)/\(.period): planned \(.planned.amount), booked \(.booked.amount), net book value \(.net_book_value.amount) \(.net_book_value.currency)"' \
+    getAssetSchedule -p "id=$lathe" -p "fiscal_year=${next%%,*}"
+  expect "the next period" "$(field ".periods[] | select(.period == ${next##* }) | .planned.amount")" 75.56
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -6643,7 +6683,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_close'
 
 main() {
   stop_unseen

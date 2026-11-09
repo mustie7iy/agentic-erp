@@ -151,9 +151,17 @@ func (v view) toAPI(a Asset) gen.Asset {
 			continue
 		}
 		t := a.Terms[i]
+		lc := func(m money.Minor) gen.Money { return apitypes.Money(m, co.Currency, v.exponents[co.Currency]) }
 		at := gen.AssetTerms{LedgerID: l.ID, LedgerCode: l.Code, LedgerName: l.Name, Method: t.Method, UsefulLifeMonths: t.UsefulLifeMonths,
-			DecliningFactor: apitypes.OptString(t.DecliningFactor), ResidualValue: apitypes.Money(t.Residual, co.Currency, v.exponents[co.Currency]),
-			DepreciationStart: apitypes.OptDate(t.DepreciationStart)}
+			DecliningFactor: apitypes.OptString(t.DecliningFactor), ResidualValue: lc(t.Residual), DepreciationStart: apitypes.OptDate(t.DepreciationStart),
+			EstimateChanges: make([]gen.AssetEstimateChange, len(t.Changes))}
+		for j, c := range t.Changes {
+			at.EstimateChanges[j] = gen.AssetEstimateChange{FiscalYear: int32(c.FiscalYear), Period: int32(c.Period), EffectiveFrom: c.From, Method: c.Method,
+				UsefulLifeMonths: c.UsefulLifeMonths, DecliningFactor: apitypes.OptString(c.DecliningFactor), ResidualValue: lc(c.Residual),
+				Before: gen.AssetEstimate{Method: c.Before.Method, UsefulLifeMonths: c.Before.UsefulLifeMonths,
+					DecliningFactor: apitypes.OptString(c.Before.DecliningFactor), ResidualValue: lc(c.Before.Residual)},
+				CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy}
+		}
 		if t.booked() {
 			at.BookedThroughYear, at.BookedThroughPeriod = gen.NewOptInt32(int32(*t.BookedYear)), gen.NewOptInt32(int32(*t.BookedPeriod))
 		}
@@ -230,6 +238,9 @@ func (e *Endpoints) UpdateAsset(ctx context.Context, req *gen.AssetUpdate, param
 			DecliningFactor: apitypes.Ptr[string](t.DecliningFactor), DepreciationStart: nilDate(t.DepreciationStart)}
 		if r, ok := t.ResidualValue.Get(); ok {
 			tp.Residual, tp.ResidualCurrency = &r.Amount, &r.Currency
+		}
+		if f, ok := t.EffectiveFrom.Get(); ok {
+			tp.EffectiveFrom = &EstimateFrom{FiscalYear: int16(f.FiscalYear), Period: int16(f.Period)} // the contract bounds both
 		}
 		ch.Terms = append(ch.Terms, tp)
 	}

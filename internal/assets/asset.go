@@ -51,10 +51,37 @@ type Terms struct {
 	Residual                 money.Minor
 	DepreciationStart        *time.Time
 	BookedYear, BookedPeriod *int16
+	// Changes are its changes in estimate in the ledger, oldest first
+	// (T57j): the terms above are the latest one's.
+	Changes []EstimateChange
 	// depreciated is the depreciation booked in the ledger, as read
 	// (asset_terms.booked_depreciation, kept by every posting: keepTotals);
 	// never written from the terms.
 	depreciated money.Minor
+	// changes counts Changes (asset_terms.estimate_changes), read with the
+	// terms so that the changes are read only of terms that have some.
+	changes int32
+}
+
+// Estimate is what a change in estimate sets (ADR-0057 §7, T57j): the
+// method, useful life, declining factor and residual value.
+type Estimate struct {
+	Method           string
+	UsefulLifeMonths int32
+	DecliningFactor  *string
+	Residual         money.Minor
+}
+
+// EstimateChange is a change in estimate of an asset's terms in one
+// ledger: the terms from the start of its period (From, the first day of
+// FiscalYear/Period) on, and those before it.
+type EstimateChange struct {
+	FiscalYear, Period int16
+	From               time.Time
+	Estimate
+	Before    Estimate
+	CreatedAt time.Time
+	CreatedBy uuid.UUID
 }
 
 // Values are an asset's values in one ledger, the sums of its movements

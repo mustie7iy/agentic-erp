@@ -18,13 +18,14 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// termsInUse refuses a change of terms depreciation has been posted with.
-// The database refuses it too (asset_terms_in_use); its problem is not
+// termsInUse refuses a direct change of terms depreciation has been
+// posted with: they change only by a change in estimate (T57j). The
+// database refuses it too (asset_terms_in_use); its problem is not
 // registered, since every change of terms reads the asset FOR UPDATE and
 // checks first, and so does every posting that sets booked_through.
 func termsInUse() *problem.Problem {
-	return problem.Conflict("assets.terms_in_use", "Depreciation has been posted with the asset's terms in this ledger, so they are fixed; "+
-		"a change in estimate is not offered.")
+	return problem.Conflict("assets.terms_in_use", "Depreciation has been posted with the asset's terms in this ledger, so they change only "+
+		"by a change in estimate: give the terms entry effective_from, a period after the one depreciation is booked through.")
 }
 
 // assetSelect reads assets with their current centers, those of the
@@ -93,12 +94,31 @@ func readValues(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) (map[uuid.UUID]
 // row changes. What shows or records them orders them (inLedgerOrder).
 func readTerms(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) (map[uuid.UUID][]Terms, error) {
 	rows, _ := tx.Query(ctx, `SELECT asset_id, ledger_id, method, useful_life_months, trim_scale(declining_factor)::text, residual_value,
-			depreciation_start, booked_through_year, booked_through_period, booked_depreciation
+			depreciation_start, booked_through_year, booked_through_period, booked_depreciation, estimate_changes
 		FROM assets.asset_terms WHERE asset_id = ANY($1)`, ids)
-	return grouped(rows, fmt.Sprintf("terms of %d assets", len(ids)), func(asset *uuid.UUID, t *Terms) []any {
+	out, err := grouped(rows, fmt.Sprintf("terms of %d assets", len(ids)), func(asset *uuid.UUID, t *Terms) []any {
 		return []any{asset, &t.LedgerID, &t.Method, &t.UsefulLifeMonths, &t.DecliningFactor, &t.Residual, &t.DepreciationStart, &t.BookedYear,
-			&t.BookedPeriod, &t.depreciated}
+			&t.BookedPeriod, &t.depreciated, &t.changes}
 	})
+	if err != nil {
+		return nil, err
+	}
+	var changed []uuid.UUID
+	for asset, ts := range out {
+		if slices.ContainsFunc(ts, func(t Terms) bool { return t.changes > 0 }) {
+			changed = append(changed, asset)
+		}
+	}
+	if len(changed) == 0 {
+		return out, nil
+	}
+	changes, err := readChanges(ctx, tx, changed)
+	for asset, ts := range out {
+		for i := range ts {
+			ts[i].Changes = changes[termsKey{asset, ts[i].LedgerID}]
+		}
+	}
+	return out, err
 }
 
 // grouped reads rows of a key and a value, the value's columns scanned
@@ -201,6 +221,9 @@ func record(ctx context.Context, a Asset, ledgers []LedgerRef, action, change st
 	for i, t := range a.Terms {
 		terms[i] = map[string]any{"ledger_id": t.LedgerID, "method": t.Method, "useful_life_months": t.UsefulLifeMonths,
 			"declining_factor": t.DecliningFactor, "residual_value": int64(t.Residual), "depreciation_start": outbox.Date(t.DepreciationStart)}
+		if n := len(t.Changes); n > 0 {
+			terms[i]["estimate_changes"], terms[i]["effective_from"] = n, outbox.Date(&t.Changes[n-1].From)
+		}
 	}
 	detail := map[string]any{"legal_entity_id": a.LegalEntityID, "asset_number": a.Number, "class_code": a.Class, "description": a.Description,
 		"status": a.Status, "cost_center_id": a.CostCenterID, "profit_center_id": a.ProfitCenterID, "terms": terms}

@@ -198,3 +198,31 @@ func TestScheduleWalkRefused(t *testing.T) {
 		t.Errorf("out of range: got %v, want money.ErrOverflow", err)
 	}
 }
+
+// TestScheduleWalkWithChanges (T57j): a change in estimate replaces the
+// terms from its period on, the periods before keeping theirs: 1200 over
+// twelve periods, from April eight periods in all and a residual value of
+// 300, so April on spreads 900 - 300 over the five periods left; of two
+// changes from one period the last wins; a retirement's share of the
+// residual value is the one in force in its period (ResidualAt).
+func TestScheduleWalkWithChanges(t *testing.T) {
+	plan := straight(12, 0, 1)
+	plan.Changes = []assets.Change{{Month: month(4), Method: "straight_line", Life: 8, Residual: 300}}
+	steps := walk(t, plan, []assets.Move{acquired(1, 1200)}, 9)
+	if got, want := depreciations(steps), "100 100 100 120 120 120 120 120 0 | 300"; got != want {
+		t.Errorf("the schedule: got %s, want %s", got, want)
+	}
+	plan.Changes = append(plan.Changes, assets.Change{Month: month(4), Method: "declining_balance", Life: 8, Factor: "2", Residual: 300})
+	steps = walk(t, plan, []assets.Move{acquired(1, 1200)}, 4)
+	if got, want := depreciations(steps), "100 100 100 225 | 675"; got != want {
+		t.Errorf("two changes from April: got %s, want %s", got, want)
+	}
+	for _, c := range []struct {
+		period int
+		want   money.Minor
+	}{{3, 0}, {4, 300}, {9, 300}} {
+		if got := plan.ResidualAt(month(c.period)); got != c.want {
+			t.Errorf("the residual value in period %d: got %d, want %d", c.period, got, c.want)
+		}
+	}
+}

@@ -22,14 +22,47 @@ func MonthOf(d time.Time) Month { return Month(d.Year()*12 + int(d.Month()) - 1)
 // walks them (ADR-0057 §7): the method, the useful life in periods, the
 // declining factor (a plain decimal; declining balance only), the terms'
 // residual value and the period depreciation starts in (nil: none yet,
-// a planned asset without a depreciation start).
+// a planned asset without a depreciation start), and its changes in
+// estimate in month order.
 type Plan struct {
 	Method   string
 	Life     int32
 	Factor   string
 	Residual money.Minor
 	Start    *Month
+	Changes  []Change
 }
+
+// Change is a change in estimate (ADR-0057 §7, T57j; IAS 8.36-38): from
+// the start of its period on, its method, useful life (still counted from
+// the depreciation start), factor and residual value replace the plan's,
+// so the periods before keep what was planned for them, and each period
+// from it on depreciates the net book value then over the life left. Of
+// changes from one period, the last one given wins.
+type Change struct {
+	Month    Month
+	Method   string
+	Life     int32
+	Factor   string
+	Residual money.Minor
+}
+
+// at is the plan with the changes from the period or before applied: the
+// terms in force in it.
+func (p Plan) at(m Month) Plan {
+	for _, c := range p.Changes {
+		if c.Month > m {
+			break
+		}
+		p.Method, p.Life, p.Factor, p.Residual = c.Method, c.Life, c.Factor, c.Residual
+	}
+	return p
+}
+
+// ResidualAt is the terms' residual value in force in the period, the
+// plan's or its latest change's by then (Plan.at): what a retirement or
+// transfer valued in it takes its share of (ADR-0057 §8).
+func (p Plan) ResidualAt(m Month) money.Minor { return p.at(m).Residual }
 
 // Move is a movement the schedule applies at the start of the period of
 // its value date (ADR-0057 §7): an acquisition's cost, the cost,
@@ -90,17 +123,20 @@ func walk(p Plan, moves []Move, through Month, visit func(Step)) error {
 	if len(moves) > 0 {
 		first = min(first, moves[0].Month)
 	}
-	var cost, taken, depreciation money.Minor // taken: accumulated depreciation moves brought (negative) or took (positive)
-	residual, i := p.Residual, 0
+	// taken: accumulated depreciation moves brought (negative) or took
+	// (positive); moved: the residual value they brought or took.
+	var cost, taken, moved, depreciation money.Minor
+	i := 0
 	for m := first; m <= through; m++ {
 		for ; i < len(moves) && moves[i].Month <= m; i++ {
-			cost, taken, residual = cost+moves[i].Cost, taken+moves[i].Accumulated, residual+moves[i].Residual
+			cost, taken, moved = cost+moves[i].Cost, taken+moves[i].Accumulated, moved+moves[i].Residual
 		}
 		book := cost + taken - depreciation
 		var d money.Minor
 		if p.Start != nil && m >= *p.Start {
+			in := p.at(m)
 			var err error
-			if d, err = p.period(int32(m-*p.Start)+1, book, residual); err != nil {
+			if d, err = in.period(int32(m-*p.Start)+1, book, in.Residual+moved); err != nil {
 				return err
 			}
 		}

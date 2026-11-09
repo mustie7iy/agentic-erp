@@ -36,6 +36,9 @@ type TermsPatch struct {
 	DecliningFactor            *string
 	Residual, ResidualCurrency *string
 	DepreciationStart          **time.Time
+	// EffectiveFrom makes the entry a change in estimate from that
+	// period (T57j).
+	EffectiveFrom *EstimateFrom
 }
 
 // changeAsset changes an asset that is not cancelled (422
@@ -62,7 +65,12 @@ func (e *Endpoints) changeAsset(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Asset{}, err
 	}
-	changed, err := changedTerms(a.Terms, terms)
+	fields := estimatesOf(ch)
+	changed, estimated, err := changedTerms(a.Terms, terms, fields)
+	if err != nil {
+		return Asset{}, err
+	}
+	changes, err := e.estimateChanges(ctx, a, estimated, fields)
 	if err != nil {
 		return Asset{}, err
 	}
@@ -73,16 +81,33 @@ func (e *Endpoints) changeAsset(ctx context.Context, id uuid.UUID, ifMatch func(
 		}
 		description = *ch.Description
 	}
-	if description == a.Description && len(changed) == 0 {
+	if description == a.Description && len(changed) == 0 && len(changes) == 0 {
 		return a, nil
 	}
-	if err := touch(ctx, tx, p, id, description); err != nil {
-		return Asset{}, err
-	}
-	if err := writeTerms(ctx, tx, p, id, changed); err != nil {
+	if err := e.writeChange(ctx, tx, p, id, description, changed, changes, estimated); err != nil {
 		return Asset{}, err
 	}
 	return e.written(ctx, tx, id, "change", "changed")
+}
+
+// writeChange writes an asset's description, its terms changed directly
+// and its changes in estimate (the estimated terms' ledgers in order).
+func (e *Endpoints) writeChange(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, description string, changed []Terms,
+	changes []EstimateChange, estimated []Terms) error {
+	if len(changes) == 0 {
+		if err := touch(ctx, tx, p, id, description); err != nil {
+			return err
+		}
+	} else {
+		ledgers := make([]uuid.UUID, len(estimated))
+		for i, t := range estimated {
+			ledgers[i] = t.LedgerID
+		}
+		if err := writeChanges(ctx, tx, p, id, description, changes, ledgers); err != nil {
+			return err
+		}
+	}
+	return writeTerms(ctx, tx, p, id, changed)
 }
 
 // termsFrame is what a terms entry is checked against: the ledgers the
@@ -251,24 +276,6 @@ func residualValue(field, amount, code string, f termsFrame) (money.Minor, error
 		return 0, validation(field+".residual_value.amount", "zero or more")
 	}
 	return m, nil
-}
-
-// changedTerms are the terms that differ from the asset's, refusing a
-// change in a ledger depreciation has been posted in (409
-// assets.terms_in_use; the database holds it too, asset_terms_in_use).
-func changedTerms(old, terms []Terms) ([]Terms, error) {
-	var out []Terms
-	for _, t := range terms {
-		i := slices.IndexFunc(old, func(o Terms) bool { return o.LedgerID == t.LedgerID })
-		if i >= 0 && sameTerms(old[i], t) {
-			continue
-		}
-		if i >= 0 && old[i].booked() {
-			return nil, termsInUse()
-		}
-		out = append(out, t)
-	}
-	return out, nil
 }
 
 // sameTerms reports whether two terms of a ledger are the same.

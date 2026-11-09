@@ -73,7 +73,7 @@ func selectDepreciable(ctx context.Context, tx pgx.Tx, le, ledger uuid.UUID, p P
 	}
 	rows, _ := tx.Query(ctx, `SELECT a.id, a.class_code, a.capitalised_on, c.cost_center_id, c.profit_center_id,
 			t.method, t.useful_life_months, trim_scale(t.declining_factor)::text, t.residual_value, t.depreciation_start,
-			t.booked_depreciation, $6::text IS NULL OR (a.asset_number, a.id) > ($6, $7::uuid), a.rank
+			t.booked_depreciation, t.estimate_changes, $6::text IS NULL OR (a.asset_number, a.id) > ($6, $7::uuid), a.rank
 		FROM (SELECT x.tenant_id, x.id, x.asset_number, x.class_code, x.capitalised_on, x.status,
 				row_number() OVER (ORDER BY x.asset_number) AS rank
 			FROM assets.asset x WHERE x.legal_entity_id = $1 AND ($8::uuid[] IS NULL OR x.id = ANY($8))) a
@@ -90,7 +90,7 @@ func selectDepreciable(ctx context.Context, tx pgx.Tx, le, ledger uuid.UUID, p P
 	var all []candidate // one allocation as it grows, not one per asset
 	var c candidate
 	_, err := pgx.ForEachRow(rows, []any{&c.asset, &c.class, &c.capitalised, &c.costCenter, &c.profitCenter, &c.terms.Method,
-		&c.terms.UsefulLifeMonths, &c.terms.DecliningFactor, &c.terms.Residual, &c.terms.DepreciationStart, &c.booked, &c.after, &c.rank}, func() error {
+		&c.terms.UsefulLifeMonths, &c.terms.DecliningFactor, &c.terms.Residual, &c.terms.DepreciationStart, &c.booked, &c.terms.changes, &c.after, &c.rank}, func() error {
 		c.terms.LedgerID = ledger
 		all = append(all, c)
 		c = candidate{} // the next row's pointers are scanned into a new value
@@ -181,6 +181,9 @@ func differences(ctx context.Context, tx pgx.Tx, ledger uuid.UUID, p Period, cs 
 		ds[c.asset] = &c.depreciable
 	}
 	if err := readMoves(ctx, tx, ledger, ds); err != nil {
+		return err
+	}
+	if err := withChanges(ctx, tx, ledger, ds); err != nil {
 		return err
 	}
 	for _, c := range cs {

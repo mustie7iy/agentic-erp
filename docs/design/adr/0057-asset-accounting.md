@@ -88,8 +88,7 @@ cost and profit centers and to another asset of the same company,
 reversible; the asset history sheet per company, ledger and fiscal year.
 
 Out (none built; each is a question for the product owner or a gap, both
-listed at the end): transfers between companies; a change of useful life
-or method after depreciation has been posted (a change in estimate); a
+listed at the end): transfers between companies; a
 take-over of existing assets at cutover and the SAP migration of fixed
 assets; depreciation areas that post to no ledger (tax depreciation such as
 Canada's CCA); assets under construction with their own settlement rules;
@@ -558,7 +557,16 @@ area, as ADR-0045 foresaw ("depreciation runs per depreciation area, each
 posting to its ledger"): an asset has one terms row per ledger, created
 from its class's defaults when the asset is created and changeable by
 `PATCH` until depreciation is first posted in that ledger (409
-`assets.terms_in_use` afterwards; a change in estimate is out of scope, §1).
+`assets.terms_in_use` afterwards), and from then on only by a change in
+estimate (T57j, po:2026-11-09 B13; IAS 16.51, 16.61, IAS 8.36-38): a
+terms entry of the `PATCH` with `effective_from`, a regular period after
+the one the ledger is booked through and not before the latest change's
+(422 `assets.change_not_prospective`), sets the method, useful life
+(still counted from the depreciation start), factor and residual value
+from that period on. The schedule walks each period on the terms in force
+in it, so the periods before keep what was planned and booked, and the
+straight-line formula below spreads the net book value then over the
+life left: prospective, with no catch-up.
 A ledger assigned to the company later gets terms by `PATCH`; until then
 that ledger's runs skip the asset and count it (`assets_skipped`).
 
@@ -1377,7 +1385,8 @@ the `assets` schema), 04 §4.9 (T57d) and this ADR's "As built".
   roadmap's "transfers" is read as within one company. Recommendation:
   after T68's intercompany accounts, as its own leaf.
 - **A change in estimate** (useful life, residual value or method after
-  depreciation has started, applied prospectively). IFRS requires a review
+  depreciation has started, applied prospectively; built by T57j, As
+  built). IFRS requires a review
   of useful life and residual value at least at each year end (IAS 16.51,
   from memory, for a specialist). Recommendation: a leaf before the pilot's
   first year end. **The accounting specialist (po:2026-11-09, B13):** the
@@ -2593,3 +2602,57 @@ cannot fail to serialise, so the mark costs no retry, and a read that
 issues one statement keeps READ COMMITTED.
 - **Tracker.** A leaf "Every read of the assets context in one snapshot"
   (`review:T57f`), done with this step.
+
+**T57j (a change in estimate, po:2026-11-09 B13).** An asset's useful
+life, residual value and method in a ledger change after depreciation was
+posted there, prospectively from a chosen period (IAS 16.51, 16.61, IAS
+8.36-38), so the year-end review is booked in the register rather than by
+a manual journal. Built: migration 000243 (`assets.estimate_change`,
+insert-only, each change with its period, its first day, the terms after
+and before it, under the asset's `seq`; `asset_terms.estimate_changes`
+counting them; triggers `estimate_change_prospective` (after the period
+booked through, not before the latest change, the asset's current `seq`,
+the terms before as they stand) and the replaced `asset_terms_in_use`,
+which lets a booked row change only by the update counting one more
+change, to exactly that change's terms, its depreciation start unchanged;
+`TestAssetEstimateChangeRules`). `Plan.Changes` in the walk
+(`schedule.go`): each period depreciates on the terms in force in it, the
+residual value being the change's plus what moves brought or took.
+Contract: `AssetTermsUpdate.effective_from` (`AssetEstimateFrom`),
+`AssetTerms.estimate_changes` (`AssetEstimateChange`, with the terms
+`before` it), the problem `assets.change_not_prospective`; tests
+`TestChangeInEstimate`, `TestChangeInEstimateFailures`,
+`TestScheduleWalkWithChanges`; walkthrough step 44
+(`step_asset_estimate`). Decided by default, for the product owner to
+overrule:
+- **Through `PATCH /v1/assets/{id}`, not an operation of its own.** A
+  change in estimate is a change of the terms the asset already carries,
+  so a terms entry gains `effective_from`; required once the ledger is
+  booked (409 `assets.terms_in_use` without it), refused before (422
+  `request.validation_failed`: the terms then change directly). The asset
+  shows each ledger's changes, oldest first; the audit record names the
+  count and the latest period, and AssetChanged (`changed`) is published
+  as for any change.
+- **The useful life stays the total from the depreciation start**, as the
+  terms always count it, so a review that finds three years left on an
+  asset two years in sets 60 months; the depreciation start does not
+  change with it (422).
+- **The residual value keeps the terms' meaning**: what retirements and
+  transfers took or brought still adds to it. A retirement or transfer
+  takes its share of the residual value in force in its period
+  (`Plan.ResidualAt`), so a change from a later period does not reach
+  back.
+- **Strictly after the period booked through**: nothing booked changes,
+  so no run posts a correction of past periods (that would be an error
+  correction, IAS 8.41, not an estimate). A review after the year's last
+  run takes effect from the next period; several changes from one period
+  may be made, the last one winning, and none before the latest.
+- **A change takes the asset's `seq`** (it is a posting of the asset,
+  §5), so a retirement or transfer posted before it is no longer reversed
+  (409 `assets.later_movements`); `booked_through` therefore never falls
+  back below a change, and terms with changes never return to direct
+  changes. A change is not reversed: a later change from the same period
+  supersedes it.
+- **Reads cost nothing for assets without changes**: the walk reads the
+  changes only of terms that count some, in one statement per run batch,
+  preview page or asset read (`withChanges`, `readTerms`).

@@ -44,17 +44,31 @@ func (d depreciable) start() *time.Time {
 	return d.capitalised
 }
 
-// plan is the terms as the walk reads them.
+// plan is the terms as the walk reads them: those before the first
+// change in estimate, then each change from its period (T57j).
 func (d depreciable) plan() Plan {
-	p := Plan{Method: d.terms.Method, Life: d.terms.UsefulLifeMonths, Residual: d.terms.Residual}
-	if d.terms.DecliningFactor != nil {
-		p.Factor = *d.terms.DecliningFactor
+	base := Estimate{Method: d.terms.Method, UsefulLifeMonths: d.terms.UsefulLifeMonths, DecliningFactor: d.terms.DecliningFactor, Residual: d.terms.Residual}
+	if len(d.terms.Changes) > 0 {
+		base = d.terms.Changes[0].Before
+	}
+	p := Plan{Method: base.Method, Life: base.UsefulLifeMonths, Factor: factorOf(base), Residual: base.Residual}
+	for _, c := range d.terms.Changes {
+		p.Changes = append(p.Changes, Change{Month: MonthOf(c.From), Method: c.Method, Life: c.UsefulLifeMonths, Factor: factorOf(c.Estimate), Residual: c.Residual})
 	}
 	if s := d.start(); s != nil {
 		m := MonthOf(*s)
 		p.Start = &m
 	}
 	return p
+}
+
+// factorOf is the estimate's declining factor as the walk reads it, empty
+// for straight-line.
+func factorOf(e Estimate) string {
+	if e.DecliningFactor == nil {
+		return ""
+	}
+	return *e.DecliningFactor
 }
 
 // schedule walks the schedule through the period (Walk).

@@ -317,6 +317,9 @@ func (e *Endpoints) catchUps(ctx context.Context, tx pgx.Tx, a Asset, co Company
 		if err != nil {
 			return nil, err
 		}
+		// The share takes of the residual value in force in V: a change in
+		// estimate from a later period has not replaced it yet (T57j).
+		t.Residual = d.plan().ResidualAt(MonthOf(v.Start))
 		out = append(out, &retiredLedger{ledger: l, terms: t, values: a.Values[l.ID], catchUp: planned - d.booked})
 	}
 	return out, nil

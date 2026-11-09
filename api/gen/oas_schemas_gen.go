@@ -5839,6 +5839,217 @@ func (s *AssetDocumentEntry) SetReversalDocumentNumber(val OptString) {
 	s.ReversalDocumentNumber = val
 }
 
+// An asset's terms in one ledger before a change in estimate: method, useful life, declining factor
+// and residual value.
+// Ref: #/components/schemas/AssetEstimate
+type AssetEstimate struct {
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Method string `json:"method"`
+	// The useful life in months.
+	UsefulLifeMonths int32 `json:"useful_life_months"`
+	// The declining balance factor; only with `declining_balance`.
+	DecliningFactor OptString `json:"declining_factor"`
+	ResidualValue   Money     `json:"residual_value"`
+}
+
+// GetMethod returns the value of Method.
+func (s *AssetEstimate) GetMethod() string {
+	return s.Method
+}
+
+// GetUsefulLifeMonths returns the value of UsefulLifeMonths.
+func (s *AssetEstimate) GetUsefulLifeMonths() int32 {
+	return s.UsefulLifeMonths
+}
+
+// GetDecliningFactor returns the value of DecliningFactor.
+func (s *AssetEstimate) GetDecliningFactor() OptString {
+	return s.DecliningFactor
+}
+
+// GetResidualValue returns the value of ResidualValue.
+func (s *AssetEstimate) GetResidualValue() Money {
+	return s.ResidualValue
+}
+
+// SetMethod sets the value of Method.
+func (s *AssetEstimate) SetMethod(val string) {
+	s.Method = val
+}
+
+// SetUsefulLifeMonths sets the value of UsefulLifeMonths.
+func (s *AssetEstimate) SetUsefulLifeMonths(val int32) {
+	s.UsefulLifeMonths = val
+}
+
+// SetDecliningFactor sets the value of DecliningFactor.
+func (s *AssetEstimate) SetDecliningFactor(val OptString) {
+	s.DecliningFactor = val
+}
+
+// SetResidualValue sets the value of ResidualValue.
+func (s *AssetEstimate) SetResidualValue(val Money) {
+	s.ResidualValue = val
+}
+
+// A change in estimate of an asset's terms in one ledger (ADR-0057 §7, T57j; IAS 8.36-38): from the
+// start of its period on, its method, useful life, declining factor and residual value replace those
+// before it.
+// Ref: #/components/schemas/AssetEstimateChange
+type AssetEstimateChange struct {
+	// The fiscal year of the period it applies from.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The regular period it applies from.
+	Period int32 `json:"period"`
+	// That period's first day.
+	EffectiveFrom time.Time `json:"effective_from"`
+	// The method from the period on. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Method string `json:"method"`
+	// The useful life from the period on, in months from the depreciation start.
+	UsefulLifeMonths int32 `json:"useful_life_months"`
+	// The declining balance factor; only with `declining_balance`.
+	DecliningFactor OptString     `json:"declining_factor"`
+	ResidualValue   Money         `json:"residual_value"`
+	Before          AssetEstimate `json:"before"`
+	// When it was recorded.
+	CreatedAt time.Time `json:"created_at"`
+	// Who recorded it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetEstimateChange) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *AssetEstimateChange) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetEffectiveFrom returns the value of EffectiveFrom.
+func (s *AssetEstimateChange) GetEffectiveFrom() time.Time {
+	return s.EffectiveFrom
+}
+
+// GetMethod returns the value of Method.
+func (s *AssetEstimateChange) GetMethod() string {
+	return s.Method
+}
+
+// GetUsefulLifeMonths returns the value of UsefulLifeMonths.
+func (s *AssetEstimateChange) GetUsefulLifeMonths() int32 {
+	return s.UsefulLifeMonths
+}
+
+// GetDecliningFactor returns the value of DecliningFactor.
+func (s *AssetEstimateChange) GetDecliningFactor() OptString {
+	return s.DecliningFactor
+}
+
+// GetResidualValue returns the value of ResidualValue.
+func (s *AssetEstimateChange) GetResidualValue() Money {
+	return s.ResidualValue
+}
+
+// GetBefore returns the value of Before.
+func (s *AssetEstimateChange) GetBefore() AssetEstimate {
+	return s.Before
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *AssetEstimateChange) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *AssetEstimateChange) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetEstimateChange) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *AssetEstimateChange) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetEffectiveFrom sets the value of EffectiveFrom.
+func (s *AssetEstimateChange) SetEffectiveFrom(val time.Time) {
+	s.EffectiveFrom = val
+}
+
+// SetMethod sets the value of Method.
+func (s *AssetEstimateChange) SetMethod(val string) {
+	s.Method = val
+}
+
+// SetUsefulLifeMonths sets the value of UsefulLifeMonths.
+func (s *AssetEstimateChange) SetUsefulLifeMonths(val int32) {
+	s.UsefulLifeMonths = val
+}
+
+// SetDecliningFactor sets the value of DecliningFactor.
+func (s *AssetEstimateChange) SetDecliningFactor(val OptString) {
+	s.DecliningFactor = val
+}
+
+// SetResidualValue sets the value of ResidualValue.
+func (s *AssetEstimateChange) SetResidualValue(val Money) {
+	s.ResidualValue = val
+}
+
+// SetBefore sets the value of Before.
+func (s *AssetEstimateChange) SetBefore(val AssetEstimate) {
+	s.Before = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *AssetEstimateChange) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *AssetEstimateChange) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// A change in estimate (T57j): the regular period of the company's fiscal year the changed terms apply
+// from, after the one the ledger's depreciation is booked through; required once depreciation has been
+// posted in the ledger, refused before.
+// Ref: #/components/schemas/AssetEstimateFrom
+type AssetEstimateFrom struct {
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// A regular period, 1 to 12 (a special one is 422 `assets.special_period`).
+	Period int32 `json:"period"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetEstimateFrom) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *AssetEstimateFrom) GetPeriod() int32 {
+	return s.Period
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetEstimateFrom) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *AssetEstimateFrom) SetPeriod(val int32) {
+	s.Period = val
+}
+
 // AssetHeaders wraps Asset with response headers.
 type AssetHeaders struct {
 	ETag               OptString
@@ -8094,6 +8305,10 @@ type AssetTerms struct {
 	BookedThroughYear OptInt32 `json:"booked_through_year"`
 	// That period, with `booked_through_year`.
 	BookedThroughPeriod OptInt32 `json:"booked_through_period"`
+	// Its changes in estimate in this ledger, oldest first (T57j): the terms above are the latest one's,
+	// in force from its period; the periods before each change were planned on the terms before it. Empty
+	// while there is none.
+	EstimateChanges []AssetEstimateChange `json:"estimate_changes"`
 }
 
 // GetLedgerID returns the value of LedgerID.
@@ -8146,6 +8361,11 @@ func (s *AssetTerms) GetBookedThroughPeriod() OptInt32 {
 	return s.BookedThroughPeriod
 }
 
+// GetEstimateChanges returns the value of EstimateChanges.
+func (s *AssetTerms) GetEstimateChanges() []AssetEstimateChange {
+	return s.EstimateChanges
+}
+
 // SetLedgerID sets the value of LedgerID.
 func (s *AssetTerms) SetLedgerID(val uuid.UUID) {
 	s.LedgerID = val
@@ -8196,6 +8416,11 @@ func (s *AssetTerms) SetBookedThroughPeriod(val OptInt32) {
 	s.BookedThroughPeriod = val
 }
 
+// SetEstimateChanges sets the value of EstimateChanges.
+func (s *AssetTerms) SetEstimateChanges(val []AssetEstimateChange) {
+	s.EstimateChanges = val
+}
+
 // A change of an asset's terms in one ledger, absent fields unchanged; for a ledger the asset has no
 // terms in yet, `method` and `useful_life_months` are required.
 // Ref: #/components/schemas/AssetTermsUpdate
@@ -8210,8 +8435,10 @@ type AssetTermsUpdate struct {
 	// Above 1 and at most 10; only with `declining_balance`.
 	DecliningFactor OptString `json:"declining_factor"`
 	ResidualValue   OptMoney  `json:"residual_value"`
-	// The day depreciation starts from in this ledger; null: from the capitalisation date.
-	DepreciationStart OptNilDate `json:"depreciation_start"`
+	// The day depreciation starts from in this ledger; null: from the capitalisation date. Not with
+	// `effective_from`.
+	DepreciationStart OptNilDate           `json:"depreciation_start"`
+	EffectiveFrom     OptAssetEstimateFrom `json:"effective_from"`
 }
 
 // GetLedgerID returns the value of LedgerID.
@@ -8244,6 +8471,11 @@ func (s *AssetTermsUpdate) GetDepreciationStart() OptNilDate {
 	return s.DepreciationStart
 }
 
+// GetEffectiveFrom returns the value of EffectiveFrom.
+func (s *AssetTermsUpdate) GetEffectiveFrom() OptAssetEstimateFrom {
+	return s.EffectiveFrom
+}
+
 // SetLedgerID sets the value of LedgerID.
 func (s *AssetTermsUpdate) SetLedgerID(val uuid.UUID) {
 	s.LedgerID = val
@@ -8272,6 +8504,11 @@ func (s *AssetTermsUpdate) SetResidualValue(val OptMoney) {
 // SetDepreciationStart sets the value of DepreciationStart.
 func (s *AssetTermsUpdate) SetDepreciationStart(val OptNilDate) {
 	s.DepreciationStart = val
+}
+
+// SetEffectiveFrom sets the value of EffectiveFrom.
+func (s *AssetTermsUpdate) SetEffectiveFrom(val OptAssetEstimateFrom) {
+	s.EffectiveFrom = val
 }
 
 // Merged schema.
@@ -47419,6 +47656,52 @@ func (o OptAssetClearingReversal) Get() (v AssetClearingReversal, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAssetClearingReversal) Or(d AssetClearingReversal) AssetClearingReversal {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssetEstimateFrom returns new OptAssetEstimateFrom with value set to v.
+func NewOptAssetEstimateFrom(v AssetEstimateFrom) OptAssetEstimateFrom {
+	return OptAssetEstimateFrom{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetEstimateFrom is optional AssetEstimateFrom.
+type OptAssetEstimateFrom struct {
+	Value AssetEstimateFrom
+	Set   bool
+}
+
+// IsSet returns true if OptAssetEstimateFrom was set.
+func (o OptAssetEstimateFrom) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetEstimateFrom) Reset() {
+	var v AssetEstimateFrom
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetEstimateFrom) SetTo(v AssetEstimateFrom) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetEstimateFrom) Get() (v AssetEstimateFrom, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetEstimateFrom) Or(d AssetEstimateFrom) AssetEstimateFrom {
 	if v, ok := o.Get(); ok {
 		return v
 	}
