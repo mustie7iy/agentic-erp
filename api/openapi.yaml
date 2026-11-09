@@ -15086,7 +15086,6 @@ paths:
       x-agent: false
       x-problem-codes:
         - closing.checks_failing
-        - closing.close_exists
         - closing.close_signed_off
         - closing.period_not_closed
         - closing.tasks_open
@@ -15584,7 +15583,7 @@ paths:
       tags:
         - closing
       summary: Assign a year close task
-      description: "Sets or clears (null) the person a task of a year close is assigned to (ADR-0060 §8, T64m4), as `updateCloseTask` does a period close's: an active person of the tenant who may act in the close's company (422 `closing.assignee_invalid` for an agent, a service, a blocked or unknown principal, or a person without access to the close's company). `If-Match` is the close's ETag, so a change made on a stale view of the checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_assigned`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
+      description: "Sets or clears (null) the person a task of a year close is assigned to (ADR-0060 §8, T64m4), as `updateCloseTask` does a period close's: an active person of the tenant who may act in the close's company (422 `closing.assignee_invalid` for an agent, a service, a blocked or unknown principal, or a person without access to the close's company). `If-Match` is the close's ETag, so a change made on a stale view of the checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_assigned`). A signed-off year close (`signOffYearClose`) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
@@ -15644,7 +15643,7 @@ paths:
       tags:
         - closing
       summary: Complete a year close task
-      description: "Marks an open manual task of a year close done, with an optional note (ADR-0060 §8, T64m4), as `completeCloseTask` does a period close's: refused while a task it depends on is open (409 `closing.task_blocked`, naming them), for a task already done (409 `closing.task_already_done`) and for a check task, which is done by its check passing (409 `closing.task_is_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_completed`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
+      description: "Marks an open manual task of a year close done, with an optional note (ADR-0060 §8, T64m4), as `completeCloseTask` does a period close's: refused while a task it depends on is open (409 `closing.task_blocked`, naming them), for a task already done (409 `closing.task_already_done`) and for a check task, which is done by its check passing (409 `closing.task_is_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_completed`). A signed-off year close (`signOffYearClose`) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
@@ -15706,7 +15705,7 @@ paths:
       tags:
         - closing
       summary: Reopen a year close task
-      description: "Returns a done task of a year close to open, with a reason (409 `closing.task_not_done` for an open one) (ADR-0060 §8, T64m4), as `reopenCloseTask` does a period close's: who completed it, when, and the note are cleared, and the reason is kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_reopened`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
+      description: "Returns a done task of a year close to open, with a reason (409 `closing.task_not_done` for an open one) (ADR-0060 §8, T64m4), as `reopenCloseTask` does a period close's: who completed it, when, and the note are cleared, and the reason is kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_reopened`). A signed-off year close (`signOffYearClose`) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
@@ -15766,7 +15765,7 @@ paths:
       tags:
         - closing
       summary: Run a year close task's check
-      description: "Runs a check task's check of a year close now and records its result on the task (ADR-0060 §8, T64m5), as `checkCloseTask` does a period close's: `check_result` says whether it passed, when, who ran it and what it found; the task is set done when it passed and open when it did not. The checks read the covered ledgers' periods of the fiscal year as they are now. `no_parked_entries` passes when no parked entry of the company dated in the fiscal year (the leading ledger's first regular period's first day to its last regular period's last day) is `parked` or `pending_approval`, those parked for a special period included (ADR-0060 §3), and names the first 20 with who parked them; `revaluation_posted` passes when each covered ledger has a posted revaluation run keyed on the year's last day (its last regular period's), and names each ledger with its run; `depreciation_year_posted` passes when, for each covered ledger and each regular period of the year, `depreciation_posted` would pass (a posted depreciation run of the period, no asset a run of it would select, or a posted run of a later period, each asset then a `depreciation_catch_up` warning), and names each ledger and period that fails (`ledger_periods_count`, the first 20 in `ledgers`); `carry_forward_current` passes when each covered ledger has a current balance carry-forward from the fiscal year (`GET /v1/balance-carry-forwards`) that is not stale, and names each ledger with its run, or without one, and with the periods opened since that make it stale. A check is a statement about the moment it ran: run it again to refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_checked`, with `check_passed`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked, the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
+      description: "Runs a check task's check of a year close now and records its result on the task (ADR-0060 §8, T64m5), as `checkCloseTask` does a period close's: `check_result` says whether it passed, when, who ran it and what it found; the task is set done when it passed and open when it did not. The checks read the covered ledgers' periods of the fiscal year as they are now. `no_parked_entries` passes when no parked entry of the company dated in the fiscal year (the leading ledger's first regular period's first day to its last regular period's last day) is `parked` or `pending_approval`, those parked for a special period included (ADR-0060 §3), and names the first 20 with who parked them; `revaluation_posted` passes when each covered ledger has a posted revaluation run keyed on the year's last day (its last regular period's), and names each ledger with its run; `depreciation_year_posted` passes when, for each covered ledger and each regular period of the year, `depreciation_posted` would pass (a posted depreciation run of the period, no asset a run of it would select, or a posted run of a later period, each asset then a `depreciation_catch_up` warning), and names each ledger and period that fails (`ledger_periods_count`, the first 20 in `ledgers`); `carry_forward_current` passes when each covered ledger has a current balance carry-forward from the fiscal year (`GET /v1/balance-carry-forwards`) that is not stale, and names each ledger with its run, or without one, and with the periods opened since that make it stale. A check is a statement about the moment it ran: run it again to refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_checked`, with `check_passed`). A signed-off year close (`signOffYearClose`) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked, the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
@@ -15794,6 +15793,70 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/YearCloseTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/year-closes/{id}:signOff":
+    post:
+      operationId: signOffYearClose
+      tags:
+        - closing
+      summary: Sign off a year close
+      description: "Signs off a year close and locks the fiscal year in its covered ledgers (ADR-0060 §8, T64m6), as `signOffPeriodClose` signs off a period close, in one transaction under a lock on the close: first every posting period of the year of every covered ledger, regular and special, is read `FOR UPDATE` in one statement, by period, then the leading ledger first, then by ledger code (the order postings lock periods in), so that no period is opened or unlocked until the sign-off commits. A year close already signed off whose periods are all locked is refused (409 `closing.close_signed_off`). Then refused while a manual task is open (409 `closing.tasks_open`, naming them); every check task's check runs again, and if any fails the sign-off is refused (409 `closing.checks_failing`, the problem's `failing_checks` naming each failing task with what its check found) and nothing is kept; when all pass each result is recorded on its task. Every regular period of each covered ledger must be `locked` (409 `closing.year_periods_not_locked`, naming each ledger with its periods not locked: the period closes' sign-offs, or `lockFiscalPeriod`, lock them), and every special period `closed` or `locked` (409 `closing.period_not_closed`, naming each period with the ledgers it is open in): a sign-off never closes a period. Each `closed` special period is then locked as `lockFiscalPeriod` locks it (the ledger's audit record and PeriodLocked), in the order read; a period already locked is left as it is. After it every period of the year is locked in the covered ledgers, and a posting into one is refused (409 `ledger.period_not_open`). The sign-off is recorded with who signed off and their name, when, the note and, per covered ledger, its special periods and whether this sign-off locked each, and the close is `signed_off`. After a period of the year was unlocked (an approved `unlockFiscalPeriod` request) the year close is signed off again, adding a second sign-off. No separation of duties for the pilot: who signed is recorded (product owner 2026-11-04, ADR-0060 §12). `If-Match` is the close's ETag; the answer is the sign-off, with the close's new ETag. People only. Besides `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks periods, and `ledger.entry.read`, since its refusal names what the checks found (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as YearCloseSignedOff."
+      x-permission: closing.close.sign_off
+      x-also-permissions:
+        - ledger.period.lock
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - closing.checks_failing
+        - closing.close_signed_off
+        - closing.period_not_closed
+        - closing.tasks_open
+        - closing.year_periods_not_locked
+        - config.not_bootstrapped
+        - ledger.invalid_period_status
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of signOffYearClose.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PeriodCloseSignOffInput"
+      responses:
+        "200":
+          description: "The sign-off, with the special periods it locked, and the close's new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YearCloseSignOff"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -39418,6 +39481,7 @@ components:
         - tasks_overdue
         - ledgers
         - tasks
+        - sign_offs
         - version
         - created_at
         - created_by
@@ -39459,8 +39523,22 @@ components:
           readOnly: true
         status:
           type: string
-          description: "`open` until it is signed off (T64m6). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "`open` until it is signed off (`signOffYearClose`, T64m6), and again after a covered period was unlocked and the close written to (ADR-0060 §8, ADR-0058 §7). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum: [open, signed_off]
+          readOnly: true
+        signed_off_at:
+          type: string
+          format: date-time
+          description: "When it was last signed off (`:signOff`, T64m6); absent while it is open."
+          readOnly: true
+        signed_off_by:
+          type: string
+          format: uuid
+          description: "Who signed it off; absent while it is open."
+          readOnly: true
+        signed_off_by_name:
+          type: string
+          description: "Their name; absent while it is open."
           readOnly: true
         read_date:
           type: string
@@ -39508,6 +39586,13 @@ components:
           items:
             $ref: "#/components/schemas/YearCloseTask"
           description: "Its tasks, in the template's order."
+          readOnly: true
+        sign_offs:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/YearCloseSignOff"
+          description: "Its sign-offs, oldest first (T64m6): one per `:signOff`, a second after a period of the year was unlocked and the close signed off again; empty until it is signed off."
           readOnly: true
         version:
           type: integer
@@ -39574,6 +39659,7 @@ components:
               status: open
               overdue: false
               read_date: "2026-01-05"
+          sign_offs: []
           version: 1
           created_at: "2026-01-05T14:00:00Z"
           created_by: 0192a000-0000-7000-8000-000000000101
@@ -39640,6 +39726,20 @@ components:
           type: string
           description: "Year close status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum: [open, signed_off]
+          readOnly: true
+        signed_off_at:
+          type: string
+          format: date-time
+          description: "When it was last signed off (`:signOff`, T64m6); absent while it is open."
+          readOnly: true
+        signed_off_by:
+          type: string
+          format: uuid
+          description: "Who signed it off; absent while it is open."
+          readOnly: true
+        signed_off_by_name:
+          type: string
+          description: "Their name; absent while it is open."
           readOnly: true
         read_date:
           type: string
@@ -39940,7 +40040,7 @@ components:
           note: The auditors' three adjustments posted into period 13.
     PeriodCloseSignOffInput:
       type: object
-      description: "A period close's sign-off."
+      description: "A close's sign-off: a period close's (`signOffPeriodClose`) or a year close's (`signOffYearClose`)."
       properties:
         note: {type: string, minLength: 1, maxLength: 2000, description: "What the signer wants kept with the sign-off; kept on it and in the audit trail."}
       additionalProperties: false
@@ -40072,6 +40172,151 @@ components:
         locked:
           type: boolean
           description: "Whether this sign-off locked the period: false when it was locked already."
+          readOnly: true
+    YearCloseSignOff:
+      type: object
+      description: "A sign-off of a year close (ADR-0060 §8, T64m6): who signed it off, with their name as it was then, when, and per covered ledger its special periods and whether this sign-off locked each; every regular period was locked already. Recorded once, never changed; a year close signed off again after an unlock has a second."
+      required:
+        - id
+        - close_id
+        - legal_entity_id
+        - company_code
+        - company_name
+        - fiscal_year
+        - signed_by
+        - signed_by_name
+        - signed_at
+        - ledgers
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        close_id:
+          type: string
+          format: uuid
+          description: "The year close (`GET /v1/year-closes/{id}`)."
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The company's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The company's name.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year.
+          readOnly: true
+        signed_by:
+          type: string
+          format: uuid
+          description: The person who signed it off.
+          readOnly: true
+        signed_by_name:
+          type: string
+          description: "Their name, as it was at the sign-off."
+          readOnly: true
+        signed_at:
+          type: string
+          format: date-time
+          description: When.
+          readOnly: true
+        note:
+          type: string
+          description: "The note given with it; absent without one."
+          readOnly: true
+        ledgers:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/YearCloseSignOffLedger"
+          description: "The covered ledgers, the leading one first, then by code."
+          readOnly: true
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000f71
+          close_id: 0192a000-0000-7000-8000-000000000f61
+          legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+          company_code: "1000"
+          company_name: Maple Manufacturing Ltd.
+          fiscal_year: 2025
+          signed_by: 0192a000-0000-7000-8000-000000000101
+          signed_by_name: Carla Controller
+          signed_at: "2026-02-20T16:00:00Z"
+          note: 2025 closed; the auditors' adjustments are in period 13.
+          ledgers:
+            - ledger_id: 0192a000-0000-7000-8000-000000000a01
+              ledger_code: 0L
+              ledger_name: Leading ledger
+              is_leading: true
+              periods:
+                - {fiscal_period_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d4d, period: 13, locked: true}
+                - {fiscal_period_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d4e, period: 14, locked: true}
+    YearCloseSignOffLedger:
+      type: object
+      description: "A covered ledger as a year close's sign-off found it: its special periods of the year, and whether this sign-off locked each."
+      required:
+        - ledger_id
+        - ledger_code
+        - ledger_name
+        - is_leading
+        - periods
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: The ledger.
+          readOnly: true
+        ledger_code:
+          type: string
+          description: "The ledger's code, as it was at the sign-off."
+          readOnly: true
+        ledger_name:
+          type: string
+          description: "The ledger's name, as it was at the sign-off."
+          readOnly: true
+        is_leading:
+          type: boolean
+          description: Whether it is the leading ledger.
+          readOnly: true
+        periods:
+          type: array
+          maxItems: 4
+          items:
+            $ref: "#/components/schemas/YearCloseSignOffPeriod"
+          description: "Its special periods of the year, by period; none when its calendar has none."
+          readOnly: true
+    YearCloseSignOffPeriod:
+      type: object
+      description: "A special period as a year close's sign-off found it."
+      required:
+        - fiscal_period_id
+        - period
+        - locked
+      properties:
+        fiscal_period_id:
+          type: string
+          format: uuid
+          description: "The posting period (`GET /v1/fiscal-periods/{id}`)."
+          readOnly: true
+        period:
+          type: integer
+          format: int32
+          minimum: 13
+          maximum: 16
+          description: The special period.
+          readOnly: true
+        locked:
+          type: boolean
+          description: "Whether this sign-off locked it: false when it was locked already."
           readOnly: true
     FailingCheck:
       type: object

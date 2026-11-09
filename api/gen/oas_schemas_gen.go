@@ -21123,6 +21123,7 @@ func (*ConflictHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*ConflictHeaders) runAnalyticsQueryRes()                     {}
 func (*ConflictHeaders) runBalanceCarryForwardRes()                {}
 func (*ConflictHeaders) signOffPeriodCloseRes()                    {}
+func (*ConflictHeaders) signOffYearCloseRes()                      {}
 func (*ConflictHeaders) simulateChangeRequestRes()                 {}
 func (*ConflictHeaders) startAgentSessionRes()                     {}
 func (*ConflictHeaders) startDepreciationRunRes()                  {}
@@ -54974,7 +54975,7 @@ func (s *PeriodCloseSignOffHeaders) SetResponse(val PeriodCloseSignOff) {
 
 func (*PeriodCloseSignOffHeaders) signOffPeriodCloseRes() {}
 
-// A period close's sign-off.
+// A close's sign-off: a period close's (`signOffPeriodClose`) or a year close's (`signOffYearClose`).
 // Ref: #/components/schemas/PeriodCloseSignOffInput
 type PeriodCloseSignOffInput struct {
 	// What the signer wants kept with the sign-off; kept on it and in the audit trail.
@@ -64426,6 +64427,7 @@ func (*ServiceUnavailableHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*ServiceUnavailableHeaders) runAnalyticsQueryRes()                     {}
 func (*ServiceUnavailableHeaders) runBalanceCarryForwardRes()                {}
 func (*ServiceUnavailableHeaders) signOffPeriodCloseRes()                    {}
+func (*ServiceUnavailableHeaders) signOffYearCloseRes()                      {}
 func (*ServiceUnavailableHeaders) simulateChangeRequestRes()                 {}
 func (*ServiceUnavailableHeaders) startAgentSessionRes()                     {}
 func (*ServiceUnavailableHeaders) startDepreciationRunRes()                  {}
@@ -64549,6 +64551,30 @@ func (*SignOffPeriodClosePreconditionRequired) signOffPeriodCloseRes() {}
 type SignOffPeriodCloseUnprocessableEntity Problem
 
 func (*SignOffPeriodCloseUnprocessableEntity) signOffPeriodCloseRes() {}
+
+type SignOffYearCloseBadRequest Problem
+
+func (*SignOffYearCloseBadRequest) signOffYearCloseRes() {}
+
+type SignOffYearCloseForbidden Problem
+
+func (*SignOffYearCloseForbidden) signOffYearCloseRes() {}
+
+type SignOffYearCloseNotFound Problem
+
+func (*SignOffYearCloseNotFound) signOffYearCloseRes() {}
+
+type SignOffYearClosePreconditionFailed Problem
+
+func (*SignOffYearClosePreconditionFailed) signOffYearCloseRes() {}
+
+type SignOffYearClosePreconditionRequired Problem
+
+func (*SignOffYearClosePreconditionRequired) signOffYearCloseRes() {}
+
+type SignOffYearCloseUnprocessableEntity Problem
+
+func (*SignOffYearCloseUnprocessableEntity) signOffYearCloseRes() {}
 
 type SimulateChangeRequestBadRequest Problem
 
@@ -69003,6 +69029,7 @@ func (*TooManyRequestsHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*TooManyRequestsHeaders) runAnalyticsQueryRes()                     {}
 func (*TooManyRequestsHeaders) runBalanceCarryForwardRes()                {}
 func (*TooManyRequestsHeaders) signOffPeriodCloseRes()                    {}
+func (*TooManyRequestsHeaders) signOffYearCloseRes()                      {}
 func (*TooManyRequestsHeaders) simulateChangeRequestRes()                 {}
 func (*TooManyRequestsHeaders) startAgentSessionRes()                     {}
 func (*TooManyRequestsHeaders) startDepreciationRunRes()                  {}
@@ -69507,6 +69534,7 @@ func (*UnauthorizedHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*UnauthorizedHeaders) runAnalyticsQueryRes()                     {}
 func (*UnauthorizedHeaders) runBalanceCarryForwardRes()                {}
 func (*UnauthorizedHeaders) signOffPeriodCloseRes()                    {}
+func (*UnauthorizedHeaders) signOffYearCloseRes()                      {}
 func (*UnauthorizedHeaders) simulateChangeRequestRes()                 {}
 func (*UnauthorizedHeaders) startAgentSessionRes()                     {}
 func (*UnauthorizedHeaders) startDepreciationRunRes()                  {}
@@ -72904,9 +72932,16 @@ type YearClose struct {
 	YearEnd time.Time `json:"year_end"`
 	// The configuration version whose year tasks the checklist was copied from.
 	ConfigVersion int32 `json:"config_version"`
-	// `open` until it is signed off (T64m6). Open enumeration: clients must accept and preserve values not
-	// listed here; values may be added within /v1.
+	// `open` until it is signed off (`signOffYearClose`, T64m6), and again after a covered period was
+	// unlocked and the close written to (ADR-0060 §8, ADR-0058 §7). Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
 	Status string `json:"status"`
+	// When it was last signed off (`:signOff`, T64m6); absent while it is open.
+	SignedOffAt OptDateTime `json:"signed_off_at"`
+	// Who signed it off; absent while it is open.
+	SignedOffBy OptUUID `json:"signed_off_by"`
+	// Their name; absent while it is open.
+	SignedOffByName OptString `json:"signed_off_by_name"`
 	// The company's date at the read in its time zone, on which `overdue` is judged.
 	ReadDate time.Time `json:"read_date"`
 	// The IANA time zone `read_date` is the company's date in (UTC when its company sets none).
@@ -72923,6 +72958,9 @@ type YearClose struct {
 	Ledgers []YearCloseLedger `json:"ledgers"`
 	// Its tasks, in the template's order.
 	Tasks []YearCloseTask `json:"tasks"`
+	// Its sign-offs, oldest first (T64m6): one per `:signOff`, a second after a period of the year was
+	// unlocked and the close signed off again; empty until it is signed off.
+	SignOffs []YearCloseSignOff `json:"sign_offs"`
 	// Optimistic-lock version, the ETag; moved by every change to the close or its tasks.
 	Version int32 `json:"version"`
 	// Creation time.
@@ -72975,6 +73013,21 @@ func (s *YearClose) GetStatus() string {
 	return s.Status
 }
 
+// GetSignedOffAt returns the value of SignedOffAt.
+func (s *YearClose) GetSignedOffAt() OptDateTime {
+	return s.SignedOffAt
+}
+
+// GetSignedOffBy returns the value of SignedOffBy.
+func (s *YearClose) GetSignedOffBy() OptUUID {
+	return s.SignedOffBy
+}
+
+// GetSignedOffByName returns the value of SignedOffByName.
+func (s *YearClose) GetSignedOffByName() OptString {
+	return s.SignedOffByName
+}
+
 // GetReadDate returns the value of ReadDate.
 func (s *YearClose) GetReadDate() time.Time {
 	return s.ReadDate
@@ -73013,6 +73066,11 @@ func (s *YearClose) GetLedgers() []YearCloseLedger {
 // GetTasks returns the value of Tasks.
 func (s *YearClose) GetTasks() []YearCloseTask {
 	return s.Tasks
+}
+
+// GetSignOffs returns the value of SignOffs.
+func (s *YearClose) GetSignOffs() []YearCloseSignOff {
+	return s.SignOffs
 }
 
 // GetVersion returns the value of Version.
@@ -73080,6 +73138,21 @@ func (s *YearClose) SetStatus(val string) {
 	s.Status = val
 }
 
+// SetSignedOffAt sets the value of SignedOffAt.
+func (s *YearClose) SetSignedOffAt(val OptDateTime) {
+	s.SignedOffAt = val
+}
+
+// SetSignedOffBy sets the value of SignedOffBy.
+func (s *YearClose) SetSignedOffBy(val OptUUID) {
+	s.SignedOffBy = val
+}
+
+// SetSignedOffByName sets the value of SignedOffByName.
+func (s *YearClose) SetSignedOffByName(val OptString) {
+	s.SignedOffByName = val
+}
+
 // SetReadDate sets the value of ReadDate.
 func (s *YearClose) SetReadDate(val time.Time) {
 	s.ReadDate = val
@@ -73118,6 +73191,11 @@ func (s *YearClose) SetLedgers(val []YearCloseLedger) {
 // SetTasks sets the value of Tasks.
 func (s *YearClose) SetTasks(val []YearCloseTask) {
 	s.Tasks = val
+}
+
+// SetSignOffs sets the value of SignOffs.
+func (s *YearClose) SetSignOffs(val []YearCloseSignOff) {
+	s.SignOffs = val
 }
 
 // SetVersion sets the value of Version.
@@ -73256,6 +73334,12 @@ type YearCloseItem struct {
 	// Year close status. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	Status string `json:"status"`
+	// When it was last signed off (`:signOff`, T64m6); absent while it is open.
+	SignedOffAt OptDateTime `json:"signed_off_at"`
+	// Who signed it off; absent while it is open.
+	SignedOffBy OptUUID `json:"signed_off_by"`
+	// Their name; absent while it is open.
+	SignedOffByName OptString `json:"signed_off_by_name"`
 	// The company's date at the read in its time zone, on which overdue tasks are judged.
 	ReadDate time.Time `json:"read_date"`
 	// The IANA time zone `read_date` is the company's date in.
@@ -73318,6 +73402,21 @@ func (s *YearCloseItem) GetConfigVersion() int32 {
 // GetStatus returns the value of Status.
 func (s *YearCloseItem) GetStatus() string {
 	return s.Status
+}
+
+// GetSignedOffAt returns the value of SignedOffAt.
+func (s *YearCloseItem) GetSignedOffAt() OptDateTime {
+	return s.SignedOffAt
+}
+
+// GetSignedOffBy returns the value of SignedOffBy.
+func (s *YearCloseItem) GetSignedOffBy() OptUUID {
+	return s.SignedOffBy
+}
+
+// GetSignedOffByName returns the value of SignedOffByName.
+func (s *YearCloseItem) GetSignedOffByName() OptString {
+	return s.SignedOffByName
 }
 
 // GetReadDate returns the value of ReadDate.
@@ -73413,6 +73512,21 @@ func (s *YearCloseItem) SetConfigVersion(val int32) {
 // SetStatus sets the value of Status.
 func (s *YearCloseItem) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetSignedOffAt sets the value of SignedOffAt.
+func (s *YearCloseItem) SetSignedOffAt(val OptDateTime) {
+	s.SignedOffAt = val
+}
+
+// SetSignedOffBy sets the value of SignedOffBy.
+func (s *YearCloseItem) SetSignedOffBy(val OptUUID) {
+	s.SignedOffBy = val
+}
+
+// SetSignedOffByName sets the value of SignedOffByName.
+func (s *YearCloseItem) SetSignedOffByName(val OptString) {
+	s.SignedOffByName = val
 }
 
 // SetReadDate sets the value of ReadDate.
@@ -73618,6 +73732,292 @@ func (s *YearClosePeriod) SetIsSpecial(val bool) {
 // SetStatus sets the value of Status.
 func (s *YearClosePeriod) SetStatus(val string) {
 	s.Status = val
+}
+
+// A sign-off of a year close (ADR-0060 §8, T64m6): who signed it off, with their name as it was then,
+// when, and per covered ledger its special periods and whether this sign-off locked each; every
+// regular period was locked already. Recorded once, never changed; a year close signed off again after
+// an unlock has a second.
+// Ref: #/components/schemas/YearCloseSignOff
+type YearCloseSignOff struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The year close (`GET /v1/year-closes/{id}`).
+	CloseID uuid.UUID `json:"close_id"`
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// Fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The person who signed it off.
+	SignedBy uuid.UUID `json:"signed_by"`
+	// Their name, as it was at the sign-off.
+	SignedByName string `json:"signed_by_name"`
+	// When.
+	SignedAt time.Time `json:"signed_at"`
+	// The note given with it; absent without one.
+	Note OptString `json:"note"`
+	// The covered ledgers, the leading one first, then by code.
+	Ledgers []YearCloseSignOffLedger `json:"ledgers"`
+}
+
+// GetID returns the value of ID.
+func (s *YearCloseSignOff) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCloseID returns the value of CloseID.
+func (s *YearCloseSignOff) GetCloseID() uuid.UUID {
+	return s.CloseID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *YearCloseSignOff) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *YearCloseSignOff) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *YearCloseSignOff) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *YearCloseSignOff) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetSignedBy returns the value of SignedBy.
+func (s *YearCloseSignOff) GetSignedBy() uuid.UUID {
+	return s.SignedBy
+}
+
+// GetSignedByName returns the value of SignedByName.
+func (s *YearCloseSignOff) GetSignedByName() string {
+	return s.SignedByName
+}
+
+// GetSignedAt returns the value of SignedAt.
+func (s *YearCloseSignOff) GetSignedAt() time.Time {
+	return s.SignedAt
+}
+
+// GetNote returns the value of Note.
+func (s *YearCloseSignOff) GetNote() OptString {
+	return s.Note
+}
+
+// GetLedgers returns the value of Ledgers.
+func (s *YearCloseSignOff) GetLedgers() []YearCloseSignOffLedger {
+	return s.Ledgers
+}
+
+// SetID sets the value of ID.
+func (s *YearCloseSignOff) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCloseID sets the value of CloseID.
+func (s *YearCloseSignOff) SetCloseID(val uuid.UUID) {
+	s.CloseID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *YearCloseSignOff) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *YearCloseSignOff) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *YearCloseSignOff) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *YearCloseSignOff) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetSignedBy sets the value of SignedBy.
+func (s *YearCloseSignOff) SetSignedBy(val uuid.UUID) {
+	s.SignedBy = val
+}
+
+// SetSignedByName sets the value of SignedByName.
+func (s *YearCloseSignOff) SetSignedByName(val string) {
+	s.SignedByName = val
+}
+
+// SetSignedAt sets the value of SignedAt.
+func (s *YearCloseSignOff) SetSignedAt(val time.Time) {
+	s.SignedAt = val
+}
+
+// SetNote sets the value of Note.
+func (s *YearCloseSignOff) SetNote(val OptString) {
+	s.Note = val
+}
+
+// SetLedgers sets the value of Ledgers.
+func (s *YearCloseSignOff) SetLedgers(val []YearCloseSignOffLedger) {
+	s.Ledgers = val
+}
+
+// YearCloseSignOffHeaders wraps YearCloseSignOff with response headers.
+type YearCloseSignOffHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           YearCloseSignOff
+}
+
+// GetETag returns the value of ETag.
+func (s *YearCloseSignOffHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *YearCloseSignOffHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *YearCloseSignOffHeaders) GetResponse() YearCloseSignOff {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *YearCloseSignOffHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *YearCloseSignOffHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *YearCloseSignOffHeaders) SetResponse(val YearCloseSignOff) {
+	s.Response = val
+}
+
+func (*YearCloseSignOffHeaders) signOffYearCloseRes() {}
+
+// A covered ledger as a year close's sign-off found it: its special periods of the year, and whether
+// this sign-off locked each.
+// Ref: #/components/schemas/YearCloseSignOffLedger
+type YearCloseSignOffLedger struct {
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code, as it was at the sign-off.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name, as it was at the sign-off.
+	LedgerName string `json:"ledger_name"`
+	// Whether it is the leading ledger.
+	IsLeading bool `json:"is_leading"`
+	// Its special periods of the year, by period; none when its calendar has none.
+	Periods []YearCloseSignOffPeriod `json:"periods"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *YearCloseSignOffLedger) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *YearCloseSignOffLedger) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *YearCloseSignOffLedger) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetIsLeading returns the value of IsLeading.
+func (s *YearCloseSignOffLedger) GetIsLeading() bool {
+	return s.IsLeading
+}
+
+// GetPeriods returns the value of Periods.
+func (s *YearCloseSignOffLedger) GetPeriods() []YearCloseSignOffPeriod {
+	return s.Periods
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *YearCloseSignOffLedger) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *YearCloseSignOffLedger) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *YearCloseSignOffLedger) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetIsLeading sets the value of IsLeading.
+func (s *YearCloseSignOffLedger) SetIsLeading(val bool) {
+	s.IsLeading = val
+}
+
+// SetPeriods sets the value of Periods.
+func (s *YearCloseSignOffLedger) SetPeriods(val []YearCloseSignOffPeriod) {
+	s.Periods = val
+}
+
+// A special period as a year close's sign-off found it.
+// Ref: #/components/schemas/YearCloseSignOffPeriod
+type YearCloseSignOffPeriod struct {
+	// The posting period (`GET /v1/fiscal-periods/{id}`).
+	FiscalPeriodID uuid.UUID `json:"fiscal_period_id"`
+	// The special period.
+	Period int32 `json:"period"`
+	// Whether this sign-off locked it: false when it was locked already.
+	Locked bool `json:"locked"`
+}
+
+// GetFiscalPeriodID returns the value of FiscalPeriodID.
+func (s *YearCloseSignOffPeriod) GetFiscalPeriodID() uuid.UUID {
+	return s.FiscalPeriodID
+}
+
+// GetPeriod returns the value of Period.
+func (s *YearCloseSignOffPeriod) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetLocked returns the value of Locked.
+func (s *YearCloseSignOffPeriod) GetLocked() bool {
+	return s.Locked
+}
+
+// SetFiscalPeriodID sets the value of FiscalPeriodID.
+func (s *YearCloseSignOffPeriod) SetFiscalPeriodID(val uuid.UUID) {
+	s.FiscalPeriodID = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *YearCloseSignOffPeriod) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetLocked sets the value of Locked.
+func (s *YearCloseSignOffPeriod) SetLocked(val bool) {
+	s.Locked = val
 }
 
 // A task of a year close (ADR-0060 §8), with its close and company.

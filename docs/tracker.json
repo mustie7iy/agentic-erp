@@ -1847,9 +1847,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Year-close sign-off locks the year: :sign-off needing every task done, checks passing when re-run, every regular period of each covered ledger locked (closing.year_periods_not_locked) and every special period closed or locked (closing.period_not_closed); the special periods read FOR UPDATE in one statement by period, leading ledger, code and locked through LockPeriod in that order; year_sign_off with the signer's name; YearCloseSignedOff; reopening after an unlock and a second sign-off; a concurrency test with a posting into a special period on three ledgers whose ids and codes sort differently; walkthrough: sign-off refused while a regular period is unlocked, then signed off, every period of the year locked and a posting into period 13 refused",
-        "r": "ADR-0060 §8 · T64m6",
+        "r": "ADR-0060 §8 · T64m6 · db/migrations/000243 · internal/closing yearsignoff.go, signoff.go · internal/ledger closeperiods.go · walkthrough year_end_sign_off",
         "src": "adr:ADR-0060",
         "c": []
        },

@@ -6801,9 +6801,9 @@ func (s *Server) handleCheckCloseTaskRequest(args [2]string, argsEscaped bool, w
 // `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`).
 // `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only.
 // Audited, and published as YearCloseChanged (`task_checked`, with `check_passed`). A signed-off year
-// close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it
-// (409 `closing.close_signed_off`); once one of them was unlocked, the change sets the close open
-// again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
+// close (`signOffYearClose`) whose covered ledgers' periods of the year are all locked refuses it (409
+// `closing.close_signed_off`); once one of them was unlocked, the change sets the close open again
+// first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
 //
 // POST /v1/year-closes/{id}/tasks/{code}:check
 func (s *Server) handleCheckYearCloseTaskRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -7840,11 +7840,10 @@ func (s *Server) handleCompleteCloseTaskRequest(args [2]string, argsEscaped bool
 // `closing.task_blocked`, naming them), for a task already done (409 `closing.task_already_done`) and
 // for a check task, which is done by its check passing (409 `closing.task_is_check`). `If-Match` is
 // the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and
-// published as YearCloseChanged (`task_completed`). A signed-off year close (its sign-off is T64m6's)
-// whose covered ledgers' periods of the year are all locked refuses it (409
-// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
-// request), the change sets the close open again first, published as YearCloseChanged (`reopened`)
-// (ADR-0060 §8, ADR-0058 §7).
+// published as YearCloseChanged (`task_completed`). A signed-off year close (`signOffYearClose`) whose
+// covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`);
+// once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close
+// open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
 //
 // POST /v1/year-closes/{id}/tasks/{code}:complete
 func (s *Server) handleCompleteYearCloseTaskRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -72634,10 +72633,10 @@ func (s *Server) handleReopenCloseTaskRequest(args [2]string, argsEscaped bool, 
 // the note are cleared, and the reason is kept in the audit trail and the event. It reopens nothing
 // else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task,
 // with the close's new ETag. People only. Audited, and published as YearCloseChanged
-// (`task_reopened`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods
-// of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was
-// unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first,
-// published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
+// (`task_reopened`). A signed-off year close (`signOffYearClose`) whose covered ledgers' periods of
+// the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked
+// (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as
+// YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
 //
 // POST /v1/year-closes/{id}/tasks/{code}:reopen
 func (s *Server) handleReopenYearCloseTaskRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -76302,6 +76301,241 @@ func (s *Server) handleSignOffPeriodCloseRequest(args [1]string, argsEscaped boo
 	}
 
 	if err := encodeSignOffPeriodCloseResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleSignOffYearCloseRequest handles signOffYearClose operation.
+//
+// Signs off a year close and locks the fiscal year in its covered ledgers (ADR-0060 §8, T64m6), as
+// `signOffPeriodClose` signs off a period close, in one transaction under a lock on the close: first
+// every posting period of the year of every covered ledger, regular and special, is read `FOR UPDATE`
+// in one statement, by period, then the leading ledger first, then by ledger code (the order postings
+// lock periods in), so that no period is opened or unlocked until the sign-off commits. A year close
+// already signed off whose periods are all locked is refused (409 `closing.close_signed_off`). Then
+// refused while a manual task is open (409 `closing.tasks_open`, naming them); every check task's
+// check runs again, and if any fails the sign-off is refused (409 `closing.checks_failing`, the
+// problem's `failing_checks` naming each failing task with what its check found) and nothing is kept;
+// when all pass each result is recorded on its task. Every regular period of each covered ledger must
+// be `locked` (409 `closing.year_periods_not_locked`, naming each ledger with its periods not locked:
+// the period closes' sign-offs, or `lockFiscalPeriod`, lock them), and every special period `closed`
+// or `locked` (409 `closing.period_not_closed`, naming each period with the ledgers it is open in): a
+// sign-off never closes a period. Each `closed` special period is then locked as `lockFiscalPeriod`
+// locks it (the ledger's audit record and PeriodLocked), in the order read; a period already locked is
+// left as it is. After it every period of the year is locked in the covered ledgers, and a posting
+// into one is refused (409 `ledger.period_not_open`). The sign-off is recorded with who signed off and
+// their name, when, the note and, per covered ledger, its special periods and whether this sign-off
+// locked each, and the close is `signed_off`. After a period of the year was unlocked (an approved
+// `unlockFiscalPeriod` request) the year close is signed off again, adding a second sign-off. No
+// separation of duties for the pilot: who signed is recorded (product owner 2026-11-04, ADR-0060
+// §12). `If-Match` is the close's ETag; the answer is the sign-off, with the close's new ETag. People
+// only. Besides `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks
+// periods, and `ledger.entry.read`, since its refusal names what the checks found
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as
+// YearCloseSignedOff.
+//
+// POST /v1/year-closes/{id}:signOff
+func (s *Server) handleSignOffYearCloseRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("signOffYearClose"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/year-closes/{id}:signOff"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), SignOffYearCloseOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: SignOffYearCloseOperation,
+			ID:   "signOffYearClose",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, SignOffYearCloseOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeSignOffYearCloseParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeSignOffYearCloseRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response SignOffYearCloseRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    SignOffYearCloseOperation,
+			OperationSummary: "Sign off a year close",
+			OperationID:      "signOffYearClose",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = OptPeriodCloseSignOffInput
+			Params   = SignOffYearCloseParams
+			Response = SignOffYearCloseRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackSignOffYearCloseParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.SignOffYearClose(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.SignOffYearClose(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeSignOffYearCloseResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -84090,7 +84324,7 @@ func (s *Server) handleUpdateWebhookSubscriptionRequest(args [1]string, argsEsca
 // a person without access to the close's company). `If-Match` is the close's ETag, so a change made on
 // a stale view of the checklist is refused (412); the answer is the task, with the close's new ETag.
 // People only. Audited, and published as YearCloseChanged (`task_assigned`). A signed-off year close
-// (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409
+// (`signOffYearClose`) whose covered ledgers' periods of the year are all locked refuses it (409
 // `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
 // request), the change sets the close open again first, published as YearCloseChanged (`reopened`)
 // (ADR-0060 §8, ADR-0058 §7).

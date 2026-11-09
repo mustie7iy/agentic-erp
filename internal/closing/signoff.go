@@ -40,13 +40,36 @@ type lockedLedger struct {
 	Locked     bool      `json:"locked"`
 }
 
-// signOff is a stored sign-off of a close.
+// specialLedger is a covered ledger as a year close's sign-off recorded
+// it: its special periods of the year, and whether this sign-off locked
+// each (ADR-0060 §8); its regular periods were all locked already.
+type specialLedger struct {
+	LedgerID   uuid.UUID       `json:"ledger_id"`
+	LedgerCode string          `json:"ledger_code"`
+	LedgerName string          `json:"ledger_name"`
+	Leading    bool            `json:"is_leading"`
+	Periods    []specialPeriod `json:"periods"`
+}
+
+// specialPeriod is a special period as a year close's sign-off recorded
+// it.
+type specialPeriod struct {
+	PeriodID uuid.UUID `json:"fiscal_period_id"`
+	Number   int16     `json:"period"`
+	Locked   bool      `json:"locked"`
+}
+
+// signOff is a stored sign-off of a close: a period close's covered
+// ledgers with their period (Ledgers), a year close's with their special
+// periods (Special) and the signer's name as it was then (SignedByName).
 type signOff struct {
-	ID, CloseID uuid.UUID
-	SignedBy    uuid.UUID
-	SignedAt    time.Time
-	Note        *string
-	Ledgers     []lockedLedger
+	ID, CloseID  uuid.UUID
+	SignedBy     uuid.UUID
+	SignedByName *string
+	SignedAt     time.Time
+	Note         *string
+	Ledgers      []lockedLedger
+	Special      []specialLedger
 }
 
 // SignOffPeriodClose implements POST /v1/period-closes/{id}:signOff
@@ -72,7 +95,7 @@ func (e *Endpoints) SignOffPeriodClose(ctx context.Context, req gen.OptPeriodClo
 	if err := manualDone(tasks); err != nil {
 		return nil, err
 	}
-	if err := e.checksPass(ctx, tx, p, tasks); err != nil {
+	if err := e.checksPass(ctx, tx, periodCloses, p, tasks); err != nil {
 		return nil, err
 	}
 	if err := periodsClosed(c, covered); err != nil {
@@ -83,7 +106,7 @@ func (e *Endpoints) SignOffPeriodClose(ctx context.Context, req gen.OptPeriodClo
 		return nil, err
 	}
 	s := signOff{ID: uuid.Must(uuid.NewV7()), CloseID: c.ID, SignedBy: p.ID, Note: apitypes.Ptr[string](req.Value.Note), Ledgers: locked}
-	if c, s, err = signedOff(ctx, tx, p, s); err != nil {
+	if c, s, err = signedOff(ctx, tx, periodCloses, p, s); err != nil {
 		return nil, err
 	}
 	if err := recordSignOff(ctx, c, s); err != nil {
@@ -149,11 +172,11 @@ func manualDone(tasks []task) error {
 	return problem.Conflict("closing.tasks_open", "Manual task "+strings.Join(open, ", ")+" is open; complete every manual task before signing off.")
 }
 
-// checksPass runs every check task's check again: when any fails the
-// sign-off is refused, naming each failing task with what it found, and
-// nothing is recorded; when all pass, each result is recorded on its task,
-// as :check records it.
-func (e *Endpoints) checksPass(ctx context.Context, tx pgx.Tx, p reqctx.Principal, tasks []task) error {
+// checksPass runs every check task's check of a close of a kind again:
+// when any fails the sign-off is refused, naming each failing task with
+// what it found, and nothing is recorded; when all pass, each result is
+// recorded on its task, as :check records it.
+func (e *Endpoints) checksPass(ctx context.Context, tx pgx.Tx, k *closeKind, p reqctx.Principal, tasks []task) error {
 	type result struct {
 		t task
 		f found
@@ -164,7 +187,7 @@ func (e *Endpoints) checksPass(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 		if t.Kind != config.CloseCheck {
 			continue
 		}
-		passed, f, err := e.run(ctx, tx, periodCloses, t)
+		passed, f, err := e.run(ctx, tx, k, t)
 		if err != nil {
 			return err
 		}
@@ -183,7 +206,7 @@ func (e *Endpoints) checksPass(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 		return pr
 	}
 	for _, r := range results {
-		if err := recordCheck(ctx, tx, periodCloses, p, r.t, true, r.f); err != nil {
+		if err := recordCheck(ctx, tx, k, p, r.t, true, r.f); err != nil {
 			return err
 		}
 	}
@@ -227,19 +250,33 @@ func (e *Endpoints) lockPeriods(ctx context.Context, covered []LedgerPeriod) ([]
 	return out, nil
 }
 
-// signedOff writes a sign-off and sets its close signed off, moving its
-// version; it returns the close and the sign-off as stored.
-func signedOff(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s signOff) (closeRow, signOff, error) {
-	locked, _ := json.Marshal(s.Ledgers) // ids, strings and booleans always encode
-	if err := tx.QueryRow(ctx, `INSERT INTO closing.sign_off (tenant_id, id, close_id, signed_by, note, locked) VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING signed_at`, p.TenantID, s.ID, s.CloseID, s.SignedBy, s.Note, locked).Scan(&s.SignedAt); err != nil {
-		return closeRow{}, signOff{}, fmt.Errorf("closing: sign off close %s: %w", s.CloseID, err)
+// signedOff writes a sign-off of a close of a kind and sets its close
+// signed off, moving its version; it returns the close and the sign-off as
+// stored. A year close's records the signer's name as it is now.
+func signedOff(ctx context.Context, tx pgx.Tx, k *closeKind, p reqctx.Principal, s signOff) (closeRow, signOff, error) {
+	var locked []byte
+	insert := `INSERT INTO closing.sign_off (tenant_id, id, close_id, signed_by, note, locked) VALUES ($1, $2, $3, $4, $5, $6) RETURNING signed_at`
+	args := []any{p.TenantID, s.ID, s.CloseID, s.SignedBy, s.Note}
+	if k.year {
+		locked, _ = json.Marshal(s.Special) // ids, strings, numbers and booleans always encode
+		insert = `INSERT INTO closing.year_sign_off (tenant_id, id, close_id, signed_by, note, locked, signed_by_name)
+			VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING signed_at`
+		args = append(args, locked, s.SignedByName)
+	} else {
+		locked, _ = json.Marshal(s.Ledgers) // ids, strings and booleans always encode
+		args = append(args, locked)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE closing.period_close SET status = 'signed_off', version = version + 1, updated_by = $2 WHERE id = $1`,
+	if err := tx.QueryRow(ctx, insert, args...).Scan(&s.SignedAt); err != nil {
+		return closeRow{}, signOff{}, fmt.Errorf("closing: sign off %s %s: %w", k.noun, s.CloseID, err)
+	}
+	// The close is held FOR UPDATE since lockClose: nothing changed it
+	// between the sign-off's checks and this update. A signed-off close
+	// whose period was unlocked is signed off again as it is.
+	if _, err := tx.Exec(ctx, k.q(`UPDATE {close} SET status = 'signed_off', version = version + 1, updated_by = $2 WHERE id = $1`),
 		s.CloseID, p.ID); err != nil {
-		return closeRow{}, signOff{}, fmt.Errorf("closing: set close %s signed off: %w", s.CloseID, err)
+		return closeRow{}, signOff{}, fmt.Errorf("closing: set %s %s signed off: %w", k.noun, s.CloseID, err)
 	}
-	c, err := readClose(ctx, tx, periodCloses, s.CloseID)
+	c, err := readClose(ctx, tx, k, s.CloseID)
 	return c, s, err
 }
 
@@ -257,16 +294,25 @@ func recordSignOff(ctx context.Context, c closeRow, s signOff) error {
 				"fiscal_period": c.FiscalPeriod, "signed_by": s.SignedBy, "note": s.Note, "periods": periods, "status": c.Status, "version": c.Version}})
 }
 
-// signOffsOf reads a close's sign-offs, oldest first.
-func signOffsOf(ctx context.Context, tx pgx.Tx, closeID uuid.UUID) ([]signOff, error) {
-	rows, _ := tx.Query(ctx, `SELECT id, close_id, signed_by, signed_at, note, locked FROM closing.sign_off WHERE close_id = $1 ORDER BY signed_at, id`, closeID)
+// signOffsOf reads the sign-offs of a close of a kind, oldest first.
+func signOffsOf(ctx context.Context, tx pgx.Tx, k *closeKind, closeID uuid.UUID) ([]signOff, error) {
+	name := "NULL::text" // a period close's sign-off records no name
+	if k.year {
+		name = "signed_by_name"
+	}
+	rows, _ := tx.Query(ctx, k.q(`SELECT id, close_id, signed_by, `+name+`, signed_at, note, locked FROM {signoff} WHERE close_id = $1
+		ORDER BY signed_at, id`), closeID)
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (signOff, error) {
 		var s signOff
-		err := r.Scan(&s.ID, &s.CloseID, &s.SignedBy, &s.SignedAt, &s.Note, &s.Ledgers)
+		var locked any = &s.Ledgers
+		if k.year {
+			locked = &s.Special
+		}
+		err := r.Scan(&s.ID, &s.CloseID, &s.SignedBy, &s.SignedByName, &s.SignedAt, &s.Note, locked)
 		return s, errs.Wrapf(err, "scan sign-off")
 	})
 	if err != nil {
-		return nil, fmt.Errorf("closing: sign-offs of close %s: %w", closeID, err)
+		return nil, fmt.Errorf("closing: sign-offs of %s %s: %w", k.noun, closeID, err)
 	}
 	return out, nil
 }

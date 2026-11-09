@@ -63,7 +63,7 @@ func exportThenErase(t *testing.T, pool *database.Pool, store blobstore.Dir) (uu
 // pastFirstStates gives the tenant of e rows past the state the database
 // inserts them in, each reached through its transitions: a period close
 // signed off with its task done, a year close signed off with its task
-// done (000237), a posted parked entry with its lines, a
+// done (000237) and its sign-off (000243), a posted parked entry with its lines, a
 // final consolidation run with its members and a balance, and a
 // carry-forward run superseded by a second (ADR-0029, migration 000230).
 func pastFirstStates(t *testing.T, e fixture.Env) {
@@ -87,6 +87,8 @@ func pastFirstStates(t *testing.T, e fixture.Env) {
 	pgtest.Exec(t, `UPDATE closing.year_close_task SET status = 'done', completed_by = $2, completed_at = now(), version = version + 1 WHERE close_id = $1`,
 		yearClose, who)
 	pgtest.Exec(t, `UPDATE closing.year_close SET status = 'signed_off', version = version + 1 WHERE id = $1`, yearClose)
+	pgtest.Exec(t, `INSERT INTO closing.year_sign_off (tenant_id, id, close_id, signed_by, signed_by_name, locked)
+		VALUES ($1, gen_random_uuid(), $2, $3, 'Carla Controller', '[{"periods": [{"period": 13, "locked": true}]}]')`, ten, yearClose, who)
 	parked := e.Park(t, "2026-03-15", "Imported", [2]string{"520000", "10.00"}, [2]string{"100000", "-10.00"})
 	_, tag := e.Must(200, "GET", "/v1/parked-journal-entries/"+parked.String(), "", "")
 	e.Must(200, "POST", "/v1/parked-journal-entries/"+parked.String()+":post", "", tag)
@@ -158,6 +160,7 @@ func pastFirstStatesHeld(t *testing.T, tenant uuid.UUID) map[string]int64 {
 		"signed-off year closes": `SELECT count(*) FROM closing.year_close WHERE tenant_id = $1 AND status = 'signed_off'`,
 		"done year close tasks":  `SELECT count(*) FROM closing.year_close_task WHERE tenant_id = $1 AND status = 'done'`,
 		"year closes' ledgers":   `SELECT count(*) FROM closing.year_close_ledger WHERE tenant_id = $1`,
+		"year sign-offs":         `SELECT count(*) FROM closing.year_sign_off WHERE tenant_id = $1`,
 		"posted parked entries":  `SELECT count(*) FROM ledger.parked_entry WHERE tenant_id = $1 AND status = 'posted' AND journal_entry_id IS NOT NULL`,
 		"posted parked entries' lines": `SELECT count(*) FROM ledger.parked_entry_line l JOIN ledger.parked_entry p ON p.tenant_id = l.tenant_id
 			AND p.id = l.parked_entry_id WHERE l.tenant_id = $1 AND p.status = 'posted'`,
