@@ -1086,7 +1086,8 @@ small_item_refused() {
 # invoiced in one posted invoice (CLOSED, its item's price CLOSED_PRICE)
 # gets a receipt document debiting the item's account and crediting the
 # GR/IR account (GR_IR account $1), and its invoice debits the GR/IR
-# account instead of the item's, both on the order item; so the first run
+# account instead of the item's, both on the order item, its GR/IR lines
+# without the item's centers (T56h4); so the first run
 # loads it with no position open. Its order is for one more unit, which
 # SAP receives on 25 June in the delta only (receipt 5099999998, document
 # 0199999997), so the delta run tops a position up the order never had.
@@ -1102,8 +1103,9 @@ closed_order_extract() {
   CLOSED_PRICE=$(jq -r --arg o "$CLOSED" '.EKPO[] | select(.EBELN == $o) | .NETPR' "$WORK/data/delta.json")
   jq --arg cc "$CC" --arg a "$1" --arg o "$CLOSED" --arg d "${YEAR}0625" '
     def neg: if startswith("-") then .[1:] else "-" + . end;
+    def grir: .RACCT = $a | del(.RCNTR, .PRCTR, .SEGMENT);
     def we(belnr; date): (.BELNR = belnr | .BLART = "WE" | .XBLNR = "" | .BUDAT = date)
-      | (.DOCLN = "000001"), (.DOCLN = "000002" | .RACCT = $a | .HSL |= neg | .WSL |= neg);
+      | (.DOCLN = "000001"), (.DOCLN = "000002" | grir | .HSL |= neg | .WSL |= neg);
     ([.EKPO[] | select(.EBELN == $o)] | first) as $i
     | ([.MSEG[] | select(.EBELN == $o)] | first) as $m
     | ([.RSEG[] | select(.EBELN == $o)] | first) as $s
@@ -1112,7 +1114,7 @@ closed_order_extract() {
     | ($x | .EBELN = $o | .EBELP = $i.EBELP) as $line
     | .EKPO = [.EKPO[] | if .EBELN == $o then .MENGE = ((.MENGE | tonumber) + 1 | tostring) else . end]
     | .MSEG += [$m + {MBLNR: "5099999998", MENGE: "1", BUDAT: $d}]
-    | .ACDOCA = [.ACDOCA[] | if . == $x then $line | .RACCT = $a else . end]
+    | .ACDOCA = [.ACDOCA[] | if . == $x then $line | grir else . end]
       + [$line | we("0199999998"; $m.BUDAT)] + [$line | .HSL = $i.NETPR | .WSL = $i.NETPR | we("0199999997"; $d)]' \
     "$WORK/data/delta.json" >"$WORK/data/closed.json" && mv "$WORK/data/closed.json" "$WORK/data/delta.json" ||
     fail "the order received and invoiced in full could not be valued through GR/IR"
