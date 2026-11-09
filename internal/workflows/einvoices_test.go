@@ -221,6 +221,47 @@ func TestEInvoiceFetcher(t *testing.T) {
 			t.Errorf("the fetch after the next round: got %s, want it succeeded", got)
 		}
 	})
+	t.Run("a lost acknowledgement found already recorded by the next fetch", func(t *testing.T) {
+		s.srv.Deliver("MSG-2", fetchParticipant, einvoicetest.Invoice("INV-2"))
+		s.srv.Fail("POST /messages/MSG-2/acknowledge", 1)
+		lost := s.queue(t, false)
+		if _, err := w.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "MSG-2 (platform.unavailable)") {
+			t.Errorf("round: got %v, want MSG-2 named", err)
+		}
+		if got := fetchOutcome(t, lost); got != "failed einvoicing.fetch_incomplete" {
+			t.Errorf("the fetch: got %s, want it incomplete", got)
+		}
+		again := s.queue(t, false)
+		if _, err := w.RunOnce(ctx); err != nil {
+			t.Fatalf("round: %v", err)
+		}
+		if got := fetchOutcome(t, again); got != `succeeded {"recorded": 0, "already_recorded": 1}` {
+			t.Errorf("the next fetch: got %s, want MSG-2 already recorded", got)
+		}
+	})
+	t.Run("the Operation not ended leaves the fetch queued", func(t *testing.T) {
+		left := s.queue(t, false)
+		defer func() { s.f.Begin = nil }()
+		begins := 0
+		s.f.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
+			if scope.TenantID == s.e.Tenant.ID {
+				if begins++; begins > 1 { // the listing's transaction, then the finish's
+					return nil, errors.New("database down")
+				}
+			}
+			return pgtest.Pool(t).Begin(ctx, scope)
+		}
+		if _, err := w.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "database down") {
+			t.Errorf("round: got %v, want the finish's failure", err)
+		}
+		if got := fetchOutcome(t, left); got != "queued -" {
+			t.Errorf("the fetch: got %s, want it still queued", got)
+		}
+		s.f.Begin = nil
+		if _, err := w.RunOnce(ctx); err != nil || fetchOutcome(t, left) == "queued -" {
+			t.Errorf("the next round: got %v, want the fetch ended", err)
+		}
+	})
 	t.Run("the provider failing once fails the fetch, tried once", func(t *testing.T) {
 		s.srv.Fail("GET /messages", 1)
 		once := s.queue(t, false)
