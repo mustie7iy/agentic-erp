@@ -14826,6 +14826,136 @@ func (s *AssetEstimateFrom) UnmarshalJSON(data []byte) error {
 }
 
 // Encode implements json.Marshaler.
+func (s *AssetHeldForSale) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *AssetHeldForSale) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("fiscal_year")
+		e.Int32(s.FiscalYear)
+	}
+	{
+		e.FieldStart("period")
+		e.Int32(s.Period)
+	}
+	{
+		e.FieldStart("from")
+		json.EncodeDate(e, s.From)
+	}
+}
+
+var jsonFieldsNameOfAssetHeldForSale = [3]string{
+	0: "fiscal_year",
+	1: "period",
+	2: "from",
+}
+
+// Decode decodes AssetHeldForSale from json.
+func (s *AssetHeldForSale) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode AssetHeldForSale to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "fiscal_year":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int32()
+				s.FiscalYear = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fiscal_year\"")
+			}
+		case "period":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int32()
+				s.Period = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"period\"")
+			}
+		case "from":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.From = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"from\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode AssetHeldForSale")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfAssetHeldForSale) {
+					name = jsonFieldsNameOfAssetHeldForSale[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *AssetHeldForSale) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *AssetHeldForSale) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
 func (s *AssetHistorySheet) Encode(e *jx.Encoder) {
 	e.ObjStart()
 	s.encodeFields(e)
@@ -18402,6 +18532,20 @@ func (s *AssetSchedule) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		e.FieldStart("estimate_changes")
+		e.ArrStart()
+		for _, elem := range s.EstimateChanges {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
+		if s.HeldForSale.Set {
+			e.FieldStart("held_for_sale")
+			s.HeldForSale.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("periods")
 		e.ArrStart()
 		for _, elem := range s.Periods {
@@ -18415,7 +18559,7 @@ func (s *AssetSchedule) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAssetSchedule = [17]string{
+var jsonFieldsNameOfAssetSchedule = [19]string{
 	0:  "asset_id",
 	1:  "asset_number",
 	2:  "description",
@@ -18431,8 +18575,10 @@ var jsonFieldsNameOfAssetSchedule = [17]string{
 	12: "declining_factor",
 	13: "residual_value",
 	14: "depreciation_start",
-	15: "periods",
-	16: "totals",
+	15: "estimate_changes",
+	16: "held_for_sale",
+	17: "periods",
+	18: "totals",
 }
 
 // Decode decodes AssetSchedule from json.
@@ -18618,8 +18764,36 @@ func (s *AssetSchedule) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"depreciation_start\"")
 			}
-		case "periods":
+		case "estimate_changes":
 			requiredBitSet[1] |= 1 << 7
+			if err := func() error {
+				s.EstimateChanges = make([]AssetEstimateChange, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem AssetEstimateChange
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.EstimateChanges = append(s.EstimateChanges, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"estimate_changes\"")
+			}
+		case "held_for_sale":
+			if err := func() error {
+				s.HeldForSale.Reset()
+				if err := s.HeldForSale.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"held_for_sale\"")
+			}
+		case "periods":
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				s.Periods = make([]AssetSchedulePeriod, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -18637,7 +18811,7 @@ func (s *AssetSchedule) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"periods\"")
 			}
 		case "totals":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				if err := s.Totals.Decode(d); err != nil {
 					return err
@@ -18658,7 +18832,7 @@ func (s *AssetSchedule) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11111111,
 		0b10101111,
-		0b00000001,
+		0b00000110,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -19210,6 +19384,12 @@ func (s *AssetTerms) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.HeldForSale.Set {
+			e.FieldStart("held_for_sale")
+			s.HeldForSale.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("estimate_changes")
 		e.ArrStart()
 		for _, elem := range s.EstimateChanges {
@@ -19219,7 +19399,7 @@ func (s *AssetTerms) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAssetTerms = [11]string{
+var jsonFieldsNameOfAssetTerms = [12]string{
 	0:  "ledger_id",
 	1:  "ledger_code",
 	2:  "ledger_name",
@@ -19230,7 +19410,8 @@ var jsonFieldsNameOfAssetTerms = [11]string{
 	7:  "depreciation_start",
 	8:  "booked_through_year",
 	9:  "booked_through_period",
-	10: "estimate_changes",
+	10: "held_for_sale",
+	11: "estimate_changes",
 }
 
 // Decode decodes AssetTerms from json.
@@ -19352,8 +19533,18 @@ func (s *AssetTerms) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"booked_through_period\"")
 			}
+		case "held_for_sale":
+			if err := func() error {
+				s.HeldForSale.Reset()
+				if err := s.HeldForSale.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"held_for_sale\"")
+			}
 		case "estimate_changes":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				s.EstimateChanges = make([]AssetEstimateChange, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -19381,7 +19572,7 @@ func (s *AssetTerms) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b01011111,
-		0b00000100,
+		0b00001000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -19476,9 +19667,15 @@ func (s *AssetTermsUpdate) encodeFields(e *jx.Encoder) {
 			s.EffectiveFrom.Encode(e)
 		}
 	}
+	{
+		if s.HeldForSaleFrom.Set {
+			e.FieldStart("held_for_sale_from")
+			s.HeldForSaleFrom.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfAssetTermsUpdate = [7]string{
+var jsonFieldsNameOfAssetTermsUpdate = [8]string{
 	0: "ledger_id",
 	1: "method",
 	2: "useful_life_months",
@@ -19486,6 +19683,7 @@ var jsonFieldsNameOfAssetTermsUpdate = [7]string{
 	4: "residual_value",
 	5: "depreciation_start",
 	6: "effective_from",
+	7: "held_for_sale_from",
 }
 
 // Decode decodes AssetTermsUpdate from json.
@@ -19568,6 +19766,16 @@ func (s *AssetTermsUpdate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"effective_from\"")
+			}
+		case "held_for_sale_from":
+			if err := func() error {
+				s.HeldForSaleFrom.Reset()
+				if err := s.HeldForSaleFrom.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"held_for_sale_from\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -126199,6 +126407,39 @@ func (s OptAssetEstimateFrom) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *OptAssetEstimateFrom) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes AssetHeldForSale as json.
+func (o OptAssetHeldForSale) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes AssetHeldForSale from json.
+func (o *OptAssetHeldForSale) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptAssetHeldForSale to nil")
+	}
+	o.Set = true
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptAssetHeldForSale) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptAssetHeldForSale) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

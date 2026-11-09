@@ -31,13 +31,13 @@ type termsKey struct{ asset, ledger uuid.UUID }
 func readChanges(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) (map[termsKey][]EstimateChange, error) {
 	rows, _ := tx.Query(ctx, `SELECT asset_id, ledger_id, fiscal_year, fiscal_period, effective_from, method, useful_life_months,
 			trim_scale(declining_factor)::text, residual_value, before_method, before_useful_life_months, trim_scale(before_declining_factor)::text,
-			before_residual_value, created_at, created_by
+			before_residual_value, created_at, created_by, seq
 		FROM assets.estimate_change WHERE asset_id = ANY($1) ORDER BY asset_id, ledger_id, seq`, ids)
 	out := map[termsKey][]EstimateChange{}
 	var k termsKey
 	var c EstimateChange
 	_, err := pgx.ForEachRow(rows, []any{&k.asset, &k.ledger, &c.FiscalYear, &c.Period, &c.From, &c.Method, &c.UsefulLifeMonths, &c.DecliningFactor,
-		&c.Residual, &c.Before.Method, &c.Before.UsefulLifeMonths, &c.Before.DecliningFactor, &c.Before.Residual, &c.CreatedAt, &c.CreatedBy}, func() error {
+		&c.Residual, &c.Before.Method, &c.Before.UsefulLifeMonths, &c.Before.DecliningFactor, &c.Before.Residual, &c.CreatedAt, &c.CreatedBy, &c.seq}, func() error {
 		out[k] = append(out[k], c)
 		c = EstimateChange{} // the next row's pointers are scanned into a new value
 		return nil
@@ -92,13 +92,14 @@ func estimatesOf(ch Patch) map[uuid.UUID]estimateField {
 func changedTerms(old, terms []Terms, estimates map[uuid.UUID]estimateField) (direct, estimated []Terms, err error) {
 	for _, t := range terms {
 		i := slices.IndexFunc(old, func(o Terms) bool { return o.LedgerID == t.LedgerID })
+		f, ok := estimates[t.LedgerID]
+		if ok && (i < 0 || !old[i].booked()) {
+			return nil, nil, validation(f.field, "only in a ledger depreciation has been posted in; before, its terms change without it")
+		}
 		if i >= 0 && sameTerms(old[i], t) {
 			continue
 		}
-		f, ok := estimates[t.LedgerID]
 		switch {
-		case ok && (i < 0 || !old[i].booked()):
-			return nil, nil, validation(f.field, "only in a ledger depreciation has been posted in; before, its terms change without it")
 		case ok && !sameTerms(old[i], Terms{Method: old[i].Method, UsefulLifeMonths: old[i].UsefulLifeMonths, DecliningFactor: old[i].DecliningFactor,
 			Residual: old[i].Residual, DepreciationStart: t.DepreciationStart}):
 			return nil, nil, validation(f.field, "a change in estimate keeps the depreciation start")
@@ -130,7 +131,7 @@ func (e *Endpoints) estimateChanges(ctx context.Context, a Asset, estimated []Te
 		if err := prospective(a.Number, old, per, f.field); err != nil {
 			return nil, err
 		}
-		out = append(out, EstimateChange{FiscalYear: per.FiscalYear, Period: per.Number, From: per.Start,
+		out = append(out, EstimateChange{ledger: t.LedgerID, FiscalYear: per.FiscalYear, Period: per.Number, From: per.Start,
 			Estimate: Estimate{Method: t.Method, UsefulLifeMonths: t.UsefulLifeMonths, DecliningFactor: t.DecliningFactor, Residual: t.Residual},
 			Before:   Estimate{Method: old.Method, UsefulLifeMonths: old.UsefulLifeMonths, DecliningFactor: old.DecliningFactor, Residual: old.Residual}})
 	}
@@ -160,26 +161,94 @@ func prospective(number string, t Terms, per Period, field string) error {
 // seq (a change is a posting of the asset, ADR-0057 §5, so a document
 // posted before it is no longer reversed) and sets each ledger's terms to
 // its change's, counting it; with the asset's description and version.
-func writeChanges(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, description string, changes []EstimateChange,
-	ledgers []uuid.UUID) error {
+func writeChanges(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, description string, changes []EstimateChange) error {
 	var seq int32
 	if err := tx.QueryRow(ctx, `UPDATE assets.asset SET description = $2, last_seq = last_seq + 1, version = version + 1, updated_by = $3
 		WHERE id = $1 RETURNING last_seq`, id, description, p.ID).Scan(&seq); err != nil {
 		return fmt.Errorf("assets: change asset %s: %w", id, err)
 	}
-	for i, c := range changes {
+	for _, c := range changes {
 		if _, err := tx.Exec(ctx, `INSERT INTO assets.estimate_change (tenant_id, id, asset_id, ledger_id, seq, fiscal_year, fiscal_period,
 				effective_from, method, useful_life_months, declining_factor, residual_value, before_method, before_useful_life_months,
 				before_declining_factor, before_residual_value, created_by)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::numeric, $12, $13, $14, $15::numeric, $16, $17)`,
-			p.TenantID, uuid.Must(uuid.NewV7()), id, ledgers[i], seq, c.FiscalYear, c.Period, c.From, c.Method, c.UsefulLifeMonths, c.DecliningFactor,
+			p.TenantID, uuid.Must(uuid.NewV7()), id, c.ledger, seq, c.FiscalYear, c.Period, c.From, c.Method, c.UsefulLifeMonths, c.DecliningFactor,
 			c.Residual, c.Before.Method, c.Before.UsefulLifeMonths, c.Before.DecliningFactor, c.Before.Residual, p.ID); err != nil {
-			return fmt.Errorf("assets: change in estimate of asset %s in ledger %s: %w", id, ledgers[i], err)
+			return fmt.Errorf("assets: change in estimate of asset %s in ledger %s: %w", id, c.ledger, err)
 		}
 		if _, err := tx.Exec(ctx, `UPDATE assets.asset_terms SET method = $3, useful_life_months = $4, declining_factor = $5::numeric,
 				residual_value = $6, estimate_changes = estimate_changes + 1, version = version + 1, updated_by = $7
-			WHERE asset_id = $1 AND ledger_id = $2`, id, ledgers[i], c.Method, c.UsefulLifeMonths, c.DecliningFactor, c.Residual, p.ID); err != nil {
-			return fmt.Errorf("assets: terms of asset %s in ledger %s: %w", id, ledgers[i], err)
+			WHERE asset_id = $1 AND ledger_id = $2`, id, c.ledger, c.Method, c.UsefulLifeMonths, c.DecliningFactor, c.Residual, p.ID); err != nil {
+			return fmt.Errorf("assets: terms of asset %s in ledger %s: %w", id, c.ledger, err)
+		}
+	}
+	return nil
+}
+
+// heldForSaleChange is a ledger's classification as held for sale to
+// write.
+type heldForSaleChange struct {
+	ledger uuid.UUID
+	HeldForSale
+}
+
+// heldForSale are the patch's classifications as held for sale (ADR-0057
+// §7, T57k; IAS 16.55, IFRS 5.25), each from the regular period its entry
+// gives (422 assets.special_period, ledger.no_fiscal_period), one already
+// made from the same period left out; terms are the patched terms, which
+// hold every entry's ledger.
+func (e *Endpoints) heldForSale(ctx context.Context, a Asset, ch Patch, terms []Terms) ([]heldForSaleChange, error) {
+	var out []heldForSaleChange
+	for i, tp := range ch.Terms {
+		if tp.HeldForSaleFrom == nil {
+			continue
+		}
+		field := fmt.Sprintf("terms[%d].held_for_sale_from", i)
+		t, _ := termsIn(Asset{Terms: terms}, tp.LedgerID) // patchedTerms gave every entry's ledger terms
+		per, err := e.periodOf(ctx, a.LegalEntityID, tp.HeldForSaleFrom.FiscalYear, tp.HeldForSaleFrom.Period)
+		if err != nil {
+			return nil, err
+		}
+		if t.HeldForSale != nil && t.HeldForSale.From.Equal(per.Start) {
+			continue
+		}
+		if err := stopsProspectively(a.Number, t, per, field); err != nil {
+			return nil, err
+		}
+		out = append(out, heldForSaleChange{ledger: t.LedgerID, HeldForSale: HeldForSale{FiscalYear: per.FiscalYear, Period: per.Number, From: per.Start}})
+	}
+	return out, nil
+}
+
+// stopsProspectively refuses a classification as held for sale from a
+// period on or before the one the terms are booked through, and moving
+// one whose period is booked (422 assets.change_not_prospective; the
+// database holds both, asset_terms_held_for_sale_prospective): what was
+// booked stays.
+func stopsProspectively(number string, t Terms, per Period, field string) error {
+	if !t.booked() {
+		return nil
+	}
+	by, bp := *t.BookedYear, *t.BookedPeriod
+	booked := func(year, period int16) bool { return year < by || year == by && period <= bp }
+	if booked(per.FiscalYear, per.Number) {
+		return invalid("assets.change_not_prospective", fmt.Sprintf("Asset %s's depreciation is booked through %d/%02d in this ledger; it is "+
+			"classified as held for sale from a later period, so the depreciation booked stays.", number, by, bp), field,
+			fmt.Sprintf("a period after %d/%02d", by, bp))
+	}
+	if h := t.HeldForSale; h != nil && booked(h.FiscalYear, h.Period) {
+		return invalid("assets.change_not_prospective", fmt.Sprintf("Asset %s is held for sale from %d/%02d in this ledger, a period its "+
+			"depreciation is booked through; the classification stays.", number, h.FiscalYear, h.Period), field, "no change")
+	}
+	return nil
+}
+
+// writeHeldForSale writes the classifications as held for sale.
+func writeHeldForSale(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, held []heldForSaleChange) error {
+	for _, h := range held {
+		if _, err := tx.Exec(ctx, `UPDATE assets.asset_terms SET held_for_sale_year = $3, held_for_sale_period = $4, held_for_sale_from = $5,
+				version = version + 1, updated_by = $6 WHERE asset_id = $1 AND ledger_id = $2`, id, h.ledger, h.FiscalYear, h.Period, h.From, p.ID); err != nil {
+			return fmt.Errorf("assets: asset %s held for sale in ledger %s: %w", id, h.ledger, err)
 		}
 	}
 	return nil

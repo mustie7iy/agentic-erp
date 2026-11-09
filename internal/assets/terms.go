@@ -39,6 +39,9 @@ type TermsPatch struct {
 	// EffectiveFrom makes the entry a change in estimate from that
 	// period (T57j).
 	EffectiveFrom *EstimateFrom
+	// HeldForSaleFrom classifies the asset as held for sale in the
+	// ledger from that period (T57k).
+	HeldForSaleFrom *EstimateFrom
 }
 
 // changeAsset changes an asset that is not cancelled (422
@@ -65,49 +68,69 @@ func (e *Endpoints) changeAsset(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Asset{}, err
 	}
-	fields := estimatesOf(ch)
-	changed, estimated, err := changedTerms(a.Terms, terms, fields)
+	c, err := e.planChange(ctx, a, ch, terms)
 	if err != nil {
 		return Asset{}, err
 	}
-	changes, err := e.estimateChanges(ctx, a, estimated, fields)
-	if err != nil {
-		return Asset{}, err
-	}
-	description := a.Description
-	if ch.Description != nil {
-		if err := problem.RequireText("description", *ch.Description); err != nil {
-			return Asset{}, err
-		}
-		description = *ch.Description
-	}
-	if description == a.Description && len(changed) == 0 && len(changes) == 0 {
+	if c.description == a.Description && len(c.direct) == 0 && len(c.changes) == 0 && len(c.held) == 0 {
 		return a, nil
 	}
-	if err := e.writeChange(ctx, tx, p, id, description, changed, changes, estimated); err != nil {
+	if err := c.write(ctx, tx, p, id); err != nil {
 		return Asset{}, err
 	}
 	return e.written(ctx, tx, id, "change", "changed")
 }
 
-// writeChange writes an asset's description, its terms changed directly
-// and its changes in estimate (the estimated terms' ledgers in order).
-func (e *Endpoints) writeChange(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, description string, changed []Terms,
-	changes []EstimateChange, estimated []Terms) error {
-	if len(changes) == 0 {
-		if err := touch(ctx, tx, p, id, description); err != nil {
-			return err
-		}
-	} else {
-		ledgers := make([]uuid.UUID, len(estimated))
-		for i, t := range estimated {
-			ledgers[i] = t.LedgerID
-		}
-		if err := writeChanges(ctx, tx, p, id, description, changes, ledgers); err != nil {
-			return err
-		}
+// assetChange is what a patch writes: the description, the terms changed
+// directly, the changes in estimate and the classifications as held for
+// sale.
+type assetChange struct {
+	description string
+	direct      []Terms
+	changes     []EstimateChange
+	held        []heldForSaleChange
+}
+
+// planChange checks the patch's description, terms, changes in estimate
+// and classifications as held for sale against the asset.
+func (e *Endpoints) planChange(ctx context.Context, a Asset, ch Patch, terms []Terms) (assetChange, error) {
+	fields := estimatesOf(ch)
+	direct, estimated, err := changedTerms(a.Terms, terms, fields)
+	if err != nil {
+		return assetChange{}, err
 	}
-	return writeTerms(ctx, tx, p, id, changed)
+	c := assetChange{description: a.Description, direct: direct}
+	if c.changes, err = e.estimateChanges(ctx, a, estimated, fields); err != nil {
+		return assetChange{}, err
+	}
+	if c.held, err = e.heldForSale(ctx, a, ch, terms); err != nil {
+		return assetChange{}, err
+	}
+	if ch.Description != nil {
+		if err := problem.RequireText("description", *ch.Description); err != nil {
+			return assetChange{}, err
+		}
+		c.description = *ch.Description
+	}
+	return c, nil
+}
+
+// write writes the change: the description with the asset's version
+// (and its next seq, for changes in estimate), the changes in estimate,
+// the terms changed directly (a ledger's new terms among them) and the
+// classifications.
+func (c assetChange) write(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID) error {
+	if len(c.changes) == 0 {
+		if err := touch(ctx, tx, p, id, c.description); err != nil {
+			return err
+		}
+	} else if err := writeChanges(ctx, tx, p, id, c.description, c.changes); err != nil {
+		return err
+	}
+	if err := writeTerms(ctx, tx, p, id, c.direct); err != nil {
+		return err
+	}
+	return writeHeldForSale(ctx, tx, p, id, c.held)
 }
 
 // termsFrame is what a terms entry is checked against: the ledgers the

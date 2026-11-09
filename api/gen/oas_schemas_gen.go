@@ -6019,9 +6019,10 @@ func (s *AssetEstimateChange) SetCreatedBy(val uuid.UUID) {
 	s.CreatedBy = val
 }
 
-// A change in estimate (T57j): the regular period of the company's fiscal year the changed terms apply
-// from, after the one the ledger's depreciation is booked through; required once depreciation has been
-// posted in the ledger, refused before.
+// A regular period of the company's fiscal year a change applies from, after the one the ledger's
+// depreciation is booked through: as `effective_from`, the period changed terms apply from (a change
+// in estimate, T57j; required once depreciation has been posted in the ledger, refused before); as
+// `held_for_sale_from`, the period depreciation stops from (T57k).
 // Ref: #/components/schemas/AssetEstimateFrom
 type AssetEstimateFrom struct {
 	// The fiscal year.
@@ -6099,6 +6100,48 @@ func (s *AssetHeaders) SetResponse(val Asset) {
 }
 
 func (*AssetHeaders) createAssetRes() {}
+
+// The asset's classification as held for sale in the ledger (T57k; IFRS 5.25, IAS 16.55): from the
+// start of this period on it is depreciated no more. Absent while it is not so classified.
+// Ref: #/components/schemas/AssetHeldForSale
+type AssetHeldForSale struct {
+	// The fiscal year of the period depreciation stops in.
+	FiscalYear int32 `json:"fiscal_year"`
+	// That regular period.
+	Period int32 `json:"period"`
+	// That period's first day.
+	From time.Time `json:"from"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetHeldForSale) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *AssetHeldForSale) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetFrom returns the value of From.
+func (s *AssetHeldForSale) GetFrom() time.Time {
+	return s.From
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetHeldForSale) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *AssetHeldForSale) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetFrom sets the value of From.
+func (s *AssetHeldForSale) SetFrom(val time.Time) {
+	s.From = val
+}
 
 // The asset history sheet of a company, ledger and fiscal year (ADR-0057 §9): per class or asset the
 // reconciliation of cost, accumulated depreciation and net book value from the year's opening to its
@@ -7926,17 +7969,22 @@ type AssetSchedule struct {
 	FiscalYear int32 `json:"fiscal_year"`
 	// The company's local currency, every amount's.
 	Currency string `json:"currency"`
-	// The terms' method. Open enumeration: clients must accept and preserve values not listed here; values
-	// may be added within /v1.
+	// The method of the terms in force in the year's last period (a change in estimate may change them
+	// from a period, `estimate_changes`). Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
 	Method string `json:"method"`
-	// The useful life in periods (months).
+	// The useful life in periods (months) of the terms in force in the year's last period.
 	UsefulLifeMonths int32 `json:"useful_life_months"`
-	// The declining balance factor; only with `declining_balance`.
+	// The declining balance factor of those terms; only with `declining_balance`.
 	DecliningFactor OptString `json:"declining_factor"`
 	ResidualValue   Money     `json:"residual_value"`
 	// The day depreciation starts from, its period counting in full: the terms' own, else the
 	// capitalisation date; absent while the asset has neither.
 	DepreciationStart OptDate `json:"depreciation_start"`
+	// The terms' changes in estimate in the ledger, oldest first (T57j): each period was planned on the
+	// terms in force in it, those before the first change its `before`. Empty while there is none.
+	EstimateChanges []AssetEstimateChange `json:"estimate_changes"`
+	HeldForSale     OptAssetHeldForSale   `json:"held_for_sale"`
 	// The year's regular periods, in order.
 	Periods []AssetSchedulePeriod `json:"periods"`
 	Totals  AssetScheduleTotals   `json:"totals"`
@@ -8015,6 +8063,16 @@ func (s *AssetSchedule) GetResidualValue() Money {
 // GetDepreciationStart returns the value of DepreciationStart.
 func (s *AssetSchedule) GetDepreciationStart() OptDate {
 	return s.DepreciationStart
+}
+
+// GetEstimateChanges returns the value of EstimateChanges.
+func (s *AssetSchedule) GetEstimateChanges() []AssetEstimateChange {
+	return s.EstimateChanges
+}
+
+// GetHeldForSale returns the value of HeldForSale.
+func (s *AssetSchedule) GetHeldForSale() OptAssetHeldForSale {
+	return s.HeldForSale
 }
 
 // GetPeriods returns the value of Periods.
@@ -8100,6 +8158,16 @@ func (s *AssetSchedule) SetResidualValue(val Money) {
 // SetDepreciationStart sets the value of DepreciationStart.
 func (s *AssetSchedule) SetDepreciationStart(val OptDate) {
 	s.DepreciationStart = val
+}
+
+// SetEstimateChanges sets the value of EstimateChanges.
+func (s *AssetSchedule) SetEstimateChanges(val []AssetEstimateChange) {
+	s.EstimateChanges = val
+}
+
+// SetHeldForSale sets the value of HeldForSale.
+func (s *AssetSchedule) SetHeldForSale(val OptAssetHeldForSale) {
+	s.HeldForSale = val
 }
 
 // SetPeriods sets the value of Periods.
@@ -8304,7 +8372,8 @@ type AssetTerms struct {
 	// depreciation is first posted, after which the terms are fixed.
 	BookedThroughYear OptInt32 `json:"booked_through_year"`
 	// That period, with `booked_through_year`.
-	BookedThroughPeriod OptInt32 `json:"booked_through_period"`
+	BookedThroughPeriod OptInt32            `json:"booked_through_period"`
+	HeldForSale         OptAssetHeldForSale `json:"held_for_sale"`
 	// Its changes in estimate in this ledger, oldest first (T57j): the terms above are the latest one's,
 	// in force from its period; the periods before each change were planned on the terms before it. Empty
 	// while there is none.
@@ -8359,6 +8428,11 @@ func (s *AssetTerms) GetBookedThroughYear() OptInt32 {
 // GetBookedThroughPeriod returns the value of BookedThroughPeriod.
 func (s *AssetTerms) GetBookedThroughPeriod() OptInt32 {
 	return s.BookedThroughPeriod
+}
+
+// GetHeldForSale returns the value of HeldForSale.
+func (s *AssetTerms) GetHeldForSale() OptAssetHeldForSale {
+	return s.HeldForSale
 }
 
 // GetEstimateChanges returns the value of EstimateChanges.
@@ -8416,6 +8490,11 @@ func (s *AssetTerms) SetBookedThroughPeriod(val OptInt32) {
 	s.BookedThroughPeriod = val
 }
 
+// SetHeldForSale sets the value of HeldForSale.
+func (s *AssetTerms) SetHeldForSale(val OptAssetHeldForSale) {
+	s.HeldForSale = val
+}
+
 // SetEstimateChanges sets the value of EstimateChanges.
 func (s *AssetTerms) SetEstimateChanges(val []AssetEstimateChange) {
 	s.EstimateChanges = val
@@ -8439,6 +8518,7 @@ type AssetTermsUpdate struct {
 	// `effective_from`.
 	DepreciationStart OptNilDate           `json:"depreciation_start"`
 	EffectiveFrom     OptAssetEstimateFrom `json:"effective_from"`
+	HeldForSaleFrom   OptAssetEstimateFrom `json:"held_for_sale_from"`
 }
 
 // GetLedgerID returns the value of LedgerID.
@@ -8476,6 +8556,11 @@ func (s *AssetTermsUpdate) GetEffectiveFrom() OptAssetEstimateFrom {
 	return s.EffectiveFrom
 }
 
+// GetHeldForSaleFrom returns the value of HeldForSaleFrom.
+func (s *AssetTermsUpdate) GetHeldForSaleFrom() OptAssetEstimateFrom {
+	return s.HeldForSaleFrom
+}
+
 // SetLedgerID sets the value of LedgerID.
 func (s *AssetTermsUpdate) SetLedgerID(val uuid.UUID) {
 	s.LedgerID = val
@@ -8509,6 +8594,11 @@ func (s *AssetTermsUpdate) SetDepreciationStart(val OptNilDate) {
 // SetEffectiveFrom sets the value of EffectiveFrom.
 func (s *AssetTermsUpdate) SetEffectiveFrom(val OptAssetEstimateFrom) {
 	s.EffectiveFrom = val
+}
+
+// SetHeldForSaleFrom sets the value of HeldForSaleFrom.
+func (s *AssetTermsUpdate) SetHeldForSaleFrom(val OptAssetEstimateFrom) {
+	s.HeldForSaleFrom = val
 }
 
 // Merged schema.
@@ -47702,6 +47792,52 @@ func (o OptAssetEstimateFrom) Get() (v AssetEstimateFrom, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAssetEstimateFrom) Or(d AssetEstimateFrom) AssetEstimateFrom {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssetHeldForSale returns new OptAssetHeldForSale with value set to v.
+func NewOptAssetHeldForSale(v AssetHeldForSale) OptAssetHeldForSale {
+	return OptAssetHeldForSale{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetHeldForSale is optional AssetHeldForSale.
+type OptAssetHeldForSale struct {
+	Value AssetHeldForSale
+	Set   bool
+}
+
+// IsSet returns true if OptAssetHeldForSale was set.
+func (o OptAssetHeldForSale) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetHeldForSale) Reset() {
+	var v AssetHeldForSale
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetHeldForSale) SetTo(v AssetHeldForSale) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetHeldForSale) Get() (v AssetHeldForSale, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetHeldForSale) Or(d AssetHeldForSale) AssetHeldForSale {
 	if v, ok := o.Get(); ok {
 		return v
 	}

@@ -47,17 +47,18 @@ func (d depreciable) start() *time.Time {
 // plan is the terms as the walk reads them: those before the first
 // change in estimate, then each change from its period (T57j).
 func (d depreciable) plan() Plan {
-	base := Estimate{Method: d.terms.Method, UsefulLifeMonths: d.terms.UsefulLifeMonths, DecliningFactor: d.terms.DecliningFactor, Residual: d.terms.Residual}
-	if len(d.terms.Changes) > 0 {
-		base = d.terms.Changes[0].Before
-	}
+	base := d.terms.inForce(time.Time{}) // before any change
 	p := Plan{Method: base.Method, Life: base.UsefulLifeMonths, Factor: factorOf(base), Residual: base.Residual}
 	for _, c := range d.terms.Changes {
-		p.Changes = append(p.Changes, Change{Month: MonthOf(c.From), Method: c.Method, Life: c.UsefulLifeMonths, Factor: factorOf(c.Estimate), Residual: c.Residual})
+		p.Changes = append(p.Changes, Change{Month: MonthOf(c.From), Seq: c.seq, Method: c.Method, Life: c.UsefulLifeMonths, Factor: factorOf(c.Estimate), Residual: c.Residual})
 	}
 	if s := d.start(); s != nil {
 		m := MonthOf(*s)
 		p.Start = &m
+	}
+	if f := d.terms.hfs.from; f != nil {
+		m := MonthOf(*f)
+		p.Stop = &m
 	}
 	return p
 }
@@ -98,21 +99,22 @@ func (d depreciable) walkError(err error) error {
 // value date's period, and the depreciation booked, in total and by
 // posting period.
 func readMovements(ctx context.Context, tx pgx.Tx, ledger uuid.UUID, ds map[uuid.UUID]*depreciable) error {
-	rows, _ := tx.Query(ctx, `SELECT asset_id, kind, value_date, fiscal_year, fiscal_period, cost, accumulated, residual
+	rows, _ := tx.Query(ctx, `SELECT asset_id, seq, kind, value_date, fiscal_year, fiscal_period, cost, accumulated, residual
 		FROM assets.movement WHERE asset_id = ANY($1) AND ledger_id = $2 ORDER BY asset_id, seq`, assetIDs(ds), ledger)
 	var asset uuid.UUID
+	var seq int32
 	var kind string
 	var value time.Time
 	var year, period int16
 	var cost, accumulated, residual money.Minor
-	_, err := pgx.ForEachRow(rows, []any{&asset, &kind, &value, &year, &period, &cost, &accumulated, &residual}, func() error {
+	_, err := pgx.ForEachRow(rows, []any{&asset, &seq, &kind, &value, &year, &period, &cost, &accumulated, &residual}, func() error {
 		d := ds[asset]
 		if kind == kindDepreciation {
 			d.booked -= accumulated
 			d.bookedIn[postingPeriod{year, period}] -= accumulated
 			return nil
 		}
-		d.moves = append(d.moves, Move{Month: MonthOf(value), Cost: cost, Accumulated: accumulated, Residual: residual})
+		d.moves = append(d.moves, Move{Month: MonthOf(value), Seq: seq, Cost: cost, Accumulated: accumulated, Residual: residual})
 		return nil
 	})
 	return errs.Wrapf(err, "assets: movements of %d assets in ledger %s", len(ds), ledger)
@@ -130,12 +132,12 @@ func readMovements(ctx context.Context, tx pgx.Tx, ledger uuid.UUID, ds map[uuid
 // effects adding (Walk) (T57f2, T57f3: the preview of 100,000 assets read
 // 5.8 million rows, then 90,000 table pages).
 func readMoves(ctx context.Context, tx pgx.Tx, ledger uuid.UUID, ds map[uuid.UUID]*depreciable) error {
-	rows, _ := tx.Query(ctx, `SELECT asset_id, value_date, cost, accumulated, residual
+	rows, _ := tx.Query(ctx, `SELECT asset_id, seq, value_date, cost, accumulated, residual
 		FROM assets.movement WHERE asset_id = ANY($1) AND ledger_id = $2 AND kind <> 'depreciation'`, assetIDs(ds), ledger)
 	var asset uuid.UUID
 	var m Move
 	var value time.Time
-	_, err := pgx.ForEachRow(rows, []any{&asset, &value, &m.Cost, &m.Accumulated, &m.Residual}, func() error {
+	_, err := pgx.ForEachRow(rows, []any{&asset, &m.Seq, &value, &m.Cost, &m.Accumulated, &m.Residual}, func() error {
 		m.Month = MonthOf(value)
 		d := ds[asset]
 		d.moves = append(d.moves, m)

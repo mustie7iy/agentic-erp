@@ -4803,6 +4803,43 @@ step_asset_estimate() {
   passed
 }
 
+# step_asset_held_for_sale is depreciation stopped at classification as
+# held for sale, and a transfer's receiver depreciating the transfer's
+# month (T57k, ADR-0057 §7; IAS 16.55, IFRS 5.25): the tool set step 32
+# split off the milling machine this period depreciates this period, and
+# the milling machine, to be sold, is classified as held for sale in the
+# leading ledger from the next period.
+step_asset_held_for_sale() {
+  heading "Step 45 — Held for sale: the milling machine's depreciation stops from the next period; the tool set split off it depreciates this period"
+  as carla
+  say "The monthly convention counts a period in full from its start (ADR-0057 §7). The tool set of step 32 received a"
+  say "quarter of the milling machine this period, which the machine's share no longer depreciates in; the tool set"
+  say "depreciates it, so no month is lost:"
+  local tool mill period year tag next
+  QUIET=1 api 200 '' listAssets -p "legal_entity_id=$LE" -p status=active
+  tool=$(field '[.items[] | select(.description == "Milling tool set") | .id][0]')
+  mill=$(field '[.items[] | select(.description == "CNC milling machine") | .id][0]')
+  period=$((10#${TODAY:5:2}))
+  api 200 '.periods[] | select(.period == '"$period"') | "  the tool set, \(.fiscal_year)/\(.period): planned \(.planned.amount) \(.net_book_value.currency)"' \
+    getAssetSchedule -p "id=$tool" -p "fiscal_year=$YEAR"
+  expect "the tool set depreciates the transfer's period" "$(field ".periods[] | select(.period == $period) | .planned.amount != \"0.00\"")" true
+  say "Maple decides to sell the milling machine; it meets IFRS 5's criteria from the next period, so Carla classifies it"
+  say "as held for sale in the leading ledger from then: its runs depreciate it no more (IAS 16.55)."
+  if [ "$period" -lt 12 ]; then year=$YEAR; next=$((period + 1)); else year=$((YEAR + 1)); next=1; fi
+  api 200 '(.terms[] | "  \(.ledger_code): booked through \(.booked_through_year // "-")/\(.booked_through_period // "-"), held for sale \(.held_for_sale.from // "no")")' getAsset -p "id=$mill"
+  tag=$ETAG
+  say "A period already booked is refused:"
+  refused 422 assets.change_not_prospective updateAsset -p "id=$mill" -if-match "$tag" \
+    -body "{\"terms\": [{\"ledger_id\": \"$LEADING\", \"held_for_sale_from\": {\"fiscal_year\": $(field '.terms[] | select(.ledger_code == "0L") | .booked_through_year'), \"period\": $(field '.terms[] | select(.ledger_code == "0L") | .booked_through_period')}}]}"
+  api 200 '(.terms[] | "  \(.ledger_code): held for sale \(if .held_for_sale then "from \(.held_for_sale.fiscal_year)/\(.held_for_sale.period) (\(.held_for_sale.from))" else "no" end)")' \
+    updateAsset -p "id=$mill" -if-match "$tag" -body "{\"terms\": [{\"ledger_id\": \"$LEADING\", \"held_for_sale_from\": {\"fiscal_year\": $year, \"period\": $next}}]}"
+  expect "the classification" "$(field '.terms[] | select(.ledger_code == "0L") | "\(.held_for_sale.fiscal_year)/\(.held_for_sale.period)"')" "$year/$next"
+  api 200 '.periods[] | select(.period == '"$next"') | "  the machine, \(.fiscal_year)/\(.period): planned \(.planned.amount), net book value \(.net_book_value.amount) \(.net_book_value.currency)"' \
+    getAssetSchedule -p "id=$mill" -p "fiscal_year=$year"
+  expect "no depreciation from the next period" "$(field ".periods[] | select(.period == $next) | .planned.amount")" 0.00
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -6683,7 +6720,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_close'
 
 main() {
   stop_unseen

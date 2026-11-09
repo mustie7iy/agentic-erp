@@ -31,6 +31,13 @@ type Plan struct {
 	Residual money.Minor
 	Start    *Month
 	Changes  []Change
+	// Stop is the period the asset is classified as held for sale from
+	// (T57k; IAS 16.55, IFRS 5.25): from it on no period takes
+	// depreciation, its useful life still elapsing; nil: none.
+	Stop *Month
+	// seq is the asset's seq of the change in force (Plan.at), zero for
+	// none.
+	seq int32
 }
 
 // Change is a change in estimate (ADR-0057 §7, T57j; IAS 8.36-38): from
@@ -38,9 +45,14 @@ type Plan struct {
 // the depreciation start), factor and residual value replace the plan's,
 // so the periods before keep what was planned for them, and each period
 // from it on depreciates the net book value then over the life left. Of
-// changes from one period, the last one given wins.
+// changes from one period, the last one given wins. Its residual value
+// is the asset's as it stood when the change was made (Seq, the asset's
+// posting order): from its period on, the residual value is it plus what
+// the moves posted after it brought or took, those posted before having
+// left or come already.
 type Change struct {
 	Month    Month
+	Seq      int32
 	Method   string
 	Life     int32
 	Factor   string
@@ -54,15 +66,37 @@ func (p Plan) at(m Month) Plan {
 		if c.Month > m {
 			break
 		}
-		p.Method, p.Life, p.Factor, p.Residual = c.Method, c.Life, c.Factor, c.Residual
+		p.Method, p.Life, p.Factor, p.Residual, p.seq = c.Method, c.Life, c.Factor, c.Residual, c.Seq
 	}
 	return p
 }
 
-// ResidualAt is the terms' residual value in force in the period, the
-// plan's or its latest change's by then (Plan.at): what a retirement or
-// transfer valued in it takes its share of (ADR-0057 §8).
-func (p Plan) ResidualAt(m Month) money.Minor { return p.at(m).Residual }
+// residual is R_k, the residual value of the terms in force (the plan
+// at the period) with what the moves applied by then brought or took:
+// all of them on the plan's own terms, those posted after it on a
+// change's.
+func (p Plan) residual(applied []Move) money.Minor {
+	r := p.Residual
+	for _, mv := range applied {
+		if mv.Seq > p.seq {
+			r += mv.Residual
+		}
+	}
+	return r
+}
+
+// ResidualAt is the residual value in the period with the moves valued
+// by it (R_k): what a retirement or transfer valued in it takes its share
+// of (ADR-0057 §8).
+func (p Plan) ResidualAt(moves []Move, m Month) money.Minor {
+	var applied []Move
+	for _, mv := range moves {
+		if mv.Month <= m {
+			applied = append(applied, mv)
+		}
+	}
+	return p.at(m).residual(applied)
+}
 
 // Move is a movement the schedule applies at the start of the period of
 // its value date (ADR-0057 §7): an acquisition's cost, the cost,
@@ -72,6 +106,7 @@ func (p Plan) ResidualAt(m Month) money.Minor { return p.at(m).Residual }
 // are not moves: the walk computes depreciation, it does not read it.
 type Move struct {
 	Month                       Month
+	Seq                         int32 // the asset's posting order
 	Cost, Accumulated, Residual money.Minor
 }
 
@@ -133,10 +168,14 @@ func walk(p Plan, moves []Move, through Month, visit func(Step)) error {
 		}
 		book := cost + taken - depreciation
 		var d money.Minor
-		if p.Start != nil && m >= *p.Start {
-			in := p.at(m)
+		if p.Start != nil && m >= *p.Start && (p.Stop == nil || m < *p.Stop) {
+			in, residual := p, p.Residual+moved
+			if len(p.Changes) > 0 { // walked for changed terms alone: most assets have none
+				in = p.at(m)
+				residual = in.residual(moves[:i])
+			}
 			var err error
-			if d, err = in.period(int32(m-*p.Start)+1, book, in.Residual+moved); err != nil {
+			if d, err = in.period(int32(m-*p.Start)+1, book, residual); err != nil {
 				return err
 			}
 		}

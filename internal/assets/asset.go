@@ -54,6 +54,15 @@ type Terms struct {
 	// Changes are its changes in estimate in the ledger, oldest first
 	// (T57j): the terms above are the latest one's.
 	Changes []EstimateChange
+	// HeldForSale is the period from which the asset is classified as
+	// held for sale in the ledger, no longer depreciated (T57k); nil
+	// while it is not.
+	HeldForSale *HeldForSale
+	// hfs is HeldForSale's columns as scanned (heldForSale).
+	hfs struct {
+		year, period *int16
+		from         *time.Time
+	}
 	// depreciated is the depreciation booked in the ledger, as read
 	// (asset_terms.booked_depreciation, kept by every posting: keepTotals);
 	// never written from the terms.
@@ -72,6 +81,37 @@ type Estimate struct {
 	Residual         money.Minor
 }
 
+// HeldForSale is a classification as held for sale from a regular
+// period (From, its first day) on (ADR-0057 §7, T57k; IFRS 5.25).
+type HeldForSale struct {
+	FiscalYear, Period int16
+	From               time.Time
+}
+
+// inForce are the terms in force in the period starting on the day: those
+// of the latest change in estimate from it or before, else those before
+// the first change, else the terms'.
+func (t Terms) inForce(day time.Time) Estimate {
+	in := Estimate{Method: t.Method, UsefulLifeMonths: t.UsefulLifeMonths, DecliningFactor: t.DecliningFactor, Residual: t.Residual}
+	if len(t.Changes) > 0 {
+		in = t.Changes[0].Before
+	}
+	for _, c := range t.Changes {
+		if c.From.After(day) {
+			break
+		}
+		in = c.Estimate
+	}
+	return in
+}
+
+// scanned sets HeldForSale from its columns as scanned.
+func (t *Terms) scanned() {
+	if t.hfs.from != nil {
+		t.HeldForSale = &HeldForSale{FiscalYear: *t.hfs.year, Period: *t.hfs.period, From: *t.hfs.from}
+	}
+}
+
 // EstimateChange is a change in estimate of an asset's terms in one
 // ledger: the terms from the start of its period (From, the first day of
 // FiscalYear/Period) on, and those before it.
@@ -82,6 +122,8 @@ type EstimateChange struct {
 	Before    Estimate
 	CreatedAt time.Time
 	CreatedBy uuid.UUID
+	ledger    uuid.UUID // the ledger it is to be written in
+	seq       int32     // the asset's posting order when it was made
 }
 
 // Values are an asset's values in one ledger, the sums of its movements

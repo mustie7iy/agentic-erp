@@ -68,10 +68,12 @@ func (e *Endpoints) GetAssetSchedule(ctx context.Context, params gen.GetAssetSch
 // scheduleOf shows the asset's schedule for the year's periods.
 func scheduleOf(v docView, a Asset, co Company, l LedgerRef, d *depreciable, periods []Period, steps []Step) *gen.AssetSchedule {
 	lc := func(m money.Minor) gen.Money { return v.money(m, co.Currency) }
+	in := d.terms.inForce(periods[len(periods)-1].Start)
 	out := &gen.AssetSchedule{AssetID: a.ID, AssetNumber: a.Number, Description: a.Description, LegalEntityID: a.LegalEntityID, CompanyCode: co.Code,
-		LedgerID: l.ID, LedgerCode: l.Code, LedgerName: l.Name, FiscalYear: int32(periods[0].FiscalYear), Currency: co.Currency, Method: d.terms.Method,
-		UsefulLifeMonths: d.terms.UsefulLifeMonths, DecliningFactor: apitypes.OptString(d.terms.DecliningFactor), ResidualValue: lc(d.terms.Residual),
-		DepreciationStart: apitypes.OptDate(d.start()), Periods: make([]gen.AssetSchedulePeriod, len(periods))}
+		LedgerID: l.ID, LedgerCode: l.Code, LedgerName: l.Name, FiscalYear: int32(periods[0].FiscalYear), Currency: co.Currency, Method: in.Method,
+		UsefulLifeMonths: in.UsefulLifeMonths, DecliningFactor: apitypes.OptString(in.DecliningFactor), ResidualValue: lc(in.Residual),
+		DepreciationStart: apitypes.OptDate(d.start()), EstimateChanges: changesAPI(d.terms.Changes, lc), HeldForSale: heldForSaleAPI(d.terms.HeldForSale),
+		Periods: make([]gen.AssetSchedulePeriod, len(periods))}
 	var planned, booked money.Minor
 	for i, p := range periods {
 		// A period before the walk's first step holds no value: no movement

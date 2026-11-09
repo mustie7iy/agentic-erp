@@ -94,17 +94,21 @@ func readValues(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) (map[uuid.UUID]
 // row changes. What shows or records them orders them (inLedgerOrder).
 func readTerms(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) (map[uuid.UUID][]Terms, error) {
 	rows, _ := tx.Query(ctx, `SELECT asset_id, ledger_id, method, useful_life_months, trim_scale(declining_factor)::text, residual_value,
-			depreciation_start, booked_through_year, booked_through_period, booked_depreciation, estimate_changes
+			depreciation_start, booked_through_year, booked_through_period, booked_depreciation, estimate_changes, held_for_sale_year,
+			held_for_sale_period, held_for_sale_from
 		FROM assets.asset_terms WHERE asset_id = ANY($1)`, ids)
 	out, err := grouped(rows, fmt.Sprintf("terms of %d assets", len(ids)), func(asset *uuid.UUID, t *Terms) []any {
 		return []any{asset, &t.LedgerID, &t.Method, &t.UsefulLifeMonths, &t.DecliningFactor, &t.Residual, &t.DepreciationStart, &t.BookedYear,
-			&t.BookedPeriod, &t.depreciated, &t.changes}
+			&t.BookedPeriod, &t.depreciated, &t.changes, &t.hfs.year, &t.hfs.period, &t.hfs.from}
 	})
 	if err != nil {
 		return nil, err
 	}
 	var changed []uuid.UUID
 	for asset, ts := range out {
+		for i := range ts {
+			ts[i].scanned()
+		}
 		if slices.ContainsFunc(ts, func(t Terms) bool { return t.changes > 0 }) {
 			changed = append(changed, asset)
 		}
@@ -221,6 +225,9 @@ func record(ctx context.Context, a Asset, ledgers []LedgerRef, action, change st
 	for i, t := range a.Terms {
 		terms[i] = map[string]any{"ledger_id": t.LedgerID, "method": t.Method, "useful_life_months": t.UsefulLifeMonths,
 			"declining_factor": t.DecliningFactor, "residual_value": int64(t.Residual), "depreciation_start": outbox.Date(t.DepreciationStart)}
+		if h := t.HeldForSale; h != nil {
+			terms[i]["held_for_sale_from"] = outbox.Date(&h.From)
+		}
 		if n := len(t.Changes); n > 0 {
 			terms[i]["estimate_changes"], terms[i]["effective_from"] = n, outbox.Date(&t.Changes[n-1].From)
 		}

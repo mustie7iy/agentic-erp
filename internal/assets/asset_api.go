@@ -154,14 +154,7 @@ func (v view) toAPI(a Asset) gen.Asset {
 		lc := func(m money.Minor) gen.Money { return apitypes.Money(m, co.Currency, v.exponents[co.Currency]) }
 		at := gen.AssetTerms{LedgerID: l.ID, LedgerCode: l.Code, LedgerName: l.Name, Method: t.Method, UsefulLifeMonths: t.UsefulLifeMonths,
 			DecliningFactor: apitypes.OptString(t.DecliningFactor), ResidualValue: lc(t.Residual), DepreciationStart: apitypes.OptDate(t.DepreciationStart),
-			EstimateChanges: make([]gen.AssetEstimateChange, len(t.Changes))}
-		for j, c := range t.Changes {
-			at.EstimateChanges[j] = gen.AssetEstimateChange{FiscalYear: int32(c.FiscalYear), Period: int32(c.Period), EffectiveFrom: c.From, Method: c.Method,
-				UsefulLifeMonths: c.UsefulLifeMonths, DecliningFactor: apitypes.OptString(c.DecliningFactor), ResidualValue: lc(c.Residual),
-				Before: gen.AssetEstimate{Method: c.Before.Method, UsefulLifeMonths: c.Before.UsefulLifeMonths,
-					DecliningFactor: apitypes.OptString(c.Before.DecliningFactor), ResidualValue: lc(c.Before.Residual)},
-				CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy}
-		}
+			EstimateChanges: changesAPI(t.Changes, lc), HeldForSale: heldForSaleAPI(t.HeldForSale)}
 		if t.booked() {
 			at.BookedThroughYear, at.BookedThroughPeriod = gen.NewOptInt32(int32(*t.BookedYear)), gen.NewOptInt32(int32(*t.BookedPeriod))
 		}
@@ -169,6 +162,27 @@ func (v view) toAPI(a Asset) gen.Asset {
 	}
 	out.Values = v.values(a, co)
 	return out
+}
+
+// changesAPI shows the changes in estimate of terms, amounts by lc.
+func changesAPI(changes []EstimateChange, lc func(money.Minor) gen.Money) []gen.AssetEstimateChange {
+	out := make([]gen.AssetEstimateChange, len(changes))
+	for j, c := range changes {
+		out[j] = gen.AssetEstimateChange{FiscalYear: int32(c.FiscalYear), Period: int32(c.Period), EffectiveFrom: c.From, Method: c.Method,
+			UsefulLifeMonths: c.UsefulLifeMonths, DecliningFactor: apitypes.OptString(c.DecliningFactor), ResidualValue: lc(c.Residual),
+			Before: gen.AssetEstimate{Method: c.Before.Method, UsefulLifeMonths: c.Before.UsefulLifeMonths,
+				DecliningFactor: apitypes.OptString(c.Before.DecliningFactor), ResidualValue: lc(c.Before.Residual)},
+			CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy}
+	}
+	return out
+}
+
+// heldForSaleAPI shows a classification as held for sale, if any.
+func heldForSaleAPI(h *HeldForSale) gen.OptAssetHeldForSale {
+	if h == nil {
+		return gen.OptAssetHeldForSale{}
+	}
+	return gen.NewOptAssetHeldForSale(gen.AssetHeldForSale{FiscalYear: int32(h.FiscalYear), Period: int32(h.Period), From: h.From})
 }
 
 // name is a center's code and name, when the view has it.
@@ -241,6 +255,9 @@ func (e *Endpoints) UpdateAsset(ctx context.Context, req *gen.AssetUpdate, param
 		}
 		if f, ok := t.EffectiveFrom.Get(); ok {
 			tp.EffectiveFrom = &EstimateFrom{FiscalYear: int16(f.FiscalYear), Period: int16(f.Period)} // the contract bounds both
+		}
+		if f, ok := t.HeldForSaleFrom.Get(); ok {
+			tp.HeldForSaleFrom = &EstimateFrom{FiscalYear: int16(f.FiscalYear), Period: int16(f.Period)} // the contract bounds both
 		}
 		ch.Terms = append(ch.Terms, tp)
 	}

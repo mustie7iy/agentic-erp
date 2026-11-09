@@ -82,6 +82,7 @@ type retiredLedger struct {
 	share                                    *big.Rat
 	cost, costGC, accumulated, accumulatedGC money.Minor
 	residual                                 money.Minor
+	standing                                 money.Minor // the residual value in V before the share leaves
 	entry                                    *PostedEntry
 }
 
@@ -259,8 +260,10 @@ func notBeforeCapitalisation(a Asset, value time.Time) error {
 }
 
 // laterValueDate refuses a retirement or transfer while the asset has a
-// movement or an assignment valued after its period, or is booked
-// through a later period in a ledger (409 assets.later_value_date,
+// movement or an assignment valued after its period, is booked through a
+// later period in a ledger, or has a change in estimate from a later
+// period, whose residual value is the asset's as it stood (T57j) (409
+// assets.later_value_date,
 // ADR-0057 §6): a run of a later period, an acquisition valued later, a
 // transfer from a later date. A reversed movement and its reversal cancel
 // out (§7) and do not count, and only the latest assignment row is read:
@@ -271,14 +274,16 @@ func laterValueDate(ctx context.Context, tx pgx.Tx, a Asset, v Period) error {
 	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM assets.movement m WHERE m.asset_id = $1 AND m.value_date > $2 AND m.reverses_id IS NULL
 				AND NOT EXISTS (SELECT FROM assets.movement r WHERE r.tenant_id = m.tenant_id AND r.reverses_id = m.id))
 			OR (SELECT valid_from FROM assets.asset_assignment WHERE asset_id = $1 ORDER BY seq DESC LIMIT 1) > $2
-			OR EXISTS (SELECT FROM assets.asset_terms WHERE asset_id = $1 AND (booked_through_year, booked_through_period) > ($3::smallint, $4::smallint))`,
+			OR EXISTS (SELECT FROM assets.asset_terms WHERE asset_id = $1 AND (booked_through_year, booked_through_period) > ($3::smallint, $4::smallint))
+			OR EXISTS (SELECT FROM assets.estimate_change WHERE asset_id = $1 AND effective_from > $2)`,
 		a.ID, v.End, v.FiscalYear, v.Number).Scan(&later)
 	if err != nil {
 		return fmt.Errorf("assets: later values of asset %s: %w", a.Number, err)
 	}
 	if later {
-		return problem.Conflict("assets.later_value_date", fmt.Sprintf("Asset %s has a movement or center assignment valued after %d/%02d, or "+
-			"depreciation booked through a later period; a retirement or transfer is valued in its posting period and not before them.",
+		return problem.Conflict("assets.later_value_date", fmt.Sprintf("Asset %s has a movement or center assignment valued after %d/%02d, "+
+			"depreciation booked through a later period or a change in estimate from one; a retirement or transfer is valued in its posting "+
+			"period and not before them.",
 			a.Number, v.FiscalYear, v.Number))
 	}
 	return nil
@@ -317,10 +322,10 @@ func (e *Endpoints) catchUps(ctx context.Context, tx pgx.Tx, a Asset, co Company
 		if err != nil {
 			return nil, err
 		}
-		// The share takes of the residual value in force in V: a change in
-		// estimate from a later period has not replaced it yet (T57j).
-		t.Residual = d.plan().ResidualAt(MonthOf(v.Start))
-		out = append(out, &retiredLedger{ledger: l, terms: t, values: a.Values[l.ID], catchUp: planned - d.booked})
+		// The share takes of the residual value in force in V (R_k), a
+		// change in estimate's among them (T57j).
+		out = append(out, &retiredLedger{ledger: l, terms: t, values: a.Values[l.ID], catchUp: planned - d.booked,
+			standing: d.plan().ResidualAt(d.moves, MonthOf(v.Start))})
 	}
 	return out, nil
 }
@@ -356,7 +361,7 @@ func termsIn(a Asset, ledger uuid.UUID) (Terms, bool) {
 // all of them for a full share. With no base cost only a full share is
 // accepted (422 assets.share_of_zero_cost).
 func (l *retiredLedger) take(percent *int64, cost *money.Minor, number string) error {
-	base, accumulated, residual := l.values.Cost, l.values.Accumulated-l.catchUp, l.terms.Residual+l.values.Residual
+	base, accumulated, residual := l.values.Cost, l.values.Accumulated-l.catchUp, l.standing
 	num, den := int64(1), int64(1) // all of it
 	switch {
 	case cost != nil:

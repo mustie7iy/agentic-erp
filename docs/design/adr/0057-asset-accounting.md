@@ -578,10 +578,14 @@ a retirement or transfer out takes its share off at the start of the period
 of its value date, so the retired share depreciates for none of that
 period (decided by default; SAP's period controls vary this per method).
 The accounting specialist accepted the monthly convention on 2026-11-09
-(po:2026-11-09, B11; IAS 8.8) with two caveats, a tracker leaf: a
-transfer's receiving side must pick up the month, so none is lost; and
-depreciation must be able to stop at classification as held for sale
-(IAS 16.55, IFRS 5), which nothing here does yet.
+(po:2026-11-09, B11; IAS 8.8) with two caveats, both met by T57k: a
+transfer's receiving side picks up the month (its depreciation starts
+from the transfer's value date, whose period counts in full, while the
+sender's share depreciates for none of it; tested), and depreciation
+stops at classification as held for sale (IAS 16.55, IFRS 5.25): a
+terms entry's `held_for_sale_from`, a regular period after the one the
+ledger is booked through, from which no period takes depreciation, the
+useful life still elapsing (As built, T57k).
 
 **The planned schedule** of an asset in a ledger through a period P walks
 its periods from the depreciation start's (k = 1) to P. It applies each
@@ -2637,11 +2641,25 @@ overrule:
   terms always count it, so a review that finds three years left on an
   asset two years in sets 60 months; the depreciation start does not
   change with it (422).
-- **The residual value keeps the terms' meaning**: what retirements and
-  transfers took or brought still adds to it. A retirement or transfer
-  takes its share of the residual value in force in its period
-  (`Plan.ResidualAt`), so a change from a later period does not reach
-  back.
+- **The residual value is the asset's as it stands when the change is
+  made** (review round 1): from the change's period on, R_k is the
+  change's residual value plus what the moves posted after it (by `seq`)
+  brought or took; shares that left before it are not taken off again,
+  so a change after a partial retirement never drives R_k below zero
+  (`TestScheduleWalkWithChanges`). A retirement or transfer valued before
+  a change's period is refused once the change is made (409
+  `assets.later_value_date`, as for a movement valued later), and one
+  valued in or after it takes its share of R_k (`Plan.ResidualAt`;
+  `TestRetirementBeforeAChange`).
+- **A useful life shorter than the periods elapsed** at the change's
+  period is accepted: as the schedule's rule from k = n on has it, the
+  whole book value above the residual value is depreciated in that
+  period, the current period's effect of the change (IAS 8.36), not a
+  restatement of the periods booked.
+- **The schedule's terms** (`getAssetSchedule`) are those in force in the
+  year's last period, and it lists the ledger's changes and the
+  classification as held for sale, so each period's planned amount can be
+  explained from the report alone (review round 1).
 - **Strictly after the period booked through**: nothing booked changes,
   so no run posts a correction of past periods (that would be an error
   correction, IAS 8.41, not an estimate). A review after the year's last
@@ -2656,3 +2674,38 @@ overrule:
 - **Reads cost nothing for assets without changes**: the walk reads the
   changes only of terms that count some, in one statement per run batch,
   preview page or asset read (`withChanges`, `readTerms`).
+
+**T57k (held for sale; a transfer's receiver depreciating its month,
+po:2026-11-09 B11).** The specialist accepted the monthly convention with
+two caveats (IAS 16.55, IFRS 5.25, IAS 8.8). Built: migration 000244
+(`asset_terms.held_for_sale_year`, `_period`, `_from`, all or none,
+`asset_terms_held_for_sale`; `asset_terms_held_for_sale_prospective` in
+`assets.check_asset_terms`: from a period after the one booked through,
+moved only while its period is not booked, never cleared;
+`TestAssetHeldForSaleRules`); `Plan.Stop` in the walk; contract
+`AssetTermsUpdate.held_for_sale_from`, `AssetTerms.held_for_sale`
+(`AssetHeldForSale`), also on `AssetSchedule`; tests `TestHeldForSale`,
+`TestTransferReceiverDepreciatesItsMonth` (half the mill moved in June
+after June's run: each half depreciates 5.00 of June, a repeat run posts
+both, 10.00), the walk's case in `TestScheduleWalkWithChanges`;
+walkthrough step 45 (`step_asset_held_for_sale`). Decided by default, for
+the product owner to overrule:
+- **Per ledger**, as a terms entry of `PATCH /v1/assets/{id}`: each
+  ledger is a depreciation area with its own accounting principle
+  (ADR-0045), and IFRS 5 is IFRS's; a local GAAP ledger may keep
+  depreciating. The classification is audited with the terms.
+- **No reclassification out of held for sale** (IFRS 5.26-29) and no
+  measurement at the lower of carrying amount and fair value less costs
+  to sell (IFRS 5.15, an impairment, which ADR-0057 leaves out): the leaf
+  asks for the stop alone. A classification from a period not yet booked
+  may be moved to another such period; once booked it stays (422
+  `assets.change_not_prospective`).
+- **Nothing else changes for a held-for-sale asset**: runs select it and
+  post no difference for it, a retirement (its sale) catches up through
+  the period before as ever, which takes no depreciation from the stop;
+  the useful life keeps elapsing, so periods after the stop are k on.
+- **The transfer caveat needed no change**: a receiver's depreciation
+  starts from the transfer's value date (its capitalisation date, §5,
+  §8), whose period counts in full, and the sender's share leaves at the
+  start of that period; the test proves the month is depreciated once.
+

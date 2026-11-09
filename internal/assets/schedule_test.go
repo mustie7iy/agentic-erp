@@ -204,7 +204,8 @@ func TestScheduleWalkRefused(t *testing.T) {
 // twelve periods, from April eight periods in all and a residual value of
 // 300, so April on spreads 900 - 300 over the five periods left; of two
 // changes from one period the last wins; a retirement's share of the
-// residual value is the one in force in its period (ResidualAt).
+// residual value is the one in force in its period (ResidualAt); held
+// for sale from March (T57k), no period from it on takes any.
 func TestScheduleWalkWithChanges(t *testing.T) {
 	plan := straight(12, 0, 1)
 	plan.Changes = []assets.Change{{Month: month(4), Method: "straight_line", Life: 8, Residual: 300}}
@@ -217,11 +218,29 @@ func TestScheduleWalkWithChanges(t *testing.T) {
 	if got, want := depreciations(steps), "100 100 100 225 | 675"; got != want {
 		t.Errorf("two changes from April: got %s, want %s", got, want)
 	}
+	// Half retired in April took 100 of a residual value of 200; a change
+	// from June made after it sets the residual value of the half left to
+	// 0, which the retirement does not reduce again: the half ends at 0.
+	shared := straight(12, 200, 1)
+	shared.Changes = []assets.Change{{Month: month(6), Seq: 4, Method: "straight_line", Life: 12}}
+	sold := []assets.Move{{Month: month(1), Seq: 2, Cost: 1200}, {Month: month(4), Seq: 3, Cost: -600, Accumulated: 125, Residual: -100}}
+	if got, want := depreciations(walk(t, shared, sold, 12)), "83 83 83 42 42 56 56 56 56 56 56 56 | 0"; got != want {
+		t.Errorf("a change after a retirement: got %s, want %s", got, want)
+	}
+	if got := shared.ResidualAt(sold, month(6)); got != 0 {
+		t.Errorf("the residual value in June: got %d, want 0", got)
+	}
+	stop := month(3)
+	held := straight(12, 0, 1)
+	held.Stop = &stop
+	if got, want := depreciations(walk(t, held, []assets.Move{acquired(1, 1200)}, 4)), "100 100 0 0 | 1000"; got != want {
+		t.Errorf("held for sale from March: got %s, want %s", got, want)
+	}
 	for _, c := range []struct {
 		period int
 		want   money.Minor
 	}{{3, 0}, {4, 300}, {9, 300}} {
-		if got := plan.ResidualAt(month(c.period)); got != c.want {
+		if got := plan.ResidualAt([]assets.Move{acquired(1, 1200)}, month(c.period)); got != c.want {
 			t.Errorf("the residual value in period %d: got %d, want %d", c.period, got, c.want)
 		}
 	}

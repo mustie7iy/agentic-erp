@@ -20,17 +20,18 @@ CREATE TABLE assets.estimate_change (
   useful_life_months         integer NOT NULL CHECK (useful_life_months BETWEEN 1 AND 1200),
   declining_factor           numeric(6,4) CHECK (declining_factor > 1 AND declining_factor <= 10),
   residual_value             bigint NOT NULL CHECK (residual_value >= 0),
-  before_method              text NOT NULL CHECK (before_method IN ('straight_line', 'declining_balance')),
-  before_useful_life_months  integer NOT NULL CHECK (before_useful_life_months BETWEEN 1 AND 1200),
-  before_declining_factor    numeric(6,4) CHECK (before_declining_factor > 1 AND before_declining_factor <= 10),
-  before_residual_value      bigint NOT NULL CHECK (before_residual_value >= 0),
+  -- The terms before it, as the terms row held them (the trigger below),
+  -- whose checks they therefore meet.
+  before_method              text NOT NULL,
+  before_useful_life_months  integer NOT NULL,
+  before_declining_factor    numeric(6,4),
+  before_residual_value      bigint NOT NULL,
   created_at                 timestamptz NOT NULL DEFAULT now(),
   created_by                 uuid NOT NULL,
   PRIMARY KEY (tenant_id, id),
   UNIQUE (tenant_id, asset_id, ledger_id, seq),
   FOREIGN KEY (tenant_id, asset_id, ledger_id) REFERENCES assets.asset_terms (tenant_id, asset_id, ledger_id),
-  CONSTRAINT estimate_change_declining_factor CHECK ((method = 'declining_balance') = (declining_factor IS NOT NULL)
-    AND (before_method = 'declining_balance') = (before_declining_factor IS NOT NULL))
+  CONSTRAINT estimate_change_declining_factor CHECK ((method = 'declining_balance') = (declining_factor IS NOT NULL))
 );
 CREATE TRIGGER estimate_change_insert_only BEFORE UPDATE OR DELETE ON assets.estimate_change
   FOR EACH ROW EXECUTE FUNCTION platform.forbid_mutation();
