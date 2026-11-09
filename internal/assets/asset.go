@@ -58,7 +58,9 @@ type Terms struct {
 	// held for sale in the ledger, no longer depreciated (T57k); nil
 	// while it is not.
 	HeldForSale *HeldForSale
-	// hfs is HeldForSale's columns as scanned (heldForSale).
+	// hfs is HeldForSale's columns as scanned. A run's selection and the
+	// preview (selectDepreciable) scan its first day alone and set no
+	// HeldForSale, so the walk reads the stop from hfs.from (plan).
 	hfs struct {
 		year, period *int16
 		from         *time.Time

@@ -266,6 +266,7 @@ func TestAssetHeldForSaleRules(t *testing.T) {
 			version = version + 1 WHERE asset_id = $1`, f.planned, year, period, from)
 	}
 	failsWith(t, held(2026, 7, nil), "asset_terms_held_for_sale")
+	failsWith(t, held(2026, 13, "2026-12-01"), "asset_terms_held_for_sale_period_check")
 	mustApp(t, f.tenant, func(tx pgx.Tx) error {
 		return exec(tx, `UPDATE assets.asset_terms SET booked_through_year = 2026, booked_through_period = 6, held_for_sale_year = 2026,
 			held_for_sale_period = 8, held_for_sale_from = '2026-08-01', version = version + 1 WHERE asset_id = $1`, f.planned)

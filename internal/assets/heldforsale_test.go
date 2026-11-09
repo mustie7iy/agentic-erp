@@ -66,8 +66,15 @@ func TestHeldForSale(t *testing.T) {
 	}
 	_, tag = e.Must(200, "GET", path, "", "")
 	e.Problem(422, "assets.change_not_prospective", "PATCH", path, heldForSale(e.l0, 10), tag)
-	a, _ = e.Must(200, "PATCH", path, `{"description": "Mill, for sale"}`, tag)
+	a, tag = e.Must(200, "PATCH", path, `{"description": "Mill, for sale"}`, tag)
 	want(t, "a later change keeps the classification", fmt.Sprint(a["description"], " ", heldFrom(a)), "Mill, for sale 2026/9 2026-09-01")
+	// 2L has no depreciation posted: any period is accepted, and moved to
+	// an earlier one.
+	_, tag = e.Must(200, "PATCH", path, heldForSale(e.l2, 11), tag)
+	e.Must(200, "PATCH", path, heldForSale(e.l2, 7), tag)
+	s, _ = e.Must(200, "GET", fmt.Sprintf("%s/schedule?fiscal_year=2026&ledger_id=%s", path, e.l2), "", "")
+	want(t, "2L held for sale from July", fmt.Sprint(s["held_for_sale"].(map[string]any)["period"], " ", schedule(s, 6)[:20]), "7 6 20.00 0.00 1180.00")
+	want(t, "and nothing from July", schedule(s, 7)[:16], "7 0.00 0.00 1180")
 }
 
 // TestTransferReceiverDepreciatesItsMonth (T57k; po:2026-11-09, B11):
