@@ -79,8 +79,11 @@ const baselineItems = 949
 // review: the emirate guard the sign-off waits for, inheriting the tag.
 // 102 since T56h1: the SAP migration of controlling data split into
 // T56h1-T56h4 for size (hierarchies and categories, OKB9 defaults,
-// ACDOCA's centers and center totals), each inheriting the tag.
-const pilotItems = 102
+// ACDOCA's centers and center totals), each inheriting the tag. 103 since
+// T56h2: the OData mapping of the controlling tables, whose service names
+// wait for the pilot's $metadata, split from it as T56h5, inheriting the
+// tag.
+const pilotItems = 103
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

@@ -1791,7 +1791,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Reading the carry-forward, staleness and re-runs: stale with the periods opened since (recorded ones moved or open, unrecorded ones of the year or earlier opened) on every read of a run; GET /v1/balance-carry-forwards (list) and /{id}/balances (names, kinds, totals with every page); the from-every-year and page budgets; walkthrough: a late posting into period 13 makes the run stale, re-running supersedes it and carries the adjustment",
         "r": "ADR-0060 §6, §7 · T64m3",
         "src": "adr:ADR-0060",
@@ -1910,9 +1910,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Consolidated statements: GET /v1/consolidation-runs/{id}/statements/{statement} (balance_sheet, profit_and_loss) with reported, eliminations and consolidated per group account, totals over the statement, paging by number; the statement's budget; walkthrough: the balance sheet's totals and the fiscal year's profit through the period sum to zero, each row equal to the balances list's total for its group account",
-        "r": "ADR-0059 · T68e",
+        "r": "GetConsolidatedStatement · TestConsolidatedStatementBudget · ADR-0059 As built · T68e",
         "src": "adr:ADR-0059",
         "c": []
        },
@@ -2397,14 +2397,14 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "E-invoicing and statutory reports designed (ADR-0061, decided by default under ADR-0053 d): a leaf einvoicing context; the accredited provider as a port behind an einvoice_provider connector with a stand-in, polled, never pushed to; UAE suppliers' PINT AE e-invoices recorded once and acknowledged, validated, refused or entered by capture's rules without a model, tax codes from the lines' categories, every refusal of the entering a hold people resolve; the FTA Audit File in tax filing once specified; sending with phase 3's sales invoices",
       "r": "ADR-0061 · T65 (split T65a-T65h)",
       "c": [
        {
-        "s": "T",
-        "t": "Fetching e-invoices on demand: connector kind einvoice_provider (adapter, https base_url, participants per company, format pint_ae, secret_ref; integration.adapter_not_certified for the stand-in in production); the einvoicing leaf (internal/layout) and schema einvoicing.einvoice (RLS, tenant_id first, unique per connector and provider message id, status trigger, schema tests); the Provider port, the loopback stand-in and the egress client's per-client response limit (10 MiB); FetchEInvoices's record activity run by POST /v1/e-invoices:fetch (an Operation counting what it recorded), bytes write-once in object storage, acknowledged after the commit (run-twice test); GET /v1/e-invoices (filters, cursor paging, company and supplier names, the entered invoice's number and reference) and /{id}; einvoicing.einvoice.read and manage; EInvoiceChanged; audit; walkthrough step_einvoice: Ada adds the UAE company AE01 and the connector, Alex fetches and finds the stand-in's e-invoice received under the fetch's operation, a second fetch counts it as already recorded",
-        "r": "ADR-0061 §2-§4, §11, §12, §15 · T65a",
+        "s": "D",
+        "t": "Fetching e-invoices on demand: connector kind einvoice_provider (adapter, https base_url, participants per company, format pint_ae, secret_ref; integration.adapter_not_certified for the stand-in in production); the einvoicing leaf (internal/layout) and schema einvoicing.einvoice (RLS, tenant_id first, unique per connector and provider message id, status trigger, schema tests); the Provider port, the loopback stand-in and the egress client's per-client response limit (10 MiB); FetchEInvoices's record activity run by POST /v1/e-invoices:fetch (an Operation counting what it recorded), bytes write-once in object storage, acknowledged after the commit (run-twice test); GET /v1/e-invoices (filters, cursor paging, the connector's and company's names; the supplier and the entered invoice's number and reference with T65c-T65d, which read and enter documents) and /{id}; einvoicing.einvoice.read and manage; EInvoiceChanged; audit; walkthrough step_einvoice: Ada adds the connector for the UAE pilot company of step 41 (5000), Alex fetches and finds the stand-in's e-invoice received under the fetch's operation, a second fetch counts it as already recorded",
+        "r": "db/migrations/000231, 000232 · einvoicing.einvoice · POST /v1/e-invoices:fetch · GET /v1/e-invoices · GET /v1/e-invoices/{id} · workflow FetchEInvoices · integration.EInvoiceProviders · einvoicing.StandIn · egress.ResponseLimit · walkthrough step_einvoice · ADR-0061 §2-§4, §11, §12, §15 and As built · T65a",
         "src": "adr:ADR-0061",
         "c": []
        },
@@ -2774,9 +2774,17 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "SAP migration: hierarchies and cost element categories (split from T56h): sets 0101/0106 (SETHEADER, SETHEADERT, SETNODE, SETLEAF) loaded by every run as hierarchies through the ledger (ledger.CenterMigration StandardHierarchy, CreateHierarchy, AddNodes, PlaceCenters), each node and place an applied change naming the run without an approval request; the area's standard hierarchy (TKA01-KHINR; profit centers' the one tree their CEPC-KHINR name) below the tenant's standard hierarchy's root, the other top sets alternative hierarchies; values (I/E, EQ/BT) expanded against the extract's centers, each center created at its standard leaf (its values and KHINR, exactly one) and placed in the alternative ones; a later run adds only what SAP added; quality-gate issues (codes, names, a set with subsets and values, unknown or foreign subsets, signs and options, cycles, depth, a standard set missing, profit centers' leaves in two trees, codes across areas, a center not in exactly one standard leaf or twice in a tree; a value matching nothing and an area without a standard hierarchy warned); report counts (extract tables; hierarchies, hierarchy_nodes, hierarchy_places); CSKB-KATYP onto the accounts' cost_element in the configuration draft (01 primary_cost, 11/12 revenue, no CSKB row none, the rest noted); the mock's groups and cost elements; fields pending the SAP specialist; the OData mapping split to T56h5",
+        "r": "internal/sap types.go, source.go (filterAreas), mock.go (groups, costElements) · internal/ledger hierarchymigration.go, centermigration.go · internal/integration sets.go, settrees.go, setload.go · internal/delivery/sapconfig costelements.go · api/openapi.yaml, api/asyncapi.yaml (MigrationExtractCounts, MigrationLoadedCounts) · docs/migration.md · walkthrough step 1 (cost elements), step 3 (migrated_groups) · ADR-0050 §10 as built · T56h · T56h2",
+        "src": "split:T56h · adr:ADR-0050",
+        "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "SAP migration: hierarchies and cost element categories (split from T56h): sets 0101/0106 (SETHEADER/SETNODE/SETLEAF) with value ranges expanded against the migrated centers, the standard hierarchy from TKA01-KHINR, centers placed at their leaf (KHINR), alternative hierarchies; CSKB-KATYP onto the accounts' cost_element; quality-gate issues (a center not in exactly one standard leaf, a range matching nothing); mock generator extended; the OData mapping of the controlling tables T56h1 loads and this step adds (the cost and profit center read APIs, their names from the pilot's $metadata)",
-        "r": "T56h2",
+        "t": "SAP migration over OData: the controlling tables T56h1 and T56h2 load (CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), TKA01, the sets 0101/0106) mapped onto the cost and profit center read APIs and whatever serves the groups, their service and entity names taken from the pilot's $metadata (not recorded; split from T56h2 rather than guessed)",
+        "r": "T56h5",
         "src": "split:T56h · adr:ADR-0050",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
@@ -5636,10 +5644,31 @@
           "c": []
          },
          {
-          "s": "T",
+          "s": "D",
           "t": "An import restores rows in any lifecycle state: the triggers that refuse inserting a row in any state but its first (closing.period_close, ledger.parked_entry, consolidation.run with run_member and run_balance, ledger.carry_forward_run) honour app.importing for the tenant as count_period_openings does, so a tenant with a signed-off close, a posted parked entry, a final consolidation or a superseded carry-forward can be restored and moved; the import test holds such rows; and a NOT NULL DEFAULT column an older export lacks gets its default, not NULL (ADR-0029 says defaults apply)",
-          "r": "offboarding.Importer · ADR-0029 · found fixing TestReonboarding in batch58",
+          "r": "offboarding.Importer · platform.importing · migration 000230 · db/import_states_test.go TestImportRestoresLifecycleStates · TestReonboarding · ADR-0029 As built · found fixing TestReonboarding in batch58",
           "src": "ci:batch58",
+          "c": []
+         },
+         {
+          "s": "T",
+          "t": "An import restores the rows the other insert triggers judge by a state that may have moved on since the row was written: journal entries and clearings in periods closed or locked since, approval decisions of decided requests, items of released purchase orders, snapshots of filed tax returns, plan lines of locked categories, memo records of inactive liquidity items, and assets, acquisitions, retirements, transfers, depreciation runs and batches, down payment requests, GR/IR clearings, tax returns, order changes, revaluation runs, variance comments and accrual proposals past their first state; each honours platform.importing as migration 000230's triggers do, and the import test holds such rows",
+          "r": "offboarding.Importer · ADR-0029 As built (not yet restored) · found building migration 000230 for the batch58 leaf before it",
+          "src": "ci:batch58",
+          "c": []
+         },
+         {
+          "s": "T",
+          "t": "An export reads each table in primary-key order (offboarding.go reads with no ORDER BY), so a table whose rows reference rows of the same table, such as chained carry-forward runs, imports in an order its references allow instead of failing every pass by read order",
+          "r": "internal/offboarding/offboarding.go export · ADR-0029 (found reviewing impfix)",
+          "src": "review:batch60",
+          "c": []
+         },
+         {
+          "s": "T",
+          "t": "Erasing a tenant that holds tax items: ledger.check_tax_item_fixed refuses every delete and ignores app.erasing, so platform.erase_tenant fails for any such tenant (read from the trigger source, not yet reproduced); a delete is allowed while app.erasing names the item's tenant, as platform.forbid_mutation allows, with a test erasing a tenant with tax items",
+          "r": "ledger.check_tax_item_fixed · platform.erase_tenant · ADR-0021 (found in impfix)",
+          "src": "review:batch60",
           "c": []
          },
          {

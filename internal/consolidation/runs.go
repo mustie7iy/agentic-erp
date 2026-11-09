@@ -28,11 +28,13 @@ const KindRun = "consolidation.run"
 
 // Run statuses (ADR-0059 §5).
 const (
-	RunQueued    = "queued"
-	RunRunning   = "running"
-	RunComputed  = "computed"
-	RunFailed    = "failed"
-	RunDiscarded = "discarded"
+	RunQueued     = "queued"
+	RunRunning    = "running"
+	RunComputed   = "computed"
+	RunFailed     = "failed"
+	RunDiscarded  = "discarded"
+	RunFinal      = "final"
+	RunSuperseded = "superseded"
 )
 
 func init() {

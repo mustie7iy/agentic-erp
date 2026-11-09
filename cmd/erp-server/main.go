@@ -37,6 +37,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/controlplane"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
+	"github.com/mustie7iy/agentic-erp/internal/einvoicing"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
@@ -688,6 +689,9 @@ func (s *server) newAPI() error {
 	if s.egress, err = webhookClient(cfg); err != nil {
 		return err
 	}
+	if s.apiCfg.Providers, err = providerClient(cfg); err != nil {
+		return err
+	}
 	if s.apiHandler, err = app.New(s.apiCfg); err != nil {
 		return err
 	}
@@ -705,6 +709,21 @@ func webhookClient(cfg config.Config) (*egress.Client, error) {
 	client, err := egress.New(egress.WalkthroughReceiver(cfg.Walkthrough.Receiver, cfg.Walkthrough.Roots))
 	if err != nil {
 		return nil, fmt.Errorf("erp-server: the walkthrough's webhook receiver: %w", err)
+	}
+	return client, nil
+}
+
+// providerClient is the client e-invoicing providers are called through
+// (ADR-0061 §3): to public addresses only, and, in the walkthrough alone,
+// to its provider's stand-in (ERP_WALKTHROUGH_PROVIDER, which config.Load
+// refuses outside development).
+func providerClient(cfg config.Config) (*egress.Client, error) {
+	if !cfg.Walkthrough.Provider.IsValid() {
+		return einvoicing.NewClient()
+	}
+	client, err := einvoicing.NewClient(egress.WalkthroughReceiver(cfg.Walkthrough.Provider, cfg.Walkthrough.ProviderRoots))
+	if err != nil {
+		return nil, fmt.Errorf("erp-server: the walkthrough's e-invoicing provider: %w", err)
 	}
 	return client, nil
 }
@@ -824,6 +843,9 @@ func (s *server) startOperations(runCtx context.Context) {
 	// Consolidation runs (ADR-0059 §6) too.
 	consolidations := &workflows.Consolidations{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Runs: app.Consolidation(apiCfg),
 		Actors: identity.Actors{}}
+	// E-invoice fetches (ADR-0061 §4) act as the einvoicing context's
+	// fetcher.
+	fetches := &workflows.EInvoiceFetches{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Fetches: app.EInvoiceFetches(apiCfg)}
 	if engine == nil {
 		recurrer := &workflows.Recurrer{Recurrences: recurrences, Log: log}
 		s.spawn("recurring entries", func() { recurrer.Run(runCtx) })
@@ -837,6 +859,8 @@ func (s *server) startOperations(runCtx context.Context) {
 		s.spawn("depreciator", func() { depreciator.Run(runCtx) })
 		consolidator := &workflows.Consolidator{Consolidations: consolidations, Log: log}
 		s.spawn("consolidator", func() { consolidator.Run(runCtx) })
+		fetcher := &workflows.EInvoiceFetcher{Fetches: fetches, Log: log}
+		s.spawn("e-invoice fetcher", func() { fetcher.Run(runCtx) })
 		return
 	}
 	activities := &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)}
@@ -846,7 +870,7 @@ func (s *server) startOperations(runCtx context.Context) {
 		return engine.Worker(runCtx, cfg.Temporal.TaskQueue, func(r workflow.Registry) {
 			workflows.Register(r, activities, &workflows.Simulations{Worker: s.simulator}, &workflows.Migrations{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Integration(apiCfg), Actors: identity.Actors{}},
 				&workflows.Approvals{Pool: pool, AppRole: cfg.AppRole}, &workflows.Statements{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)},
-				recurrences, snapshots, depreciations, consolidations)
+				recurrences, snapshots, depreciations, consolidations, fetches)
 		})
 	})
 	dispatcher := &workflows.Dispatcher{Deadline: cfg.Temporal.EscalateAfter, Escalations: cfg.Temporal.Escalations, Pool: pool, WorkerRole: cfg.WorkerRole, Client: engine, Queue: cfg.Temporal.TaskQueue, Interval: dispatchInterval, Statements: cfg.Temporal.StatementFetch, Recurring: recurrences, Snapshots: snapshots, Log: log}

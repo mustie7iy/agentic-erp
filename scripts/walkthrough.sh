@@ -31,6 +31,7 @@
 #   WALKTHROUGH_SFTP_ADDR    the treasury system's SFTP stand-in's listener (127.0.0.1:18022)
 #   WALKTHROUGH_NATS_ADDR    the event bus's listener (127.0.0.1:18222)
 #   WALKTHROUGH_HOOK_ADDR    the webhook subscriber's listener (127.0.0.1:18443)
+#   WALKTHROUGH_PROVIDER_ADDR   the e-invoicing provider's stand-in's listener (127.0.0.1:18444)
 #   WALKTHROUGH_DIR       work directory (default: a temporary one, removed after)
 #   WALKTHROUGH_BIN       directory with erp and erp-server already built (default: build them)
 #   WALKTHROUGH_KEEP=1    keep the server running at the end, to look around with erp call
@@ -53,6 +54,7 @@ MODEL_ADDR="${WALKTHROUGH_MODEL_ADDR:-127.0.0.1:18081}"
 SFTP_ADDR="${WALKTHROUGH_SFTP_ADDR:-127.0.0.1:18022}"
 NATS_ADDR="${WALKTHROUGH_NATS_ADDR:-127.0.0.1:18222}"
 HOOK_ADDR="${WALKTHROUGH_HOOK_ADDR:-127.0.0.1:18443}"
+PROVIDER_ADDR="${WALKTHROUGH_PROVIDER_ADDR:-127.0.0.1:18444}"
 PAUSE="${WALKTHROUGH_PAUSE:-0}"
 # shellcheck source=walkthrough/dates.sh
 . "$ROOT/scripts/walkthrough/dates.sh"
@@ -93,6 +95,7 @@ MODEL_PID=''
 SFTP_PID=''
 NATS_PID=''
 HOOK_PID=''
+PROVIDER_PID=''
 
 cleanup() {
   if [ -n "$MODEL_PID" ]; then
@@ -107,8 +110,8 @@ cleanup() {
     kill "$SERVER_PID" 2>/dev/null || true # it may have exited already: then there is nothing to stop
     wait "$SERVER_PID" 2>/dev/null || true # its exit status after a kill says nothing about the walkthrough
   fi
-  # The bus and the subscriber stop after the server, which uses them.
-  for pid in "$HOOK_PID" "$NATS_PID"; do
+  # The bus and the stand-ins stop after the server, which uses them.
+  for pid in "$HOOK_PID" "$PROVIDER_PID" "$NATS_PID"; do
     if [ -n "$pid" ]; then
       kill "$pid" 2>/dev/null || true # as the model stand-in
       wait "$pid" 2>/dev/null || true # as the model stand-in
@@ -457,6 +460,7 @@ start() {
   model_stub
   bus_stub
   hook_stub
+  provider_stub
   unset ERP_PACKS_DIR # the released packs alone
   ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64)
   ERP_FIELD_KEY=$(head -c 32 /dev/urandom | base64)
@@ -529,6 +533,23 @@ hook_stub() {
   HOOK_PID=$!
   wait_file "$WORK/hook/receiver.pem" "$HOOK_PID" "the webhook subscriber" "$WORK/hook.log" "is $HOOK_ADDR free? set WALKTHROUGH_HOOK_ADDR"
   export ERP_WALKTHROUGH_RECEIVER="$HOOK_ADDR" ERP_WALKTHROUGH_RECEIVER_CA="$WORK/hook/receiver.pem"
+}
+
+# provider_stub starts the e-invoicing provider's stand-in (step 43,
+# ADR-0061 §3) on this machine and names it to erp-server, with the
+# certificate it made (ERP_WALKTHROUGH_PROVIDER, _CA; development only). It
+# serves the documents of provider/inbox to requests bearing the token in
+# provider/token, which the connector's secret_ref names, and records each
+# acknowledgement there.
+provider_stub() {
+  stub providerstub internal/einvoicing/einvoicetest/providerstub
+  rm -rf "$WORK/provider"
+  mkdir -p "$WORK/provider/inbox"
+  head -c 24 /dev/urandom | base64 | tr -d '/+=' >"$WORK/provider/token"
+  "$STUB" -addr "$PROVIDER_ADDR" -ca "$WORK/provider/provider.pem" -token "$WORK/provider/token" -inbox "$WORK/provider/inbox" >"$WORK/provider.log" 2>&1 &
+  PROVIDER_PID=$!
+  wait_file "$WORK/provider/provider.pem" "$PROVIDER_PID" "the e-invoicing provider's stand-in" "$WORK/provider.log" "is $PROVIDER_ADDR free? set WALKTHROUGH_PROVIDER_ADDR"
+  export ERP_WALKTHROUGH_PROVIDER="$PROVIDER_ADDR" ERP_WALKTHROUGH_PROVIDER_CA="$WORK/provider/provider.pem"
 }
 
 # model_stub starts the stand-in for the model provider (step 18's capture,
@@ -687,6 +708,16 @@ step_tenant() {
   jq -r --arg cc "$CC" '.T042A[] | select(.ZBUKR == $cc) | "     T042A method \(.ZLSCH), \(.WAERS), rank \(.RANGF): house bank \(.HBKID)"' "$WORK/data/extract.json"
   grep -A 9 '^    payment_methods:$' "$WORK/config.yaml" | sed 's/^/     /'
   expect "the generated method's ranking" "$(grep -A 9 '^    payment_methods:$' "$WORK/config.yaml" | grep -cE '^ +- (MAIN|MUSD)$')" 2
+  say "SAP's cost element categories (CSKB-KATYP; T56h2) give the accounts' cost elements: sales revenue a revenue"
+  say "element (11), the expenses primary costs (01), and the exchange rate accounts, no cost elements in SAP, none,"
+  say "so their lines take no cost object (ADR-0050 §4)."
+  jq -r '.CSKB[] | select(.KSTAR == "0000400000" or .KSTAR == "0000510000") | "     CSKB \(.KOKRS)/\(.KSTAR): KATYP \(.KATYP)"' "$WORK/data/extract.json"
+  grep -E -A 3 '^      - number: "(400000|510000|680000)"$' "$WORK/config.yaml" | grep -E 'number|cost_element' | sed 's/^/     /'
+  local account element
+  for account in 400000:revenue 510000:primary_cost 680000:none; do
+    element=$(awk -v n="      - number: \"${account%%:*}\"" '$0 == n { f = 1; next } f && /^      - number:/ { exit } f && /cost_element:/ { print $2; exit }' "$WORK/config.yaml")
+    expect "account ${account%%:*}'s cost element from KATYP" "$element" "${account#*:}"
+  done
   say "The USD account's ledger account must be revalued at month end (ADR-0042), which SAP's extract cannot"
   say "tell, so the draft names it and does not validate until a reviewer flags it with its gain and loss accounts:"
   grep "\[error\]" "$WORK/generate.out" | sed 's/^ */     /'
@@ -839,9 +870,9 @@ step_migrate() {
 # P3200 (locked from 1 October) and four cost centers, active at once with
 # SAP's time slices as their periods, each created by an applied center
 # change naming the run, with no approval request of its own (the run is
-# their approval), at the standard hierarchy's UNASSIGNED leaf until SAP's
-# hierarchies are migrated (T56h2). The reconciliation compared them per
-# center. Step 12 builds its structure in that standard hierarchy.
+# their approval), each at its leaf of SAP's groups (migrated_groups). The
+# reconciliation compared them per center. Step 12 builds its structure in
+# the standard hierarchies.
 migrated_centers() {
   say "SAP's cost and profit centers and its segment came over first (CSKS, CEPC, FAGL_SEGM with their texts;"
   say "ADR-0050 §10): each SAP time slice a period. Cost center 3120 moved to profit center P3200 on 1 July:"
@@ -871,9 +902,44 @@ migrated_centers() {
   api 200 '.items[] | "center change \(.kind): \(.status), approval request \(.workflow_request_id // "none"); \(.reason)"' \
     listCenterChanges -p "cost_center_id=$cc3120"
   expect "the migrated cost center's change" "$(field '.items[0] | "\(.kind) \(.status) \(.workflow_request_id // "none")"')" "create applied none"
-  api 200 '.items[] | "\(.hierarchy_code): \([.nodes[].code] | join(" > ")) > 3120"' listCostCenterPaths -p "id=$cc3120"
-  expect "3120's place until SAP's hierarchies are migrated" "$(field '.items[0].nodes[-1].code')" UNASSIGNED
+  migrated_groups "$cc3120" "$pc3200"
   as ada
+}
+
+# migrated_groups CC3120 PC3200 shows SAP's cost and profit center groups
+# as the load brought them over (ADR-0050 §10, T56h2): the standard
+# hierarchy H1000 of the controlling area (TKA01-KHINR) and the profit
+# centers' PH1000 below the standard hierarchies' root, each center
+# created at its leaf, the ranges of the groups' values expanded against
+# SAP's centers (3100 to 3199 holds 3100 and 3120), and the alternative
+# hierarchy REGIONS, whose Quebec takes 3100 to 3299 without 3100 and
+# 3300, with 3120 and 3200 in it.
+migrated_groups() {
+  say "SAP's cost and profit center groups came over too (sets 0101 and 0106: SETHEADER, SETNODE, SETLEAF; T56h2):"
+  say "the controlling area's standard hierarchy (TKA01-KHINR) and the profit centers' below the standard hierarchies'"
+  say "root, each node a change the run applied, and the groups no group includes as alternative hierarchies."
+  jq -r '.TKA01[] | "     TKA01 \(.KOKRS): standard hierarchy \(.KHINR)"' "$WORK/data/extract.json"
+  jq -r '.SETLEAF[] | select(.SETNAME == "H3100" or .SETNAME == "QC")
+    | "     SETLEAF \(.SETCLASS)/\(.SETNAME): \(if .VALSIGN == "I" then "include" else "exclude" end) \(.VALFROM)\(if .VALOPTION == "BT" then " to \(.VALTO)" else "" end)"' \
+    "$WORK/data/extract.json"
+  grep '^Loaded:' "$WORK/migrate.out" | sed 's/^/     /'
+  expect "the groups loaded" "$(grep '^Loaded:' "$WORK/migrate.out" | sed 's/^Loaded: //' | jq -r '"\(.hierarchies) \(.hierarchy_nodes) \(.hierarchy_places)"')" "1 10 10"
+  say "A group's values are ranges, expanded against SAP's centers: H3100's 3100 to 3199 holds 3100 and 3120, and the"
+  say "alternative REGIONS' Quebec takes 3100 to 3299 without 3100 and 3300. Each center was created at its leaf:"
+  api 200 '.items[] | "\(.hierarchy_code): \([.nodes[].code] | join(" > ")) > 3120"' listCostCenterPaths -p "id=$1"
+  expect "3120's places" "$(field '[.items[] | "\(.hierarchy_code):\([.nodes[].code] | join("/"))"] | sort | join(" ")')" \
+    "REGIONS:REGIONS/QC STANDARD:STANDARD/H1000/H3000/H3100"
+  api 200 '.items[] | "\(.hierarchy_code): \([.nodes[].code] | join(" > ")) > P3200"' listProfitCenterPaths -p "id=$2"
+  expect "P3200's place" "$(field '[.items[] | "\(.hierarchy_code):\([.nodes[].code] | join("/"))"] | join(" ")')" "STANDARD:STANDARD/PH1000/PH-QC"
+  QUIET=1 api 200 '' listHierarchies -p kind=cost_center -p code=REGIONS
+  api 200 '"hierarchy \(.code) \(.name), standard: \(.is_standard)", (.nodes[] | "  \("  " * (.level - 1))\(.code) \(.name): \(.center_ids // [] | length) centers")' \
+    getHierarchy -p "id=$(field '.items[0].id')"
+  expect "Quebec's centers" "$(field '[.nodes[] | select(.code == "QC") | .center_ids // [] | length] | first')" 2
+  say "Each node is a change the run applied, with no approval request of its own:"
+  api 200 '.items[] | select(.kind == "node_create") | "center change \(.kind) \(.payload.code): \(.status), approval request \(.workflow_request_id // "none")"' \
+    listCenterChanges -p "hierarchy_id=$(field .id)"
+  expect "the alternative hierarchy's applied node changes" \
+    "$(field '[.items[] | select(.kind == "node_create" and .status == "applied" and .workflow_request_id == null)] | length')" 2
 }
 
 # migrated_foreign_item shows SAP's open invoice in USD of the CAD company
@@ -2406,8 +2472,8 @@ step_centers() {
   api 201 '"segment \(.code) \(.name)"' createSegment -body '{"code": "CA", "name": "Canada"}'
   local segment pch cch pc cc
   segment=$(field .id)
-  say "The migration (step 3) placed SAP's centers in the standard hierarchies, at their UNASSIGNED leaf, until"
-  say "SAP's own hierarchies are migrated (T56h2); Sam builds the pilot's structure in them."
+  say "The migration (step 3) loaded SAP's groups below the standard hierarchies' root, its centers at their leaves"
+  say "(T56h2); Sam builds the pilot's structure beside them."
   api 200 '.items[] | "hierarchy \(.kind) \(.code), standard: \(.is_standard)"' listHierarchies -p kind=profit_center -p is_standard=true
   pch=$(field '.items[0].id')
   QUIET=1 api 200 '' getHierarchy -p "id=$pch"
@@ -3380,7 +3446,7 @@ CONSOLIDATION_SETTINGS='(.consolidation = {
 # approved and activated; Carla reads the group with its companies named
 # and the group chart; Cory, who may act in Maple alone, sees no group.
 step_consolidation() {
-  heading "Step 40 — Group reporting: the group chart, the companies' mapping and the group MAPLE through a governed change, trading partners and a consolidation run"
+  heading "Step 40 — Group reporting: the group chart, the companies' mapping and the group MAPLE through a governed change, trading partners, a consolidation run and its consolidated statements"
   as ada
   local base settings first cr request
   first="$YEAR-${TODAY:5:2}"
@@ -3449,6 +3515,7 @@ step_consolidation() {
   refused 404 consolidation.group_unknown getConsolidationGroup -p code=MAPLE
   consolidation_trading_partner
   consolidation_run
+  consolidation_statements
   as tom
   passed
 }
@@ -3603,6 +3670,50 @@ consolidation_run() {
   api 200 '"  Maple: \(.items | length) translation differences; its rows sum to \(.totals.group.amount) \(.totals.group.currency)"' \
     listConsolidationBalances -p "id=$run" -p "legal_entity_id=$LE" -p kind=cta
   expect "Maple's translation differences" "$(field '.items | length')" 0
+}
+
+# consolidation_statements is the consolidated statements of a run (T68e,
+# ADR-0059 §11), part of step_consolidation: Carla reads the balance sheet
+# and the profit and loss of consolidation_run's run, one row per group
+# account with the companies' translated figures summed, the eliminations
+# (none until T68f) and the consolidated figure; the balance sheet's
+# assets, liabilities and equity and the fiscal year's profit sum to zero,
+# the profit is the profit and loss's, and each row's reported figure is
+# the balances list's total for its group account.
+consolidation_statements() {
+  local run statement number reported total differ="" cents='(.amount | tonumber * 100 | round)'
+  as carla
+  QUIET=1 api 200 '' listConsolidationRuns -p group_code=MAPLE -p status=computed
+  run=$(field '.items[0].id')
+  say "Carla reads the run's consolidated balance sheet (ADR-0059 §11): each account of the group chart, the companies'"
+  say "translated figures summed, the eliminations and the consolidated figure, in CAD and debit positive, so a credit"
+  say "balance, and a profit, is negative. Eliminations come with intercompany matching (T68f):"
+  api 200 '"\(.statement) of \(.group_code) \(.group_name) at \(.period_end), run \(.run_status), in \(.group_currency):",
+    (.items[] | "  \(.number) \(.name) (\(.type)\(if .role then ", \(.role)" else "" end)): reported \(.reported.amount), eliminations \(.eliminations.amount), consolidated \(.consolidated.amount)"),
+    (.totals | to_entries[] | "  total \(.key): reported \(.value.reported.amount), eliminations \(.value.eliminations.amount), consolidated \(.value.consolidated.amount)")' \
+    getConsolidatedStatement -p "id=$run" -p statement=balance_sheet -p page_size=500
+  cp "$WORK/last.json" "$WORK/balance-sheet.json"
+  expect "the balance sheet's totals" "$(field '.totals | keys | join(" ")')" "assets equity liabilities profit"
+  expect "assets, liabilities, equity and the profit, consolidated" "$(field "[.totals[].consolidated | $cents] | add")" 0
+  expect "assets, liabilities, equity and the profit, reported" "$(field "[.totals[].reported | $cents] | add")" 0
+  say "And the profit and loss, whose profit closes the balance sheet:"
+  api 200 '"\(.statement) of \(.group_code) for \(.fiscal_year)-\(.period):",
+    (.items[] | "  \(.number) \(.name) (\(.type)): reported \(.reported.amount), eliminations \(.eliminations.amount), consolidated \(.consolidated.amount)"),
+    (.totals | to_entries[] | "  total \(.key): reported \(.value.reported.amount), consolidated \(.value.consolidated.amount)")' \
+    getConsolidatedStatement -p "id=$run" -p statement=profit_and_loss -p page_size=500
+  cp "$WORK/last.json" "$WORK/profit-and-loss.json"
+  expect "the profit of both statements" "$(field .totals.profit.consolidated.amount)" "$(jq -r .totals.profit.consolidated.amount "$WORK/balance-sheet.json")"
+  expect "revenue and expenses make the profit" "$(field "[.totals.revenue, .totals.expenses | .reported | $cents] | add")" "$(field ".totals.profit.reported | $cents")"
+  say "Each row's reported figure is the run's translated balances on its group account (the drill-down):"
+  for statement in balance-sheet profit-and-loss; do
+    while read -r number reported; do
+      QUIET=1 api 200 '' listConsolidationBalances -p "id=$run" -p "group_account=$number" -p page_size=1
+      total=$(field .totals.group.amount)
+      [ "$total" = "$reported" ] || differ="$differ $number:$reported/$total"
+    done < <(jq -r '.items[] | "\(.number) \(.reported.amount)"' "$WORK/$statement.json")
+  done
+  say "  $(jq '.items | length' "$WORK/balance-sheet.json") balance sheet and $(jq '.items | length' "$WORK/profit-and-loss.json") profit and loss rows checked against the balances list"
+  expect "rows whose reported figure differs from the balances list's total" "$differ" ""
 }
 
 # UAE_COMPANY is the UAE pilot company in the configuration before its
@@ -3846,6 +3957,67 @@ uae_return() {
   expect "the quarter's draft after filing" "$(field .item_count)" 0
 }
 
+# step_einvoice is fetching e-invoices on demand (T65a; ADR-0061 §3, §4,
+# §15): Ada connects the UAE company's accredited e-invoicing provider, an
+# einvoice_provider connector to the provider's stand-in on this machine
+# (the only adapter until the product owner chooses a provider, refused in
+# production); the stand-in holds a supplier's e-invoice addressed to the
+# company's participant; Alex fetches, finds it in the list received under
+# the fetch's operation, its bytes the stand-in's, acknowledged; the
+# stand-in loses the acknowledgement and lists it again, and a second
+# fetch counts it as already recorded and acknowledges it again.
+step_einvoice() {
+  heading "Step 43 — E-invoices fetched on demand: the UAE company's provider connected, a supplier's e-invoice recorded once and acknowledged"
+  local connector op doc sum
+  as ada
+  say "The UAE company $AE receives its suppliers' e-invoices through an accredited provider (ADR-0049, ADR-0061). No"
+  say "provider is chosen yet (ADR-0061 Q1), so Ada connects the provider's stand-in on this machine: an einvoice_provider"
+  say "connector, its company's participant identifier at the provider (illustrative; its scheme is to confirm), the"
+  say "format PINT AE, and the credentials named by secret_ref. Production refuses the stand-in"
+  say "(integration.adapter_not_certified); the ERP polls the provider and opens no endpoint for it to call."
+  api 201 '"connector \(.name): \(.kind), \(.status), adapter \(.settings.adapter), \(.settings.format), participants \(.settings.participants | to_entries | map("\(.key) \(.value)") | join(", "))"' \
+    createConnector -body "{\"kind\": \"einvoice_provider\", \"name\": \"Maple Gulf e-invoicing\", \"secret_ref\": \"file:$WORK/provider/token\", \"settings\": {\"adapter\": \"standin\", \"base_url\": \"https://$PROVIDER_ADDR\", \"participants\": {\"$AE\": \"walkthrough:$AE\"}, \"format\": \"pint_ae\"}}"
+  connector=$(field .id)
+  say "Gulf Office Interiors sends its next invoice as an e-invoice; the provider holds it for Maple Gulf Trading's"
+  say "participant (an illustrative document: what it says is read when e-invoices are validated, T65c):"
+  {
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n'
+    printf '<!-- Illustrative only: not a validated PINT AE document. -->\n'
+    printf '<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"><ID>GOI-2001</ID><IssueDate>%s</IssueDate></Invoice>\n' "$TODAY"
+  } >"$WORK/provider/inbox/GOI-2001.xml"
+  printf 'walkthrough:%s\n' "$AE" >"$WORK/provider/inbox/GOI-2001.receiver"
+  sum=$(shasum -a 256 "$WORK/provider/inbox/GOI-2001.xml" | cut -d' ' -f1)
+  say "  message GOI-2001 for walkthrough:$AE, SHA-256 ${sum:0:16}…"
+  as alex
+  say "Alex fetches now: the fetch is an Operation; it records each document the provider holds once, keeps its bytes"
+  say "write-once, and tells the provider it is kept after the commit."
+  api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
+  wait_op
+  op=$(field .id)
+  excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded); its documents at \(.resource)"'
+  expect "the fetch's counts" "$(field '"\(.result.recorded) \(.result.already_recorded)"')" "1 0"
+  api 200 '.items[] | "  \(.message_id) for \(.company_code) \(.company_name): \(.status), \(.size) bytes, received through \(.connector_name), acknowledged \(.acknowledged_at != null)"' \
+    listEInvoices -p "fetch_operation_id=$op"
+  expect "the fetch's documents" "$(field '[.items[] | "\(.message_id) \(.company_code) \(.status)"] | join(", ")')" "GOI-2001 $AE received"
+  expect "its bytes, the stand-in's" "$(field '.items[0].sha256')" "$sum"
+  expect "acknowledged to the provider" "$(field '.items[0].acknowledged_at != null')" true
+  doc=$(field '.items[0].id')
+  [ -s "$WORK/provider/inbox/GOI-2001.acknowledged" ] || fail "the stand-in recorded no acknowledgement of GOI-2001"
+  say "The provider loses the acknowledgement and lists GOI-2001 again; the next fetch does not record it twice, and"
+  say "acknowledges it again:"
+  rm "$WORK/provider/inbox/GOI-2001.acknowledged"
+  api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
+  wait_op
+  excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded)"'
+  expect "the second fetch's counts" "$(field '"\(.result.recorded) \(.result.already_recorded)"')" "0 1"
+  [ -s "$WORK/provider/inbox/GOI-2001.acknowledged" ] || fail "the second fetch did not acknowledge GOI-2001 again"
+  api 200 '"  \(.message_id): \(.status), recorded by the first fetch \(.fetch_operation_id == "'"$op"'")"' getEInvoice -p "id=$doc"
+  expect "still the first fetch's" "$(field .fetch_operation_id)" "$op"
+  QUIET=1 api 200 '' listEInvoices -p "connector_id=$connector"
+  expect "the connector's documents" "$(field '.items | length')" 1
+  passed
+}
+
 # step_year_end is the year-end close of the fiscal year before today's,
 # PREV (ADR-0060): the walkthrough's configuration has no number range for
 # it until here, so no other step posts into it. Each slice of T64m adds
@@ -3855,15 +4027,20 @@ uae_return() {
 # revaluation in every ledger), and an audit adjustment posted into
 # special period 13, dated the year's last day. T64m2's: the retained
 # earnings account set through a change request, PREV's periods closed
-# and PREV carried forward into this year in every ledger.
+# and PREV carried forward into this year in every ledger. T64m3's: the
+# runs listed and their balances read, a late adjustment into period 13
+# making them stale, and the re-run superseding them.
 step_year_end() {
-  heading "Step 42 — Year-end close of $PREV: the year set up, its business and year-end revaluation, an audit adjustment in special period 13, the year carried forward"
+  heading "Step 42 — Year-end close of $PREV: the year set up, its business and year-end revaluation, an audit adjustment in special period 13, the year carried forward, a late adjustment and the re-run"
   year_end_setup
   year_end_business
   year_end_revaluation
   year_end_adjustment
   year_end_retained_earnings
   year_end_carry_forward
+  year_end_carry_forward_balances
+  year_end_late_adjustment
+  year_end_rerun
   passed
 }
 
@@ -4115,6 +4292,89 @@ year_end_carry_forward() {
     | map({c: .[0].currency, v: (map((.debit.amount | tonumber) - (.credit.amount | tonumber)) | add)}) | map(select(.v != 0))
     | map("\(.c) \(.v * 100 | round)") | join(", ")' "$WORK/last.json")" \
     "$(jq -r '[.items[0].totals[] | select(.result.amount != "0.00") | "\(.currency) \(.result.amount | tonumber * 100 | round)"] | join(", ")' "$WORK/carry-forward.json")"
+}
+# year_end_carry_forward_balances is T64m3's read (ADR-0060 §7): Carla
+# lists PREV's runs, current and not stale, and reads the leading
+# ledger's opening balances of this year: the retained earnings account's
+# result row and the RBC USD account in USD and in CAD (the revaluation's
+# gain, posted in local currency), with the whole run's totals on every
+# page.
+year_end_carry_forward_balances() {
+  as carla
+  say "Carla lists $PREV's carry-forward runs: each current, and not stale, no period of $PREV opened since."
+  api 200 '.items[] | "  \(.ledger_code): run \(.id[0:8])…, \(.status), stale: \(.stale)"' listBalanceCarryForwards -p "legal_entity_id=$LE" -p "fiscal_year=$PREV"
+  expect "$PREV's runs" "$(field '[.items[] | "\(.ledger_code) \(.status) \(.stale)"] | sort | join(", ")')" "0L current false, 2L current false"
+  local run
+  run=$(jq -r '.items[0].id' "$WORK/carry-forward.json")
+  say "She reads 0L's opening balances of $YEAR, a page at a time, each page with the whole run's totals:"
+  api 200 '(.items[] | "  \(.account.number) \(.account.name) (\(.account.type)), \(.kind), \(.currency): \(.amount.amount) = \(.amount_lc.amount) \(.amount_lc.currency)"), "  totals: debits \(.debit_lc.amount) = credits \(.credit_lc.amount) \(.local_currency), result \(.result_lc.amount)"' \
+    listBalanceCarryForwardBalances -p "id=$run" -p page_size=500
+  expect "the page's totals, the run's" "$(field '"\(.debit_lc.amount) \(.credit_lc.amount) \(.result_lc.amount)"')" \
+    "$(jq -r '.items[0] | "\(.debit_lc.amount) \(.credit_lc.amount) \(.result_lc.amount)"' "$WORK/carry-forward.json")"
+  expect "the retained earnings account's result" "$(field '[.items[] | select(.account.number == "330000" and .kind == "result") | "\(.currency) \(.amount.amount)"] | join(", ")')" \
+    "$(jq -r '[.items[0].totals[] | select(.result.amount != "0.00") | "\(.currency) \(.result.amount)"] | join(", ")' "$WORK/carry-forward.json")"
+  expect "the RBC USD account's opening balances" "$(field '[.items[] | select(.account.number == "1030") | "\(.currency) \(.amount.amount) \(.amount_lc.amount)"] | join(", ")')" \
+    "CAD 40.00 40.00, USD 2000.00 2720.00"
+}
+
+# year_end_late_adjustment: the auditors find one more adjustment after
+# the carry-forward. Carla opens special period 13 again and posts it;
+# every run of PREV reads stale, naming the period, and re-running while
+# the period is open is refused.
+year_end_late_adjustment() {
+  as carla
+  local p bank expense
+  bank=$(account 100000)
+  expense=$(account 6000)
+  say "The auditors send one more adjustment after the carry-forward: CAD 100.00 of audit fees for $PREV. Carla opens"
+  say "special period 13 again in each ledger and posts it:"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=100
+  for p in $(field '.items[] | select(.period == 13) | "\(.id)/\(.version)"'); do
+    api 200 '"  period \(.fiscal_year)/\(.period) of ledger \(.ledger_id[0:8])…: \(.status)"' openFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+  api 201 '"journal entry \(.document_number) of \(.posting_date), period \(.fiscal_year)/\(.fiscal_period): \(.header_text)"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$PREV-12-31\", \"posting_date\": \"$PREV-12-31\", \"fiscal_period\": 13, \"currency\": \"CAD\", \"header_text\": \"Late audit adjustment: audit fees\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"100.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-100.00\", \"currency\": \"CAD\"}}]}"
+  say "$PREV's carry-forward no longer holds every posting of the year: each run reads stale, naming the period"
+  say "opened since it ran."
+  api 200 '.items[] | "  \(.ledger_code): stale: \(.stale), opened since: \([.opened_since[] | "\(.fiscal_year)/\(.period) in \(.ledger_code)"] | join(", "))"' \
+    listBalanceCarryForwards -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p status=current
+  expect "the runs' staleness" "$(field '[.items[] | "\(.ledger_code) \(.stale) \([.opened_since[] | "\(.fiscal_year)/\(.period)"] | join(" "))"] | sort | join(", ")')" \
+    "0L true $PREV/13, 2L true $PREV/13"
+  say "Carrying $PREV forward again while period 13 is open is refused: nothing may be posted into what is carried."
+  refused 409 ledger.carry_forward_periods_open runBalanceCarryForward -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $PREV}"
+}
+
+# year_end_rerun: Carla closes period 13 and carries PREV forward again;
+# the new runs supersede the stale ones, are current and not stale, and
+# 0L's result carries the late adjustment.
+year_end_rerun() {
+  as carla
+  local p
+  say "Carla closes period 13 again; the runs stay stale, the period having been opened since they ran:"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=100
+  for p in $(field '.items[] | select(.status == "open") | "\(.id)/\(.version)"'); do
+    api 200 '"  period \(.fiscal_year)/\(.period) of ledger \(.ledger_id[0:8])…: \(.status)"' closeFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+  local old
+  old=$(jq -r '.items[0].id' "$WORK/carry-forward.json")
+  api 200 '"  0L run \(.id[0:8])…: \(.status), stale: \(.stale)"' getBalanceCarryForward -p "id=$old"
+  expect "0L's run with period 13 closed again" "$(field '"\(.status) \(.stale)"')" "current true"
+  say "and carries $PREV forward again in every ledger:"
+  api 201 '.items[] | "  \(.ledger_code): run \(.id[0:8])…, \(.basis), \(.status), stale: \(.stale), result \(.result_lc.amount) \(.result_lc.currency)"' \
+    runBalanceCarryForward -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $PREV}"
+  expect "the new runs" "$(field '[.items[] | "\(.ledger_code) \(.status) \(.stale)"] | join(", ")')" "0L current false, 2L current false"
+  expect "0L's result with the late adjustment" "$(field '.items[0].result_lc.amount | tonumber * 100 | round')" \
+    "$(jq -r '.items[0].result_lc.amount | tonumber * 100 + 10000 | round' "$WORK/carry-forward.json")"
+  cp "$WORK/last.json" "$WORK/carry-forward-again.json"
+  local run
+  for run in $(jq -r '.items[] | "\(.ledger_code)=\(.id)"' "$WORK/carry-forward-again.json"); do
+    printf '%s\t%s carry-forward of %s, again\n' "${run#*=}" "${run%%=*}" "$PREV" >>"$WORK/names"
+  done
+  say "The first runs read superseded by the new ones, which the list shows as $PREV's current carry-forward:"
+  api 200 '"  0L run \(.id[0:8])…: \(.status) by \(.superseded_by_id[0:8])… at \(.superseded_at)"' getBalanceCarryForward -p "id=$old"
+  expect "the first 0L run" "$(field '"\(.status) \(.superseded_by_id)"')" "superseded $(jq -r '.items[0].id' "$WORK/carry-forward-again.json")"
+  api 200 '.items[] | "  \(.ledger_code): run \(.id[0:8])…, \(.status)"' listBalanceCarryForwards -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p status=current
+  expect "$PREV's current runs" "$(field '[.items[].id] | sort | join(" ")')" "$(jq -r '[.items[].id] | sort | join(" ")' "$WORK/carry-forward-again.json")"
 }
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
@@ -5947,7 +6207,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_close'
 
 main() {
   stop_unseen

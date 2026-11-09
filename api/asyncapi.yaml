@@ -100,6 +100,7 @@ info:
     - name: tax
     - name: closing
     - name: consolidation
+    - name: einvoicing
     - name: assets
     - name: platform
 
@@ -399,6 +400,14 @@ channels:
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       ConsolidationRunChanged: {$ref: '#/components/messages/ConsolidationRunChanged'}
+  einvoicing:
+    address: 'erp.{cell}.einvoicing.{tenant}.{event}'
+    title: E-invoicing events
+    description: E-invoices received from the tenant's accredited provider (ADR-0061 §12).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      EInvoiceChanged: {$ref: '#/components/messages/EInvoiceChanged'}
   platform:
     address: 'erp.{cell}.platform.{tenant}.{event}'
     title: Platform operation events
@@ -639,6 +648,12 @@ operations:
     channel: {$ref: '#/channels/consolidation'}
     messages:
       - $ref: '#/channels/consolidation/messages/ConsolidationRunChanged'
+  publishEInvoicingEvents:
+    action: send
+    title: E-invoicing publishes
+    channel: {$ref: '#/channels/einvoicing'}
+    messages:
+      - $ref: '#/channels/einvoicing/messages/EInvoiceChanged'
   publishPlatformEvents:
     action: send
     title: Platform publishes
@@ -3417,6 +3432,31 @@ components:
         - name: computed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000c01, source: /erp/eu-1/consolidation, type: com.example.erp.consolidation.consolidation_run_changed.v1, subject: 0192a000-0000-7000-8000-000000000c01, time: '2026-11-20T10:00:02Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {run_id: 0192a000-0000-7000-8000-000000000c01, group_code: MAPLE, fiscal_year: 2026, fiscal_period: 11, status: computed, status_before: running, problem: null, version: 3}
+    EInvoiceChanged:
+      name: EInvoiceChanged
+      x-webhook: true
+      title: E-invoice changed
+      summary: An e-invoice was received from the tenant's accredited provider.
+      description: |
+        Emitted at each change of an e-invoice's status (ADR-0061 §12,
+        T65a): when a fetch records a document the provider delivered
+        (`received`, status_before null). The processing slices add its
+        entering, holding, refusal and dismissal (T65c-T65f). It carries
+        no document content. `GET /v1/e-invoices/{id}` returns the
+        document at `version` or later: its acknowledgement to the
+        provider, which sets `acknowledged_at`, moves the version without
+        an event. Subject is the e-invoice id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.einvoicing.einvoice_changed.v1}
+      payload: {$ref: '#/components/schemas/EInvoiceChangedV1'}
+      examples:
+        - name: received
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000e01, source: /erp/eu-1/einvoicing, type: com.example.erp.einvoicing.einvoice_changed.v1, subject: 0192a000-0000-7000-8000-000000000e11, time: '2026-11-08T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {einvoice_id: 0192a000-0000-7000-8000-000000000e11, connector_id: 0192a000-0000-7000-8000-000000000e01, message_id: MSG-0001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: AE01, status: received, status_before: null, sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08, fetch_operation_id: 0192a000-0000-7000-8000-000000000e21, version: 1}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -4004,6 +4044,20 @@ components:
         status: {type: string, description: 'Open enum: rejected.'}
         released_items: {type: integer, description: The tax items released to the next return.}
         comment: {type: [string, 'null'], description: "The rejection's comment."}
+    EInvoiceChangedV1:
+      type: object
+      required: [einvoice_id, connector_id, message_id, legal_entity_id, legal_entity_code, status, status_before, sha256, fetch_operation_id, version]
+      properties:
+        einvoice_id: {$ref: '#/components/schemas/Uuid', description: '`einvoicing.einvoice.id`.'}
+        connector_id: {$ref: '#/components/schemas/Uuid', description: The `einvoice_provider` connector it was received through.}
+        message_id: {type: string, description: "The provider's id of the document."}
+        legal_entity_id: {type: [string, 'null'], format: uuid, description: "The connector's company it is addressed to; null when none."}
+        legal_entity_code: {type: [string, 'null'], description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it; null with it.'}
+        status: {type: string, description: "The document's status after the change. Open enum: received."}
+        status_before: {type: [string, 'null'], description: "Its status before; null when it was received."}
+        sha256: {type: string, description: "The SHA-256 of its bytes as received, hex."}
+        fetch_operation_id: {$ref: '#/components/schemas/Uuid', description: 'The fetch that recorded it: its Operation.'}
+        version: {type: integer, description: "The document's version after the change."}
     ConsolidationRunChangedV1:
       type: object
       required: [run_id, group_code, fiscal_year, fiscal_period, status, status_before, problem, version]
@@ -4822,6 +4876,9 @@ components:
         profit_centers: {type: integer, minimum: 1, description: 'Profit centers (CEPC, CEPCT, CEPC_BUKRS) created active, the run their approval.'}
         profit_centers_extended: {type: integer, minimum: 1, description: Profit centers an earlier run created that this run assigned to more company codes (CEPC_BUKRS).}
         cost_centers: {type: integer, minimum: 1, description: 'Cost centers (CSKS, CSKT) created active, the run their approval.'}
+        hierarchies: {type: integer, minimum: 1, description: 'Alternative hierarchies created from SAP''s center groups (sets 0101, 0106).'}
+        hierarchy_nodes: {type: integer, minimum: 1, description: 'SAP center groups loaded as hierarchy nodes, the run their approval, alternative hierarchies'' roots included.'}
+        hierarchy_places: {type: integer, minimum: 1, description: 'Centers this run created placed at a leaf of SAP''s groups.'}
 
     # --------------------------------------------------------------- agents
     RecommendationMadeV1:

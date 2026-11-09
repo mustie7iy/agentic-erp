@@ -175,7 +175,7 @@ type Endpoints struct {
 	HTTP          *http.Client     // for sap_odata connectors; nil: the reader's default
 	Now           func() time.Time // the clock replay and ping read, the dispatcher's where both are wired; nil: the wall clock
 	Workflows     bool             // runs leave the request and run as workflows (ADR-0012); false: they complete within it
-	RefuseEBICS   bool             // production: bank_ebics connectors cannot be created or enabled (ADR-0038, T44d)
+	RefuseEBICS   bool             // production: bank_ebics connectors and the e-invoicing stand-in cannot be created or enabled (ADR-0038, T44d; ADR-0061 §3)
 }
 
 // record publishes the events and adds the audit entry of a change; the

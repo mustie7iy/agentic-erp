@@ -1139,6 +1139,69 @@ centers and the reconciliation of center totals T56h4):
   standard hierarchy's UNASSIGNED leaf, so the walkthrough's step 12 builds
   its structure in that standard hierarchy instead of creating one.
 
+As built in T56h2 (no migration; the extract's tables and fields are
+pending the SAP specialist, docs/migration.md):
+- **Extract**: `internal/sap` carries TKA01 (KOKRS, KHINR), SETHEADER,
+  SETHEADERT (a set's text, not in the list above), SETNODE and SETLEAF of
+  classes 0101 and 0106, and CSKB (KOKRS, KSTAR, DATBI, KATYP). A scope
+  keeps those of the controlling areas of the centers it keeps; a company
+  code without centers has no known area (TKA02 is not read). The mock's
+  area 1000 has the standard hierarchy H1000 (H3000 Canada, H3100
+  administration as the range 3100 to 3199, H3200 sales), an alternative
+  REGIONS (Quebec as 3100 to 3299 without 3100 and 3300), the profit
+  centers' PH1000, and its company 3000's accounts as cost elements, the
+  exchange rate accounts not.
+- **Where SAP's trees go** (decided by default: §3 keeps one standard
+  hierarchy per kind and tenant, and T56b creates it coded STANDARD when a
+  first center needs it): each area's standard tree loads as a node below
+  the root of the tenant's standard hierarchy of its kind
+  (`CenterMigration.StandardHierarchy`, created as T56b does when the
+  tenant has none), rather than becoming it, so a tree the tenant already
+  has (API nodes, an earlier run's UNASSIGNED leaf with its centers) is
+  kept, and several areas fit one tree. Every other set no set includes
+  is an alternative hierarchy coded as it.
+- **The profit centers' standard hierarchy** (decided by default, nothing
+  read names it: §10 names TKA01-KHINR for cost centers only, and a field
+  named from memory is left out for the specialist): the one tree holding every set
+  the area's profit centers name in CEPC-KHINR; more than one is refused.
+- **Through the services, the run their approval**, as the centers: each
+  node is a `node_create` and each alternative place a `place`
+  center change inserted `applied`, with no approval request, its reason
+  naming the run (`CenterMigration.AddNodes`, `PlaceCenters`), planned as
+  an approved change is (`tree.plan`) and audited and published as the
+  API's. A center is created at its standard leaf (`StandardNodeID`, the
+  create change placing it). The run places only centers it created,
+  which no other transaction sees, so it does not lock them before the
+  hierarchy as the API does.
+- **Values** (§10: "expanded against the migrated centers"): VALSIGN I
+  includes and E excludes, VALOPTION EQ one value and BT a range, compared
+  in SAP's internal form (digits alone padded to ten), against the
+  extract's centers of the area; other options (patterns) are refused, not
+  guessed. A center's standard leaves are those its values take plus the
+  one its KHINR names; exactly one is required, and at most one in an
+  alternative tree. A value taking no center is a warning, not an error
+  (decided by default: a group may hold a range for centers not yet
+  created, and it places nothing), as is an area with groups but no
+  standard hierarchy, whose centers go to the UNASSIGNED leaf as before.
+- **Re-runs**: a set loaded (its node by `integration.external_ref`, one
+  per tree it is in) is kept, not renamed or moved; one SAP added is added
+  below its parent; a center an earlier run loaded keeps its places, also
+  when a later run first loads a tree (a controller places it). The
+  report counts `hierarchies`, `hierarchy_nodes` and `hierarchy_places`.
+- **Cost elements** (decided by default: the chart is configuration,
+  which the configuration draft migrates from SAP, `delivery/sapconfig`,
+  so CSKB-KATYP goes there, as T042* does, rather than into the run): 01
+  is `primary_cost` on an expense account, 11 and 12 `revenue` on a
+  revenue account, and a profit and loss account with no CSKB row `none`
+  (from memory: S/4HANA keeps non-operating accounts without a cost
+  element, pending the specialist); anything else leaves the type's
+  default with a note. The run does not compare CSKB with the active
+  configuration: T56h2 lists no such gate issue.
+- **OData**: the mapping of these tables and of T56h1's (the cost and
+  profit center read APIs) needs their names from the pilot's
+  `$metadata`, which is not recorded, so it is split off as T56h5 rather
+  than guessed.
+
 ### 11. Change control (decision P1)
 Cost and profit centers are **master data maintained through an API**, not
 the configuration document: they change monthly in a living business,

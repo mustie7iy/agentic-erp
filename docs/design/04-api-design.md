@@ -292,6 +292,16 @@ transaction, so no single `Location` names them; each is read with `GET
 the company, ledger, retained earnings account and who ran it, with the
 year's result and the rows' debit and credit totals per transaction
 currency and, over every currency, in local and group currency. A run is never a journal entry; the trial balance is unchanged.
+Every representation of a run (T64m3) carries `stale` and
+`opened_since` (the periods of its years opened since it ran, or set up
+later and opened), judged at the read, so its ETag is the
+representation's rather than its version. `GET /v1/balance-carry-forwards`
+lists runs (company, fiscal year, ledger, status; by `created_at` or
+`fiscal_year`), each as `GET` shows it; `GET
+/v1/balance-carry-forwards/{id}/balances` pages a run's rows by account
+number, currency and kind, each with its account's number, name and type,
+and carries the whole run's totals on every page, whatever `account_id`
+filters.
 
 Plan values (ADR-0050 §8, T56g) are the controlling context's.
 `/v1/plan-categories` (`controlling.plan.read`, `.write`) are open or
@@ -734,7 +744,8 @@ with the month's total against the tenant's cap.
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:submit`, `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
 | cash | `cash-position`, `liquidity-forecast` (computed on read, ADR-0051; its sources include the released purchase orders' open values, `purchase_order`, T53g), `group-liquidity-forecast` (the companies the caller may act in, summed in group currency, T53e5), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key), `cash-snapshots` and their `exports` to treasury systems (`cash-exports`, the cash export schema v1 over a `treasury_export` connector's SFTP directory, T53h), `liquidity-forecast-variance` (computed on read) and its `comments` (a person's, T53f4) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
-| consolidation | `consolidation-groups` (by code) and `group-accounts` (from the configuration, ADR-0059 §3, T68a; a group only to a caller who may act in its parent and every member, §12); `consolidation-runs` (a run of a group and regular period, 202 with its `Operation`, carried out as the workflow `ConsolidationRun`; `/{id}/balances`, its translated balances with totals, ADR-0059 §6, §7, T68d; a run only to a caller who may act in every company of its group) | `:discard` (T68d) |
+| einvoicing | `e-invoices` (received from the tenant's accredited provider through an `einvoice_provider` connector, ADR-0061 §15, T65a: the companies the caller may act in, filtered by company, connector, status, fetch and when received, newest first) | `:fetch` (202 with its `Operation`, carried out as the workflow `FetchEInvoices`, T65a) |
+| consolidation | `consolidation-groups` (by code) and `group-accounts` (from the configuration, ADR-0059 §3, T68a; a group only to a caller who may act in its parent and every member, §12); `consolidation-runs` (a run of a group and regular period, 202 with its `Operation`, carried out as the workflow `ConsolidationRun`; `/{id}/balances`, its translated balances with totals, ADR-0059 §6, §7, T68d; `/{id}/statements/{statement}`, its consolidated balance sheet or profit and loss by group account with reported, eliminations and consolidated figures and totals, §11, T68e; a run only to a caller who may act in every company of its group) | `:discard` (T68d) |
 | controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual`, `profit-center-plan-actual` (computed on read, ADR-0050 §8) | `:lock`, `:unlock` |
 | tax | `tax-registrations` (from the configuration), `tax-registrations/{id}/periods`, `tax-registrations/{id}/draft-return` and its `items` (computed on read, ADR-0049 §10-§11), `tax-registrations/{id}/returns`, `tax-returns/{id}` | `:file`, `:withdraw` (T61i) |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |

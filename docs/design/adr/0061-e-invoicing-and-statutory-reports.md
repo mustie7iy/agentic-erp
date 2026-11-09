@@ -671,3 +671,109 @@ tracker item only when one does (07 §7.5).
 
 ## As built
 (Filled in by the slices T65a-T65h.)
+
+**T65a (fetching e-invoices on demand).** Built as §2-§4, §11, §12 and
+§15 for recording: migrations 000231 (schema `einvoicing` with its
+outbox, `einvoicing.einvoice`, the permissions `einvoicing.einvoice.read`
+and `.manage`, and the connector kind check widened NOT VALID to
+`einvoice_provider`) and 000232 (that check validated). The leaf
+`einvoicing` (`internal/einvoicing`; `internal/layout` lists it among the
+leaves, importing no context) declares the ports `Connectors` (over
+integration's published `EInvoiceProviders`: a connector resolved with
+its settings and credentials at each use, failing closed),
+`Companies` (tenancy) and `Runs` (operations), adapted in
+`internal/app/einvoicing.go`; `Suppliers`, `Payables` and the
+registrations' half of `Companies` come with the slices that read them
+(T65c, T65d). `POST /v1/e-invoices:fetch` resolves the connector as a
+fetch would and queues the fetch as its Operation (kind
+`einvoicing.fetch`); the dispatcher starts `FetchEInvoices` for it
+(`operations.QueuedOf`, the workflow id `{tenant}-einvoice_fetch-{operation}`;
+T65b's scheduled fetch names the connector and its period), and a cell
+without a workflow engine runs the same steps in process
+(`workflows.EInvoiceFetcher` over `operations.StillQueuedOf`: queued and
+taken by no workflow; a cancelled fetch holds nothing to release, so it
+is not taken up). The workflow reaches the context through
+`workflows.EInvoices`: `PendingEInvoices`, then `RecordEInvoice` per
+message (the bytes fetched with no transaction open and kept under
+`documents/<sha256>`, an existing key being the same bytes; the row
+inserted `ON CONFLICT ON CONSTRAINT einvoice_message_once DO NOTHING`
+with its audit record `einvoicing.einvoice.received` and
+EInvoiceChanged; the acknowledgement after that commit and
+`acknowledged_at` set where still null), and `FinishEInvoiceFetch`; each
+is idempotent, with run-twice tests (`TestRecordEInvoice`). A message
+already recorded counts as `recorded` when this fetch recorded it on an
+earlier attempt and `already_recorded` otherwise. Decided by default:
+
+- **The Operation.** Its `resource` is `/v1/connectors/{id}` while it is
+  queued (the dispatcher's hand-off) and the list of what it recorded,
+  `/v1/e-invoices?fetch_operation_id={id}`, once it succeeds; its
+  `result` counts `recorded` and `already_recorded` (the slices that find
+  changed, entered, held and refused documents add those counts). Messages
+  not recorded fail it with `einvoicing.fetch_incomplete`, the others
+  recorded: each is a field error `messages.{id}` with the code that
+  stopped it, `platform.unavailable` for the provider failing (which the
+  next fetch may get past) or a refusal such as
+  `einvoicing.document_too_large` (a document above `MaxDocument`, not
+  recorded until T65c records it refused, §5, which the next fetch meets
+  again), so a consumer tells the two apart (review round 1). A provider
+  that cannot be listed fails it with `platform.unavailable`; a connector
+  refused since the fetch was queued with its problem. The workflow tries
+  each step five times; the in-process fetcher of a cell without an
+  engine tries each once and leaves the retry to the person, a fetch whose
+  Operation cannot be ended staying queued for its next round. The
+  acknowledgement sets `acknowledged_at` and moves the version without an
+  event: it changes no status (§12).
+- **The company.** The provider's listing names the participant a
+  message is addressed to; the document takes the connector's company of
+  that participant, or none (T65c refuses it,
+  `einvoicing.not_addressed_to_company`). The list and the document show
+  a company's documents to whoever may act in it, and those of no company
+  only to a caller who may act in every company; `:fetch` checks no
+  company access, since it records what the provider holds for the
+  connector and shows nothing (as the statement fetch, ADR-0047). The
+  fetch acts as the system principal `einvoicing.Fetcher`.
+- **The stand-in** (`einvoicing.StandIn`, `internal/einvoicing/einvoicetest`)
+  speaks a protocol of its own, no provider's: `GET /messages`,
+  `GET /messages/{id}`, `POST /messages/{id}/acknowledge`, the credentials
+  as a bearer token. It is called through the egress client as an adapter
+  of a real provider will be (`einvoicing.NewClient`: the egress client
+  with `egress.ResponseLimit(MaxDocument)` and `egress.CallTimeout(60 s)`,
+  the per-client limit §3 asks for; the webhook client keeps 64 KiB and
+  10 s), so outside the walkthrough it reaches public addresses alone. The
+  walkthrough's stand-in (`providerstub`) is the one loopback address it
+  may reach, named by `ERP_WALKTHROUGH_PROVIDER` and
+  `ERP_WALKTHROUGH_PROVIDER_CA`, which `config.Load` refuses outside
+  development, exactly as ADR-0041 As built's webhook receiver
+  (`egress.WalkthroughReceiver` now serves both). Production refuses the
+  stand-in when an `einvoice_provider` connector is created or enabled
+  (422 `integration.adapter_not_certified`, beside
+  `integration.ebics_not_certified` under the same production flag) and at
+  use (`EInvoiceProviders.RefuseStandIn`); a change of an active
+  connector's settings to the stand-in is refused at use, as §3 says of a
+  stored one.
+- **Permissions.** Migration 000231 creates the two permissions and gives
+  them to no role: no migration since 000013 grants a role a permission
+  (§11's "as earlier slices did" is not what the repository does); the
+  tenant's administrators receive every permission at provisioning, and
+  other roles by grant, as for `consolidation.run.manage`.
+- **The list.** `GET /v1/e-invoices` and `/{id}` carry what a fetch
+  records (the connector by id and name, the company by id, code and
+  name, the message id and its participant, the bytes' SHA-256 and size,
+  the status, the fetch and when received and acknowledged), filtered by
+  company, connector, status, fetch and when received, newest received
+  first, cursor-paged. What a document says (number, kind, issue date,
+  currency, gross, lines), its supplier (and the supplier filter) and the
+  entered invoice's number and reference are added, as fields and
+  columns, by the slices that read and enter documents (T65c, T65d):
+  nothing in T65a writes them. EInvoiceChanged carries the document, its
+  connector and message id, its company by id and code, its status, the
+  bytes' SHA-256, the fetch and the version.
+- **The walkthrough.** `step_einvoice` (step 43, after `step_year_end`
+  and before `step_close`) uses the UAE pilot company that step 41
+  already sets up with its FTA registration (5000, Maple Gulf Trading,
+  T62f), not a new AE01: T62f built it after this ADR was written. Ada
+  connects the stand-in; Alex fetches the supplier's e-invoice (an
+  illustrative document), finds it `received` for 5000 under the fetch's
+  operation with the stand-in's SHA-256 and acknowledged; the stand-in
+  loses the acknowledgement, and a second fetch counts the document as
+  already recorded and acknowledges it again.

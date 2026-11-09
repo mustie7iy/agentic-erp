@@ -1409,7 +1409,8 @@ openings: the trigger `period_status_opened_count` starts it at 0 and adds
 one on every change of the status to `open`, whoever writes it, and
 refuses any other change (`period_status_opened_count_set`); locking and
 unlocking do not move it. An import (ADR-0029) keeps the exported count
-while `app.importing` names the tenant (migration 000229). The retained earnings account is the account
+while `app.importing` names the tenant (migration 000229); a carry-forward run is
+inserted superseded then, and deleted only by its tenant's erasure (000230). The retained earnings account is the account
 determination key `retained_earnings`, applied from
 `companies[].year_end.retained_earnings_account` (tier 3; changed but not
 removed once activated). A run (`carry_forward_run`) of a company, ledger
@@ -3655,8 +3656,9 @@ required on every account of a company in a group), the eliminations
 parent, members with ownership, first period and investment account) are
 configuration, built in T68a (ADR-0059 §3, As built T68a): they keep no
 table, and migration 000223 adds the permission `consolidation.read`.
-T68b, T68c and T68d are built; the tables marked T68e-T68h below are
-planned, not built.
+T68b, T68c, T68d and T68e are built (T68e, the consolidated statements,
+reads `run_balance` and keeps no table); the tables marked T68f-T68h below
+are planned, not built.
 The ledger gained, in T68b, `journal_line.trading_partner_id` (the legal
 entity on the other side of an intercompany line, nullable, no foreign key)
 and the projection `ledger.trading_partner_balance`, maintained as
@@ -3678,10 +3680,20 @@ creates the schema `consolidation` (with its outbox, for
 
 ## 3.25 E-invoicing (`einvoicing`)
 
-Planned, not built (ADR-0061, T65a-T65f). A leaf context: it reads
-integration's connectors, tenancy, tax filing's registrations and
-partner's tax identifier fingerprints through ports, and enters supplier
-invoices through payables' published API; no context reads it.
+ADR-0061, T65a-T65f. A leaf context: it reads integration's connectors,
+tenancy, tax filing's registrations and partner's tax identifier
+fingerprints through ports, and enters supplier invoices through
+payables' published API; no context reads it. T65a (migrations 000231,
+000232) builds `einvoicing.einvoice` with what a fetch records: the
+connector, the provider's message id (unique per tenant and connector,
+`einvoice_message_once`), the participant it was listed for and the
+connector's company of it (none when it names none), the SHA-256, size
+and object key of the bytes, the fetch's Operation, `received_at`,
+`acknowledged_at` (set once, never before receipt) and the version; the
+status `received` alone, which a trigger holds, with what was recorded
+fixed and only the acknowledgement written after (column grants and the
+trigger); the connector kind check widened to `einvoice_provider`. The
+other columns below arrive with the slices that write them (T65b-T65f).
 
 | Table | Purpose |
 |---|---|

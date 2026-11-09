@@ -1331,6 +1331,42 @@ func (UnimplementedHandler) ExcludeBankStatementLine(ctx context.Context, req *R
 	return r, ht.ErrNotImplemented
 }
 
+// FetchEInvoices implements fetchEInvoices operation.
+//
+// Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of
+// an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's
+// inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`) and carried out
+// as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system
+// principal acting for the connector's companies. It lists the documents the provider has not had
+// acknowledged, and records each once per connector and the provider's message id: its bytes kept
+// write-once in object storage under their SHA-256, the document `received` with its company (the
+// connector's company whose participant identifier the provider listed it for; none when it names none
+// of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged;
+// after that commit the provider is told the document is kept (its acknowledgement), and
+// `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement
+// is sent again, so an acknowledgement lost is repaired by the next fetch. Its acknowledgement moves
+// the document's version without an event. When the fetch is done its Operation succeeds with the
+// counts in its `result` (`recorded`, `already_recorded`) and its `resource` the list of the documents
+// it recorded (`/v1/e-invoices?fetch_operation_id={id}`); a message not recorded fails the Operation
+// with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a
+// field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider,
+// the store or the database failed (after five tries in the workflow engine, one in process), which
+// the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above
+// 10 MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A
+// provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is
+// not an active `einvoice_provider` connector with credentials that resolve is refused before anything
+// is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409
+// `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`,
+// `integration.secret_unavailable`); so is, in production, the provider's stand-in (422
+// `integration.adapter_not_certified`), the only adapter until a provider is chosen. A server without
+// object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint
+// for the provider to call. Human-only (`x-agent: false`).
+//
+// POST /v1/e-invoices:fetch
+func (UnimplementedHandler) FetchEInvoices(ctx context.Context, req *EInvoiceFetch, params FetchEInvoicesParams) (r FetchEInvoicesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // FileTaxReturn implements fileTaxReturn operation.
 //
 // Records that a person filed the approved return with the authority on its portal, with the
@@ -1538,7 +1574,14 @@ func (UnimplementedHandler) GetAssetTransfer(ctx context.Context, params GetAsse
 // One carry-forward run (ADR-0060 §7) with its company, ledger, years, basis, retained earnings
 // account, status, who ran it, and its totals per transaction currency: the year's result carried to
 // retained earnings and the debit and credit totals of its rows in transaction, local and group
-// currency (debits equal credits). A run of a company the caller cannot act in is not found.
+// currency (debits equal credits). `stale` is judged at the read (ADR-0060 §6, T64m3): a run is stale
+// when a period of its ledger in its year or an earlier year that it read is open now or has been
+// opened since, or one it did not read (set up later) is open or has been opened; `opened_since` names
+// them. A posting needs an open period, so a run that is not stale carries every posting of its years;
+// a stale one is carried forward again once the periods are closed, and the new run supersedes it. A
+// run of a company the caller cannot act in is not found. The run's rows are
+// `listBalanceCarryForwardBalances`'s. The ETag is the representation's, which `stale` moves without
+// the run changing.
 //
 // GET /v1/balance-carry-forwards/{id}
 func (UnimplementedHandler) GetBalanceCarryForward(ctx context.Context, params GetBalanceCarryForwardParams) (r GetBalanceCarryForwardRes, _ error) {
@@ -1810,6 +1853,35 @@ func (UnimplementedHandler) GetConnector(ctx context.Context, params GetConnecto
 	return r, ht.ErrNotImplemented
 }
 
+// GetConsolidatedStatement implements getConsolidatedStatement operation.
+//
+// A consolidated statement of a computed, final or superseded consolidation run (ADR-0059 §11, T68e):
+// the balance sheet (`balance_sheet`: the group chart's asset, liability and equity accounts, the
+// `cta`, `retained_earnings` and `nci` accounts among them) or the profit and loss (`profit_and_loss`:
+// its revenue and expense accounts), one row per group account of the statement's types in the
+// configuration version the run read, in number order, cursor-paged by number. Each row has the
+// account's number, name, type and role, the companies' translated figures on it summed (`reported`:
+// the total of `listConsolidationBalances?group_account=` for it), the run's eliminations on it
+// (`eliminations`) and their sum (`consolidated`), each in the group currency and debit positive, as
+// the trial balance shows them: a credit balance, and so a profit, is negative. A group account
+// without figures has a row of zeros. With totals over the whole statement, each with the same three
+// columns: for the balance sheet, the assets, liabilities and equity and the fiscal year's profit
+// through the period (the profit and loss's), which together sum to zero; for the profit and loss, the
+// revenue, the expenses and the profit. A run has no eliminations until intercompany matching and the
+// investment's elimination are built (ADR-0059 §8, §9: T68f, T68h), so its eliminations are zero and
+// its consolidated figures its reported ones. The statement is read from the run's stored rows alone,
+// so a computed, final or superseded run's never changes. Refused for a run that is queued, running,
+// failed or discarded (409 `consolidation.run_not_computed`) and for a statement other than these two
+// (404 `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read`
+// (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not
+// found (404), as a run that does not exist. Read from one database state (a repeatable-read
+// snapshot), so its page and totals agree.
+//
+// GET /v1/consolidation-runs/{id}/statements/{statement}
+func (UnimplementedHandler) GetConsolidatedStatement(ctx context.Context, params GetConsolidatedStatementParams) (r GetConsolidatedStatementRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetConsolidationGroup implements getConsolidationGroup operation.
 //
 // One consolidation group of the active configuration by its code (ADR-0059 §3, T68a), as
@@ -1892,6 +1964,17 @@ func (UnimplementedHandler) GetDepreciationRun(ctx context.Context, params GetDe
 //
 // GET /v1/down-payment-requests/{id}
 func (UnimplementedHandler) GetDownPaymentRequest(ctx context.Context, params GetDownPaymentRequestParams) (r GetDownPaymentRequestRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetEInvoice implements getEInvoice operation.
+//
+// One e-invoice as `listEInvoices` gives it (ADR-0061 §15, T65a). One of a company the caller may not
+// act in, or addressed to none of the connector's companies to a caller who may not act in every
+// company, is not found (404), as one that does not exist, so ids of other companies cannot be probed.
+//
+// GET /v1/e-invoices/{id}
+func (UnimplementedHandler) GetEInvoice(ctx context.Context, params GetEInvoiceParams) (r GetEInvoiceRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -2766,6 +2849,38 @@ func (UnimplementedHandler) ListAuditEvents(ctx context.Context, params ListAudi
 	return r, ht.ErrNotImplemented
 }
 
+// ListBalanceCarryForwardBalances implements listBalanceCarryForwardBalances operation.
+//
+// A carry-forward run's rows (ADR-0060 §7, T64m3), the opening balances of the next fiscal year: per
+// account, kind and transaction currency, each with its account's number, name and type, its kind
+// (`balance`: a balance sheet account's balance at the year's end; `result`: the year's profit or loss
+// in that currency carried to the retained earnings account) and its amounts in transaction, local and
+// group currency, debit positive. Ordered and paged by account number (as the database orders text,
+// byte by byte), then currency, then kind, then account id; `account_id` keeps one account's rows.
+// `totals` and the run's figures beside them are those of the whole run, every row whatever the
+// filter, on every page alike: per transaction currency the year's result and the debit and credit
+// totals, and over every currency the result, debits and credits in local and group currency (debits
+// equal credits). A run's rows never change, so the pages and the totals agree. A run of a company the
+// caller cannot act in is not found.
+//
+// GET /v1/balance-carry-forwards/{id}/balances
+func (UnimplementedHandler) ListBalanceCarryForwardBalances(ctx context.Context, params ListBalanceCarryForwardBalancesParams) (r ListBalanceCarryForwardBalancesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListBalanceCarryForwards implements listBalanceCarryForwards operation.
+//
+// The carry-forward runs of the legal entities the caller may act in (ADR-0060 §7, T64m3), each as
+// `getBalanceCarryForward` shows it: its company, ledger, years, basis, retained earnings account,
+// status, who ran it, whether it is stale with the periods opened since, and its totals. Filters: the
+// company, the fiscal year carried forward (`fiscal_year`), the ledger and the status (`current` or
+// `superseded`). Sortable by: `created_at` (the default) and `fiscal_year`; ties by run id.
+//
+// GET /v1/balance-carry-forwards
+func (UnimplementedHandler) ListBalanceCarryForwards(ctx context.Context, params ListBalanceCarryForwardsParams) (r ListBalanceCarryForwardsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListBalances implements listBalances operation.
 //
 // Period totals per account; `legal_entity_id` and `fiscal_year` are required filters. Sortable by:
@@ -3129,6 +3244,23 @@ func (UnimplementedHandler) ListDepreciationRuns(ctx context.Context, params Lis
 //
 // GET /v1/down-payment-requests
 func (UnimplementedHandler) ListDownPaymentRequests(ctx context.Context, params ListDownPaymentRequestsParams) (r ListDownPaymentRequestsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListEInvoices implements listEInvoices operation.
+//
+// The e-invoices received from the tenant's accredited providers (ADR-0061 §15, T65a), newest
+// received first: those of the companies the caller may act in, and, to a caller who may act in every
+// company, those addressed to none of the connector's companies. Each carries its connector by id and
+// name, its company by id, code and name, the provider's message id and the participant it was listed
+// for, the SHA-256 and size of its bytes as received, its status, the fetch that recorded it and when
+// it was received and acknowledged. Filters: company, connector, status, the fetch's Operation
+// (`fetch_operation_id`, as a fetch's Operation names it in its `resource`) and when received. What a
+// document says (number, issue date, supplier, amounts) is read by the processing slices (T65c, T65d),
+// which add it here.
+//
+// GET /v1/e-invoices
+func (UnimplementedHandler) ListEInvoices(ctx context.Context, params ListEInvoicesParams) (r ListEInvoicesRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

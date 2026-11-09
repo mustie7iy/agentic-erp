@@ -507,7 +507,7 @@ func (e *Endpoints) load(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r R
 		return operations.Operation{}, fmt.Errorf("integration: read the load date of migration run %s: %w", r.ID, err)
 	}
 	l := &loader{e: e, tx: tx, p: p, run: r, system: system(c), ext: ext, t: t, refs: existing, today: today,
-		vendors: map[string]uuid.UUID{}, entries: map[string]loadedEntry{}}
+		vendors: map[string]uuid.UUID{}, entries: map[string]loadedEntry{}, created: map[string]uuid.UUID{}}
 	if err := l.load(ctx); err != nil {
 		return operations.Operation{}, err
 	}

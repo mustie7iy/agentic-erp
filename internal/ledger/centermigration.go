@@ -25,8 +25,8 @@ import (
 // one by one"). It is checked as a requested create is when it is
 // applied: an active category, a profit center that is active, assigned
 // to the cost center's company and valid over each period, and a place at
-// the standard hierarchy's UNASSIGNED leaf until the hierarchies are
-// migrated (T56h2).
+// a leaf of the standard hierarchy: SAP's, which the run loads first
+// (T56h2, hierarchymigration.go), else the UNASSIGNED leaf.
 type CenterMigration struct{}
 
 // MigratedPeriod is a migrated center's period: from From to To
@@ -43,7 +43,10 @@ type MigratedCostCenter struct {
 	Code          string
 	Texts         Texts
 	Periods       []MigratedPeriod[CostCenterAttrs]
-	Reason        string
+	// StandardNodeID is its leaf of the standard hierarchy (SAP's KHINR);
+	// nil places it at the UNASSIGNED leaf.
+	StandardNodeID *uuid.UUID
+	Reason         string
 }
 
 // MigratedProfitCenter is a profit center to create with its companies
@@ -54,6 +57,7 @@ type MigratedProfitCenter struct {
 	SegmentID      *uuid.UUID
 	LegalEntityIDs []uuid.UUID
 	Periods        []MigratedPeriod[ProfitCenterAttrs]
+	StandardNodeID *uuid.UUID // as a cost center's
 	Reason         string
 }
 
@@ -95,21 +99,27 @@ func periodMaps[A comparable](spans []span[A], attrs func(A) map[string]any) []m
 	return out
 }
 
-// appliedChange records a migrated create or assignment as a center change
-// applied at once (CenterMigration).
-func appliedChange(ctx context.Context, tx pgx.Tx, ref centerRef, kind string, payload migratedPayload, reason string) (uuid.UUID, error) {
+// appliedChange records a migrated create, assignment, node or place as
+// a center change applied at once (CenterMigration): of the center ref
+// names, of the hierarchy it names, or of both.
+func appliedChange(ctx context.Context, tx pgx.Tx, ref centerRef, kind string, payload any, reason string) (uuid.UUID, error) {
 	p := principal(ctx)
 	var cc, pc *uuid.UUID
-	if ref.kind == costCenters {
+	switch {
+	case ref.id == uuid.Nil: // a node, which names no center
+	case ref.kind == costCenters:
 		cc = &ref.id
-	} else {
+	default:
 		pc = &ref.id
 	}
-	b, _ := json.Marshal(payload) // periods of dates, strings, ids and flags
+	b, _ := json.Marshal(payload) // periods of dates, strings, ids and flags, or a hierarchy's payload
 	id := uuid.Must(uuid.NewV7())
-	_, err := tx.Exec(ctx, `INSERT INTO ledger.center_change (tenant_id, id, cost_center_id, profit_center_id, kind, payload, reason, status, applied_at,
-			requested_by, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, 'applied', now(), $8, $8, $8)`,
-		p.TenantID, id, cc, pc, kind, b, reason, p.ID)
+	_, err := tx.Exec(ctx, `INSERT INTO ledger.center_change (tenant_id, id, cost_center_id, profit_center_id, hierarchy_id, kind, payload, reason, status,
+			applied_at, requested_by, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'applied', now(), $9, $9, $9)`,
+		p.TenantID, id, cc, pc, ref.hierarchy, kind, b, reason, p.ID)
+	if ref.id == uuid.Nil {
+		return id, errs.Wrapf(err, "ledger: record the migrated %s change of hierarchy %s", kind, *ref.hierarchy)
+	}
 	return id, errs.Wrapf(err, "ledger: record the migrated %s change of %s %s", kind, ref.kind.table, ref.id)
 }
 
@@ -163,7 +173,7 @@ func (CenterMigration) CreateProfitCenter(ctx context.Context, in MigratedProfit
 	if err := writeProfitCenter(ctx, tx, c, CenterChange{ID: change}, profitCenterPayload{LegalEntityIDs: in.LegalEntityIDs}, spans); err != nil {
 		return uuid.Nil, err
 	}
-	if err := activate(ctx, tx, profitCenters, id, change, nil); err != nil {
+	if err := activate(ctx, tx, profitCenters, id, change, in.StandardNodeID); err != nil {
 		return uuid.Nil, err
 	}
 	return id, recordProfitCenter(ctx, tx, id, KindCreate, &change)
@@ -246,7 +256,7 @@ func (CenterMigration) CreateCostCenter(ctx context.Context, in MigratedCostCent
 	if err := writeCostCenterPeriods(ctx, tx, c, change, nil, spans); err != nil {
 		return uuid.Nil, err
 	}
-	if err := activate(ctx, tx, costCenters, id, change, nil); err != nil {
+	if err := activate(ctx, tx, costCenters, id, change, in.StandardNodeID); err != nil {
 		return uuid.Nil, err
 	}
 	return id, recordCostCenter(ctx, tx, id, KindCreate, &change)

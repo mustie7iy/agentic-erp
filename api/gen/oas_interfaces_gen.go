@@ -353,6 +353,10 @@ type ExcludeBankStatementLineRes interface {
 	excludeBankStatementLineRes()
 }
 
+type FetchEInvoicesRes interface {
+	fetchEInvoicesRes()
+}
+
 type FileTaxReturnRes interface {
 	fileTaxReturnRes()
 }
@@ -489,6 +493,10 @@ type GetConnectorRes interface {
 	getConnectorRes()
 }
 
+type GetConsolidatedStatementRes interface {
+	getConsolidatedStatementRes()
+}
+
 type GetConsolidationGroupRes interface {
 	getConsolidationGroupRes()
 }
@@ -515,6 +523,10 @@ type GetDepreciationRunRes interface {
 
 type GetDownPaymentRequestRes interface {
 	getDownPaymentRequestRes()
+}
+
+type GetEInvoiceRes interface {
+	getEInvoiceRes()
 }
 
 type GetEntryTemplateRes interface {
@@ -773,6 +785,14 @@ type ListAuditEventsRes interface {
 	listAuditEventsRes()
 }
 
+type ListBalanceCarryForwardBalancesRes interface {
+	listBalanceCarryForwardBalancesRes()
+}
+
+type ListBalanceCarryForwardsRes interface {
+	listBalanceCarryForwardsRes()
+}
+
 type ListBalancesRes interface {
 	listBalancesRes()
 }
@@ -887,6 +907,10 @@ type ListDepreciationRunsRes interface {
 
 type ListDownPaymentRequestsRes interface {
 	listDownPaymentRequestsRes()
+}
+
+type ListEInvoicesRes interface {
+	listEInvoicesRes()
 }
 
 type ListEntryTemplatesRes interface {

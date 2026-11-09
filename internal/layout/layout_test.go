@@ -46,6 +46,8 @@ var testSupport = map[string]bool{
 	"platform/webhook/webhooktest/webhookstub": true, // the walkthrough's webhook subscriber
 	"platform/secrets/vaulttest":               true, "platform/workflow/workflowtest": true,
 	"llm/llmtest": true, "nfr": true,
+	"einvoicing/einvoicetest":              true, // the e-invoicing provider's stand-in (ADR-0061 §3)
+	"einvoicing/einvoicetest/providerstub": true, // the walkthrough's provider, built from the stand-in
 }
 
 // webPlatform are the platform packages the web workspace (internal/web
@@ -132,7 +134,7 @@ var allowed = map[string][]string{
 // composition root and commands wire them like any context, and a context
 // may ask one a question through a port it declares itself, as partner
 // asks cash about planning groups.
-var leaves = map[string]bool{"assets": true, "cash": true, "closing": true, "consolidation": true}
+var leaves = map[string]bool{"assets": true, "cash": true, "closing": true, "consolidation": true, "einvoicing": true}
 
 // unit is the context a package under internal/ belongs to: its first path
 // segment, the platform package itself, a delivery agent (each agent under

@@ -65,6 +65,8 @@ tags:
     description: "Financial close (ADR-0058): the close template, each company's close calendar and its period closes."
   - name: consolidation
     description: "Group reporting and consolidation (ADR-0059): the consolidation groups and the group chart of accounts."
+  - name: einvoicing
+    description: "E-invoicing (ADR-0061): e-invoices received from the tenant's accredited provider."
   - name: controlling
     description: "Controlling (ADR-0050): plan categories, plan lines by batch and plan against actual by cost center."
   - name: tax
@@ -7584,6 +7586,53 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/balance-carry-forwards:
+    get:
+      operationId: listBalanceCarryForwards
+      tags:
+        - ledger
+      summary: List balance carry-forward runs
+      description: "The carry-forward runs of the legal entities the caller may act in (ADR-0060 §7, T64m3), each as `getBalanceCarryForward` shows it: its company, ledger, years, basis, retained earnings account, status, who ran it, whether it is stale with the periods opened since, and its totals. Filters: the company, the fiscal year carried forward (`fiscal_year`), the ledger and the status (`current` or `superseded`). Sortable by: `created_at` (the default) and `fiscal_year`; ties by run id."
+      x-permission: ledger.entry.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - $ref: "#/components/parameters/FiscalYear"
+        - name: ledger_id
+          in: query
+          required: false
+          description: Only the runs of this ledger.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only the runs in this status.
+          schema:
+            type: string
+            description: "Carry-forward run status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [current, superseded]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of carry-forward runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BalanceCarryForwardPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
     post:
       operationId: runBalanceCarryForward
       tags:
@@ -7648,7 +7697,7 @@ paths:
       tags:
         - ledger
       summary: Get a balance carry-forward run
-      description: "One carry-forward run (ADR-0060 §7) with its company, ledger, years, basis, retained earnings account, status, who ran it, and its totals per transaction currency: the year's result carried to retained earnings and the debit and credit totals of its rows in transaction, local and group currency (debits equal credits). A run of a company the caller cannot act in is not found."
+      description: "One carry-forward run (ADR-0060 §7) with its company, ledger, years, basis, retained earnings account, status, who ran it, and its totals per transaction currency: the year's result carried to retained earnings and the debit and credit totals of its rows in transaction, local and group currency (debits equal credits). `stale` is judged at the read (ADR-0060 §6, T64m3): a run is stale when a period of its ledger in its year or an earlier year that it read is open now or has been opened since, or one it did not read (set up later) is open or has been opened; `opened_since` names them. A posting needs an open period, so a run that is not stale carries every posting of its years; a stale one is carried forward again once the periods are closed, and the new run supersedes it. A run of a company the caller cannot act in is not found. The run's rows are `listBalanceCarryForwardBalances`'s. The ETag is the representation's, which `stale` moves without the run changing."
       x-permission: ledger.entry.read
       x-problem-codes: []
       parameters:
@@ -7663,6 +7712,45 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BalanceCarryForward"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/balance-carry-forwards/{id}/balances":
+    get:
+      operationId: listBalanceCarryForwardBalances
+      tags:
+        - ledger
+      summary: List a balance carry-forward run's balances
+      description: "A carry-forward run's rows (ADR-0060 §7, T64m3), the opening balances of the next fiscal year: per account, kind and transaction currency, each with its account's number, name and type, its kind (`balance`: a balance sheet account's balance at the year's end; `result`: the year's profit or loss in that currency carried to the retained earnings account) and its amounts in transaction, local and group currency, debit positive. Ordered and paged by account number (as the database orders text, byte by byte), then currency, then kind, then account id; `account_id` keeps one account's rows. `totals` and the run's figures beside them are those of the whole run, every row whatever the filter, on every page alike: per transaction currency the year's result and the debit and credit totals, and over every currency the result, debits and credits in local and group currency (debits equal credits). A run's rows never change, so the pages and the totals agree. A run of a company the caller cannot act in is not found."
+      x-permission: ledger.entry.read
+      x-problem-codes:
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: account_id
+          in: query
+          required: false
+          description: Only the rows of this account.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: "One page of the run's rows, with the run's totals."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CarryForwardBalancePage"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -14287,6 +14375,251 @@ paths:
           $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/e-invoices:fetch":
+    post:
+      operationId: fetchEInvoices
+      tags:
+        - einvoicing
+      summary: Fetch e-invoices from the provider now
+      description: "Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`) and carried out as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system principal acting for the connector's companies. It lists the documents the provider has not had acknowledged, and records each once per connector and the provider's message id: its bytes kept write-once in object storage under their SHA-256, the document `received` with its company (the connector's company whose participant identifier the provider listed it for; none when it names none of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged; after that commit the provider is told the document is kept (its acknowledgement), and `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement is sent again, so an acknowledgement lost is repaired by the next fetch. Its acknowledgement moves the document's version without an event. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`) and its `resource` the list of the documents it recorded (`/v1/e-invoices?fetch_operation_id={id}`); a message not recorded fails the Operation with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the store or the database failed (after five tries in the workflow engine, one in process), which the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10 MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is not an active `einvoice_provider` connector with credentials that resolve is refused before anything is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so is, in production, the provider's stand-in (422 `integration.adapter_not_certified`), the only adapter until a provider is chosen. A server without object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Human-only (`x-agent: false`)."
+      x-permission: einvoicing.einvoice.manage
+      x-agent: false
+      x-problem-codes:
+        - integration.adapter_not_certified
+        - integration.connector_disabled
+        - integration.invalid_settings
+        - integration.not_an_einvoice_provider
+        - integration.secret_required
+        - integration.secret_unavailable
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The connector to fetch from.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EInvoiceFetch"
+            examples:
+              provider:
+                summary: Fetch from the UAE company's provider
+                value:
+                  connector_id: 0192a000-0000-7000-8000-000000000e01
+      responses:
+        "202":
+          description: "Accepted; the fetch continues as a long-running operation. Poll the Operation at `Location`; once it succeeds, its `result` counts what it found and its `resource` lists the documents it recorded."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Operation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/e-invoices:
+    get:
+      operationId: listEInvoices
+      tags:
+        - einvoicing
+      summary: List e-invoices
+      description: "The e-invoices received from the tenant's accredited providers (ADR-0061 §15, T65a), newest received first: those of the companies the caller may act in, and, to a caller who may act in every company, those addressed to none of the connector's companies. Each carries its connector by id and name, its company by id, code and name, the provider's message id and the participant it was listed for, the SHA-256 and size of its bytes as received, its status, the fetch that recorded it and when it was received and acknowledged. Filters: company, connector, status, the fetch's Operation (`fetch_operation_id`, as a fetch's Operation names it in its `resource`) and when received. What a document says (number, issue date, supplier, amounts) is read by the processing slices (T65c, T65d), which add it here."
+      x-permission: einvoicing.einvoice.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: false
+          description: Only the e-invoices of this company.
+          schema:
+            type: string
+            format: uuid
+        - name: connector_id
+          in: query
+          required: false
+          description: Only the e-invoices received through this connector.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only e-invoices in this status.
+          schema:
+            type: string
+            description: "E-invoice status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [received]
+        - name: fetch_operation_id
+          in: query
+          required: false
+          description: Only the e-invoices this fetch recorded (its Operation's id).
+          schema:
+            type: string
+            format: uuid
+        - name: received_from
+          in: query
+          required: false
+          description: Only e-invoices received at or after this time.
+          schema:
+            type: string
+            format: date-time
+        - name: received_to
+          in: query
+          required: false
+          description: Only e-invoices received before this time.
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of e-invoices.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EInvoicePage"
+              example:
+                items:
+                  - id: 0192a000-0000-7000-8000-000000000e11
+                    connector_id: 0192a000-0000-7000-8000-000000000e01
+                    connector_name: UAE e-invoicing provider
+                    message_id: MSG-0001
+                    receiver: "0235:100000000000003"
+                    legal_entity_id: 0192a000-0000-7000-8000-000000000201
+                    company_code: AE01
+                    company_name: Maple Gulf Trading
+                    status: received
+                    sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+                    size: 2048
+                    fetch_operation_id: 0192a000-0000-7000-8000-000000000e21
+                    received_at: "2026-11-08T10:00:00Z"
+                    acknowledged_at: "2026-11-08T10:00:01Z"
+                    version: 2
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/e-invoices/{id}":
+    get:
+      operationId: getEInvoice
+      tags:
+        - einvoicing
+      summary: Get an e-invoice
+      description: "One e-invoice as `listEInvoices` gives it (ADR-0061 §15, T65a). One of a company the caller may not act in, or addressed to none of the connector's companies to a caller who may not act in every company, is not found (404), as one that does not exist, so ids of other companies cannot be probed."
+      x-permission: einvoicing.einvoice.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The e-invoice.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EInvoice"
+              example:
+                id: 0192a000-0000-7000-8000-000000000e11
+                connector_id: 0192a000-0000-7000-8000-000000000e01
+                connector_name: UAE e-invoicing provider
+                message_id: MSG-0001
+                receiver: "0235:100000000000003"
+                legal_entity_id: 0192a000-0000-7000-8000-000000000201
+                company_code: AE01
+                company_name: Maple Gulf Trading
+                status: received
+                sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+                size: 2048
+                fetch_operation_id: 0192a000-0000-7000-8000-000000000e21
+                received_at: "2026-11-08T10:00:00Z"
+                acknowledged_at: "2026-11-08T10:00:01Z"
+                version: 2
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/consolidation-runs/{id}/statements/{statement}":
+    get:
+      operationId: getConsolidatedStatement
+      tags:
+        - consolidation
+      summary: Get a consolidated statement of a run
+      description: "A consolidated statement of a computed, final or superseded consolidation run (ADR-0059 §11, T68e): the balance sheet (`balance_sheet`: the group chart's asset, liability and equity accounts, the `cta`, `retained_earnings` and `nci` accounts among them) or the profit and loss (`profit_and_loss`: its revenue and expense accounts), one row per group account of the statement's types in the configuration version the run read, in number order, cursor-paged by number. Each row has the account's number, name, type and role, the companies' translated figures on it summed (`reported`: the total of `listConsolidationBalances?group_account=` for it), the run's eliminations on it (`eliminations`) and their sum (`consolidated`), each in the group currency and debit positive, as the trial balance shows them: a credit balance, and so a profit, is negative. A group account without figures has a row of zeros. With totals over the whole statement, each with the same three columns: for the balance sheet, the assets, liabilities and equity and the fiscal year's profit through the period (the profit and loss's), which together sum to zero; for the profit and loss, the revenue, the expenses and the profit. A run has no eliminations until intercompany matching and the investment's elimination are built (ADR-0059 §8, §9: T68f, T68h), so its eliminations are zero and its consolidated figures its reported ones. The statement is read from the run's stored rows alone, so a computed, final or superseded run's never changes. Refused for a run that is queued, running, failed or discarded (409 `consolidation.run_not_computed`) and for a statement other than these two (404 `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
+      x-permission: consolidation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-snapshot: true
+      x-problem-codes:
+        - config.unknown_version
+        - consolidation.run_not_computed
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: statement
+          in: path
+          required: true
+          description: "The statement: `balance_sheet` or `profit_and_loss`."
+          schema:
+            type: string
+            description: "Consolidated statement. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [balance_sheet, profit_and_loss]
+          example: balance_sheet
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the statement's rows, with the totals over the whole statement.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsolidatedStatement"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/close-calendar:
     get:
       operationId: getCloseCalendar
@@ -20523,6 +20856,7 @@ paths:
               - tax_engine
               - ticketing
               - treasury_export
+              - einvoice_provider
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -20550,6 +20884,7 @@ paths:
       description: Creates a connector.
       x-permission: integration.connector.manage
       x-problem-codes:
+        - integration.adapter_not_certified
         - integration.duplicate_name
         - integration.ebics_not_certified
         - integration.invalid_settings
@@ -20687,6 +21022,7 @@ paths:
       description: "Allows the connector to exchange messages again. Requires status `disabled`."
       x-permission: integration.connector.manage
       x-problem-codes:
+        - integration.adapter_not_certified
         - integration.duplicate_name
         - integration.ebics_not_certified
         - integration.invalid_status
@@ -21557,6 +21893,7 @@ paths:
         - ledger.gr_ir_position_exists
         - ledger.hierarchy_change_invalid
         - ledger.hierarchy_exists
+        - ledger.hierarchy_node_exists
         - ledger.invalid_center_status
         - ledger.invalid_clearing_entry
         - ledger.invalid_tax_code
@@ -31357,6 +31694,8 @@ components:
         - created_at
         - created_by
         - created_by_name
+        - stale
+        - opened_since
       properties:
         id:
           type: string
@@ -31488,6 +31827,16 @@ components:
           type: string
           description: Their name.
           readOnly: true
+        stale:
+          type: boolean
+          description: "Whether a period of the run's years has been opened since it ran (`opened_since`), judged at the read: its figures may have changed, so the year is carried forward again (ADR-0060 §6)."
+          readOnly: true
+        opened_since:
+          type: array
+          description: "The periods that make the run stale, by fiscal year and period; empty when it is not."
+          items:
+            $ref: "#/components/schemas/CarryForwardOpenedPeriod"
+          readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
           legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
@@ -31527,6 +31876,226 @@ components:
           created_at: "2027-01-20T15:04:05Z"
           created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d04"
           created_by_name: Carla Controller
+          stale: false
+          opened_since: []
+    BalanceCarryForwardPage:
+      type: object
+      description: One page of balance carry-forward runs.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BalanceCarryForward"
+          description: The runs on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
+    CarryForwardOpenedPeriod:
+      type: object
+      description: "A posting period opened since a carry-forward run read it, or of the run's years and set up after it, which makes the run stale."
+      required:
+        - ledger_id
+        - ledger_code
+        - fiscal_year
+        - period
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: The period's ledger, the run's.
+          readOnly: true
+        ledger_code:
+          type: string
+          description: The ledger's code.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: The period's fiscal year.
+          readOnly: true
+        period:
+          type: integer
+          format: int32
+          description: "The period, 1-16 (13-16 special)."
+          minimum: 1
+          maximum: 16
+          readOnly: true
+    CarryForwardBalancePage:
+      type: object
+      description: "One page of a carry-forward run's rows, with the totals of the whole run on every page."
+      required:
+        - items
+        - run_id
+        - local_currency
+        - group_currency
+        - totals
+        - result_lc
+        - result_gc
+        - debit_lc
+        - credit_lc
+        - debit_gc
+        - credit_gc
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CarryForwardBalance"
+          description: The rows on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        run_id:
+          type: string
+          format: uuid
+          description: The run.
+          readOnly: true
+        local_currency:
+          type: string
+          description: The company's local currency, of every row's local amount.
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+        group_currency:
+          type: string
+          description: The group currency, of every row's group amount.
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+        totals:
+          type: array
+          description: "The whole run's figures per transaction currency, by currency code, whatever the filter: the year's result carried to retained earnings and the debit and credit totals of its rows."
+          items:
+            $ref: "#/components/schemas/CarryForwardTotal"
+          readOnly: true
+        result_lc:
+          $ref: "#/components/schemas/Money"
+          description: "The year's result over every transaction currency in local currency, debit positive: a profit is negative."
+          readOnly: true
+        result_gc:
+          $ref: "#/components/schemas/Money"
+          description: The year's result over every transaction currency in group currency.
+          readOnly: true
+        debit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total of every row of the run in local currency.
+          readOnly: true
+        credit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total of every row of the run in local currency (positive); equal to the debits.
+          readOnly: true
+        debit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total of every row of the run in group currency.
+          readOnly: true
+        credit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total of every row of the run in group currency (positive); equal to the debits.
+          readOnly: true
+      examples:
+        - items:
+            - account: {id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d03", number: "330000", name: Retained earnings, type: equity}
+              kind: result
+              currency: CAD
+              amount: {amount: "-1750.00", currency: CAD}
+              amount_lc: {amount: "-1750.00", currency: CAD}
+              amount_gc: {amount: "-1750.00", currency: CAD}
+          run_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+          local_currency: CAD
+          group_currency: CAD
+          totals:
+            - currency: CAD
+              result: {amount: "-1750.00", currency: CAD}
+              result_lc: {amount: "-1750.00", currency: CAD}
+              result_gc: {amount: "-1750.00", currency: CAD}
+              debit: {amount: "1750.00", currency: CAD}
+              credit: {amount: "1750.00", currency: CAD}
+              debit_lc: {amount: "1750.00", currency: CAD}
+              credit_lc: {amount: "1750.00", currency: CAD}
+              debit_gc: {amount: "1750.00", currency: CAD}
+              credit_gc: {amount: "1750.00", currency: CAD}
+          result_lc: {amount: "-1750.00", currency: CAD}
+          result_gc: {amount: "-1750.00", currency: CAD}
+          debit_lc: {amount: "1750.00", currency: CAD}
+          credit_lc: {amount: "1750.00", currency: CAD}
+          debit_gc: {amount: "1750.00", currency: CAD}
+          credit_gc: {amount: "1750.00", currency: CAD}
+    CarryForwardBalance:
+      type: object
+      description: "A row of a carry-forward run: an opening balance of the next fiscal year of one account, kind and transaction currency, debit positive."
+      required:
+        - account
+        - kind
+        - currency
+        - amount
+        - amount_lc
+        - amount_gc
+      properties:
+        account:
+          $ref: "#/components/schemas/CarryForwardBalanceAccount"
+        kind:
+          type: string
+          description: "balance: a balance sheet account's balance at the year's end (on the retained earnings account, with the results of earlier years); result: the year's profit or loss in this currency, on the retained earnings account alone. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [balance, result]
+          readOnly: true
+        currency:
+          type: string
+          description: The transaction currency.
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "The amount in transaction currency, debit positive."
+          readOnly: true
+        amount_lc:
+          $ref: "#/components/schemas/Money"
+          description: The amount in the company's local currency.
+          readOnly: true
+        amount_gc:
+          $ref: "#/components/schemas/Money"
+          description: The amount in the group currency.
+          readOnly: true
+      examples:
+        - account:
+            id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d03"
+            number: "330000"
+            name: Retained earnings
+            type: equity
+          kind: result
+          currency: CAD
+          amount: {amount: "-1750.00", currency: CAD}
+          amount_lc: {amount: "-1750.00", currency: CAD}
+          amount_gc: {amount: "-1750.00", currency: CAD}
+    CarryForwardBalanceAccount:
+      type: object
+      description: The account of a carry-forward row.
+      required:
+        - id
+        - number
+        - name
+        - type
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Account.
+          readOnly: true
+        number:
+          type: string
+          description: Its number.
+          readOnly: true
+        name:
+          type: string
+          description: Its name.
+          readOnly: true
+        type:
+          type: string
+          description: "Its type (asset, liability, equity; a result row's is the retained earnings account's). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [asset, liability, equity, revenue, expense]
+          readOnly: true
     CarryForwardAccount:
       type: object
       description: An account a carry-forward names.
@@ -39631,6 +40200,44 @@ components:
         group_code: {type: string, pattern: "^[A-Z0-9_]{1,30}$", description: "The group's code.", example: MAPLE}
         fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2999, description: The fiscal year.}
         period: {type: integer, format: int32, minimum: 1, maximum: 16, description: "The period; a regular one (1-12)."}
+    EInvoiceFetch:
+      type: object
+      description: A fetch of e-invoices from a provider (ADR-0061 §4).
+      required: [connector_id]
+      additionalProperties: false
+      properties:
+        connector_id: {type: string, format: uuid, description: "The provider: an active `einvoice_provider` connector."}
+    EInvoicePage:
+      type: object
+      description: One page of e-invoices, newest received first.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/EInvoice"}
+          description: The e-invoices on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    EInvoice:
+      type: object
+      description: "A document the tenant's accredited e-invoicing provider delivered (ADR-0061 §4, §7, §15): recorded once per connector and the provider's message id, its bytes kept as received."
+      required: [id, connector_id, connector_name, message_id, receiver, legal_entity_id, company_code, company_name, status, sha256, size,
+        fetch_operation_id, received_at, acknowledged_at, version]
+      properties:
+        id: {type: string, format: uuid}
+        connector_id: {type: string, format: uuid, description: The `einvoice_provider` connector it was received through.}
+        connector_name: {type: string, description: "The connector's name."}
+        message_id: {type: string, description: "The provider's id of the document."}
+        receiver: {type: [string, 'null'], description: "The participant identifier the provider listed it for; null when it named none."}
+        legal_entity_id: {type: [string, 'null'], format: uuid, description: "The connector's company of that participant; null when the document is addressed to none of them."}
+        company_code: {type: [string, 'null'], description: "The company's code; null with `legal_entity_id`."}
+        company_name: {type: [string, 'null'], description: "The company's name; null with `legal_entity_id`."}
+        status: {type: string, description: "Open enum: received (recorded, not yet processed). The processing slices add entered, held, refused and dismissed (ADR-0061 §7)."}
+        sha256: {type: string, pattern: "^[0-9a-f]{64}$", description: The SHA-256 of its bytes as received, hex.}
+        size: {type: integer, format: int64, description: The size of its bytes as received.}
+        fetch_operation_id: {type: string, format: uuid, description: "The fetch that recorded it: its Operation's id."}
+        received_at: {type: string, format: date-time, description: When it was recorded.}
+        acknowledged_at: {type: [string, 'null'], format: date-time, description: "When the provider was told it is kept; null until then (the next fetch acknowledges it again)."}
+        version: {type: integer, format: int32}
     ConsolidationRunPage:
       type: object
       description: One page of consolidation runs, newest first.
@@ -39783,6 +40390,102 @@ components:
           amount_gc_booked: {amount: "-2025.00", currency: CAD}
           amount_gc: {amount: "-2100.00", currency: CAD}
           closing_rate: "1.4"
+    ConsolidatedStatement:
+      type: object
+      description: "One page of a consolidated statement of a consolidation run (ADR-0059 §11), with its run and the totals over the whole statement. Every figure is in the group currency, debit positive."
+      required: [run_id, group_code, group_name, fiscal_year, period, period_end, run_status, statement, group_currency, items, totals]
+      properties:
+        run_id: {type: string, format: uuid, description: "The run (`GET /v1/consolidation-runs/{id}`).", readOnly: true}
+        group_code: {type: string, description: "The group's code.", readOnly: true}
+        group_name: {type: string, description: "The group's name, in the configuration version the run read.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: The fiscal year., readOnly: true}
+        period: {type: integer, format: int32, description: The regular period., readOnly: true}
+        period_end: {type: string, format: date, description: "The period's last day: the balance sheet's date.", readOnly: true}
+        run_status:
+          type: string
+          x-extensible-enum: [computed, final, superseded]
+          description: "The run's status (`ConsolidationRun.status`): a draft (`computed`), the group's consolidated figures of the period (`final`), or a final run a later one superseded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        statement:
+          type: string
+          x-extensible-enum: [balance_sheet, profit_and_loss]
+          description: "The statement. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        group_currency: {type: string, pattern: "^[A-Z]{3}$", description: "The group currency (ISO 4217), every figure's.", readOnly: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ConsolidatedStatementRow"}
+          description: "The statement's rows on this page, by group account number."
+        totals: {$ref: "#/components/schemas/ConsolidatedStatementTotals"}
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+      examples:
+        - run_id: 0192a000-0000-7000-8000-000000000c01
+          group_code: MAPLE
+          group_name: Maple group
+          fiscal_year: 2026
+          period: 11
+          period_end: "2026-11-30"
+          run_status: computed
+          statement: balance_sheet
+          group_currency: CAD
+          items:
+            - number: G1000
+              name: Other assets
+              type: asset
+              reported: {amount: "5300.00", currency: CAD}
+              eliminations: {amount: "0.00", currency: CAD}
+              consolidated: {amount: "5300.00", currency: CAD}
+            - number: G3900
+              name: Currency translation reserve
+              type: equity
+              role: cta
+              reported: {amount: "100.00", currency: CAD}
+              eliminations: {amount: "0.00", currency: CAD}
+              consolidated: {amount: "100.00", currency: CAD}
+          totals:
+            assets: {reported: {amount: "5300.00", currency: CAD}, eliminations: {amount: "0.00", currency: CAD}, consolidated: {amount: "5300.00", currency: CAD}}
+            liabilities: {reported: {amount: "-2800.00", currency: CAD}, eliminations: {amount: "0.00", currency: CAD}, consolidated: {amount: "-2800.00", currency: CAD}}
+            equity: {reported: {amount: "100.00", currency: CAD}, eliminations: {amount: "0.00", currency: CAD}, consolidated: {amount: "100.00", currency: CAD}}
+            profit: {reported: {amount: "-2600.00", currency: CAD}, eliminations: {amount: "0.00", currency: CAD}, consolidated: {amount: "-2600.00", currency: CAD}}
+    ConsolidatedStatementRow:
+      type: object
+      description: "A row of a consolidated statement: an account of the group chart, in the configuration version the run read, with its figures in the group currency, debit positive."
+      required: [number, name, type, reported, eliminations, consolidated]
+      properties:
+        number: {type: string, description: "The group account's number.", readOnly: true}
+        name: {type: string, description: "The group account's name.", readOnly: true}
+        type:
+          type: string
+          x-extensible-enum: [asset, liability, equity, revenue, expense]
+          description: "The group account's type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        role:
+          type: string
+          x-extensible-enum: [cta, retained_earnings, nci, goodwill]
+          description: "The role a consolidation run gives the account, if any (`GroupAccount.role`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        reported: {$ref: "#/components/schemas/Money", description: "The companies' translated figures on the account summed (ADR-0059 §7)."}
+        eliminations: {$ref: "#/components/schemas/Money", description: "The run's eliminations on the account (ADR-0059 §8, §9); zero until they are built (T68f, T68h)."}
+        consolidated: {$ref: "#/components/schemas/Money", description: "The reported figure and the eliminations summed: the group's consolidated figure."}
+    ConsolidatedFigures:
+      type: object
+      description: "A total of a consolidated statement, in the group currency, debit positive: the companies' translated figures summed, the run's eliminations and their sum."
+      required: [reported, eliminations, consolidated]
+      properties:
+        reported: {$ref: "#/components/schemas/Money", description: "The companies' translated figures summed (ADR-0059 §7)."}
+        eliminations: {$ref: "#/components/schemas/Money", description: "The run's eliminations (ADR-0059 §8, §9); zero until they are built (T68f, T68h)."}
+        consolidated: {$ref: "#/components/schemas/Money", description: "The reported figures and the eliminations summed."}
+    ConsolidatedStatementTotals:
+      type: object
+      description: "The totals over the whole statement, every page. The balance sheet has `assets`, `liabilities`, `equity` and `profit`, which sum to zero in each column; the profit and loss `revenue`, `expenses` and `profit`."
+      required: [profit]
+      properties:
+        assets: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The balance sheet's asset accounts summed; absent on the profit and loss."}
+        liabilities: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The balance sheet's liability accounts summed; absent on the profit and loss."}
+        equity: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The balance sheet's equity accounts summed, the `cta`, `retained_earnings` and `nci` accounts included; absent on the profit and loss."}
+        revenue: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's revenue accounts summed; absent on the balance sheet."}
+        expenses: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's expense accounts summed; absent on the balance sheet."}
+        profit: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The fiscal year's profit through the period: the revenue and expense accounts summed, debit positive, so a profit is negative and a loss positive. On the balance sheet it closes the statement: assets, liabilities, equity and profit sum to zero."}
     GroupAccountRef:
       type: object
       description: "An account of the group chart, by number and name, in the configuration version a run read."
@@ -44592,6 +45295,7 @@ components:
                 - tax_engine
                 - ticketing
                 - treasury_export
+                - einvoice_provider
               readOnly: true
             name:
               type: string
@@ -44601,7 +45305,7 @@ components:
             settings:
               type: object
               additionalProperties: true
-              description: "Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key."
+              description: "Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
             secret_ref:
               type: string
               description: Vault path of the credentials.
@@ -44644,6 +45348,7 @@ components:
             - tax_engine
             - ticketing
             - treasury_export
+            - einvoice_provider
         name:
           type: string
           description: Name, unique per tenant.
@@ -44652,7 +45357,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key."
+          description: "Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
         secret_ref:
           type: string
           description: Vault path of the credentials.
@@ -44674,7 +45379,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key."
+          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
         secret_ref:
           type:
             - string
@@ -44914,6 +45619,11 @@ components:
         - cepc_bukrs
         - fagl_segm
         - fagl_segmt
+        - tka01
+        - setheader
+        - setheadert
+        - setnode
+        - setleaf
       properties:
         t001:
           type: integer
@@ -45023,6 +45733,26 @@ components:
           type: integer
           minimum: 0
           description: "Rows of SAP table FAGL_SEGMT (segment texts; ADR-0050 §10, T56h)."
+        tka01:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table TKA01 (controlling areas with their cost centers' standard hierarchy, KHINR; ADR-0050 §10, T56h2)."
+        setheader:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table SETHEADER of classes 0101 and 0106 (cost and profit center groups; ADR-0050 §10, T56h2)."
+        setheadert:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table SETHEADERT (the groups' texts; T56h2)."
+        setnode:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table SETNODE (the groups' subgroups; ADR-0050 §10, T56h2)."
+        setleaf:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table SETLEAF (the groups' values, single centers or ranges; ADR-0050 §10, T56h2)."
     MigrationLoadedCounts:
       type: object
       description: "What a migration run's load created, by kind; a kind it created none of is absent. A rehearsal, and a load with an `error` refusal, are rolled back: their counts are what the load created before the rollback, and nothing of it stays. A kept load counts only what no earlier kept run loaded, so a run of the same extract again counts nothing."
@@ -45090,7 +45820,19 @@ components:
         cost_centers:
           type: integer
           minimum: 1
-          description: "Cost centers of the scope's company codes (CSKS, CSKT), active at once with their time slices as periods, at the standard hierarchy's UNASSIGNED leaf: the run is their approval (ADR-0050 §10)."
+          description: "Cost centers of the scope's company codes (CSKS, CSKT), active at once with their time slices as periods, at their leaf of SAP's standard hierarchy, or its UNASSIGNED leaf when the extract has none for their controlling area: the run is their approval (ADR-0050 §10)."
+        hierarchies:
+          type: integer
+          minimum: 1
+          description: "Alternative hierarchies created from SAP's cost and profit center groups (sets 0101, 0106) that no group includes, each coded as its top group (ADR-0050 §10, T56h2). SAP's standard hierarchies are loaded below the tenant's standard hierarchy's root, created when the tenant has none."
+        hierarchy_nodes:
+          type: integer
+          minimum: 1
+          description: "SAP groups (SETHEADER, SETHEADERT, SETNODE) loaded as nodes of a hierarchy: each a node change the run applied (the run is their approval, ADR-0050 §10, T56h2), and each alternative hierarchy's root, created with it."
+        hierarchy_places:
+          type: integer
+          minimum: 1
+          description: "Centers this run created placed at a leaf of SAP's groups, in the standard or an alternative hierarchy, their values (SETLEAF) expanded against the extract's centers (ADR-0050 §10, T56h2)."
     MigrationIssue:
       type: object
       description: A finding of the quality gate, the load or the reconciliation on a row of the extract.

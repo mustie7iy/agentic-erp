@@ -318,6 +318,83 @@ type FAGLSegmt struct {
 	NAME    string `json:"NAME"`
 }
 
+// TKA01 - controlling areas: the standard hierarchy of an area's cost
+// centers (KHINR), the set of class 0101 at its top (T56h2). ADR-0050 §10
+// names TKA01-KHINR; the table and field are pending the SAP specialist.
+type TKA01 struct {
+	KOKRS string `json:"KOKRS"`
+	KHINR string `json:"KHINR"`
+}
+
+// Set classes of the center groups (SETHEADER-SETCLASS): cost center
+// groups and profit center groups, whose subclass (SUBCLASS) is the
+// controlling area (ADR-0050 §10, pending the SAP specialist).
+const (
+	SetClassCostCenters   = "0101"
+	SetClassProfitCenters = "0106"
+)
+
+// SETHEADER - a set: a group of cost centers (class 0101) or profit
+// centers (0106) of controlling area SUBCLASS, named SETNAME. ADR-0050 §10
+// names the table; its fields are pending the SAP specialist.
+type SETHEADER struct {
+	SETCLASS string `json:"SETCLASS"`
+	SUBCLASS string `json:"SUBCLASS"`
+	SETNAME  string `json:"SETNAME"`
+}
+
+// SETHEADERT - a set's text (DESCRIPT) in language LANGU. The table is not
+// in ADR-0050's list; its fields are pending the SAP specialist.
+type SETHEADERT struct {
+	SETCLASS string `json:"SETCLASS"`
+	SUBCLASS string `json:"SUBCLASS"`
+	SETNAME  string `json:"SETNAME"`
+	LANGU    string `json:"LANGU"`
+	DESCRIPT string `json:"DESCRIPT"`
+}
+
+// SETNODE - a set's subset (SUBSETNAME, of class SUBSETCLS and subclass
+// SUBSETSCLS) at line LINEID, the lines in order. Its fields are pending
+// the SAP specialist.
+type SETNODE struct {
+	SETCLASS   string `json:"SETCLASS"`
+	SUBCLASS   string `json:"SUBCLASS"`
+	SETNAME    string `json:"SETNAME"`
+	LINEID     string `json:"LINEID"`
+	SUBSETCLS  string `json:"SUBSETCLS"`
+	SUBSETSCLS string `json:"SUBSETSCLS"`
+	SUBSETNAME string `json:"SUBSETNAME"`
+}
+
+// SETLEAF - a set's values at line LINEID: centers included (VALSIGN I) or
+// excluded (E), one (VALOPTION EQ, VALFROM) or a range (BT, VALFROM to
+// VALTO, both included). ADR-0050 §10 names these fields; they are pending
+// the SAP specialist.
+type SETLEAF struct {
+	SETCLASS  string `json:"SETCLASS"`
+	SUBCLASS  string `json:"SUBCLASS"`
+	SETNAME   string `json:"SETNAME"`
+	LINEID    string `json:"LINEID"`
+	VALSIGN   string `json:"VALSIGN"`
+	VALOPTION string `json:"VALOPTION"`
+	VALFROM   string `json:"VALFROM"`
+	VALTO     string `json:"VALTO,omitempty"`
+}
+
+// CSKB - cost elements of controlling area KOKRS: the G/L account KSTAR's
+// cost element category (KATYP: 01 primary costs, 11 and 12 revenues and
+// sales deductions, others secondary or statistical; ADR-0050) in its
+// slice ending on DATBI. In S/4HANA it is maintained with the G/L account
+// (FS00, from memory). Read only by the configuration draft (delivery/sapconfig), which
+// sets the accounts' cost_element from it (T56h2); its fields are pending
+// the SAP specialist.
+type CSKB struct {
+	KOKRS string `json:"KOKRS"`
+	KSTAR string `json:"KSTAR"`
+	DATBI string `json:"DATBI"`
+	KATYP string `json:"KATYP"`
+}
+
 // --- Customizing (configuration) tables, read by the configuration agent ---
 
 // T052 - payment terms.
@@ -516,13 +593,19 @@ type Extract struct {
 	RSEG   []RSEG   `json:"RSEG"`
 	ACDOCA []ACDOCA `json:"ACDOCA"`
 
-	CSKS       []CSKS      `json:"CSKS,omitempty"`
-	CSKT       []CSKT      `json:"CSKT,omitempty"`
-	CEPC       []CEPC      `json:"CEPC,omitempty"`
-	CEPCT      []CEPCT     `json:"CEPCT,omitempty"`
-	CEPC_BUKRS []CEPCBukrs `json:"CEPC_BUKRS,omitempty"`
-	FAGL_SEGM  []FAGLSegm  `json:"FAGL_SEGM,omitempty"`
-	FAGL_SEGMT []FAGLSegmt `json:"FAGL_SEGMT,omitempty"`
+	CSKS       []CSKS       `json:"CSKS,omitempty"`
+	CSKT       []CSKT       `json:"CSKT,omitempty"`
+	CEPC       []CEPC       `json:"CEPC,omitempty"`
+	CEPCT      []CEPCT      `json:"CEPCT,omitempty"`
+	CEPC_BUKRS []CEPCBukrs  `json:"CEPC_BUKRS,omitempty"`
+	FAGL_SEGM  []FAGLSegm   `json:"FAGL_SEGM,omitempty"`
+	FAGL_SEGMT []FAGLSegmt  `json:"FAGL_SEGMT,omitempty"`
+	TKA01      []TKA01      `json:"TKA01,omitempty"`
+	SETHEADER  []SETHEADER  `json:"SETHEADER,omitempty"`
+	SETHEADERT []SETHEADERT `json:"SETHEADERT,omitempty"`
+	SETNODE    []SETNODE    `json:"SETNODE,omitempty"`
+	SETLEAF    []SETLEAF    `json:"SETLEAF,omitempty"`
+	CSKB       []CSKB       `json:"CSKB,omitempty"`
 
 	T052       []T052      `json:"T052,omitempty"`
 	T007A      []T007A     `json:"T007A,omitempty"`
@@ -549,7 +632,7 @@ type Extract struct {
 // tables a migration run reads and the customizing its report has always
 // counted. The payment method tables (T042*) are read only by the
 // configuration draft (delivery/sapconfig), so a run's report does not
-// count them.
+// count them, nor CSKB.
 func (e *Extract) Counts() map[string]int {
 	return map[string]int{
 		"T001": len(e.T001), "SKB1": len(e.SKB1), "LFA1": len(e.LFA1), "LFB1": len(e.LFB1),
@@ -558,6 +641,7 @@ func (e *Extract) Counts() map[string]int {
 		"T052": len(e.T052), "T007A": len(e.T007A), "T030": len(e.T030), "T169G": len(e.T169G),
 		"T012K": len(e.T012K), "T074": len(e.T074), "AGR_DEFINE": len(e.AGR_DEFINE), "AGR_TCODES": len(e.AGR_TCODES), "AGR_USERS": len(e.AGR_USERS),
 		"CSKS": len(e.CSKS), "CSKT": len(e.CSKT), "CEPC": len(e.CEPC), "CEPCT": len(e.CEPCT), "CEPC_BUKRS": len(e.CEPC_BUKRS),
-		"FAGL_SEGM": len(e.FAGL_SEGM), "FAGL_SEGMT": len(e.FAGL_SEGMT),
+		"FAGL_SEGM": len(e.FAGL_SEGM), "FAGL_SEGMT": len(e.FAGL_SEGMT), "TKA01": len(e.TKA01), "SETHEADER": len(e.SETHEADER),
+		"SETHEADERT": len(e.SETHEADERT), "SETNODE": len(e.SETNODE), "SETLEAF": len(e.SETLEAF),
 	}
 }

@@ -9670,6 +9670,11 @@ type BalanceCarryForward struct {
 	CreatedBy uuid.UUID `json:"created_by"`
 	// Their name.
 	CreatedByName string `json:"created_by_name"`
+	// Whether a period of the run's years has been opened since it ran (`opened_since`), judged at the
+	// read: its figures may have changed, so the year is carried forward again (ADR-0060 §6).
+	Stale bool `json:"stale"`
+	// The periods that make the run stale, by fiscal year and period; empty when it is not.
+	OpenedSince []CarryForwardOpenedPeriod `json:"opened_since"`
 }
 
 // GetID returns the value of ID.
@@ -9812,6 +9817,16 @@ func (s *BalanceCarryForward) GetCreatedByName() string {
 	return s.CreatedByName
 }
 
+// GetStale returns the value of Stale.
+func (s *BalanceCarryForward) GetStale() bool {
+	return s.Stale
+}
+
+// GetOpenedSince returns the value of OpenedSince.
+func (s *BalanceCarryForward) GetOpenedSince() []CarryForwardOpenedPeriod {
+	return s.OpenedSince
+}
+
 // SetID sets the value of ID.
 func (s *BalanceCarryForward) SetID(val uuid.UUID) {
 	s.ID = val
@@ -9952,6 +9967,16 @@ func (s *BalanceCarryForward) SetCreatedByName(val string) {
 	s.CreatedByName = val
 }
 
+// SetStale sets the value of Stale.
+func (s *BalanceCarryForward) SetStale(val bool) {
+	s.Stale = val
+}
+
+// SetOpenedSince sets the value of OpenedSince.
+func (s *BalanceCarryForward) SetOpenedSince(val []CarryForwardOpenedPeriod) {
+	s.OpenedSince = val
+}
+
 // BalanceCarryForwardHeaders wraps BalanceCarryForward with response headers.
 type BalanceCarryForwardHeaders struct {
 	ETag     OptString
@@ -9979,6 +10004,37 @@ func (s *BalanceCarryForwardHeaders) SetResponse(val BalanceCarryForward) {
 }
 
 func (*BalanceCarryForwardHeaders) getBalanceCarryForwardRes() {}
+
+// One page of balance carry-forward runs.
+// Ref: #/components/schemas/BalanceCarryForwardPage
+type BalanceCarryForwardPage struct {
+	// The runs on this page.
+	Items []BalanceCarryForward `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *BalanceCarryForwardPage) GetItems() []BalanceCarryForward {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *BalanceCarryForwardPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *BalanceCarryForwardPage) SetItems(val []BalanceCarryForward) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *BalanceCarryForwardPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*BalanceCarryForwardPage) listBalanceCarryForwardsRes() {}
 
 // Parameters of a balance carry-forward.
 // Ref: #/components/schemas/BalanceCarryForwardRequest
@@ -13768,6 +13824,348 @@ func (s *CarryForwardAccount) SetNumber(val string) {
 // SetName sets the value of Name.
 func (s *CarryForwardAccount) SetName(val string) {
 	s.Name = val
+}
+
+// A row of a carry-forward run: an opening balance of the next fiscal year of one account, kind and
+// transaction currency, debit positive.
+// Ref: #/components/schemas/CarryForwardBalance
+type CarryForwardBalance struct {
+	Account CarryForwardBalanceAccount `json:"account"`
+	// Balance: a balance sheet account's balance at the year's end (on the retained earnings account, with
+	// the results of earlier years); result: the year's profit or loss in this currency, on the retained
+	// earnings account alone. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Kind string `json:"kind"`
+	// The transaction currency.
+	Currency string `json:"currency"`
+	// The amount in transaction currency, debit positive.
+	Amount Money `json:"amount"`
+	// The amount in the company's local currency.
+	AmountLc Money `json:"amount_lc"`
+	// The amount in the group currency.
+	AmountGc Money `json:"amount_gc"`
+}
+
+// GetAccount returns the value of Account.
+func (s *CarryForwardBalance) GetAccount() CarryForwardBalanceAccount {
+	return s.Account
+}
+
+// GetKind returns the value of Kind.
+func (s *CarryForwardBalance) GetKind() string {
+	return s.Kind
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CarryForwardBalance) GetCurrency() string {
+	return s.Currency
+}
+
+// GetAmount returns the value of Amount.
+func (s *CarryForwardBalance) GetAmount() Money {
+	return s.Amount
+}
+
+// GetAmountLc returns the value of AmountLc.
+func (s *CarryForwardBalance) GetAmountLc() Money {
+	return s.AmountLc
+}
+
+// GetAmountGc returns the value of AmountGc.
+func (s *CarryForwardBalance) GetAmountGc() Money {
+	return s.AmountGc
+}
+
+// SetAccount sets the value of Account.
+func (s *CarryForwardBalance) SetAccount(val CarryForwardBalanceAccount) {
+	s.Account = val
+}
+
+// SetKind sets the value of Kind.
+func (s *CarryForwardBalance) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CarryForwardBalance) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *CarryForwardBalance) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetAmountLc sets the value of AmountLc.
+func (s *CarryForwardBalance) SetAmountLc(val Money) {
+	s.AmountLc = val
+}
+
+// SetAmountGc sets the value of AmountGc.
+func (s *CarryForwardBalance) SetAmountGc(val Money) {
+	s.AmountGc = val
+}
+
+// The account of a carry-forward row.
+// Ref: #/components/schemas/CarryForwardBalanceAccount
+type CarryForwardBalanceAccount struct {
+	// Account.
+	ID uuid.UUID `json:"id"`
+	// Its number.
+	Number string `json:"number"`
+	// Its name.
+	Name string `json:"name"`
+	// Its type (asset, liability, equity; a result row's is the retained earnings account's). Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Type string `json:"type"`
+}
+
+// GetID returns the value of ID.
+func (s *CarryForwardBalanceAccount) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetNumber returns the value of Number.
+func (s *CarryForwardBalanceAccount) GetNumber() string {
+	return s.Number
+}
+
+// GetName returns the value of Name.
+func (s *CarryForwardBalanceAccount) GetName() string {
+	return s.Name
+}
+
+// GetType returns the value of Type.
+func (s *CarryForwardBalanceAccount) GetType() string {
+	return s.Type
+}
+
+// SetID sets the value of ID.
+func (s *CarryForwardBalanceAccount) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *CarryForwardBalanceAccount) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetName sets the value of Name.
+func (s *CarryForwardBalanceAccount) SetName(val string) {
+	s.Name = val
+}
+
+// SetType sets the value of Type.
+func (s *CarryForwardBalanceAccount) SetType(val string) {
+	s.Type = val
+}
+
+// One page of a carry-forward run's rows, with the totals of the whole run on every page.
+// Ref: #/components/schemas/CarryForwardBalancePage
+type CarryForwardBalancePage struct {
+	// The rows on this page.
+	Items []CarryForwardBalance `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// The run.
+	RunID uuid.UUID `json:"run_id"`
+	// The company's local currency, of every row's local amount.
+	LocalCurrency string `json:"local_currency"`
+	// The group currency, of every row's group amount.
+	GroupCurrency string `json:"group_currency"`
+	// The whole run's figures per transaction currency, by currency code, whatever the filter: the year's
+	// result carried to retained earnings and the debit and credit totals of its rows.
+	Totals []CarryForwardTotal `json:"totals"`
+	// The year's result over every transaction currency in local currency, debit positive: a profit is
+	// negative.
+	ResultLc Money `json:"result_lc"`
+	// The year's result over every transaction currency in group currency.
+	ResultGc Money `json:"result_gc"`
+	// Debit total of every row of the run in local currency.
+	DebitLc Money `json:"debit_lc"`
+	// Credit total of every row of the run in local currency (positive); equal to the debits.
+	CreditLc Money `json:"credit_lc"`
+	// Debit total of every row of the run in group currency.
+	DebitGc Money `json:"debit_gc"`
+	// Credit total of every row of the run in group currency (positive); equal to the debits.
+	CreditGc Money `json:"credit_gc"`
+}
+
+// GetItems returns the value of Items.
+func (s *CarryForwardBalancePage) GetItems() []CarryForwardBalance {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CarryForwardBalancePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetRunID returns the value of RunID.
+func (s *CarryForwardBalancePage) GetRunID() uuid.UUID {
+	return s.RunID
+}
+
+// GetLocalCurrency returns the value of LocalCurrency.
+func (s *CarryForwardBalancePage) GetLocalCurrency() string {
+	return s.LocalCurrency
+}
+
+// GetGroupCurrency returns the value of GroupCurrency.
+func (s *CarryForwardBalancePage) GetGroupCurrency() string {
+	return s.GroupCurrency
+}
+
+// GetTotals returns the value of Totals.
+func (s *CarryForwardBalancePage) GetTotals() []CarryForwardTotal {
+	return s.Totals
+}
+
+// GetResultLc returns the value of ResultLc.
+func (s *CarryForwardBalancePage) GetResultLc() Money {
+	return s.ResultLc
+}
+
+// GetResultGc returns the value of ResultGc.
+func (s *CarryForwardBalancePage) GetResultGc() Money {
+	return s.ResultGc
+}
+
+// GetDebitLc returns the value of DebitLc.
+func (s *CarryForwardBalancePage) GetDebitLc() Money {
+	return s.DebitLc
+}
+
+// GetCreditLc returns the value of CreditLc.
+func (s *CarryForwardBalancePage) GetCreditLc() Money {
+	return s.CreditLc
+}
+
+// GetDebitGc returns the value of DebitGc.
+func (s *CarryForwardBalancePage) GetDebitGc() Money {
+	return s.DebitGc
+}
+
+// GetCreditGc returns the value of CreditGc.
+func (s *CarryForwardBalancePage) GetCreditGc() Money {
+	return s.CreditGc
+}
+
+// SetItems sets the value of Items.
+func (s *CarryForwardBalancePage) SetItems(val []CarryForwardBalance) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CarryForwardBalancePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetRunID sets the value of RunID.
+func (s *CarryForwardBalancePage) SetRunID(val uuid.UUID) {
+	s.RunID = val
+}
+
+// SetLocalCurrency sets the value of LocalCurrency.
+func (s *CarryForwardBalancePage) SetLocalCurrency(val string) {
+	s.LocalCurrency = val
+}
+
+// SetGroupCurrency sets the value of GroupCurrency.
+func (s *CarryForwardBalancePage) SetGroupCurrency(val string) {
+	s.GroupCurrency = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *CarryForwardBalancePage) SetTotals(val []CarryForwardTotal) {
+	s.Totals = val
+}
+
+// SetResultLc sets the value of ResultLc.
+func (s *CarryForwardBalancePage) SetResultLc(val Money) {
+	s.ResultLc = val
+}
+
+// SetResultGc sets the value of ResultGc.
+func (s *CarryForwardBalancePage) SetResultGc(val Money) {
+	s.ResultGc = val
+}
+
+// SetDebitLc sets the value of DebitLc.
+func (s *CarryForwardBalancePage) SetDebitLc(val Money) {
+	s.DebitLc = val
+}
+
+// SetCreditLc sets the value of CreditLc.
+func (s *CarryForwardBalancePage) SetCreditLc(val Money) {
+	s.CreditLc = val
+}
+
+// SetDebitGc sets the value of DebitGc.
+func (s *CarryForwardBalancePage) SetDebitGc(val Money) {
+	s.DebitGc = val
+}
+
+// SetCreditGc sets the value of CreditGc.
+func (s *CarryForwardBalancePage) SetCreditGc(val Money) {
+	s.CreditGc = val
+}
+
+func (*CarryForwardBalancePage) listBalanceCarryForwardBalancesRes() {}
+
+// A posting period opened since a carry-forward run read it, or of the run's years and set up after
+// it, which makes the run stale.
+// Ref: #/components/schemas/CarryForwardOpenedPeriod
+type CarryForwardOpenedPeriod struct {
+	// The period's ledger, the run's.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The period's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period, 1-16 (13-16 special).
+	Period int32 `json:"period"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *CarryForwardOpenedPeriod) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *CarryForwardOpenedPeriod) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *CarryForwardOpenedPeriod) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *CarryForwardOpenedPeriod) GetPeriod() int32 {
+	return s.Period
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *CarryForwardOpenedPeriod) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *CarryForwardOpenedPeriod) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *CarryForwardOpenedPeriod) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *CarryForwardOpenedPeriod) SetPeriod(val int32) {
+	s.Period = val
 }
 
 // A carry-forward run's figures in one transaction currency: the year's result carried to retained
@@ -20468,11 +20866,13 @@ func (*ConflictHeaders) endRoleAssignmentRes()                     {}
 func (*ConflictHeaders) endRolePermissionRes()                     {}
 func (*ConflictHeaders) endSodRuleRes()                            {}
 func (*ConflictHeaders) excludeBankStatementLineRes()              {}
+func (*ConflictHeaders) fetchEInvoicesRes()                        {}
 func (*ConflictHeaders) fileTaxReturnRes()                         {}
 func (*ConflictHeaders) getAccrualProposalRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                     {}
 func (*ConflictHeaders) getBankFileContentRes()                    {}
 func (*ConflictHeaders) getCloseCalendarRes()                      {}
+func (*ConflictHeaders) getConsolidatedStatementRes()              {}
 func (*ConflictHeaders) getConsolidationGroupRes()                 {}
 func (*ConflictHeaders) getConsolidationRunRes()                   {}
 func (*ConflictHeaders) getLegalEntityTodayRes()                   {}
@@ -20638,7 +21038,13 @@ type Connector struct {
 	// (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a
 	// `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or
 	// `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the
-	// liquidity forecast it is sent (at least one); its `secret_ref` names the private key.
+	// liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An
+	// `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in,
+	// the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each
+	// company's participant identifier at the provider, by company code: at least one, each identifier
+	// once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is
+	// refused in production: creating or enabling one there answers 422
+	// `integration.adapter_not_certified`.
 	Settings ConnectorSettings `json:"settings"`
 	// Vault path of the credentials.
 	SecretRef OptString `json:"secret_ref"`
@@ -20777,7 +21183,12 @@ type ConnectorCreate struct {
 	// server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
 	// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 	// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
-	// its `secret_ref` names the private key.
+	// its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
+	// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
+	// (the provider's, https), `participants` (each company's participant identifier at the provider, by
+	// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
+	// the provider's credentials. The stand-in is refused in production: creating or enabling one there
+	// answers 422 `integration.adapter_not_certified`.
 	Settings ConnectorCreateSettings `json:"settings"`
 	// Vault path of the credentials.
 	SecretRef OptString `json:"secret_ref"`
@@ -20835,7 +21246,12 @@ func (s *ConnectorCreate) SetSecretRef(val OptString) {
 // server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
 // statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 // `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
-// its `secret_ref` names the private key.
+// its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
+// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
+// (the provider's, https), `participants` (each company's participant identifier at the provider, by
+// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
+// the provider's credentials. The stand-in is refused in production: creating or enabling one there
+// answers 422 `integration.adapter_not_certified`.
 type ConnectorCreateSettings map[string]jx.Raw
 
 func (s *ConnectorCreateSettings) init() ConnectorCreateSettings {
@@ -20953,7 +21369,13 @@ func (*ConnectorPage) listConnectorsRes() {}
 // (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a
 // `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or
 // `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the
-// liquidity forecast it is sent (at least one); its `secret_ref` names the private key.
+// liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An
+// `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in,
+// the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each
+// company's participant identifier at the provider, by company code: at least one, each identifier
+// once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is
+// refused in production: creating or enabling one there answers 422
+// `integration.adapter_not_certified`.
 type ConnectorSettings map[string]jx.Raw
 
 func (s *ConnectorSettings) init() ConnectorSettings {
@@ -20982,7 +21404,12 @@ type ConnectorUpdate struct {
 	// server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
 	// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 	// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
-	// its `secret_ref` names the private key.
+	// its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
+	// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
+	// (the provider's, https), `participants` (each company's participant identifier at the provider, by
+	// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
+	// the provider's credentials. The stand-in is refused in production: creating or enabling one there
+	// answers 422 `integration.adapter_not_certified`.
 	Settings OptConnectorUpdateSettings `json:"settings"`
 	// Vault path of the credentials. Send null to clear.
 	SecretRef OptNilString `json:"secret_ref"`
@@ -21030,7 +21457,12 @@ func (s *ConnectorUpdate) SetSecretRef(val OptNilString) {
 // server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
 // statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 // `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
-// its `secret_ref` names the private key.
+// its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
+// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
+// (the provider's, https), `participants` (each company's participant identifier at the provider, by
+// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
+// the provider's credentials. The stand-in is refused in production: creating or enabling one there
+// answers 422 `integration.adapter_not_certified`.
 type ConnectorUpdateSettings map[string]jx.Raw
 
 func (s *ConnectorUpdateSettings) init() ConnectorUpdateSettings {
@@ -21040,6 +21472,376 @@ func (s *ConnectorUpdateSettings) init() ConnectorUpdateSettings {
 		*s = m
 	}
 	return m
+}
+
+// A total of a consolidated statement, in the group currency, debit positive: the companies'
+// translated figures summed, the run's eliminations and their sum.
+// Ref: #/components/schemas/ConsolidatedFigures
+type ConsolidatedFigures struct {
+	// The companies' translated figures summed (ADR-0059 §7).
+	Reported Money `json:"reported"`
+	// The run's eliminations (ADR-0059 §8, §9); zero until they are built (T68f, T68h).
+	Eliminations Money `json:"eliminations"`
+	// The reported figures and the eliminations summed.
+	Consolidated Money `json:"consolidated"`
+}
+
+// GetReported returns the value of Reported.
+func (s *ConsolidatedFigures) GetReported() Money {
+	return s.Reported
+}
+
+// GetEliminations returns the value of Eliminations.
+func (s *ConsolidatedFigures) GetEliminations() Money {
+	return s.Eliminations
+}
+
+// GetConsolidated returns the value of Consolidated.
+func (s *ConsolidatedFigures) GetConsolidated() Money {
+	return s.Consolidated
+}
+
+// SetReported sets the value of Reported.
+func (s *ConsolidatedFigures) SetReported(val Money) {
+	s.Reported = val
+}
+
+// SetEliminations sets the value of Eliminations.
+func (s *ConsolidatedFigures) SetEliminations(val Money) {
+	s.Eliminations = val
+}
+
+// SetConsolidated sets the value of Consolidated.
+func (s *ConsolidatedFigures) SetConsolidated(val Money) {
+	s.Consolidated = val
+}
+
+// One page of a consolidated statement of a consolidation run (ADR-0059 §11), with its run and the
+// totals over the whole statement. Every figure is in the group currency, debit positive.
+// Ref: #/components/schemas/ConsolidatedStatement
+type ConsolidatedStatement struct {
+	// The run (`GET /v1/consolidation-runs/{id}`).
+	RunID uuid.UUID `json:"run_id"`
+	// The group's code.
+	GroupCode string `json:"group_code"`
+	// The group's name, in the configuration version the run read.
+	GroupName string `json:"group_name"`
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The regular period.
+	Period int32 `json:"period"`
+	// The period's last day: the balance sheet's date.
+	PeriodEnd time.Time `json:"period_end"`
+	// The run's status (`ConsolidationRun.status`): a draft (`computed`), the group's consolidated figures
+	// of the period (`final`), or a final run a later one superseded. Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	RunStatus string `json:"run_status"`
+	// The statement. Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Statement string `json:"statement"`
+	// The group currency (ISO 4217), every figure's.
+	GroupCurrency string `json:"group_currency"`
+	// The statement's rows on this page, by group account number.
+	Items  []ConsolidatedStatementRow  `json:"items"`
+	Totals ConsolidatedStatementTotals `json:"totals"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetRunID returns the value of RunID.
+func (s *ConsolidatedStatement) GetRunID() uuid.UUID {
+	return s.RunID
+}
+
+// GetGroupCode returns the value of GroupCode.
+func (s *ConsolidatedStatement) GetGroupCode() string {
+	return s.GroupCode
+}
+
+// GetGroupName returns the value of GroupName.
+func (s *ConsolidatedStatement) GetGroupName() string {
+	return s.GroupName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *ConsolidatedStatement) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *ConsolidatedStatement) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetPeriodEnd returns the value of PeriodEnd.
+func (s *ConsolidatedStatement) GetPeriodEnd() time.Time {
+	return s.PeriodEnd
+}
+
+// GetRunStatus returns the value of RunStatus.
+func (s *ConsolidatedStatement) GetRunStatus() string {
+	return s.RunStatus
+}
+
+// GetStatement returns the value of Statement.
+func (s *ConsolidatedStatement) GetStatement() string {
+	return s.Statement
+}
+
+// GetGroupCurrency returns the value of GroupCurrency.
+func (s *ConsolidatedStatement) GetGroupCurrency() string {
+	return s.GroupCurrency
+}
+
+// GetItems returns the value of Items.
+func (s *ConsolidatedStatement) GetItems() []ConsolidatedStatementRow {
+	return s.Items
+}
+
+// GetTotals returns the value of Totals.
+func (s *ConsolidatedStatement) GetTotals() ConsolidatedStatementTotals {
+	return s.Totals
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ConsolidatedStatement) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetRunID sets the value of RunID.
+func (s *ConsolidatedStatement) SetRunID(val uuid.UUID) {
+	s.RunID = val
+}
+
+// SetGroupCode sets the value of GroupCode.
+func (s *ConsolidatedStatement) SetGroupCode(val string) {
+	s.GroupCode = val
+}
+
+// SetGroupName sets the value of GroupName.
+func (s *ConsolidatedStatement) SetGroupName(val string) {
+	s.GroupName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *ConsolidatedStatement) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *ConsolidatedStatement) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetPeriodEnd sets the value of PeriodEnd.
+func (s *ConsolidatedStatement) SetPeriodEnd(val time.Time) {
+	s.PeriodEnd = val
+}
+
+// SetRunStatus sets the value of RunStatus.
+func (s *ConsolidatedStatement) SetRunStatus(val string) {
+	s.RunStatus = val
+}
+
+// SetStatement sets the value of Statement.
+func (s *ConsolidatedStatement) SetStatement(val string) {
+	s.Statement = val
+}
+
+// SetGroupCurrency sets the value of GroupCurrency.
+func (s *ConsolidatedStatement) SetGroupCurrency(val string) {
+	s.GroupCurrency = val
+}
+
+// SetItems sets the value of Items.
+func (s *ConsolidatedStatement) SetItems(val []ConsolidatedStatementRow) {
+	s.Items = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *ConsolidatedStatement) SetTotals(val ConsolidatedStatementTotals) {
+	s.Totals = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ConsolidatedStatement) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ConsolidatedStatement) getConsolidatedStatementRes() {}
+
+// A row of a consolidated statement: an account of the group chart, in the configuration version the
+// run read, with its figures in the group currency, debit positive.
+// Ref: #/components/schemas/ConsolidatedStatementRow
+type ConsolidatedStatementRow struct {
+	// The group account's number.
+	Number string `json:"number"`
+	// The group account's name.
+	Name string `json:"name"`
+	// The group account's type. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Type string `json:"type"`
+	// The role a consolidation run gives the account, if any (`GroupAccount.role`). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Role OptString `json:"role"`
+	// The companies' translated figures on the account summed (ADR-0059 §7).
+	Reported Money `json:"reported"`
+	// The run's eliminations on the account (ADR-0059 §8, §9); zero until they are built (T68f, T68h).
+	Eliminations Money `json:"eliminations"`
+	// The reported figure and the eliminations summed: the group's consolidated figure.
+	Consolidated Money `json:"consolidated"`
+}
+
+// GetNumber returns the value of Number.
+func (s *ConsolidatedStatementRow) GetNumber() string {
+	return s.Number
+}
+
+// GetName returns the value of Name.
+func (s *ConsolidatedStatementRow) GetName() string {
+	return s.Name
+}
+
+// GetType returns the value of Type.
+func (s *ConsolidatedStatementRow) GetType() string {
+	return s.Type
+}
+
+// GetRole returns the value of Role.
+func (s *ConsolidatedStatementRow) GetRole() OptString {
+	return s.Role
+}
+
+// GetReported returns the value of Reported.
+func (s *ConsolidatedStatementRow) GetReported() Money {
+	return s.Reported
+}
+
+// GetEliminations returns the value of Eliminations.
+func (s *ConsolidatedStatementRow) GetEliminations() Money {
+	return s.Eliminations
+}
+
+// GetConsolidated returns the value of Consolidated.
+func (s *ConsolidatedStatementRow) GetConsolidated() Money {
+	return s.Consolidated
+}
+
+// SetNumber sets the value of Number.
+func (s *ConsolidatedStatementRow) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetName sets the value of Name.
+func (s *ConsolidatedStatementRow) SetName(val string) {
+	s.Name = val
+}
+
+// SetType sets the value of Type.
+func (s *ConsolidatedStatementRow) SetType(val string) {
+	s.Type = val
+}
+
+// SetRole sets the value of Role.
+func (s *ConsolidatedStatementRow) SetRole(val OptString) {
+	s.Role = val
+}
+
+// SetReported sets the value of Reported.
+func (s *ConsolidatedStatementRow) SetReported(val Money) {
+	s.Reported = val
+}
+
+// SetEliminations sets the value of Eliminations.
+func (s *ConsolidatedStatementRow) SetEliminations(val Money) {
+	s.Eliminations = val
+}
+
+// SetConsolidated sets the value of Consolidated.
+func (s *ConsolidatedStatementRow) SetConsolidated(val Money) {
+	s.Consolidated = val
+}
+
+// The totals over the whole statement, every page. The balance sheet has `assets`, `liabilities`,
+// `equity` and `profit`, which sum to zero in each column; the profit and loss `revenue`, `expenses`
+// and `profit`.
+// Ref: #/components/schemas/ConsolidatedStatementTotals
+type ConsolidatedStatementTotals struct {
+	// The balance sheet's asset accounts summed; absent on the profit and loss.
+	Assets OptConsolidatedFigures `json:"assets"`
+	// The balance sheet's liability accounts summed; absent on the profit and loss.
+	Liabilities OptConsolidatedFigures `json:"liabilities"`
+	// The balance sheet's equity accounts summed, the `cta`, `retained_earnings` and `nci` accounts
+	// included; absent on the profit and loss.
+	Equity OptConsolidatedFigures `json:"equity"`
+	// The profit and loss's revenue accounts summed; absent on the balance sheet.
+	Revenue OptConsolidatedFigures `json:"revenue"`
+	// The profit and loss's expense accounts summed; absent on the balance sheet.
+	Expenses OptConsolidatedFigures `json:"expenses"`
+	// The fiscal year's profit through the period: the revenue and expense accounts summed, debit
+	// positive, so a profit is negative and a loss positive. On the balance sheet it closes the statement:
+	// assets, liabilities, equity and profit sum to zero.
+	Profit ConsolidatedFigures `json:"profit"`
+}
+
+// GetAssets returns the value of Assets.
+func (s *ConsolidatedStatementTotals) GetAssets() OptConsolidatedFigures {
+	return s.Assets
+}
+
+// GetLiabilities returns the value of Liabilities.
+func (s *ConsolidatedStatementTotals) GetLiabilities() OptConsolidatedFigures {
+	return s.Liabilities
+}
+
+// GetEquity returns the value of Equity.
+func (s *ConsolidatedStatementTotals) GetEquity() OptConsolidatedFigures {
+	return s.Equity
+}
+
+// GetRevenue returns the value of Revenue.
+func (s *ConsolidatedStatementTotals) GetRevenue() OptConsolidatedFigures {
+	return s.Revenue
+}
+
+// GetExpenses returns the value of Expenses.
+func (s *ConsolidatedStatementTotals) GetExpenses() OptConsolidatedFigures {
+	return s.Expenses
+}
+
+// GetProfit returns the value of Profit.
+func (s *ConsolidatedStatementTotals) GetProfit() ConsolidatedFigures {
+	return s.Profit
+}
+
+// SetAssets sets the value of Assets.
+func (s *ConsolidatedStatementTotals) SetAssets(val OptConsolidatedFigures) {
+	s.Assets = val
+}
+
+// SetLiabilities sets the value of Liabilities.
+func (s *ConsolidatedStatementTotals) SetLiabilities(val OptConsolidatedFigures) {
+	s.Liabilities = val
+}
+
+// SetEquity sets the value of Equity.
+func (s *ConsolidatedStatementTotals) SetEquity(val OptConsolidatedFigures) {
+	s.Equity = val
+}
+
+// SetRevenue sets the value of Revenue.
+func (s *ConsolidatedStatementTotals) SetRevenue(val OptConsolidatedFigures) {
+	s.Revenue = val
+}
+
+// SetExpenses sets the value of Expenses.
+func (s *ConsolidatedStatementTotals) SetExpenses(val OptConsolidatedFigures) {
+	s.Expenses = val
+}
+
+// SetProfit sets the value of Profit.
+func (s *ConsolidatedStatementTotals) SetProfit(val ConsolidatedFigures) {
+	s.Profit = val
 }
 
 // A translated balance of a consolidation run (ADR-0059 §7): a company account's balance with a
@@ -27208,6 +28010,267 @@ func (s *DownPaymentRequestPage) SetNextPageToken(val OptString) {
 
 func (*DownPaymentRequestPage) listDownPaymentRequestsRes() {}
 
+// A document the tenant's accredited e-invoicing provider delivered (ADR-0061 §4, §7, §15):
+// recorded once per connector and the provider's message id, its bytes kept as received.
+// Ref: #/components/schemas/EInvoice
+type EInvoice struct {
+	ID uuid.UUID `json:"id"`
+	// The `einvoice_provider` connector it was received through.
+	ConnectorID uuid.UUID `json:"connector_id"`
+	// The connector's name.
+	ConnectorName string `json:"connector_name"`
+	// The provider's id of the document.
+	MessageID string `json:"message_id"`
+	// The participant identifier the provider listed it for; null when it named none.
+	Receiver NilString `json:"receiver"`
+	// The connector's company of that participant; null when the document is addressed to none of them.
+	LegalEntityID NilUUID `json:"legal_entity_id"`
+	// The company's code; null with `legal_entity_id`.
+	CompanyCode NilString `json:"company_code"`
+	// The company's name; null with `legal_entity_id`.
+	CompanyName NilString `json:"company_name"`
+	// Open enum: received (recorded, not yet processed). The processing slices add entered, held, refused
+	// and dismissed (ADR-0061 §7).
+	Status string `json:"status"`
+	// The SHA-256 of its bytes as received.
+	SHA256 string `json:"sha256"`
+	// The size of its bytes as received.
+	Size int64 `json:"size"`
+	// The fetch that recorded it: its Operation's id.
+	FetchOperationID uuid.UUID `json:"fetch_operation_id"`
+	// When it was recorded.
+	ReceivedAt time.Time `json:"received_at"`
+	// When the provider was told it is kept; null until then (the next fetch acknowledges it again).
+	AcknowledgedAt NilDateTime `json:"acknowledged_at"`
+	Version        int32       `json:"version"`
+}
+
+// GetID returns the value of ID.
+func (s *EInvoice) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetConnectorID returns the value of ConnectorID.
+func (s *EInvoice) GetConnectorID() uuid.UUID {
+	return s.ConnectorID
+}
+
+// GetConnectorName returns the value of ConnectorName.
+func (s *EInvoice) GetConnectorName() string {
+	return s.ConnectorName
+}
+
+// GetMessageID returns the value of MessageID.
+func (s *EInvoice) GetMessageID() string {
+	return s.MessageID
+}
+
+// GetReceiver returns the value of Receiver.
+func (s *EInvoice) GetReceiver() NilString {
+	return s.Receiver
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *EInvoice) GetLegalEntityID() NilUUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *EInvoice) GetCompanyCode() NilString {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *EInvoice) GetCompanyName() NilString {
+	return s.CompanyName
+}
+
+// GetStatus returns the value of Status.
+func (s *EInvoice) GetStatus() string {
+	return s.Status
+}
+
+// GetSHA256 returns the value of SHA256.
+func (s *EInvoice) GetSHA256() string {
+	return s.SHA256
+}
+
+// GetSize returns the value of Size.
+func (s *EInvoice) GetSize() int64 {
+	return s.Size
+}
+
+// GetFetchOperationID returns the value of FetchOperationID.
+func (s *EInvoice) GetFetchOperationID() uuid.UUID {
+	return s.FetchOperationID
+}
+
+// GetReceivedAt returns the value of ReceivedAt.
+func (s *EInvoice) GetReceivedAt() time.Time {
+	return s.ReceivedAt
+}
+
+// GetAcknowledgedAt returns the value of AcknowledgedAt.
+func (s *EInvoice) GetAcknowledgedAt() NilDateTime {
+	return s.AcknowledgedAt
+}
+
+// GetVersion returns the value of Version.
+func (s *EInvoice) GetVersion() int32 {
+	return s.Version
+}
+
+// SetID sets the value of ID.
+func (s *EInvoice) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetConnectorID sets the value of ConnectorID.
+func (s *EInvoice) SetConnectorID(val uuid.UUID) {
+	s.ConnectorID = val
+}
+
+// SetConnectorName sets the value of ConnectorName.
+func (s *EInvoice) SetConnectorName(val string) {
+	s.ConnectorName = val
+}
+
+// SetMessageID sets the value of MessageID.
+func (s *EInvoice) SetMessageID(val string) {
+	s.MessageID = val
+}
+
+// SetReceiver sets the value of Receiver.
+func (s *EInvoice) SetReceiver(val NilString) {
+	s.Receiver = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *EInvoice) SetLegalEntityID(val NilUUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *EInvoice) SetCompanyCode(val NilString) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *EInvoice) SetCompanyName(val NilString) {
+	s.CompanyName = val
+}
+
+// SetStatus sets the value of Status.
+func (s *EInvoice) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetSHA256 sets the value of SHA256.
+func (s *EInvoice) SetSHA256(val string) {
+	s.SHA256 = val
+}
+
+// SetSize sets the value of Size.
+func (s *EInvoice) SetSize(val int64) {
+	s.Size = val
+}
+
+// SetFetchOperationID sets the value of FetchOperationID.
+func (s *EInvoice) SetFetchOperationID(val uuid.UUID) {
+	s.FetchOperationID = val
+}
+
+// SetReceivedAt sets the value of ReceivedAt.
+func (s *EInvoice) SetReceivedAt(val time.Time) {
+	s.ReceivedAt = val
+}
+
+// SetAcknowledgedAt sets the value of AcknowledgedAt.
+func (s *EInvoice) SetAcknowledgedAt(val NilDateTime) {
+	s.AcknowledgedAt = val
+}
+
+// SetVersion sets the value of Version.
+func (s *EInvoice) SetVersion(val int32) {
+	s.Version = val
+}
+
+// A fetch of e-invoices from a provider (ADR-0061 §4).
+// Ref: #/components/schemas/EInvoiceFetch
+type EInvoiceFetch struct {
+	// The provider: an active `einvoice_provider` connector.
+	ConnectorID uuid.UUID `json:"connector_id"`
+}
+
+// GetConnectorID returns the value of ConnectorID.
+func (s *EInvoiceFetch) GetConnectorID() uuid.UUID {
+	return s.ConnectorID
+}
+
+// SetConnectorID sets the value of ConnectorID.
+func (s *EInvoiceFetch) SetConnectorID(val uuid.UUID) {
+	s.ConnectorID = val
+}
+
+// EInvoiceHeaders wraps EInvoice with response headers.
+type EInvoiceHeaders struct {
+	ETag     OptString
+	Response EInvoice
+}
+
+// GetETag returns the value of ETag.
+func (s *EInvoiceHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *EInvoiceHeaders) GetResponse() EInvoice {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *EInvoiceHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *EInvoiceHeaders) SetResponse(val EInvoice) {
+	s.Response = val
+}
+
+func (*EInvoiceHeaders) getEInvoiceRes() {}
+
+// One page of e-invoices, newest received first.
+// Ref: #/components/schemas/EInvoicePage
+type EInvoicePage struct {
+	// The e-invoices on this page.
+	Items []EInvoice `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *EInvoicePage) GetItems() []EInvoice {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *EInvoicePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *EInvoicePage) SetItems(val []EInvoice) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *EInvoicePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*EInvoicePage) listEInvoicesRes() {}
+
 // An elimination of the configuration (ADR-0059 §8), by code and name.
 // Ref: #/components/schemas/EliminationRef
 type EliminationRef struct {
@@ -28847,6 +29910,26 @@ func (s *FailingCheck) SetCheck(val string) {
 func (s *FailingCheck) SetSummary(val string) {
 	s.Summary = val
 }
+
+type FetchEInvoicesBadRequest Problem
+
+func (*FetchEInvoicesBadRequest) fetchEInvoicesRes() {}
+
+type FetchEInvoicesForbidden Problem
+
+func (*FetchEInvoicesForbidden) fetchEInvoicesRes() {}
+
+type FetchEInvoicesNotFound Problem
+
+func (*FetchEInvoicesNotFound) fetchEInvoicesRes() {}
+
+type FetchEInvoicesPreconditionRequired Problem
+
+func (*FetchEInvoicesPreconditionRequired) fetchEInvoicesRes() {}
+
+type FetchEInvoicesUnprocessableEntity Problem
+
+func (*FetchEInvoicesUnprocessableEntity) fetchEInvoicesRes() {}
 
 // One field-level validation error.
 // Ref: #/components/schemas/FieldError
@@ -30933,6 +32016,18 @@ func (s *GetConnectorOKHeaders) SetResponse(val Connector) {
 
 func (*GetConnectorOKHeaders) getConnectorRes() {}
 
+type GetConsolidatedStatementBadRequest Problem
+
+func (*GetConsolidatedStatementBadRequest) getConsolidatedStatementRes() {}
+
+type GetConsolidatedStatementForbidden Problem
+
+func (*GetConsolidatedStatementForbidden) getConsolidatedStatementRes() {}
+
+type GetConsolidatedStatementNotFound Problem
+
+func (*GetConsolidatedStatementNotFound) getConsolidatedStatementRes() {}
+
 type GetConsolidationGroupBadRequest Problem
 
 func (*GetConsolidationGroupBadRequest) getConsolidationGroupRes() {}
@@ -31096,6 +32191,18 @@ func (s *GetDownPaymentRequestOKHeaders) SetResponse(val DownPaymentRequest) {
 }
 
 func (*GetDownPaymentRequestOKHeaders) getDownPaymentRequestRes() {}
+
+type GetEInvoiceBadRequest Problem
+
+func (*GetEInvoiceBadRequest) getEInvoiceRes() {}
+
+type GetEInvoiceForbidden Problem
+
+func (*GetEInvoiceForbidden) getEInvoiceRes() {}
+
+type GetEInvoiceNotFound Problem
+
+func (*GetEInvoiceNotFound) getEInvoiceRes() {}
 
 type GetEntryTemplateBadRequest Problem
 
@@ -39543,6 +40650,26 @@ type ListAuditEventsForbidden Problem
 
 func (*ListAuditEventsForbidden) listAuditEventsRes() {}
 
+type ListBalanceCarryForwardBalancesBadRequest Problem
+
+func (*ListBalanceCarryForwardBalancesBadRequest) listBalanceCarryForwardBalancesRes() {}
+
+type ListBalanceCarryForwardBalancesForbidden Problem
+
+func (*ListBalanceCarryForwardBalancesForbidden) listBalanceCarryForwardBalancesRes() {}
+
+type ListBalanceCarryForwardBalancesNotFound Problem
+
+func (*ListBalanceCarryForwardBalancesNotFound) listBalanceCarryForwardBalancesRes() {}
+
+type ListBalanceCarryForwardsBadRequest Problem
+
+func (*ListBalanceCarryForwardsBadRequest) listBalanceCarryForwardsRes() {}
+
+type ListBalanceCarryForwardsForbidden Problem
+
+func (*ListBalanceCarryForwardsForbidden) listBalanceCarryForwardsRes() {}
+
 type ListBalancesBadRequest Problem
 
 func (*ListBalancesBadRequest) listBalancesRes() {}
@@ -39810,6 +40937,14 @@ func (*ListDownPaymentRequestsBadRequest) listDownPaymentRequestsRes() {}
 type ListDownPaymentRequestsForbidden Problem
 
 func (*ListDownPaymentRequestsForbidden) listDownPaymentRequestsRes() {}
+
+type ListEInvoicesBadRequest Problem
+
+func (*ListEInvoicesBadRequest) listEInvoicesRes() {}
+
+type ListEInvoicesForbidden Problem
+
+func (*ListEInvoicesForbidden) listEInvoicesRes() {}
 
 type ListEntryTemplatesBadRequest Problem
 
@@ -42337,6 +43472,18 @@ type MigrationExtractCounts struct {
 	FaglSegm int `json:"fagl_segm"`
 	// Rows of SAP table FAGL_SEGMT (segment texts; ADR-0050 §10, T56h).
 	FaglSegmt int `json:"fagl_segmt"`
+	// Rows of SAP table TKA01 (controlling areas with their cost centers' standard hierarchy, KHINR;
+	// ADR-0050 §10, T56h2).
+	Tka01 int `json:"tka01"`
+	// Rows of SAP table SETHEADER of classes 0101 and 0106 (cost and profit center groups; ADR-0050 §10,
+	// T56h2).
+	Setheader int `json:"setheader"`
+	// Rows of SAP table SETHEADERT (the groups' texts; T56h2).
+	Setheadert int `json:"setheadert"`
+	// Rows of SAP table SETNODE (the groups' subgroups; ADR-0050 §10, T56h2).
+	Setnode int `json:"setnode"`
+	// Rows of SAP table SETLEAF (the groups' values, single centers or ranges; ADR-0050 §10, T56h2).
+	Setleaf int `json:"setleaf"`
 }
 
 // GetT001 returns the value of T001.
@@ -42474,6 +43621,31 @@ func (s *MigrationExtractCounts) GetFaglSegmt() int {
 	return s.FaglSegmt
 }
 
+// GetTka01 returns the value of Tka01.
+func (s *MigrationExtractCounts) GetTka01() int {
+	return s.Tka01
+}
+
+// GetSetheader returns the value of Setheader.
+func (s *MigrationExtractCounts) GetSetheader() int {
+	return s.Setheader
+}
+
+// GetSetheadert returns the value of Setheadert.
+func (s *MigrationExtractCounts) GetSetheadert() int {
+	return s.Setheadert
+}
+
+// GetSetnode returns the value of Setnode.
+func (s *MigrationExtractCounts) GetSetnode() int {
+	return s.Setnode
+}
+
+// GetSetleaf returns the value of Setleaf.
+func (s *MigrationExtractCounts) GetSetleaf() int {
+	return s.Setleaf
+}
+
 // SetT001 sets the value of T001.
 func (s *MigrationExtractCounts) SetT001(val int) {
 	s.T001 = val
@@ -42609,6 +43781,31 @@ func (s *MigrationExtractCounts) SetFaglSegmt(val int) {
 	s.FaglSegmt = val
 }
 
+// SetTka01 sets the value of Tka01.
+func (s *MigrationExtractCounts) SetTka01(val int) {
+	s.Tka01 = val
+}
+
+// SetSetheader sets the value of Setheader.
+func (s *MigrationExtractCounts) SetSetheader(val int) {
+	s.Setheader = val
+}
+
+// SetSetheadert sets the value of Setheadert.
+func (s *MigrationExtractCounts) SetSetheadert(val int) {
+	s.Setheadert = val
+}
+
+// SetSetnode sets the value of Setnode.
+func (s *MigrationExtractCounts) SetSetnode(val int) {
+	s.Setnode = val
+}
+
+// SetSetleaf sets the value of Setleaf.
+func (s *MigrationExtractCounts) SetSetleaf(val int) {
+	s.Setleaf = val
+}
+
 // A finding of the quality gate, the load or the reconciliation on a row of the extract.
 // Ref: #/components/schemas/MigrationIssue
 type MigrationIssue struct {
@@ -42710,8 +43907,20 @@ type MigrationLoadedCounts struct {
 	// Profit centers an earlier run created that this run assigned to more company codes (CEPC_BUKRS).
 	ProfitCentersExtended OptInt `json:"profit_centers_extended"`
 	// Cost centers of the scope's company codes (CSKS, CSKT), active at once with their time slices as
-	// periods, at the standard hierarchy's UNASSIGNED leaf: the run is their approval (ADR-0050 §10).
+	// periods, at their leaf of SAP's standard hierarchy, or its UNASSIGNED leaf when the extract has none
+	// for their controlling area: the run is their approval (ADR-0050 §10).
 	CostCenters OptInt `json:"cost_centers"`
+	// Alternative hierarchies created from SAP's cost and profit center groups (sets 0101, 0106) that no
+	// group includes, each coded as its top group (ADR-0050 §10, T56h2). SAP's standard hierarchies are
+	// loaded below the tenant's standard hierarchy's root, created when the tenant has none.
+	Hierarchies OptInt `json:"hierarchies"`
+	// SAP groups (SETHEADER, SETHEADERT, SETNODE) loaded as nodes of a hierarchy: each a node change the
+	// run applied (the run is their approval, ADR-0050 §10, T56h2), and each alternative hierarchy's
+	// root, created with it.
+	HierarchyNodes OptInt `json:"hierarchy_nodes"`
+	// Centers this run created placed at a leaf of SAP's groups, in the standard or an alternative
+	// hierarchy, their values (SETLEAF) expanded against the extract's centers (ADR-0050 §10, T56h2).
+	HierarchyPlaces OptInt `json:"hierarchy_places"`
 }
 
 // GetSuppliers returns the value of Suppliers.
@@ -42794,6 +44003,21 @@ func (s *MigrationLoadedCounts) GetCostCenters() OptInt {
 	return s.CostCenters
 }
 
+// GetHierarchies returns the value of Hierarchies.
+func (s *MigrationLoadedCounts) GetHierarchies() OptInt {
+	return s.Hierarchies
+}
+
+// GetHierarchyNodes returns the value of HierarchyNodes.
+func (s *MigrationLoadedCounts) GetHierarchyNodes() OptInt {
+	return s.HierarchyNodes
+}
+
+// GetHierarchyPlaces returns the value of HierarchyPlaces.
+func (s *MigrationLoadedCounts) GetHierarchyPlaces() OptInt {
+	return s.HierarchyPlaces
+}
+
 // SetSuppliers sets the value of Suppliers.
 func (s *MigrationLoadedCounts) SetSuppliers(val OptInt) {
 	s.Suppliers = val
@@ -42872,6 +44096,21 @@ func (s *MigrationLoadedCounts) SetProfitCentersExtended(val OptInt) {
 // SetCostCenters sets the value of CostCenters.
 func (s *MigrationLoadedCounts) SetCostCenters(val OptInt) {
 	s.CostCenters = val
+}
+
+// SetHierarchies sets the value of Hierarchies.
+func (s *MigrationLoadedCounts) SetHierarchies(val OptInt) {
+	s.Hierarchies = val
+}
+
+// SetHierarchyNodes sets the value of HierarchyNodes.
+func (s *MigrationLoadedCounts) SetHierarchyNodes(val OptInt) {
+	s.HierarchyNodes = val
+}
+
+// SetHierarchyPlaces sets the value of HierarchyPlaces.
+func (s *MigrationLoadedCounts) SetHierarchyPlaces(val OptInt) {
+	s.HierarchyPlaces = val
 }
 
 // Merged schema.
@@ -43474,6 +44713,51 @@ func (*MoveProfitCenterPreconditionRequired) moveProfitCenterRes() {}
 type MoveProfitCenterUnprocessableEntity Problem
 
 func (*MoveProfitCenterUnprocessableEntity) moveProfitCenterRes() {}
+
+// NewNilDateTime returns new NilDateTime with value set to v.
+func NewNilDateTime(v time.Time) NilDateTime {
+	return NilDateTime{
+		Value: v,
+	}
+}
+
+// NilDateTime is nullable time.Time.
+type NilDateTime struct {
+	Value time.Time
+	Null  bool
+}
+
+// SetTo sets value to v.
+func (o *NilDateTime) SetTo(v time.Time) {
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o NilDateTime) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *NilDateTime) SetToNull() {
+	o.Null = true
+	var v time.Time
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o NilDateTime) Get() (v time.Time, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o NilDateTime) Or(d time.Time) time.Time {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
 
 // NewNilInt64 returns new NilInt64 with value set to v.
 func NewNilInt64(v int64) NilInt64 {
@@ -44467,6 +45751,7 @@ func (s *OperationHeaders) SetResponse(val Operation) {
 
 func (*OperationHeaders) captureSupplierInvoiceRes() {}
 func (*OperationHeaders) createConsolidationRunRes() {}
+func (*OperationHeaders) fetchEInvoicesRes()         {}
 func (*OperationHeaders) proposePaymentRunRes()      {}
 func (*OperationHeaders) reconcileMigrationRunRes()  {}
 func (*OperationHeaders) releasePaymentRunRes()      {}
@@ -45751,6 +47036,52 @@ func (o OptConnectorUpdateSettings) Get() (v ConnectorUpdateSettings, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptConnectorUpdateSettings) Or(d ConnectorUpdateSettings) ConnectorUpdateSettings {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptConsolidatedFigures returns new OptConsolidatedFigures with value set to v.
+func NewOptConsolidatedFigures(v ConsolidatedFigures) OptConsolidatedFigures {
+	return OptConsolidatedFigures{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptConsolidatedFigures is optional ConsolidatedFigures.
+type OptConsolidatedFigures struct {
+	Value ConsolidatedFigures
+	Set   bool
+}
+
+// IsSet returns true if OptConsolidatedFigures was set.
+func (o OptConsolidatedFigures) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptConsolidatedFigures) Reset() {
+	var v ConsolidatedFigures
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptConsolidatedFigures) SetTo(v ConsolidatedFigures) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptConsolidatedFigures) Get() (v ConsolidatedFigures, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptConsolidatedFigures) Or(d ConsolidatedFigures) ConsolidatedFigures {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -61800,6 +63131,7 @@ func (*ServiceUnavailableHeaders) endRoleAssignmentRes()                     {}
 func (*ServiceUnavailableHeaders) endRolePermissionRes()                     {}
 func (*ServiceUnavailableHeaders) endSodRuleRes()                            {}
 func (*ServiceUnavailableHeaders) excludeBankStatementLineRes()              {}
+func (*ServiceUnavailableHeaders) fetchEInvoicesRes()                        {}
 func (*ServiceUnavailableHeaders) fileTaxReturnRes()                         {}
 func (*ServiceUnavailableHeaders) getBankStatementFileRes()                  {}
 func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes()            {}
@@ -66170,6 +67502,7 @@ func (*TooManyRequestsHeaders) endRoleAssignmentRes()                     {}
 func (*TooManyRequestsHeaders) endRolePermissionRes()                     {}
 func (*TooManyRequestsHeaders) endSodRuleRes()                            {}
 func (*TooManyRequestsHeaders) excludeBankStatementLineRes()              {}
+func (*TooManyRequestsHeaders) fetchEInvoicesRes()                        {}
 func (*TooManyRequestsHeaders) fileTaxReturnRes()                         {}
 func (*TooManyRequestsHeaders) getAccountRes()                            {}
 func (*TooManyRequestsHeaders) getAccrualProposalRes()                    {}
@@ -66204,6 +67537,7 @@ func (*TooManyRequestsHeaders) getCloseCalendarRes()                      {}
 func (*TooManyRequestsHeaders) getCompanyAccessRes()                      {}
 func (*TooManyRequestsHeaders) getConfigVersionRes()                      {}
 func (*TooManyRequestsHeaders) getConnectorRes()                          {}
+func (*TooManyRequestsHeaders) getConsolidatedStatementRes()              {}
 func (*TooManyRequestsHeaders) getConsolidationGroupRes()                 {}
 func (*TooManyRequestsHeaders) getConsolidationRunRes()                   {}
 func (*TooManyRequestsHeaders) getContractRes()                           {}
@@ -66211,6 +67545,7 @@ func (*TooManyRequestsHeaders) getCostCenterRes()                         {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                   {}
 func (*TooManyRequestsHeaders) getDepreciationRunRes()                    {}
 func (*TooManyRequestsHeaders) getDownPaymentRequestRes()                 {}
+func (*TooManyRequestsHeaders) getEInvoiceRes()                           {}
 func (*TooManyRequestsHeaders) getEntryTemplateRes()                      {}
 func (*TooManyRequestsHeaders) getExchangeRateRes()                       {}
 func (*TooManyRequestsHeaders) getFiscalPeriodRes()                       {}
@@ -66275,6 +67610,8 @@ func (*TooManyRequestsHeaders) listAssetRetirementsRes()                  {}
 func (*TooManyRequestsHeaders) listAssetTransfersRes()                    {}
 func (*TooManyRequestsHeaders) listAssetsRes()                            {}
 func (*TooManyRequestsHeaders) listAuditEventsRes()                       {}
+func (*TooManyRequestsHeaders) listBalanceCarryForwardBalancesRes()       {}
+func (*TooManyRequestsHeaders) listBalanceCarryForwardsRes()              {}
 func (*TooManyRequestsHeaders) listBalancesRes()                          {}
 func (*TooManyRequestsHeaders) listBankAccountsRes()                      {}
 func (*TooManyRequestsHeaders) listBankFilesRes()                         {}
@@ -66304,6 +67641,7 @@ func (*TooManyRequestsHeaders) listCostCentersRes()                       {}
 func (*TooManyRequestsHeaders) listCountryPacksRes()                      {}
 func (*TooManyRequestsHeaders) listDepreciationRunsRes()                  {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()               {}
+func (*TooManyRequestsHeaders) listEInvoicesRes()                         {}
 func (*TooManyRequestsHeaders) listEntryTemplatesRes()                    {}
 func (*TooManyRequestsHeaders) listExchangeRatesRes()                     {}
 func (*TooManyRequestsHeaders) listFiscalPeriodsRes()                     {}
@@ -66656,6 +67994,7 @@ func (*UnauthorizedHeaders) endRoleAssignmentRes()                     {}
 func (*UnauthorizedHeaders) endRolePermissionRes()                     {}
 func (*UnauthorizedHeaders) endSodRuleRes()                            {}
 func (*UnauthorizedHeaders) excludeBankStatementLineRes()              {}
+func (*UnauthorizedHeaders) fetchEInvoicesRes()                        {}
 func (*UnauthorizedHeaders) fileTaxReturnRes()                         {}
 func (*UnauthorizedHeaders) getAccountRes()                            {}
 func (*UnauthorizedHeaders) getAccrualProposalRes()                    {}
@@ -66690,6 +68029,7 @@ func (*UnauthorizedHeaders) getCloseCalendarRes()                      {}
 func (*UnauthorizedHeaders) getCompanyAccessRes()                      {}
 func (*UnauthorizedHeaders) getConfigVersionRes()                      {}
 func (*UnauthorizedHeaders) getConnectorRes()                          {}
+func (*UnauthorizedHeaders) getConsolidatedStatementRes()              {}
 func (*UnauthorizedHeaders) getConsolidationGroupRes()                 {}
 func (*UnauthorizedHeaders) getConsolidationRunRes()                   {}
 func (*UnauthorizedHeaders) getContractRes()                           {}
@@ -66697,6 +68037,7 @@ func (*UnauthorizedHeaders) getCostCenterRes()                         {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()                   {}
 func (*UnauthorizedHeaders) getDepreciationRunRes()                    {}
 func (*UnauthorizedHeaders) getDownPaymentRequestRes()                 {}
+func (*UnauthorizedHeaders) getEInvoiceRes()                           {}
 func (*UnauthorizedHeaders) getEntryTemplateRes()                      {}
 func (*UnauthorizedHeaders) getExchangeRateRes()                       {}
 func (*UnauthorizedHeaders) getFiscalPeriodRes()                       {}
@@ -66761,6 +68102,8 @@ func (*UnauthorizedHeaders) listAssetRetirementsRes()                  {}
 func (*UnauthorizedHeaders) listAssetTransfersRes()                    {}
 func (*UnauthorizedHeaders) listAssetsRes()                            {}
 func (*UnauthorizedHeaders) listAuditEventsRes()                       {}
+func (*UnauthorizedHeaders) listBalanceCarryForwardBalancesRes()       {}
+func (*UnauthorizedHeaders) listBalanceCarryForwardsRes()              {}
 func (*UnauthorizedHeaders) listBalancesRes()                          {}
 func (*UnauthorizedHeaders) listBankAccountsRes()                      {}
 func (*UnauthorizedHeaders) listBankFilesRes()                         {}
@@ -66790,6 +68133,7 @@ func (*UnauthorizedHeaders) listCostCentersRes()                       {}
 func (*UnauthorizedHeaders) listCountryPacksRes()                      {}
 func (*UnauthorizedHeaders) listDepreciationRunsRes()                  {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()               {}
+func (*UnauthorizedHeaders) listEInvoicesRes()                         {}
 func (*UnauthorizedHeaders) listEntryTemplatesRes()                    {}
 func (*UnauthorizedHeaders) listExchangeRatesRes()                     {}
 func (*UnauthorizedHeaders) listFiscalPeriodsRes()                     {}

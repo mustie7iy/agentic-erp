@@ -44,6 +44,9 @@ type LoadedCounts struct {
 	ProfitCenters          int `json:"profit_centers,omitempty"`
 	ProfitCentersExtended  int `json:"profit_centers_extended,omitempty"`
 	CostCenters            int `json:"cost_centers,omitempty"`
+	Hierarchies            int `json:"hierarchies,omitempty"`
+	HierarchyNodes         int `json:"hierarchy_nodes,omitempty"`
+	HierarchyPlaces        int `json:"hierarchy_places,omitempty"`
 }
 
 // reportToAPI is the report as the contract declares it. The lists of a
@@ -83,7 +86,8 @@ func extractToAPI(c map[string]int) gen.MigrationExtractCounts {
 		Ekpo: c["EKPO"], Mseg: c["MSEG"], Rbkp: c["RBKP"], Rseg: c["RSEG"], Acdoca: c["ACDOCA"], T052: c["T052"], T007a: c["T007A"],
 		T030: c["T030"], T169g: c["T169G"], T012k: c["T012K"], T074: c["T074"], AgrDefine: c["AGR_DEFINE"], AgrTcodes: c["AGR_TCODES"],
 		AgrUsers: c["AGR_USERS"], Csks: c["CSKS"], Cskt: c["CSKT"], Cepc: c["CEPC"], Cepct: c["CEPCT"], CepcBukrs: c["CEPC_BUKRS"],
-		FaglSegm: c["FAGL_SEGM"], FaglSegmt: c["FAGL_SEGMT"]}
+		FaglSegm: c["FAGL_SEGM"], FaglSegmt: c["FAGL_SEGMT"], Tka01: c["TKA01"], Setheader: c["SETHEADER"], Setheadert: c["SETHEADERT"],
+		Setnode: c["SETNODE"], Setleaf: c["SETLEAF"]}
 }
 
 func loadedToAPI(l LoadedCounts) gen.MigrationLoadedCounts {
@@ -92,7 +96,8 @@ func loadedToAPI(l LoadedCounts) gen.MigrationLoadedCounts {
 		SupplierInvoices: count(l.SupplierInvoices), PostedInvoicesInvoiced: count(l.PostedInvoicesInvoiced),
 		JournalEntries: count(l.JournalEntries), DownPayments: count(l.DownPayments), Clearings: count(l.Clearings),
 		GrIrPositions: count(l.GRIRPositions), GrIrTopUps: count(l.GRIRTopUps), Segments: count(l.Segments), ProfitCenters: count(l.ProfitCenters),
-		ProfitCentersExtended: count(l.ProfitCentersExtended), CostCenters: count(l.CostCenters)}
+		ProfitCentersExtended: count(l.ProfitCentersExtended), CostCenters: count(l.CostCenters), Hierarchies: count(l.Hierarchies),
+		HierarchyNodes: count(l.HierarchyNodes), HierarchyPlaces: count(l.HierarchyPlaces)}
 }
 
 // count is a loaded count as the contract has it: absent when nothing of
