@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
@@ -33,7 +34,7 @@ func ScanWaiting(r pgx.CollectableRow) (Waiting, error) {
 	return w, errs.Wrapf(err, "scan waiting operation")
 }
 
-// QueuedOf lists, across tenants and in the order they were queued, the
+// QueuedOf lists, across active tenants (ADR-0015) and in the order they were queued, the
 // operations of a kind waiting for a workflow whose resource is the path
 // of what they work on (/v1/depreciation-runs/{id}), the resource being
 // the path's last part: queued, or cancelled before any workflow took
@@ -44,12 +45,13 @@ func ScanWaiting(r pgx.CollectableRow) (Waiting, error) {
 // not read: the operation alone is the hand-off.
 func QueuedOf(ctx context.Context, tx pgx.Tx, kind string) ([]Waiting, error) {
 	rows, _ := tx.Query(ctx, `SELECT kind, tenant_id, id, substring(resource from '[^/]+$')::uuid, '00000000-0000-0000-0000-000000000000'::uuid, '', 0
-		FROM platform.operation WHERE kind = $1 AND status IN ('queued', 'cancelled') AND workflow_id IS NULL AND resource IS NOT NULL ORDER BY id`, kind)
+		FROM platform.operation WHERE kind = $1 AND status IN ('queued', 'cancelled') AND workflow_id IS NULL AND resource IS NOT NULL
+		AND tenant_id IN `+database.ActiveTenants+` ORDER BY id`, kind)
 	waiting, err := pgx.CollectRows(rows, ScanWaiting)
 	return waiting, errs.Wrapf(err, "operations: list the %s operations waiting for a workflow", kind)
 }
 
-// TenantsOf lists the tenants with operations of a kind queued, running or
+// TenantsOf lists the active tenants (ADR-0015) with operations of a kind queued, running or
 // cancelled: those an in-process worker of a cell without a workflow
 // engine asks, in each tenant's scope, for the work still to do. A
 // cancelled operation's work may still be queued or running, and the
@@ -57,7 +59,7 @@ func QueuedOf(ctx context.Context, tx pgx.Tx, kind string) ([]Waiting, error) {
 // assets.run_cancelled, ADR-0057 §7).
 func TenantsOf(ctx context.Context, tx pgx.Tx, kind string) ([]uuid.UUID, error) {
 	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM platform.operation WHERE kind = $1 AND status IN ('queued', 'running', 'cancelled')
-		ORDER BY tenant_id`, kind)
+		AND tenant_id IN `+database.ActiveTenants+` ORDER BY tenant_id`, kind)
 	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	return tenants, errs.Wrapf(err, "operations: tenants with %s operations", kind)
 }
@@ -66,12 +68,14 @@ func TenantsOf(ctx context.Context, tx pgx.Tx, kind string) ([]uuid.UUID, error)
 // the operations of a kind still queued whose resource is the path of
 // what they work on, as QueuedOf reads them: the work of an in-process
 // worker of a cell without a workflow engine, for a kind whose work holds
-// nothing a cancellation must end (an e-invoice fetch, ADR-0061 §4). An
+// nothing a cancellation must end (an e-invoice fetch, ADR-0061 §4), of
+// active tenants only, as QueuedOf's (ADR-0015, po:2026-11-09). An
 // operation leaves the list when its work finishes it; one cancelled, or
 // one a workflow took, is not taken up.
 func StillQueuedOf(ctx context.Context, tx pgx.Tx, kind string) ([]Waiting, error) {
 	rows, _ := tx.Query(ctx, `SELECT kind, tenant_id, id, substring(resource from '[^/]+$')::uuid, '00000000-0000-0000-0000-000000000000'::uuid, '', 0
-		FROM platform.operation WHERE kind = $1 AND status = 'queued' AND workflow_id IS NULL AND resource IS NOT NULL ORDER BY id`, kind)
+		FROM platform.operation WHERE kind = $1 AND status = 'queued' AND workflow_id IS NULL AND resource IS NOT NULL
+		AND tenant_id IN `+database.ActiveTenants+` ORDER BY id`, kind)
 	waiting, err := pgx.CollectRows(rows, ScanWaiting)
 	return waiting, errs.Wrapf(err, "operations: list the %s operations still queued", kind)
 }

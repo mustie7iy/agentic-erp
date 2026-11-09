@@ -279,6 +279,17 @@ func NewTenant(tb testing.TB, permissions ...string) Tenant {
 	return ten
 }
 
+// SetStatus moves the tenant to the status (suspended, offboarded, active),
+// as the control plane does, and back to active when the test ends, so
+// that work it left queued does not stay for the package's other tests.
+func (ten Tenant) SetStatus(tb testing.TB, status string) {
+	tb.Helper()
+	Exec(tb, `UPDATE tenancy.tenant SET status = $2, version = version + 1 WHERE id = $1`, ten.ID, status)
+	tb.Cleanup(func() {
+		Exec(tb, `UPDATE tenancy.tenant SET status = 'active', version = version + 1 WHERE id = $1`, ten.ID)
+	})
+}
+
 // Grant gives the roles of the actors the permission from yesterday; a
 // role holding it already keeps its grant. The agent and the service share
 // a role, so granting to one grants to both.

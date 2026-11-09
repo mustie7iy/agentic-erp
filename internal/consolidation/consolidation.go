@@ -34,8 +34,25 @@
 // GetConsolidatedStatement): a run's balance sheet or profit and loss,
 // one row per group account with the companies' translated figures
 // summed, the eliminations and the consolidated figure, and the totals,
-// read from the run's stored rows alone (§14). Matching, eliminations and
-// finalization follow in T68f-T68h.
+// read from the run's stored rows alone (§14).
+//
+// T68f adds intercompany matching and eliminations (ADR-0059 §8,
+// eliminate): EliminateConsolidationRun matches each elimination's rows
+// per pair of the run's companies within its tolerance, lists the rows
+// naming a company outside the run or none, and writes each pair's
+// intercompany entry; ListIntercompanyDifferences and
+// ListConsolidationEntries read them, and the statements' eliminations
+// are the entries' lines.
+//
+// T68g adds accepting differences and finalization (ADR-0059 §8, §10,
+// finalize): a person accepts an open difference of a computed run with a
+// reason (AcceptIntercompanyDifference); FinalizeConsolidationRun makes a
+// computed run without open differences, whose companies' periods were
+// locked when it read them and still are at the versions it recorded, the
+// group's final figures of its period, superseding the previous final run
+// under a lock of the period's runs. A run is stale once a company's
+// period version moved since it read its figures. The investment's
+// elimination follows in T68h.
 package consolidation
 
 import (
@@ -81,11 +98,13 @@ type Companies interface {
 }
 
 // Period is a company's posting period in the leading ledger: its dates,
-// status and version (ADR-0059 §4a, PeriodOf).
+// status and version, and its pending unlock request, if any (ADR-0059
+// §4a, PeriodOf).
 type Period struct {
-	Start, End time.Time
-	Status     string
-	Version    int32
+	Start, End      time.Time
+	Status          string
+	Version         int32
+	UnlockRequestID *uuid.UUID
 }
 
 // Account is a company's account: its number, name and type.
@@ -121,11 +140,21 @@ type Rate struct {
 type Ledger interface {
 	// PeriodOf is the company's period; ok is false when it has none.
 	PeriodOf(ctx context.Context, company uuid.UUID, year, period int16) (Period, bool, error)
+	// PeriodsOf are the companies' periods by company, read at once; a
+	// company without the period is absent.
+	PeriodsOf(ctx context.Context, companies []uuid.UUID, year, period int16) (map[uuid.UUID]Period, error)
 	Accounts(ctx context.Context, company uuid.UUID) ([]Account, error)
 	BalancesThrough(ctx context.Context, company uuid.UUID, year, period int16) ([]Balance, error)
 	// RateOn is the latest rate of the type valid on the date; ok is
 	// false when there is none.
 	RateOn(ctx context.Context, rateType, from, to string, date time.Time) (Rate, bool, error)
+}
+
+// People names principals (identity context, ADR-0059 §2): who finalized
+// a run and who accepted a difference. An id the tenant has no principal
+// of is absent.
+type People interface {
+	Named(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
 }
 
 // Runs keeps a run's Operation (operations, 04 §4.8).
@@ -142,6 +171,7 @@ type Endpoints struct {
 	Settings  Settings
 	Companies Companies
 	Ledger    Ledger
+	People    People
 	Runs      Runs
 	Pages     *pagination.Codec
 

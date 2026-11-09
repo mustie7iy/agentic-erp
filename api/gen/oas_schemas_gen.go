@@ -160,6 +160,30 @@ type AcceptForecastVarianceCommentProposalPreconditionRequired Problem
 func (*AcceptForecastVarianceCommentProposalPreconditionRequired) acceptForecastVarianceCommentProposalRes() {
 }
 
+type AcceptIntercompanyDifferenceBadRequest Problem
+
+func (*AcceptIntercompanyDifferenceBadRequest) acceptIntercompanyDifferenceRes() {}
+
+type AcceptIntercompanyDifferenceForbidden Problem
+
+func (*AcceptIntercompanyDifferenceForbidden) acceptIntercompanyDifferenceRes() {}
+
+type AcceptIntercompanyDifferenceNotFound Problem
+
+func (*AcceptIntercompanyDifferenceNotFound) acceptIntercompanyDifferenceRes() {}
+
+type AcceptIntercompanyDifferencePreconditionFailed Problem
+
+func (*AcceptIntercompanyDifferencePreconditionFailed) acceptIntercompanyDifferenceRes() {}
+
+type AcceptIntercompanyDifferencePreconditionRequired Problem
+
+func (*AcceptIntercompanyDifferencePreconditionRequired) acceptIntercompanyDifferenceRes() {}
+
+type AcceptIntercompanyDifferenceUnprocessableEntity Problem
+
+func (*AcceptIntercompanyDifferenceUnprocessableEntity) acceptIntercompanyDifferenceRes() {}
+
 type AcceptMemoRecordProposalBadRequest Problem
 
 func (*AcceptMemoRecordProposalBadRequest) acceptMemoRecordProposalRes() {}
@@ -18109,6 +18133,30 @@ type CheckCloseTaskUnprocessableEntity Problem
 
 func (*CheckCloseTaskUnprocessableEntity) checkCloseTaskRes() {}
 
+type CheckYearCloseTaskBadRequest Problem
+
+func (*CheckYearCloseTaskBadRequest) checkYearCloseTaskRes() {}
+
+type CheckYearCloseTaskForbidden Problem
+
+func (*CheckYearCloseTaskForbidden) checkYearCloseTaskRes() {}
+
+type CheckYearCloseTaskNotFound Problem
+
+func (*CheckYearCloseTaskNotFound) checkYearCloseTaskRes() {}
+
+type CheckYearCloseTaskPreconditionFailed Problem
+
+func (*CheckYearCloseTaskPreconditionFailed) checkYearCloseTaskRes() {}
+
+type CheckYearCloseTaskPreconditionRequired Problem
+
+func (*CheckYearCloseTaskPreconditionRequired) checkYearCloseTaskRes() {}
+
+type CheckYearCloseTaskUnprocessableEntity Problem
+
+func (*CheckYearCloseTaskUnprocessableEntity) checkYearCloseTaskRes() {}
+
 type ClearSupplierInvoiceDownPaymentsBadRequest Problem
 
 func (*ClearSupplierInvoiceDownPaymentsBadRequest) clearSupplierInvoiceDownPaymentsRes() {}
@@ -18825,7 +18873,9 @@ func (s *CloseCheckAccrual) SetJournalEntryNumber(val OptString) {
 	s.JournalEntryNumber = val
 }
 
-// A covered ledger as a `revaluation_posted` or a `depreciation_posted` check found it.
+// A covered ledger as a `revaluation_posted`, a `depreciation_posted` or a `carry_forward_current`
+// check found it, or a covered ledger's period as a `depreciation_year_posted` check found it
+// (ADR-0060 §8).
 // Ref: #/components/schemas/CloseCheckLedger
 type CloseCheckLedger struct {
 	// The ledger.
@@ -18835,13 +18885,15 @@ type CloseCheckLedger struct {
 	// Its name.
 	LedgerName string `json:"ledger_name"`
 	// Its period's last day: the key date a revaluation run is keyed on, the posting date of a
-	// depreciation run.
+	// depreciation run; for `carry_forward_current` and a year close's `revaluation_posted`, the fiscal
+	// year's last day (its last regular period's).
 	KeyDate time.Time `json:"key_date"`
-	// Whether it has a posted run of the check's kind: a revaluation run at the key date, or a
-	// depreciation run of the period. A ledger without a posted depreciation run still passes
-	// `depreciation_posted` when `assets_to_depreciate` is 0, or when it has `later_depreciation_run_id`:
-	// a run of the period is then refused as out of order, and each asset to depreciate is a
-	// `depreciation_catch_up` warning (PO 2026-11-04).
+	// Whether it has a posted run of the check's kind: a revaluation run at the key date, a depreciation
+	// run of the period, or a current carry-forward run from the fiscal year (which still fails
+	// `carry_forward_current` while it is `stale`). A ledger without a posted depreciation run still
+	// passes `depreciation_posted` when `assets_to_depreciate` is 0, or when it has
+	// `later_depreciation_run_id`: a run of the period is then refused as out of order, and each asset to
+	// depreciate is a `depreciation_catch_up` warning (PO 2026-11-04).
 	Posted bool `json:"posted"`
 	// `revaluation_posted`: the posted run (`GET /v1/revaluation-runs/{id}`); absent without one and for
 	// another check.
@@ -18862,6 +18914,19 @@ type CloseCheckLedger struct {
 	LaterDepreciationFiscalYear OptInt32 `json:"later_depreciation_fiscal_year"`
 	// With `later_depreciation_run_id`: that run's period.
 	LaterDepreciationPeriod OptInt32 `json:"later_depreciation_period"`
+	// `depreciation_year_posted`: the regular period of the fiscal year that fails in this ledger; absent
+	// for another check.
+	FiscalPeriod OptInt32 `json:"fiscal_period"`
+	// `carry_forward_current`: the ledger's current balance carry-forward run from the fiscal year
+	// (`GET /v1/balance-carry-forwards/{id}`); absent without one (the check fails) and for another check.
+	CarryForwardRunID OptUUID `json:"carry_forward_run_id"`
+	// `carry_forward_current` with `carry_forward_run_id`: whether the run is stale, a period of the year
+	// or an earlier year opened since it ran (ADR-0060 §6), which fails the check; absent otherwise.
+	Stale OptBool `json:"stale"`
+	// `carry_forward_current` with `carry_forward_run_id`: the periods that make the run stale, by fiscal
+	// year and period, as `GET /v1/balance-carry-forwards/{id}` names them; empty when it is not stale,
+	// absent otherwise.
+	OpenedSince []CarryForwardOpenedPeriod `json:"opened_since"`
 }
 
 // GetLedgerID returns the value of LedgerID.
@@ -18919,6 +18984,26 @@ func (s *CloseCheckLedger) GetLaterDepreciationPeriod() OptInt32 {
 	return s.LaterDepreciationPeriod
 }
 
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *CloseCheckLedger) GetFiscalPeriod() OptInt32 {
+	return s.FiscalPeriod
+}
+
+// GetCarryForwardRunID returns the value of CarryForwardRunID.
+func (s *CloseCheckLedger) GetCarryForwardRunID() OptUUID {
+	return s.CarryForwardRunID
+}
+
+// GetStale returns the value of Stale.
+func (s *CloseCheckLedger) GetStale() OptBool {
+	return s.Stale
+}
+
+// GetOpenedSince returns the value of OpenedSince.
+func (s *CloseCheckLedger) GetOpenedSince() []CarryForwardOpenedPeriod {
+	return s.OpenedSince
+}
+
 // SetLedgerID sets the value of LedgerID.
 func (s *CloseCheckLedger) SetLedgerID(val uuid.UUID) {
 	s.LedgerID = val
@@ -18972,6 +19057,26 @@ func (s *CloseCheckLedger) SetLaterDepreciationFiscalYear(val OptInt32) {
 // SetLaterDepreciationPeriod sets the value of LaterDepreciationPeriod.
 func (s *CloseCheckLedger) SetLaterDepreciationPeriod(val OptInt32) {
 	s.LaterDepreciationPeriod = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *CloseCheckLedger) SetFiscalPeriod(val OptInt32) {
+	s.FiscalPeriod = val
+}
+
+// SetCarryForwardRunID sets the value of CarryForwardRunID.
+func (s *CloseCheckLedger) SetCarryForwardRunID(val OptUUID) {
+	s.CarryForwardRunID = val
+}
+
+// SetStale sets the value of Stale.
+func (s *CloseCheckLedger) SetStale(val OptBool) {
+	s.Stale = val
+}
+
+// SetOpenedSince sets the value of OpenedSince.
+func (s *CloseCheckLedger) SetOpenedSince(val []CarryForwardOpenedPeriod) {
+	s.OpenedSince = val
 }
 
 // A parked entry a `no_parked_entries` check found (`GET /v1/parked-journal-entries/{id}`), as it was
@@ -19090,10 +19195,10 @@ func (s *CloseCheckParkedEntry) SetCreatedByName(val string) {
 	s.CreatedByName = val
 }
 
-// The latest result of a check task's check (ADR-0058 §6, T64c), recorded when `:check` ran it:
-// whether it passed, when and by whom, and what it found, each with its id and name. A check is a
-// statement about the moment it ran; absent on a manual task and on a check task never checked.
-// Reopening the task keeps it.
+// The latest result of a check task's check (ADR-0058 §6, T64c; a year close's, ADR-0060 §8, T64m5),
+// recorded when `:check` ran it: whether it passed, when and by whom, and what it found, each with its
+// id and name. A check is a statement about the moment it ran; absent on a manual task and on a check
+// task never checked. Reopening the task keeps it.
 // Ref: #/components/schemas/CloseCheckResult
 type CloseCheckResult struct {
 	// The check run. Open enumeration: clients must accept and preserve values not listed here; values may
@@ -19111,17 +19216,28 @@ type CloseCheckResult struct {
 	Summary string `json:"summary"`
 	// `no_parked_entries`: how many parked entries of the company dated in the period (posting date from
 	// the leading ledger's period's first to its last day) are `parked` or `pending_approval`, leaving out
-	// those parked for a special period (ADR-0060 §3); absent for another check.
+	// those parked for a special period (ADR-0060 §3); on a year close, dated in the fiscal year (the
+	// leading ledger's first regular period's first day to its last regular period's last day), those
+	// parked for a special period included; absent for another check.
 	ParkedEntriesCount OptInt32 `json:"parked_entries_count"`
 	// `no_parked_entries`: the first 20 of them by posting date (`parked_entries_count` says how many
 	// there are); absent for another check.
 	ParkedEntries []CloseCheckParkedEntry `json:"parked_entries"`
 	// `revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted
-	// revaluation run keyed on its period's last day, if it has one; `depreciation_posted`: each covered
-	// ledger, in the same order, with its latest posted depreciation run of the period, if it has one, or
-	// how many assets a run would select and the latest posted run of a later period, if there is one;
-	// absent for another check.
+	// revaluation run keyed on its period's last day (a year close's: the year's last day), if it has one;
+	// `depreciation_posted`: each covered ledger, in the same order, with its latest posted depreciation
+	// run of the period, if it has one, or how many assets a run would select and the latest posted run of
+	// a later period, if there is one; `depreciation_year_posted`: the first 20 regular periods of the
+	// covered ledgers that fail (`ledger_periods_count` says how many), by ledger in the same order, then
+	// by period, each with `fiscal_period` and how many assets a run of it would select;
+	// `carry_forward_current`: each covered ledger, in the same order, with its current carry-forward run
+	// from the fiscal year, if it has one, whether it is stale and the periods opened since; absent for
+	// another check.
 	Ledgers []CloseCheckLedger `json:"ledgers"`
+	// `depreciation_year_posted`: how many regular periods of the covered ledgers have no posted
+	// depreciation run of their own nor of a later period while a run of them would select assets; absent
+	// for another check.
+	LedgerPeriodsCount OptInt32 `json:"ledger_periods_count"`
 	// `variances_explained`: how many rows of the company's configured bases require a comment and have no
 	// accepted one that is current (T64i); absent for another check, and when the company configures no
 	// basis (the summary says so).
@@ -19197,6 +19313,11 @@ func (s *CloseCheckResult) GetParkedEntries() []CloseCheckParkedEntry {
 // GetLedgers returns the value of Ledgers.
 func (s *CloseCheckResult) GetLedgers() []CloseCheckLedger {
 	return s.Ledgers
+}
+
+// GetLedgerPeriodsCount returns the value of LedgerPeriodsCount.
+func (s *CloseCheckResult) GetLedgerPeriodsCount() OptInt32 {
+	return s.LedgerPeriodsCount
 }
 
 // GetUnexplainedRowsCount returns the value of UnexplainedRowsCount.
@@ -19287,6 +19408,11 @@ func (s *CloseCheckResult) SetParkedEntries(val []CloseCheckParkedEntry) {
 // SetLedgers sets the value of Ledgers.
 func (s *CloseCheckResult) SetLedgers(val []CloseCheckLedger) {
 	s.Ledgers = val
+}
+
+// SetLedgerPeriodsCount sets the value of LedgerPeriodsCount.
+func (s *CloseCheckResult) SetLedgerPeriodsCount(val OptInt32) {
+	s.LedgerPeriodsCount = val
 }
 
 // SetUnexplainedRowsCount sets the value of UnexplainedRowsCount.
@@ -20555,6 +20681,30 @@ type CompleteCloseTaskUnprocessableEntity Problem
 
 func (*CompleteCloseTaskUnprocessableEntity) completeCloseTaskRes() {}
 
+type CompleteYearCloseTaskBadRequest Problem
+
+func (*CompleteYearCloseTaskBadRequest) completeYearCloseTaskRes() {}
+
+type CompleteYearCloseTaskForbidden Problem
+
+func (*CompleteYearCloseTaskForbidden) completeYearCloseTaskRes() {}
+
+type CompleteYearCloseTaskNotFound Problem
+
+func (*CompleteYearCloseTaskNotFound) completeYearCloseTaskRes() {}
+
+type CompleteYearCloseTaskPreconditionFailed Problem
+
+func (*CompleteYearCloseTaskPreconditionFailed) completeYearCloseTaskRes() {}
+
+type CompleteYearCloseTaskPreconditionRequired Problem
+
+func (*CompleteYearCloseTaskPreconditionRequired) completeYearCloseTaskRes() {}
+
+type CompleteYearCloseTaskUnprocessableEntity Problem
+
+func (*CompleteYearCloseTaskUnprocessableEntity) completeYearCloseTaskRes() {}
+
 // An immutable, activated configuration version. Insert-only; `activated_*` play the role of
 // `created_*`.
 // Ref: #/components/schemas/ConfigVersion
@@ -20783,6 +20933,7 @@ func (s *ConflictHeaders) SetResponse(val Problem) {
 func (*ConflictHeaders) acceptBankStatementGapRes()                {}
 func (*ConflictHeaders) acceptBankStatementLineProposalRes()       {}
 func (*ConflictHeaders) acceptForecastVarianceCommentProposalRes() {}
+func (*ConflictHeaders) acceptIntercompanyDifferenceRes()          {}
 func (*ConflictHeaders) acceptMemoRecordProposalRes()              {}
 func (*ConflictHeaders) acceptVarianceCommentRes()                 {}
 func (*ConflictHeaders) activateChangeRequestRes()                 {}
@@ -20811,10 +20962,12 @@ func (*ConflictHeaders) cancelRevaluationRunRes()                  {}
 func (*ConflictHeaders) cancelSupplierInvoiceRes()                 {}
 func (*ConflictHeaders) captureSupplierInvoiceRes()                {}
 func (*ConflictHeaders) checkCloseTaskRes()                        {}
+func (*ConflictHeaders) checkYearCloseTaskRes()                    {}
 func (*ConflictHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*ConflictHeaders) closeFiscalPeriodRes()                     {}
 func (*ConflictHeaders) closePurchaseOrderRes()                    {}
 func (*ConflictHeaders) completeCloseTaskRes()                     {}
+func (*ConflictHeaders) completeYearCloseTaskRes()                 {}
 func (*ConflictHeaders) createAssetAcquisitionRes()                {}
 func (*ConflictHeaders) createAssetRes()                           {}
 func (*ConflictHeaders) createAssetRetirementRes()                 {}
@@ -20855,6 +21008,7 @@ func (*ConflictHeaders) createSupplierInvoiceRes()                 {}
 func (*ConflictHeaders) createUploadRes()                          {}
 func (*ConflictHeaders) createVarianceCommentRes()                 {}
 func (*ConflictHeaders) createWebhookSubscriptionRes()             {}
+func (*ConflictHeaders) createYearCloseRes()                       {}
 func (*ConflictHeaders) decideRecommendationRes()                  {}
 func (*ConflictHeaders) deleteWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) disableConnectorRes()                      {}
@@ -20868,6 +21022,7 @@ func (*ConflictHeaders) endSodRuleRes()                            {}
 func (*ConflictHeaders) excludeBankStatementLineRes()              {}
 func (*ConflictHeaders) fetchEInvoicesRes()                        {}
 func (*ConflictHeaders) fileTaxReturnRes()                         {}
+func (*ConflictHeaders) finalizeConsolidationRunRes()              {}
 func (*ConflictHeaders) getAccrualProposalRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                     {}
 func (*ConflictHeaders) getBankFileContentRes()                    {}
@@ -20875,12 +21030,14 @@ func (*ConflictHeaders) getCloseCalendarRes()                      {}
 func (*ConflictHeaders) getConsolidatedStatementRes()              {}
 func (*ConflictHeaders) getConsolidationGroupRes()                 {}
 func (*ConflictHeaders) getConsolidationRunRes()                   {}
+func (*ConflictHeaders) getEInvoiceContentRes()                    {}
 func (*ConflictHeaders) getLegalEntityTodayRes()                   {}
 func (*ConflictHeaders) getLiquidityForecastVarianceRes()          {}
 func (*ConflictHeaders) getPeriodCloseRes()                        {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()              {}
 func (*ConflictHeaders) getTaxReturnDraftRes()                     {}
 func (*ConflictHeaders) getVarianceCommentRes()                    {}
+func (*ConflictHeaders) getYearCloseRes()                          {}
 func (*ConflictHeaders) grantRolePermissionRes()                   {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()                   {}
 func (*ConflictHeaders) importBankStatementsRes()                  {}
@@ -20896,6 +21053,7 @@ func (*ConflictHeaders) listPeriodClosesRes()                      {}
 func (*ConflictHeaders) listTaxPeriodsRes()                        {}
 func (*ConflictHeaders) listTaxReturnDraftItemsRes()               {}
 func (*ConflictHeaders) listVarianceCommentsRes()                  {}
+func (*ConflictHeaders) listYearClosesRes()                        {}
 func (*ConflictHeaders) lockCostCenterRes()                        {}
 func (*ConflictHeaders) lockFiscalPeriodRes()                      {}
 func (*ConflictHeaders) lockPlanCategoryRes()                      {}
@@ -20948,6 +21106,7 @@ func (*ConflictHeaders) removeHierarchyNodeRes()                   {}
 func (*ConflictHeaders) renameHierarchyNodeRes()                   {}
 func (*ConflictHeaders) renewContractRes()                         {}
 func (*ConflictHeaders) reopenCloseTaskRes()                       {}
+func (*ConflictHeaders) reopenYearCloseTaskRes()                   {}
 func (*ConflictHeaders) replayWebhookDeliveriesRes()               {}
 func (*ConflictHeaders) reportBankFileStatusRes()                  {}
 func (*ConflictHeaders) requestBankAccountChangeRes()              {}
@@ -21001,6 +21160,7 @@ func (*ConflictHeaders) updateRoleRes()                            {}
 func (*ConflictHeaders) updateSegmentRes()                         {}
 func (*ConflictHeaders) updateSupplierInvoiceRes()                 {}
 func (*ConflictHeaders) updateWebhookSubscriptionRes()             {}
+func (*ConflictHeaders) updateYearCloseTaskRes()                   {}
 func (*ConflictHeaders) uploadMemoRecordsRes()                     {}
 func (*ConflictHeaders) verifyAuditChainRes()                      {}
 func (*ConflictHeaders) withdrawChangeRequestRes()                 {}
@@ -21480,7 +21640,7 @@ func (s *ConnectorUpdateSettings) init() ConnectorUpdateSettings {
 type ConsolidatedFigures struct {
 	// The companies' translated figures summed (ADR-0059 §7).
 	Reported Money `json:"reported"`
-	// The run's eliminations (ADR-0059 §8, §9); zero until they are built (T68f, T68h).
+	// The run's elimination entries' lines summed (ADR-0059 §8, §9).
 	Eliminations Money `json:"eliminations"`
 	// The reported figures and the eliminations summed.
 	Consolidated Money `json:"consolidated"`
@@ -21536,6 +21696,9 @@ type ConsolidatedStatement struct {
 	// of the period (`final`), or a final run a later one superseded. Open enumeration: clients must
 	// accept and preserve values not listed here; values may be added within /v1.
 	RunStatus string `json:"run_status"`
+	// The run's `stale` (`ConsolidationRun.stale`): whether a company's period changed since the run read
+	// its figures, so they may no longer be the ledger's (ADR-0059 §10).
+	Stale bool `json:"stale"`
 	// The statement. Open enumeration: clients must accept and preserve values not listed here; values may
 	// be added within /v1.
 	Statement string `json:"statement"`
@@ -21581,6 +21744,11 @@ func (s *ConsolidatedStatement) GetPeriodEnd() time.Time {
 // GetRunStatus returns the value of RunStatus.
 func (s *ConsolidatedStatement) GetRunStatus() string {
 	return s.RunStatus
+}
+
+// GetStale returns the value of Stale.
+func (s *ConsolidatedStatement) GetStale() bool {
+	return s.Stale
 }
 
 // GetStatement returns the value of Statement.
@@ -21643,6 +21811,11 @@ func (s *ConsolidatedStatement) SetRunStatus(val string) {
 	s.RunStatus = val
 }
 
+// SetStale sets the value of Stale.
+func (s *ConsolidatedStatement) SetStale(val bool) {
+	s.Stale = val
+}
+
 // SetStatement sets the value of Statement.
 func (s *ConsolidatedStatement) SetStatement(val string) {
 	s.Statement = val
@@ -21686,7 +21859,8 @@ type ConsolidatedStatementRow struct {
 	Role OptString `json:"role"`
 	// The companies' translated figures on the account summed (ADR-0059 §7).
 	Reported Money `json:"reported"`
-	// The run's eliminations on the account (ADR-0059 §8, §9); zero until they are built (T68f, T68h).
+	// The run's elimination entries' lines on the account summed (ADR-0059 §8, §9;
+	// `listConsolidationEntries`).
 	Eliminations Money `json:"eliminations"`
 	// The reported figure and the eliminations summed: the group's consolidated figure.
 	Consolidated Money `json:"consolidated"`
@@ -22144,6 +22318,350 @@ func (s *ConsolidationCompany) SetLocalCurrency(val string) {
 	s.LocalCurrency = val
 }
 
+// The number of a run's intercompany differences of one status.
+// Ref: #/components/schemas/ConsolidationDifferenceCount
+type ConsolidationDifferenceCount struct {
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Status string `json:"status"`
+	// How many there are.
+	Count int32 `json:"count"`
+}
+
+// GetStatus returns the value of Status.
+func (s *ConsolidationDifferenceCount) GetStatus() string {
+	return s.Status
+}
+
+// GetCount returns the value of Count.
+func (s *ConsolidationDifferenceCount) GetCount() int32 {
+	return s.Count
+}
+
+// SetStatus sets the value of Status.
+func (s *ConsolidationDifferenceCount) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetCount sets the value of Count.
+func (s *ConsolidationDifferenceCount) SetCount(val int32) {
+	s.Count = val
+}
+
+// An elimination entry of a consolidation run (ADR-0059 §8, §9): its lines sum to zero; the run
+// keeps it, no company's ledger.
+// Ref: #/components/schemas/ConsolidationEntry
+type ConsolidationEntry struct {
+	// Its number within the run.
+	EntryNo int32 `json:"entry_no"`
+	// `intercompany`: a pair's balances on an elimination's accounts reversed, with their difference;
+	// `investment` and `nci`: a member's investment and non-controlling interest (T68h). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Kind        string            `json:"kind"`
+	Elimination OptEliminationRef `json:"elimination"`
+	// Its company: of an intercompany entry, the pair's with the lower code.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code, as the run read it.
+	CompanyCode string `json:"company_code"`
+	// The company's name as it is now.
+	CompanyName string `json:"company_name"`
+	// Of an intercompany entry: the pair's other company.
+	Partner OptTradingPartner `json:"partner"`
+	// Its debit lines summed, in the group currency; its credits are the same amount.
+	Debits Money `json:"debits"`
+	// Its lines, by group account number, company code (none first), company account number and trading
+	// partner code.
+	Lines []ConsolidationEntryLine `json:"lines"`
+}
+
+// GetEntryNo returns the value of EntryNo.
+func (s *ConsolidationEntry) GetEntryNo() int32 {
+	return s.EntryNo
+}
+
+// GetKind returns the value of Kind.
+func (s *ConsolidationEntry) GetKind() string {
+	return s.Kind
+}
+
+// GetElimination returns the value of Elimination.
+func (s *ConsolidationEntry) GetElimination() OptEliminationRef {
+	return s.Elimination
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ConsolidationEntry) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ConsolidationEntry) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ConsolidationEntry) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetPartner returns the value of Partner.
+func (s *ConsolidationEntry) GetPartner() OptTradingPartner {
+	return s.Partner
+}
+
+// GetDebits returns the value of Debits.
+func (s *ConsolidationEntry) GetDebits() Money {
+	return s.Debits
+}
+
+// GetLines returns the value of Lines.
+func (s *ConsolidationEntry) GetLines() []ConsolidationEntryLine {
+	return s.Lines
+}
+
+// SetEntryNo sets the value of EntryNo.
+func (s *ConsolidationEntry) SetEntryNo(val int32) {
+	s.EntryNo = val
+}
+
+// SetKind sets the value of Kind.
+func (s *ConsolidationEntry) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetElimination sets the value of Elimination.
+func (s *ConsolidationEntry) SetElimination(val OptEliminationRef) {
+	s.Elimination = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ConsolidationEntry) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ConsolidationEntry) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ConsolidationEntry) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetPartner sets the value of Partner.
+func (s *ConsolidationEntry) SetPartner(val OptTradingPartner) {
+	s.Partner = val
+}
+
+// SetDebits sets the value of Debits.
+func (s *ConsolidationEntry) SetDebits(val Money) {
+	s.Debits = val
+}
+
+// SetLines sets the value of Lines.
+func (s *ConsolidationEntry) SetLines(val []ConsolidationEntryLine) {
+	s.Lines = val
+}
+
+// A line of an elimination entry: an amount in the group currency, debit positive, on a group account,
+// with the company, company account and trading partner of the translated row it reverses, if any.
+// Ref: #/components/schemas/ConsolidationEntryLine
+type ConsolidationEntryLine struct {
+	// Its number within the entry.
+	LineNo       int32           `json:"line_no"`
+	GroupAccount GroupAccountRef `json:"group_account"`
+	// The company of the row it reverses; absent on an intercompany difference's line, which is the
+	// pair's.
+	LegalEntityID OptUUID `json:"legal_entity_id"`
+	// That company's code, as the run read it.
+	CompanyCode OptString `json:"company_code"`
+	// That company's name as it is now.
+	CompanyName OptString `json:"company_name"`
+	// The company account of the row it reverses.
+	AccountID      OptUUID            `json:"account_id"`
+	Account        OptAssetAccountRef `json:"account"`
+	TradingPartner OptTradingPartner  `json:"trading_partner"`
+	// The amount in the group currency, debit positive.
+	Amount Money `json:"amount"`
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *ConsolidationEntryLine) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetGroupAccount returns the value of GroupAccount.
+func (s *ConsolidationEntryLine) GetGroupAccount() GroupAccountRef {
+	return s.GroupAccount
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ConsolidationEntryLine) GetLegalEntityID() OptUUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ConsolidationEntryLine) GetCompanyCode() OptString {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ConsolidationEntryLine) GetCompanyName() OptString {
+	return s.CompanyName
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *ConsolidationEntryLine) GetAccountID() OptUUID {
+	return s.AccountID
+}
+
+// GetAccount returns the value of Account.
+func (s *ConsolidationEntryLine) GetAccount() OptAssetAccountRef {
+	return s.Account
+}
+
+// GetTradingPartner returns the value of TradingPartner.
+func (s *ConsolidationEntryLine) GetTradingPartner() OptTradingPartner {
+	return s.TradingPartner
+}
+
+// GetAmount returns the value of Amount.
+func (s *ConsolidationEntryLine) GetAmount() Money {
+	return s.Amount
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *ConsolidationEntryLine) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetGroupAccount sets the value of GroupAccount.
+func (s *ConsolidationEntryLine) SetGroupAccount(val GroupAccountRef) {
+	s.GroupAccount = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ConsolidationEntryLine) SetLegalEntityID(val OptUUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ConsolidationEntryLine) SetCompanyCode(val OptString) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ConsolidationEntryLine) SetCompanyName(val OptString) {
+	s.CompanyName = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *ConsolidationEntryLine) SetAccountID(val OptUUID) {
+	s.AccountID = val
+}
+
+// SetAccount sets the value of Account.
+func (s *ConsolidationEntryLine) SetAccount(val OptAssetAccountRef) {
+	s.Account = val
+}
+
+// SetTradingPartner sets the value of TradingPartner.
+func (s *ConsolidationEntryLine) SetTradingPartner(val OptTradingPartner) {
+	s.TradingPartner = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ConsolidationEntryLine) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// One page of a consolidation run's elimination entries, with the totals over the filter.
+// Ref: #/components/schemas/ConsolidationEntryPage
+type ConsolidationEntryPage struct {
+	// The entries on this page, each with its lines.
+	Items []ConsolidationEntry `json:"items"`
+	// The totals of every entry the filter selects, over all pages, one per kind present, in the order
+	// intercompany, investment, nci.
+	Totals []ConsolidationEntryTotal `json:"totals"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ConsolidationEntryPage) GetItems() []ConsolidationEntry {
+	return s.Items
+}
+
+// GetTotals returns the value of Totals.
+func (s *ConsolidationEntryPage) GetTotals() []ConsolidationEntryTotal {
+	return s.Totals
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ConsolidationEntryPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ConsolidationEntryPage) SetItems(val []ConsolidationEntry) {
+	s.Items = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *ConsolidationEntryPage) SetTotals(val []ConsolidationEntryTotal) {
+	s.Totals = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ConsolidationEntryPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ConsolidationEntryPage) listConsolidationEntriesRes() {}
+
+// The entries of one kind summed, in the group currency.
+// Ref: #/components/schemas/ConsolidationEntryTotal
+type ConsolidationEntryTotal struct {
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Kind string `json:"kind"`
+	// The number of entries of the kind.
+	Count int32 `json:"count"`
+	// Their debit lines summed; their credits are the same amount.
+	Debits Money `json:"debits"`
+}
+
+// GetKind returns the value of Kind.
+func (s *ConsolidationEntryTotal) GetKind() string {
+	return s.Kind
+}
+
+// GetCount returns the value of Count.
+func (s *ConsolidationEntryTotal) GetCount() int32 {
+	return s.Count
+}
+
+// GetDebits returns the value of Debits.
+func (s *ConsolidationEntryTotal) GetDebits() Money {
+	return s.Debits
+}
+
+// SetKind sets the value of Kind.
+func (s *ConsolidationEntryTotal) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetCount sets the value of Count.
+func (s *ConsolidationEntryTotal) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetDebits sets the value of Debits.
+func (s *ConsolidationEntryTotal) SetDebits(val Money) {
+	s.Debits = val
+}
+
 // A consolidation group (ADR-0059 §3): a parent company and the subsidiaries it holds directly. From
 // the active configuration.
 // Ref: #/components/schemas/ConsolidationGroup
@@ -22347,7 +22865,8 @@ func (s *ConsolidationMember) SetInvestmentAccount(val AssetAccountRef) {
 
 // A consolidation run of a group for a regular period (ADR-0059 §6): its companies, each with the
 // closing rate it was translated at and its period's status and version when the run read its figures.
-// The translated figures are `GET /v1/consolidation-runs/{id}/balances`.
+// The translated figures are `GET /v1/consolidation-runs/{id}/balances`, the intercompany differences
+// `/differences` and the elimination entries `/entries`.
 // Ref: #/components/schemas/ConsolidationRun
 type ConsolidationRun struct {
 	// The run.
@@ -22365,9 +22884,10 @@ type ConsolidationRun struct {
 	// The period's last day: the closing rate's date.
 	PeriodEnd time.Time `json:"period_end"`
 	// Queued until its workflow starts it, running while its companies are translated, then computed, or
-	// failed with its problem; a computed or failed run may be discarded. final and superseded follow
-	// finalization (ADR-0059 §10). Open enumeration: clients must accept and preserve values not listed
-	// here; values may be added within /v1.
+	// failed with its problem; a computed or failed run may be discarded. A computed run is finalized
+	// (`:finalize`, ADR-0059 §10) as the group's consolidated figures of its period: final, until a later
+	// final run of the period supersedes it (superseded). Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
 	Status  string                     `json:"status"`
 	Problem OptConsolidationRunProblem `json:"problem"`
 	// The configuration version whose group, group chart and mapping the run read
@@ -22384,7 +22904,30 @@ type ConsolidationRun struct {
 	Members []ConsolidationRunMember `json:"members"`
 	// When it was computed; absent before.
 	ComputedAt OptDateTime `json:"computed_at"`
-	// The run's version (ETag).
+	// The number of its intercompany differences per status present
+	// (`GET /v1/consolidation-runs/{id}/differences`), in the order matched, within_tolerance, open,
+	// accepted, outside_group, no_trading_partner; empty until its companies are matched (ADR-0059 §8).
+	DifferenceCounts []ConsolidationDifferenceCount `json:"difference_counts"`
+	// Whether a company's leading-ledger period changed since the run read its figures: its version now
+	// differs from the `period_version` the run recorded (ADR-0059 §10), say by an unlock, a posting and
+	// a relock, or an unlock request. A stale run cannot be finalized, and a stale final run stays final
+	// but no longer shows the ledger's figures; a new run of the period, finalized, supersedes it. Absent
+	// until every company of the run is translated.
+	Stale OptBool `json:"stale"`
+	// Who finalized it (`:finalize`); absent unless it is final or superseded.
+	FinalizedBy OptUUID `json:"finalized_by"`
+	// Their name; absent unless it is final or superseded.
+	FinalizedByName OptString `json:"finalized_by_name"`
+	// When it was finalized; absent unless it is final or superseded.
+	FinalizedAt OptDateTime `json:"finalized_at"`
+	// The later final run of the group and period that superseded it (`GET /v1/consolidation-runs/{id}`);
+	// absent unless it is superseded.
+	SupersededBy OptUUID `json:"superseded_by"`
+	// The final run of the group and period this run superseded when it was finalized; absent when it
+	// superseded none.
+	Supersedes OptUUID `json:"supersedes"`
+	// The run's version (ETag); it moves with every change of the run and of its differences (ADR-0059
+	// §5).
 	Version int32 `json:"version"`
 	// When it was started.
 	CreatedAt time.Time `json:"created_at"`
@@ -22465,6 +23008,41 @@ func (s *ConsolidationRun) GetMembers() []ConsolidationRunMember {
 // GetComputedAt returns the value of ComputedAt.
 func (s *ConsolidationRun) GetComputedAt() OptDateTime {
 	return s.ComputedAt
+}
+
+// GetDifferenceCounts returns the value of DifferenceCounts.
+func (s *ConsolidationRun) GetDifferenceCounts() []ConsolidationDifferenceCount {
+	return s.DifferenceCounts
+}
+
+// GetStale returns the value of Stale.
+func (s *ConsolidationRun) GetStale() OptBool {
+	return s.Stale
+}
+
+// GetFinalizedBy returns the value of FinalizedBy.
+func (s *ConsolidationRun) GetFinalizedBy() OptUUID {
+	return s.FinalizedBy
+}
+
+// GetFinalizedByName returns the value of FinalizedByName.
+func (s *ConsolidationRun) GetFinalizedByName() OptString {
+	return s.FinalizedByName
+}
+
+// GetFinalizedAt returns the value of FinalizedAt.
+func (s *ConsolidationRun) GetFinalizedAt() OptDateTime {
+	return s.FinalizedAt
+}
+
+// GetSupersededBy returns the value of SupersededBy.
+func (s *ConsolidationRun) GetSupersededBy() OptUUID {
+	return s.SupersededBy
+}
+
+// GetSupersedes returns the value of Supersedes.
+func (s *ConsolidationRun) GetSupersedes() OptUUID {
+	return s.Supersedes
 }
 
 // GetVersion returns the value of Version.
@@ -22555,6 +23133,41 @@ func (s *ConsolidationRun) SetMembers(val []ConsolidationRunMember) {
 // SetComputedAt sets the value of ComputedAt.
 func (s *ConsolidationRun) SetComputedAt(val OptDateTime) {
 	s.ComputedAt = val
+}
+
+// SetDifferenceCounts sets the value of DifferenceCounts.
+func (s *ConsolidationRun) SetDifferenceCounts(val []ConsolidationDifferenceCount) {
+	s.DifferenceCounts = val
+}
+
+// SetStale sets the value of Stale.
+func (s *ConsolidationRun) SetStale(val OptBool) {
+	s.Stale = val
+}
+
+// SetFinalizedBy sets the value of FinalizedBy.
+func (s *ConsolidationRun) SetFinalizedBy(val OptUUID) {
+	s.FinalizedBy = val
+}
+
+// SetFinalizedByName sets the value of FinalizedByName.
+func (s *ConsolidationRun) SetFinalizedByName(val OptString) {
+	s.FinalizedByName = val
+}
+
+// SetFinalizedAt sets the value of FinalizedAt.
+func (s *ConsolidationRun) SetFinalizedAt(val OptDateTime) {
+	s.FinalizedAt = val
+}
+
+// SetSupersededBy sets the value of SupersededBy.
+func (s *ConsolidationRun) SetSupersededBy(val OptUUID) {
+	s.SupersededBy = val
+}
+
+// SetSupersedes sets the value of Supersedes.
+func (s *ConsolidationRun) SetSupersedes(val OptUUID) {
+	s.Supersedes = val
 }
 
 // SetVersion sets the value of Version.
@@ -25766,6 +26379,22 @@ type CreateWebhookSubscriptionUnprocessableEntity Problem
 
 func (*CreateWebhookSubscriptionUnprocessableEntity) createWebhookSubscriptionRes() {}
 
+type CreateYearCloseBadRequest Problem
+
+func (*CreateYearCloseBadRequest) createYearCloseRes() {}
+
+type CreateYearCloseForbidden Problem
+
+func (*CreateYearCloseForbidden) createYearCloseRes() {}
+
+type CreateYearClosePreconditionRequired Problem
+
+func (*CreateYearClosePreconditionRequired) createYearCloseRes() {}
+
+type CreateYearCloseUnprocessableEntity Problem
+
+func (*CreateYearCloseUnprocessableEntity) createYearCloseRes() {}
+
 // The caller (getCurrentPrincipal): advisory, as the API decides every call.
 // Ref: #/components/schemas/CurrentPrincipal
 type CurrentPrincipal struct {
@@ -27434,7 +28063,8 @@ func (s *DiscardConsolidationRunOKHeaders) SetResponse(val ConsolidationRun) {
 	s.Response = val
 }
 
-func (*DiscardConsolidationRunOKHeaders) discardConsolidationRunRes() {}
+func (*DiscardConsolidationRunOKHeaders) discardConsolidationRunRes()  {}
+func (*DiscardConsolidationRunOKHeaders) finalizeConsolidationRunRes() {}
 
 type DiscardConsolidationRunPreconditionFailed Problem
 
@@ -28042,7 +28672,16 @@ type EInvoice struct {
 	ReceivedAt time.Time `json:"received_at"`
 	// When the provider was told it is kept; null until then (the next fetch acknowledges it again).
 	AcknowledgedAt NilDateTime `json:"acknowledged_at"`
-	Version        int32       `json:"version"`
+	// The SHA-256 of other bytes the provider delivered later under the same message id, the latest such,
+	// hex; null while it delivered none. The document keeps its first bytes, the legal original (`sha256`,
+	// `getEInvoiceContent`); a person takes a change up with the supplier or the provider.
+	ChangedSHA256 NilString `json:"changed_sha256"`
+	// When a fetch found those bytes; null with `changed_sha256`.
+	ChangedAt NilDateTime `json:"changed_at"`
+	// The fetch that found those bytes: its Operation's id, which lists the document under
+	// `fetch_operation_id` too; null with `changed_sha256`.
+	ChangedFetchOperationID NilUUID `json:"changed_fetch_operation_id"`
+	Version                 int32   `json:"version"`
 }
 
 // GetID returns the value of ID.
@@ -28113,6 +28752,21 @@ func (s *EInvoice) GetReceivedAt() time.Time {
 // GetAcknowledgedAt returns the value of AcknowledgedAt.
 func (s *EInvoice) GetAcknowledgedAt() NilDateTime {
 	return s.AcknowledgedAt
+}
+
+// GetChangedSHA256 returns the value of ChangedSHA256.
+func (s *EInvoice) GetChangedSHA256() NilString {
+	return s.ChangedSHA256
+}
+
+// GetChangedAt returns the value of ChangedAt.
+func (s *EInvoice) GetChangedAt() NilDateTime {
+	return s.ChangedAt
+}
+
+// GetChangedFetchOperationID returns the value of ChangedFetchOperationID.
+func (s *EInvoice) GetChangedFetchOperationID() NilUUID {
+	return s.ChangedFetchOperationID
 }
 
 // GetVersion returns the value of Version.
@@ -28188,6 +28842,21 @@ func (s *EInvoice) SetReceivedAt(val time.Time) {
 // SetAcknowledgedAt sets the value of AcknowledgedAt.
 func (s *EInvoice) SetAcknowledgedAt(val NilDateTime) {
 	s.AcknowledgedAt = val
+}
+
+// SetChangedSHA256 sets the value of ChangedSHA256.
+func (s *EInvoice) SetChangedSHA256(val NilString) {
+	s.ChangedSHA256 = val
+}
+
+// SetChangedAt sets the value of ChangedAt.
+func (s *EInvoice) SetChangedAt(val NilDateTime) {
+	s.ChangedAt = val
+}
+
+// SetChangedFetchOperationID sets the value of ChangedFetchOperationID.
+func (s *EInvoice) SetChangedFetchOperationID(val NilUUID) {
+	s.ChangedFetchOperationID = val
 }
 
 // SetVersion sets the value of Version.
@@ -30035,6 +30704,30 @@ func (*FileTaxReturnPreconditionRequired) fileTaxReturnRes() {}
 type FileTaxReturnUnprocessableEntity Problem
 
 func (*FileTaxReturnUnprocessableEntity) fileTaxReturnRes() {}
+
+type FinalizeConsolidationRunBadRequest Problem
+
+func (*FinalizeConsolidationRunBadRequest) finalizeConsolidationRunRes() {}
+
+type FinalizeConsolidationRunForbidden Problem
+
+func (*FinalizeConsolidationRunForbidden) finalizeConsolidationRunRes() {}
+
+type FinalizeConsolidationRunNotFound Problem
+
+func (*FinalizeConsolidationRunNotFound) finalizeConsolidationRunRes() {}
+
+type FinalizeConsolidationRunPreconditionFailed Problem
+
+func (*FinalizeConsolidationRunPreconditionFailed) finalizeConsolidationRunRes() {}
+
+type FinalizeConsolidationRunPreconditionRequired Problem
+
+func (*FinalizeConsolidationRunPreconditionRequired) finalizeConsolidationRunRes() {}
+
+type FinalizeConsolidationRunUnprocessableEntity Problem
+
+func (*FinalizeConsolidationRunUnprocessableEntity) finalizeConsolidationRunRes() {}
 
 // The posting status of one fiscal period for one legal entity and ledger.
 // Ref: #/components/schemas/FiscalPeriod
@@ -32196,6 +32889,35 @@ type GetEInvoiceBadRequest Problem
 
 func (*GetEInvoiceBadRequest) getEInvoiceRes() {}
 
+type GetEInvoiceContentBadRequest Problem
+
+func (*GetEInvoiceContentBadRequest) getEInvoiceContentRes() {}
+
+type GetEInvoiceContentForbidden Problem
+
+func (*GetEInvoiceContentForbidden) getEInvoiceContentRes() {}
+
+type GetEInvoiceContentNotFound Problem
+
+func (*GetEInvoiceContentNotFound) getEInvoiceContentRes() {}
+
+// The document bytes.
+type GetEInvoiceContentOK struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetEInvoiceContentOK) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+func (*GetEInvoiceContentOK) getEInvoiceContentRes() {}
+
 type GetEInvoiceForbidden Problem
 
 func (*GetEInvoiceForbidden) getEInvoiceRes() {}
@@ -33746,6 +34468,46 @@ func (s *GetWebhookSubscriptionOKHeaders) SetResponse(val WebhookSubscription) {
 }
 
 func (*GetWebhookSubscriptionOKHeaders) getWebhookSubscriptionRes() {}
+
+type GetYearCloseBadRequest Problem
+
+func (*GetYearCloseBadRequest) getYearCloseRes() {}
+
+type GetYearCloseForbidden Problem
+
+func (*GetYearCloseForbidden) getYearCloseRes() {}
+
+type GetYearCloseNotFound Problem
+
+func (*GetYearCloseNotFound) getYearCloseRes() {}
+
+// GetYearCloseOKHeaders wraps YearClose with response headers.
+type GetYearCloseOKHeaders struct {
+	ETag     OptString
+	Response YearClose
+}
+
+// GetETag returns the value of ETag.
+func (s *GetYearCloseOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetYearCloseOKHeaders) GetResponse() YearClose {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetYearCloseOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetYearCloseOKHeaders) SetResponse(val YearClose) {
+	s.Response = val
+}
+
+func (*GetYearCloseOKHeaders) getYearCloseRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/GoodsReceipt
@@ -36502,6 +37264,374 @@ func (*ImportBankStatementsPreconditionRequired) importBankStatementsRes() {}
 type ImportBankStatementsUnprocessableEntity Problem
 
 func (*ImportBankStatementsUnprocessableEntity) importBankStatementsRes() {}
+
+// A consolidation run's intercompany difference (ADR-0059 §8): a pair of its companies on an
+// elimination's accounts (`matched`, `within_tolerance`, `open`), or a company's rows on them naming a
+// company outside the run (`outside_group`) or none (`no_trading_partner`). Amounts in the group
+// currency, debit positive.
+// Ref: #/components/schemas/IntercompanyDifference
+type IntercompanyDifference struct {
+	// The difference.
+	ID uuid.UUID `json:"id"`
+	// Its number within the run, in the list's order.
+	LineNo      int32          `json:"line_no"`
+	Elimination EliminationRef `json:"elimination"`
+	// The company: of a pair, the one with the lower company code.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code, as the run read it.
+	CompanyCode string `json:"company_code"`
+	// The company's name as it is now.
+	CompanyName string `json:"company_name"`
+	// The partner: the pair's other company, or the trading partner outside the run; absent for
+	// `no_trading_partner`.
+	Partner OptTradingPartner `json:"partner"`
+	// `matched`: the difference is zero; `within_tolerance`: its absolute value is at most the tolerance;
+	// `open`: above it, which stops finalization until it is accepted (`:accept`) or the companies correct
+	// their postings and run the group again; `accepted`: an open difference a person accepted, with who,
+	// when and why; `outside_group`, `no_trading_partner`: rows the run does not eliminate. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Status string `json:"status"`
+	// The company's translated rows on the elimination's accounts naming the partner (or, for
+	// `no_trading_partner`, none) summed.
+	Amount Money `json:"amount"`
+	// Of a pair: the partner's translated rows on them naming the company summed.
+	PartnerAmount OptMoney `json:"partner_amount"`
+	// Of a pair: the amount and the partner amount summed, eliminated to the elimination's difference
+	// account.
+	Difference OptMoney `json:"difference"`
+	// Of a pair: the elimination's tolerance, in the configuration version the run read.
+	Tolerance OptMoney `json:"tolerance"`
+	// Who accepted it; absent unless it is accepted.
+	AcceptedBy OptUUID `json:"accepted_by"`
+	// Their name; absent unless it is accepted.
+	AcceptedByName OptString `json:"accepted_by_name"`
+	// When it was accepted; absent unless it is accepted.
+	AcceptedAt OptDateTime `json:"accepted_at"`
+	// Why it was accepted, as given; absent unless it is accepted.
+	Reason OptString `json:"reason"`
+	// The difference's version (its ETag, `If-Match` of `:accept`).
+	Version int32 `json:"version"`
+}
+
+// GetID returns the value of ID.
+func (s *IntercompanyDifference) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *IntercompanyDifference) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetElimination returns the value of Elimination.
+func (s *IntercompanyDifference) GetElimination() EliminationRef {
+	return s.Elimination
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *IntercompanyDifference) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *IntercompanyDifference) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *IntercompanyDifference) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetPartner returns the value of Partner.
+func (s *IntercompanyDifference) GetPartner() OptTradingPartner {
+	return s.Partner
+}
+
+// GetStatus returns the value of Status.
+func (s *IntercompanyDifference) GetStatus() string {
+	return s.Status
+}
+
+// GetAmount returns the value of Amount.
+func (s *IntercompanyDifference) GetAmount() Money {
+	return s.Amount
+}
+
+// GetPartnerAmount returns the value of PartnerAmount.
+func (s *IntercompanyDifference) GetPartnerAmount() OptMoney {
+	return s.PartnerAmount
+}
+
+// GetDifference returns the value of Difference.
+func (s *IntercompanyDifference) GetDifference() OptMoney {
+	return s.Difference
+}
+
+// GetTolerance returns the value of Tolerance.
+func (s *IntercompanyDifference) GetTolerance() OptMoney {
+	return s.Tolerance
+}
+
+// GetAcceptedBy returns the value of AcceptedBy.
+func (s *IntercompanyDifference) GetAcceptedBy() OptUUID {
+	return s.AcceptedBy
+}
+
+// GetAcceptedByName returns the value of AcceptedByName.
+func (s *IntercompanyDifference) GetAcceptedByName() OptString {
+	return s.AcceptedByName
+}
+
+// GetAcceptedAt returns the value of AcceptedAt.
+func (s *IntercompanyDifference) GetAcceptedAt() OptDateTime {
+	return s.AcceptedAt
+}
+
+// GetReason returns the value of Reason.
+func (s *IntercompanyDifference) GetReason() OptString {
+	return s.Reason
+}
+
+// GetVersion returns the value of Version.
+func (s *IntercompanyDifference) GetVersion() int32 {
+	return s.Version
+}
+
+// SetID sets the value of ID.
+func (s *IntercompanyDifference) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *IntercompanyDifference) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetElimination sets the value of Elimination.
+func (s *IntercompanyDifference) SetElimination(val EliminationRef) {
+	s.Elimination = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *IntercompanyDifference) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *IntercompanyDifference) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *IntercompanyDifference) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetPartner sets the value of Partner.
+func (s *IntercompanyDifference) SetPartner(val OptTradingPartner) {
+	s.Partner = val
+}
+
+// SetStatus sets the value of Status.
+func (s *IntercompanyDifference) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *IntercompanyDifference) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetPartnerAmount sets the value of PartnerAmount.
+func (s *IntercompanyDifference) SetPartnerAmount(val OptMoney) {
+	s.PartnerAmount = val
+}
+
+// SetDifference sets the value of Difference.
+func (s *IntercompanyDifference) SetDifference(val OptMoney) {
+	s.Difference = val
+}
+
+// SetTolerance sets the value of Tolerance.
+func (s *IntercompanyDifference) SetTolerance(val OptMoney) {
+	s.Tolerance = val
+}
+
+// SetAcceptedBy sets the value of AcceptedBy.
+func (s *IntercompanyDifference) SetAcceptedBy(val OptUUID) {
+	s.AcceptedBy = val
+}
+
+// SetAcceptedByName sets the value of AcceptedByName.
+func (s *IntercompanyDifference) SetAcceptedByName(val OptString) {
+	s.AcceptedByName = val
+}
+
+// SetAcceptedAt sets the value of AcceptedAt.
+func (s *IntercompanyDifference) SetAcceptedAt(val OptDateTime) {
+	s.AcceptedAt = val
+}
+
+// SetReason sets the value of Reason.
+func (s *IntercompanyDifference) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// SetVersion sets the value of Version.
+func (s *IntercompanyDifference) SetVersion(val int32) {
+	s.Version = val
+}
+
+// IntercompanyDifferenceHeaders wraps IntercompanyDifference with response headers.
+type IntercompanyDifferenceHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           IntercompanyDifference
+}
+
+// GetETag returns the value of ETag.
+func (s *IntercompanyDifferenceHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *IntercompanyDifferenceHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *IntercompanyDifferenceHeaders) GetResponse() IntercompanyDifference {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *IntercompanyDifferenceHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *IntercompanyDifferenceHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *IntercompanyDifferenceHeaders) SetResponse(val IntercompanyDifference) {
+	s.Response = val
+}
+
+func (*IntercompanyDifferenceHeaders) acceptIntercompanyDifferenceRes() {}
+
+// One page of a consolidation run's intercompany differences, with the totals over the filter.
+// Ref: #/components/schemas/IntercompanyDifferencePage
+type IntercompanyDifferencePage struct {
+	// The differences on this page.
+	Items []IntercompanyDifference `json:"items"`
+	// The totals of every difference the filter selects, over all pages, one per status present, in the
+	// order matched, within_tolerance, open, outside_group, no_trading_partner.
+	Totals []IntercompanyDifferenceTotal `json:"totals"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *IntercompanyDifferencePage) GetItems() []IntercompanyDifference {
+	return s.Items
+}
+
+// GetTotals returns the value of Totals.
+func (s *IntercompanyDifferencePage) GetTotals() []IntercompanyDifferenceTotal {
+	return s.Totals
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *IntercompanyDifferencePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *IntercompanyDifferencePage) SetItems(val []IntercompanyDifference) {
+	s.Items = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *IntercompanyDifferencePage) SetTotals(val []IntercompanyDifferenceTotal) {
+	s.Totals = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *IntercompanyDifferencePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*IntercompanyDifferencePage) listIntercompanyDifferencesRes() {}
+
+// The differences of one status summed, in the group currency, debit positive.
+// Ref: #/components/schemas/IntercompanyDifferenceTotal
+type IntercompanyDifferenceTotal struct {
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Status string `json:"status"`
+	// The number of differences of the status.
+	Count int32 `json:"count"`
+	// Their amounts summed.
+	Amount Money `json:"amount"`
+	// Their partners' amounts summed; absent for `outside_group` and `no_trading_partner`.
+	PartnerAmount OptMoney `json:"partner_amount"`
+	// Their differences summed; absent for `outside_group` and `no_trading_partner`.
+	Difference OptMoney `json:"difference"`
+}
+
+// GetStatus returns the value of Status.
+func (s *IntercompanyDifferenceTotal) GetStatus() string {
+	return s.Status
+}
+
+// GetCount returns the value of Count.
+func (s *IntercompanyDifferenceTotal) GetCount() int32 {
+	return s.Count
+}
+
+// GetAmount returns the value of Amount.
+func (s *IntercompanyDifferenceTotal) GetAmount() Money {
+	return s.Amount
+}
+
+// GetPartnerAmount returns the value of PartnerAmount.
+func (s *IntercompanyDifferenceTotal) GetPartnerAmount() OptMoney {
+	return s.PartnerAmount
+}
+
+// GetDifference returns the value of Difference.
+func (s *IntercompanyDifferenceTotal) GetDifference() OptMoney {
+	return s.Difference
+}
+
+// SetStatus sets the value of Status.
+func (s *IntercompanyDifferenceTotal) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetCount sets the value of Count.
+func (s *IntercompanyDifferenceTotal) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *IntercompanyDifferenceTotal) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetPartnerAmount sets the value of PartnerAmount.
+func (s *IntercompanyDifferenceTotal) SetPartnerAmount(val OptMoney) {
+	s.PartnerAmount = val
+}
+
+// SetDifference sets the value of Difference.
+func (s *IntercompanyDifferenceTotal) SetDifference(val OptMoney) {
+	s.Difference = val
+}
 
 // Payment terms frozen when a document posted (T36b), as SAP keeps ZTERM, ZFBDT and ZBD1T..ZBD3T: a
 // later change to the payment term changes neither the net due date nor the discounts.
@@ -40854,6 +41984,18 @@ type ListConsolidationBalancesNotFound Problem
 
 func (*ListConsolidationBalancesNotFound) listConsolidationBalancesRes() {}
 
+type ListConsolidationEntriesBadRequest Problem
+
+func (*ListConsolidationEntriesBadRequest) listConsolidationEntriesRes() {}
+
+type ListConsolidationEntriesForbidden Problem
+
+func (*ListConsolidationEntriesForbidden) listConsolidationEntriesRes() {}
+
+type ListConsolidationEntriesNotFound Problem
+
+func (*ListConsolidationEntriesNotFound) listConsolidationEntriesRes() {}
+
 type ListConsolidationGroupsBadRequest Problem
 
 func (*ListConsolidationGroupsBadRequest) listConsolidationGroupsRes() {}
@@ -41049,6 +42191,18 @@ func (*ListHouseBanksBadRequest) listHouseBanksRes() {}
 type ListHouseBanksForbidden Problem
 
 func (*ListHouseBanksForbidden) listHouseBanksRes() {}
+
+type ListIntercompanyDifferencesBadRequest Problem
+
+func (*ListIntercompanyDifferencesBadRequest) listIntercompanyDifferencesRes() {}
+
+type ListIntercompanyDifferencesForbidden Problem
+
+func (*ListIntercompanyDifferencesForbidden) listIntercompanyDifferencesRes() {}
+
+type ListIntercompanyDifferencesNotFound Problem
+
+func (*ListIntercompanyDifferencesNotFound) listIntercompanyDifferencesRes() {}
 
 type ListJournalEntriesBadRequest Problem
 
@@ -41493,6 +42647,14 @@ func (*ListWebhookSubscriptionsBadRequest) listWebhookSubscriptionsRes() {}
 type ListWebhookSubscriptionsForbidden Problem
 
 func (*ListWebhookSubscriptionsForbidden) listWebhookSubscriptionsRes() {}
+
+type ListYearClosesBadRequest Problem
+
+func (*ListYearClosesBadRequest) listYearClosesRes() {}
+
+type ListYearClosesForbidden Problem
+
+func (*ListYearClosesForbidden) listYearClosesRes() {}
 
 type LockCostCenterBadRequest Problem
 
@@ -43360,8 +44522,11 @@ type MigrationDiff struct {
 	// `order item <EBELN>/<EBELP>`, `GR/IR of order item <EBELN>/<EBELP>`, `open items of vendor <LIFNR>`
 	// or `open items of partner <id> (<name>)` (the number of open payable items),
 	// `<currency> items of vendor <LIFNR>` or `<currency> items of partner <id> (<name>)` (the open items
-	// in a foreign document currency, in it), or `cost center <KOKRS>/<KOSTL>` or
-	// `profit center <KOKRS>/<PRCTR>` (a center's periods, ADR-0050 §10).
+	// in a foreign document currency, in it), `cost center <KOKRS>/<KOSTL>` or
+	// `profit center <KOKRS>/<PRCTR>` (a center's periods, ADR-0050 §10), or
+	// `cost center total <KOKRS>/<KOSTL>`, `profit center total <KOKRS>/<PRCTR>` or
+	// `segment total <SEGMENT>` (the migrated lines' total on profit and loss accounts against the center
+	// reports', documents mode).
 	Key string `json:"key"`
 	// SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a count of open items, a
 	// GR/IR position as its balance and quantity (`750.00 EUR, quantity 5`), a bank account as the load
@@ -59859,6 +61024,30 @@ type ReopenCloseTaskUnprocessableEntity Problem
 
 func (*ReopenCloseTaskUnprocessableEntity) reopenCloseTaskRes() {}
 
+type ReopenYearCloseTaskBadRequest Problem
+
+func (*ReopenYearCloseTaskBadRequest) reopenYearCloseTaskRes() {}
+
+type ReopenYearCloseTaskForbidden Problem
+
+func (*ReopenYearCloseTaskForbidden) reopenYearCloseTaskRes() {}
+
+type ReopenYearCloseTaskNotFound Problem
+
+func (*ReopenYearCloseTaskNotFound) reopenYearCloseTaskRes() {}
+
+type ReopenYearCloseTaskPreconditionFailed Problem
+
+func (*ReopenYearCloseTaskPreconditionFailed) reopenYearCloseTaskRes() {}
+
+type ReopenYearCloseTaskPreconditionRequired Problem
+
+func (*ReopenYearCloseTaskPreconditionRequired) reopenYearCloseTaskRes() {}
+
+type ReopenYearCloseTaskUnprocessableEntity Problem
+
+func (*ReopenYearCloseTaskUnprocessableEntity) reopenYearCloseTaskRes() {}
+
 type ReplayWebhookDeliveriesBadRequest Problem
 
 func (*ReplayWebhookDeliveriesBadRequest) replayWebhookDeliveriesRes() {}
@@ -60713,6 +61902,10 @@ type RevaluationItem struct {
 	AccountID uuid.UUID `json:"account_id"`
 	// The open item's supplier or customer; absent for a balance.
 	PartnerID OptUUID `json:"partner_id"`
+	// The item's trading partner (ADR-0059 §4): an open item's is its journal line's; a balance is one
+	// per account, currency and trading partner, so an intercompany balance is valued apart from the
+	// account's other lines. Absent when it has none.
+	TradingPartner OptTradingPartner `json:"trading_partner"`
 	// The partner's number (its business partner's `number`), as it is now; absent for a balance, and for
 	// a caller who may not read business partners (`partner.supplier.read`), who gets `partner_id` alone.
 	PartnerNumber OptString `json:"partner_number"`
@@ -60766,6 +61959,11 @@ func (s *RevaluationItem) GetAccountID() uuid.UUID {
 // GetPartnerID returns the value of PartnerID.
 func (s *RevaluationItem) GetPartnerID() OptUUID {
 	return s.PartnerID
+}
+
+// GetTradingPartner returns the value of TradingPartner.
+func (s *RevaluationItem) GetTradingPartner() OptTradingPartner {
+	return s.TradingPartner
 }
 
 // GetPartnerNumber returns the value of PartnerNumber.
@@ -60866,6 +62064,11 @@ func (s *RevaluationItem) SetAccountID(val uuid.UUID) {
 // SetPartnerID sets the value of PartnerID.
 func (s *RevaluationItem) SetPartnerID(val OptUUID) {
 	s.PartnerID = val
+}
+
+// SetTradingPartner sets the value of TradingPartner.
+func (s *RevaluationItem) SetTradingPartner(val OptTradingPartner) {
+	s.TradingPartner = val
 }
 
 // SetPartnerNumber sets the value of PartnerNumber.
@@ -61397,11 +62600,15 @@ func (s *RevaluationRunPage) SetNextPageToken(val OptString) {
 
 func (*RevaluationRunPage) listRevaluationRunsRes() {}
 
-// The items of one account and currency with a gain, or with a loss, summed.
+// The items of one account, currency and trading partner with a gain, or with a loss, summed. A run
+// posts each total as two lines, the difference and its offset, both carrying the total's trading
+// partner (ADR-0059 §4).
 // Ref: #/components/schemas/RevaluationTotal
 type RevaluationTotal struct {
 	// The revalued account.
 	AccountID uuid.UUID `json:"account_id"`
+	// The items' trading partner; absent for the items naming none.
+	TradingPartner OptTradingPartner `json:"trading_partner"`
 	// Transaction currency (ISO 4217).
 	Currency string `json:"currency"`
 	// Gain or loss.
@@ -61427,6 +62634,11 @@ type RevaluationTotal struct {
 // GetAccountID returns the value of AccountID.
 func (s *RevaluationTotal) GetAccountID() uuid.UUID {
 	return s.AccountID
+}
+
+// GetTradingPartner returns the value of TradingPartner.
+func (s *RevaluationTotal) GetTradingPartner() OptTradingPartner {
+	return s.TradingPartner
 }
 
 // GetCurrency returns the value of Currency.
@@ -61482,6 +62694,11 @@ func (s *RevaluationTotal) GetDifferenceGc() Money {
 // SetAccountID sets the value of AccountID.
 func (s *RevaluationTotal) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
+}
+
+// SetTradingPartner sets the value of TradingPartner.
+func (s *RevaluationTotal) SetTradingPartner(val OptTradingPartner) {
+	s.TradingPartner = val
 }
 
 // SetCurrency sets the value of Currency.
@@ -63077,10 +64294,12 @@ func (*ServiceUnavailableHeaders) cancelRevaluationRunRes()                  {}
 func (*ServiceUnavailableHeaders) cancelSupplierInvoiceRes()                 {}
 func (*ServiceUnavailableHeaders) captureSupplierInvoiceRes()                {}
 func (*ServiceUnavailableHeaders) checkCloseTaskRes()                        {}
+func (*ServiceUnavailableHeaders) checkYearCloseTaskRes()                    {}
 func (*ServiceUnavailableHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*ServiceUnavailableHeaders) closeFiscalPeriodRes()                     {}
 func (*ServiceUnavailableHeaders) closePurchaseOrderRes()                    {}
 func (*ServiceUnavailableHeaders) completeCloseTaskRes()                     {}
+func (*ServiceUnavailableHeaders) completeYearCloseTaskRes()                 {}
 func (*ServiceUnavailableHeaders) createAssetAcquisitionRes()                {}
 func (*ServiceUnavailableHeaders) createAssetRes()                           {}
 func (*ServiceUnavailableHeaders) createAssetRetirementRes()                 {}
@@ -63121,6 +64340,7 @@ func (*ServiceUnavailableHeaders) createSupplierInvoiceRes()                 {}
 func (*ServiceUnavailableHeaders) createUploadRes()                          {}
 func (*ServiceUnavailableHeaders) createVarianceCommentRes()                 {}
 func (*ServiceUnavailableHeaders) createWebhookSubscriptionRes()             {}
+func (*ServiceUnavailableHeaders) createYearCloseRes()                       {}
 func (*ServiceUnavailableHeaders) decideRecommendationRes()                  {}
 func (*ServiceUnavailableHeaders) deleteWebhookSubscriptionRes()             {}
 func (*ServiceUnavailableHeaders) disableConnectorRes()                      {}
@@ -63134,6 +64354,7 @@ func (*ServiceUnavailableHeaders) excludeBankStatementLineRes()              {}
 func (*ServiceUnavailableHeaders) fetchEInvoicesRes()                        {}
 func (*ServiceUnavailableHeaders) fileTaxReturnRes()                         {}
 func (*ServiceUnavailableHeaders) getBankStatementFileRes()                  {}
+func (*ServiceUnavailableHeaders) getEInvoiceContentRes()                    {}
 func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes()            {}
 func (*ServiceUnavailableHeaders) grantRolePermissionRes()                   {}
 func (*ServiceUnavailableHeaders) holdSupplierInvoiceRes()                   {}
@@ -63188,6 +64409,7 @@ func (*ServiceUnavailableHeaders) removeHierarchyNodeRes()                   {}
 func (*ServiceUnavailableHeaders) renameHierarchyNodeRes()                   {}
 func (*ServiceUnavailableHeaders) renewContractRes()                         {}
 func (*ServiceUnavailableHeaders) reopenCloseTaskRes()                       {}
+func (*ServiceUnavailableHeaders) reopenYearCloseTaskRes()                   {}
 func (*ServiceUnavailableHeaders) replayWebhookDeliveriesRes()               {}
 func (*ServiceUnavailableHeaders) reportBankFileStatusRes()                  {}
 func (*ServiceUnavailableHeaders) requestBankAccountChangeRes()              {}
@@ -63241,6 +64463,7 @@ func (*ServiceUnavailableHeaders) updateRoleRes()                            {}
 func (*ServiceUnavailableHeaders) updateSegmentRes()                         {}
 func (*ServiceUnavailableHeaders) updateSupplierInvoiceRes()                 {}
 func (*ServiceUnavailableHeaders) updateWebhookSubscriptionRes()             {}
+func (*ServiceUnavailableHeaders) updateYearCloseTaskRes()                   {}
 func (*ServiceUnavailableHeaders) uploadMemoRecordsRes()                     {}
 func (*ServiceUnavailableHeaders) verifyAuditChainRes()                      {}
 func (*ServiceUnavailableHeaders) withdrawChangeRequestRes()                 {}
@@ -67417,6 +68640,7 @@ func (s *TooManyRequestsHeaders) SetResponse(val Problem) {
 func (*TooManyRequestsHeaders) acceptBankStatementGapRes()                {}
 func (*TooManyRequestsHeaders) acceptBankStatementLineProposalRes()       {}
 func (*TooManyRequestsHeaders) acceptForecastVarianceCommentProposalRes() {}
+func (*TooManyRequestsHeaders) acceptIntercompanyDifferenceRes()          {}
 func (*TooManyRequestsHeaders) acceptMemoRecordProposalRes()              {}
 func (*TooManyRequestsHeaders) acceptVarianceCommentRes()                 {}
 func (*TooManyRequestsHeaders) activateChangeRequestRes()                 {}
@@ -67445,10 +68669,12 @@ func (*TooManyRequestsHeaders) cancelRevaluationRunRes()                  {}
 func (*TooManyRequestsHeaders) cancelSupplierInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) captureSupplierInvoiceRes()                {}
 func (*TooManyRequestsHeaders) checkCloseTaskRes()                        {}
+func (*TooManyRequestsHeaders) checkYearCloseTaskRes()                    {}
 func (*TooManyRequestsHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*TooManyRequestsHeaders) closeFiscalPeriodRes()                     {}
 func (*TooManyRequestsHeaders) closePurchaseOrderRes()                    {}
 func (*TooManyRequestsHeaders) completeCloseTaskRes()                     {}
+func (*TooManyRequestsHeaders) completeYearCloseTaskRes()                 {}
 func (*TooManyRequestsHeaders) createAssetAcquisitionRes()                {}
 func (*TooManyRequestsHeaders) createAssetRes()                           {}
 func (*TooManyRequestsHeaders) createAssetRetirementRes()                 {}
@@ -67490,6 +68716,7 @@ func (*TooManyRequestsHeaders) createSupplierInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) createUploadRes()                          {}
 func (*TooManyRequestsHeaders) createVarianceCommentRes()                 {}
 func (*TooManyRequestsHeaders) createWebhookSubscriptionRes()             {}
+func (*TooManyRequestsHeaders) createYearCloseRes()                       {}
 func (*TooManyRequestsHeaders) decideRecommendationRes()                  {}
 func (*TooManyRequestsHeaders) deleteWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) disableConnectorRes()                      {}
@@ -67504,6 +68731,7 @@ func (*TooManyRequestsHeaders) endSodRuleRes()                            {}
 func (*TooManyRequestsHeaders) excludeBankStatementLineRes()              {}
 func (*TooManyRequestsHeaders) fetchEInvoicesRes()                        {}
 func (*TooManyRequestsHeaders) fileTaxReturnRes()                         {}
+func (*TooManyRequestsHeaders) finalizeConsolidationRunRes()              {}
 func (*TooManyRequestsHeaders) getAccountRes()                            {}
 func (*TooManyRequestsHeaders) getAccrualProposalRes()                    {}
 func (*TooManyRequestsHeaders) getAgentSessionRes()                       {}
@@ -67545,6 +68773,7 @@ func (*TooManyRequestsHeaders) getCostCenterRes()                         {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                   {}
 func (*TooManyRequestsHeaders) getDepreciationRunRes()                    {}
 func (*TooManyRequestsHeaders) getDownPaymentRequestRes()                 {}
+func (*TooManyRequestsHeaders) getEInvoiceContentRes()                    {}
 func (*TooManyRequestsHeaders) getEInvoiceRes()                           {}
 func (*TooManyRequestsHeaders) getEntryTemplateRes()                      {}
 func (*TooManyRequestsHeaders) getExchangeRateRes()                       {}
@@ -67594,6 +68823,7 @@ func (*TooManyRequestsHeaders) getUploadRes()                             {}
 func (*TooManyRequestsHeaders) getVarianceCommentRes()                    {}
 func (*TooManyRequestsHeaders) getWebhookDeliveryRes()                    {}
 func (*TooManyRequestsHeaders) getWebhookSubscriptionRes()                {}
+func (*TooManyRequestsHeaders) getYearCloseRes()                          {}
 func (*TooManyRequestsHeaders) grantRolePermissionRes()                   {}
 func (*TooManyRequestsHeaders) holdSupplierInvoiceRes()                   {}
 func (*TooManyRequestsHeaders) importBankStatementsRes()                  {}
@@ -67631,6 +68861,7 @@ func (*TooManyRequestsHeaders) listCompanyAccessRes()                     {}
 func (*TooManyRequestsHeaders) listConfigVersionsRes()                    {}
 func (*TooManyRequestsHeaders) listConnectorsRes()                        {}
 func (*TooManyRequestsHeaders) listConsolidationBalancesRes()             {}
+func (*TooManyRequestsHeaders) listConsolidationEntriesRes()              {}
 func (*TooManyRequestsHeaders) listConsolidationGroupsRes()               {}
 func (*TooManyRequestsHeaders) listConsolidationRunsRes()                 {}
 func (*TooManyRequestsHeaders) listContractsRes()                         {}
@@ -67653,6 +68884,7 @@ func (*TooManyRequestsHeaders) listGrIrClearingsRes()                     {}
 func (*TooManyRequestsHeaders) listGroupAccountsRes()                     {}
 func (*TooManyRequestsHeaders) listHierarchiesRes()                       {}
 func (*TooManyRequestsHeaders) listHouseBanksRes()                        {}
+func (*TooManyRequestsHeaders) listIntercompanyDifferencesRes()           {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()                    {}
 func (*TooManyRequestsHeaders) listLedgerGroupsRes()                      {}
 func (*TooManyRequestsHeaders) listLedgerReconciliationEntriesRes()       {}
@@ -67701,6 +68933,7 @@ func (*TooManyRequestsHeaders) listTaxReturnsRes()                        {}
 func (*TooManyRequestsHeaders) listVarianceCommentsRes()                  {}
 func (*TooManyRequestsHeaders) listWebhookDeliveriesRes()                 {}
 func (*TooManyRequestsHeaders) listWebhookSubscriptionsRes()              {}
+func (*TooManyRequestsHeaders) listYearClosesRes()                        {}
 func (*TooManyRequestsHeaders) lockCostCenterRes()                        {}
 func (*TooManyRequestsHeaders) lockFiscalPeriodRes()                      {}
 func (*TooManyRequestsHeaders) lockPlanCategoryRes()                      {}
@@ -67753,6 +68986,7 @@ func (*TooManyRequestsHeaders) removeHierarchyNodeRes()                   {}
 func (*TooManyRequestsHeaders) renameHierarchyNodeRes()                   {}
 func (*TooManyRequestsHeaders) renewContractRes()                         {}
 func (*TooManyRequestsHeaders) reopenCloseTaskRes()                       {}
+func (*TooManyRequestsHeaders) reopenYearCloseTaskRes()                   {}
 func (*TooManyRequestsHeaders) replayWebhookDeliveriesRes()               {}
 func (*TooManyRequestsHeaders) reportBankFileStatusRes()                  {}
 func (*TooManyRequestsHeaders) requestBankAccountChangeRes()              {}
@@ -67806,6 +69040,7 @@ func (*TooManyRequestsHeaders) updateRoleRes()                            {}
 func (*TooManyRequestsHeaders) updateSegmentRes()                         {}
 func (*TooManyRequestsHeaders) updateSupplierInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) updateWebhookSubscriptionRes()             {}
+func (*TooManyRequestsHeaders) updateYearCloseTaskRes()                   {}
 func (*TooManyRequestsHeaders) uploadMemoRecordsRes()                     {}
 func (*TooManyRequestsHeaders) verifyAuditChainRes()                      {}
 func (*TooManyRequestsHeaders) withdrawChangeRequestRes()                 {}
@@ -67909,6 +69144,7 @@ func (s *UnauthorizedHeaders) SetResponse(val Problem) {
 func (*UnauthorizedHeaders) acceptBankStatementGapRes()                {}
 func (*UnauthorizedHeaders) acceptBankStatementLineProposalRes()       {}
 func (*UnauthorizedHeaders) acceptForecastVarianceCommentProposalRes() {}
+func (*UnauthorizedHeaders) acceptIntercompanyDifferenceRes()          {}
 func (*UnauthorizedHeaders) acceptMemoRecordProposalRes()              {}
 func (*UnauthorizedHeaders) acceptVarianceCommentRes()                 {}
 func (*UnauthorizedHeaders) activateChangeRequestRes()                 {}
@@ -67937,10 +69173,12 @@ func (*UnauthorizedHeaders) cancelRevaluationRunRes()                  {}
 func (*UnauthorizedHeaders) cancelSupplierInvoiceRes()                 {}
 func (*UnauthorizedHeaders) captureSupplierInvoiceRes()                {}
 func (*UnauthorizedHeaders) checkCloseTaskRes()                        {}
+func (*UnauthorizedHeaders) checkYearCloseTaskRes()                    {}
 func (*UnauthorizedHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*UnauthorizedHeaders) closeFiscalPeriodRes()                     {}
 func (*UnauthorizedHeaders) closePurchaseOrderRes()                    {}
 func (*UnauthorizedHeaders) completeCloseTaskRes()                     {}
+func (*UnauthorizedHeaders) completeYearCloseTaskRes()                 {}
 func (*UnauthorizedHeaders) createAssetAcquisitionRes()                {}
 func (*UnauthorizedHeaders) createAssetRes()                           {}
 func (*UnauthorizedHeaders) createAssetRetirementRes()                 {}
@@ -67982,6 +69220,7 @@ func (*UnauthorizedHeaders) createSupplierInvoiceRes()                 {}
 func (*UnauthorizedHeaders) createUploadRes()                          {}
 func (*UnauthorizedHeaders) createVarianceCommentRes()                 {}
 func (*UnauthorizedHeaders) createWebhookSubscriptionRes()             {}
+func (*UnauthorizedHeaders) createYearCloseRes()                       {}
 func (*UnauthorizedHeaders) decideRecommendationRes()                  {}
 func (*UnauthorizedHeaders) deleteWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) disableConnectorRes()                      {}
@@ -67996,6 +69235,7 @@ func (*UnauthorizedHeaders) endSodRuleRes()                            {}
 func (*UnauthorizedHeaders) excludeBankStatementLineRes()              {}
 func (*UnauthorizedHeaders) fetchEInvoicesRes()                        {}
 func (*UnauthorizedHeaders) fileTaxReturnRes()                         {}
+func (*UnauthorizedHeaders) finalizeConsolidationRunRes()              {}
 func (*UnauthorizedHeaders) getAccountRes()                            {}
 func (*UnauthorizedHeaders) getAccrualProposalRes()                    {}
 func (*UnauthorizedHeaders) getAgentSessionRes()                       {}
@@ -68037,6 +69277,7 @@ func (*UnauthorizedHeaders) getCostCenterRes()                         {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()                   {}
 func (*UnauthorizedHeaders) getDepreciationRunRes()                    {}
 func (*UnauthorizedHeaders) getDownPaymentRequestRes()                 {}
+func (*UnauthorizedHeaders) getEInvoiceContentRes()                    {}
 func (*UnauthorizedHeaders) getEInvoiceRes()                           {}
 func (*UnauthorizedHeaders) getEntryTemplateRes()                      {}
 func (*UnauthorizedHeaders) getExchangeRateRes()                       {}
@@ -68086,6 +69327,7 @@ func (*UnauthorizedHeaders) getUploadRes()                             {}
 func (*UnauthorizedHeaders) getVarianceCommentRes()                    {}
 func (*UnauthorizedHeaders) getWebhookDeliveryRes()                    {}
 func (*UnauthorizedHeaders) getWebhookSubscriptionRes()                {}
+func (*UnauthorizedHeaders) getYearCloseRes()                          {}
 func (*UnauthorizedHeaders) grantRolePermissionRes()                   {}
 func (*UnauthorizedHeaders) holdSupplierInvoiceRes()                   {}
 func (*UnauthorizedHeaders) importBankStatementsRes()                  {}
@@ -68123,6 +69365,7 @@ func (*UnauthorizedHeaders) listCompanyAccessRes()                     {}
 func (*UnauthorizedHeaders) listConfigVersionsRes()                    {}
 func (*UnauthorizedHeaders) listConnectorsRes()                        {}
 func (*UnauthorizedHeaders) listConsolidationBalancesRes()             {}
+func (*UnauthorizedHeaders) listConsolidationEntriesRes()              {}
 func (*UnauthorizedHeaders) listConsolidationGroupsRes()               {}
 func (*UnauthorizedHeaders) listConsolidationRunsRes()                 {}
 func (*UnauthorizedHeaders) listContractsRes()                         {}
@@ -68145,6 +69388,7 @@ func (*UnauthorizedHeaders) listGrIrClearingsRes()                     {}
 func (*UnauthorizedHeaders) listGroupAccountsRes()                     {}
 func (*UnauthorizedHeaders) listHierarchiesRes()                       {}
 func (*UnauthorizedHeaders) listHouseBanksRes()                        {}
+func (*UnauthorizedHeaders) listIntercompanyDifferencesRes()           {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()                    {}
 func (*UnauthorizedHeaders) listLedgerGroupsRes()                      {}
 func (*UnauthorizedHeaders) listLedgerReconciliationEntriesRes()       {}
@@ -68193,6 +69437,7 @@ func (*UnauthorizedHeaders) listTaxReturnsRes()                        {}
 func (*UnauthorizedHeaders) listVarianceCommentsRes()                  {}
 func (*UnauthorizedHeaders) listWebhookDeliveriesRes()                 {}
 func (*UnauthorizedHeaders) listWebhookSubscriptionsRes()              {}
+func (*UnauthorizedHeaders) listYearClosesRes()                        {}
 func (*UnauthorizedHeaders) lockCostCenterRes()                        {}
 func (*UnauthorizedHeaders) lockFiscalPeriodRes()                      {}
 func (*UnauthorizedHeaders) lockPlanCategoryRes()                      {}
@@ -68245,6 +69490,7 @@ func (*UnauthorizedHeaders) removeHierarchyNodeRes()                   {}
 func (*UnauthorizedHeaders) renameHierarchyNodeRes()                   {}
 func (*UnauthorizedHeaders) renewContractRes()                         {}
 func (*UnauthorizedHeaders) reopenCloseTaskRes()                       {}
+func (*UnauthorizedHeaders) reopenYearCloseTaskRes()                   {}
 func (*UnauthorizedHeaders) replayWebhookDeliveriesRes()               {}
 func (*UnauthorizedHeaders) reportBankFileStatusRes()                  {}
 func (*UnauthorizedHeaders) requestBankAccountChangeRes()              {}
@@ -68298,6 +69544,7 @@ func (*UnauthorizedHeaders) updateRoleRes()                            {}
 func (*UnauthorizedHeaders) updateSegmentRes()                         {}
 func (*UnauthorizedHeaders) updateSupplierInvoiceRes()                 {}
 func (*UnauthorizedHeaders) updateWebhookSubscriptionRes()             {}
+func (*UnauthorizedHeaders) updateYearCloseTaskRes()                   {}
 func (*UnauthorizedHeaders) uploadMemoRecordsRes()                     {}
 func (*UnauthorizedHeaders) verifyAuditChainRes()                      {}
 func (*UnauthorizedHeaders) withdrawChangeRequestRes()                 {}
@@ -69738,6 +70985,30 @@ func (*UpdateWebhookSubscriptionPreconditionRequired) updateWebhookSubscriptionR
 type UpdateWebhookSubscriptionUnprocessableEntity Problem
 
 func (*UpdateWebhookSubscriptionUnprocessableEntity) updateWebhookSubscriptionRes() {}
+
+type UpdateYearCloseTaskBadRequest Problem
+
+func (*UpdateYearCloseTaskBadRequest) updateYearCloseTaskRes() {}
+
+type UpdateYearCloseTaskForbidden Problem
+
+func (*UpdateYearCloseTaskForbidden) updateYearCloseTaskRes() {}
+
+type UpdateYearCloseTaskNotFound Problem
+
+func (*UpdateYearCloseTaskNotFound) updateYearCloseTaskRes() {}
+
+type UpdateYearCloseTaskPreconditionFailed Problem
+
+func (*UpdateYearCloseTaskPreconditionFailed) updateYearCloseTaskRes() {}
+
+type UpdateYearCloseTaskPreconditionRequired Problem
+
+func (*UpdateYearCloseTaskPreconditionRequired) updateYearCloseTaskRes() {}
+
+type UpdateYearCloseTaskUnprocessableEntity Problem
+
+func (*UpdateYearCloseTaskUnprocessableEntity) updateYearCloseTaskRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/Upload
@@ -71614,3 +72885,1074 @@ func (*WithdrawTaxReturnPreconditionRequired) withdrawTaxReturnRes() {}
 type WithdrawTaxReturnUnprocessableEntity Problem
 
 func (*WithdrawTaxReturnUnprocessableEntity) withdrawTaxReturnRes() {}
+
+// A company's close of one fiscal year (ADR-0060 §8): the ledgers it covers, each with its periods of
+// the year, and its checklist, copied from the close template's year tasks when it was opened.
+// Ref: #/components/schemas/YearClose
+type YearClose struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// Fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The fiscal year's last day, the leading ledger's period 12's, which the tasks' due dates count from.
+	YearEnd time.Time `json:"year_end"`
+	// The configuration version whose year tasks the checklist was copied from.
+	ConfigVersion int32 `json:"config_version"`
+	// `open` until it is signed off (T64m6). Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The company's date at the read in its time zone, on which `overdue` is judged.
+	ReadDate time.Time `json:"read_date"`
+	// The IANA time zone `read_date` is the company's date in (UTC when its company sets none).
+	TimeZone string `json:"time_zone"`
+	// Its tasks.
+	TasksTotal int32 `json:"tasks_total"`
+	// Its tasks done.
+	TasksDone int32 `json:"tasks_done"`
+	// Its tasks open.
+	TasksOpen int32 `json:"tasks_open"`
+	// Its tasks open and due before `read_date`.
+	TasksOverdue int32 `json:"tasks_overdue"`
+	// The ledgers the close covers, the leading one first, then by code.
+	Ledgers []YearCloseLedger `json:"ledgers"`
+	// Its tasks, in the template's order.
+	Tasks []YearCloseTask `json:"tasks"`
+	// Optimistic-lock version, the ETag; moved by every change to the close or its tasks.
+	Version int32 `json:"version"`
+	// Creation time.
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that opened the close.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Last change time.
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that last changed it or its tasks.
+	UpdatedBy uuid.UUID `json:"updated_by"`
+}
+
+// GetID returns the value of ID.
+func (s *YearClose) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *YearClose) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *YearClose) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *YearClose) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *YearClose) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetYearEnd returns the value of YearEnd.
+func (s *YearClose) GetYearEnd() time.Time {
+	return s.YearEnd
+}
+
+// GetConfigVersion returns the value of ConfigVersion.
+func (s *YearClose) GetConfigVersion() int32 {
+	return s.ConfigVersion
+}
+
+// GetStatus returns the value of Status.
+func (s *YearClose) GetStatus() string {
+	return s.Status
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *YearClose) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *YearClose) GetTimeZone() string {
+	return s.TimeZone
+}
+
+// GetTasksTotal returns the value of TasksTotal.
+func (s *YearClose) GetTasksTotal() int32 {
+	return s.TasksTotal
+}
+
+// GetTasksDone returns the value of TasksDone.
+func (s *YearClose) GetTasksDone() int32 {
+	return s.TasksDone
+}
+
+// GetTasksOpen returns the value of TasksOpen.
+func (s *YearClose) GetTasksOpen() int32 {
+	return s.TasksOpen
+}
+
+// GetTasksOverdue returns the value of TasksOverdue.
+func (s *YearClose) GetTasksOverdue() int32 {
+	return s.TasksOverdue
+}
+
+// GetLedgers returns the value of Ledgers.
+func (s *YearClose) GetLedgers() []YearCloseLedger {
+	return s.Ledgers
+}
+
+// GetTasks returns the value of Tasks.
+func (s *YearClose) GetTasks() []YearCloseTask {
+	return s.Tasks
+}
+
+// GetVersion returns the value of Version.
+func (s *YearClose) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *YearClose) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *YearClose) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *YearClose) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *YearClose) GetUpdatedBy() uuid.UUID {
+	return s.UpdatedBy
+}
+
+// SetID sets the value of ID.
+func (s *YearClose) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *YearClose) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *YearClose) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *YearClose) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *YearClose) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetYearEnd sets the value of YearEnd.
+func (s *YearClose) SetYearEnd(val time.Time) {
+	s.YearEnd = val
+}
+
+// SetConfigVersion sets the value of ConfigVersion.
+func (s *YearClose) SetConfigVersion(val int32) {
+	s.ConfigVersion = val
+}
+
+// SetStatus sets the value of Status.
+func (s *YearClose) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *YearClose) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *YearClose) SetTimeZone(val string) {
+	s.TimeZone = val
+}
+
+// SetTasksTotal sets the value of TasksTotal.
+func (s *YearClose) SetTasksTotal(val int32) {
+	s.TasksTotal = val
+}
+
+// SetTasksDone sets the value of TasksDone.
+func (s *YearClose) SetTasksDone(val int32) {
+	s.TasksDone = val
+}
+
+// SetTasksOpen sets the value of TasksOpen.
+func (s *YearClose) SetTasksOpen(val int32) {
+	s.TasksOpen = val
+}
+
+// SetTasksOverdue sets the value of TasksOverdue.
+func (s *YearClose) SetTasksOverdue(val int32) {
+	s.TasksOverdue = val
+}
+
+// SetLedgers sets the value of Ledgers.
+func (s *YearClose) SetLedgers(val []YearCloseLedger) {
+	s.Ledgers = val
+}
+
+// SetTasks sets the value of Tasks.
+func (s *YearClose) SetTasks(val []YearCloseTask) {
+	s.Tasks = val
+}
+
+// SetVersion sets the value of Version.
+func (s *YearClose) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *YearClose) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *YearClose) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *YearClose) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *YearClose) SetUpdatedBy(val uuid.UUID) {
+	s.UpdatedBy = val
+}
+
+// A company's fiscal year to close.
+// Ref: #/components/schemas/YearCloseCreate
+type YearCloseCreate struct {
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The ledgers the close covers, the leading one among them; default every ledger the company keeps.
+	LedgerIds []uuid.UUID `json:"ledger_ids"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *YearCloseCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *YearCloseCreate) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetLedgerIds returns the value of LedgerIds.
+func (s *YearCloseCreate) GetLedgerIds() []uuid.UUID {
+	return s.LedgerIds
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *YearCloseCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *YearCloseCreate) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetLedgerIds sets the value of LedgerIds.
+func (s *YearCloseCreate) SetLedgerIds(val []uuid.UUID) {
+	s.LedgerIds = val
+}
+
+// YearCloseHeaders wraps YearClose with response headers.
+type YearCloseHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           YearClose
+}
+
+// GetETag returns the value of ETag.
+func (s *YearCloseHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *YearCloseHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *YearCloseHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *YearCloseHeaders) GetResponse() YearClose {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *YearCloseHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *YearCloseHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *YearCloseHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *YearCloseHeaders) SetResponse(val YearClose) {
+	s.Response = val
+}
+
+func (*YearCloseHeaders) createYearCloseRes() {}
+
+// A year close as a list shows it: without its ledgers and tasks, with its tasks' counts.
+// Ref: #/components/schemas/YearCloseItem
+type YearCloseItem struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// Fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The fiscal year's last day, the leading ledger's.
+	YearEnd time.Time `json:"year_end"`
+	// The configuration version whose year tasks the checklist was copied from.
+	ConfigVersion int32 `json:"config_version"`
+	// Year close status. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Status string `json:"status"`
+	// The company's date at the read in its time zone, on which overdue tasks are judged.
+	ReadDate time.Time `json:"read_date"`
+	// The IANA time zone `read_date` is the company's date in.
+	TimeZone string `json:"time_zone"`
+	// Its tasks.
+	TasksTotal int32 `json:"tasks_total"`
+	// Its tasks done.
+	TasksDone int32 `json:"tasks_done"`
+	// Its tasks open.
+	TasksOpen int32 `json:"tasks_open"`
+	// Its tasks open and due before `read_date`.
+	TasksOverdue int32 `json:"tasks_overdue"`
+	// Optimistic-lock version, the close's ETag.
+	Version int32 `json:"version"`
+	// Creation time.
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that opened the close.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Last change time.
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that last changed it or its tasks.
+	UpdatedBy uuid.UUID `json:"updated_by"`
+}
+
+// GetID returns the value of ID.
+func (s *YearCloseItem) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *YearCloseItem) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *YearCloseItem) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *YearCloseItem) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *YearCloseItem) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetYearEnd returns the value of YearEnd.
+func (s *YearCloseItem) GetYearEnd() time.Time {
+	return s.YearEnd
+}
+
+// GetConfigVersion returns the value of ConfigVersion.
+func (s *YearCloseItem) GetConfigVersion() int32 {
+	return s.ConfigVersion
+}
+
+// GetStatus returns the value of Status.
+func (s *YearCloseItem) GetStatus() string {
+	return s.Status
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *YearCloseItem) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *YearCloseItem) GetTimeZone() string {
+	return s.TimeZone
+}
+
+// GetTasksTotal returns the value of TasksTotal.
+func (s *YearCloseItem) GetTasksTotal() int32 {
+	return s.TasksTotal
+}
+
+// GetTasksDone returns the value of TasksDone.
+func (s *YearCloseItem) GetTasksDone() int32 {
+	return s.TasksDone
+}
+
+// GetTasksOpen returns the value of TasksOpen.
+func (s *YearCloseItem) GetTasksOpen() int32 {
+	return s.TasksOpen
+}
+
+// GetTasksOverdue returns the value of TasksOverdue.
+func (s *YearCloseItem) GetTasksOverdue() int32 {
+	return s.TasksOverdue
+}
+
+// GetVersion returns the value of Version.
+func (s *YearCloseItem) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *YearCloseItem) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *YearCloseItem) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *YearCloseItem) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *YearCloseItem) GetUpdatedBy() uuid.UUID {
+	return s.UpdatedBy
+}
+
+// SetID sets the value of ID.
+func (s *YearCloseItem) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *YearCloseItem) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *YearCloseItem) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *YearCloseItem) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *YearCloseItem) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetYearEnd sets the value of YearEnd.
+func (s *YearCloseItem) SetYearEnd(val time.Time) {
+	s.YearEnd = val
+}
+
+// SetConfigVersion sets the value of ConfigVersion.
+func (s *YearCloseItem) SetConfigVersion(val int32) {
+	s.ConfigVersion = val
+}
+
+// SetStatus sets the value of Status.
+func (s *YearCloseItem) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *YearCloseItem) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *YearCloseItem) SetTimeZone(val string) {
+	s.TimeZone = val
+}
+
+// SetTasksTotal sets the value of TasksTotal.
+func (s *YearCloseItem) SetTasksTotal(val int32) {
+	s.TasksTotal = val
+}
+
+// SetTasksDone sets the value of TasksDone.
+func (s *YearCloseItem) SetTasksDone(val int32) {
+	s.TasksDone = val
+}
+
+// SetTasksOpen sets the value of TasksOpen.
+func (s *YearCloseItem) SetTasksOpen(val int32) {
+	s.TasksOpen = val
+}
+
+// SetTasksOverdue sets the value of TasksOverdue.
+func (s *YearCloseItem) SetTasksOverdue(val int32) {
+	s.TasksOverdue = val
+}
+
+// SetVersion sets the value of Version.
+func (s *YearCloseItem) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *YearCloseItem) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *YearCloseItem) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *YearCloseItem) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *YearCloseItem) SetUpdatedBy(val uuid.UUID) {
+	s.UpdatedBy = val
+}
+
+// A ledger a year close covers, with its periods of the year and their live posting status.
+// Ref: #/components/schemas/YearCloseLedger
+type YearCloseLedger struct {
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code (`0L`, `2L`).
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// Whether it is the leading ledger.
+	IsLeading bool `json:"is_leading"`
+	// The ledger's periods of the year, regular (1-12) and special (13-16), by period.
+	Periods []YearClosePeriod `json:"periods"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *YearCloseLedger) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *YearCloseLedger) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *YearCloseLedger) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetIsLeading returns the value of IsLeading.
+func (s *YearCloseLedger) GetIsLeading() bool {
+	return s.IsLeading
+}
+
+// GetPeriods returns the value of Periods.
+func (s *YearCloseLedger) GetPeriods() []YearClosePeriod {
+	return s.Periods
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *YearCloseLedger) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *YearCloseLedger) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *YearCloseLedger) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetIsLeading sets the value of IsLeading.
+func (s *YearCloseLedger) SetIsLeading(val bool) {
+	s.IsLeading = val
+}
+
+// SetPeriods sets the value of Periods.
+func (s *YearCloseLedger) SetPeriods(val []YearClosePeriod) {
+	s.Periods = val
+}
+
+// One page of year closes.
+// Ref: #/components/schemas/YearClosePage
+type YearClosePage struct {
+	// The year closes on this page.
+	Items []YearCloseItem `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *YearClosePage) GetItems() []YearCloseItem {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *YearClosePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *YearClosePage) SetItems(val []YearCloseItem) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *YearClosePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*YearClosePage) listYearClosesRes() {}
+
+// A posting period of a ledger a year close covers, with its live posting status.
+// Ref: #/components/schemas/YearClosePeriod
+type YearClosePeriod struct {
+	// The posting period (`GET /v1/fiscal-periods/{id}`).
+	FiscalPeriodID uuid.UUID `json:"fiscal_period_id"`
+	// Its number: 1-12 regular, 13-16 special.
+	Period int32 `json:"period"`
+	// Whether it is a special period, the year-end adjustments' (ADR-0060 §3).
+	IsSpecial bool `json:"is_special"`
+	// Its posting status now. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+}
+
+// GetFiscalPeriodID returns the value of FiscalPeriodID.
+func (s *YearClosePeriod) GetFiscalPeriodID() uuid.UUID {
+	return s.FiscalPeriodID
+}
+
+// GetPeriod returns the value of Period.
+func (s *YearClosePeriod) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetIsSpecial returns the value of IsSpecial.
+func (s *YearClosePeriod) GetIsSpecial() bool {
+	return s.IsSpecial
+}
+
+// GetStatus returns the value of Status.
+func (s *YearClosePeriod) GetStatus() string {
+	return s.Status
+}
+
+// SetFiscalPeriodID sets the value of FiscalPeriodID.
+func (s *YearClosePeriod) SetFiscalPeriodID(val uuid.UUID) {
+	s.FiscalPeriodID = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *YearClosePeriod) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetIsSpecial sets the value of IsSpecial.
+func (s *YearClosePeriod) SetIsSpecial(val bool) {
+	s.IsSpecial = val
+}
+
+// SetStatus sets the value of Status.
+func (s *YearClosePeriod) SetStatus(val string) {
+	s.Status = val
+}
+
+// A task of a year close (ADR-0060 §8), with its close and company.
+// Ref: #/components/schemas/YearCloseTask
+type YearCloseTask struct {
+	// The year close (`GET /v1/year-closes/{id}`).
+	CloseID uuid.UUID `json:"close_id"`
+	// The close's version, whose ETag (`"<close_version>"`) the task's actions take as `If-Match`.
+	CloseVersion int32 `json:"close_version"`
+	// The close's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The close's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The template year task's code, unique in the close.
+	Code string `json:"code"`
+	// Its place in the template's order.
+	Seq int32 `json:"seq"`
+	// What is to be done.
+	Name string `json:"name"`
+	// `manual`: a person completes it; `check`: its check completes it by passing (`:check`, T64m5). Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Kind string `json:"kind"`
+	// The check a `check` task runs; absent for a manual task.
+	Check OptString `json:"check"`
+	// Its due date: `due_day` business days of the company after the fiscal year's last day.
+	DueOn time.Time `json:"due_on"`
+	// The codes of the tasks of the close it waits for.
+	DependsOn []string `json:"depends_on"`
+	// The codes of the tasks it depends on that are still open: while any is, it cannot be completed.
+	BlockedBy []string `json:"blocked_by"`
+	// The person it is assigned to; absent when nobody is.
+	AssigneeID OptUUID `json:"assignee_id"`
+	// The assignee's name; absent when `assignee_id` is.
+	AssigneeName OptString `json:"assignee_name"`
+	// Year close task status. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+	// Open and due before `read_date`.
+	Overdue bool `json:"overdue"`
+	// The company's date at the read in its time zone, on which `overdue` is judged.
+	ReadDate time.Time `json:"read_date"`
+	// Who completed it; absent while it is open.
+	CompletedBy OptUUID `json:"completed_by"`
+	// Their name; absent while it is open.
+	CompletedByName OptString `json:"completed_by_name"`
+	// When it was completed; absent while it is open.
+	CompletedAt OptDateTime `json:"completed_at"`
+	// The note given when it was completed; absent without one.
+	Note        OptString           `json:"note"`
+	CheckResult OptCloseCheckResult `json:"check_result"`
+}
+
+// GetCloseID returns the value of CloseID.
+func (s *YearCloseTask) GetCloseID() uuid.UUID {
+	return s.CloseID
+}
+
+// GetCloseVersion returns the value of CloseVersion.
+func (s *YearCloseTask) GetCloseVersion() int32 {
+	return s.CloseVersion
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *YearCloseTask) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *YearCloseTask) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *YearCloseTask) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *YearCloseTask) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetCode returns the value of Code.
+func (s *YearCloseTask) GetCode() string {
+	return s.Code
+}
+
+// GetSeq returns the value of Seq.
+func (s *YearCloseTask) GetSeq() int32 {
+	return s.Seq
+}
+
+// GetName returns the value of Name.
+func (s *YearCloseTask) GetName() string {
+	return s.Name
+}
+
+// GetKind returns the value of Kind.
+func (s *YearCloseTask) GetKind() string {
+	return s.Kind
+}
+
+// GetCheck returns the value of Check.
+func (s *YearCloseTask) GetCheck() OptString {
+	return s.Check
+}
+
+// GetDueOn returns the value of DueOn.
+func (s *YearCloseTask) GetDueOn() time.Time {
+	return s.DueOn
+}
+
+// GetDependsOn returns the value of DependsOn.
+func (s *YearCloseTask) GetDependsOn() []string {
+	return s.DependsOn
+}
+
+// GetBlockedBy returns the value of BlockedBy.
+func (s *YearCloseTask) GetBlockedBy() []string {
+	return s.BlockedBy
+}
+
+// GetAssigneeID returns the value of AssigneeID.
+func (s *YearCloseTask) GetAssigneeID() OptUUID {
+	return s.AssigneeID
+}
+
+// GetAssigneeName returns the value of AssigneeName.
+func (s *YearCloseTask) GetAssigneeName() OptString {
+	return s.AssigneeName
+}
+
+// GetStatus returns the value of Status.
+func (s *YearCloseTask) GetStatus() string {
+	return s.Status
+}
+
+// GetOverdue returns the value of Overdue.
+func (s *YearCloseTask) GetOverdue() bool {
+	return s.Overdue
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *YearCloseTask) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetCompletedBy returns the value of CompletedBy.
+func (s *YearCloseTask) GetCompletedBy() OptUUID {
+	return s.CompletedBy
+}
+
+// GetCompletedByName returns the value of CompletedByName.
+func (s *YearCloseTask) GetCompletedByName() OptString {
+	return s.CompletedByName
+}
+
+// GetCompletedAt returns the value of CompletedAt.
+func (s *YearCloseTask) GetCompletedAt() OptDateTime {
+	return s.CompletedAt
+}
+
+// GetNote returns the value of Note.
+func (s *YearCloseTask) GetNote() OptString {
+	return s.Note
+}
+
+// GetCheckResult returns the value of CheckResult.
+func (s *YearCloseTask) GetCheckResult() OptCloseCheckResult {
+	return s.CheckResult
+}
+
+// SetCloseID sets the value of CloseID.
+func (s *YearCloseTask) SetCloseID(val uuid.UUID) {
+	s.CloseID = val
+}
+
+// SetCloseVersion sets the value of CloseVersion.
+func (s *YearCloseTask) SetCloseVersion(val int32) {
+	s.CloseVersion = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *YearCloseTask) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *YearCloseTask) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *YearCloseTask) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *YearCloseTask) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetCode sets the value of Code.
+func (s *YearCloseTask) SetCode(val string) {
+	s.Code = val
+}
+
+// SetSeq sets the value of Seq.
+func (s *YearCloseTask) SetSeq(val int32) {
+	s.Seq = val
+}
+
+// SetName sets the value of Name.
+func (s *YearCloseTask) SetName(val string) {
+	s.Name = val
+}
+
+// SetKind sets the value of Kind.
+func (s *YearCloseTask) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetCheck sets the value of Check.
+func (s *YearCloseTask) SetCheck(val OptString) {
+	s.Check = val
+}
+
+// SetDueOn sets the value of DueOn.
+func (s *YearCloseTask) SetDueOn(val time.Time) {
+	s.DueOn = val
+}
+
+// SetDependsOn sets the value of DependsOn.
+func (s *YearCloseTask) SetDependsOn(val []string) {
+	s.DependsOn = val
+}
+
+// SetBlockedBy sets the value of BlockedBy.
+func (s *YearCloseTask) SetBlockedBy(val []string) {
+	s.BlockedBy = val
+}
+
+// SetAssigneeID sets the value of AssigneeID.
+func (s *YearCloseTask) SetAssigneeID(val OptUUID) {
+	s.AssigneeID = val
+}
+
+// SetAssigneeName sets the value of AssigneeName.
+func (s *YearCloseTask) SetAssigneeName(val OptString) {
+	s.AssigneeName = val
+}
+
+// SetStatus sets the value of Status.
+func (s *YearCloseTask) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetOverdue sets the value of Overdue.
+func (s *YearCloseTask) SetOverdue(val bool) {
+	s.Overdue = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *YearCloseTask) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetCompletedBy sets the value of CompletedBy.
+func (s *YearCloseTask) SetCompletedBy(val OptUUID) {
+	s.CompletedBy = val
+}
+
+// SetCompletedByName sets the value of CompletedByName.
+func (s *YearCloseTask) SetCompletedByName(val OptString) {
+	s.CompletedByName = val
+}
+
+// SetCompletedAt sets the value of CompletedAt.
+func (s *YearCloseTask) SetCompletedAt(val OptDateTime) {
+	s.CompletedAt = val
+}
+
+// SetNote sets the value of Note.
+func (s *YearCloseTask) SetNote(val OptString) {
+	s.Note = val
+}
+
+// SetCheckResult sets the value of CheckResult.
+func (s *YearCloseTask) SetCheckResult(val OptCloseCheckResult) {
+	s.CheckResult = val
+}
+
+// YearCloseTaskHeaders wraps YearCloseTask with response headers.
+type YearCloseTaskHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           YearCloseTask
+}
+
+// GetETag returns the value of ETag.
+func (s *YearCloseTaskHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *YearCloseTaskHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *YearCloseTaskHeaders) GetResponse() YearCloseTask {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *YearCloseTaskHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *YearCloseTaskHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *YearCloseTaskHeaders) SetResponse(val YearCloseTask) {
+	s.Response = val
+}
+
+func (*YearCloseTaskHeaders) checkYearCloseTaskRes()    {}
+func (*YearCloseTaskHeaders) completeYearCloseTaskRes() {}
+func (*YearCloseTaskHeaders) reopenYearCloseTaskRes()   {}
+func (*YearCloseTaskHeaders) updateYearCloseTaskRes()   {}

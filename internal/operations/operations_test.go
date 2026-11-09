@@ -533,3 +533,39 @@ func TestFinishOnce(t *testing.T) {
 	}
 	pgtest.WantErr(t, inRequest(t, ten, ten.Human, false, func(ctx context.Context) error { return succeed(ctx, uuid.New()) }), "No operation")
 }
+
+// TestStartTaken: an operation a workflow carries out is recorded queued
+// under the id it chose, naming the workflow, so no dispatcher takes it;
+// recorded again, it is left as it was (run-twice); a request that cannot
+// be encoded, a transaction that has ended and no unit of work fail.
+func TestStartTaken(t *testing.T) {
+	ten := pgtest.NewTenant(t, perms...)
+	id := uuid.Must(uuid.NewV7())
+	for _, workflow := range []string{"scheduled-1", "scheduled-2"} {
+		if err := inRequest(t, ten, ten.Human, false, func(ctx context.Context) error {
+			return operations.StartTaken(ctx, id, "test.scheduled", map[string]any{"n": 1}, "/v1/things/1", workflow)
+		}); err != nil {
+			t.Fatalf("start taken by %s: %v", workflow, err)
+		}
+	}
+	var got string
+	pgtest.Scan(t, `SELECT count(*) || ' ' || min(status) || ' ' || min(resource) || ' ' || min(workflow_id) || ' ' || min(request::text)
+		FROM platform.operation WHERE tenant_id = $1 AND id = $2`, []any{ten.ID, id}, &got)
+	if want := `1 queued /v1/things/1 scheduled-1 {"n": 1}`; got != want {
+		t.Errorf("got %s, want %s", got, want)
+	}
+	if err := operations.StartTaken(context.Background(), id, "test.scheduled", nil, "/v1/things/1", "w"); err == nil {
+		t.Error("outside a request: got nil error, want an error")
+	}
+	if err := inRequest(t, ten, ten.Human, false, func(ctx context.Context) error {
+		return operations.StartTaken(ctx, uuid.New(), "test.scheduled", make(chan int), "/v1/things/1", "w")
+	}); err == nil {
+		t.Error("an unencodable request: got nil error, want an error")
+	}
+	tx, _ := pgtest.Pool(t).Begin(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID})
+	tx.Rollback(context.Background())
+	dead := reqctx.WithPrincipal(reqctx.WithTx(context.Background(), tx), reqctx.Principal{ID: ten.Human.ID, Kind: "human", TenantID: ten.ID})
+	if err := operations.StartTaken(dead, uuid.New(), "test.scheduled", nil, "/v1/things/1", "w"); err == nil {
+		t.Error("a transaction that has ended: got nil error, want an error")
+	}
+}

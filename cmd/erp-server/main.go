@@ -873,7 +873,7 @@ func (s *server) startOperations(runCtx context.Context) {
 				recurrences, snapshots, depreciations, consolidations, fetches)
 		})
 	})
-	dispatcher := &workflows.Dispatcher{Deadline: cfg.Temporal.EscalateAfter, Escalations: cfg.Temporal.Escalations, Pool: pool, WorkerRole: cfg.WorkerRole, Client: engine, Queue: cfg.Temporal.TaskQueue, Interval: dispatchInterval, Statements: cfg.Temporal.StatementFetch, Recurring: recurrences, Snapshots: snapshots, Log: log}
+	dispatcher := &workflows.Dispatcher{Deadline: cfg.Temporal.EscalateAfter, Escalations: cfg.Temporal.Escalations, Pool: pool, WorkerRole: cfg.WorkerRole, Client: engine, Queue: cfg.Temporal.TaskQueue, Interval: dispatchInterval, Statements: cfg.Temporal.StatementFetch, EInvoices: cfg.Temporal.EInvoiceFetch, Recurring: recurrences, Snapshots: snapshots, Log: log}
 	s.spawn("dispatcher", func() { dispatcher.Run(runCtx) })
 }
 

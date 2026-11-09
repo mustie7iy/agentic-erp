@@ -417,7 +417,7 @@ func TestDepreciator(t *testing.T) {
 			if err != nil || scope.TenantID != s.e.Tenant.ID {
 				return tx, err
 			}
-			return &pgtest.FailingTx{Tx: tx, FailAt: 1, Count: &count}, nil
+			return &pgtest.FailingTx{Tx: tx, FailAt: 2, Count: &count}, nil // after the tenant's status (database.BeginActive)
 		}
 		if _, err := w.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) {
 			t.Errorf("the tenant's runs failing to read: got %v, want the injected failure", err)

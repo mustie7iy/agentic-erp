@@ -76,7 +76,8 @@ func (x *ContractExpirer) due(ctx context.Context, now time.Time) ([]uuid.UUID, 
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM procurement.contract WHERE status = 'active'
-		AND (valid_to <= $1::date OR (expiry_alerted_on IS NULL AND valid_to <= $1::date + 366)) ORDER BY tenant_id`, clock.DayIn(now, time.UTC))
+		AND (valid_to <= $1::date OR (expiry_alerted_on IS NULL AND valid_to <= $1::date + 366)) AND tenant_id IN `+database.ActiveTenants+`
+		ORDER BY tenant_id`, clock.DayIn(now, time.UTC))
 	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
 		return nil, fmt.Errorf("procurement: list tenants with contracts due: %w", err)

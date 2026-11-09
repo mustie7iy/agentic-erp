@@ -140,7 +140,12 @@ The return's rules:
     2026-10-20, from ADR-0049's Context "as I recall; confirm"): its
     measure is open (net or gross, per period or pooled; ADR-0049 §11 As
     built, T61h), and whether it holds after the 2026 procedures
-    amendments.
+    amendments. Answered by the tax specialist on 2026-11-09 (po:2026-11-09,
+    C11, [M]; Tax Procedures Decree-Law No. 28 of 2022 Art. 10, Cabinet
+    Decision No. 74 of 2023 Art. 10): net payable tax, per earlier tax
+    period, all its errors together, on underpaid tax; a voluntary
+    disclosure within 20 business days of discovery (ADR-0049 §11, a
+    tracker leaf).
 12. The amendment carries both the corrected figures and the differences
     (ADR-0049 §11 As built, T61i): which the FTA takes in a voluntary
     disclosure.

@@ -26,3 +26,12 @@ func TestKeptPeriodsOutsideRequest(t *testing.T) {
 		t.Error("outside a unit of work: got no error, want one")
 	}
 }
+
+// TestKeptYearOutsideRequest: a year close's read of a year's periods by
+// ledger runs only in a request's unit of work; its rows and database
+// failures are tested through POST /v1/year-closes (internal/closing).
+func TestKeptYearOutsideRequest(t *testing.T) {
+	if _, err := (ledger.ClosePeriods{}).OfYear(context.Background(), uuid.New(), 2026); err == nil {
+		t.Error("outside a unit of work: got no error, want one")
+	}
+}

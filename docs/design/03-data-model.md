@@ -401,7 +401,8 @@ names the company's weekend (`calendars[company].weekend`, T64a, ADR-0058
 Saturday and Sunday. A business day is neither a weekend day nor a holiday
 (`config.Config.BusinessDay`), the one rule the cash position and the close
 calendar count days by. The `close` section is the close template
-(`close.tasks`, T64a; §3.22); a company's `close.variance` its variance
+(`close.tasks`, T64a; §3.22) and its year tasks (`close.year_tasks`, T64m4;
+§3.22); a company's `close.variance` its variance
 report's settings (T64h; §3.22) and its `close.accrual_account` the
 liability its accruals are credited to (T64e, tier 3; §3.22).
 `POST /v1/country-pack-applications` (T62d) stores the draft as a change
@@ -1215,7 +1216,10 @@ of its legal entity and ledger and no other run's (`revaluation_run_entries`,
 key date (`revaluation_run_posted`). `revaluation_item`, insert-only, is
 what a run valued: an open item (a journal line, with its partner) or a
 flagged account's balance in one currency (`revaluation_item_kind`), each
-once per run, with its transaction and booked local and group amounts and,
+with its trading partner (an open item's is its line's; a balance is one
+per currency and trading partner, none being one of them; T68b2,
+migrations 000240–000242, ADR-0059 §4), each once per run
+(`revaluation_item_line`, `revaluation_item_balance_by_partner`), with its transaction and booked local and group amounts and,
 for local and for group currency each, the rate, its validity (none for
 the group's own currency) and the amount at that rate: group currency is
 valued on its own. An open item has a transaction-currency amount; a
@@ -3511,6 +3515,34 @@ off again has a second row. Read by close, oldest first
 (`sign_off_by_close`). Schema tests: `db/closing_test.go`
 (`TestCloseSignOffRules`).
 
+The year close (T64m4, migration 000237; ADR-0060 §8), with the closing
+outbox (`YearCloseChanged`), is stored apart from period closes:
+
+```
+closing.year_close        (tenant_id, id, legal_entity_id, fiscal_year, year_end, config_version,
+                           status open|signed_off, version, created_*, updated_*)
+                           PK (tenant_id, id); UNIQUE (tenant_id, legal_entity_id, fiscal_year)
+closing.year_close_ledger (tenant_id, close_id, ledger_id)                PK (tenant_id, close_id, ledger_id)
+closing.year_close_task   (as closing.close_task, its check result columns included)
+                           PK (tenant_id, close_id, code); UNIQUE (tenant_id, close_id, seq)
+```
+
+A year close is one per company and fiscal year (`year_close_once`), its
+`year_end` the leading ledger's last day of its last regular period, from
+which its tasks' `due_on` were counted from the configuration's year tasks
+(`close.year_tasks`, the same shape as `close.tasks`, validated alike;
+its checks `config.YearCloseChecks`, T64m5, each recorded in the task's
+check result columns as a period close's). Its ledgers carry no period: the
+close reads each covered ledger's periods of the year (`ledger.period_status`)
+through the ledger's port. Its rows follow the period close's rules
+through the same trigger functions (`closing.check_period_close`,
+`closing.check_close_task`, which name the table they guard), with the
+constraints `year_close_task_check_kind`, `year_close_task_completed`,
+`year_close_task_depends_on`, `year_close_task_checked` and
+`year_close_task_check_passed`; the ledgers are written once. Its sign-off
+(`year_sign_off`) is T64m6's. Schema tests: `db/closing_test.go`
+(`TestYearCloseRules`).
+
 Accrual proposals (T64e, migration 000216), with the closing outbox
 (`AccrualProposed`):
 
@@ -3656,9 +3688,18 @@ required on every account of a company in a group), the eliminations
 parent, members with ownership, first period and investment account) are
 configuration, built in T68a (ADR-0059 §3, As built T68a): they keep no
 table, and migration 000223 adds the permission `consolidation.read`.
-T68b, T68c, T68d and T68e are built (T68e, the consolidated statements,
-reads `run_balance` and keeps no table); the tables marked T68f-T68h below
-are planned, not built.
+T68b-T68g are built (T68e, the consolidated
+statements, reads `run_balance` and, since T68f, `run_entry_line`, and
+keeps no table); migration 000238 adds `run_difference`, `run_entry` and
+`run_entry_line` (T68f, As built T68f); migration 000239 adds a
+difference's acceptance (`accepted`, `accepted_by`, `accepted_at`,
+`reason`, `version`; its one transition, open -> accepted while the run
+is computed, kept by the trigger `run_difference_transition`) and the
+permissions `consolidation.difference.accept` and
+`consolidation.run.finalize` (T68g, As built T68g; finalization uses
+`run`'s columns and one-final index of 000224); the tables marked T68h
+below, and the column of the built ones that T68h adds, are planned, not
+built.
 The ledger gained, in T68b, `journal_line.trading_partner_id` (the legal
 entity on the other side of an intercompany line, nullable, no foreign key)
 and the projection `ledger.trading_partner_balance`, maintained as
@@ -3673,8 +3714,8 @@ creates the schema `consolidation` (with its outbox, for
 | `consolidation.run` | A run of a group, fiscal year and regular period (T68d): its parent and every company of its group as its configuration version has them (`companies`, which a caller must all be allowed to act in to see the run), the parent's period dates, its configuration version, group currency and rate type, status (queued, running, computed, failed, final, superseded, discarded; a trigger keeps the transitions and what the run consolidates), its Operation, problem when failed (kept when discarded), when computed, finalizer and the final run superseding it. One run of a group queued or running at a time and one final per group and period (partial unique indexes `consolidation_run_one_at_a_time`, `consolidation_run_one_final`) |
 | `consolidation.run_member` | Each company a run consolidates (T68d), written when it starts running: its code as read, parent or member, ownership and first period (a member's), local currency, closing rate (numeric(28,12)) and the date it is valid from (none in the group currency), the status and version of the run's period in its leading ledger when the run read its figures, and when it was translated, recorded once (a trigger; the only columns `erp_app` may update) |
 | `consolidation.run_balance` | A company's translated figures (T68d, insert-only, written while the run runs): per company account and trading partner (`balance`), the local, booked group and translated amounts on its group account, plus the earlier results (`prior_results`, on the retained earnings account) and translation difference (`cta`, a group amount alone) rows, which make each company's rows sum to zero; numbered per company by group account, company account, trading partner code and kind |
-| `consolidation.run_entry`, `consolidation.run_entry_line` | The run's eliminations (T68f, T68h; insert-only): intercompany, investment and non-controlling interest entries, each line on a group account with its company, company account, trading partner and component; each entry sums to zero (a deferred constraint trigger) |
-| `consolidation.run_difference` | The intercompany pairs a run matched (T68f): per elimination and pair of members, both amounts, the difference and the tolerance; matched, within tolerance, open, accepted (T68g, with who, when and why), outside the group, or without a trading partner (per company) |
+| `consolidation.run_entry`, `consolidation.run_entry_line` | The run's eliminations (T68f; insert-only, written while it runs): intercompany entries per elimination and pair of the run's companies (one per pair, an index), investment and non-controlling interest entries (T68h); each line, never zero, on a group account with the company, company account and trading partner of the row it reverses, or none (a pair's difference), and its component (T68h); each entry has two lines or more summing to zero (`run_entry_balanced`, a deferred constraint trigger) |
+| `consolidation.run_difference` | The intercompany pairs a run matched (T68f; insert-only, written while it runs): per elimination and pair of the run's companies, both amounts, the difference and the tolerance in the group currency's minor units, its status checked against them (matched, within tolerance, open); outside the group (per company and partner) or without a trading partner (per company), the amount alone; numbered in list order (`line_no`), one per elimination, company and partner, none included; an open one accepted by a person while the run is computed (T68g: `accepted` with who, when and why, the reason not blank, its `version` one up; the only change, and the only columns `erp_app` may update; never written accepted but by an import) |
 | `consolidation.run_acquisition` | A member's acquisition figures as a run computed them (T68h): net assets, closing rate, investment, goodwill, non-controlling interest, and whether they were frozen |
 | `consolidation.acquisition`, `consolidation.acquisition_equity` | A member's acquisition figures frozen by its first final run (T68h; insert-only, one per group and member), and its acquisition equity per group account; later runs read them and refuse a changed ownership, first period, investment account or investment |
 
@@ -3692,8 +3733,17 @@ and object key of the bytes, the fetch's Operation, `received_at`,
 `acknowledged_at` (set once, never before receipt) and the version; the
 status `received` alone, which a trigger holds, with what was recorded
 fixed and only the acknowledgement written after (column grants and the
-trigger); the connector kind check widened to `einvoice_provider`. The
-other columns below arrive with the slices that write them (T65b-T65f).
+trigger); the connector kind check widened to `einvoice_provider`. T65b
+(migrations 000233-000236) adds `changed_hash`, `changed_at` and
+`changed_fetch_operation_id`: other bytes the provider delivered later
+under the id, set together, never to the bytes kept, never before
+receipt and never undone (`einvoice_changed`, the trigger), the first
+bytes staying the original; the worker role reads `received_at` and
+`acknowledged_at` for the gauge `erp_einvoices_unacknowledged`, served
+by the cell-wide partial index `einvoice_unacknowledged`; the list's
+fetch filter also matches `changed_fetch_operation_id`
+(`einvoice_by_changed_fetch`). The other
+columns below arrive with the slices that write them (T65c-T65f).
 
 | Table | Purpose |
 |---|---|

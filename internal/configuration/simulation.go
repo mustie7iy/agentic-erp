@@ -93,7 +93,7 @@ type SimulationWorker struct {
 }
 
 func (w *SimulationWorker) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	return database.BeginOr(ctx, w.Pool, w.Begin, s)
+	return database.BeginActive(ctx, w.Pool, w.Begin, s)
 }
 
 // tenants returns the tenants with queued simulations.
@@ -103,7 +103,7 @@ func (w *SimulationWorker) tenants(ctx context.Context) ([]uuid.UUID, error) {
 		return nil, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM platform.operation WHERE kind = $1 AND status = 'queued'`, SimulateKind)
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM platform.operation WHERE kind = $1 AND status = 'queued' AND tenant_id IN `+database.ActiveTenants, SimulateKind)
 	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
 		return tenants, fmt.Errorf("configuration: list the tenants with queued simulations: %w", err)
@@ -122,7 +122,7 @@ func QueuedSimulations(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, er
 			(SELECT count(*) FROM platform.operation x WHERE x.tenant_id = o.tenant_id AND x.kind = o.kind AND x.request->>'change_request_id' = o.request->>'change_request_id' AND x.id <= o.id)
 			FROM platform.operation o
 			JOIN config.change_request cr ON cr.tenant_id = o.tenant_id AND cr.id = (o.request->>'change_request_id')::uuid
-			WHERE o.kind = $1 AND o.status = 'queued' AND o.workflow_id IS NULL
+			WHERE o.kind = $1 AND o.status = 'queued' AND o.workflow_id IS NULL AND o.tenant_id IN `+database.ActiveTenants+`
 		ORDER BY o.id`, SimulateKind)
 	waiting, err := pgx.CollectRows(rows, operations.ScanWaiting)
 	if err != nil {

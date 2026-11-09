@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -437,7 +438,7 @@ func minutesOf(hhmm string) int {
 // that manage cash: those with an active liquidity item. The dispatcher
 // asks each which of its companies' snapshots are due.
 func (*Endpoints) SnapshotTenants(ctx context.Context, tx pgx.Tx) ([]uuid.UUID, error) {
-	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM cash.liquidity_item WHERE is_active ORDER BY tenant_id`)
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM cash.liquidity_item WHERE is_active AND tenant_id IN `+database.ActiveTenants+` ORDER BY tenant_id`)
 	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
 		return nil, fmt.Errorf("cash: tenants with liquidity items: %w", err)

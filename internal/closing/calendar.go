@@ -88,7 +88,7 @@ func (e *Endpoints) GetCloseCalendar(ctx context.Context, params gen.GetCloseCal
 
 // calendarClose is a close as its period's calendar row shows it, its
 // overdue tasks judged on day, its signer named from people.
-func calendarClose(c periodClose, day time.Time, people map[uuid.UUID]Person) gen.CloseCalendarClose {
+func calendarClose(c closeRow, day time.Time, people map[uuid.UUID]Person) gen.CloseCalendarClose {
 	out := gen.CloseCalendarClose{ID: c.ID, Status: c.Status, TasksTotal: c.Total, TasksDone: c.Done, TasksOverdue: c.overdue(day)}
 	if c.SignedBy != nil {
 		out.SignedOffAt.SetTo(*c.SignedAt)
@@ -100,9 +100,9 @@ func calendarClose(c periodClose, day time.Time, people map[uuid.UUID]Person) ge
 
 // closesOf are a company's closes of a fiscal year, by period, and the
 // people who signed them off.
-func (e *Endpoints) closesOf(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, year int16) (map[int16]periodClose, map[uuid.UUID]Person, error) {
-	rows, _ := tx.Query(ctx, closeSelect+` WHERE c.legal_entity_id = $1 AND c.fiscal_year = $2`, legalEntity, year)
-	cs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (periodClose, error) { return scanClose(r) })
+func (e *Endpoints) closesOf(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, year int16) (map[int16]closeRow, map[uuid.UUID]Person, error) {
+	rows, _ := tx.Query(ctx, periodCloses.q(closeSelect+` WHERE c.legal_entity_id = $1 AND c.fiscal_year = $2`), legalEntity, year)
+	cs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (closeRow, error) { return scanClose(r) })
 	if err != nil {
 		return nil, nil, fmt.Errorf("closing: close calendar: closes of %s in %d: %w", legalEntity, year, err)
 	}
@@ -110,7 +110,7 @@ func (e *Endpoints) closesOf(ctx context.Context, tx pgx.Tx, legalEntity uuid.UU
 	if err != nil {
 		return nil, nil, fmt.Errorf("closing: close calendar: signers of %d closes: %w", len(cs), err)
 	}
-	out := make(map[int16]periodClose, len(cs))
+	out := make(map[int16]closeRow, len(cs))
 	for _, c := range cs {
 		out[c.FiscalPeriod] = c
 	}

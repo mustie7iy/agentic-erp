@@ -299,7 +299,8 @@ legal entity on the other side of an intercompany transaction.
   trading partner without a partner (the migration does not read SAP's
   trading partner, a question below): such intercompany balances show as
   `no_trading_partner` (§8) until their companies repost them or the
-  product owner asks for a migration leaf.
+  product owner asks for a migration leaf. (SAP's propagation is not
+  guaranteed, the SAP specialist answered on 2026-11-09: question 4.)
 
 ### 4a. Changes to the ledger's published API
 Each is additive and built in the slice that first needs it, as ADR-0058
@@ -474,7 +475,12 @@ or failed run (409 `consolidation.run_not_discardable` otherwise).
 
 ### 7. Currency translation
 **The method** (to confirm with an accounting specialist; a question for
-the product owner below). Each member is translated from its
+the product owner below; confirmed by the specialist on 2026-11-09 with
+additions, question 1: the difference is other comprehensive income; the
+part of a group-currency revaluation beyond the functional-currency
+difference translated moves there, and so does the whole exchange
+difference on a monetary item forming part of a net investment in a
+foreign operation, IAS 21.32). Each member is translated from its
 leading-ledger local-currency figures into the group currency:
 - **Assets and liabilities** at the **closing rate**: the latest rate of
   the configured `rate_type` from the member's local currency into the
@@ -568,7 +574,10 @@ the debits (each entry's credits equal them).
 
 ### 9. Investment, equity and non-controlling interests
 **The method** (to confirm with an accounting specialist; questions for
-the product owner below). For each member M held at ownership q (a
+the product owner below; answered by the specialist on 2026-11-09,
+question 2: fair values unless the subsidiary was incorporated or under
+common control, goodwill retranslated, a bargain purchase gain posted after
+confirmation, dividends to the interest). For each member M held at ownership q (a
 fraction, `ownership_percent / 100`) and first consolidated in period F,
 with F−1 the regular period before F (the previous fiscal year's last
 when F is period 1):
@@ -958,6 +967,33 @@ evidence) and this ADR's "As built".
    **Answered po:2026-11-05:** as recommended: build as designed; an
    accounting specialist confirms the method against IAS 21 before T68d
    ships (a tracker leaf).
+   **The accounting specialist's answer (po:2026-11-09, B1-B4; a technical
+   review, not a signed opinion; the auditor confirms the policy choice
+   marked):** B1, assets and liabilities at the closing rate, non-monetary
+   ones included: confirmed (IAS 21.39(a); 21.47 adds goodwill and fair
+   value adjustments). B2, income and expenses at each transaction's rate:
+   confirmed (IAS 21.39(b)); an average rate is only a permitted
+   approximation (IAS 21.40), so no new rate type. B3: equity at historical
+   rates confirmed as a policy choice (IAS 21 prescribes none; **policy**,
+   for the auditor); prior results in retained earnings at their historical
+   group amounts confirmed; the difference to a reserve per subsidiary
+   confirmed with two additions: it is recognised in **other comprehensive
+   income** (IAS 21.39(c), 21.41) and accumulated in equity (IAS
+   21.52(b)), so the statements must show it there, and the part
+   attributable to the non-controlling interest goes to the interest (IAS
+   21.41; §9's translation share), kept per subsidiary for reclassification
+   on disposal (IAS 21.48). B4: a subsidiary's exchange differences on items
+   in other currencies than its functional currency stay in profit or loss
+   (IAS 21.28), confirmed, with two corrections: a group-currency
+   revaluation (ADR-0042's group difference) beyond the functional-currency
+   difference translated is a translation effect and belongs in other
+   comprehensive income (IAS 21.39(c)); and exchange differences on a
+   monetary item forming part of the net investment in a foreign operation
+   (a long-term intercompany loan not expected to be settled) go to other
+   comprehensive income in the consolidated statements (IAS 21.32), while
+   other intragroup items keep theirs in profit or loss (IAS 21.45). The
+   tracker leaf for the confirmation is done; each addition and correction
+   is a tracker leaf (src po:2026-11-09).
 2. **Non-controlling interests and goodwill** (accounting rules).
    Designed: the interest measured at its proportionate share of the
    subsidiary's book net assets; no fair value adjustments of acquired
@@ -974,6 +1010,43 @@ evidence) and this ADR's "As built".
    has one.
    **Answered po:2026-11-05:** as recommended; a specialist confirms against
    IFRS 3 and IFRS 10 before T68h ships.
+   **The accounting specialist's answer (po:2026-11-09, B5-B9; a technical
+   review, not a signed opinion):**
+   - B5, partly confirmed: the proportionate share of net assets is an
+     allowed measure of the interest (IFRS 3.19), but the acquired net
+     assets must be at acquisition-date fair value (IFRS 3.18), so book
+     values without fair value adjustments do not comply in general. They
+     are acceptable for the pilot when the subsidiary was incorporated by
+     the parent (IFRS 3 does not apply: no goodwill, the investment
+     eliminated against share capital), when the combination was under
+     common control (IFRS 3.2(c)), or when book values approximate fair
+     values immaterially (IAS 8.8); which applies waits for the pilot
+     customer's group structure (D11). Otherwise a fair value adjustment
+     layer, with its deferred tax, is needed (a tracker leaf).
+   - B6: the residual is confirmed (IFRS 3.32), plus the fair value of a
+     previously held interest in a step acquisition (out of scope,
+     question 3); goodwill is not amortised (IAS 36.10(b), 36.90), tested
+     outside the system, but the system must be able to post its
+     impairment. **Goodwill of a foreign subsidiary must be retranslated at
+     each closing rate: yes** (IAS 21.47): it is held in the subsidiary's
+     functional currency, and its translation difference goes to the
+     translation reserve (shared with the interest only when that is
+     measured at fair value). The interest at acquisition is not
+     retranslated as such; it changes through its share of profit, other
+     comprehensive income and other equity changes (B9). A tracker leaf.
+   - B7: reassess that every asset, liability, the interest and the
+     consideration are identified and measured right, then recognise a
+     remaining gain in profit or loss at the acquisition date, attributed
+     to the acquirer (IFRS 3.34-36): keep the stop as a gate needing
+     explicit confirmation, then post the gain (a tracker leaf).
+   - B8, confirmed: results count only from when control is obtained
+     (IFRS 10.B88, 10.20), earlier ones are part of the net assets acquired;
+     the monthly granularity is acceptable when the days before the
+     acquisition in its month are immaterial.
+   - B9, confirmed (IFRS 10.B94, B89; presentation IFRS 10.22, IAS
+     1.54(q), 1.81B), with two additions: dividends paid to the interest
+     reduce it, and changes in ownership without loss of control are
+     equity transactions (IFRS 10.23, B96). A tracker leaf.
 3. **Group structures beyond the design** (new scope): holdings through
    another subsidiary, changes in ownership or capital after first
    consolidation, disposals, acquisitions during a period, members on
@@ -994,6 +1067,17 @@ evidence) and this ADR's "As built".
    equity amounts) once an SAP specialist confirms the extract carries
    them.
    **Answered po:2026-11-05:** as recommended.
+   **The SAP specialist's answer (po:2026-11-09, A2):** the vendor's
+   trading partner is LFA1-VBUND (KNA1-VBUND for a customer) [H], the
+   line's ACDOCA-RASSC [H] (BSEG-VBUND on the entry view). SAP does not
+   guarantee it on every line of a document [M, to verify on the pilot
+   system]: the vendor or customer line always has it, document entry
+   usually proposes it on the G/L lines, but lines from materials
+   management (MIRO, GR/IR), generated lines (tax, exchange and price
+   differences, cash discount), documents with several vendors and lines a
+   user cleared often lack it. The specialist recommends deriving the
+   trading partner of a whole intercompany document from its vendor line
+   at migration. The migration leaf is in the tracker (src po:2026-11-09).
 5. **Segregation of duties on finalization** (security posture). Built:
    any person holding `consolidation.run.finalize` finalizes, including
    one who accepted the run's differences. Recommendation: keep it for the
@@ -1017,6 +1101,21 @@ tracker item only when one does (07 §7.5).
 - Screens in the web workspace (headless first, ADR-0053).
 
 ## Facts for a specialist (stated from memory, not verified here)
+Answered on 2026-11-09 (po:2026-11-09): the trading partner fields and
+their propagation (SAP specialist, A2, question 4) and the accounting
+rules of §7 and §9 (accounting specialist, B1-B9, questions 1 and 2, with
+their paragraphs of IAS 21, IFRS 3, IFRS 10, IAS 36, IAS 1 and IAS 8).
+Still open: SAP Group Reporting's own objects, and the pilot's group
+structure (the pilot customer's D11). Its **planning default, to be
+confirmed by the customer before go-live (⚠)** (questionnaire defaults,
+po:2026-11-09): the Canadian company holds 100% of the UAE company, which it
+incorporated, from the first migrated period, with CAD the group currency.
+Under it no non-controlling interest, goodwill or fair value adjustment
+arises (IFRS 3 does not apply, B5), and the investment is eliminated
+against share capital; so the B5, B6 and B7 leaves are not pilot items
+(after the pilot unless the customer's answer differs: if the UAE company
+is the parent, held below 100% or acquired, they are needed before the
+first consolidation).
 - SAP: Group Reporting's consolidation units and groups, FS items,
   translation methods, the intercompany matching and reconciliation app,
   the consolidation journal ACDOCU, the trading partner on the business
@@ -1181,11 +1280,9 @@ default, for the product owner to overrule:
   both lines naming company 1000; reads it back with the company's code
   and name; lists Maple's entries by trading partner; and a line naming
   Maple is refused with `ledger.trading_partner_invalid`.
-- **Not built (a tracker leaf, src review:T68b, before T68f):** a
-  revaluation's lines of a foreign currency intercompany item (ADR-0042)
-  do not carry the item's trading partner (the run groups its totals per
-  account, currency and direction), so they would show as
-  `no_trading_partner` until that leaf groups them by trading partner too.
+- **Revaluation (built in T68b2, below):** a revaluation's lines of a
+  foreign currency intercompany item (ADR-0042) carry the item's trading
+  partner.
 
 **T68c (trading partner from the business partner).** Built as §4 and
 §4a say, in `internal/partner` (the group company) and
@@ -1442,3 +1539,207 @@ owner to overrule:
   reported and consolidated columns, the profit is the profit and loss's,
   revenue and expenses make it, and every row's reported figure equals the
   balances list's group total for its group account.
+
+**T68f (intercompany matching and eliminations).** Built as §5 and §8
+say, in `internal/consolidation/eliminate.go` (the matching and the
+entries, `EliminateConsolidationRun`) and `differences.go` (the reads),
+migration 000238: `run_difference`, `run_entry` and `run_entry_line`,
+written while the run runs and never changed or removed (no update
+grant, the insert-while-running trigger), each entry's lines summing to
+zero at commit with two lines or more (`run_entry_balanced`, a deferred
+constraint trigger, as the ledger's), with their schema tests
+(`TestConsolidationEliminationRules`). The workflow is unchanged: its
+`EliminateConsolidationRun` step, which wrote nothing in T68d, now
+matches and eliminates in one transaction. The context answers
+`listIntercompanyDifferences` and `listConsolidationEntries`
+(`consolidation.read` and, by `x-also-permissions`, `ledger.entry.read`;
+read from one database state), and a run's read gains
+`difference_counts`; the statements' `eliminations` column (T68e) is now
+the entry lines on each group account. Decided by default, for the
+product owner to overrule:
+- **Pairs.** Every two companies of the run, the parent included, are a
+  pair; a difference is recorded only for a pair with translated rows on
+  an elimination's accounts naming each other, its company the one with
+  the lower code. `outside_group` is per company and partner (a trading
+  partner that is not a company of the run, a member before its first
+  period included) and `no_trading_partner` per company, each with its
+  amount alone (`partner_amount`, `difference` and `tolerance` absent);
+  neither is eliminated. A pair's status is its difference's against
+  the tolerance in the configuration version the run read, converted to
+  the group currency's minor units.
+- **Entries.** One `intercompany` entry per pair whose lines are not all
+  zero: each translated row reversed on its group account with its
+  company, company account and trading partner, and the difference, when
+  not zero, on the elimination's difference account as a line of no
+  company, account or trading partner (the entry names the pair). Lines
+  of zero are not written (`run_entry_line.amount_gc <> 0`), so a pair
+  whose rows are all zero has its `matched` difference and no entry.
+  Entries are numbered by elimination code and the pair's codes, lines by
+  group account, company code (none first) and the reversed row's line
+  number, which follows the company account's number and the trading
+  partner's code (§5).
+- **Columns left to later slices.** `run_difference` has `line_no`, its
+  place in §5's list order, so the list pages by one key; the `accepted`
+  status with `accepted_by`, `accepted_at`, `reason` and a difference's
+  `version` are T68g's, which adds its transition, and
+  `run_entry_line.component` T68h's, with its entries (the kinds
+  `investment` and `nci` are already allowed by `run_entry`'s check).
+- **The step.** It is a no-op on a run that has differences or entries
+  already, or is no longer running, so run again after a lost completion
+  it writes nothing twice; it is refused (an error, retried and then
+  `platform.internal`) while a company of the run is not translated, so
+  figures are matched only whole. A tolerance finer than the group
+  currency, which `consolidation.Setup` refuses when a change is
+  submitted, is the step's error too.
+- **Reads.** `listIntercompanyDifferences` pages by `line_no`, filters by
+  status, elimination and company (the differences whose company or
+  partner it is), and totals per status present: the count, the amounts,
+  the partners' amounts and the differences. `listConsolidationEntries`
+  answers entries, each with its lines and its debits, paged by entry
+  number (the page size counts entries), filters by kind, elimination and
+  company (the entry's company or partner), and totals per kind present:
+  the count and the debits. Names as the balances list's: a partner or a
+  line's trading partner by code and name only to a caller who may act in
+  that company (po:2026-11-05), so a partner outside the group may show
+  its id alone; the run's own companies are all in a reader's access.
+- **Budget (§14).** `TestConsolidationRunBudget` and
+  `TestConsolidatedStatementBudget` now put the group accounts of the
+  budget's asset and liability accounts in the elimination, so a run
+  matches 99 pairs and eliminates 400 rows with a trading partner per
+  company: the run 16.9 s at ERP_BUDGET_SCALE=1 and
+  16.9 s at 2 (T68d's 13-14 s), against 120 s; each statement page p95
+  0.12-0.34 s at 1 and 0.14-0.25 s at 2, against 1 s (load averages
+  9-75, 2026-11-09).
+- **Walkthrough.** `step_consolidation` gains `consolidation_eliminations`
+  between `consolidation_run` and `consolidation_statements`: the run has
+  one difference matched and one open; IC_RESULTS matches Maple's
+  intercompany revenue with Acme Corp US's intercompany expense (2,700.00
+  CAD each, booked at 1.35); IC_BALANCES is open, Acme Corp US's payable
+  at the closing 1.40 (-2,800.00) against Maple's receivable as booked
+  (2,700.00), a difference of -100.00 above its 10.00; the two entries
+  reverse the pairs' rows, the difference on G6950. The statements then
+  show G1250, G2250, G4250 and G5250 consolidated at zero and -100.00 on
+  G6950.
+- **Revaluation differences** carry their items' trading partners since
+  T68b2 (below), so a revalued intercompany balance matches by trading
+  partner.
+
+**T68b2 (revaluation of intercompany items by trading partner, review:T68b).**
+A foreign currency revaluation (ADR-0042) of a company's intercompany
+items posts their differences with their trading partners, so a
+consolidation run reads them on the trading partner of the item they
+adjust, not as `no_trading_partner`. Built in `internal/ledger`
+(`revaluation.go`, `revaluation_run.go`), migrations 000240
+(`revaluation_item.trading_partner_id`), 000241 and 000242 (a run's
+balances unique per account, currency and trading partner, nulls not
+distinct, replacing `revaluation_item_balance`). Decided by default, for
+the product owner to overrule:
+- **What carries it.** An open item carries its journal line's trading
+  partner; a flagged account's balance is one per currency and trading
+  partner, none being one of them, so the account's lines naming no
+  trading partner are one balance as before. A total is per account,
+  currency, direction and trading partner, and both lines it posts, the
+  difference on the account (or its adjustment account) and its offset on
+  the unrealised gain or loss, carry the total's trading partner, as §4
+  propagates a partner line's to the entry's other lines; the reset
+  copies them, and cancelling reverses them through the reversal path,
+  which copies them too.
+- **Amounts.** Items and totals naming no trading partner are valued and
+  posted exactly as before; an account's balance that has intercompany
+  lines is valued in two parts, each rounded once (ADR-0042), so its
+  rounding may differ from the undivided balance's by a minor unit per
+  part. Each total's two lines still sum to zero in both currencies.
+- **API.** `RevaluationItem` and `RevaluationTotal` gain an optional
+  `trading_partner` (id, and code and name to a caller who may act in
+  that company, as a journal line's); events are unchanged (ids only).
+- **Walkthrough.** `consolidation_revaluation`, the end of step 40:
+  Maple's 1250 Intercompany receivables is flagged for revaluation in the
+  group reporting change; Carla revalues Maple at the month's end, the
+  receivable's USD 2,000.00 booked at 1.35 worth 1.40, a gain of CAD
+  100.00 posted on 1250 and 4900 with trading partner 1000; a second run
+  is refused; a new run of MAPLE finds IC_BALANCES matched (-2,800.00
+  against 2,800.00); she then discards that run and cancels the
+  revaluation, so later steps see the month as booked. In December the
+  reset's period is in the next fiscal year, which `next_year_open` sets
+  up first.
+
+**T68g (accepting differences and finalizing runs).** Built as §5, §8 and
+§10 say, in `internal/consolidation/finalize.go`, migration 000239: a
+difference's `accepted` status with `accepted_by`, `accepted_at`,
+`reason` and `version` (the columns T68f left), its one transition open
+-> accepted kept by the trigger `run_difference_transition` with its
+schema tests (`TestConsolidationDifferenceAcceptance`), and the
+permissions `consolidation.difference.accept` and
+`consolidation.run.finalize`. Finalization uses the run's columns,
+transitions and one-final index of 000224. The context answers
+`acceptIntercompanyDifference` (`POST
+/v1/consolidation-runs/{id}/differences/{difference_id}:accept`) and
+`finalizeConsolidationRun` (`POST /v1/consolidation-runs/{id}:finalize`),
+both `x-agent: false`, which authz enforces from the contract (403
+`identity.agent_not_allowed`), as every people-only operation is, and
+both also needing `ledger.entry.read`; `consolidation.People` names
+finalizers and acceptors (adapted over identity's `People`). Decided by
+default, for the product owner to overrule:
+- **Accepting.** `If-Match` is the difference's own `version`, now on
+  every difference read (its ETag); the run's version moves with it in
+  the same transaction (§5), so a `:finalize` or `:discard` on a view of
+  the run read before the acceptance is refused (412). Only a computed
+  run's differences are accepted (409 `consolidation.run_not_computed`,
+  checked before 409 `consolidation.difference_not_open`), which the
+  trigger also holds: a draft is accepted before it is finalized, and a
+  final run has none open. The reason is `ReasonInput`'s (1-2000
+  characters), refused blank with 422 `request.validation_failed` before
+  the column's check would. An accepted difference stays eliminated as
+  it was; it is counted and totalled as `accepted`, after `open`.
+  `IntercompanyDifferenceAccepted` names the run, group, period,
+  elimination, the pair by legal entity id and company code, the
+  difference and tolerance in the group currency, the reason and both
+  versions (no company names; offered to webhooks); its audit record is
+  `consolidation.difference.accepted`. A difference written `accepted` is
+  refused but by an import (000230's `platform.importing`).
+- **Finalizing, in this order.** 409 `consolidation.run_not_computed`;
+  409 `consolidation.differences_open` with the count; 409
+  `consolidation.period_not_locked` naming each company whose period was
+  not `locked` when the run read it or is not now, with both statuses
+  ("none" for a period the ledger no longer has); 409
+  `consolidation.run_stale` naming each company whose period's version
+  moved, both versions and a pending unlock request. The period's pending
+  unlock request is read from the same `period_status` row
+  (`unlock_request_id`). §4a says T68g adds no read; it adds one,
+  `ConsolidationReads.PeriodsOf` (the port's `PeriodsOf`): `PeriodOf`
+  for many companies in one statement, since reading each company's
+  period apart cost a 100-company run's statement 200 round trips (p95
+  above 1 s at ERP_BUDGET_SCALE=1, load 53).
+- **Locks.** The run is read first without a lock (its visibility, group
+  and period), then every run of the group's period that is not
+  discarded is locked `FOR UPDATE` in id order and the run read again, so
+  a finalization never holds one run while it waits for another that a
+  single-run writer (a step, an acceptance, a discard) holds: no
+  deadlock. The previous final run is set `superseded` (with
+  `superseded_by`) before the run is set `final` (with `finalized_by`
+  and `finalized_at`); each change is audited and published as
+  `ConsolidationRunChanged`. `consolidation_run_one_final` maps to 409
+  `consolidation.final_exists`. A run's `stale` (§10) is shown on its
+  reads once every company of it is translated (absent before) and on
+  its statements; reading it costs one `PeriodsOf` per fiscal year and
+  period of the page. `TestConsolidatedStatementBudget` with it: p95
+  0.23-0.28 s at ERP_BUDGET_SCALE=1 and 0.23-0.42 s at 2 (load averages
+  19-24, 2026-11-09), against 1 s. The run also shows `finalized_by` with its name,
+  `finalized_at`, `superseded_by` and `supersedes` (the final run it
+  superseded), so `:finalize`'s answer names the run it superseded.
+- **Not in T68g.** Freezing a member's acquisition figures at its first
+  final run is T68h's, which builds them (§9); a finalization writes no
+  acquisition. Segregation of duties stays as question 5's answer: anyone
+  holding `consolidation.run.finalize` finalizes, the acceptor included.
+- **Walkthrough.** `step_consolidation` gains `consolidation_accept`
+  after `consolidation_revaluation` (T68b2's, which discards its own run
+  and cancels its revaluation, so the first run's difference is still
+  open; integration, batch 61): Carla accepts the open IC_BALANCES
+  difference (-100.00 CAD, the rates' 1.35 against 1.40) with her reason,
+  and finalizing the run is refused with `consolidation.period_not_locked`
+  (both periods open when it read them). `step_close` ends with
+  `close_consolidation`: after the sign-off locked Maple's period, Carla
+  closes and locks Acme Corp US's, runs MAPLE again (both companies read
+  from locked periods), discards step 40's draft, accepts the new run's
+  open difference and finalizes it: final, by Carla Controller, not
+  stale; its balance sheet reads `final`.

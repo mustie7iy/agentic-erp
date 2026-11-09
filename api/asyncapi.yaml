@@ -383,7 +383,7 @@ channels:
   closing:
     address: 'erp.{cell}.closing.{tenant}.{event}'
     title: Financial close events
-    description: Period closes, their checklists, sign-offs, accrual proposals and variance comments (ADR-0058 §13).
+    description: Period closes, their checklists, sign-offs, accrual proposals and variance comments (ADR-0058 §13); year closes and their checklists (ADR-0060 §12).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
@@ -392,6 +392,7 @@ channels:
       AccrualProposed: {$ref: '#/components/messages/AccrualProposed'}
       AccrualProposalRejected: {$ref: '#/components/messages/AccrualProposalRejected'}
       VarianceCommentChanged: {$ref: '#/components/messages/VarianceCommentChanged'}
+      YearCloseChanged: {$ref: '#/components/messages/YearCloseChanged'}
   consolidation:
     address: 'erp.{cell}.consolidation.{tenant}.{event}'
     title: Consolidation events
@@ -400,6 +401,7 @@ channels:
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       ConsolidationRunChanged: {$ref: '#/components/messages/ConsolidationRunChanged'}
+      IntercompanyDifferenceAccepted: {$ref: '#/components/messages/IntercompanyDifferenceAccepted'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -642,12 +644,14 @@ operations:
       - $ref: '#/channels/closing/messages/AccrualProposed'
       - $ref: '#/channels/closing/messages/AccrualProposalRejected'
       - $ref: '#/channels/closing/messages/VarianceCommentChanged'
+      - $ref: '#/channels/closing/messages/YearCloseChanged'
   publishConsolidationEvents:
     action: send
     title: Consolidation publishes
     channel: {$ref: '#/channels/consolidation'}
     messages:
       - $ref: '#/channels/consolidation/messages/ConsolidationRunChanged'
+      - $ref: '#/channels/consolidation/messages/IntercompanyDifferenceAccepted'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -3333,6 +3337,34 @@ components:
         - name: signed_off
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000802, source: /erp/eu-1/closing, type: com.example.erp.closing.period_close_signed_off.v1, subject: 0192a000-0000-7000-8000-000000000f01, time: '2026-11-05T16:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {period_close_id: 0192a000-0000-7000-8000-000000000f01, sign_off_id: 0192a000-0000-7000-8000-000000000f21, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2026, fiscal_period: 10, signed_by: 0192a000-0000-7000-8000-000000000101, note: null, periods: [{ledger_id: 0192a000-0000-7000-8000-000000000a01, ledger_code: 0L, fiscal_period_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41, locked: true}], status: signed_off, version: 9}
+    YearCloseChanged:
+      name: YearCloseChanged
+      x-webhook: true
+      title: Year close changed
+      summary: A year close was opened, reopened after an unlock, or one of its tasks assigned, completed, reopened or checked.
+      description: |
+        Emitted by `year-closes` (POST, `created`) and its tasks' PATCH
+        (`task_assigned`), `:complete` (`task_completed`), `:reopen`
+        (`task_reopened`, with the reason) (ADR-0060 §8, §12, T64m4) and
+        `:check` (`task_checked`, with `check_passed`, T64m5); and
+        `reopened` when the first write on a signed-off year close (T64m6)
+        whose covered ledgers' periods of the year are no longer all
+        locked sets it open again, before that write's own change. Shaped
+        as PeriodCloseChanged, with the fiscal year in place of the period.
+        It says what changed, not the close, which
+        `GET /v1/year-closes/{id}` returns at `version`. Subject is the
+        year close id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.closing.year_close_changed.v1}
+      payload: {$ref: '#/components/schemas/YearCloseChangedV1'}
+      examples:
+        - name: task_completed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000811, source: /erp/eu-1/closing, type: com.example.erp.closing.year_close_changed.v1, subject: 0192a000-0000-7000-8000-000000000f61, time: '2026-01-20T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {year_close_id: 0192a000-0000-7000-8000-000000000f61, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2025, change: task_completed, task_code: AUDIT_ADJUSTMENTS, reason: null, check_passed: null, status: open, version: 3}
     AccrualProposed:
       name: AccrualProposed
       x-webhook: true
@@ -3412,13 +3444,14 @@ components:
       name: ConsolidationRunChanged
       x-webhook: true
       title: Consolidation run changed
-      summary: A consolidation run was queued, started running, computed, failed or discarded.
+      summary: A consolidation run was queued, started running, computed, failed, discarded, finalized or superseded.
       description: |
         Emitted at each change of a consolidation run's status (ADR-0059
         §6, T68d): `consolidation-runs` (POST, `queued`, status_before
         null), its workflow's steps (`running`, `computed`, `failed` with
-        the problem) and `:discard` (`discarded`); finalization and
-        supersession follow in T68g. It says what changed;
+        the problem), `:discard` (`discarded`) and `:finalize` (T68g:
+        `final`, and the group's previous final run of the period
+        `superseded`, each its own event). It says what changed;
         `GET /v1/consolidation-runs/{id}` returns the run at `version`.
         Subject is the run id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
@@ -3432,6 +3465,30 @@ components:
         - name: computed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000c01, source: /erp/eu-1/consolidation, type: com.example.erp.consolidation.consolidation_run_changed.v1, subject: 0192a000-0000-7000-8000-000000000c01, time: '2026-11-20T10:00:02Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {run_id: 0192a000-0000-7000-8000-000000000c01, group_code: MAPLE, fiscal_year: 2026, fiscal_period: 11, status: computed, status_before: running, problem: null, version: 3}
+    IntercompanyDifferenceAccepted:
+      name: IntercompanyDifferenceAccepted
+      x-webhook: true
+      title: Intercompany difference accepted
+      summary: An open intercompany difference of a consolidation run was accepted by a person.
+      description: |
+        Emitted when a person accepts an open intercompany difference of a
+        computed consolidation run (ADR-0059 §8, T68g):
+        `consolidation-runs/{id}/differences/{difference_id}:accept`. It
+        names the run, the elimination, the pair of companies by id and code, the
+        difference in the group currency and the reason given;
+        `GET /v1/consolidation-runs/{id}/differences` shows it with names.
+        Subject is the difference id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.consolidation.intercompany_difference_accepted.v1}
+      payload: {$ref: '#/components/schemas/IntercompanyDifferenceAcceptedV1'}
+      examples:
+        - name: accepted
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000c02, source: /erp/eu-1/consolidation, type: com.example.erp.consolidation.intercompany_difference_accepted.v1, subject: 0192a000-0000-7000-8000-000000000d01, time: '2026-11-20T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {difference_id: 0192a000-0000-7000-8000-000000000d01, run_id: 0192a000-0000-7000-8000-000000000c01, group_code: MAPLE, fiscal_year: 2026, fiscal_period: 11, elimination_code: IC_BALANCES, legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c, company_code: '1000', partner_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b, partner_code: '3000', difference: {amount: '-100.00', currency: CAD}, tolerance: {amount: '10.00', currency: CAD}, reason: The receivable is booked at the invoice date's rate; the payable at the closing rate, status: accepted, version: 2, run_version: 5}
     EInvoiceChanged:
       name: EInvoiceChanged
       x-webhook: true
@@ -3440,9 +3497,12 @@ components:
       description: |
         Emitted at each change of an e-invoice's status (ADR-0061 §12,
         T65a): when a fetch records a document the provider delivered
-        (`received`, status_before null). The processing slices add its
-        entering, holding, refusal and dismissal (T65c-T65f). It carries
-        no document content. `GET /v1/e-invoices/{id}` returns the
+        (`received`, status_before null), and when a fetch finds the
+        provider delivered other bytes under its message id (T65b:
+        `changed_sha256` set, the status unchanged, so status_before is
+        the status), once per different bytes. The processing slices add
+        its entering, holding, refusal and dismissal (T65c-T65f). It
+        carries no document content. `GET /v1/e-invoices/{id}` returns the
         document at `version` or later: its acknowledgement to the
         provider, which sets `acknowledged_at`, moves the version without
         an event. Subject is the e-invoice id.
@@ -3456,7 +3516,10 @@ components:
       examples:
         - name: received
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000e01, source: /erp/eu-1/einvoicing, type: com.example.erp.einvoicing.einvoice_changed.v1, subject: 0192a000-0000-7000-8000-000000000e11, time: '2026-11-08T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {einvoice_id: 0192a000-0000-7000-8000-000000000e11, connector_id: 0192a000-0000-7000-8000-000000000e01, message_id: MSG-0001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: AE01, status: received, status_before: null, sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08, fetch_operation_id: 0192a000-0000-7000-8000-000000000e21, version: 1}
+          payload: {einvoice_id: 0192a000-0000-7000-8000-000000000e11, connector_id: 0192a000-0000-7000-8000-000000000e01, message_id: MSG-0001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: AE01, status: received, status_before: null, sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08, changed_sha256: null, changed_fetch_operation_id: null, fetch_operation_id: 0192a000-0000-7000-8000-000000000e21, version: 1}
+        - name: bytes_changed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000e02, source: /erp/eu-1/einvoicing, type: com.example.erp.einvoicing.einvoice_changed.v1, subject: 0192a000-0000-7000-8000-000000000e11, time: '2026-11-08T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {einvoice_id: 0192a000-0000-7000-8000-000000000e11, connector_id: 0192a000-0000-7000-8000-000000000e01, message_id: MSG-0001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: AE01, status: received, status_before: received, sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08, changed_sha256: 60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752, changed_fetch_operation_id: 0192a000-0000-7000-8000-000000000e22, fetch_operation_id: 0192a000-0000-7000-8000-000000000e21, version: 3}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -4056,6 +4119,8 @@ components:
         status: {type: string, description: "The document's status after the change. Open enum: received."}
         status_before: {type: [string, 'null'], description: "Its status before; null when it was received."}
         sha256: {type: string, description: "The SHA-256 of its bytes as received, hex."}
+        changed_sha256: {type: [string, 'null'], description: "The SHA-256 of other bytes the provider delivered later under the same message id, the latest, hex; null while there are none. The document keeps its first bytes (`sha256`). Added within v1, so not required (ADR-0041); every event carries it."}
+        changed_fetch_operation_id: {type: [string, 'null'], format: uuid, description: "The fetch that found those other bytes: its Operation; null with `changed_sha256`. Added within v1, so not required (ADR-0041); every event carries it."}
         fetch_operation_id: {$ref: '#/components/schemas/Uuid', description: 'The fetch that recorded it: its Operation.'}
         version: {type: integer, description: "The document's version after the change."}
     ConsolidationRunChangedV1:
@@ -4076,6 +4141,26 @@ components:
             code: {type: string}
             detail: {type: string}
         version: {type: integer, description: "The run's version after the change."}
+    IntercompanyDifferenceAcceptedV1:
+      type: object
+      required: [difference_id, run_id, group_code, fiscal_year, fiscal_period, elimination_code, legal_entity_id, company_code, partner_id, partner_code, difference, tolerance, reason, status, version, run_version]
+      properties:
+        difference_id: {$ref: '#/components/schemas/Uuid', description: '`consolidation.run_difference.id`.'}
+        run_id: {$ref: '#/components/schemas/Uuid', description: '`consolidation.run.id`.'}
+        group_code: {type: string, description: "The group's code."}
+        fiscal_year: {type: integer}
+        fiscal_period: {type: integer, description: The regular period (1-12).}
+        elimination_code: {type: string, description: "The elimination's code (`consolidation.eliminations[].code`)."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: 'The pair''s company with the lower company code.'}
+        company_code: {type: string, description: "`legal_entity_id`'s company code, as the run read it."}
+        partner_id: {$ref: '#/components/schemas/Uuid', description: 'The pair''s other company.'}
+        partner_code: {type: string, description: "`partner_id`'s company code, as the run read it."}
+        difference: {$ref: '#/components/schemas/Money', description: 'The amount and the partner amount summed, in the group currency, debit positive.'}
+        tolerance: {$ref: '#/components/schemas/Money', description: "The elimination's tolerance the difference exceeds."}
+        reason: {type: string, description: Why it was accepted.}
+        status: {type: string, description: "The difference's status after the change: accepted."}
+        version: {type: integer, description: "The difference's version after the change."}
+        run_version: {type: integer, description: "The run's version after the change, which moves with its differences."}
     PeriodCloseChangedV1:
       type: object
       required: [period_close_id, legal_entity_id, fiscal_year, fiscal_period, change, task_code, reason, status, version]
@@ -4088,6 +4173,19 @@ components:
         task_code: {type: [string, 'null'], description: The task changed; null when the close was created or reopened.}
         reason: {type: [string, 'null'], description: "Why a task was reopened; null for any other change."}
         check_passed: {type: [boolean, 'null'], description: "Whether the task's check passed (T64c); null for any change but task_checked. `GET /v1/period-closes/{id}` shows what it found."}
+        status: {type: string, description: "The close's status after the change. Open enum: open, signed_off."}
+        version: {type: integer, description: "The close's version after the change."}
+    YearCloseChangedV1:
+      type: object
+      required: [year_close_id, legal_entity_id, fiscal_year, change, task_code, reason, status, version]
+      properties:
+        year_close_id: {$ref: '#/components/schemas/Uuid', description: '`closing.year_close.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        fiscal_year: {type: integer}
+        change: {type: string, description: 'Open enum: created, task_assigned, task_completed, task_reopened, task_checked, reopened.'}
+        task_code: {type: [string, 'null'], description: The task changed; null when the close was created or reopened.}
+        reason: {type: [string, 'null'], description: "Why a task was reopened; null for any other change."}
+        check_passed: {type: [boolean, 'null'], description: "Whether the task's check passed, for task_checked (T64m5); null for any other change."}
         status: {type: string, description: "The close's status after the change. Open enum: open, signed_off."}
         version: {type: integer, description: "The close's version after the change."}
     AccrualProposedV1:

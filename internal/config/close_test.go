@@ -46,6 +46,7 @@ func TestCloseTemplateValid(t *testing.T) {
 		{"an unknown kind", task(0, func(t *CloseTask) { t.Kind = "approval" }), "close.tasks[AP_CUTOFF].kind"},
 		{"a check on a manual task", task(0, func(t *CloseTask) { t.Check = "no_parked_entries" }), "close.tasks[AP_CUTOFF].check"},
 		{"a check this build does not run", task(0, func(t *CloseTask) { t.Kind, t.Check = CloseCheck, "bank_reconciled" }), "close.tasks[AP_CUTOFF].check"},
+		{"a year check", task(0, func(t *CloseTask) { t.Kind, t.Check = CloseCheck, "carry_forward_current" }), "close.tasks[AP_CUTOFF].check"},
 		{"a check task without its check", task(0, func(t *CloseTask) { t.Kind = CloseCheck }), "close.tasks[AP_CUTOFF].check"},
 		{"a due day after 31", task(0, func(t *CloseTask) { t.DueDay = 32 }), "close.tasks[AP_CUTOFF].due_day"},
 		{"a due day before -31", task(0, func(t *CloseTask) { t.DueDay = -32 }), "close.tasks[AP_CUTOFF].due_day"},
@@ -218,5 +219,111 @@ func TestBusinessDay(t *testing.T) {
 	}
 	if w := c.Weekend("1000"); !slices.Equal(w, DefaultWeekend) {
 		t.Errorf("Weekend of a calendar naming none: got %v, want %v", w, DefaultWeekend)
+	}
+}
+
+// withYearTasks is withClose with year tasks (ADR-0060 §8) whose codes
+// repeat the period tasks': a list's codes are its own.
+func withYearTasks(t *testing.T) *Config {
+	t.Helper()
+	c := withClose(t)
+	c.Close.YearTasks = []CloseTask{
+		{Code: "AP_CUTOFF", Name: "Auditors' adjustments entered", Kind: CloseManual, DueDay: 20},
+		{Code: "INVENTORY", Name: "Inventory count reconciled", Kind: CloseManual, DueDay: 10, DependsOn: []string{"AP_CUTOFF"}, Companies: []string{"1000"}},
+	}
+	return c
+}
+
+// TestYearTasksValid: year tasks validate as the period's tasks do, on
+// their own path and codes, and name a year close's checks (T64m5): a
+// period check other than theirs is refused there.
+func TestYearTasksValid(t *testing.T) {
+	if fs := Validate(withYearTasks(t), currency.Seeded()); HasErrors(fs) {
+		t.Fatalf("year tasks configured: got %v, want no errors", fs)
+	}
+	for _, check := range YearCloseChecks {
+		t.Run(check, func(t *testing.T) {
+			c := withYearTasks(t)
+			c.Close.YearTasks[0].Kind, c.Close.YearTasks[0].Check = CloseCheck, check
+			if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+				t.Errorf("a year task checking %s: got %v, want no errors", check, fs)
+			}
+		})
+	}
+	task := func(i int, mutate func(*CloseTask)) func(c *Config) {
+		return func(c *Config) { mutate(&c.Close.YearTasks[i]) }
+	}
+	cases := []struct {
+		name   string
+		mutate func(c *Config)
+		path   string
+	}{
+		{"a lower-case code", task(0, func(t *CloseTask) { t.Code = "ap_cutoff" }), "close.year_tasks[ap_cutoff].code"},
+		{"a task twice", func(c *Config) { c.Close.YearTasks = append(c.Close.YearTasks, c.Close.YearTasks[0]) }, "close.year_tasks[AP_CUTOFF]"},
+		{"no name", task(0, func(t *CloseTask) { t.Name = "" }), "close.year_tasks[AP_CUTOFF].name"},
+		{"a period check", task(0, func(t *CloseTask) { t.Kind, t.Check = CloseCheck, "accruals_decided" }), "close.year_tasks[AP_CUTOFF].check"},
+		{"the period's depreciation check", task(0, func(t *CloseTask) { t.Kind, t.Check = CloseCheck, "depreciation_posted" }),
+			"close.year_tasks[AP_CUTOFF].check"},
+		{"a due day after 31", task(0, func(t *CloseTask) { t.DueDay = 32 }), "close.year_tasks[AP_CUTOFF].due_day"},
+		{"a company not in the document", task(1, func(t *CloseTask) { t.Companies = []string{"9000"} }), "close.year_tasks[INVENTORY].companies"},
+		{"a dependency on a period task", task(1, func(t *CloseTask) { t.DependsOn = []string{"REVALUED"} }), "close.year_tasks[INVENTORY].depends_on"},
+		{"a cycle", task(0, func(t *CloseTask) { t.DependsOn = []string{"INVENTORY"}; t.Companies = []string{"1000"} }),
+			"close.year_tasks[AP_CUTOFF].depends_on"},
+		{"more than 200 tasks", func(c *Config) {
+			for i := range 199 {
+				c.Close.YearTasks = append(c.Close.YearTasks, CloseTask{Code: "Y" + strings.Repeat("X", i%29) + string(rune('A'+i/29)), Name: "Task", Kind: CloseManual})
+			}
+		}, "close.year_tasks"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := withYearTasks(t)
+			tc.mutate(c)
+			if fs := Validate(c, currency.Seeded()); !hasPath(fs, tc.path) {
+				t.Errorf("findings: got %v, want one at %s", fs, tc.path)
+			}
+		})
+	}
+}
+
+// TestYearCloseTasksOf: a company's year close is given the year tasks for
+// every company and those listing it, in the template's order, and none of
+// the period's.
+func TestYearCloseTasksOf(t *testing.T) {
+	c := withYearTasks(t)
+	for company, want := range map[string]string{"1000": "AP_CUTOFF INVENTORY", "2000": "AP_CUTOFF"} {
+		t.Run(company, func(t *testing.T) {
+			var got []string
+			for _, task := range c.YearCloseTasksOf(company) {
+				got = append(got, task.Code)
+			}
+			if strings.Join(got, " ") != want {
+				t.Errorf("YearCloseTasksOf(%s): got %v, want %s", company, got, want)
+			}
+		})
+	}
+}
+
+// TestYearTaskTiers: a year task's name is cosmetic, the rest of the year
+// tasks operational, as the period's (ADR-0060 §8).
+func TestYearTaskTiers(t *testing.T) {
+	base := withYearTasks(t)
+	changed := withYearTasks(t)
+	changed.Close.YearTasks[0].Name = "Audit adjustments entered"
+	changed.Close.YearTasks[1].DueDay = 15
+	changed.Close.YearTasks = append(changed.Close.YearTasks, CloseTask{Code: "TAX", Name: "Tax provision booked", Kind: CloseManual})
+	diffs, _ := Diff(base, changed) // Diff never fails
+	want := map[string]Tier{
+		"close.year_tasks[AP_CUTOFF].name":    TierCosmetic,
+		"close.year_tasks[INVENTORY].due_day": TierOperational,
+		"close.year_tasks[TAX]":               TierOperational,
+	}
+	if len(diffs) != len(want) {
+		t.Errorf("Diff: got %v, want %d changes", diffs, len(want))
+	}
+	for _, d := range diffs {
+		if tier, ok := want[d.Path]; !ok || d.Tier != tier {
+			t.Errorf("Diff %s: got %v, want %v", d.Path, d.Tier, tier)
+		}
 	}
 }

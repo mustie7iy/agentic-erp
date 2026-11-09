@@ -20,15 +20,17 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// The checks this build runs (ADR-0058 §6; config.CloseChecks lists them
-// for the template's validation).
+// The checks this build runs (ADR-0058 §6, ADR-0060 §8; config.CloseChecks
+// and config.YearCloseChecks list them for the template's validation).
 const (
-	CheckNoParked     = "no_parked_entries"
-	CheckRevaluation  = "revaluation_posted"
-	CheckVariances    = "variances_explained"
-	CheckDepreciation = "depreciation_posted"
-	CheckDecided      = "accruals_decided"
-	CheckReversed     = "accruals_reversed"
+	CheckNoParked         = "no_parked_entries"
+	CheckRevaluation      = "revaluation_posted"
+	CheckVariances        = "variances_explained"
+	CheckDepreciation     = "depreciation_posted"
+	CheckDecided          = "accruals_decided"
+	CheckReversed         = "accruals_reversed"
+	CheckDepreciationYear = "depreciation_year_posted"
+	CheckCarryForward     = "carry_forward_current"
 )
 
 // maxNamed is how many parked entries a no_parked_entries result names,
@@ -48,6 +50,9 @@ type found struct {
 	ParkedCount int           `json:"parked_entries_count,omitempty"`
 	Parked      []foundParked `json:"parked_entries,omitempty"`
 	Ledgers     []foundLedger `json:"ledgers,omitempty"`
+	// depreciation_year_posted: how many of the covered ledgers' regular
+	// periods fail; Ledgers names the first of them.
+	FailingPeriods int `json:"ledger_periods_count,omitempty"`
 	// variances_explained: how many rows are unexplained, the first of them.
 	Compared         bool            `json:"compared,omitempty"` // a basis was compared: the count is one
 	UnexplainedCount int             `json:"unexplained_rows_count,omitempty"`
@@ -112,9 +117,12 @@ type foundParked struct {
 	CreatedByName string    `json:"created_by_name"`
 }
 
-// foundLedger is a covered ledger as a revaluation_posted or a
-// depreciation_posted check found it: its run, and for depreciation
-// without a posted run how many assets a run would select.
+// foundLedger is a covered ledger as a revaluation_posted, a
+// depreciation_posted or a carry_forward_current check found it, or a
+// covered ledger's period (Period) as a depreciation_year_posted check
+// found it: its run, for depreciation without a posted run how many assets
+// a run would select, and for a carry-forward whether it is stale and the
+// periods opened since it.
 type foundLedger struct {
 	LedgerID     uuid.UUID  `json:"ledger_id"`
 	LedgerCode   string     `json:"ledger_code"`
@@ -125,6 +133,16 @@ type foundLedger struct {
 	ToDepreciate *int       `json:"assets_to_depreciate,omitempty"`
 	Later        *uuid.UUID `json:"later_depreciation_run_id,omitempty"`
 	LaterOf      *[2]int16  `json:"later_depreciation,omitempty"` // its fiscal year and period
+	Period       *int16     `json:"fiscal_period,omitempty"`
+	CarryForward *uuid.UUID `json:"carry_forward_run_id,omitempty"`
+	Stale        *bool      `json:"stale,omitempty"`
+	OpenedSince  [][2]int16 `json:"opened_since,omitempty"` // each period's fiscal year and period
+}
+
+// missing is whether the ledger fails the depreciation of its period: no
+// posted run of it nor of a later period, and assets a run would select.
+func (l foundLedger) missing() bool {
+	return l.Depreciation == nil && *l.ToDepreciate > 0 && l.Later == nil
 }
 
 // toAPI shows a recorded result; what a check found is shown for its own
@@ -145,10 +163,13 @@ func (f *found) toAPI(check string, passed bool, at time.Time, by uuid.UUID, byN
 				Reference: apitypes.OptString(p.Reference), HeaderText: apitypes.OptString(p.HeaderText), CreatedBy: p.CreatedBy,
 				CreatedByKind: p.CreatedByKind, CreatedByName: p.CreatedByName}
 		}
-	case CheckRevaluation, CheckDepreciation:
+	case CheckRevaluation, CheckDepreciation, CheckDepreciationYear, CheckCarryForward:
 		out.Ledgers = make([]gen.CloseCheckLedger, len(f.Ledgers))
 		for i, l := range f.Ledgers {
 			out.Ledgers[i] = l.toAPI()
+		}
+		if check == CheckDepreciationYear {
+			out.LedgerPeriodsCount.SetTo(int32(f.FailingPeriods)) // at most 12 per covered ledger
 		}
 	case CheckVariances:
 		if f.Compared {
@@ -193,8 +214,18 @@ func (w foundWarning) toAPI() gen.CloseCheckWarning {
 func (l foundLedger) toAPI() gen.CloseCheckLedger {
 	day, _ := time.Parse(time.DateOnly, l.KeyDate) // written by run from a date
 	out := gen.CloseCheckLedger{LedgerID: l.LedgerID, LedgerCode: l.LedgerCode, LedgerName: l.LedgerName, KeyDate: day,
-		Posted: l.Run != nil || l.Depreciation != nil, RevaluationRunID: apitypes.OptUUID(l.Run), DepreciationRunID: apitypes.OptUUID(l.Depreciation),
-		LaterDepreciationRunID: apitypes.OptUUID(l.Later)}
+		Posted: l.Run != nil || l.Depreciation != nil || l.CarryForward != nil, RevaluationRunID: apitypes.OptUUID(l.Run),
+		DepreciationRunID: apitypes.OptUUID(l.Depreciation), LaterDepreciationRunID: apitypes.OptUUID(l.Later), CarryForwardRunID: apitypes.OptUUID(l.CarryForward)}
+	if l.Period != nil {
+		out.FiscalPeriod.SetTo(int32(*l.Period))
+	}
+	if l.Stale != nil {
+		out.Stale.SetTo(*l.Stale)
+		out.OpenedSince = make([]gen.CarryForwardOpenedPeriod, len(l.OpenedSince))
+		for i, p := range l.OpenedSince {
+			out.OpenedSince[i] = gen.CarryForwardOpenedPeriod{LedgerID: l.LedgerID, LedgerCode: l.LedgerCode, FiscalYear: int32(p[0]), Period: int32(p[1])}
+		}
+	}
 	if l.LaterOf != nil {
 		out.LaterDepreciationFiscalYear.SetTo(int32(l.LaterOf[0]))
 		out.LaterDepreciationPeriod.SetTo(int32(l.LaterOf[1]))
@@ -210,53 +241,62 @@ func (l foundLedger) toAPI() gen.CloseCheckLedger {
 // now, once every task it depends on is done, records the result on the
 // task, and sets it done when it passed and open when it did not.
 func (e *Endpoints) CheckCloseTask(ctx context.Context, params gen.CheckCloseTaskParams) (gen.CheckCloseTaskRes, error) {
-	return e.taskAction(ctx, params.ID, params.Code, params.IfMatch, func(ctx context.Context, tx pgx.Tx, p reqctx.Principal, t task) (change, bool, error) {
-		switch {
-		case t.Kind != config.CloseCheck:
-			return change{}, false, problem.Conflict("closing.task_not_check", "Task "+t.Code+" is a manual task; a person completes it with :complete.")
-		case len(t.BlockedBy) > 0:
-			return change{}, false, problem.Conflict("closing.task_blocked", "Task "+t.Code+" waits for "+strings.Join(t.BlockedBy, ", ")+
-				", still open; complete them first.")
-		}
-		passed, f, err := e.run(ctx, tx, t)
-		if err != nil {
-			return change{}, false, err
-		}
-		if err := recordCheck(ctx, tx, p, t, passed, f); err != nil {
-			return change{}, false, err
-		}
-		return change{action: "check_task", name: "task_checked", task: &t.Code, passed: &passed,
-			detail: map[string]any{"check": *t.Check, "passed": passed, "summary": f.Summary, "warnings_count": f.WarningCount}}, true, nil
-	})
+	return periodTask(e.taskAction(ctx, periodCloses, params.ID, params.Code, params.IfMatch, e.check))
+}
+
+// check runs a check task's check of a close of either kind, once every
+// task it depends on is done, and records its result on the task.
+func (e *Endpoints) check(ctx context.Context, tx pgx.Tx, k *closeKind, p reqctx.Principal, t task) (change, bool, error) {
+	switch {
+	case t.Kind != config.CloseCheck:
+		return change{}, false, problem.Conflict("closing.task_not_check", "Task "+t.Code+" is a manual task; a person completes it with :complete.")
+	case len(t.BlockedBy) > 0:
+		return change{}, false, problem.Conflict("closing.task_blocked", "Task "+t.Code+" waits for "+strings.Join(t.BlockedBy, ", ")+
+			", still open; complete them first.")
+	}
+	passed, f, err := e.run(ctx, tx, k, t)
+	if err != nil {
+		return change{}, false, err
+	}
+	if err := recordCheck(ctx, tx, k, p, t, passed, f); err != nil {
+		return change{}, false, err
+	}
+	return change{action: "check_task", name: "task_checked", task: &t.Code, passed: &passed,
+		detail: map[string]any{"check": *t.Check, "passed": passed, "summary": f.Summary, "warnings_count": f.WarningCount}}, true, nil
 }
 
 // recordCheck records a check's result on its task: a pass makes it done,
 // keeping the completion of a task done already; a failure makes it open.
 // The close's lock serialises its writes, so nothing changes the task
 // between its read and this update.
-func recordCheck(ctx context.Context, tx pgx.Tx, p reqctx.Principal, t task, passed bool, f found) error {
+func recordCheck(ctx context.Context, tx pgx.Tx, k *closeKind, p reqctx.Principal, t task, passed bool, f found) error {
 	result, _ := json.Marshal(f) // strings, numbers, ids and lists of them always encode
-	_, err := tx.Exec(ctx, `UPDATE closing.close_task SET checked_at = now(), checked_by = $3, check_passed = $4, check_result = $5,
+	_, err := tx.Exec(ctx, k.q(`UPDATE {task} SET checked_at = now(), checked_by = $3, check_passed = $4, check_result = $5,
 			status = CASE WHEN $4 THEN 'done' ELSE 'open' END,
 			completed_by = CASE WHEN $4 THEN coalesce(completed_by, $3) END, completed_at = CASE WHEN $4 THEN coalesce(completed_at, now()) END,
 			version = version + 1, updated_by = $3
-		WHERE close_id = $1 AND code = $2`, t.CloseID, t.Code, p.ID, passed, result)
-	return errs.Wrapf(err, "closing: record check of task %s of close %s", t.Code, t.CloseID)
+		WHERE close_id = $1 AND code = $2`), t.CloseID, t.Code, p.ID, passed, result)
+	return errs.Wrapf(err, "closing: record check of task %s of "+k.noun+" %s", t.Code, t.CloseID)
 }
 
-// run runs a task's check on its close's ledgers as the ledger holds them
-// now; a check this build does not know is broken data (the template's
-// validation admits only config.CloseChecks).
-func (e *Endpoints) run(ctx context.Context, tx pgx.Tx, t task) (bool, found, error) {
+// run runs a task's check of a close of a kind on its close's ledgers as
+// the ledger holds them now; a check this build does not know is broken
+// data (the template's validation admits only config.CloseChecks, and
+// config.YearCloseChecks on a year close).
+func (e *Endpoints) run(ctx context.Context, tx pgx.Tx, k *closeKind, t task) (bool, found, error) {
+	if k.year {
+		return e.runYear(ctx, tx, t)
+	}
 	covered, err := e.coveredPeriods(ctx, tx, t.CloseID, t.LegalEntityID, t.FiscalYear, t.FiscalPeriod)
 	if err != nil {
 		return false, found{}, err
 	}
 	switch *t.Check {
 	case CheckNoParked:
-		return e.noParked(ctx, t.LegalEntityID, covered[0].Period) // the leading ledger, always covered, first
+		lead := covered[0].Period // the leading ledger, always covered, first
+		return e.noParked(ctx, t.LegalEntityID, lead.StartDate, lead.EndDate, false)
 	case CheckRevaluation:
-		return e.revaluationPosted(ctx, t.LegalEntityID, covered)
+		return e.revaluationPosted(ctx, t.LegalEntityID, covered, "period")
 	case CheckVariances:
 		return e.variancesExplained(ctx, tx, t)
 	case CheckDepreciation:
@@ -269,11 +309,13 @@ func (e *Endpoints) run(ctx context.Context, tx pgx.Tx, t task) (bool, found, er
 	return false, found{}, fmt.Errorf("closing: task %s of close %s runs check %q, which this build does not", t.Code, t.CloseID, *t.Check)
 }
 
-// noParked passes when no parked entry of the company dated in the period
-// (the leading ledger's) waits for a person, and names the first of those
-// that do with who parked them.
-func (e *Endpoints) noParked(ctx context.Context, legalEntity uuid.UUID, period *Period) (bool, found, error) {
-	n, ps, err := e.Ledger.Parked(ctx, legalEntity, period.StartDate, period.EndDate, openParked, maxNamed)
+// noParked passes when no parked entry of the company dated from from to
+// to (the leading ledger's period, or its regular periods of a year) waits
+// for a person, those parked for a special period counted when special is
+// (a year close's, ADR-0060 §3), and names the first of those that do with
+// who parked them.
+func (e *Endpoints) noParked(ctx context.Context, legalEntity uuid.UUID, from, to time.Time, special bool) (bool, found, error) {
+	n, ps, err := e.Ledger.Parked(ctx, legalEntity, from, to, openParked, special, maxNamed)
 	if err != nil {
 		return false, found{}, fmt.Errorf("closing: parked entries of %s: %w", legalEntity, err)
 	}
@@ -286,7 +328,7 @@ func (e *Endpoints) noParked(ctx context.Context, legalEntity uuid.UUID, period 
 		f.Parked[i] = foundParked{ID: p.ID, DocumentType: p.DocumentType, PostingDate: p.PostingDate.Format(time.DateOnly), Status: p.Status,
 			Reference: p.Reference, HeaderText: p.HeaderText, CreatedBy: p.CreatedBy, CreatedByKind: p.CreatedByKind, CreatedByName: people[p.CreatedBy].Name}
 	}
-	span := period.StartDate.Format(time.DateOnly) + " to " + period.EndDate.Format(time.DateOnly)
+	span := from.Format(time.DateOnly) + " to " + to.Format(time.DateOnly)
 	switch n {
 	case 0:
 		f.Summary = "No parked entry dated " + span + " is parked or pending approval."
@@ -299,9 +341,10 @@ func (e *Endpoints) noParked(ctx context.Context, legalEntity uuid.UUID, period 
 }
 
 // revaluationPosted passes when each covered ledger has a posted
-// revaluation run keyed on its period's last day (ADR-0042), and names
-// each ledger with its run.
-func (e *Endpoints) revaluationPosted(ctx context.Context, legalEntity uuid.UUID, covered []LedgerPeriod) (bool, found, error) {
+// revaluation run keyed on its period's last day (ADR-0042; a year close
+// gives each ledger its last regular period, span "year"), and names each
+// ledger with its run.
+func (e *Endpoints) revaluationPosted(ctx context.Context, legalEntity uuid.UUID, covered []LedgerPeriod, span string) (bool, found, error) {
 	f := found{Ledgers: make([]foundLedger, len(covered))}
 	var missing []string
 	for i, k := range covered {
@@ -316,9 +359,9 @@ func (e *Endpoints) revaluationPosted(ctx context.Context, legalEntity uuid.UUID
 			missing = append(missing, k.Code)
 		}
 	}
-	f.Summary = "Every covered ledger has a posted revaluation run at its period's last day."
+	f.Summary = "Every covered ledger has a posted revaluation run at its " + span + "'s last day."
 	if len(missing) > 0 {
-		f.Summary = "No posted revaluation run at the period's last day in ledger " + strings.Join(missing, ", ") + "; run the revaluation first."
+		f.Summary = "No posted revaluation run at the " + span + "'s last day in ledger " + strings.Join(missing, ", ") + "; run the revaluation first."
 	}
 	return len(missing) == 0, f, nil
 }
@@ -403,27 +446,17 @@ func (e *Endpoints) depreciationPosted(ctx context.Context, tx pgx.Tx, legalEnti
 	f := found{Ledgers: make([]foundLedger, len(covered))}
 	var missing, late []string
 	for i, k := range covered {
-		d, err := e.Depreciation.Posted(ctx, legalEntity, k.LedgerID, p.FiscalYear, p.Period, k.Period.EndDate, maxNamed-len(f.Warnings))
+		l, _, err := e.ledgerDepreciation(ctx, tx, &f, legalEntity, p, k, true)
 		if err != nil {
-			return false, found{}, fmt.Errorf("closing: depreciation of ledger %s: %w", k.Code, err)
+			return false, found{}, err
 		}
-		f.Ledgers[i] = foundLedger{LedgerID: k.LedgerID, LedgerCode: k.Code, LedgerName: k.Name, KeyDate: k.Period.EndDate.Format(time.DateOnly),
-			Depreciation: d.Run}
-		if d.Run != nil {
-			continue
-		}
-		f.Ledgers[i].ToDepreciate = &d.Selected
+		f.Ledgers[i] = l
 		switch {
-		case d.Selected == 0:
-		case d.Later == nil:
-			missing = append(missing, fmt.Sprintf("%s (%s)", k.Code, assetCount(d.Selected)))
-		default:
-			f.Ledgers[i].Later, f.Ledgers[i].LaterOf = &d.Later.ID, &[2]int16{d.Later.Of.FiscalYear, d.Later.Of.Period}
-			if err := f.warnLate(ctx, tx, k, d); err != nil {
-				return false, found{}, err
-			}
-			late = append(late, fmt.Sprintf("%s (%s, caught up by a run of %d/%d or later)", k.Code, lateCount(d.Selected), d.Later.Of.FiscalYear,
-				d.Later.Of.Period))
+		case l.Depreciation != nil:
+		case l.missing():
+			missing = append(missing, fmt.Sprintf("%s (%s)", k.Code, assetCount(*l.ToDepreciate)))
+		case l.Later != nil:
+			late = append(late, fmt.Sprintf("%s (%s, caught up by a run of %d/%d or later)", k.Code, lateCount(*l.ToDepreciate), l.LaterOf[0], l.LaterOf[1]))
 		}
 	}
 	f.Summary = fmt.Sprintf("Every covered ledger has a posted depreciation run of %d/%d or nothing to depreciate.", p.FiscalYear, p.Period)
@@ -437,9 +470,37 @@ func (e *Endpoints) depreciationPosted(ctx context.Context, tx pgx.Tx, legalEnti
 	return len(missing) == 0, f, nil
 }
 
+// ledgerDepreciation is a covered ledger's depreciation of a period as
+// T64k's check reads it (ADR-0057 §7): its latest posted run of the
+// period or, without one, how many assets a run would select and the
+// latest posted run of a later period, each of those assets then a
+// depreciation_catch_up warning, added to f when warn is (a year's check
+// warns once per later run, depreciationYearPosted).
+func (e *Endpoints) ledgerDepreciation(ctx context.Context, tx pgx.Tx, f *found, legalEntity uuid.UUID, p FiscalPeriod, k LedgerPeriod,
+	warn bool) (foundLedger, PeriodDepreciation, error) {
+	d, err := e.Depreciation.Posted(ctx, legalEntity, k.LedgerID, p.FiscalYear, p.Period, k.Period.EndDate, maxNamed-len(f.Warnings))
+	if err != nil {
+		return foundLedger{}, d, fmt.Errorf("closing: depreciation of ledger %s in %d/%d: %w", k.Code, p.FiscalYear, p.Period, err)
+	}
+	l := foundLedger{LedgerID: k.LedgerID, LedgerCode: k.Code, LedgerName: k.Name, KeyDate: k.Period.EndDate.Format(time.DateOnly), Depreciation: d.Run}
+	if d.Run != nil {
+		return l, d, nil
+	}
+	l.ToDepreciate = &d.Selected
+	if d.Selected > 0 && d.Later != nil {
+		l.Later, l.LaterOf = &d.Later.ID, &[2]int16{d.Later.Of.FiscalYear, d.Later.Of.Period}
+		if warn {
+			if err := f.warnLate(ctx, tx, k, d); err != nil {
+				return foundLedger{}, d, err
+			}
+		}
+	}
+	return l, d, nil
+}
+
 // warnLate adds a depreciation_catch_up warning for each late asset the
 // assets context named of the ledger, counting them all, its catch-up in
-// the later run's currency's digits.
+// the later run's currency's digits; f names at most maxNamed.
 func (f *found) warnLate(ctx context.Context, tx pgx.Tx, k LedgerPeriod, d PeriodDepreciation) error {
 	f.WarningCount += d.Selected
 	exp, err := currency.Exponent(ctx, tx, d.Later.Currency, nil)
@@ -447,7 +508,7 @@ func (f *found) warnLate(ctx context.Context, tx pgx.Tx, k LedgerPeriod, d Perio
 		return fmt.Errorf("closing: digits of %s: %w", d.Later.Currency, err)
 	}
 	through := [2]int16{d.Later.Of.FiscalYear, d.Later.Of.Period}
-	for _, a := range d.Late {
+	for _, a := range d.Late[:min(len(d.Late), maxNamed-len(f.Warnings))] {
 		w := foundWarning{Code: warnCatchUp, LedgerID: k.LedgerID, LedgerCode: k.Code, AssetID: a.ID, AssetNumber: a.Number, AssetDescription: a.Description,
 			MissingThrough: through, LaterRun: d.Later.ID, CatchUp: a.CatchUp.Plain(exp), Currency: d.Later.Currency}
 		if a.MissingFrom != nil {

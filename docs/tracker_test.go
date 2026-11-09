@@ -82,8 +82,19 @@ const baselineItems = 949
 // ACDOCA's centers and center totals), each inheriting the tag. 103 since
 // T56h2: the OData mapping of the controlling tables, whose service names
 // wait for the pilot's $metadata, split from it as T56h5, inheriting the
-// tag.
-const pilotItems = 103
+// tag. 111 since the specialists' answers of 2026-11-09 (po:2026-11-09):
+// eight leaves changing pilot leaves' behaviour, each tagged as the leaf it
+// changes: payment method order (the SAP payment methods leaf), an invoice's
+// GR/IR line in another currency (the foreign-currency GR/IR positions
+// leaf), TKA02, centers checked against the derivation at posting, values
+// on inner groups, 24-character group codes and the CSKB slice at cutover
+// (the T56h leaves), and the VAT 201's threshold measure (the VAT 201 leaf).
+// 114 since its review (review round 1): A9 split into its profit center
+// and segment halves (+1), the empty-WAERS house bank leaf tagged as the
+// SAP house bank leaf it changes (+1), and SAP amounts in internal or
+// external format (D10's planning default), tagged as the foreign-currency
+// open items leaf (+1).
+const pilotItems = 114
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

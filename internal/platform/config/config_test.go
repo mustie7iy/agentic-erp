@@ -506,21 +506,24 @@ func TestWorkflowEngineSettings(t *testing.T) {
 		{"Temporal escalations", c.Temporal.Escalations, 3},
 		{"Temporal task queue", c.Temporal.TaskQueue, "erp"},
 		{"statement fetch", c.Temporal.StatementFetch, time.Hour},
+		{"e-invoice fetch", c.Temporal.EInvoiceFetch, time.Hour},
 	})
 	key := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("c", 32)))
 	m["ERP_TEMPORAL_ADDRESS"], m["ERP_TEMPORAL_CODEC_KEY"], m["ERP_APPROVAL_ESCALATE_AFTER"], m["ERP_APPROVAL_ESCALATIONS"] = "localhost:7233", key, "0", "1"
-	m["ERP_STATEMENT_FETCH_INTERVAL"] = "0"
+	m["ERP_STATEMENT_FETCH_INTERVAL"], m["ERP_EINVOICE_FETCH_INTERVAL"] = "0", "15m"
 	c = mustLoad(t, m)
 	checkFields(t, []field{
 		{"statement fetch", c.Temporal.StatementFetch, time.Duration(0)},
+		{"e-invoice fetch", c.Temporal.EInvoiceFetch, 15 * time.Minute},
 		{"Temporal codec key length", len(c.Temporal.CodecKey), 32},
 		{"Temporal escalate after", c.Temporal.EscalateAfter, time.Duration(0)},
 		{"Temporal escalations", c.Temporal.Escalations, 1},
 	})
 	for name, bad := range map[string][2]string{"short key": {"ERP_TEMPORAL_CODEC_KEY", base64.StdEncoding.EncodeToString([]byte("short"))},
 		"not base64": {"ERP_TEMPORAL_CODEC_KEY", "%%%"}, "negative period": {"ERP_APPROVAL_ESCALATE_AFTER", "-1h"}, "words": {"ERP_APPROVAL_ESCALATE_AFTER", "soon"},
-		"negative fetch period": {"ERP_STATEMENT_FETCH_INTERVAL", "-1h"},
-		"zero escalations":      {"ERP_APPROVAL_ESCALATIONS", "0"}, "not a number": {"ERP_APPROVAL_ESCALATIONS", "many"}} {
+		"negative fetch period": {"ERP_STATEMENT_FETCH_INTERVAL", "-1h"}, "negative e-invoice period": {"ERP_EINVOICE_FETCH_INTERVAL", "-1h"},
+		"e-invoice period in words": {"ERP_EINVOICE_FETCH_INTERVAL", "hourly"},
+		"zero escalations":          {"ERP_APPROVAL_ESCALATIONS", "0"}, "not a number": {"ERP_APPROVAL_ESCALATIONS", "many"}} {
 		t.Run(name, func(t *testing.T) {
 			mm := copyOf(m)
 			mm[bad[0]] = bad[1]

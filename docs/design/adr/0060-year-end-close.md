@@ -160,7 +160,20 @@ ADR-0053).
   `ledger.special_period_tax_code`) until the tax specialist confirms how
   year-end adjustments enter the returns (question 2, answered
   po:2026-11-05): tax returns select tax items by their tax period's dates, and
-  whether a year-end adjustment may carry tax is a tax rule.
+  whether a year-end adjustment may carry tax is a tax rule. The UAE tax
+  specialist answered for the VAT 201 on 2026-11-09 (po:2026-11-09, C10,
+  [M]; question 2): yes, a year-end adjustment can carry VAT, which follows
+  the tax documents and statutory adjustments, not the accounting date;
+  an adjustment carrying VAT belongs to the return of the period in which
+  its tax invoice or tax credit note is issued (or its tax point falls),
+  and the statutory annual adjustments (input tax apportionment, the
+  capital assets scheme) to the first return after the end of the tax year
+  or adjustment period (VAT Executive Regulation, apportionment and capital
+  assets articles). Accruals, provisions and reclassifications carry no
+  VAT and keep the refusal. The specialist suggests allowing a VAT code on
+  a year-end adjustment only when it references a tax document, its return
+  period derived from that document's date: a tracker leaf. Canada's GST34
+  is not answered: its refusal stays.
 - **The period close's parked-entry check.** ADR-0058's
   `no_parked_entries` selects parked entries by date within the period
   (`CloseChecks.Parked`), so an audit adjustment parked for period 13,
@@ -210,7 +223,14 @@ Its rows sum to zero per transaction currency in transaction, local and
 group currency, because every entry does (000005); a test asserts it on
 every run. Carrying the result per transaction currency is what keeps that
 invariant; how SAP presents a foreign-currency result in retained earnings
-is for a specialist (below).
+is for a specialist (below). An accounting specialist found it acceptable on
+2026-11-09 (po:2026-11-09, B15; a technical review, not a signed opinion):
+IFRS prescribes no closing-entry mechanics, and carrying the result per
+transaction currency with its local and group amounts as booked is fine
+provided the local total equals the year's profit or loss and the group
+total the translated profit used in consolidation. The split by
+transaction currency has no meaning for equity and is not to be presented
+in reports.
 
 **Never journal lines.** A carry-forward writes no journal entry. The
 readers that sum every year's lines (`Accounts.Balances`, revaluation, open
@@ -396,7 +416,18 @@ the equality holds for every company depends on what the migration loaded
 on reconciliation accounts (docs/migration.md keeps open vendor items as
 lines in both modes; whether anything else of a reconciliation account's
 SAP balance can reach it is for a migration specialist). Until then it is
-a manual task of the template (a gap below).
+a manual task of the template (a gap below). The SAP specialist answered on
+2026-11-09 (po:2026-11-09, A15, [M]): yes, other things can, each told by
+a field (docs/migration.md, "What to check on a real SAP system": special
+G/L postings on alternative reconciliation accounts, noted items, a
+changed reconciliation account, balances without vendor items, a period
+000 carry-forward, valuation posted to the account, items cleared after
+the key date). With ACDOCA the vendor line is the G/L line, so the equality
+usually holds; the specialist recommends a check per account at the key
+date over lines with a vendor (LIFNR), no special G/L indicator (UMSKZ)
+and not noted (BSTAT not `S`), reported rather than refused: a tracker
+leaf for the migration's reconciliation. The platform's own year-end
+check stays a gap: no ADR asks for it.
 
 ### 10. Parallel ledgers and foreign currency
 - **Per ledger** (ADR-0045): a carry-forward is run per ledger, from that
@@ -629,7 +660,10 @@ recommended.
    (`ledger.special_period_tax_code`), so no year-end adjustment changes a
    tax return. Recommendation: keep the refusal until the tax specialist
    says whether a pilot country's returns take year-end adjustments, and
-   how they are dated.
+   how they are dated. **The UAE tax specialist's answer (po:2026-11-09,
+   C10, [M]):** for the VAT 201, a year-end adjustment may carry VAT when it
+   rests on a tax document, in the return of that document's period (§3);
+   a tracker leaf. The GST34 is not answered and keeps the refusal.
 
 ## Gaps (out of scope, not built, no question asked)
 Neither the PO decision nor an ADR asks for these; each becomes a tracker
@@ -637,7 +671,8 @@ item only when one does (07 §7.5).
 - Opening balances in the trial balance (a period 0 row needs a contract
   change) and financial statements (T65).
 - An automatic check of open items against their reconciliation accounts
-  (§9), until a migration specialist says when it holds.
+  (§9) on the platform; the migration specialist said when it holds on
+  2026-11-09 (A15), and the migration's check is a tracker leaf.
 - Supplier and customer balances carried per partner (SAP F.07).
 - Year-close tasks in the cross-close worklist (`listCloseTasks`), whose
   rows carry a period.
@@ -652,10 +687,11 @@ item only when one does (07 §7.5).
   "What SAP does".
 - How a profit or loss in a foreign transaction currency is presented in
   retained earnings (§5 carries it per transaction currency, with its local
-  and group amounts).
+  and group amounts): answered on 2026-11-09 (B15, §5).
 - Whether year-end adjustments in special periods count in a period's tax
-  return in Canada and the UAE (question 2), and any statutory deadline for
-  a year's close: none is asserted.
+  return in Canada and the UAE (question 2): answered for the UAE on
+  2026-11-09 (C10, §3), open for Canada; and any statutory deadline for a
+  year's close: none is asserted.
 
 ## Sources
 - The repository: ADR-0058 (§1's question, the close), ADR-0045, ADR-0006,
@@ -875,3 +911,130 @@ for the product owner to overrule:
    stale), carries `PREV` forward again: the new runs are current and not
    stale, 0L's result is CAD 100.00 more, the first runs read superseded
    by them, and the list of current runs is the new ones.
+
+**T64m4, the year close and its manual checklist** (migration 000237).
+Built as §8 says; the choices taken by default (ADR-0053 d), for the
+product owner to overrule:
+1. *The template.* `close.year_tasks` has `close.tasks`' shape and rules,
+   checked by the same validator on its own path and codes (a year task may
+   repeat a period task's code, and depends only on year tasks); a name is
+   tier 1, the rest tier 2, as `close.tasks`. No check is known on a year
+   close yet (`config.YearCloseChecks` is empty), so a year task is manual
+   until T64m5 builds the year checks, as the period's were before T64c
+   (ADR-0058 As built, T64a); a period check is refused there.
+2. *The year's last day* (`year_end`, from which the tasks' due dates
+   count, business days of the company as ADR-0058 §3) is the leading
+   ledger's last regular period's end. As for a period close, the leading
+   ledger is always covered (`request.validation_failed` without it); a
+   ledger with no periods of the year is 422 `closing.period_unknown` on
+   `fiscal_year`, or on `ledger_ids[i]` when named.
+3. *The covered ledgers carry no period* (`year_close_ledger`): a year
+   close reads each one's periods of the year live, through the new port
+   method `closing.Ledger.YearPeriods` over `ledger.ClosePeriods.OfYear`
+   (§2), and shows them per ledger, regular and special, each with its id,
+   number, `is_special` and status.
+4. *Representations of their own* (`YearClose`, `YearCloseItem`,
+   `YearCloseTask`, `YearCloseLedger`, `YearClosePeriod`): `CloseTask`
+   requires a `fiscal_period`, so it cannot carry a year close's task
+   without a breaking change. The request bodies are the period close's
+   (`CloseTaskUpdate`, `CloseTaskComplete`, `ReasonInput`). A year close's
+   signed-off fields and sign-offs are T64m6's and a task's
+   `check_result` T64m5's, each additive then. Year-close tasks are not in
+   `GET /v1/close-tasks`, whose rows carry a period (a gap above).
+5. *Shared code* (CLAUDE.md: no copied helper). `closing.closeKind` names
+   each kind's tables, records and events; the statements both kinds run
+   name their tables through it (`closeKind.q`), so the task actions
+   (`taskAction` with the shared `assign`, `complete` and `reopenTask`),
+   the reads, the list (`listCloses`), the audit record and event
+   (`record`: `closing.year_close.<action>`, `YearCloseChanged` with the
+   fiscal year and no period) and the reopening after an unlock are one
+   code path. A signed-off year close refuses a task action while every
+   period of the year of its covered ledgers is locked, and is reopened by
+   the first one after an unlock (ADR-0058 §7); its sign-off is T64m6's,
+   and `TestYearCloseAfterUnlock` sets the status as that will. The
+   triggers of 000194 and 000196, as 000230 left them, guard the year
+   close's tables too, naming the table they guard (`TG_TABLE_NAME`) in
+   their messages and constraint names, which for the period close's
+   tables are unchanged; an import (`app.importing`, ADR-0029) restores a
+   signed-off year close and its done tasks as it does a period close's
+   (review round 1: 000237 first replaced them from their 000194/000196
+   text, dropping 000230's exemption).
+6. *Problem codes.* Each create operation gives the shared `openClose` its
+   own checklist and insert (`opening`), so `api` `TestProblemCodes`
+   attributes `closing.special_period` and `closing.close_exists` to
+   `createPeriodClose` alone and `closing.year_close_exists` (409, with
+   `Location`, mapped from `year_close_once` too) to `createYearClose`.
+   The statements written through `closeKind.q` are not read by the test's
+   written-table rule; none of them can break a registered constraint (a
+   close's keys never change, `closing.check_period_close`), so the
+   derived codes drop `closing.close_exists` from the period close's task,
+   accrual and comment operations, where it could never occur.
+7. *Walkthrough* (`year_end_close`, the end of `step_year_end`): Ada adds
+   two year tasks (the auditors' adjustments, then the equity review
+   depending on it), a tier 2 change the process owner approves; Carla
+   opens `PREV`'s year close, covering 0L and 2L with their 16 periods
+   each; completing the review first is refused with
+   `closing.task_blocked`; she assigns the adjustments task to herself and
+   completes it, which unblocks the review; a second year close of `PREV`
+   is refused with `closing.year_close_exists`, and the list shows the one.
+
+**T64m5, year-close checks** (no migration). Built as §8 and §11 say; the
+choices taken by default (ADR-0053 d), for the product owner to overrule:
+1. *The checks a year task may name.* `config.YearCloseChecks` is the
+   table's four: `no_parked_entries` and `revaluation_posted` (the period
+   checks' names, read over the year), `depreciation_year_posted` and
+   `carry_forward_current`. Every other period check, `depreciation_posted`
+   included, is refused on a year task, and the two year-only checks on a
+   period task (`close.tasks`).
+2. *The operation.* `POST /v1/year-closes/{id}/tasks/{code}:check`
+   (`checkYearCloseTask`) is `checkCloseTask`'s: the same act (`check`), its
+   refusals, If-Match, permissions and recording (`recordCheck` on the
+   kind's task table), published as YearCloseChanged `task_checked` with
+   `check_passed`. `run` sends a year close's task to `runYear`, which reads
+   the covered ledgers' periods of the year live (`yearCoveredOf`, the read
+   the representation uses). `YearCloseTask` gains `check_result`
+   (`CloseCheckResult`, additive); the sign-off's `FailingCheck` is
+   T64m6's.
+3. *`no_parked_entries` over the year* reads the parked entries dated from
+   the leading ledger's first regular period's first day to its last
+   regular period's last day, those parked for a special period included:
+   `CloseChecks.Parked` and `closing.Ledger.Parked` take a `special` flag,
+   false for a period close (T64m1's rule unchanged), true for a year close.
+4. *`revaluation_posted`* gives each covered ledger its last regular
+   period, so the key date is that ledger's year end, as the period check
+   gives its period's; the summary says "the year's last day".
+5. *`depreciation_year_posted`* asks T64k's port once per covered ledger and
+   regular period (`ledgerDepreciation`, now shared with
+   `depreciation_posted`), in the ledgers' order, then by period; a period
+   passes as T64k's check passes it (a posted run, nothing a run would
+   select, or a posted run of a later period, its assets then
+   `depreciation_catch_up` warnings). An asset late for a period is late
+   for every period after it up to the later run's (its depreciation is
+   missing from that period through the run's), so the periods one later
+   run catches up warn of each asset once, as the last of them reads it,
+   not once per period (review round 1). The result
+   names only the periods that fail, each a `ledgers` row with
+   `fiscal_period` and the assets a run would select, the first 20 with
+   `ledger_periods_count` counting them all: every period of two ledgers
+   would pass `ledgers`' bound of 20, and a passing period adds nothing to
+   act on. The summary names each failing ledger with its periods.
+6. *`carry_forward_current`* reads each covered ledger's current run from
+   the year through the new port method `closing.Ledger.CarryForward`
+   (`ledger.CloseChecks.CarryForward`, under the caller's companies), with
+   T64m3's staleness (`openedSinceOf`), so the check and `GET
+   /v1/balance-carry-forwards/{id}` never disagree. Each covered ledger is a
+   `ledgers` row keyed on the year's last day, `posted` when it has a
+   current run, with `carry_forward_run_id`, `stale` and `opened_since`
+   (`CarryForwardOpenedPeriod`, as the run's representation names them).
+   It fails naming the ledgers without a run and those whose run is stale
+   with the periods opened since; a stale run stays stale when the period
+   is closed again, until the year is carried forward again.
+7. *Walkthrough* (`year_end_checks`, after `year_end_close`): Ada's change
+   request of the year tasks adds the four checks (`NO_PARKED`,
+   `REVALUED`, `DEPRECIATED`, `CARRIED_FORWARD`, the last after the
+   auditors' adjustments); Carla runs them on `PREV`: nothing parked, both
+   ledgers revalued on `PREV`'s last day, nothing to depreciate in any
+   period, the carry-forward current; she posts one more adjustment into
+   period 13 and closes it, the carry-forward check fails naming `PREV/13`
+   in 0L and 2L, and passes, naming the new runs, once she carries `PREV`
+   forward again.

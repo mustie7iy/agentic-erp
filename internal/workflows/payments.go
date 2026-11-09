@@ -40,13 +40,13 @@ func ProposePaymentRun(ctx workflow.Context, in ProposeInput) error {
 	ao := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Minute, HeartbeatTimeout: 0,
 		RetryPolicy: &temporal.RetryPolicy{InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: time.Minute, MaximumAttempts: 5}}
 	var a *Payments
-	err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), a.Propose, in).Get(ctx, nil)
+	err := perform(workflow.WithActivityOptions(ctx, ao), in.TenantID, nil, a.Propose, in)
 	if temporal.IsCanceledError(err) || ctx.Err() != nil {
 		detached, cancel := workflow.NewDisconnectedContext(ctx)
 		defer cancel()
-		return workflow.ExecuteActivity(workflow.WithActivityOptions(detached, ao), a.Propose, in).Get(detached, nil) //nolint:wrapcheck // workflow result: the engine records Future.Get's ActivityError, which carries the activity type and id, as the failure; a wrap would put a generic wrapError failure on top and add no context
+		return perform(workflow.WithActivityOptions(detached, ao), in.TenantID, nil, a.Propose, in)
 	}
-	return err //nolint:wrapcheck // workflow result: the engine records Future.Get's ActivityError, which carries the activity type and id, as the failure; a wrap would put a generic wrapError failure on top and add no context
+	return err
 }
 
 // Payments holds the payment activities: the services the API uses, and the
@@ -62,7 +62,7 @@ type Payments struct {
 }
 
 func (p *Payments) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	return database.BeginOr(ctx, p.Pool, p.Begin, s)
+	return database.BeginActive(ctx, p.Pool, p.Begin, s)
 }
 
 // Propose builds the run as its proposer, in one transaction with its

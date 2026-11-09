@@ -14104,6 +14104,7 @@ paths:
       x-problem-codes:
         - config.not_bootstrapped
         - consolidation.calendar_mismatch
+        - consolidation.final_exists
         - consolidation.group_unknown
         - consolidation.parent_currency
         - consolidation.period_unknown
@@ -14230,7 +14231,7 @@ paths:
       tags:
         - consolidation
       summary: Get a consolidation run
-      description: "One consolidation run (ADR-0059 §6, T68d): its group by code and name, its period with its dates, its status and the problem that failed it, the configuration version it read, the group currency and the closing rate type, and its companies, the parent first and the members by company code, each with its local currency, closing rate and the date it is valid from, its role, ownership and first period, and the status and version of its leading ledger's period when the run read its figures. A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist, so neither its existence nor its companies leak (ADR-0059 §12). Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). Read from one database state (a repeatable-read snapshot)."
+      description: "One consolidation run (ADR-0059 §6, T68d): its group by code and name, its period with its dates, its status and the problem that failed it, the configuration version it read, the group currency and the closing rate type, and its companies, the parent first and the members by company code, each with its local currency, closing rate and the date it is valid from, its role, ownership and first period, and the status and version of its leading ledger's period when the run read its figures; and the number of its intercompany differences per status (T68f); whether it is `stale`, who finalized it and when, and the run that superseded it or that it superseded (ADR-0059 §10, T68g). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist, so neither its existence nor its companies leak (ADR-0059 §12). Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). Read from one database state (a repeatable-read snapshot)."
       x-permission: consolidation.read
       x-also-permissions:
         - ledger.entry.read
@@ -14272,6 +14273,7 @@ paths:
       x-agent: false
       x-problem-codes:
         - config.unknown_version
+        - consolidation.final_exists
         - consolidation.run_in_progress
         - consolidation.run_not_discardable
         - request.version_mismatch
@@ -14303,6 +14305,60 @@ paths:
           $ref: "#/components/responses/Conflict"
         "412":
           $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/consolidation-runs/{id}:finalize":
+    post:
+      operationId: finalizeConsolidationRun
+      tags:
+        - consolidation
+      summary: Finalize a consolidation run
+      description: "Makes a computed consolidation run the group's consolidated figures of its period (ADR-0059 §10, T68g): it becomes `final`, with who finalized it and when, and the group's previous final run of the period, if any, becomes `superseded` by it (`superseded_by`; the response's `supersedes` names it), so the history of what was finalized, by whom and on which figures stays readable (`listConsolidationRuns?status=superseded`); a final run is never changed or discarded. Refused when the run is not computed (409 `consolidation.run_not_computed`); while one of its intercompany differences is open (409 `consolidation.differences_open`, naming how many: accept them, `:accept`, or have the companies correct their postings and run the group again); when a company's leading-ledger period was not locked when the run read its figures or is not locked now (409 `consolidation.period_not_locked`, naming the companies: lock them, through each company's close sign-off or `lockFiscalPeriod`, and run the group again); and when the run is stale (409 `consolidation.run_stale`, naming the companies and any pending unlock request: a period's version moved since the run read its figures, so run the group again). Finalizations of one group and period wait for each other, so the second sees the first's final run and supersedes it. `If-Match` is the run's ETag (412 `request.version_mismatch` when it or its differences moved since). Each run that changes is published as ConsolidationRunChanged and audited. A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Besides `consolidation.run.finalize` the caller needs `ledger.entry.read`, since the run shows figures (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only."
+      x-permission: consolidation.run.finalize
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - config.unknown_version
+        - consolidation.differences_open
+        - consolidation.final_exists
+        - consolidation.period_not_locked
+        - consolidation.run_in_progress
+        - consolidation.run_not_computed
+        - consolidation.run_stale
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The run, final, with its new ETag; `supersedes` names the final run it superseded, if any."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsolidationRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
         "429":
@@ -14375,13 +14431,178 @@ paths:
           $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/consolidation-runs/{id}/differences":
+    get:
+      operationId: listIntercompanyDifferences
+      tags:
+        - consolidation
+      summary: List a consolidation run's intercompany differences
+      description: "A consolidation run's intercompany matching (ADR-0059 §8, T68f; SAP's intercompany matching and reconciliation): for each elimination of the configuration version the run read and each pair of the run's companies with translated rows on its accounts naming each other, the company with the lower code first, its rows' sum (`amount`) and the partner's (`partner_amount`), in the group currency, debit positive, as the run translated them (balance sheet rows at the closing rate, income and expenses at their booked group amounts), their sum (`difference`) and the elimination's `tolerance`: `matched` when the difference is zero, `within_tolerance` when its absolute value is at most the tolerance, `open` otherwise. Every pair is eliminated, its difference to the elimination's difference account (`listConsolidationEntries`); an open difference stops only finalization (`:finalize`) until a person accepts it (`:accept`, T68g; then `accepted`, with who, when and why). Rows on an elimination's accounts naming a trading partner that is not one of the run's companies (a company outside the group, or a member before its first period) are listed per company and partner as `outside_group`, and rows naming none per company as `no_trading_partner` (lines posted before trading partners existed, or whose business partner was not linked to its group company), each with its `amount` alone: neither is eliminated, so the consolidated figures still carry them. In the order of the elimination's code, the company's code and the partner's code (`no_trading_partner` first within its company), so two runs of the same figures list them alike. Each names the elimination by code and name, the company by code and name, and the partner by id and, to a caller who may act in it, its code and name (as a journal line's trading partner; a partner outside the group may be a company the caller may not act in). With totals over the filter per status: the count, and the amounts, partner amounts and differences summed. Filters: status, elimination and company. A run has differences once its companies are translated; a queued or running run may show none. Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
+      x-permission: consolidation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-snapshot: true
+      x-problem-codes:
+        - config.unknown_version
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: status
+          in: query
+          required: false
+          description: Only the differences of this status.
+          schema:
+            type: string
+            description: "Intercompany difference status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [matched, within_tolerance, open, accepted, outside_group, no_trading_partner]
+        - name: elimination
+          in: query
+          required: false
+          description: "Only the differences of the elimination with this code (`consolidation.eliminations[].code`)."
+          schema:
+            type: string
+            pattern: "^[A-Z0-9_]{1,30}$"
+        - $ref: "#/components/parameters/LegalEntityId"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the run's intercompany differences, with the totals over the filter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntercompanyDifferencePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/consolidation-runs/{id}/differences/{difference_id}:accept":
+    post:
+      operationId: acceptIntercompanyDifference
+      tags:
+        - consolidation
+      summary: Accept an intercompany difference
+      description: "Accepts an open intercompany difference of a computed consolidation run (ADR-0059 §8, T68g): the group's accountant accepts a difference above its elimination's tolerance with a reason, rather than have the companies correct their postings and run the group again. It becomes `accepted`, with who accepted it, when and why; it stays eliminated as it was, to the elimination's difference account, and no longer stops finalizing the run. The run's version moves with it, so a view of the run read before refuses `:finalize`: read the run again (`getConsolidationRun`) for its new ETag. Refused for a difference that is not open (409 `consolidation.difference_not_open`) and for a run that is not computed (409 `consolidation.run_not_computed`: a draft is accepted before it is finalized; a final run has none open). `If-Match` is the difference's ETag, its `version` (412 `request.version_mismatch` when it moved since). Published as IntercompanyDifferenceAccepted and audited. A run of a group whose parent or a member the caller may not act in, or a difference that is not the run's, is not found (404). Besides `consolidation.difference.accept` the caller needs `ledger.entry.read`, since the difference shows figures (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only."
+      x-permission: consolidation.difference.accept
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - config.unknown_version
+        - consolidation.difference_not_open
+        - consolidation.final_exists
+        - consolidation.run_in_progress
+        - consolidation.run_not_computed
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/DifferenceId"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Why the difference is accepted.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "200":
+          description: "The difference, accepted, with its new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntercompanyDifference"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/consolidation-runs/{id}/entries":
+    get:
+      operationId: listConsolidationEntries
+      tags:
+        - consolidation
+      summary: List a consolidation run's elimination entries
+      description: "A consolidation run's elimination entries with their lines (ADR-0059 §8, §9; T68f; SAP's consolidation journal), kept by the run and never posted to a company's ledger. An `intercompany` entry per elimination and pair of the run's companies with rows on its accounts naming each other (`listIntercompanyDifferences`): a line reversing each of those translated rows, on its group account with its company, company account and trading partner, and the pair's difference, when it is not zero, on the elimination's difference account (a line of no company: the entry's two companies are the pair), so each entry sums to zero and the consolidated statements show no balance between the run's companies on the elimination's accounts. The investment and non-controlling interest entries follow with T68h. Entries are in the order of their kind, the elimination's code and the pair's company codes, paged by entry number; each entry's lines by group account number, company code (none first), company account number and trading partner code. Each entry names its kind, elimination (code and name), company and partner (code and name) and has its debits' sum; each line its group account (number and name), company (code and name), company account (number and name) and trading partner, every amount in the group currency, debit positive. With totals over the filter per kind: the count of entries and their debits summed (each entry's credits equal its debits). Filters: kind, elimination and company (the entries whose company or partner it is). Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
+      x-permission: consolidation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-snapshot: true
+      x-problem-codes:
+        - config.unknown_version
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: kind
+          in: query
+          required: false
+          description: Only the entries of this kind.
+          schema:
+            type: string
+            description: "Elimination entry kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [intercompany, investment, nci]
+        - name: elimination
+          in: query
+          required: false
+          description: "Only the entries of the elimination with this code (`consolidation.eliminations[].code`)."
+          schema:
+            type: string
+            pattern: "^[A-Z0-9_]{1,30}$"
+        - $ref: "#/components/parameters/LegalEntityId"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the run's elimination entries, with the totals over the filter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsolidationEntryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/e-invoices:fetch":
     post:
       operationId: fetchEInvoices
       tags:
         - einvoicing
       summary: Fetch e-invoices from the provider now
-      description: "Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`) and carried out as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system principal acting for the connector's companies. It lists the documents the provider has not had acknowledged, and records each once per connector and the provider's message id: its bytes kept write-once in object storage under their SHA-256, the document `received` with its company (the connector's company whose participant identifier the provider listed it for; none when it names none of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged; after that commit the provider is told the document is kept (its acknowledgement), and `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement is sent again, so an acknowledgement lost is repaired by the next fetch. Its acknowledgement moves the document's version without an event. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`) and its `resource` the list of the documents it recorded (`/v1/e-invoices?fetch_operation_id={id}`); a message not recorded fails the Operation with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the store or the database failed (after five tries in the workflow engine, one in process), which the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10 MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is not an active `einvoice_provider` connector with credentials that resolve is refused before anything is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so is, in production, the provider's stand-in (422 `integration.adapter_not_certified`), the only adapter until a provider is chosen. A server without object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Human-only (`x-agent: false`)."
+      description: "Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`) and carried out as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system principal acting for the connector's companies. It lists the documents the provider has not had acknowledged, and records each once per connector and the provider's message id: its bytes kept write-once in object storage under their SHA-256, the document `received` with its company (the connector's company whose participant identifier the provider listed it for; none when it names none of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged; after that commit the provider is told the document is kept (its acknowledgement), and `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement is sent again, so an acknowledgement lost is repaired by the next fetch. A message delivered again under its id with other bytes (T65b) is not recorded again either: the document keeps its first bytes, the legal original, and records the new bytes' SHA-256 as `changed_sha256` with `changed_at`, with an audit record and EInvoiceChanged once per different bytes, so the same changed bytes delivered again change nothing more. Its acknowledgement moves the document's version without an event. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a message found with other bytes) and its `resource` the list of the documents it recorded or found changed (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its `changed_fetch_operation_id`); a message not recorded fails the Operation with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the store or the database failed (after five tries in the workflow engine, one in process), which the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10 MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is not an active `einvoice_provider` connector with credentials that resolve is refused before anything is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so is, in production, the provider's stand-in (422 `integration.adapter_not_certified`), the only adapter until a provider is chosen. A server without object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from every active `einvoice_provider` connector of an active tenant once per `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`)."
       x-permission: einvoicing.einvoice.manage
       x-agent: false
       x-problem-codes:
@@ -14441,7 +14662,7 @@ paths:
       tags:
         - einvoicing
       summary: List e-invoices
-      description: "The e-invoices received from the tenant's accredited providers (ADR-0061 §15, T65a), newest received first: those of the companies the caller may act in, and, to a caller who may act in every company, those addressed to none of the connector's companies. Each carries its connector by id and name, its company by id, code and name, the provider's message id and the participant it was listed for, the SHA-256 and size of its bytes as received, its status, the fetch that recorded it and when it was received and acknowledged. Filters: company, connector, status, the fetch's Operation (`fetch_operation_id`, as a fetch's Operation names it in its `resource`) and when received. What a document says (number, issue date, supplier, amounts) is read by the processing slices (T65c, T65d), which add it here."
+      description: "The e-invoices received from the tenant's accredited providers (ADR-0061 §15, T65a), newest received first: those of the companies the caller may act in, and, to a caller who may act in every company, those addressed to none of the connector's companies. Each carries its connector by id and name, its company by id, code and name, the provider's message id and the participant it was listed for, the SHA-256 and size of its bytes as received, its status, the fetch that recorded it, when it was received and acknowledged, and the hash of other bytes the provider delivered later under its id (`changed_sha256`, T65b). Its bytes as received are `getEInvoiceContent`. Filters: company, connector, status, the fetch's Operation (`fetch_operation_id`, as a fetch's Operation names it in its `resource`) and when received. What a document says (number, issue date, supplier, amounts) is read by the processing slices (T65c, T65d), which add it here."
       x-permission: einvoicing.einvoice.read
       x-problem-codes:
         - request.invalid_order_by
@@ -14473,7 +14694,7 @@ paths:
         - name: fetch_operation_id
           in: query
           required: false
-          description: Only the e-invoices this fetch recorded (its Operation's id).
+          description: "Only the e-invoices this fetch recorded or found changed (its Operation's id, matching `fetch_operation_id` or `changed_fetch_operation_id`)."
           schema:
             type: string
             format: uuid
@@ -14516,6 +14737,9 @@ paths:
                     fetch_operation_id: 0192a000-0000-7000-8000-000000000e21
                     received_at: "2026-11-08T10:00:00Z"
                     acknowledged_at: "2026-11-08T10:00:01Z"
+                    changed_sha256: null
+                    changed_at: null
+                    changed_fetch_operation_id: null
                     version: 2
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -14561,6 +14785,9 @@ paths:
                 fetch_operation_id: 0192a000-0000-7000-8000-000000000e21
                 received_at: "2026-11-08T10:00:00Z"
                 acknowledged_at: "2026-11-08T10:00:01Z"
+                changed_sha256: null
+                changed_at: null
+                changed_fetch_operation_id: null
                 version: 2
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -14572,13 +14799,49 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/e-invoices/{id}/content":
+    get:
+      operationId: getEInvoiceContent
+      tags:
+        - einvoicing
+      summary: Download an e-invoice as received
+      description: "The e-invoice's bytes, the legal original, byte for byte as the provider first delivered them (ADR-0061 §4, §8, T65b): kept write-once in object storage under their SHA-256, which every read compares with the `sha256` recorded (409 `einvoicing.document_changed` when the stored bytes differ from it). Other bytes the provider delivered later under the same message id are not served here: the document names their hash as `changed_sha256`. Visible as `getEInvoice` is: one of a company the caller may not act in, or addressed to none of the connector's companies to a caller who may not act in every company, is not found (404); 503 while the server has no object storage. Human-only (`x-agent: false`): agents read a document's fields, not its content (ADR-0061 §11)."
+      x-permission: einvoicing.einvoice.read
+      x-agent: false
+      x-problem-codes:
+        - einvoicing.document_changed
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The document's bytes as received.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+                description: The document bytes.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/v1/consolidation-runs/{id}/statements/{statement}":
     get:
       operationId: getConsolidatedStatement
       tags:
         - consolidation
       summary: Get a consolidated statement of a run
-      description: "A consolidated statement of a computed, final or superseded consolidation run (ADR-0059 §11, T68e): the balance sheet (`balance_sheet`: the group chart's asset, liability and equity accounts, the `cta`, `retained_earnings` and `nci` accounts among them) or the profit and loss (`profit_and_loss`: its revenue and expense accounts), one row per group account of the statement's types in the configuration version the run read, in number order, cursor-paged by number. Each row has the account's number, name, type and role, the companies' translated figures on it summed (`reported`: the total of `listConsolidationBalances?group_account=` for it), the run's eliminations on it (`eliminations`) and their sum (`consolidated`), each in the group currency and debit positive, as the trial balance shows them: a credit balance, and so a profit, is negative. A group account without figures has a row of zeros. With totals over the whole statement, each with the same three columns: for the balance sheet, the assets, liabilities and equity and the fiscal year's profit through the period (the profit and loss's), which together sum to zero; for the profit and loss, the revenue, the expenses and the profit. A run has no eliminations until intercompany matching and the investment's elimination are built (ADR-0059 §8, §9: T68f, T68h), so its eliminations are zero and its consolidated figures its reported ones. The statement is read from the run's stored rows alone, so a computed, final or superseded run's never changes. Refused for a run that is queued, running, failed or discarded (409 `consolidation.run_not_computed`) and for a statement other than these two (404 `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
+      description: "A consolidated statement of a computed, final or superseded consolidation run (ADR-0059 §11, T68e): the balance sheet (`balance_sheet`: the group chart's asset, liability and equity accounts, the `cta`, `retained_earnings` and `nci` accounts among them) or the profit and loss (`profit_and_loss`: its revenue and expense accounts), one row per group account of the statement's types in the configuration version the run read, in number order, cursor-paged by number. Each row has the account's number, name, type and role, the companies' translated figures on it summed (`reported`: the total of `listConsolidationBalances?group_account=` for it), the run's eliminations on it (`eliminations`) and their sum (`consolidated`), each in the group currency and debit positive, as the trial balance shows them: a credit balance, and so a profit, is negative. A group account without figures has a row of zeros. With totals over the whole statement, each with the same three columns: for the balance sheet, the assets, liabilities and equity and the fiscal year's profit through the period (the profit and loss's), which together sum to zero; for the profit and loss, the revenue, the expenses and the profit. The eliminations are the run's elimination entries' lines on the account summed (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f), which leave no balance between the run's companies on an elimination's accounts and put each pair's difference on the elimination's difference account; the investment's elimination follows with T68h. The statement is read from the run's stored rows alone, so a computed, final or superseded run's never changes; `stale` says whether a company's period changed since the run read its figures (ADR-0059 §10, T68g). Refused for a run that is queued, running, failed or discarded (409 `consolidation.run_not_computed`) and for a statement other than these two (404 `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
       x-permission: consolidation.read
       x-also-permissions:
         - ledger.entry.read
@@ -14886,7 +15149,6 @@ paths:
       x-agent: false
       x-problem-codes:
         - closing.assignee_invalid
-        - closing.close_exists
         - closing.close_signed_off
         - config.not_bootstrapped
         - request.version_mismatch
@@ -14946,7 +15208,6 @@ paths:
         - ledger.entry.read
       x-agent: false
       x-problem-codes:
-        - closing.close_exists
         - closing.close_signed_off
         - closing.task_already_done
         - closing.task_blocked
@@ -15009,7 +15270,6 @@ paths:
         - ledger.entry.read
       x-agent: false
       x-problem-codes:
-        - closing.close_exists
         - closing.close_signed_off
         - closing.task_not_done
         - config.not_bootstrapped
@@ -15070,7 +15330,6 @@ paths:
         - ledger.entry.read
       x-agent: false
       x-problem-codes:
-        - closing.close_exists
         - closing.close_signed_off
         - closing.task_blocked
         - closing.task_not_check
@@ -15175,6 +15434,386 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/year-closes:
+    get:
+      operationId: listYearCloses
+      tags:
+        - closing
+      summary: List year closes
+      description: "The year closes of the legal entities the caller may act in (ADR-0060 §8, T64m4), without their tasks and ledgers (`GET /v1/year-closes/{id}` has them): each with its company, fiscal year, status and its tasks' counts, overdue judged on the company's date at the read in its configured time zone (`read_date`, `time_zone`; UTC when it has none). Sortable by: `year_end` (default), `created_at`. Besides `closing.close.read` the caller needs `ledger.entry.read`, as for every read of a close (ADR-0058 §13; `x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: closing.close.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: fiscal_year
+          in: query
+          required: false
+          description: Only closes of this fiscal year.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: status
+          in: query
+          required: false
+          description: Only closes in this status.
+          schema:
+            type: string
+            description: "Year close status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [open, signed_off]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of year closes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YearClosePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createYearClose
+      tags:
+        - closing
+      summary: Open a year close
+      description: "Opens the close of a company's fiscal year (ADR-0060 §8, T64m4): its checklist is the active configuration's year tasks (`close.year_tasks`, the close template's tasks of a year close) as given to the company, copied into the close with each task's due date (`due_day` business days of the company after the fiscal year's last day, the leading ledger's period 12's) and the configuration version, so a later change of the template leaves the close as it was. It covers the ledgers `ledger_ids` names, by default every ledger the company keeps; the leading ledger is always among them (422 `request.validation_failed` otherwise), each must be kept by the company (422 `ledger.ledger_not_kept`) and have periods of the year (422 `closing.period_unknown`, naming the ledger). Refused when the year tasks give the company none (409 `closing.no_template`) and when the company has a close of the year already (409 `closing.year_close_exists`, with its `Location`). A legal entity the caller cannot act in is 422 `request.reference_not_found`. People only. Audited, and published as YearCloseChanged (`created`)."
+      x-permission: closing.close.manage
+      x-agent: false
+      x-problem-codes:
+        - closing.no_template
+        - closing.period_unknown
+        - closing.year_close_exists
+        - config.not_bootstrapped
+        - ledger.ledger_not_kept
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The company and fiscal year to close.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/YearCloseCreate"
+      responses:
+        "201":
+          description: "Created; the year close with its tasks."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YearClose"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/year-closes/{id}":
+    get:
+      operationId: getYearClose
+      tags:
+        - closing
+      summary: Get a year close
+      description: "One year close with its company, the ledgers it covers (each with its periods of the year, regular and special, and their live posting status), its tasks in the template's order (at most 200) and their counts; a task is `overdue` while it is open and due before the company's date at the read in its time zone (`read_date`, `time_zone`). Its ETag is the version every change to the close or its tasks moves, which the task actions take as `If-Match`. A close of a legal entity the caller cannot act in is not found. Besides `closing.close.read` the caller needs `ledger.entry.read` (`x-also-permissions`)."
+      x-permission: closing.close.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - config.not_bootstrapped
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The year close.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YearClose"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/year-closes/{id}/tasks/{code}":
+    patch:
+      operationId: updateYearCloseTask
+      tags:
+        - closing
+      summary: Assign a year close task
+      description: "Sets or clears (null) the person a task of a year close is assigned to (ADR-0060 §8, T64m4), as `updateCloseTask` does a period close's: an active person of the tenant who may act in the close's company (422 `closing.assignee_invalid` for an agent, a service, a blocked or unknown principal, or a person without access to the close's company). `If-Match` is the close's ETag, so a change made on a stale view of the checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_assigned`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
+      x-permission: closing.close.manage
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - closing.assignee_invalid
+        - closing.close_signed_off
+        - config.not_bootstrapped
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/YearCloseTaskCode"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the task.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/CloseTaskUpdate"
+      responses:
+        "200":
+          description: "Updated; the task, with the close's new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YearCloseTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/year-closes/{id}/tasks/{code}:complete":
+    post:
+      operationId: completeYearCloseTask
+      tags:
+        - closing
+      summary: Complete a year close task
+      description: "Marks an open manual task of a year close done, with an optional note (ADR-0060 §8, T64m4), as `completeCloseTask` does a period close's: refused while a task it depends on is open (409 `closing.task_blocked`, naming them), for a task already done (409 `closing.task_already_done`) and for a check task, which is done by its check passing (409 `closing.task_is_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_completed`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
+      x-permission: closing.close.manage
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - closing.close_signed_off
+        - closing.task_already_done
+        - closing.task_blocked
+        - closing.task_is_check
+        - config.not_bootstrapped
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/YearCloseTaskCode"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of completeYearCloseTask.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloseTaskComplete"
+      responses:
+        "200":
+          description: "The task after the change, with the close's new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YearCloseTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/year-closes/{id}/tasks/{code}:reopen":
+    post:
+      operationId: reopenYearCloseTask
+      tags:
+        - closing
+      summary: Reopen a year close task
+      description: "Returns a done task of a year close to open, with a reason (409 `closing.task_not_done` for an open one) (ADR-0060 §8, T64m4), as `reopenCloseTask` does a period close's: who completed it, when, and the note are cleared, and the reason is kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_reopened`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
+      x-permission: closing.close.manage
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - closing.close_signed_off
+        - closing.task_not_done
+        - config.not_bootstrapped
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/YearCloseTaskCode"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of reopenYearCloseTask.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "200":
+          description: "The task after the change, with the close's new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YearCloseTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/year-closes/{id}/tasks/{code}:check":
+    post:
+      operationId: checkYearCloseTask
+      tags:
+        - closing
+      summary: Run a year close task's check
+      description: "Runs a check task's check of a year close now and records its result on the task (ADR-0060 §8, T64m5), as `checkCloseTask` does a period close's: `check_result` says whether it passed, when, who ran it and what it found; the task is set done when it passed and open when it did not. The checks read the covered ledgers' periods of the fiscal year as they are now. `no_parked_entries` passes when no parked entry of the company dated in the fiscal year (the leading ledger's first regular period's first day to its last regular period's last day) is `parked` or `pending_approval`, those parked for a special period included (ADR-0060 §3), and names the first 20 with who parked them; `revaluation_posted` passes when each covered ledger has a posted revaluation run keyed on the year's last day (its last regular period's), and names each ledger with its run; `depreciation_year_posted` passes when, for each covered ledger and each regular period of the year, `depreciation_posted` would pass (a posted depreciation run of the period, no asset a run of it would select, or a posted run of a later period, each asset then a `depreciation_catch_up` warning), and names each ledger and period that fails (`ledger_periods_count`, the first 20 in `ledgers`); `carry_forward_current` passes when each covered ledger has a current balance carry-forward from the fiscal year (`GET /v1/balance-carry-forwards`) that is not stale, and names each ledger with its run, or without one, and with the periods opened since that make it stale. A check is a statement about the moment it ran: run it again to refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_checked`, with `check_passed`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked, the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
+      x-permission: closing.close.manage
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - closing.close_signed_off
+        - closing.task_blocked
+        - closing.task_not_check
+        - config.not_bootstrapped
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/YearCloseTaskCode"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The task with its check's result, with the close's new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YearCloseTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/accrual-proposals:
     post:
       operationId: proposeAccrual
@@ -15193,7 +15832,6 @@ paths:
         - closing.accrual_account_invalid
         - closing.accrual_account_missing
         - closing.accrual_duplicate
-        - closing.close_exists
         - closing.close_signed_off
         - closing.evidence_unknown
         - config.not_bootstrapped
@@ -15413,7 +16051,6 @@ paths:
       x-agent: false
       x-problem-codes:
         - closing.accrual_not_open
-        - closing.close_exists
         - closing.close_signed_off
         - config.not_bootstrapped
         - ledger.invalid_parked_status
@@ -15480,7 +16117,6 @@ paths:
         - agents.session_ended
         - closing.basis_not_configured
         - closing.citation_invalid
-        - closing.close_exists
         - closing.close_signed_off
         - closing.comment_already_proposed
         - closing.variance_row_unknown
@@ -15625,7 +16261,6 @@ paths:
       x-problem-codes:
         - closing.basis_not_configured
         - closing.citation_invalid
-        - closing.close_exists
         - closing.close_signed_off
         - closing.comment_already_proposed
         - closing.variance_row_unknown
@@ -15720,7 +16355,6 @@ paths:
         - ledger.entry.read
       x-agent: false
       x-problem-codes:
-        - closing.close_exists
         - closing.close_signed_off
         - closing.comment_not_proposed
         - config.not_bootstrapped
@@ -15781,7 +16415,6 @@ paths:
         - ledger.entry.read
       x-agent: false
       x-problem-codes:
-        - closing.close_exists
         - closing.close_signed_off
         - closing.comment_not_proposed
         - config.not_bootstrapped
@@ -22913,6 +23546,15 @@ components:
         type: string
         format: uuid
       example: "0192a000-0000-7000-8000-000000000311"
+    DifferenceId:
+      name: difference_id
+      in: path
+      required: true
+      description: Intercompany difference identifier (UUIDv7).
+      schema:
+        type: string
+        format: uuid
+      example: "0192a000-0000-7000-8000-000000000d01"
     BankAccountId:
       name: bank_account_id
       in: path
@@ -22931,6 +23573,15 @@ components:
         type: string
         pattern: "^[A-Z0-9_]{1,30}$"
       example: AP_CUTOFF
+    YearCloseTaskCode:
+      name: code
+      in: path
+      required: true
+      description: "A task's code in its year close."
+      schema:
+        type: string
+        pattern: "^[A-Z0-9_]{1,30}$"
+      example: AUDIT_ADJUSTMENTS
     IfMatch:
       name: If-Match
       in: header
@@ -31384,6 +32035,10 @@ components:
           format: uuid
           description: "The open item's supplier or customer; absent for a balance."
           readOnly: true
+        trading_partner:
+          $ref: "#/components/schemas/TradingPartner"
+          description: "The item's trading partner (ADR-0059 §4): an open item's is its journal line's; a balance is one per account, currency and trading partner, so an intercompany balance is valued apart from the account's other lines. Absent when it has none."
+          readOnly: true
         partner_number:
           type: string
           description: "The partner's number (its business partner's `number`), as it is now; absent for a balance, and for a caller who may not read business partners (`partner.supplier.read`), who gets `partner_id` alone."
@@ -31465,7 +32120,7 @@ components:
           readOnly: true
     RevaluationTotal:
       type: object
-      description: The items of one account and currency with a gain, or with a loss, summed.
+      description: "The items of one account, currency and trading partner with a gain, or with a loss, summed. A run posts each total as two lines, the difference and its offset, both carrying the total's trading partner (ADR-0059 §4)."
       required:
         - account_id
         - currency
@@ -31483,6 +32138,10 @@ components:
           type: string
           format: uuid
           description: The revalued account.
+          readOnly: true
+        trading_partner:
+          $ref: "#/components/schemas/TradingPartner"
+          description: "The items' trading partner; absent for the items naming none."
           readOnly: true
         currency:
           type: string
@@ -38308,7 +38967,7 @@ components:
           note: Last invoices entered on the 2nd.
     CloseCheckResult:
       type: object
-      description: "The latest result of a check task's check (ADR-0058 §6, T64c), recorded when `:check` ran it: whether it passed, when and by whom, and what it found, each with its id and name. A check is a statement about the moment it ran; absent on a manual task and on a check task never checked. Reopening the task keeps it."
+      description: "The latest result of a check task's check (ADR-0058 §6, T64c; a year close's, ADR-0060 §8, T64m5), recorded when `:check` ran it: whether it passed, when and by whom, and what it found, each with its id and name. A check is a statement about the moment it ran; absent on a manual task and on a check task never checked. Reopening the task keeps it."
       required:
         - check
         - passed
@@ -38322,7 +38981,7 @@ components:
         check:
           type: string
           description: "The check run. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-          x-extensible-enum: [no_parked_entries, revaluation_posted, variances_explained, depreciation_posted, accruals_decided, accruals_reversed]
+          x-extensible-enum: [no_parked_entries, revaluation_posted, variances_explained, depreciation_posted, accruals_decided, accruals_reversed, depreciation_year_posted, carry_forward_current]
           readOnly: true
         passed:
           type: boolean
@@ -38350,7 +39009,7 @@ components:
           type: integer
           format: int32
           minimum: 0
-          description: "`no_parked_entries`: how many parked entries of the company dated in the period (posting date from the leading ledger's period's first to its last day) are `parked` or `pending_approval`, leaving out those parked for a special period (ADR-0060 §3); absent for another check."
+          description: "`no_parked_entries`: how many parked entries of the company dated in the period (posting date from the leading ledger's period's first to its last day) are `parked` or `pending_approval`, leaving out those parked for a special period (ADR-0060 §3); on a year close, dated in the fiscal year (the leading ledger's first regular period's first day to its last regular period's last day), those parked for a special period included; absent for another check."
           readOnly: true
         parked_entries:
           type: array
@@ -38364,7 +39023,13 @@ components:
           maxItems: 20
           items:
             $ref: "#/components/schemas/CloseCheckLedger"
-          description: "`revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted revaluation run keyed on its period's last day, if it has one; `depreciation_posted`: each covered ledger, in the same order, with its latest posted depreciation run of the period, if it has one, or how many assets a run would select and the latest posted run of a later period, if there is one; absent for another check."
+          description: "`revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted revaluation run keyed on its period's last day (a year close's: the year's last day), if it has one; `depreciation_posted`: each covered ledger, in the same order, with its latest posted depreciation run of the period, if it has one, or how many assets a run would select and the latest posted run of a later period, if there is one; `depreciation_year_posted`: the first 20 regular periods of the covered ledgers that fail (`ledger_periods_count` says how many), by ledger in the same order, then by period, each with `fiscal_period` and how many assets a run of it would select; `carry_forward_current`: each covered ledger, in the same order, with its current carry-forward run from the fiscal year, if it has one, whether it is stale and the periods opened since; absent for another check."
+          readOnly: true
+        ledger_periods_count:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "`depreciation_year_posted`: how many regular periods of the covered ledgers have no posted depreciation run of their own nor of a later period while a run of them would select assets; absent for another check."
           readOnly: true
         unexplained_rows_count:
           type: integer
@@ -38527,7 +39192,7 @@ components:
           readOnly: true
     CloseCheckLedger:
       type: object
-      description: "A covered ledger as a `revaluation_posted` or a `depreciation_posted` check found it."
+      description: "A covered ledger as a `revaluation_posted`, a `depreciation_posted` or a `carry_forward_current` check found it, or a covered ledger's period as a `depreciation_year_posted` check found it (ADR-0060 §8)."
       required:
         - ledger_id
         - ledger_code
@@ -38551,11 +39216,11 @@ components:
         key_date:
           type: string
           format: date
-          description: "Its period's last day: the key date a revaluation run is keyed on, the posting date of a depreciation run."
+          description: "Its period's last day: the key date a revaluation run is keyed on, the posting date of a depreciation run; for `carry_forward_current` and a year close's `revaluation_posted`, the fiscal year's last day (its last regular period's)."
           readOnly: true
         posted:
           type: boolean
-          description: "Whether it has a posted run of the check's kind: a revaluation run at the key date, or a depreciation run of the period. A ledger without a posted depreciation run still passes `depreciation_posted` when `assets_to_depreciate` is 0, or when it has `later_depreciation_run_id`: a run of the period is then refused as out of order, and each asset to depreciate is a `depreciation_catch_up` warning (PO 2026-11-04)."
+          description: "Whether it has a posted run of the check's kind: a revaluation run at the key date, a depreciation run of the period, or a current carry-forward run from the fiscal year (which still fails `carry_forward_current` while it is `stale`). A ledger without a posted depreciation run still passes `depreciation_posted` when `assets_to_depreciate` is 0, or when it has `later_depreciation_run_id`: a run of the period is then refused as out of order, and each asset to depreciate is a `depreciation_catch_up` warning (PO 2026-11-04)."
           readOnly: true
         revaluation_run_id:
           type: string
@@ -38587,6 +39252,29 @@ components:
           type: integer
           format: int32
           description: "With `later_depreciation_run_id`: that run's period."
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 12
+          description: "`depreciation_year_posted`: the regular period of the fiscal year that fails in this ledger; absent for another check."
+          readOnly: true
+        carry_forward_run_id:
+          type: string
+          format: uuid
+          description: "`carry_forward_current`: the ledger's current balance carry-forward run from the fiscal year (`GET /v1/balance-carry-forwards/{id}`); absent without one (the check fails) and for another check."
+          readOnly: true
+        stale:
+          type: boolean
+          description: "`carry_forward_current` with `carry_forward_run_id`: whether the run is stale, a period of the year or an earlier year opened since it ran (ADR-0060 §6), which fails the check; absent otherwise."
+          readOnly: true
+        opened_since:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/CarryForwardOpenedPeriod"
+          description: "`carry_forward_current` with `carry_forward_run_id`: the periods that make the run stale, by fiscal year and period, as `GET /v1/balance-carry-forwards/{id}` names them; empty when it is not stale, absent otherwise."
           readOnly: true
     CloseCheckWarning:
       type: object
@@ -38680,6 +39368,576 @@ components:
       additionalProperties: false
       examples:
         - {assignee_id: 0192a000-0000-7000-8000-000000000101}
+    YearCloseCreate:
+      type: object
+      description: "A company's fiscal year to close."
+      required:
+        - legal_entity_id
+        - fiscal_year
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The company's legal entity.
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          description: Fiscal year.
+        ledger_ids:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+          description: "The ledgers the close covers, the leading one among them; default every ledger the company keeps."
+      additionalProperties: false
+      examples:
+        - legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+          fiscal_year: 2025
+    YearClose:
+      type: object
+      description: "A company's close of one fiscal year (ADR-0060 §8): the ledgers it covers, each with its periods of the year, and its checklist, copied from the close template's year tasks when it was opened."
+      required:
+        - id
+        - legal_entity_id
+        - company_code
+        - company_name
+        - fiscal_year
+        - year_end
+        - config_version
+        - status
+        - read_date
+        - time_zone
+        - tasks_total
+        - tasks_done
+        - tasks_open
+        - tasks_overdue
+        - ledgers
+        - tasks
+        - version
+        - created_at
+        - created_by
+        - updated_at
+        - updated_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The company's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The company's name.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year.
+          readOnly: true
+        year_end:
+          type: string
+          format: date
+          description: "The fiscal year's last day, the leading ledger's period 12's, which the tasks' due dates count from."
+          readOnly: true
+        config_version:
+          type: integer
+          format: int32
+          description: "The configuration version whose year tasks the checklist was copied from."
+          readOnly: true
+        status:
+          type: string
+          description: "`open` until it is signed off (T64m6). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [open, signed_off]
+          readOnly: true
+        read_date:
+          type: string
+          format: date
+          description: "The company's date at the read in its time zone, on which `overdue` is judged."
+          readOnly: true
+        time_zone:
+          type: string
+          description: "The IANA time zone `read_date` is the company's date in (UTC when its company sets none)."
+          readOnly: true
+        tasks_total:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Its tasks.
+          readOnly: true
+        tasks_done:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Its tasks done.
+          readOnly: true
+        tasks_open:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Its tasks open.
+          readOnly: true
+        tasks_overdue:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "Its tasks open and due before `read_date`."
+          readOnly: true
+        ledgers:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/YearCloseLedger"
+          description: "The ledgers the close covers, the leading one first, then by code."
+          readOnly: true
+        tasks:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/YearCloseTask"
+          description: "Its tasks, in the template's order."
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version, the ETag; moved by every change to the close or its tasks."
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: Principal that opened the close.
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: Last change time.
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          description: Principal that last changed it or its tasks.
+          readOnly: true
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000f61
+          legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+          company_code: "1000"
+          company_name: Maple Manufacturing Ltd.
+          fiscal_year: 2025
+          year_end: "2025-12-31"
+          config_version: 9
+          status: open
+          read_date: "2026-01-05"
+          time_zone: America/Toronto
+          tasks_total: 1
+          tasks_done: 0
+          tasks_open: 1
+          tasks_overdue: 0
+          ledgers:
+            - ledger_id: 0192a000-0000-7000-8000-000000000a01
+              ledger_code: 0L
+              ledger_name: Leading ledger
+              is_leading: true
+              periods:
+                - {fiscal_period_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d4c, period: 12, is_special: false, status: closed}
+                - {fiscal_period_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d4d, period: 13, is_special: true, status: open}
+          tasks:
+            - close_id: 0192a000-0000-7000-8000-000000000f61
+              close_version: 1
+              legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+              company_code: "1000"
+              company_name: Maple Manufacturing Ltd.
+              fiscal_year: 2025
+              code: AUDIT_ADJUSTMENTS
+              seq: 1
+              name: Auditors' adjustments entered
+              kind: manual
+              due_on: "2026-01-28"
+              depends_on: []
+              blocked_by: []
+              status: open
+              overdue: false
+              read_date: "2026-01-05"
+          version: 1
+          created_at: "2026-01-05T14:00:00Z"
+          created_by: 0192a000-0000-7000-8000-000000000101
+          updated_at: "2026-01-05T14:00:00Z"
+          updated_by: 0192a000-0000-7000-8000-000000000101
+    YearCloseItem:
+      type: object
+      description: "A year close as a list shows it: without its ledgers and tasks, with its tasks' counts."
+      required:
+        - id
+        - legal_entity_id
+        - company_code
+        - company_name
+        - fiscal_year
+        - year_end
+        - config_version
+        - status
+        - read_date
+        - time_zone
+        - tasks_total
+        - tasks_done
+        - tasks_open
+        - tasks_overdue
+        - version
+        - created_at
+        - created_by
+        - updated_at
+        - updated_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The company's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The company's name.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year.
+          readOnly: true
+        year_end:
+          type: string
+          format: date
+          description: "The fiscal year's last day, the leading ledger's."
+          readOnly: true
+        config_version:
+          type: integer
+          format: int32
+          description: "The configuration version whose year tasks the checklist was copied from."
+          readOnly: true
+        status:
+          type: string
+          description: "Year close status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [open, signed_off]
+          readOnly: true
+        read_date:
+          type: string
+          format: date
+          description: "The company's date at the read in its time zone, on which overdue tasks are judged."
+          readOnly: true
+        time_zone:
+          type: string
+          description: "The IANA time zone `read_date` is the company's date in."
+          readOnly: true
+        tasks_total:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Its tasks.
+          readOnly: true
+        tasks_done:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Its tasks done.
+          readOnly: true
+        tasks_open:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Its tasks open.
+          readOnly: true
+        tasks_overdue:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "Its tasks open and due before `read_date`."
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version, the close's ETag."
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: Principal that opened the close.
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: Last change time.
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          description: Principal that last changed it or its tasks.
+          readOnly: true
+    YearClosePage:
+      type: object
+      description: One page of year closes.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/YearCloseItem"
+          description: The year closes on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
+    YearCloseLedger:
+      type: object
+      description: "A ledger a year close covers, with its periods of the year and their live posting status."
+      required:
+        - ledger_id
+        - ledger_code
+        - ledger_name
+        - is_leading
+        - periods
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: The ledger.
+          readOnly: true
+        ledger_code:
+          type: string
+          description: "The ledger's code (`0L`, `2L`)."
+          readOnly: true
+        ledger_name:
+          type: string
+          description: The ledger's name.
+          readOnly: true
+        is_leading:
+          type: boolean
+          description: Whether it is the leading ledger.
+          readOnly: true
+        periods:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/YearClosePeriod"
+          description: "The ledger's periods of the year, regular (1-12) and special (13-16), by period."
+          readOnly: true
+    YearClosePeriod:
+      type: object
+      description: "A posting period of a ledger a year close covers, with its live posting status."
+      required:
+        - fiscal_period_id
+        - period
+        - is_special
+        - status
+      properties:
+        fiscal_period_id:
+          type: string
+          format: uuid
+          description: "The posting period (`GET /v1/fiscal-periods/{id}`)."
+          readOnly: true
+        period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          description: "Its number: 1-12 regular, 13-16 special."
+          readOnly: true
+        is_special:
+          type: boolean
+          description: "Whether it is a special period, the year-end adjustments' (ADR-0060 §3)."
+          readOnly: true
+        status:
+          type: string
+          description: "Its posting status now. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [open, closed, locked]
+          readOnly: true
+    YearCloseTask:
+      type: object
+      description: "A task of a year close (ADR-0060 §8), with its close and company."
+      required:
+        - close_id
+        - close_version
+        - legal_entity_id
+        - company_code
+        - company_name
+        - fiscal_year
+        - code
+        - seq
+        - name
+        - kind
+        - due_on
+        - depends_on
+        - blocked_by
+        - status
+        - overdue
+        - read_date
+      properties:
+        close_id:
+          type: string
+          format: uuid
+          description: "The year close (`GET /v1/year-closes/{id}`)."
+          readOnly: true
+        close_version:
+          type: integer
+          format: int32
+          description: "The close's version, whose ETag (`\"<close_version>\"`) the task's actions take as `If-Match`."
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The close's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The company's name.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: The close's fiscal year.
+          readOnly: true
+        code:
+          type: string
+          description: "The template year task's code, unique in the close."
+          pattern: "^[A-Z0-9_]{1,30}$"
+          readOnly: true
+        seq:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Its place in the template's order.
+          readOnly: true
+        name:
+          type: string
+          description: What is to be done.
+          readOnly: true
+        kind:
+          type: string
+          description: "`manual`: a person completes it; `check`: its check completes it by passing (`:check`, T64m5). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [manual, check]
+          readOnly: true
+        check:
+          type: string
+          description: "The check a `check` task runs; absent for a manual task."
+          readOnly: true
+        due_on:
+          type: string
+          format: date
+          description: "Its due date: `due_day` business days of the company after the fiscal year's last day."
+          readOnly: true
+        depends_on:
+          type: array
+          maxItems: 200
+          items:
+            type: string
+          description: "The codes of the tasks of the close it waits for."
+          readOnly: true
+        blocked_by:
+          type: array
+          maxItems: 200
+          items:
+            type: string
+          description: "The codes of the tasks it depends on that are still open: while any is, it cannot be completed."
+          readOnly: true
+        assignee_id:
+          type: string
+          format: uuid
+          description: "The person it is assigned to; absent when nobody is."
+          readOnly: true
+        assignee_name:
+          type: string
+          description: "The assignee's name; absent when `assignee_id` is."
+          readOnly: true
+        status:
+          type: string
+          description: "Year close task status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [open, done]
+          readOnly: true
+        overdue:
+          type: boolean
+          description: "Open and due before `read_date`."
+          readOnly: true
+        read_date:
+          type: string
+          format: date
+          description: "The company's date at the read in its time zone, on which `overdue` is judged."
+          readOnly: true
+        completed_by:
+          type: string
+          format: uuid
+          description: "Who completed it; absent while it is open."
+          readOnly: true
+        completed_by_name:
+          type: string
+          description: "Their name; absent while it is open."
+          readOnly: true
+        completed_at:
+          type: string
+          format: date-time
+          description: "When it was completed; absent while it is open."
+          readOnly: true
+        note:
+          type: string
+          description: "The note given when it was completed; absent without one."
+          readOnly: true
+        check_result:
+          $ref: "#/components/schemas/CloseCheckResult"
+      examples:
+        - close_id: 0192a000-0000-7000-8000-000000000f61
+          close_version: 3
+          legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+          company_code: "1000"
+          company_name: Maple Manufacturing Ltd.
+          fiscal_year: 2025
+          code: AUDIT_ADJUSTMENTS
+          seq: 1
+          name: Auditors' adjustments entered
+          kind: manual
+          due_on: "2026-01-28"
+          depends_on: []
+          blocked_by: []
+          assignee_id: 0192a000-0000-7000-8000-000000000101
+          assignee_name: Carla Controller
+          status: done
+          overdue: false
+          read_date: "2026-01-20"
+          completed_by: 0192a000-0000-7000-8000-000000000101
+          completed_by_name: Carla Controller
+          completed_at: "2026-01-20T10:00:00Z"
+          note: The auditors' three adjustments posted into period 13.
     PeriodCloseSignOffInput:
       type: object
       description: "A period close's sign-off."
@@ -40221,7 +41479,7 @@ components:
       type: object
       description: "A document the tenant's accredited e-invoicing provider delivered (ADR-0061 §4, §7, §15): recorded once per connector and the provider's message id, its bytes kept as received."
       required: [id, connector_id, connector_name, message_id, receiver, legal_entity_id, company_code, company_name, status, sha256, size,
-        fetch_operation_id, received_at, acknowledged_at, version]
+        fetch_operation_id, received_at, acknowledged_at, changed_sha256, changed_at, changed_fetch_operation_id, version]
       properties:
         id: {type: string, format: uuid}
         connector_id: {type: string, format: uuid, description: The `einvoice_provider` connector it was received through.}
@@ -40237,6 +41495,9 @@ components:
         fetch_operation_id: {type: string, format: uuid, description: "The fetch that recorded it: its Operation's id."}
         received_at: {type: string, format: date-time, description: When it was recorded.}
         acknowledged_at: {type: [string, 'null'], format: date-time, description: "When the provider was told it is kept; null until then (the next fetch acknowledges it again)."}
+        changed_sha256: {type: [string, 'null'], pattern: "^[0-9a-f]{64}$", description: "The SHA-256 of other bytes the provider delivered later under the same message id, the latest such, hex; null while it delivered none. The document keeps its first bytes, the legal original (`sha256`, `getEInvoiceContent`); a person takes a change up with the supplier or the provider."}
+        changed_at: {type: [string, 'null'], format: date-time, description: "When a fetch found those bytes; null with `changed_sha256`."}
+        changed_fetch_operation_id: {type: [string, 'null'], format: uuid, description: "The fetch that found those bytes: its Operation's id, which lists the document under `fetch_operation_id` too; null with `changed_sha256`."}
         version: {type: integer, format: int32}
     ConsolidationRunPage:
       type: object
@@ -40250,8 +41511,8 @@ components:
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     ConsolidationRun:
       type: object
-      description: "A consolidation run of a group for a regular period (ADR-0059 §6): its companies, each with the closing rate it was translated at and its period's status and version when the run read its figures. The translated figures are `GET /v1/consolidation-runs/{id}/balances`."
-      required: [id, group_code, group_name, fiscal_year, period, period_start, period_end, status, config_version, group_currency, rate_type, operation_id, members, version, created_at, updated_at]
+      description: "A consolidation run of a group for a regular period (ADR-0059 §6): its companies, each with the closing rate it was translated at and its period's status and version when the run read its figures. The translated figures are `GET /v1/consolidation-runs/{id}/balances`, the intercompany differences `/differences` and the elimination entries `/entries`."
+      required: [id, group_code, group_name, fiscal_year, period, period_start, period_end, status, config_version, group_currency, rate_type, operation_id, members, difference_counts, version, created_at, updated_at]
       properties:
         id: {type: string, format: uuid, description: The run., readOnly: true}
         group_code: {type: string, description: "The group's code.", readOnly: true}
@@ -40263,7 +41524,7 @@ components:
         status:
           type: string
           x-extensible-enum: [queued, running, computed, failed, final, superseded, discarded]
-          description: "queued until its workflow starts it, running while its companies are translated, then computed, or failed with its problem; a computed or failed run may be discarded. final and superseded follow finalization (ADR-0059 §10). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "queued until its workflow starts it, running while its companies are translated, then computed, or failed with its problem; a computed or failed run may be discarded. A computed run is finalized (`:finalize`, ADR-0059 §10) as the group's consolidated figures of its period: final, until a later final run of the period supersedes it (superseded). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
         problem: {$ref: "#/components/schemas/ConsolidationRunProblem"}
         config_version: {type: integer, format: int32, description: "The configuration version whose group, group chart and mapping the run read (`GET /v1/config-versions`).", readOnly: true}
@@ -40276,7 +41537,18 @@ components:
           items: {$ref: "#/components/schemas/ConsolidationRunMember"}
           readOnly: true
         computed_at: {type: string, format: date-time, description: "When it was computed; absent before.", readOnly: true}
-        version: {type: integer, format: int32, description: "The run's version (ETag).", readOnly: true}
+        difference_counts:
+          type: array
+          description: "The number of its intercompany differences per status present (`GET /v1/consolidation-runs/{id}/differences`), in the order matched, within_tolerance, open, accepted, outside_group, no_trading_partner; empty until its companies are matched (ADR-0059 §8)."
+          items: {$ref: "#/components/schemas/ConsolidationDifferenceCount"}
+          readOnly: true
+        stale: {type: boolean, description: "Whether a company's leading-ledger period changed since the run read its figures: its version now differs from the `period_version` the run recorded (ADR-0059 §10), say by an unlock, a posting and a relock, or an unlock request. A stale run cannot be finalized, and a stale final run stays final but no longer shows the ledger's figures; a new run of the period, finalized, supersedes it. Absent until every company of the run is translated.", readOnly: true}
+        finalized_by: {type: string, format: uuid, description: "Who finalized it (`:finalize`); absent unless it is final or superseded.", readOnly: true}
+        finalized_by_name: {type: string, description: "Their name; absent unless it is final or superseded.", readOnly: true}
+        finalized_at: {type: string, format: date-time, description: "When it was finalized; absent unless it is final or superseded.", readOnly: true}
+        superseded_by: {type: string, format: uuid, description: "The later final run of the group and period that superseded it (`GET /v1/consolidation-runs/{id}`); absent unless it is superseded.", readOnly: true}
+        supersedes: {type: string, format: uuid, description: "The final run of the group and period this run superseded when it was finalized; absent when it superseded none.", readOnly: true}
+        version: {type: integer, format: int32, description: "The run's version (ETag); it moves with every change of the run and of its differences (ADR-0059 §5).", readOnly: true}
         created_at: {type: string, format: date-time, description: When it was started., readOnly: true}
         updated_at: {type: string, format: date-time, description: When it last changed., readOnly: true}
       examples:
@@ -40296,6 +41568,10 @@ components:
             - {legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b, company_code: "3000", company_name: Maple Industries Canada, local_currency: CAD, role: parent, closing_rate: "1", period_status: open, period_version: 3, translated_at: "2026-11-20T10:00:01Z"}
             - {legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c, company_code: "1000", company_name: Acme Corp US, local_currency: USD, role: member, ownership_percent: "80", first_fiscal_year: 2026, first_fiscal_period: 11, closing_rate: "1.4", rate_valid_from: "2026-11-30", period_status: open, period_version: 2, translated_at: "2026-11-20T10:00:01Z"}
           computed_at: "2026-11-20T10:00:02Z"
+          difference_counts:
+            - {status: matched, count: 1}
+            - {status: open, count: 1}
+          stale: false
           version: 4
           created_at: "2026-11-20T10:00:00Z"
           updated_at: "2026-11-20T10:00:02Z"
@@ -40390,10 +41666,161 @@ components:
           amount_gc_booked: {amount: "-2025.00", currency: CAD}
           amount_gc: {amount: "-2100.00", currency: CAD}
           closing_rate: "1.4"
+    IntercompanyDifferencePage:
+      type: object
+      description: "One page of a consolidation run's intercompany differences, with the totals over the filter."
+      required: [items, totals]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/IntercompanyDifference"}
+          description: The differences on this page.
+        totals:
+          type: array
+          items: {$ref: "#/components/schemas/IntercompanyDifferenceTotal"}
+          description: "The totals of every difference the filter selects, over all pages, one per status present, in the order matched, within_tolerance, open, outside_group, no_trading_partner."
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    IntercompanyDifferenceTotal:
+      type: object
+      description: "The differences of one status summed, in the group currency, debit positive."
+      required: [status, count, amount]
+      properties:
+        status:
+          type: string
+          x-extensible-enum: [matched, within_tolerance, open, accepted, outside_group, no_trading_partner]
+          description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        count: {type: integer, format: int32, description: "The number of differences of the status.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "Their amounts summed."}
+        partner_amount: {$ref: "#/components/schemas/Money", description: "Their partners' amounts summed; absent for `outside_group` and `no_trading_partner`."}
+        difference: {$ref: "#/components/schemas/Money", description: "Their differences summed; absent for `outside_group` and `no_trading_partner`."}
+    IntercompanyDifference:
+      type: object
+      description: "A consolidation run's intercompany difference (ADR-0059 §8): a pair of its companies on an elimination's accounts (`matched`, `within_tolerance`, `open`), or a company's rows on them naming a company outside the run (`outside_group`) or none (`no_trading_partner`). Amounts in the group currency, debit positive."
+      required: [id, line_no, elimination, legal_entity_id, company_code, company_name, status, amount, version]
+      properties:
+        id: {type: string, format: uuid, description: The difference., readOnly: true}
+        line_no: {type: integer, format: int32, description: "Its number within the run, in the list's order.", readOnly: true}
+        elimination: {$ref: "#/components/schemas/EliminationRef"}
+        legal_entity_id: {type: string, format: uuid, description: "The company: of a pair, the one with the lower company code.", readOnly: true}
+        company_code: {type: string, description: "The company code, as the run read it.", readOnly: true}
+        company_name: {type: string, description: "The company's name as it is now.", readOnly: true}
+        partner: {$ref: "#/components/schemas/TradingPartner", description: "The partner: the pair's other company, or the trading partner outside the run; absent for `no_trading_partner`."}
+        status:
+          type: string
+          x-extensible-enum: [matched, within_tolerance, open, accepted, outside_group, no_trading_partner]
+          description: "`matched`: the difference is zero; `within_tolerance`: its absolute value is at most the tolerance; `open`: above it, which stops finalization until it is accepted (`:accept`) or the companies correct their postings and run the group again; `accepted`: an open difference a person accepted, with who, when and why; `outside_group`, `no_trading_partner`: rows the run does not eliminate. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        amount: {$ref: "#/components/schemas/Money", description: "The company's translated rows on the elimination's accounts naming the partner (or, for `no_trading_partner`, none) summed."}
+        partner_amount: {$ref: "#/components/schemas/Money", description: "Of a pair: the partner's translated rows on them naming the company summed."}
+        difference: {$ref: "#/components/schemas/Money", description: "Of a pair: the amount and the partner amount summed, eliminated to the elimination's difference account."}
+        tolerance: {$ref: "#/components/schemas/Money", description: "Of a pair: the elimination's tolerance, in the configuration version the run read."}
+        accepted_by: {type: string, format: uuid, description: "Who accepted it; absent unless it is accepted.", readOnly: true}
+        accepted_by_name: {type: string, description: "Their name; absent unless it is accepted.", readOnly: true}
+        accepted_at: {type: string, format: date-time, description: "When it was accepted; absent unless it is accepted.", readOnly: true}
+        reason: {type: string, description: "Why it was accepted, as given; absent unless it is accepted.", readOnly: true}
+        version: {type: integer, format: int32, description: "The difference's version (its ETag, `If-Match` of `:accept`).", readOnly: true}
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000d01
+          line_no: 1
+          elimination: {code: IC_BALANCES, name: Intercompany receivables and payables}
+          legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c
+          company_code: "1000"
+          company_name: Acme Corp US
+          partner: {id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b, code: "3000", name: Maple Industries Canada}
+          status: open
+          amount: {amount: "-2800.00", currency: CAD}
+          partner_amount: {amount: "2700.00", currency: CAD}
+          difference: {amount: "-100.00", currency: CAD}
+          tolerance: {amount: "10.00", currency: CAD}
+          version: 1
+    ConsolidationEntryPage:
+      type: object
+      description: "One page of a consolidation run's elimination entries, with the totals over the filter."
+      required: [items, totals]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ConsolidationEntry"}
+          description: The entries on this page, each with its lines.
+        totals:
+          type: array
+          items: {$ref: "#/components/schemas/ConsolidationEntryTotal"}
+          description: "The totals of every entry the filter selects, over all pages, one per kind present, in the order intercompany, investment, nci."
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    ConsolidationEntryTotal:
+      type: object
+      description: "The entries of one kind summed, in the group currency."
+      required: [kind, count, debits]
+      properties:
+        kind:
+          type: string
+          x-extensible-enum: [intercompany, investment, nci]
+          description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        count: {type: integer, format: int32, description: "The number of entries of the kind.", readOnly: true}
+        debits: {$ref: "#/components/schemas/Money", description: "Their debit lines summed; their credits are the same amount."}
+    ConsolidationEntry:
+      type: object
+      description: "An elimination entry of a consolidation run (ADR-0059 §8, §9): its lines sum to zero; the run keeps it, no company's ledger."
+      required: [entry_no, kind, legal_entity_id, company_code, company_name, debits, lines]
+      properties:
+        entry_no: {type: integer, format: int32, description: "Its number within the run.", readOnly: true}
+        kind:
+          type: string
+          x-extensible-enum: [intercompany, investment, nci]
+          description: "`intercompany`: a pair's balances on an elimination's accounts reversed, with their difference; `investment` and `nci`: a member's investment and non-controlling interest (T68h). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        elimination: {$ref: "#/components/schemas/EliminationRef"}
+        legal_entity_id: {type: string, format: uuid, description: "Its company: of an intercompany entry, the pair's with the lower code.", readOnly: true}
+        company_code: {type: string, description: "The company code, as the run read it.", readOnly: true}
+        company_name: {type: string, description: "The company's name as it is now.", readOnly: true}
+        partner: {$ref: "#/components/schemas/TradingPartner", description: "Of an intercompany entry: the pair's other company."}
+        debits: {$ref: "#/components/schemas/Money", description: "Its debit lines summed, in the group currency; its credits are the same amount."}
+        lines:
+          type: array
+          items: {$ref: "#/components/schemas/ConsolidationEntryLine"}
+          description: "Its lines, by group account number, company code (none first), company account number and trading partner code."
+          readOnly: true
+    ConsolidationEntryLine:
+      type: object
+      description: "A line of an elimination entry: an amount in the group currency, debit positive, on a group account, with the company, company account and trading partner of the translated row it reverses, if any."
+      required: [line_no, group_account, amount]
+      properties:
+        line_no: {type: integer, format: int32, description: "Its number within the entry.", readOnly: true}
+        group_account: {$ref: "#/components/schemas/GroupAccountRef"}
+        legal_entity_id: {type: string, format: uuid, description: "The company of the row it reverses; absent on an intercompany difference's line, which is the pair's.", readOnly: true}
+        company_code: {type: string, description: "That company's code, as the run read it.", readOnly: true}
+        company_name: {type: string, description: "That company's name as it is now.", readOnly: true}
+        account_id: {type: string, format: uuid, description: "The company account of the row it reverses.", readOnly: true}
+        account: {$ref: "#/components/schemas/AssetAccountRef"}
+        trading_partner: {$ref: "#/components/schemas/TradingPartner"}
+        amount: {$ref: "#/components/schemas/Money", description: "The amount in the group currency, debit positive."}
+      examples:
+        - line_no: 1
+          group_account: {number: G2250, name: Intercompany payables}
+          legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c
+          company_code: "1000"
+          company_name: Acme Corp US
+          account_id: 0192a000-0000-7000-8000-000000000402
+          account: {number: "225000", name: Intercompany payables}
+          trading_partner: {id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b, code: "3000", name: Maple Industries Canada}
+          amount: {amount: "2800.00", currency: CAD}
+    ConsolidationDifferenceCount:
+      type: object
+      description: "The number of a run's intercompany differences of one status."
+      required: [status, count]
+      properties:
+        status:
+          type: string
+          x-extensible-enum: [matched, within_tolerance, open, accepted, outside_group, no_trading_partner]
+          description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        count: {type: integer, format: int32, description: "How many there are.", readOnly: true}
     ConsolidatedStatement:
       type: object
       description: "One page of a consolidated statement of a consolidation run (ADR-0059 §11), with its run and the totals over the whole statement. Every figure is in the group currency, debit positive."
-      required: [run_id, group_code, group_name, fiscal_year, period, period_end, run_status, statement, group_currency, items, totals]
+      required: [run_id, group_code, group_name, fiscal_year, period, period_end, run_status, stale, statement, group_currency, items, totals]
       properties:
         run_id: {type: string, format: uuid, description: "The run (`GET /v1/consolidation-runs/{id}`).", readOnly: true}
         group_code: {type: string, description: "The group's code.", readOnly: true}
@@ -40406,6 +41833,7 @@ components:
           x-extensible-enum: [computed, final, superseded]
           description: "The run's status (`ConsolidationRun.status`): a draft (`computed`), the group's consolidated figures of the period (`final`), or a final run a later one superseded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
+        stale: {type: boolean, description: "The run's `stale` (`ConsolidationRun.stale`): whether a company's period changed since the run read its figures, so they may no longer be the ledger's (ADR-0059 §10).", readOnly: true}
         statement:
           type: string
           x-extensible-enum: [balance_sheet, profit_and_loss]
@@ -40426,6 +41854,7 @@ components:
           period: 11
           period_end: "2026-11-30"
           run_status: computed
+          stale: false
           statement: balance_sheet
           group_currency: CAD
           items:
@@ -40465,7 +41894,7 @@ components:
           description: "The role a consolidation run gives the account, if any (`GroupAccount.role`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
         reported: {$ref: "#/components/schemas/Money", description: "The companies' translated figures on the account summed (ADR-0059 §7)."}
-        eliminations: {$ref: "#/components/schemas/Money", description: "The run's eliminations on the account (ADR-0059 §8, §9); zero until they are built (T68f, T68h)."}
+        eliminations: {$ref: "#/components/schemas/Money", description: "The run's elimination entries' lines on the account summed (ADR-0059 §8, §9; `listConsolidationEntries`)."}
         consolidated: {$ref: "#/components/schemas/Money", description: "The reported figure and the eliminations summed: the group's consolidated figure."}
     ConsolidatedFigures:
       type: object
@@ -40473,7 +41902,7 @@ components:
       required: [reported, eliminations, consolidated]
       properties:
         reported: {$ref: "#/components/schemas/Money", description: "The companies' translated figures summed (ADR-0059 §7)."}
-        eliminations: {$ref: "#/components/schemas/Money", description: "The run's eliminations (ADR-0059 §8, §9); zero until they are built (T68f, T68h)."}
+        eliminations: {$ref: "#/components/schemas/Money", description: "The run's elimination entries' lines summed (ADR-0059 §8, §9)."}
         consolidated: {$ref: "#/components/schemas/Money", description: "The reported figures and the eliminations summed."}
     ConsolidatedStatementTotals:
       type: object
@@ -45896,7 +47325,7 @@ components:
           description: SAP company code (T001 BUKRS).
         key:
           type: string
-          description: "What differs: an account number, `vendor <LIFNR>`, `down payments of vendor <LIFNR>`, `partner <id> (<name>)` or `down payments of partner <id> (<name>)` (a platform supplier that is no migrated vendor, by its id and name), `bank account of vendor <LIFNR>`, `order item <EBELN>/<EBELP>`, `GR/IR of order item <EBELN>/<EBELP>`, `open items of vendor <LIFNR>` or `open items of partner <id> (<name>)` (the number of open payable items), `<currency> items of vendor <LIFNR>` or `<currency> items of partner <id> (<name>)` (the open items in a foreign document currency, in it), or `cost center <KOKRS>/<KOSTL>` or `profit center <KOKRS>/<PRCTR>` (a center's periods, ADR-0050 §10)."
+          description: "What differs: an account number, `vendor <LIFNR>`, `down payments of vendor <LIFNR>`, `partner <id> (<name>)` or `down payments of partner <id> (<name>)` (a platform supplier that is no migrated vendor, by its id and name), `bank account of vendor <LIFNR>`, `order item <EBELN>/<EBELP>`, `GR/IR of order item <EBELN>/<EBELP>`, `open items of vendor <LIFNR>` or `open items of partner <id> (<name>)` (the number of open payable items), `<currency> items of vendor <LIFNR>` or `<currency> items of partner <id> (<name>)` (the open items in a foreign document currency, in it), `cost center <KOKRS>/<KOSTL>` or `profit center <KOKRS>/<PRCTR>` (a center's periods, ADR-0050 §10), or `cost center total <KOKRS>/<KOSTL>`, `profit center total <KOKRS>/<PRCTR>` or `segment total <SEGMENT>` (the migrated lines' total on profit and loss accounts against the center reports', documents mode)."
         sap:
           type: string
           description: "SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a count of open items, a GR/IR position as its balance and quantity (`750.00 EUR, quantity 5`), a bank account as the load writes it, or a center's periods (`2020-01-01 to 2026-06-30: ADMIN, profit center P3100; from 2026-07-01: ADMIN, profit center P3200`, a profit center's with its segment; `none` for a center one side lacks, `unreadable` for SAP's slices that do not read)."

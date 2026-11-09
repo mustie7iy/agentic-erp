@@ -74,10 +74,10 @@ func TakeCashSnapshot(ctx workflow.Context, in SnapshotInput) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{StartToCloseTimeout: 5 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: time.Minute}})
 	var a *Snapshots
-	if err := workflow.ExecuteActivity(ctx, a.TakeSnapshot, in).Get(ctx, nil); err != nil {
-		return err //nolint:wrapcheck // workflow result: the engine records Future.Get's ActivityError, which carries the activity type and id, as the failure; a wrap would put a generic wrapError failure on top and add no context
+	if err := perform(ctx, in.TenantID, nil, a.TakeSnapshot, in); err != nil {
+		return err
 	}
-	return workflow.ExecuteActivity(ctx, a.PruneSnapshots, in).Get(ctx, nil) //nolint:wrapcheck // workflow result, as above
+	return perform(ctx, in.TenantID, nil, a.PruneSnapshots, in)
 }
 
 // Snapshots holds the snapshot activities and the dispatcher's question of
@@ -96,7 +96,7 @@ type Snapshots struct {
 }
 
 func (s *Snapshots) begin(ctx context.Context, sc database.Scope) (pgx.Tx, error) {
-	return database.BeginOr(ctx, s.Pool, s.Begin, sc)
+	return database.BeginActive(ctx, s.Pool, s.Begin, sc)
 }
 
 // as runs fn in one transaction of the tenant as the snapshotter.

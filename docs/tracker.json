@@ -882,7 +882,7 @@
        {
         "s": "T",
         "t": "CPA-005 (the Canadian Payments Association's 1464-byte AFT file) for Canadian banks that do not take pain.001",
-        "r": "after T45d · ADR-0038 amendment (waits on: the pilot bank: whether it takes pain.001, with its check of the Canadian member id)",
+        "r": "after T45d · ADR-0038 amendment (waits on: the pilot bank: whether it takes pain.001, with its check of the Canadian member id) · D13's planning default of the pilot customer questionnaire, to be confirmed by the customer before go-live (po:2026-11-09): both pilot banks take pain.001 and send camt.053 in UTF-8, so the pilot needs no CPA-005; kept open in case the Canadian bank requires it for low-value AFT payments",
         "src": "baseline",
         "pilot": "po:2026-10-31 · adr:ADR-0038",
         "c": []
@@ -892,6 +892,13 @@
         "t": "SAP load of Canadian accounts: vendor bank accounts (LFBK) as scheme ca with institution and transit numbers, and Canadian house banks (T012K) without an IBAN",
         "r": "integration/banks.go (load, quality gate LFBK, reconciliation check of vendor bank accounts) · delivery/sapconfig canadianAccount · cabank.SplitMemberID · partner.Suppliers.PaymentAccounts · ADR-0038 As built (T72d) · T72d",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Canadian bank keys in the paper form TTTTT-III accepted (SAP specialist, po:2026-11-09, A6 [M], to verify on the pilot system): legacy SAP data holds the MICR form, transit and institution with a hyphen (12345-001), beside the electronic routing form; the extract converts it without guessing (12345-001 becomes 000112345) for vendor accounts (LFBK) and house banks (T012-BANKL), and ambiguous forms such as eight digits without the leading zero stay refused by the quality gate; LFBK-BANKL and BNKA-BANKL of bank country CA profiled before the load",
+        "r": "internal/sap · cabank.SplitMemberID · integration quality gate (LFBK) · delivery/sapconfig (house banks) · ADR-0038 As built (T72d, answered) · docs/migration.md",
+        "src": "po:2026-11-09",
         "c": []
        },
        {
@@ -1123,7 +1130,7 @@
     "ph": 2,
     "c": [
      {
-      "s": "D",
+      "s": "P",
       "t": "Asset accounting designed (ADR-0057, decided by default under ADR-0053 d): a leaf assets context; classes and asset accounts in configuration; acquisitions settling an asset clearing account's lines; depreciation per ledger as planned less booked by a Temporal run; retirements and transfers per ledger; the history sheet from movements",
       "r": "ADR-0057 · T57 (split T57a-T57i)",
       "c": [
@@ -1245,6 +1252,34 @@
         "r": "migration 000207 (assets.year_total keyed ledger, asset, year; assets.class_year_total; the movements so far totalled; sums-only update grant) · internal/assets (totals.go: keepTotals after every posting's movements, class rows then asset rows in key order; sheet.go: GetAssetHistorySheet) · GET /v1/asset-history-sheet (getAssetHistorySheet, x-slo-class report) · TestAssetHistorySheet, TestAssetHistorySheetRefused, TestYearTotalsInKeyOrder, TestAssetHistorySheetDatabaseFailures, TestAssetHistorySheetBudget, TestAssetYearTotalsBackfilled, TestAssetYearTotalRules · walkthrough step_asset_history_sheet (step 34) · ADR-0057 (as built, T57i) · 03-data-model §3.21 · 04-api-design · T57i",
         "src": "adr:ADR-0057",
         "c": []
+       },
+       {
+        "s": "T",
+        "t": "Non-refundable purchase tax and price differences in an asset's cost, after a materiality report (accounting specialist, po:2026-11-09, B10; IAS 16.16(a), IAS 8.8): first a report of the amounts expensed on asset purchase orders (price differences on price_difference, input tax not recovered), so the auditor can judge their materiality, the cases often material being UAE blocked input VAT (motor vehicles available for personal use, entertainment) and partly recoverable Canadian PST on equipment; then, before the first year end, an order item's price difference and non-recoverable tax capitalised on the asset rather than expensed (ADR-0057's question on price differences and non-recovered tax)",
+        "r": "ADR-0057 §6, Questions for the product owner (answered) · ledger price difference · payables input tax",
+        "src": "po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Depreciation stopped at held-for-sale classification, and a transfer's receiving asset depreciating the transfer's month (accounting specialist, po:2026-11-09, B11; IAS 16.55, IFRS 5, IAS 8.8): the monthly convention is accepted; to add: classifying an asset as held for sale from a period, after which runs no longer depreciate it (depreciation ceases at the earlier of that classification and derecognition), and a test that the receiver of an asset transfer depreciates the month the sender gives up, so no month is lost",
+        "r": "ADR-0057 §7 Periods, §8 (answered)",
+        "src": "po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A change in estimate before the pilot's first year end (accounting specialist, po:2026-11-09, B13; IAS 16.51, 16.61, IAS 8.36-38): an asset's useful life, residual value and method changed prospectively from a chosen period after depreciation has started (refused today, assets.terms_in_use), so the year-end review's result is booked in the register rather than by a manual journal, which would leave the asset register wrong",
+        "r": "ADR-0057 §1, §7, Questions for the product owner (A change in estimate, answered)",
+        "src": "po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The asset history sheet's missing IAS 16.73 lines (accounting specialist, po:2026-11-09, B14): impairment losses recognised and reversed, acquisitions through business combinations, and net exchange differences on translation for the consolidated schedule in the group's presentation currency; and IAS 16.73(a)-(c) per class (measurement basis, methods, useful lives or rates) as notes text. The opening accumulated depreciation, the year's depreciation and the cost and accumulated depreciation retirements remove, which the answer lists as missing, are already columns (ADR-0057 §9: the question named fewer lines than are built)",
+        "r": "ADR-0057 §9 (answered) · GET /v1/asset-history-sheet",
+        "src": "po:2026-11-09",
+        "c": []
        }
       ]
      },
@@ -1354,7 +1389,7 @@
        {
         "s": "T",
         "t": "ISO-8859-1 statement files, only if a pilot bank cannot send UTF-8 (coordinator 2026-10-20)",
-        "r": "T49",
+        "r": "T49 · D13's planning default of the pilot customer questionnaire, to be confirmed by the customer before go-live (po:2026-11-09): both pilot banks send camt.053 in UTF-8, so the pilot needs none; kept open",
         "src": "po:2026-10-25",
         "pilot": "po:2026-10-31",
         "c": []
@@ -1798,16 +1833,16 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The year close and its manual checklist: close.year_tasks in the configuration (year checks only); closing.year_close, year_close_ledger and year_close_task (RLS, rules, schema tests); POST/GET/list /v1/year-closes and the task operations (PATCH, :complete, :reopen) sharing the period close's code; YearCloseChanged; audit; walkthrough: year tasks added through a change request, the year close opened, a manual task assigned and completed, a second year close refused",
-        "r": "ADR-0060 §8 · T64m4",
+        "r": "ADR-0060 §8, As built · T64m4 · db/migrations/000237 · internal/closing yearclose.go, kind.go · walkthrough year_end_close",
         "src": "adr:ADR-0060",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Year-close checks: :check on a year close; no_parked_entries over the year (special periods included), revaluation_posted on the year's last day, depreciation_year_posted (T64k's check for every regular period and covered ledger) and carry_forward_current through closing.Ledger's new read, results naming the ledgers, periods and entries; walkthrough: the revaluation check passing, carry_forward_current failing after a late posting and passing after the re-run, depreciation_year_posted passing",
-        "r": "ADR-0060 §8, §11 · T64m5",
+        "r": "ADR-0060 §8, §11, As built · T64m5 · internal/closing yearcheck.go, check.go · internal/ledger closechecks.go · walkthrough year_end_checks",
         "src": "adr:ADR-0060",
         "c": []
        },
@@ -1816,6 +1851,13 @@
         "t": "Year-close sign-off locks the year: :sign-off needing every task done, checks passing when re-run, every regular period of each covered ledger locked (closing.year_periods_not_locked) and every special period closed or locked (closing.period_not_closed); the special periods read FOR UPDATE in one statement by period, leading ledger, code and locked through LockPeriod in that order; year_sign_off with the signer's name; YearCloseSignedOff; reopening after an unlock and a second sign-off; a concurrency test with a posting into a special period on three ledgers whose ids and codes sort differently; walkthrough: sign-off refused while a regular period is unlocked, then signed off, every period of the year locked and a posting into period 13 refused",
         "r": "ADR-0060 §8 · T64m6",
         "src": "adr:ADR-0060",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A UAE VAT code on a year-end adjustment only with a tax document (UAE tax specialist, po:2026-11-09, C10 [M]; VAT Executive Regulation): a special-period posting may carry a VAT code of a UAE registration when it references a tax invoice or tax credit note, its return period derived from that document's date, the statutory annual adjustments (input tax apportionment, the capital assets scheme) going to the first return after the end of the tax year or adjustment period; accruals, provisions and reclassifications keep ledger.special_period_tax_code, as do Canadian codes until the tax specialist answers for the GST34 (ADR-0060 question 2)",
+        "r": "ADR-0060 §3, question 2 (answered for the UAE) · ledger special periods · taxfiling VAT 201",
+        "src": "po:2026-11-09",
         "c": []
        }
       ]
@@ -1903,9 +1945,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "An accounting specialist confirms the consolidation run's translation method (ADR-0059 §7: assets and liabilities at the closing rate, non-monetary ones included; income, expenses and equity at booked group amounts; prior results on retained earnings; the difference to the translation reserve per member) against IAS 21 before T68d ships",
-        "r": "ADR-0059 §7, question 1 · T68d",
+        "r": "ADR-0059 §7, question 1 · T68d · answered po:2026-11-09 (B1-B4, a technical review, not a signed opinion): B1 and B2 confirmed (IAS 21.39(a), (b), 21.40), B3 confirmed with equity at historical rates a policy choice for the auditor, its additions (other comprehensive income, the interest's share) and B4's corrections their own leaves",
         "src": "po:2026-11-05 · adr:ADR-0059",
         "c": []
        },
@@ -1917,16 +1959,16 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Intercompany matching and eliminations: run_entry, run_entry_line (balanced per entry), run_difference; matching per elimination and pair of members in group currency with its tolerance (matched, within_tolerance, open, outside_group, no_trading_partner) and the intercompany entries; GET .../differences and GET .../entries with names and totals; walkthrough: the revenue and expense pair matches, the receivable and payable pair is open (1.35 against 1.40), the consolidated statements show no intercompany balance",
-        "r": "ADR-0059 · T68f",
+        "r": "db/migrations/000238 · consolidation.run_difference · consolidation.run_entry · consolidation.run_entry_line · listIntercompanyDifferences · listConsolidationEntries · ADR-0059 As built · T68f",
         "src": "adr:ADR-0059",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Accepting differences and finalizing runs: :accept (consolidation.difference.accept, people only, IntercompanyDifferenceAccepted); :finalize (consolidation.run.finalize, people only) refused while a difference is open or a member's period is not locked, superseding the previous final under a lock of the period's runs, refused and stale once a member's period version moved since the figures were read; consolidation.People; walkthrough: the difference accepted and finalizing refused with consolidation.period_not_locked in step_consolidation, and at the end of step_close, after the sign-off, Acme Corp US's period locked, the group run again and finalized",
-        "r": "ADR-0059 · T68g",
+        "r": "db/migrations/000239 · acceptIntercompanyDifference · finalizeConsolidationRun · consolidation.People · IntercompanyDifferenceAccepted · ADR-0059 As built · T68g",
         "src": "adr:ADR-0059",
         "c": []
        },
@@ -1938,16 +1980,65 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Revaluation of intercompany items by trading partner: a foreign currency revaluation's lines of open items and balances that name a trading partner carry it (grouped by account, currency, direction and trading partner), so revalued intercompany balances match by trading partner instead of showing as no_trading_partner",
-        "r": "ADR-0059 §4, §8 · ADR-0042 · before T68f",
+        "r": "db/migrations/000240–000242 · ledger.revaluation_item.trading_partner_id · RevaluationItem and RevaluationTotal trading_partner · TestRevaluationByTradingPartner · walkthrough consolidation_revaluation · ADR-0059 As built · ADR-0042 As built · T68b2",
         "src": "review:T68b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The translation difference in other comprehensive income, with the non-controlling interest's share (accounting specialist, po:2026-11-09, B3; IAS 21.39(c), 21.41, 21.52(b), IAS 1.81B): the consolidated statements show each member's translation difference as other comprehensive income, not only on the cta account of the balance sheet, and profit and total comprehensive income each attributed to owners of the parent and to non-controlling interests; the interest's part of the difference goes to NCI, not the group's reserve (ADR-0059 §9's translation share), and the reserve stays per subsidiary for its reclassification on disposal (IAS 21.48)",
+        "r": "ADR-0059 §7, §11, question 1 (answered) · consolidation statements · T68h",
+        "src": "po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Group-currency revaluation's translation part moved out of profit or loss in consolidation (accounting specialist, po:2026-11-09, B4 correction 1; IAS 21.39(c)): ADR-0042 values group currency on its own, so a revaluation's group difference is not its local difference translated; the consolidation run keeps in profit or loss only the functional-currency difference translated and moves the rest to other comprehensive income and the member's translation reserve, where ADR-0059 §7 takes income and expenses at their booked group amounts today",
+        "r": "ADR-0042 (the group-currency difference in consolidation) · ADR-0059 §7, question 1 (answered) · consolidation run",
+        "src": "po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Exchange differences on a net investment in a foreign operation in other comprehensive income (accounting specialist, po:2026-11-09, B4 correction 2; IAS 21.32, 21.45): a monetary item forming part of the net investment in a foreign operation (a long-term intercompany loan not expected to be settled) is designated as such, how decided in the step, and the consolidation moves its exchange differences to other comprehensive income; other intragroup monetary items keep theirs in profit or loss",
+        "r": "ADR-0042 (the group-currency difference in consolidation) · ADR-0059 §7, §8, question 1 (answered) · consolidation run",
+        "src": "po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Acquired net assets at fair value unless the subsidiary was incorporated by the parent or combined under common control (accounting specialist, po:2026-11-09, B5; IFRS 3.18, 3.19, 3.2(c), IAS 8.8): the proportionate share of net assets is an allowed measure of the interest, but IFRS 3 measures the acquired assets and liabilities at acquisition-date fair value; T68h's book values are acceptable for the pilot only for a subsidiary the parent incorporated (no goodwill, the investment eliminated against share capital), a common-control combination, or book values immaterially different from fair values; otherwise the acquisition gains a fair value adjustment layer with its deferred tax. Which case applies waits for the pilot customer's group structure (D11). Not a pilot item: after the pilot unless the customer's D11 answer differs from its ⚠ planning default of the pilot customer questionnaire, to be confirmed by the customer before go-live (po:2026-11-09): the Canadian company holds 100% of the UAE company, which it incorporated, group currency CAD, so IFRS 3 does not apply and the investment is eliminated against share capital",
+        "r": "ADR-0059 §9, question 2 (answered) · T68h",
+        "src": "po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Goodwill held in the subsidiary's functional currency and retranslated at each closing rate (accounting specialist, po:2026-11-09, B6; IAS 21.47, IFRS 3.32, IAS 36.10(b), 36.90): ADR-0059 §9 keeps goodwill at its group amount at acquisition; to change: goodwill (and any fair value adjustment) is an asset of the foreign operation in its functional currency, translated at each run's closing rate, its difference to the member's translation reserve (the parent's alone while the interest is measured at its share of net assets); and the system posts an impairment of goodwill tested outside it. The interest at acquisition is not retranslated as such: it moves through its shares (B9). Not a pilot item: after the pilot unless the customer's D11 answer differs from its ⚠ planning default of the pilot customer questionnaire, to be confirmed by the customer before go-live (po:2026-11-09): the Canadian company holds 100% of the UAE company, which it incorporated, group currency CAD, so IFRS 3 does not apply and the investment is eliminated against share capital",
+        "r": "ADR-0059 §9, question 2 (answered) · T68h",
+        "src": "po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A bargain purchase posted after explicit confirmation (accounting specialist, po:2026-11-09, B7; IFRS 3.34-36): a negative residual stops the run (consolidation.negative_goodwill) until a person confirms that the assets, liabilities, interest and consideration were reassessed; the run then recognises the remaining gain in profit or loss at the acquisition date, attributed to the acquirer, instead of failing for good. Not a pilot item: after the pilot unless the customer's D11 answer differs from its ⚠ planning default of the pilot customer questionnaire, to be confirmed by the customer before go-live (po:2026-11-09): the Canadian company holds 100% of the UAE company, which it incorporated, group currency CAD, so IFRS 3 does not apply and the investment is eliminated against share capital",
+        "r": "ADR-0059 §9, question 2 (answered) · T68h",
+        "src": "po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Non-controlling interests after acquisition, the specialist's two additions (accounting specialist, po:2026-11-09, B9; IFRS 10.B94, B89, 10.22, 10.23, B96, IAS 1.54(q), 1.81B): dividends paid to the non-controlling interest reduce NCI, with a test of a member paying one; a change in ownership without loss of control is an equity transaction, which stays out of scope and refused (consolidation.acquisition_changed, ADR-0059 question 3) until the product owner asks for it. The attribution of profit to owners and to NCI is confirmed as designed",
+        "r": "ADR-0059 §9, §11, questions 2 and 3 (answered) · T68h",
+        "src": "po:2026-11-09",
         "c": []
        }
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Intercompany matching",
       "r": "T68 · ADR-0059 §4, §8, §10 · T68b, T68c, T68f, T68g",
       "src": "baseline",
@@ -1968,7 +2059,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Consolidated statements",
       "r": "T68 · ADR-0059 §3, §11 · T68a, T68e, T68g",
       "src": "baseline",
@@ -2272,9 +2363,9 @@
        },
        {
         "s": "T",
-        "t": "Tax registration number formats: the check digits and form of a Canadian BN with its GST/HST program account (RT) and QST number, and of a UAE TRN, from the authorities' primary sources, stated by the tax specialist; T61g checks only that a number is given",
-        "r": "config.TaxRegistration · ADR-0049 §10 · after T61g",
-        "src": "split:T61g",
+        "t": "Tax registration number formats: the check digits and form of a Canadian BN with its GST/HST program account (RT) and QST number, and of a UAE TRN, from the authorities' primary sources, stated by the tax specialist; T61g checks only that a number is given; the UAE answered by the tax specialist on 2026-11-09 (C12): a TRN is 15 digits, numeric [H], a registered business's typically beginning with 100 [M], its first 10 digits the TIN used in e-invoicing [H], and no check digit is published [L], so length and digits are checked (the FTA's TRN verification on EmaraTax for certainty); the Canadian formats stay open",
+        "r": "config.TaxRegistration · ADR-0049 §10 (answered for the UAE) · after T61g",
+        "src": "split:T61g · po:2026-11-09",
         "pilot": "po:2026-10-31 · split:T61g",
         "c": []
        },
@@ -2339,6 +2430,14 @@
         "t": "VAT 201 for the UAE: boxes 1a-14 in the UAE pack (2026.2, returns.yaml: a box per column, 42 in one list whose order the stored return keeps), 1a-1g by the emirate each standard-rated sale names (that of the fixed establishment making it), box 6 from customs declarations' import entries, the prior-period threshold of AED 10,000 (P7); golden tests from a worked quarter, an amendment and the threshold; not signed off (the sign-off is a leaf of its own, split from T61k)",
         "r": "packs/ae/2026.2 · packs/released.sha256 · packs/ae/TAX-PENDING-T61k.md · TestUAEPack2026_2 · TestUAEPackVAT201 · TestVAT201Golden · ADR-0049 §11 As built (T61k) · ADR-0048 As built (T61k) · walkthrough step 41 · T61k",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0049",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The VAT 201's prior-period threshold measured as the UAE tax specialist states it (po:2026-11-09, C11 [M]; Federal Decree-Law No. 28 of 2022 on Tax Procedures Art. 10, Cabinet Decision No. 74 of 2023 Art. 10): above_threshold is raised when the items of one earlier tax period make a net payable-tax shortfall (output tax less recoverable input tax, underpaid tax only) above AED 10,000, all that period's items together, instead of when either direction's tax of a period exceeds it; the draft states that a voluntary disclosure is due within 20 business days of discovery",
+        "r": "ADR-0049 §11 As built (the threshold's measure, answered) · taxfiling return engine (above_threshold) · packs/ae/TAX-PENDING-T61k.md item 11",
+        "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · adr:ADR-0049",
         "c": []
        },
@@ -2409,31 +2508,31 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Scheduled e-invoice fetch, changed bytes and the original: the workflow dispatcher and ERP_EINVOICE_FETCH_INTERVAL; changed_hash set by an update guarded on the new hash, one audit record and event per change (run-twice test); the gauge erp_einvoices_unacknowledged; GET /v1/e-invoices/{id}/content (x-agent false); walkthrough: Alex downloads the e-invoice with the stand-in's hash, a redelivery with other bytes is counted as changed once",
-        "r": "ADR-0061 §4, §8 · T65b",
+        "r": "db/migrations/000233-000236 · workflow ScheduledEInvoiceFetch · ERP_EINVOICE_FETCH_INTERVAL · integration.EInvoiceConnectors · operations.StartTaken · einvoicing.einvoice.changed_hash · GET /v1/e-invoices/{id}/content · einvoicing.document_changed · erp_einvoices_unacknowledged · walkthrough step_einvoice · ADR-0061 §4, §8 and As built · T65b",
         "src": "adr:ADR-0061",
         "c": []
        },
        {
         "s": "T",
-        "t": "E-invoice validation and refusals: the process activity (FOR UPDATE, only from received); parsing without DTD or entities; the PINT AE fields read, citing the specification the specialist or provider supplies; decimals; lines summing to the net and net plus tax to the gross (no tax-rate check: P5 at posting); the buyer a company of the connector with its FTA registration's TRN; refused with einvoicing.unreadable, unsupported_document, missing_field, amount_precision, totals_inconsistent, not_addressed_to_company, document_too_large; a fuzz test of the parser; an nfr budget of the processing transaction; walkthrough: a malformed e-invoice and one addressed to another TRN refused with their reasons, the valid one still received",
-        "r": "ADR-0061 §4, §5, §14 · T65c",
-        "src": "adr:ADR-0061",
+        "t": "E-invoice validation and refusals: the process activity (FOR UPDATE, only from received); parsing without DTD or entities; the PINT AE fields read, citing the specification the specialist or provider supplies; decimals; lines summing to the net and net plus tax to the gross (no tax-rate check: P5 at posting); the buyer a company of the connector with its FTA registration's TRN; refused with einvoicing.unreadable, unsupported_document, missing_field, amount_precision, totals_inconsistent, not_addressed_to_company, document_too_large; a fuzz test of the parser; an nfr budget of the processing transaction; walkthrough: a malformed e-invoice and one addressed to another TRN refused with their reasons, the valid one still received; the specification and fields as the UAE tax specialist cited them (po:2026-11-09, C1-C7; ADR-0061 §5, answered): PINT AE Billing, published by OpenPeppol for the Ministry of Finance (UBL 2.1; the release validated against and the document's IBT-024 recorded), each field read by its business term [H] and UBL path [M], only invoice 380 and credit note 381 [M], IBT-006 and IBT-111 required when IBT-005 is not AED; the buyer judged by the IBT-049 endpoint (scheme 0235 and the company's TIN, the first 10 digits of its own Corporate Tax TRN, a VAT group member's own and not the representative's, which the configuration carries where the company's VAT TRN is its group's) and IBT-048 checked apart rather than required to equal it digit for digit; the published Schematron vendored only once its licence is read",
+        "r": "ADR-0061 §4, §5, §14 · T65c · ADR-0061 §5 (answered, C1-C7)",
+        "src": "adr:ADR-0061 · po:2026-11-09",
         "c": []
        },
        {
         "s": "T",
-        "t": "Received e-invoices entered as supplier invoices: payables.EInvoices.Enter sharing capture's code, source einvoice, the order from the order reference, the supplier's TRN checked by fingerprint, items by order line or position with the order item's unit and tax code, codes from each line's category and rate by capturedTax's rule (ambiguity holds the invoice), every problem of the entering a hold (held with its code) through a savepoint rolled back on the problem, tested with a constraint-raised refusal (supplier_invoice_no_duplicates), only infrastructure errors failing; the gauge erp_einvoices_held; credit notes left received until T65e; entered; the invoice's document the XML; no model call; walkthrough: the received e-invoice becomes a parked invoice of source einvoice on the next fetch, posts after the three-way match, its document is the XML; one without an order is held with payables.capture_needs_order",
-        "r": "ADR-0061 §6 · T65d",
-        "src": "adr:ADR-0061",
+        "t": "Received e-invoices entered as supplier invoices: payables.EInvoices.Enter sharing capture's code, source einvoice, the order from the order reference, the supplier's TRN checked by fingerprint, items by order line or position with the order item's unit and tax code, codes from each line's category and rate by capturedTax's rule (ambiguity holds the invoice), every problem of the entering a hold (held with its code) through a savepoint rolled back on the problem, tested with a constraint-raised refusal (supplier_invoice_no_duplicates), only infrastructure errors failing; the gauge erp_einvoices_held; credit notes left received until T65e; entered; the invoice's document the XML; no model call; walkthrough: the received e-invoice becomes a parked invoice of source einvoice on the next fetch, posts after the three-way match, its document is the XML; one without an order is held with payables.capture_needs_order; a document not in AED: the entered invoice keeps its tax in AED as the document states it (IBT-111, reconciled per line with BTAE-08) for the VAT 201 to report, rather than a conversion of its tax (UAE tax specialist, po:2026-11-09, C5)",
+        "r": "ADR-0061 §6 · T65d · ADR-0061 §5 (answered, C5)",
+        "src": "adr:ADR-0061 · po:2026-11-09",
         "c": []
        },
        {
         "s": "T",
-        "t": "E-invoice credit notes: entered as credit memos naming the invoice they cite by capture's rule (none, a posted invoice of the supplier, or on_hold naming the number); credit notes left received by T65d processed by the next fetch; walkthrough: a credit note citing the e-invoice of T65d entered as a credit memo referencing that invoice",
-        "r": "ADR-0061 §6 · T65e",
-        "src": "adr:ADR-0061",
+        "t": "E-invoice credit notes: entered as credit memos naming the invoice they cite by capture's rule (none, a posted invoice of the supplier, or on_hold naming the number); credit notes left received by T65d processed by the next fetch; walkthrough: a credit note citing the e-invoice of T65d entered as a credit memo referencing that invoice; a credit note naming no invoice is held for a person rather than entered as correcting none (UAE tax specialist, po:2026-11-09, C4 [M]: a UAE tax credit note must name the invoice it corrects, IBG-03 and IBT-025)",
+        "r": "ADR-0061 §6 · T65e · ADR-0061 §5 (answered, C4)",
+        "src": "adr:ADR-0061 · po:2026-11-09",
         "c": []
        },
        {
@@ -2445,9 +2544,9 @@
        },
        {
         "s": "T",
-        "t": "FTA Audit File, once the specialist supplies the FTA's specification: its contract, content and scope from that specification; tax.audit_file; generation as an Operation whose resource is the stored write-once file; read, download and a paged list per registration; tax.audit_file.generate and read; people only; TaxAuditFileGenerated; audit; golden test signed off by the specialist; nfr budget; walkthrough: Carla generates and downloads AE01's audit file, an agent refused",
-        "r": "ADR-0061 §10, §11 · T65g",
-        "src": "adr:ADR-0061",
+        "t": "FTA Audit File, once the specialist supplies the FTA's specification: its contract, content and scope from that specification; tax.audit_file; generation as an Operation whose resource is the stored write-once file; read, download and a paged list per registration; tax.audit_file.generate and read; people only; TaxAuditFileGenerated; audit; golden test signed off by the specialist; nfr budget; walkthrough: Carla generates and downloads AE01's audit file, an agent refused; the tax specialist's facts (po:2026-11-09, C9): the FTA Audit File specification FAFv1.0.0, part of the FTA's tax accounting software requirements [M], to be requested from the FTA or an FTA-registered tax agent (no public link found) and kept on file; one CSV file, comma-separated [M]; UTF-8 in practice, not stated [L]; seven sections (company information, purchase listing, supply listing, general ledger, and their totals rows) [M]; a date range for one taxable person (TRN) [M]; no fixed deadline, the FTA's request sets it, so designed for production within one working day [L]",
+        "r": "ADR-0061 §10, §11 · T65g · ADR-0061 §10 (answered, C9)",
+        "src": "adr:ADR-0061 · po:2026-11-09",
         "c": []
        },
        {
@@ -2462,7 +2561,7 @@
      {
       "s": "T",
       "t": "Peppol network connector",
-      "r": "T65 · ADR-0061 §3-§7 (through the tenant's accredited provider, not a network connector of our own: 07 §7.6, phase 2 decisions; provider Q1) · T65a-T65f; sending T65h (phase 3)",
+      "r": "T65 · ADR-0061 §3-§7 (through the tenant's accredited provider, not a network connector of our own: 07 §7.6, phase 2 decisions; provider Q1) · T65a-T65f; sending T65h (phase 3) · the UAE company's revenue is below AED 50m and no provider is appointed (product owner, po:2026-11-09, a fact): appoint one by 31 March 2027, go live 1 July 2027 (ADR-0061 Context)",
       "src": "baseline",
       "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0049",
       "c": []
@@ -2783,7 +2882,7 @@
        },
        {
         "s": "T",
-        "t": "SAP migration over OData: the controlling tables T56h1 and T56h2 load (CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), TKA01, the sets 0101/0106) mapped onto the cost and profit center read APIs and whatever serves the groups, their service and entity names taken from the pilot's $metadata (not recorded; split from T56h2 rather than guessed)",
+        "t": "SAP migration over OData: the controlling tables T56h1 and T56h2 load (CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), TKA01, the sets 0101/0106) mapped onto the cost and profit center read APIs and whatever serves the groups, and the journal lines' centers T56h4 loads (ACDOCA RCNTR/PRCTR/SEGMENT) onto A_JournalEntryItemBasic's properties, their service and entity names taken from the pilot's $metadata (not recorded; split from T56h2 rather than guessed)",
         "r": "T56h5",
         "src": "split:T56h · adr:ADR-0050",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
@@ -2798,10 +2897,58 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "SAP migration: assignments on migrated journal lines and the reconciliation of center totals (split from T56h): ACDOCA RCNTR/PRCTR/SEGMENT on the documents a run loads (documents mode), checked by the posting's derivation and validation; quality-gate issues (a center not migrated, a segment that is not the profit center's); reconciliation of migrated totals per cost center, profit center and segment against the center reports; mock generator extended",
-        "r": "T56h4",
+        "r": "internal/sap types.go, odata.go (not mapped), mock.go (lineCenters) · internal/integration linecenters.go, centertotals.go, load.go (journalPosting), reconcile.go · internal/app app.go (ledger.AssignmentBalances) · api/openapi.yaml (MigrationDiff key) · docs/migration.md · walkthrough step 3 (migrated_line_centers) · ADR-0050 §10 as built · T56h · T56h4",
         "src": "split:T56h · adr:ADR-0050",
+        "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SAP migration reads TKA02 (SAP specialist, po:2026-11-09, A8 [H]): a company code belongs to exactly one controlling area, which TKA02 (BUKRS to KOKRS) names; the extract carries it and the configuration draft takes a company code's controlling area from it, so a company code without cost centers no longer has an unknown area (docs/migration.md: \"TKA02 is not read\")",
+        "r": "internal/sap types.go · delivery/sapconfig costelements.go · ADR-0050 §10 (answered) · docs/migration.md · T56h2",
+        "src": "po:2026-11-09",
+        "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Profit centers on migrated journal lines checked against the cost center period valid at posting, and ACDOCA-KOKRS read (SAP specialist, po:2026-11-09, A9(b), (d); for T56h4): a line's PRCTR is derived from CSKS-PRCTR at posting and keeps that derivation [M], so it may differ from today's master after a change, and a cost center without a profit center takes the dummy profit center; the quality gate and the reconciliation compare a migrated line's profit center with the cost_center_period valid at its posting date, not the current one; ACDOCA-KOKRS is read [H], a blank one naming a company code without CO active",
+        "r": "T56h4 · internal/integration · ADR-0050 §10 (answered)",
+        "src": "po:2026-11-09",
+        "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A migrated line's segment that differs from its profit center's (SAP specialist, po:2026-11-09, A9(c) [M], to verify on the pilot system; for T56h4): SAP derives SEGMENT from CEPC-SEGMENT unless a BAdI (FAGL_DERIVE_SEGMENT) or a manual entry set it, or the profit center's segment changed after posting, while T56h4's quality gate refuses a segment that is not the profit center's and ADR-0050 gives a profit center one segment without validity; the step decides by default whether such a line loads with SAP's segment or is refused with an issue of its own naming the case, and amends ADR-0050 §5 if loading needs time-dependent segments",
+        "r": "T56h4 · internal/integration · ADR-0050 §10 (answered)",
+        "src": "po:2026-11-09",
+        "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SAP center groups with values on inner nodes (SAP specialist, po:2026-11-09, A10(d) [M], to verify on the pilot system): a set may hold subsets and values on the same node, and CSKS-KHINR or CEPC-KHINR may name a group that has child groups; the quality gate's refusals of a group holding both subgroups and values and of a KHINR that is not a leaf are lifted, and such centers are placed on that group; the platform's hierarchy refuses centers on a node with children (ledger.hierarchy_change_invalid, has_centers), so the step amends ADR-0050 §3, decided by default or by a new ADR, to hold them",
+        "r": "internal/integration sets.go, settrees.go, setload.go · ledger hierarchies · ADR-0050 §3, §10 (answered) · docs/migration.md · T56h2",
+        "src": "po:2026-11-09",
+        "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SAP group codes up to 24 characters (SAP specialist, po:2026-11-09, A11(c) [M]): SETHEADER-SETNAME holds 24 characters, 15 being the limit of the CO transactions; the quality gate's group code check (up to 15 of 0-9, A-Z, _ and -) and the hierarchy node's code, which the platform holds at 15, take 24, so a set kept with a longer name (GS02) migrates; implied: the contract's code patterns ^[0-9A-Z_-]{1,15}$ (api/openapi.yaml) widen, the check of migration 000139_hierarchies changes in a new migration, and the breaking-change check applies",
+        "r": "internal/integration sets.go · ledger hierarchy_node · ADR-0050 §10 (answered) · docs/migration.md · T56h2",
+        "src": "po:2026-11-09",
+        "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Cost element category from the CSKB slice valid at cutover (SAP specialist, po:2026-11-09, A12(d) [M], to verify on the pilot system): the configuration draft takes CSKB-KATYP of the slice valid at the cutover date instead of the latest slice, the latest only when none covers that date, with a note for the reviewer on that account (an expired cost element means CO postings were stopped on purpose); SKA1-GLACCOUNT_TYPE (N non-operating, P primary costs or revenue, S secondary, X balance sheet) read as a cross-check of an account without a CSKB row [H]",
+        "r": "delivery/sapconfig costelements.go · internal/sap CSKB, SKA1 · ADR-0050 §10 (answered) · docs/migration.md · T56h2",
+        "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
@@ -3110,6 +3257,13 @@
         "t": "The purchase order document prints the buyer company's configured postal address, delivers to it while no item names an address of its own, and prints migrated suppliers' streets from SAP's vendor master",
         "r": "config companies[].postal_address (tier 2, optional) · internal/procurement/order_document.go (Buyer, Deliver to; none configured is said, never invented) · sap.LFA1 STRAS/ORT01/PSTLZ/REGIO (optional, pending the SAP specialist) · integration vendorAddress, quality gate warning · ADR-0054 As built (podocb) · docs/migration.md · walkthrough step 4",
         "src": "po:2026-11-04 · adr:ADR-0054",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Migrated suppliers' addresses from SAP's central address ADRC instead of LFA1 (SAP specialist, po:2026-11-09, A1 [H]): LFA1-STRAS, ORT01, PSTLZ and REGIO are a redundant copy of the central address, and STRAS (35 characters) holds street and house number together; the extract reads ADRC-STREET, HOUSE_NUM1 (HOUSE_NUM2 its supplement), CITY1, POST_CODE1, REGION and COUNTRY, joined by LFA1-ADRNR = ADRC-ADDRNUMBER in the same client, with ADRC-NATION blank (the international version) and the cutover date between ADRC-DATE_FROM and DATE_TO; a blank HOUSE_NUM1 (the house number typed into STREET) is normal, not a finding; STR_SUPPL1-3 and LOCATION considered where the legal address needs further lines; the supplier's legal address, the quality gate's warnings and the purchase order document's supplier block take the ADRC fields",
+        "r": "internal/sap (LFA1, ADRC) · integration vendorAddress · docs/migration.md \"What to check on a real SAP system\" (vendor addresses, answered) · ADR-0054 As built (podocb, answered)",
+        "src": "po:2026-11-09",
         "c": []
        },
        {
@@ -5686,6 +5840,20 @@
           "c": []
          }
         ]
+       },
+       {
+        "s": "D",
+        "t": "Workers leave a suspended (or provisioning, offboarded) tenant's queued work where it is and pick it up once the tenant is active again: the dispatcher's queued operations (proposals, releases, simulations, migrations, depreciation and consolidation runs), approval deadlines, statement fetches, recurring entries and cash snapshots, the in-process proposer, releaser, depreciator, consolidator, recurrer, snapshotter and simulation worker, the bank file transmitter, cash exporter, webhook dispatcher and contract expirer; ADR-0015 said so but no worker checked (a suspended tenant's queued payment release still ran)",
+        "r": "database.ActiveTenants · ADR-0015 As built · *_inactive_test.go, inactive_test.go TestDispatcherLeavesInactiveTenants",
+        "src": "po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A workflow already running when its tenant is suspended waits: its next step's transaction (database.BeginActive) fails with a retryable TenantInactiveError and commits nothing, the workflow waits in AwaitActive, retried without a limit, and runs the step again once the tenant is active, so no retry policy's limit fails the run; offboarding is not blocked",
+        "r": "database.BeginActive · workflows.perform, Tenants.AwaitActive · ADR-0015 As built · waiting_test.go TestActivitiesWaitWhileSuspended, TestReleaseWaitsWhileSuspended · database_test.go TestBeginActive",
+        "src": "po:2026-11-09",
+        "c": []
        }
       ]
      },
@@ -6499,7 +6667,7 @@
        {
         "s": "T",
         "t": "Reports at the pilot's volumes, walked through: the reports' page budgets (ADR-0052 §10) measured at the pilot's volumes once the pilot gives them (neither the tracker nor ADR-0052 names them); walked through by a pilot GL accountant, AP clerk and controller (human acceptance), the downloads opened in the pilot's spreadsheet program, which checks the byte order mark's need (ADR-0052, from memory, unverified)",
-        "r": "T73j5 (split from T73j4, 2026-11-02)",
+        "r": "T73j5 (split from T73j4, 2026-11-02) · D14's planning default of the pilot customer questionnaire, to be confirmed by the customer before go-live (po:2026-11-09): per month Canada / UAE 50,000 / 20,000 journal lines, 1,500 / 600 supplier invoices, 800 / 300 payments, 2,500 / 1,000 statement lines; in total 3,000 / 1,000 suppliers, 150 / 50 cost centers, 2,000 / 500 fixed assets; measured at 10× until the extract's counts replace them",
         "src": "split:T73j2 · adr:ADR-0052",
         "pilot": "po:2026-10-31 · split:T73j2 · adr:ADR-0052",
         "c": []
@@ -6514,7 +6682,7 @@
        {
         "s": "T",
         "t": "Languages (P5): French (Canada) complete and reviewed by a native finance user if the Canadian company has Québec staff; Arabic with RTL when the UAE pilot asks; locale preference (a principal setting, added to GET /v1/me, which has none yet: T73c); every problem code translated (x-problem-codes lists them, per operation and the pipeline's for all); RTL and long-text scenarios green",
-        "r": "T73l",
+        "r": "T73l · D16's planning default of the pilot customer questionnaire, to be confirmed by the customer before go-live (po:2026-11-09): no French-language and no Arabic users, UTF-8 data handling still required",
         "src": "baseline",
         "pilot": "po:2026-10-31 · adr:ADR-0052",
         "c": []
@@ -7650,7 +7818,7 @@
        {
         "s": "T",
         "t": "Validation against a live system's $metadata",
-        "r": "(waits on: access to the pilot's SAP system) · ACDOCA RWCUR/WSL not mapped yet, so an OData extract's open items are refused (review:batch20) · A_BusinessPartner Supplier, the partner -> supplier link of vendor bank accounts, stated from memory (review:T72d)",
+        "r": "(waits on: access to the pilot's SAP system) · ACDOCA RWCUR/WSL not mapped yet, so an OData extract's open items are refused (review:batch20) · A_BusinessPartner Supplier, the partner -> supplier link of vendor bank accounts, stated from memory (review:T72d) · the SAP specialist's services and properties, mostly [M] or [L], to check against the pilot's $metadata (po:2026-11-09, A7; docs/migration.md \"What to check on a real SAP system\"), which waits for the pilot customer (D9); D9's planning default of the pilot customer questionnaire, to be confirmed by the customer before go-live (po:2026-11-09): S/4HANA 2023 on-premise, OData for a read-only user and $metadata sent, after the D17 gate",
         "src": "baseline",
         "pilot": "po:2026-10-31",
         "c": []
@@ -8608,6 +8776,14 @@
       "r": "(post-pilot, PO 2026-10-21)",
       "src": "baseline",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "A house bank account without T012K-WAERS drafted in its G/L account's currency (SAP specialist, po:2026-11-09, A5 [M], to verify on the pilot system): an empty WAERS means no currency was maintained, so SAP does not restrict the account, and the binding currency is that of its G/L account (T012K-HKONT, SKB1-WAERS), usually the company code's; the configuration draft takes SKB1-WAERS, noted for the reviewers, instead of currency UNKNOWN, which remains where neither gives a currency; FI-BAM (FCLM_BAM_AMD) a possible cross-check",
+      "r": "delivery/sapconfig (house banks) · internal/sap T012K, SKB1 · ADR-0038 As built (SAP house banks in their account's currency, answered) · docs/migration.md",
+      "src": "po:2026-11-09",
+      "pilot": "po:2026-10-31 · adr:ADR-0038",
+      "c": []
      }
     ]
    },
@@ -9188,6 +9364,14 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "Payment method order from the payment run, not from LFB1-ZWELS (SAP specialist, po:2026-11-09, A4(c) [M], to verify on the pilot system): SAP's payment run tries the methods in the order of its own parameters per company code, restricted to those the vendor's ZWELS allows, and an item's fixed payment method (BSEG/ACDOCA-ZLSCH) wins over both, while ADR-0038 pays each supplier through the first method of its company data in ZWELS's letter order. To change: the order of methods tried comes from the run or the company's configuration, a supplier's methods only restrict it, and a migrated open item's fixed method is taken over and honoured; and T042I's account (HKTID, a T012K account) chooses a house bank's account per method and currency [H], where the configuration draft takes one account per house bank today; ADR-0038 amended in the step. Confirmed, unchanged: a lower RANGF ranks first [H]; a T042A row without a currency applies to every currency without a row of its own [M]",
+      "r": "ADR-0038 Decision (payment methods), As built (SAP payment methods, answered) · delivery/sapconfig paymethods.go · payments proposal · internal/integration (ZWELS, ZLSCH) · docs/migration.md",
+      "src": "po:2026-11-09",
+      "pilot": "po:2026-10-31 · adr:ADR-0038",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "Ledger validation on migrated entries",
       "r": "internal/integration · ledger.Postings",
@@ -9210,9 +9394,9 @@
      },
      {
       "s": "T",
-      "t": "A vendor item SAP cleared against an item of another fiscal year fails the migration run (split from the item before): the extract holds the scope's fiscal year only and AUGBL without SAP's clearing date and year, so a prior-year invoice paid this year fails documents mode (ledger.clearing_not_balanced) in either year's run and balances mode (cleared vendor items do not net to zero). Decided (product owner 2026-10-31, as recommended in batch 25, sapclear case 2): a fiscal year's migration holds open at the year's end every vendor item SAP cleared in a later fiscal year (SAP's key-date reading by the clearing date), and the later year's run clears it with the payment it loads; the extract carries SAP's clearing date and the clearing document's fiscal year (AUGDT, AUGGJ, stated from memory). Waits only on an SAP specialist confirming the extract's field names",
-      "r": "internal/sap FilterScope, ACDOCA · internal/integration/load.go clearings, openingLines · reconcile.go journal · ADR-0034 As built (decided 2026-10-31) · docs/migration.md (waits on: an SAP specialist confirming AUGDT and AUGGJ in the extract)",
-      "src": "review:batch22 · review:batch25 · po:2026-10-31",
+      "t": "A vendor item SAP cleared against an item of another fiscal year fails the migration run (split from the item before): the extract holds the scope's fiscal year only and AUGBL without SAP's clearing date and year, so a prior-year invoice paid this year fails documents mode (ledger.clearing_not_balanced) in either year's run and balances mode (cleared vendor items do not net to zero). Decided (product owner 2026-10-31, as recommended in batch 25, sapclear case 2): a fiscal year's migration holds open at the year's end every vendor item SAP cleared in a later fiscal year (SAP's key-date reading by the clearing date), and the later year's run clears it with the payment it loads; the extract carries SAP's clearing date and the clearing document's fiscal year (AUGDT, AUGGJ, stated from memory). The SAP specialist confirmed the field names on 2026-11-09 (po:2026-11-09, A3 [H]): ACDOCA-AUGDT and AUGGJ, on ACDOCA from S/4HANA 1610 (BSEG before), empty on an open item and emptied again by a clearing reset (FBRA), so an item open at a year's end is told by AUGDT after its last day, never by AUGBL being filled today; nothing is waited on",
+      "r": "internal/sap FilterScope, ACDOCA · internal/integration/load.go clearings, openingLines · reconcile.go journal · ADR-0034 As built (decided 2026-10-31) · docs/migration.md (AUGDT and AUGGJ confirmed, po:2026-11-09)",
+      "src": "review:batch22 · review:batch25 · po:2026-10-31 · po:2026-11-09",
       "pilot": "po:2026-10-31",
       "c": []
      },
@@ -9253,10 +9437,26 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "SAP amounts in internal or external format told apart (the pilot customer questionnaire's D10 planning default, to be confirmed by the customer before go-live, po:2026-11-09: tables exported with SE16H or a custom report in SAP's internal amount format): the quality gate parses amounts with the currency's ISO exponent, i.e. in external format, and nothing reads TCURX, so a JPY 1,000 stored internally as 10.00 would load as 10 yen. To change, the step deciding which: either the extract reads TCURX and converts internal amounts of currencies with other than two decimals, or the customer is asked for external format and the gate refuses an internal one; in either case the gate refuses an amount whose format it cannot tell",
+      "r": "internal/integration/quality.go (amount parsing) · internal/sap · docs/migration.md (pilot customer facts, D10; amounts for currencies with no or three decimals)",
+      "src": "po:2026-11-09",
+      "pilot": "po:2026-10-31",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "Take over open GR/IR positions in a foreign document currency in that currency (split from the leaf above, product owner 2026-10-31): a line of an open GR/IR position whose document currency (ACDOCA RWCUR) is not the company's, and its order in that currency, are refused by the quality gate; the take-over entry posts SAP's balance in company code currency (HSL) only, and a GR/IR take-over item keeps no local amount of its own",
       "r": "internal/integration/grir.go grirPositions (order currency, document amounts) · grirForeignLine · grirForeign · grirPosting (order currency, sourceRate) · reconcile GR/IR in both currencies · currency.go foreignLine, foreignItem, grirForeignDocuments (balances mode: a position's documents together) · ledger GRIRItem.TakesOverLC · GRIRTakenOver.BalanceLC · Posting.Rate with take-over items · OpenGRIR TC · sap mock receivedInUSD · walkthrough step 3 · TestForeignGRIRPositions, TestForeignGRIRTopUp, TestForeignGRIRQuality, TestForeignGRIRBalancesMode, TestGRIRForeignDocumentGroups, TestGRIRTakeOverForeign · ADR-0034 As built (open GR/IR positions in a foreign currency) · ADR-0005 As built · docs/migration.md",
       "src": "review:batch20 · po:2026-10-31 · po:2026-11-02",
+      "pilot": "po:2026-10-31",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "An invoice's GR/IR line in another currency than its order's (SAP specialist, po:2026-11-09, A13(b) [M], to verify on the pilot system): a goods receipt's GR/IR line carries the order's currency, but an invoice's carries the invoice's, which MIRO allows to differ from the order's; the quality gate refuses such a line today (a GR/IR line of an order in a foreign currency in another currency than the order's, and a foreign-currency line of an open position of an order in company currency). To change: such an invoice line is loaded and its order item's position taken over instead of the run being refused, how the line enters the position's two currencies decided in the step (ADR-0034 As built, positions in a foreign currency). First profile the pilot's GR/IR lines for such invoices, and for lines without their order item (manual G/L postings where the account is not post-automatically-only, SKB1-XINTB, and legacy balances: A13(a)), which the gate keeps refusing",
+      "r": "internal/integration GR/IR take-over and quality gate · ADR-0034 As built (For an SAP specialist, answered) · docs/migration.md",
+      "src": "po:2026-11-09",
       "pilot": "po:2026-10-31",
       "c": []
      },
@@ -9273,6 +9473,13 @@
       "t": "A line that is not an open item, with HSL 0 and WSL ≠ 0, in a document that posts in company currency (a G/L line of a document whose lines mix currencies, a cleared vendor line) is left out of the journal posting without a word, losing its document amount; and a cleared vendor line the posting leaves out is named as line 0 in the clearing the load takes over, which the ledger refuses, failing the whole run",
       "r": "found in hsl0's review (batch 31 finding class, review:batch31) · refused by the quality gate, naming document and line, in a document that posts as an entry of its own in company currency (documents mode; a down payment's document in balances mode, whose other documents form the opening entry of company code balances): internal/integration/currency.go leftOutLines · a cleared vendor line of no amount in either currency is no item of the clearing (load.go clearingItems) · ADR-0005 As built · docs/migration.md · walkthrough step 3 small_item_refused",
       "src": "review:batch31",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "SAP's trading partner on migrated intercompany documents (ADR-0059 question 4, answered po:2026-11-05: a migration leaf once an SAP specialist confirms the fields; the SAP specialist answered po:2026-11-09, A2): the extract reads the vendor's LFA1-VBUND (KNA1-VBUND for a customer) [H] and each line's ACDOCA-RASSC [H]; SAP does not guarantee RASSC on every line of a document [M] (lines from MIRO and GR/IR, tax, exchange and price difference and cash discount lines, documents with several vendors and lines a user cleared often lack it), so the load gives a whole intercompany document the trading partner of its vendor line, as ADR-0059 §4's derivation does on the platform, instead of requiring it on each SAP line; how a VBUND names the tenant's legal entity is settled in the step; checked on the pilot's data with the specialist's query (documents whose vendor line has a RASSC that another line lacks)",
+      "r": "ADR-0059 §4, question 4 (answered) · internal/sap (LFA1, ACDOCA) · internal/integration load · docs/migration.md",
+      "src": "po:2026-11-05 · po:2026-11-09 · adr:ADR-0059",
       "c": []
      }
     ]
@@ -9316,6 +9523,13 @@
       "r": "internal/integration · migration-runs/{id}:reconcile · erp migrate",
       "src": "baseline",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "SAP's open vendor items against their reconciliation account's balance (ADR-0060 §9; SAP specialist, po:2026-11-09, A15 [M], to verify on the pilot system): a control per reconciliation account at the key date, the sum of the open vendor items (lines with LIFNR filled, UMSKZ blank and BSTAT not S, open at the key date by AUGDT) against the account's balance, a difference reported in the run's report rather than refused; its listing names the cases that make one: special G/L postings on alternative reconciliation accounts (T074), items left on an old account after LFB1-AKONT changed, balances without vendor items (SKB1-MITKZ K with LIFNR blank), a period 000 carry-forward without items, and a valuation posted to the reconciliation account",
+      "r": "internal/integration reconcile.go · docs/migration.md \"What to check on a real SAP system\" (vendor reconciliation accounts) · ADR-0060 §9, Gaps (answered)",
+      "src": "po:2026-11-09",
+      "c": []
      }
     ]
    },
@@ -9334,7 +9548,7 @@
      {
       "s": "T",
       "t": "Pilot company code cut over (needs a client)",
-      "r": "(waits on: a client)",
+      "r": "(waits on: a client) · gate (D17, po:2026-11-09): no extraction from the customer's SAP system until its contract owner confirms in writing that read-only extraction is no indirect (digital) access; the questionnaire's planning default (it is not) is not applied",
       "src": "baseline",
       "pilot": "po:2026-10-31",
       "c": []

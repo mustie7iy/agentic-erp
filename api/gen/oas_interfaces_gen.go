@@ -13,6 +13,10 @@ type AcceptForecastVarianceCommentProposalRes interface {
 	acceptForecastVarianceCommentProposalRes()
 }
 
+type AcceptIntercompanyDifferenceRes interface {
+	acceptIntercompanyDifferenceRes()
+}
+
 type AcceptMemoRecordProposalRes interface {
 	acceptMemoRecordProposalRes()
 }
@@ -125,6 +129,10 @@ type CheckCloseTaskRes interface {
 	checkCloseTaskRes()
 }
 
+type CheckYearCloseTaskRes interface {
+	checkYearCloseTaskRes()
+}
+
 type ClearSupplierInvoiceDownPaymentsRes interface {
 	clearSupplierInvoiceDownPaymentsRes()
 }
@@ -139,6 +147,10 @@ type ClosePurchaseOrderRes interface {
 
 type CompleteCloseTaskRes interface {
 	completeCloseTaskRes()
+}
+
+type CompleteYearCloseTaskRes interface {
+	completeYearCloseTaskRes()
 }
 
 type CreateAssetAcquisitionRes interface {
@@ -305,6 +317,10 @@ type CreateWebhookSubscriptionRes interface {
 	createWebhookSubscriptionRes()
 }
 
+type CreateYearCloseRes interface {
+	createYearCloseRes()
+}
+
 type DecideRecommendationRes interface {
 	decideRecommendationRes()
 }
@@ -359,6 +375,10 @@ type FetchEInvoicesRes interface {
 
 type FileTaxReturnRes interface {
 	fileTaxReturnRes()
+}
+
+type FinalizeConsolidationRunRes interface {
+	finalizeConsolidationRunRes()
 }
 
 type GetAccountRes interface {
@@ -523,6 +543,10 @@ type GetDepreciationRunRes interface {
 
 type GetDownPaymentRequestRes interface {
 	getDownPaymentRequestRes()
+}
+
+type GetEInvoiceContentRes interface {
+	getEInvoiceContentRes()
 }
 
 type GetEInvoiceRes interface {
@@ -721,6 +745,10 @@ type GetWebhookSubscriptionRes interface {
 	getWebhookSubscriptionRes()
 }
 
+type GetYearCloseRes interface {
+	getYearCloseRes()
+}
+
 type GrantRolePermissionRes interface {
 	grantRolePermissionRes()
 }
@@ -869,6 +897,10 @@ type ListConsolidationBalancesRes interface {
 	listConsolidationBalancesRes()
 }
 
+type ListConsolidationEntriesRes interface {
+	listConsolidationEntriesRes()
+}
+
 type ListConsolidationGroupsRes interface {
 	listConsolidationGroupsRes()
 }
@@ -955,6 +987,10 @@ type ListHierarchiesRes interface {
 
 type ListHouseBanksRes interface {
 	listHouseBanksRes()
+}
+
+type ListIntercompanyDifferencesRes interface {
+	listIntercompanyDifferencesRes()
 }
 
 type ListJournalEntriesRes interface {
@@ -1147,6 +1183,10 @@ type ListWebhookDeliveriesRes interface {
 
 type ListWebhookSubscriptionsRes interface {
 	listWebhookSubscriptionsRes()
+}
+
+type ListYearClosesRes interface {
+	listYearClosesRes()
 }
 
 type LockCostCenterRes interface {
@@ -1355,6 +1395,10 @@ type RenewContractRes interface {
 
 type ReopenCloseTaskRes interface {
 	reopenCloseTaskRes()
+}
+
+type ReopenYearCloseTaskRes interface {
+	reopenYearCloseTaskRes()
 }
 
 type ReplayWebhookDeliveriesRes interface {
@@ -1567,6 +1611,10 @@ type UpdateSupplierInvoiceRes interface {
 
 type UpdateWebhookSubscriptionRes interface {
 	updateWebhookSubscriptionRes()
+}
+
+type UpdateYearCloseTaskRes interface {
+	updateYearCloseTaskRes()
 }
 
 type UploadMemoRecordsRes interface {

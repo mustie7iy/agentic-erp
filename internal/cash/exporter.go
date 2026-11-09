@@ -116,7 +116,8 @@ func (w *Exporter) tenants(ctx context.Context) ([]uuid.UUID, error) {
 		return nil, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM cash.export WHERE status = 'pending' AND next_attempt_at <= $1`, clock.Now(w.Now))
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM cash.export WHERE status = 'pending' AND next_attempt_at <= $1 AND tenant_id IN `+database.ActiveTenants,
+		clock.Now(w.Now))
 	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
 		return nil, fmt.Errorf("cash: list the tenants with exports due: %w", err)

@@ -110,7 +110,7 @@ func (e *Endpoints) RejectAccrualProposal(ctx context.Context, req *gen.ReasonIn
 	if err != nil {
 		return nil, err
 	}
-	if err := reopen(ctx, tx, p, a.CloseID, unlocked); err != nil {
+	if err := reopen(ctx, tx, periodCloses, p, a.CloseID, unlocked); err != nil {
 		return nil, err
 	}
 	if err := e.Ledger.Cancel(ctx, a.ParkedEntryID, req.Reason); err != nil {
@@ -143,7 +143,7 @@ func (e *Endpoints) openAccrual(ctx context.Context, tx pgx.Tx, id uuid.UUID, if
 	if err != nil {
 		return accrual{}, nil, err
 	}
-	if _, err := lockClose(ctx, tx, a.CloseID); err != nil {
+	if _, err := lockClose(ctx, tx, periodCloses, a.CloseID); err != nil {
 		return accrual{}, nil, err
 	}
 	if a, err = readAccrual(ctx, tx, id); err != nil {
@@ -152,7 +152,7 @@ func (e *Endpoints) openAccrual(ctx context.Context, tx pgx.Tx, id uuid.UUID, if
 	if err := etag.IfMatch(ifMatch)(a.Version); err != nil {
 		return accrual{}, nil, err
 	}
-	unlocked, err := e.writable(ctx, tx, a.CloseID)
+	unlocked, err := e.writable(ctx, tx, periodCloses, a.CloseID)
 	if err != nil {
 		return accrual{}, nil, err
 	}

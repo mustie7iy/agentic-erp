@@ -8,8 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// An import restores rows in any lifecycle state (ADR-0029, migration
-// 000230): a row past its first state, or one written while its parent
+// An import restores rows in any lifecycle state (ADR-0029, migrations
+// 000230 and 000239, an accepted intercompany difference): a row past its first state, or one written while its parent
 // was in a state it has left, is inserted only while app.importing names
 // the row's own tenant; every other insert is refused as before. A
 // carry-forward run, never deleted, goes with its tenant's erasure alone.
@@ -26,6 +26,8 @@ type importCase struct {
 const (
 	importedClose = `INSERT INTO closing.period_close (tenant_id, id, legal_entity_id, fiscal_year, fiscal_period, period_end, config_version, status,
 		created_by, updated_by) VALUES ($1, $2, $3, 2026, 1, '2026-01-31', 1, $4, $5, $5)`
+	importedYearClose = `INSERT INTO closing.year_close (tenant_id, id, legal_entity_id, fiscal_year, year_end, config_version, status, created_by, updated_by)
+		VALUES ($1, $2, $3, 2026, '2026-12-31', 1, $4, $5, $5)`
 	importedRun = `INSERT INTO consolidation.run (tenant_id, id, group_code, parent_id, companies, fiscal_year, fiscal_period, period_start, period_end,
 		config_version, group_currency, rate_type, status, operation_id, computed_at, finalized_by, finalized_at, created_by, updated_by)
 		VALUES ($1, $2, 'GROUP', $3, ARRAY[$3, gen_random_uuid()]::uuid[], 2026, 1, '2026-01-01', '2026-01-31', 1, 'EUR', 'closing', $4,
@@ -34,10 +36,15 @@ const (
 		VALUES ($1, $2, $3, '1000', 'parent', 'USD', 1)`
 	importedBalance = `INSERT INTO consolidation.run_balance (tenant_id, run_id, legal_entity_id, line_no, group_account, kind, amount_gc)
 		VALUES ($1, $2, $3, 1, 'G3900', 'cta', 5)`
+	importedDifference = `INSERT INTO consolidation.run_difference (tenant_id, id, run_id, line_no, elimination_code, legal_entity_id, partner_id, status,
+		amount, partner_amount, difference, tolerance, accepted_by, accepted_at, reason, version)
+		VALUES ($1, gen_random_uuid(), $2, 1, 'IC_BALANCES', $3, gen_random_uuid(), 'accepted', -2800, 2700, -100, 10, $4, now(), 'Rates', 2)`
 )
 
-// importCases are the rows migration 000230 lets an import restore.
+// importCases are the rows migration 000230 lets an import restore, and
+// 000237 for the year close's tables.
 func importCases() []importCase {
+	yearClose := uuid.MustParse("0192a000-0000-7000-8000-00000000c106")
 	closeID, runID, parked := uuid.MustParse("0192a000-0000-7000-8000-00000000c105"), uuid.MustParse("0192a000-0000-7000-8000-00000000c0a1"),
 		uuid.MustParse("0192a000-0000-7000-8000-00000000fa4c")
 	finalRun := func(tx pgx.Tx, c carryForward, member bool) error {
@@ -60,6 +67,15 @@ func importCases() []importCase {
 				checked_at, checked_by, check_passed, check_result, created_by, updated_by) VALUES ($1, $2, 'NP', 1, 'A check', 'check', 'no_parked_entries',
 				'2026-02-03', 'done', $3, now(), now(), $3, true, '{}', $3, $3)`, c.tenant, closeID, c.actor)
 		}, want: "a close task starts open"},
+		{name: "a signed-off year close", row: func(tx pgx.Tx, c carryForward) error {
+			return exec(tx, importedYearClose, c.tenant, yearClose, c.entity, "signed_off", c.actor)
+		}, want: "a year close starts open"},
+		{name: "a year close's task done", before: func(tx pgx.Tx, c carryForward) error {
+			return exec(tx, importedYearClose, c.tenant, yearClose, c.entity, "open", c.actor)
+		}, row: func(tx pgx.Tx, c carryForward) error {
+			return exec(tx, `INSERT INTO closing.year_close_task (tenant_id, close_id, code, seq, name, kind, due_on, status, completed_by, completed_at,
+				created_by, updated_by) VALUES ($1, $2, 'AUDIT', 1, 'Audit adjustments', 'manual', '2027-01-29', 'done', $3, now(), $3, $3)`, c.tenant, yearClose, c.actor)
+		}, want: "a year close task starts open"},
 		{name: "a posted parked entry", row: func(tx pgx.Tx, c carryForward) error {
 			_, err := c.parkedFor(tx, parked, "posted")
 			return err
@@ -88,6 +104,11 @@ func importCases() []importCase {
 		}, row: func(tx pgx.Tx, c carryForward) error {
 			return exec(tx, importedBalance, c.tenant, runID, c.entity)
 		}, want: "run_rows_while_running"},
+		{name: "a final run's accepted difference", before: func(tx pgx.Tx, c carryForward) error {
+			return finalRun(tx, c, true)
+		}, row: func(tx pgx.Tx, c carryForward) error {
+			return exec(tx, importedDifference, c.tenant, runID, c.entity, c.actor)
+		}, want: "run_difference_transition"},
 		{name: "a superseded carry-forward run, then its successor", row: func(tx pgx.Tx, c carryForward) error {
 			old, next := id(), id()
 			if err := exec(tx, `INSERT INTO ledger.carry_forward_run (tenant_id, id, legal_entity_id, ledger_id, from_fiscal_year, to_fiscal_year, basis,

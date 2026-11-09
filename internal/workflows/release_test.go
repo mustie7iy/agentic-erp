@@ -165,7 +165,7 @@ func TestFailReleaseRunsTwice(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return &pgtest.FailingTx{Tx: tx, FailAt: 1}, nil
+		return &pgtest.FailingTx{Tx: tx, FailAt: 2}, nil // after the tenant's status (database.BeginActive)
 	}
 	if err := a.FailRelease(ctx, in, why); !errors.Is(err, pgtest.ErrInjected) || !strings.Contains(err.Error(), "read the release of run") {
 		t.Fatalf("fail with the read failing: got %v, want the injected failure", err)

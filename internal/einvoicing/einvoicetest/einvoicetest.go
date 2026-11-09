@@ -136,6 +136,19 @@ func (s *Server) Deliver(id, receiver string, body []byte) {
 	s.messages = append(s.messages, Message{ID: id, Receiver: receiver, Body: body})
 }
 
+// Redeliver makes a message delivered before pending again with body, as
+// a provider delivering other bytes under the same id (ADR-0061 §4).
+func (s *Server) Redeliver(id string, body []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.messages {
+		if s.messages[i].ID == id {
+			s.messages[i].Body = body
+		}
+	}
+	delete(s.acked, id)
+}
+
 // Fail makes the next times answers to the method and path (below the
 // base URL, such as "GET /messages") fail with 503.
 func (s *Server) Fail(methodPath string, times int) {

@@ -145,6 +145,17 @@ posting.
   record (ADR-0011) and publishes `RevaluationRunPosted` or
   `RevaluationRunCancelled` through the outbox (ADR-0007).
 
+## As built
+- **Trading partners (T68b2, ADR-0059 §4 and its As built).** An item
+  carries its trading partner: an open item its journal line's, and a
+  flagged account's balance is one per currency and trading partner (none
+  being one). Totals are per account, currency, direction and trading
+  partner, and both lines of a total carry it, so a consolidation run
+  matches a revalued intercompany balance by trading partner. Items
+  naming none are valued and posted as before; `revaluation_item` records
+  each item's (`trading_partner_id`, migrations 000240–000242), and the
+  preview and runs return it as `trading_partner`.
+
 ## Out of scope
 - Delta mode (valuing against the previous run instead of resetting).
 - Separate debit and credit rate types (SAP's rate types per balance sign).
@@ -178,3 +189,23 @@ posting.
 - A clearing or payment after a run realises the difference against the
   booked amount, as before; the run's adjustment has already been reversed
   by then.
+
+## The group-currency difference in consolidation (accounting specialist, po:2026-11-09)
+An accounting specialist reviewed ADR-0059's assumption that the
+group-currency differences this run books stay in profit or loss in
+consolidation (question B4, a technical review, not a signed opinion;
+recorded in ADR-0059, question 1). Confirmed for a company's own items in
+other currencies than its functional currency (IAS 21.28). Corrected for
+two cases, which change consolidation, not this run (tracker leaves, src
+po:2026-11-09):
+- **The group difference beyond the local one.** "Group currency is valued
+  on its own" above books a group difference that is not the local
+  difference translated. The part beyond the functional-currency
+  difference, translated, is a translation effect, which belongs in other
+  comprehensive income and the translation reserve (IAS 21.39(c)), not in
+  profit or loss: the consolidation run is to move it there.
+- **Net investment items.** Exchange differences on a monetary item that
+  forms part of the net investment in a foreign operation (a long-term
+  intercompany loan not expected to be settled) go to other comprehensive
+  income in the consolidated statements (IAS 21.32); other intragroup
+  monetary items keep theirs in profit or loss (IAS 21.45).

@@ -289,6 +289,10 @@ func (noPeriod) PeriodOf(context.Context, uuid.UUID, int16, int16) (consolidatio
 	return consolidation.Period{}, false, nil
 }
 
+func (noPeriod) PeriodsOf(context.Context, []uuid.UUID, int16, int16) (map[uuid.UUID]consolidation.Period, error) {
+	return map[uuid.UUID]consolidation.Period{}, nil
+}
+
 // TestConsolidationDatabaseFailures: every database statement of a run's
 // requests and steps failing fails it, never hidden; outside a unit of
 // work each refuses.
@@ -332,7 +336,7 @@ func TestConsolidationDatabaseFailures(t *testing.T) {
 	for _, c := range companies {
 		every("translate", func(ctx context.Context) error { return fresh().TranslateMember(ctx, run, c) })
 	}
-	every("eliminate", func(ctx context.Context) error { return h.EliminateConsolidationRun(ctx, run) })
+	every("eliminate", func(ctx context.Context) error { return fresh().EliminateConsolidationRun(ctx, run) })
 	every("complete", func(ctx context.Context) error { return h.CompleteConsolidationRun(ctx, run) })
 	reads := map[string]func(ctx context.Context) error{
 		"get": func(ctx context.Context) error {
@@ -349,6 +353,14 @@ func TestConsolidationDatabaseFailures(t *testing.T) {
 		},
 		"statement": func(ctx context.Context) error {
 			_, err := fresh().GetConsolidatedStatement(ctx, gen.GetConsolidatedStatementParams{ID: run, Statement: "balance_sheet"})
+			return err
+		},
+		"differences": func(ctx context.Context) error {
+			_, err := fresh().ListIntercompanyDifferences(ctx, gen.ListIntercompanyDifferencesParams{ID: run})
+			return err
+		},
+		"entries": func(ctx context.Context) error {
+			_, err := fresh().ListConsolidationEntries(ctx, gen.ListConsolidationEntriesParams{ID: run})
 			return err
 		},
 		"discard": func(ctx context.Context) error {

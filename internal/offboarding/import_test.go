@@ -62,7 +62,8 @@ func exportThenErase(t *testing.T, pool *database.Pool, store blobstore.Dir) (uu
 
 // pastFirstStates gives the tenant of e rows past the state the database
 // inserts them in, each reached through its transitions: a period close
-// signed off with its task done, a posted parked entry with its lines, a
+// signed off with its task done, a year close signed off with its task
+// done (000237), a posted parked entry with its lines, a
 // final consolidation run with its members and a balance, and a
 // carry-forward run superseded by a second (ADR-0029, migration 000230).
 func pastFirstStates(t *testing.T, e fixture.Env) {
@@ -77,6 +78,15 @@ func pastFirstStates(t *testing.T, e fixture.Env) {
 	pgtest.Exec(t, `UPDATE closing.period_close SET status = 'signed_off', version = version + 1 WHERE id = $1`, closeID)
 	pgtest.Exec(t, `INSERT INTO closing.sign_off (tenant_id, id, close_id, signed_by, locked) VALUES ($1, gen_random_uuid(), $2, $3, '[{"locked": true}]')`,
 		ten, closeID, who)
+	yearClose := uuid.New()
+	pgtest.Exec(t, `INSERT INTO closing.year_close (tenant_id, id, legal_entity_id, fiscal_year, year_end, config_version, created_by, updated_by)
+		VALUES ($1, $2, $3, 2026, '2026-12-31', 1, $4, $4)`, ten, yearClose, e.DE, who)
+	pgtest.Exec(t, `INSERT INTO closing.year_close_ledger (tenant_id, close_id, ledger_id) VALUES ($1, $2, $3)`, ten, yearClose, e.Ledger(t, "0L"))
+	pgtest.Exec(t, `INSERT INTO closing.year_close_task (tenant_id, close_id, code, seq, name, kind, due_on, created_by, updated_by)
+		VALUES ($1, $2, 'AUDIT', 1, 'Audit adjustments', 'manual', '2027-01-29', $3, $3)`, ten, yearClose, who)
+	pgtest.Exec(t, `UPDATE closing.year_close_task SET status = 'done', completed_by = $2, completed_at = now(), version = version + 1 WHERE close_id = $1`,
+		yearClose, who)
+	pgtest.Exec(t, `UPDATE closing.year_close SET status = 'signed_off', version = version + 1 WHERE id = $1`, yearClose)
 	parked := e.Park(t, "2026-03-15", "Imported", [2]string{"520000", "10.00"}, [2]string{"100000", "-10.00"})
 	_, tag := e.Must(200, "GET", "/v1/parked-journal-entries/"+parked.String(), "", "")
 	e.Must(200, "POST", "/v1/parked-journal-entries/"+parked.String()+":post", "", tag)
@@ -143,9 +153,12 @@ func pastFirstStatesHeld(t *testing.T, tenant uuid.UUID) map[string]int64 {
 	t.Helper()
 	held := map[string]int64{}
 	for name, sql := range map[string]string{
-		"signed-off closes":     `SELECT count(*) FROM closing.period_close WHERE tenant_id = $1 AND status = 'signed_off'`,
-		"done close tasks":      `SELECT count(*) FROM closing.close_task WHERE tenant_id = $1 AND status = 'done'`,
-		"posted parked entries": `SELECT count(*) FROM ledger.parked_entry WHERE tenant_id = $1 AND status = 'posted' AND journal_entry_id IS NOT NULL`,
+		"signed-off closes":      `SELECT count(*) FROM closing.period_close WHERE tenant_id = $1 AND status = 'signed_off'`,
+		"done close tasks":       `SELECT count(*) FROM closing.close_task WHERE tenant_id = $1 AND status = 'done'`,
+		"signed-off year closes": `SELECT count(*) FROM closing.year_close WHERE tenant_id = $1 AND status = 'signed_off'`,
+		"done year close tasks":  `SELECT count(*) FROM closing.year_close_task WHERE tenant_id = $1 AND status = 'done'`,
+		"year closes' ledgers":   `SELECT count(*) FROM closing.year_close_ledger WHERE tenant_id = $1`,
+		"posted parked entries":  `SELECT count(*) FROM ledger.parked_entry WHERE tenant_id = $1 AND status = 'posted' AND journal_entry_id IS NOT NULL`,
 		"posted parked entries' lines": `SELECT count(*) FROM ledger.parked_entry_line l JOIN ledger.parked_entry p ON p.tenant_id = l.tenant_id
 			AND p.id = l.parked_entry_id WHERE l.tenant_id = $1 AND p.status = 'posted'`,
 		"final runs":           `SELECT count(*) FROM consolidation.run WHERE tenant_id = $1 AND status = 'final'`,

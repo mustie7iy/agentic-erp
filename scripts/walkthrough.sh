@@ -809,7 +809,8 @@ step_migrate() {
     'Vendor bank accounts: vendors with differences' 'Quantities invoiced in SAP: order items with differences' \
     'Open down payments total' 'Open down payments: vendors with differences' 'Open items in USD total' 'Open items in USD: vendors with differences' \
     'Open GR/IR total' 'Open GR/IR in USD total' 'Open GR/IR: order items with differences' \
-    'Cost centers' 'Cost centers: centers with differences' 'Profit centers' 'Profit centers: centers with differences'; do
+    'Cost centers' 'Cost centers: centers with differences' 'Profit centers' 'Profit centers: centers with differences' \
+    'Cost center totals: centers with differences' 'Profit center totals: centers with differences' 'Segment totals: segments with differences'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
   delta_migration "$connector"
@@ -858,6 +859,7 @@ step_migrate() {
     expect "the migrated $kind's status" "$(field .status)" posted
   done
   migrated_centers
+  migrated_line_centers
   migrated_down_payment
   migrated_foreign_item
   migrated_grir
@@ -903,6 +905,39 @@ migrated_centers() {
     listCenterChanges -p "cost_center_id=$cc3120"
   expect "the migrated cost center's change" "$(field '.items[0] | "\(.kind) \(.status) \(.workflow_request_id // "none")"')" "create applied none"
   migrated_groups "$cc3120" "$pc3200"
+  as ada
+}
+
+# migrated_line_centers shows SAP's account assignment on the migrated
+# journal lines (ADR-0050 §10, T56h4): the mock books payroll on cost
+# center 3100 and purchases on 3120, each with its profit center and
+# segment (ACDOCA RCNTR, PRCTR, SEGMENT), and the documents loaded with
+# them, checked by the posting. The reconciliation compared the totals
+# per cost center, profit center and segment with the center reports,
+# and the cost center report's total of 3100 is SAP's, to the cent.
+migrated_line_centers() {
+  say "SAP's journal lines carry their cost center, profit center and segment (ACDOCA RCNTR, PRCTR, SEGMENT; T56h4):"
+  jq -r --arg cc "$CC" '[.ACDOCA[] | select(.RBUKRS == $cc and (.RCNTR // "") != "")] | group_by(.RCNTR, .RACCT)[]
+    | "     ACDOCA cost center \(.[0].RCNTR), profit center \(.[0].PRCTR), segment \(.[0].SEGMENT): account \(.[0].RACCT), \(length) lines"' \
+    "$WORK/data/extract.json"
+  say "The documents loaded with them, each checked by the posting as any entry is (ADR-0050 §5):"
+  as carla
+  local cc3100 cc3120 sap platform
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE"
+  cc3100=$(field '.items[] | select(.code == "3100") | .id')
+  cc3120=$(field '.items[] | select(.code == "3120") | .id')
+  api 200 '[.items[].lines[] | select(.cost_center_code == "3120")] | first
+    | "entry line \(.line_no): \(.amount.amount) \(.amount.currency), cost center \(.cost_center_code), profit center \(.profit_center_code), segment \(.segment_code)"' \
+    listJournalEntries -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "cost_center_id=$cc3120" -p page_size=10
+  expect "a migrated line's centers" "$(field '[.items[].lines[] | select(.cost_center_code == "3120")] | first | "\(.profit_center_code) \(.segment_code)"')" \
+    "P3100 SEG-CAN"
+  say "The reconciliation compared the totals per cost center, profit center and segment with the center reports:"
+  grep -E 'center totals|Segment totals' "$WORK/migrate.out" | sed 's/^/     /'
+  sap=$(jq -r --arg cc "$CC" '[.ACDOCA[] | select(.RBUKRS == $cc and .RCNTR == "3100") | .HSL | tonumber * 100 | round] | add' "$WORK/data/extract.json")
+  api 200 '"cost center report, 3100: \([.items[] | (.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)] | add) \(.items[0].debit_lc.currency) over \(.items | length) rows"' \
+    listCostCenterBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "cost_center_id=$cc3100" -p page_size=100
+  platform=$(field '[.items[] | ((.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)) * 100 | round] | add')
+  expect "cost center 3100's total in cents, SAP's against the report's" "$platform" "$sap"
   as ada
 }
 
@@ -1051,7 +1086,8 @@ small_item_refused() {
 # invoiced in one posted invoice (CLOSED, its item's price CLOSED_PRICE)
 # gets a receipt document debiting the item's account and crediting the
 # GR/IR account (GR_IR account $1), and its invoice debits the GR/IR
-# account instead of the item's, both on the order item; so the first run
+# account instead of the item's, both on the order item, its GR/IR lines
+# without the item's centers (T56h4); so the first run
 # loads it with no position open. Its order is for one more unit, which
 # SAP receives on 25 June in the delta only (receipt 5099999998, document
 # 0199999997), so the delta run tops a position up the order never had.
@@ -1067,8 +1103,9 @@ closed_order_extract() {
   CLOSED_PRICE=$(jq -r --arg o "$CLOSED" '.EKPO[] | select(.EBELN == $o) | .NETPR' "$WORK/data/delta.json")
   jq --arg cc "$CC" --arg a "$1" --arg o "$CLOSED" --arg d "${YEAR}0625" '
     def neg: if startswith("-") then .[1:] else "-" + . end;
+    def grir: .RACCT = $a | del(.RCNTR, .PRCTR, .SEGMENT);
     def we(belnr; date): (.BELNR = belnr | .BLART = "WE" | .XBLNR = "" | .BUDAT = date)
-      | (.DOCLN = "000001"), (.DOCLN = "000002" | .RACCT = $a | .HSL |= neg | .WSL |= neg);
+      | (.DOCLN = "000001"), (.DOCLN = "000002" | grir | .HSL |= neg | .WSL |= neg);
     ([.EKPO[] | select(.EBELN == $o)] | first) as $i
     | ([.MSEG[] | select(.EBELN == $o)] | first) as $m
     | ([.RSEG[] | select(.EBELN == $o)] | first) as $s
@@ -1077,7 +1114,7 @@ closed_order_extract() {
     | ($x | .EBELN = $o | .EBELP = $i.EBELP) as $line
     | .EKPO = [.EKPO[] | if .EBELN == $o then .MENGE = ((.MENGE | tonumber) + 1 | tostring) else . end]
     | .MSEG += [$m + {MBLNR: "5099999998", MENGE: "1", BUDAT: $d}]
-    | .ACDOCA = [.ACDOCA[] | if . == $x then $line | .RACCT = $a else . end]
+    | .ACDOCA = [.ACDOCA[] | if . == $x then $line | grir else . end]
       + [$line | we("0199999998"; $m.BUDAT)] + [$line | .HSL = $i.NETPR | .WSL = $i.NETPR | we("0199999997"; $d)]' \
     "$WORK/data/delta.json" >"$WORK/data/closed.json" && mv "$WORK/data/closed.json" "$WORK/data/delta.json" ||
     fail "the order received and invoiced in full could not be valued through GR/IR"
@@ -3385,7 +3422,10 @@ step_asset_depreciation() {
 # Acme Corp US's number ranges as Maple's this year, and its journal
 # entries' in the previous fiscal year too, whose periods it then has
 # (ADR-0059 §Steps); and the group MAPLE, Maple holding 80% of Acme Corp
-# US from period @FIRST@. @CC@, @YEAR@ and @FIRST@ are replaced.
+# US from period @FIRST@. Maple's intercompany receivables are kept in
+# foreign currency and revalued (ADR-0042) into its unrealised gain and
+# loss, as its USD bank accounts are. @CC@, @YEAR@ and @FIRST@ are
+# replaced.
 CONSOLIDATION_SETTINGS='(.consolidation = {
   "accounts": [
     {"number": "G1000", "name": "Other assets", "type": "asset"},
@@ -3409,9 +3449,10 @@ CONSOLIDATION_SETTINGS='(.consolidation = {
   "groups": [{"code": "MAPLE", "name": "Maple group", "parent": "@CC@",
     "members": [{"company": "1000", "ownership_percent": "80", "first_period": "@FIRST@", "investment_account": "1700"}]}]})
 | (.companies[] | select(.code == "@CC@") | .chart_of_accounts) += [
-    {"number": "1250", "name": "Intercompany receivables", "type": "asset"},
+    {"number": "1250", "name": "Intercompany receivables", "type": "asset", "revalue_foreign_currency": true},
     {"number": "1700", "name": "Investment in Acme Corp US", "type": "asset"},
     {"number": "4250", "name": "Intercompany revenue", "type": "revenue"}]
+| (.companies[] | select(.code == "@CC@") | .fx_valuation.accounts) += [{"account": "1250", "unrealised_gain": "4900", "unrealised_loss": "6900"}]
 | .companies += [{"code": "1000", "name": "Acme Corp US", "currency": "USD", "country": "US", "fiscal_year_start_month": 1,
     "time_zone": "America/New_York",
     "chart_of_accounts": [
@@ -3446,7 +3487,7 @@ CONSOLIDATION_SETTINGS='(.consolidation = {
 # approved and activated; Carla reads the group with its companies named
 # and the group chart; Cory, who may act in Maple alone, sees no group.
 step_consolidation() {
-  heading "Step 40 — Group reporting: the group chart, the companies' mapping and the group MAPLE through a governed change, trading partners, a consolidation run and its consolidated statements"
+  heading "Step 40 — Group reporting: the group chart, the companies' mapping and the group MAPLE through a governed change, trading partners, a consolidation run, its intercompany eliminations, its consolidated statements, an intercompany balance revalued by trading partner and its open difference accepted"
   as ada
   local base settings first cr request
   first="$YEAR-${TODAY:5:2}"
@@ -3515,7 +3556,10 @@ step_consolidation() {
   refused 404 consolidation.group_unknown getConsolidationGroup -p code=MAPLE
   consolidation_trading_partner
   consolidation_run
+  consolidation_eliminations
   consolidation_statements
+  consolidation_revaluation
+  consolidation_accept
   as tom
   passed
 }
@@ -3672,11 +3716,44 @@ consolidation_run() {
   expect "Maple's translation differences" "$(field '.items | length')" 0
 }
 
+# consolidation_eliminations is intercompany matching and eliminations
+# (T68f, ADR-0059 §8), part of step_consolidation: consolidation_run's run
+# matched Maple's intercompany revenue with Acme Corp US's intercompany
+# expense, both booked at 1.35 (2,700.00 CAD each), and found the
+# receivable and payable pair open: Maple's USD receivable as booked at
+# 1.35 (2,700.00 CAD), Acme Corp US's payable at the closing 1.40
+# (-2,800.00 CAD), a difference of -100.00 above IC_BALANCES' 10.00. Each
+# pair's entry reverses its rows, the difference on G6950, so the
+# consolidated statements show no balance between the two companies.
+consolidation_eliminations() {
+  local run
+  as carla
+  QUIET=1 api 200 '' listConsolidationRuns -p group_code=MAPLE -p status=computed
+  run=$(field '.items[0].id')
+  say "The run matched the group's intercompany balances (ADR-0059 §8): for each elimination, the two companies' rows"
+  say "naming each other, in CAD as translated: balance sheet rows at the closing rate, income and expenses as booked."
+  api 200 '"run \(.status): \([.difference_counts[] | "\(.count) \(.status)"] | join(", "))"' getConsolidationRun -p "id=$run"
+  api 200 '(.items[] | "  \(.line_no) \(.elimination.code) \(.elimination.name): \(.company_code) \(.company_name) and \(.partner.code) \(.partner.name): \(.amount.amount) + \(.partner_amount.amount) = \(.difference.amount) \(.difference.currency) against a tolerance of \(.tolerance.amount), \(.status)"),
+    (.totals[] | "  total \(.status): \(.count), difference \(.difference.amount // "-")")' listIntercompanyDifferences -p "id=$run"
+  expect "the differences" "$(field '[.items[] | "\(.elimination.code) \(.company_code)/\(.partner.code) \(.amount.amount) \(.partner_amount.amount) \(.difference.amount) \(.status)"] | join(", ")')" \
+    "IC_BALANCES 1000/$CC -2800.00 2700.00 -100.00 open, IC_RESULTS 1000/$CC 2700.00 -2700.00 0.00 matched"
+  say "The payable at the closing 1.40 and the receivable as booked at 1.35 differ by more than the tolerance: the"
+  say "difference is open, and stops only finalizing the run until it is accepted or corrected (T68g). Each pair is"
+  say "eliminated: its rows reversed, its difference on the intercompany differences account:"
+  api 200 '.items[] | "  entry \(.entry_no) \(.kind) \(.elimination.code): \(.company_code) and \(.partner.code), debits \(.debits.amount) \(.debits.currency)",
+    (.lines[] | "    \(.group_account.number) \(.group_account.name)\(if .company_code then " / \(.company_code) \(.account.number) \(.account.name)" else "" end)\(if .trading_partner then ", trading partner \(.trading_partner.code)" else "" end): \(.amount.amount)")' \
+    listConsolidationEntries -p "id=$run"
+  expect "the entries' lines" "$(field '[.items[] | "\(.entry_no):" + ([.lines[] | "\(.group_account.number)=\(.amount.amount)"] | join(" "))] | join(", ")')" \
+    "1:G1250=-2700.00 G2250=2800.00 G6950=-100.00, 2:G4250=2700.00 G5250=-2700.00"
+  expect "the entries' debits" "$(field '[.totals[] | "\(.kind) \(.count) \(.debits.amount)"] | join(", ")')" "intercompany 2 5500.00"
+}
+
 # consolidation_statements is the consolidated statements of a run (T68e,
 # ADR-0059 §11), part of step_consolidation: Carla reads the balance sheet
 # and the profit and loss of consolidation_run's run, one row per group
 # account with the companies' translated figures summed, the eliminations
-# (none until T68f) and the consolidated figure; the balance sheet's
+# (T68f's intercompany entries) and the consolidated figure; the balance
+# sheet's
 # assets, liabilities and equity and the fiscal year's profit sum to zero,
 # the profit is the profit and loss's, and each row's reported figure is
 # the balances list's total for its group account.
@@ -3687,7 +3764,7 @@ consolidation_statements() {
   run=$(field '.items[0].id')
   say "Carla reads the run's consolidated balance sheet (ADR-0059 §11): each account of the group chart, the companies'"
   say "translated figures summed, the eliminations and the consolidated figure, in CAD and debit positive, so a credit"
-  say "balance, and a profit, is negative. Eliminations come with intercompany matching (T68f):"
+  say "balance, and a profit, is negative. The eliminations are the run's intercompany entries (T68f):"
   api 200 '"\(.statement) of \(.group_code) \(.group_name) at \(.period_end), run \(.run_status), in \(.group_currency):",
     (.items[] | "  \(.number) \(.name) (\(.type)\(if .role then ", \(.role)" else "" end)): reported \(.reported.amount), eliminations \(.eliminations.amount), consolidated \(.consolidated.amount)"),
     (.totals | to_entries[] | "  total \(.key): reported \(.value.reported.amount), eliminations \(.value.eliminations.amount), consolidated \(.value.consolidated.amount)")' \
@@ -3696,6 +3773,8 @@ consolidation_statements() {
   expect "the balance sheet's totals" "$(field '.totals | keys | join(" ")')" "assets equity liabilities profit"
   expect "assets, liabilities, equity and the profit, consolidated" "$(field "[.totals[].consolidated | $cents] | add")" 0
   expect "assets, liabilities, equity and the profit, reported" "$(field "[.totals[].reported | $cents] | add")" 0
+  expect "the intercompany accounts, consolidated" "$(field '[.items[] | select(.number | IN("G1250", "G2250")) | "\(.number) \(.consolidated.amount)"] | join(", ")')" \
+    "G1250 0.00, G2250 0.00"
   say "And the profit and loss, whose profit closes the balance sheet:"
   api 200 '"\(.statement) of \(.group_code) for \(.fiscal_year)-\(.period):",
     (.items[] | "  \(.number) \(.name) (\(.type)): reported \(.reported.amount), eliminations \(.eliminations.amount), consolidated \(.consolidated.amount)"),
@@ -3704,6 +3783,9 @@ consolidation_statements() {
   cp "$WORK/last.json" "$WORK/profit-and-loss.json"
   expect "the profit of both statements" "$(field .totals.profit.consolidated.amount)" "$(jq -r .totals.profit.consolidated.amount "$WORK/balance-sheet.json")"
   expect "revenue and expenses make the profit" "$(field "[.totals.revenue, .totals.expenses | .reported | $cents] | add")" "$(field ".totals.profit.reported | $cents")"
+  expect "the intercompany results and their difference" \
+    "$(field '[.items[] | select(.number | IN("G4250", "G5250", "G6950")) | "\(.number) \(.eliminations.amount) \(.consolidated.amount)"] | join(", ")')" \
+    "G4250 2700.00 0.00, G5250 -2700.00 0.00, G6950 -100.00 -100.00"
   say "Each row's reported figure is the run's translated balances on its group account (the drill-down):"
   for statement in balance-sheet profit-and-loss; do
     while read -r number reported; do
@@ -3714,6 +3796,119 @@ consolidation_statements() {
   done
   say "  $(jq '.items | length' "$WORK/balance-sheet.json") balance sheet and $(jq '.items | length' "$WORK/profit-and-loss.json") profit and loss rows checked against the balances list"
   expect "rows whose reported figure differs from the balances list's total" "$differ" ""
+}
+
+# consolidation_accept is accepting an intercompany difference (T68g,
+# ADR-0059 §8, §10), part of step_consolidation: Carla accepts the run's
+# open IC_BALANCES difference (the payable at the closing 1.40 against the
+# receivable as booked at 1.35) with her reason; the run's version moves
+# with it. Finalizing the run is then refused: the companies' periods of
+# today were open when the run read their figures, and a run is final only
+# on locked periods. step_close finalizes the group after the sign-off.
+consolidation_accept() {
+  local run difference tag
+  as carla
+  QUIET=1 api 200 '' listConsolidationRuns -p group_code=MAPLE -p status=computed
+  run=$(field '.items[0].id')
+  QUIET=1 api 200 '' listIntercompanyDifferences -p "id=$run" -p status=open
+  difference=$(field '.items[0].id')
+  tag="\"$(field '.items[0].version')\""
+  say "The open difference is the rates' (ADR-0059 §8): Maple's receivable is booked at the invoice date's 1.35, Acme"
+  say "Corp US's payable translated at the closing 1.40; neither company's postings are wrong. Carla accepts it with her"
+  say "reason, a person's decision (agents are refused), so that it no longer stops finalizing the run:"
+  api 200 '"\(.elimination.code) \(.company_code)/\(.partner.code): \(.difference.amount) \(.difference.currency), \(.status) by \(.accepted_by_name): \(.reason)"' \
+    acceptIntercompanyDifference -p "id=$run" -p "difference_id=$difference" -if-match "$tag" \
+    -body '{"reason": "Rate difference: the receivable is booked at the invoice date'"'"'s rate, the payable translated at the closing rate"}'
+  expect "the accepted difference" "$(field '"\(.status) \(.accepted_by_name) \(.version)"')" "accepted Carla Controller 2"
+  api 200 '"run \(.status) at version \(.version): \([.difference_counts[] | "\(.count) \(.status)"] | join(", ")), stale \(.stale)"' getConsolidationRun -p "id=$run"
+  expect "the run's differences" "$(field '[.difference_counts[] | "\(.count) \(.status)"] | join(", ")')" "1 matched, 1 accepted"
+  say "Finalizing the run as the group's consolidated figures of $YEAR-$((10#${TODAY:5:2})) is refused: the companies' periods"
+  say "were open when it read their figures. A run is final only on locked periods; the group is run again after the"
+  say "close's sign-off (step_close):"
+  refused 409 consolidation.period_not_locked finalizeConsolidationRun -p "id=$run" -if-match "$ETAG"
+}
+
+# consolidation_revaluation is the revaluation of intercompany items by
+# trading partner (T68b2, ADR-0059 §4, ADR-0042), part of
+# step_consolidation: Maple's USD 2,000.00 receivable from Acme Corp US,
+# booked at 1.35, is worth 1.40 at the month's end, a gain of CAD 100.00
+# that the valuation entry posts on 1250 and 4900 with trading partner
+# 1000, so a new run of the group finds the receivable and payable pair
+# matched at 2,800.00, where the gain without a trading partner would have
+# shown as no_trading_partner. A second run of the key date is refused.
+# The month is still running, so Carla cancels the revaluation, which
+# reverses both its entries, and discards the new group run: the later
+# steps see the month as booked.
+consolidation_revaluation() {
+  local eom period=$((10#${TODAY:5:2})) body reval valuation run
+  eom=$(month_end)
+  next_year_open
+  as carla
+  accounts
+  say "Maple's intercompany receivable is in USD: Carla revalues Maple's foreign-currency items at $eom (ADR-0042). The"
+  say "receivable's USD 2,000.00, booked at 1.35, is worth 1.40: a gain of CAD 100.00. A balance is valued per trading"
+  say "partner, and each total's two lines carry it (ADR-0059 §4):"
+  body="{\"legal_entity_id\": \"$LE\", \"key_date\": \"$eom\"}"
+  api 201 '"run \(.id[0:8])… at \(.key_date): \(.status), \(.item_count) items",
+    (.totals[] | "  \(.account_id | acct) \(.currency) \(.direction) \(.difference_lc.amount) CAD\(if .trading_partner then ", trading partner \(.trading_partner.code) \(.trading_partner.name)" else "" end)")' \
+    postRevaluationRun -body "$body"
+  reval=$(field .id)
+  valuation=$(field .valuation_entry_id)
+  expect "the intercompany receivable's total" \
+    "$(jq -r --arg a "$(account 1250)" '[.totals[] | select(.account_id == $a) | "\(.direction) \(.amount.amount) \(.difference_lc.amount) \(.trading_partner.code)"] | join(", ")' "$WORK/last.json")" \
+    "gain 2000.00 100.00 1000"
+  say "Its valuation entry posts the gain on the receivable and on the unrealised gain, both naming company 1000:"
+  api 200 '.lines[] | select(.trading_partner) | "  line \(.line_no): \(.account_id | acct) \(.amount_lc.amount) CAD, trading partner \(.trading_partner.code)"' \
+    getJournalEntry -p "id=$valuation"
+  expect "the receivable's revaluation lines" \
+    "$(jq -r --arg r "$(account 1250)" --arg g "$(account 4900)" '[.lines[] | select(.trading_partner and (.account_id == $r or .account_id == $g)) | "\(.amount_lc.amount) \(.trading_partner.code)"] | join(", ")' "$WORK/last.json")" \
+    "100.00 1000, -100.00 1000"
+  say "A second run at the same key date is refused, naming the first:"
+  refused 409 ledger.revaluation_exists postRevaluationRun -body "$body"
+  say "Carla runs the group again: Maple's receivable is now CAD 2,800.00 with trading partner 1000, the payable's figure:"
+  api 202 '"operation \(.kind) \(.status): \(.resource)"' createConsolidationRun -body "{\"group_code\": \"MAPLE\", \"fiscal_year\": $YEAR, \"period\": $period}"
+  run=$(field '.resource | split("/") | last')
+  wait_op
+  api 200 '.items[] | "  \(.elimination.code): \(.company_code) and \(.partner.code): \(.amount.amount) + \(.partner_amount.amount) = \(.difference.amount) \(.difference.currency), \(.status)"' \
+    listIntercompanyDifferences -p "id=$run"
+  expect "the differences after the revaluation" \
+    "$(field '[.items[] | "\(.elimination.code) \(.company_code)/\(.partner.code) \(.amount.amount) \(.partner_amount.amount) \(.difference.amount) \(.status)"] | join(", ")')" \
+    "IC_BALANCES 1000/$CC -2800.00 2800.00 0.00 matched, IC_RESULTS 1000/$CC 2700.00 -2700.00 0.00 matched"
+  say "The month is still running: Carla discards this run and cancels the revaluation, which reverses both its entries,"
+  say "so the steps that follow see the month as booked."
+  QUIET=1 api 200 '' getConsolidationRun -p "id=$run"
+  api 200 '"run \(.id[0:8])…: \(.status)"' discardConsolidationRun -p "id=$run" -if-match "$ETAG"
+  expect "the group run" "$(field .status)" discarded
+  QUIET=1 api 200 '' getRevaluationRun -p "id=$reval"
+  api 200 '"revaluation run \(.id[0:8])…: \(.status)"' cancelRevaluationRun -p "id=$reval" -if-match "$ETAG" \
+    -body '{"reason": "The month is still running; it is revalued at its end"}'
+  expect "the revaluation run" "$(field .status)" cancelled
+}
+
+# next_year_open has, in December only, Ada set up next fiscal year (a
+# journal number range of the company for it, which creates its periods,
+# closed, as year_end_setup sets up PREV) and Carla open its first period
+# in the leading ledger, where a month-end revaluation's reset entry, dated
+# the next day, goes (ADR-0042).
+next_year_open() {
+  local next=$((YEAR + 1)) base cr p
+  [ "${TODAY:5:2}" = 12 ] || return 0
+  as ada
+  say "The revaluation's reset is dated $next-01-01: Ada sets $next up, a journal number range of $CC for it."
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Fiscal year $next\", rationale: \"The reset of December's revaluation (ADR-0042)\", base_version: $base,
+    proposed: (.items[0].document | .number_ranges += [.number_ranges[] | select(.company == \"$CC\" and .document_type == \"journal_sa\" and .fiscal_year == $YEAR)
+      | .fiscal_year = $next])}" "$WORK/last.json" >"$WORK/next-year-sa.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @next-year-sa.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  as carla
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$next" -p "ledger_id=$LEADING" -p page_size=100
+  p=$(field '.items[] | select(.period == 1) | "\(.id)/\(.version)"')
+  api 200 '"period \(.fiscal_year)/\(.period): \(.status)"' openFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
 }
 
 # UAE_COMPANY is the UAE pilot company in the configuration before its
@@ -3965,10 +4160,15 @@ uae_return() {
 # company's participant; Alex fetches, finds it in the list received under
 # the fetch's operation, its bytes the stand-in's, acknowledged; the
 # stand-in loses the acknowledgement and lists it again, and a second
-# fetch counts it as already recorded and acknowledges it again.
+# fetch counts it as already recorded and acknowledges it again. T65b's
+# (ADR-0061 §4, §8): Alex downloads the e-invoice as received, its SHA-256
+# the stand-in's; the stand-in delivers it again under its id with other
+# bytes, and a fetch counts it as changed, the document keeping its first
+# bytes and naming the new ones' hash; the same bytes delivered once more
+# are not a change again.
 step_einvoice() {
-  heading "Step 43 — E-invoices fetched on demand: the UAE company's provider connected, a supplier's e-invoice recorded once and acknowledged"
-  local connector op doc sum
+  heading "Step 43 — E-invoices fetched: the UAE company's provider connected, a supplier's e-invoice recorded once and acknowledged, downloaded as received, a redelivery with other bytes recorded as its change once"
+  local connector op doc sum changed
   as ada
   say "The UAE company $AE receives its suppliers' e-invoices through an accredited provider (ADR-0049, ADR-0061). No"
   say "provider is chosen yet (ADR-0061 Q1), so Ada connects the provider's stand-in on this machine: an einvoice_provider"
@@ -4015,7 +4215,49 @@ step_einvoice() {
   expect "still the first fetch's" "$(field .fetch_operation_id)" "$op"
   QUIET=1 api 200 '' listEInvoices -p "connector_id=$connector"
   expect "the connector's documents" "$(field '.items | length')" 1
+  einvoice_original "$connector" "$doc" "$sum"
   passed
+}
+
+# einvoice_original is T65b's part of step_einvoice: the e-invoice
+# downloaded as received, and the provider's redelivery under its id with
+# other bytes recorded as its change, once.
+einvoice_original() {
+  local connector=$1 doc=$2 sum=$3 changed op
+  say "Alex downloads GOI-2001 as received, the legal original kept write-once; its SHA-256 is the stand-in's, and the"
+  say "server compares it with the hash recorded on every read:"
+  api 200 '' getEInvoiceContent -p "id=$doc" -out "$WORK/provider/GOI-2001.downloaded.xml"
+  say "  $(wc -c <"$WORK/provider/GOI-2001.downloaded.xml" | tr -d ' ') bytes, SHA-256 $(shasum -a 256 "$WORK/provider/GOI-2001.downloaded.xml" | cut -c1-16)…"
+  expect "the download's SHA-256" "$(shasum -a 256 "$WORK/provider/GOI-2001.downloaded.xml" | cut -d' ' -f1)" "$sum"
+  say "The provider delivers GOI-2001 again under the same id with other bytes (the supplier changed it after sending). The"
+  say "next fetch does not replace the original: it records the new bytes' hash as the document's change, once, for a person"
+  say "to take up with the supplier:"
+  sed 's/<ID>GOI-2001<\/ID>/<ID>GOI-2001<\/ID><Note>Corrected<\/Note>/' "$WORK/provider/GOI-2001.downloaded.xml" >"$WORK/provider/inbox/GOI-2001.xml"
+  rm "$WORK/provider/inbox/GOI-2001.acknowledged"
+  changed=$(shasum -a 256 "$WORK/provider/inbox/GOI-2001.xml" | cut -d' ' -f1)
+  [ "$changed" != "$sum" ] || fail "the redelivered GOI-2001 has the same bytes"
+  api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
+  wait_op
+  excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded), changed \(.result.changed)"'
+  expect "the redelivery's counts" "$(field '"\(.result.recorded) \(.result.already_recorded) \(.result.changed)"')" "0 0 1"
+  op=$(field .id)
+  say "The fetch's documents, its Operation's resource, are those it recorded or found changed:"
+  api 200 '.items[] | "  \(.message_id): \(.status), its bytes \(.sha256[0:16])…, changed to \(.changed_sha256[0:16])… at \(.changed_at) by this fetch \(.changed_fetch_operation_id == "'"$op"'")"' \
+    listEInvoices -p "fetch_operation_id=$op"
+  expect "the fetch's changed documents" "$(field '[.items[].id] | join(" ")')" "$doc"
+  expect "the bytes kept" "$(field '.items[0].sha256')" "$sum"
+  expect "the change recorded" "$(field '.items[0].changed_sha256')" "$changed"
+  expect "the fetch that found it" "$(field '.items[0].changed_fetch_operation_id')" "$op"
+  QUIET=1 api 200 '' getEInvoiceContent -p "id=$doc" -out "$WORK/provider/GOI-2001.downloaded-again.xml"
+  expect "the download after the change" "$(shasum -a 256 "$WORK/provider/GOI-2001.downloaded-again.xml" | cut -d' ' -f1)" "$sum"
+  say "The provider loses that acknowledgement too and delivers the same changed bytes again; it is not a change again:"
+  rm "$WORK/provider/inbox/GOI-2001.acknowledged"
+  api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
+  wait_op
+  excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded), changed \(.result.changed)"'
+  expect "the same changed bytes' counts" "$(field '"\(.result.recorded) \(.result.already_recorded) \(.result.changed)"')" "0 1 0"
+  QUIET=1 api 200 '' getEInvoice -p "id=$doc"
+  expect "still the one change" "$(field .changed_sha256)" "$changed"
 }
 
 # step_year_end is the year-end close of the fiscal year before today's,
@@ -4029,9 +4271,13 @@ step_einvoice() {
 # earnings account set through a change request, PREV's periods closed
 # and PREV carried forward into this year in every ledger. T64m3's: the
 # runs listed and their balances read, a late adjustment into period 13
-# making them stale, and the re-run superseding them.
+# making them stale, and the re-run superseding them. T64m4's: the year
+# tasks through a change request, PREV's year close opened and a manual
+# task of it assigned and completed. T64m5's: the year close's checks run,
+# the carry-forward check failing after one more late adjustment and
+# passing after the re-run.
 step_year_end() {
-  heading "Step 42 — Year-end close of $PREV: the year set up, its business and year-end revaluation, an audit adjustment in special period 13, the year carried forward, a late adjustment and the re-run"
+  heading "Step 42 — Year-end close of $PREV: the year set up, its business and year-end revaluation, an audit adjustment in special period 13, the year carried forward, a late adjustment and the re-run, the year close's checklist and its checks"
   year_end_setup
   year_end_business
   year_end_revaluation
@@ -4041,6 +4287,8 @@ step_year_end() {
   year_end_carry_forward_balances
   year_end_late_adjustment
   year_end_rerun
+  year_end_close
+  year_end_checks
   passed
 }
 
@@ -4376,6 +4624,145 @@ year_end_rerun() {
   api 200 '.items[] | "  \(.ledger_code): run \(.id[0:8])…, \(.status)"' listBalanceCarryForwards -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p status=current
   expect "$PREV's current runs" "$(field '[.items[].id] | sort | join(" ")')" "$(jq -r '[.items[].id] | sort | join(" ")' "$WORK/carry-forward-again.json")"
 }
+# year_end_close is T64m4's part (ADR-0060 §8): Ada adds the year tasks to
+# the close template, a tier 2 change the process owner approves; Carla
+# opens the year close of PREV, its checklist the year tasks, covering
+# every ledger with its periods of the year; she assigns the auditors'
+# adjustments task to herself and completes it; a second year close of
+# PREV is refused.
+year_end_close() {
+  as ada
+  say "Ada adds the year tasks to the close template (ADR-0060 §8): the checklist of a company's year close, each"
+  say "task due a number of business days after the fiscal year's last day, some waiting for others: manual tasks,"
+  say "and checks the system runs (nothing of the year left parked, the year-end revaluation, every period's"
+  say "depreciation, the carry-forward current). Like the monthly tasks they decide what the year's sign-off"
+  say "requires, so the change is tier 2, approved by the process owner."
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  local base cr request
+  base=$(field '.items[0].number')
+  jq "{title: \"Year-end checklist\", rationale: \"The year close's tasks (T64m4)\", base_version: $base,
+    proposed: (.items[0].document | .close.year_tasks = [
+      {\"code\": \"AUDIT_ADJUSTMENTS\", \"name\": \"Auditors' adjustments entered in special period 13\", \"kind\": \"manual\", \"due_day\": 20},
+      {\"code\": \"EQUITY_REVIEW\", \"name\": \"Retained earnings and the carry-forward reviewed\", \"kind\": \"manual\", \"due_day\": 25,
+        \"depends_on\": [\"AUDIT_ADJUSTMENTS\"]},
+      {\"code\": \"NO_PARKED\", \"name\": \"No entry of the year left parked\", \"kind\": \"check\", \"check\": \"no_parked_entries\", \"due_day\": 20},
+      {\"code\": \"REVALUED\", \"name\": \"Foreign currency revalued at the year's end\", \"kind\": \"check\", \"check\": \"revaluation_posted\", \"due_day\": 5},
+      {\"code\": \"DEPRECIATED\", \"name\": \"Depreciation of every period posted\", \"kind\": \"check\", \"check\": \"depreciation_year_posted\", \"due_day\": 5},
+      {\"code\": \"CARRIED_FORWARD\", \"name\": \"Balances carried forward and current\", \"kind\": \"check\", \"check\": \"carry_forward_current\",
+        \"due_day\": 25, \"depends_on\": [\"AUDIT_ADJUSTMENTS\"]}])}" "$WORK/last.json" >"$WORK/year-tasks.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @year-tasks.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 2
+  expect "the year tasks among the changes" "$(field '[.items[] | select(.path | startswith("close.year_tasks["))] | length')" 6
+  request=$(field .workflow_request_id)
+  approve priya "$request" "The year-end checklist, as agreed with the controller"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as carla
+  local close tag carla
+  carla=$(awk -F'\t' '$2 == "Carla Controller" { print $1 }' "$WORK/names")
+  say "Carla opens the year close of $PREV: its checklist is the year tasks, copied with their due dates; it covers"
+  say "every ledger the company keeps, each with its periods of $PREV and their status now."
+  api 201 '"year close of \(.company_code) \(.fiscal_year), ending \(.year_end): \(.status), template of configuration version \(.config_version)",
+    (.ledgers[] | "  covers \(.ledger_code) \(.ledger_name): \([.periods[] | "\(.period)\(if .is_special then "*" else "" end) \(.status)"] | join(", "))"),
+    (.tasks[] | "  \(.code), due \(.due_on): \(.name)\(if .blocked_by == [] then "" else " (after " + (.blocked_by | join(", ")) + ")" end)")' \
+    createYearClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $PREV}"
+  close=$(field .id)
+  tag=$ETAG
+  printf '%s\tyear close of %s\n' "$close" "$PREV" >>"$WORK/names"
+  expect "the year close's tasks" "$(field '[.tasks[].code] | join(" ")')" "AUDIT_ADJUSTMENTS EQUITY_REVIEW NO_PARKED REVALUED DEPRECIATED CARRIED_FORWARD"
+  expect "its ledgers, the leading one first" "$(field '[.ledgers[].ledger_code] | join(" ")')" "0L 2L"
+  expect "the year's end" "$(field .year_end)" "$PREV-12-31"
+  expect "each ledger's periods of $PREV" "$(field '[.ledgers[] | .periods | length] | join(" ")')" "16 16"
+  say "The equity review waits for the auditors' adjustments: completing it first is refused."
+  refused 409 closing.task_blocked completeYearCloseTask -p "id=$close" -p code=EQUITY_REVIEW -if-match "$tag" -body '{}'
+  say "Carla takes the auditors' adjustments task herself and completes it: both adjustments are in period 13."
+  api 200 '"  \(.code) assigned to \(.assignee_name); the close is now at version \(.close_version)"' \
+    updateYearCloseTask -p "id=$close" -p code=AUDIT_ADJUSTMENTS -if-match "$tag" -body "{\"assignee_id\": \"$carla\"}"
+  tag=$ETAG
+  api 200 '"  \(.code) \(.status) by \(.completed_by_name): \(.note)"' completeYearCloseTask -p "id=$close" -p code=AUDIT_ADJUSTMENTS \
+    -if-match "$tag" -body '{"note": "The audit adjustment and the late audit fees posted into period 13"}'
+  expect "the auditors' adjustments task" "$(field '"\(.status) \(.assignee_name)"')" "done Carla Controller"
+  api 200 '"\(.company_code) \(.fiscal_year): \(.tasks_done) of \(.tasks_total) tasks done", (.tasks[] | "  \(.code) \(.status)\(if .blocked_by == [] then "" else " (after " + (.blocked_by | join(", ")) + ")" end)")' \
+    getYearClose -p "id=$close"
+  expect "the equity review, no longer blocked" "$(field '.tasks[] | select(.code == "EQUITY_REVIEW") | "\(.status) \(.blocked_by | length)"')" "open 0"
+  say "A second year close of $PREV is refused, and names the first:"
+  refused 409 closing.year_close_exists createYearClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $PREV}"
+  api 200 '.items[] | "  \(.company_code) \(.fiscal_year): \(.status), \(.tasks_done) of \(.tasks_total) done"' listYearCloses -p "legal_entity_id=$LE"
+  expect "$PREV's year closes" "$(field '[.items[] | select(.fiscal_year == '"$PREV"') | .id] | join(" ")')" "$close"
+}
+
+# year_end_checks is T64m5's part (ADR-0060 §8, §11): Carla runs the year
+# close's checks on PREV. Nothing of PREV is left parked; each ledger's
+# revaluation at PREV's last day has posted (T64m1's runs); no asset had
+# anything to depreciate in PREV, so every period passes; the carry-forward
+# is current after T64m3's re-run. The auditors send one more adjustment:
+# Carla opens special period 13 again, posts it and closes the period; the
+# carry-forward check fails, naming PREV/13 in each ledger, until she
+# carries PREV forward again.
+year_end_checks() {
+  as carla
+  local close tag p bank expense
+  close=$(awk -F'\t' -v n="year close of $PREV" '$2 == n { print $1 }' "$WORK/names")
+  QUIET=1 api 200 '' getYearClose -p "id=$close"
+  tag=$ETAG
+  local result='"  \(.code) \(.status): \(.check_result.summary)",
+    (.check_result.ledgers[]? | "    \(.ledger_code)\(if .fiscal_period then " period \(.fiscal_period)" else "" end): \(if .posted then "run \(.revaluation_run_id // .carry_forward_run_id // .depreciation_run_id | .[0:8])…" else "no run" end)\(if .stale then ", stale: \([.opened_since[] | "\(.fiscal_year)/\(.period)"] | join(", ")) opened since" else "" end)")'
+  say "Carla runs the year close's checks on $PREV (ADR-0060 §8). Nothing of the year, special periods included, is"
+  say "left parked, and each ledger's revaluation at the year's last day has posted:"
+  api 200 "$result" checkYearCloseTask -p "id=$close" -p code=NO_PARKED -if-match "$tag"
+  tag=$ETAG
+  expect "the parked-entries check" "$(field '"\(.check_result.passed) \(.check_result.parked_entries_count) \(.status)"')" "true 0 done"
+  api 200 "$result" checkYearCloseTask -p "id=$close" -p code=REVALUED -if-match "$tag"
+  tag=$ETAG
+  expect "the revaluation check" "$(field '"\(.check_result.passed) \([.check_result.ledgers[] | "\(.ledger_code) \(.key_date) \(.posted)"] | join(", "))"')" \
+    "true 0L $PREV-12-31 true, 2L $PREV-12-31 true"
+  say "No asset had anything to depreciate in any period of $PREV, in either ledger:"
+  api 200 "$result" checkYearCloseTask -p "id=$close" -p code=DEPRECIATED -if-match "$tag"
+  tag=$ETAG
+  expect "the depreciation check" "$(field '"\(.check_result.passed) \(.check_result.ledger_periods_count) \(.status)"')" "true 0 done"
+  say "The carry-forward is current: $PREV was carried forward again after the late adjustment."
+  api 200 "$result" checkYearCloseTask -p "id=$close" -p code=CARRIED_FORWARD -if-match "$tag"
+  tag=$ETAG
+  expect "the carry-forward check" "$(field '"\(.check_result.passed) \([.check_result.ledgers[] | "\(.ledger_code) \(.stale)"] | join(", "))"')" \
+    "true 0L false, 2L false"
+  bank=$(account 100000)
+  expense=$(account 6000)
+  say "The auditors send one more adjustment, CAD 50.00 of legal fees. Carla opens special period 13 in each ledger,"
+  say "posts it and closes the period again:"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=100
+  for p in $(field '.items[] | select(.period == 13) | "\(.id)/\(.version)"'); do
+    api 200 '"  period \(.fiscal_year)/\(.period) of ledger \(.ledger_id[0:8])…: \(.status)"' openFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+  api 201 '"journal entry \(.document_number) of \(.posting_date), period \(.fiscal_year)/\(.fiscal_period): \(.header_text)"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$PREV-12-31\", \"posting_date\": \"$PREV-12-31\", \"fiscal_period\": 13, \"currency\": \"CAD\", \"header_text\": \"Late audit adjustment: legal fees\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"50.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-50.00\", \"currency\": \"CAD\"}}]}"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=100
+  for p in $(field '.items[] | select(.status == "open") | "\(.id)/\(.version)"'); do
+    api 200 '"  period \(.fiscal_year)/\(.period) of ledger \(.ledger_id[0:8])…: \(.status)"' closeFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+  say "The carry-forward check now fails: each ledger's run is stale, period 13 having been opened since it ran."
+  api 200 "$result" checkYearCloseTask -p "id=$close" -p code=CARRIED_FORWARD -if-match "$tag"
+  tag=$ETAG
+  expect "the carry-forward check after the late adjustment" \
+    "$(field '"\(.check_result.passed) \(.status) \([.check_result.ledgers[] | "\(.ledger_code) \(.stale) \([.opened_since[] | "\(.fiscal_year)/\(.period)"] | join(" "))"] | join(", "))"')" \
+    "false open 0L true $PREV/13, 2L true $PREV/13"
+  say "Carla carries $PREV forward again, and the check passes:"
+  api 201 '.items[] | "  \(.ledger_code): run \(.id[0:8])…, \(.status), stale: \(.stale), result \(.result_lc.amount) \(.result_lc.currency)"' \
+    runBalanceCarryForward -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $PREV}"
+  cp "$WORK/last.json" "$WORK/carry-forward-third.json"
+  local run
+  for run in $(jq -r '.items[] | "\(.ledger_code)=\(.id)"' "$WORK/carry-forward-third.json"); do
+    printf '%s\t%s carry-forward of %s, third\n' "${run#*=}" "${run%%=*}" "$PREV" >>"$WORK/names"
+  done
+  api 200 "$result" checkYearCloseTask -p "id=$close" -p code=CARRIED_FORWARD -if-match "$tag"
+  expect "the carry-forward check after the re-run" "$(field '"\(.check_result.passed) \(.status)"')" "true done"
+  expect "the runs it names, the new ones" "$(field '[.check_result.ledgers[].carry_forward_run_id] | sort | join(" ")')" \
+    "$(jq -r '[.items[].id] | sort | join(" ")' "$WORK/carry-forward-third.json")"
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -4386,7 +4773,7 @@ year_end_rerun() {
 # (T64c), its accrual proposals (T64e), its variances (T64h) and their
 # comments (T64i) and, last, its sign-off (T64d), which locks the period.
 step_close() {
-  heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off"
+  heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off, and the group's consolidated figures finalized"
   as ada
   say "Ada proposes the close template (ADR-0058 §3): the tasks every company's period close is given, each due"
   say "a number of business days after the period's last day (negative: before it), some waiting for others:"
@@ -4445,6 +4832,7 @@ step_close() {
   close_comments
   close_variance_agent
   close_sign_off
+  close_consolidation
   passed
 }
 
@@ -5230,6 +5618,54 @@ close_sign_off() {
   say "A manual entry dated in the period is refused: the period is locked."
   refused 409 ledger.period_not_open postJournalEntry \
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"A late courier charge\", \"lines\": [{\"account_id\": \"$(account 6000)\", \"amount\": {\"amount\": \"40.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$(account 211000)\", \"amount\": {\"amount\": \"-40.00\", \"currency\": \"CAD\"}, \"partner_id\": \"$SUPPLIER\"}]}"
+}
+
+# close_consolidation is finalizing the group's consolidation (T68g,
+# ADR-0059 §10), the end of step_close: after Maple's sign-off locked its
+# period, Carla closes and locks Acme Corp US's, runs the group MAPLE
+# again on the locked periods, discards step_consolidation's draft,
+# accepts the new run's open difference and finalizes it: the group's
+# consolidated figures of the period, by her, not stale.
+close_consolidation() {
+  local period us p draft run difference tag
+  period=$((10#${TODAY:5:2}))
+  as carla
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  us=$(field '.items[] | select(.code == "1000") | .id')
+  say "Maple's period is locked. Carla closes and locks Acme Corp US's period $YEAR-$period in its leading ledger, so that"
+  say "the group's figures can be finalized (ADR-0059 §10):"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$us" -p "fiscal_year=$YEAR" -p "ledger_id=$LEADING" -p page_size=100
+  p=$(field ".items[] | select(.period == $period) | \"\(.id)/\(.version)\"")
+  api 200 '"  period \(.fiscal_year)-\(.period) of Acme Corp US: \(.status)"' closeFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  api 200 '"  period \(.fiscal_year)-\(.period) of Acme Corp US: \(.status)"' lockFiscalPeriod -p "id=${p%/*}" -if-match "$ETAG"
+  QUIET=1 api 200 '' listConsolidationRuns -p group_code=MAPLE -p status=computed
+  draft=$(field '.items[0].id')
+  say "She runs the group again: the run reads both companies' figures from their locked periods."
+  api 202 '"operation \(.kind) \(.status): \(.resource)"' createConsolidationRun -body "{\"group_code\": \"MAPLE\", \"fiscal_year\": $YEAR, \"period\": $period}"
+  run=$(field '.resource | split("/") | last')
+  wait_op
+  api 200 '"run \(.status): \([.members[] | "\(.company_code) period \(.period_status) at version \(.period_version)"] | join(", ")); \([.difference_counts[] | "\(.count) \(.status)"] | join(", "))"' \
+    getConsolidationRun -p "id=$run"
+  expect "the new run" "$(field '"\(.status) \([.members[].period_status] | unique | join(" "))"')" "computed locked"
+  say "The draft of step 40, read from open periods, is discarded:"
+  QUIET=1 api 200 '' getConsolidationRun -p "id=$draft"
+  api 200 '"  run \(.id): \(.status)"' discardConsolidationRun -p "id=$draft" -if-match "$ETAG"
+  expect "the draft" "$(field .status)" discarded
+  QUIET=1 api 200 '' listIntercompanyDifferences -p "id=$run" -p status=open
+  difference=$(field '.items[0].id')
+  tag="\"$(field '.items[0].version')\""
+  say "The same rate difference is open in the new run; Carla accepts it again, and finalizes the run:"
+  api 200 '"  \(.elimination.code) \(.difference.amount) \(.difference.currency): \(.status) by \(.accepted_by_name)"' acceptIntercompanyDifference \
+    -p "id=$run" -p "difference_id=$difference" -if-match "$tag" -body '{"reason": "Rate difference, as in the draft"}'
+  QUIET=1 api 200 '' getConsolidationRun -p "id=$run"
+  api 200 '"run of \(.group_code) for \(.fiscal_year)-\(.period): \(.status), finalized by \(.finalized_by_name) at \(.finalized_at), stale \(.stale)"' \
+    finalizeConsolidationRun -p "id=$run" -if-match "$ETAG"
+  expect "the final run" "$(field '"\(.status) \(.finalized_by_name) \(.stale)"')" "final Carla Controller false"
+  api 200 '"\(.statement), run \(.run_status), stale \(.stale): assets \(.totals.assets.consolidated.amount), profit \(.totals.profit.consolidated.amount) \(.group_currency)"' \
+    getConsolidatedStatement -p "id=$run" -p statement=balance_sheet -p page_size=500
+  expect "the final run's statement" "$(field '"\(.run_status) \(.stale)"')" "final false"
+  api 200 '"final runs of MAPLE: \([.items[] | "\(.fiscal_year)-\(.period) by \(.finalized_by_name)"] | join(", "))"' listConsolidationRuns -p group_code=MAPLE -p status=final
+  expect "the group's final runs" "$(field '.items | length')" 1
 }
 
 # step_cash_actuals is the statement lines of the week classified by

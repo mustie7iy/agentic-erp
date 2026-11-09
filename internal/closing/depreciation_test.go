@@ -242,7 +242,7 @@ func TestDepreciationCheckFailures(t *testing.T) {
 	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "DEPRECIATED", call)
 	h.Depreciation = brokenDepreciation{}
 	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, call)
-	if err == nil || !strings.Contains(err.Error(), "closing: depreciation of ledger 0L: the assets context is down") {
+	if err == nil || !strings.Contains(err.Error(), "closing: depreciation of ledger 0L in 2026/1: the assets context is down") {
 		t.Errorf("the assets context failing: got %v, want its error", err)
 	}
 }

@@ -2,6 +2,7 @@ package workflows
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -48,11 +49,13 @@ type EInvoiceFailure struct {
 	Code string `json:"code"`
 }
 
-// EInvoiceCounts are what a fetch found: the messages it recorded and
-// those recorded by an earlier fetch.
+// EInvoiceCounts are what a fetch found: the messages it recorded, those
+// recorded by an earlier fetch, and those recorded before that it found
+// with other bytes.
 type EInvoiceCounts struct {
 	Recorded        int `json:"recorded"`
 	AlreadyRecorded int `json:"already_recorded"`
+	Changed         int `json:"changed"`
 }
 
 // Within runs fn in one transaction of the fetch's tenant as its
@@ -61,13 +64,16 @@ type EInvoiceCounts struct {
 type Within = func(ctx context.Context, fn func(ctx context.Context) error) error
 
 // EInvoices is a fetch's work as the einvoicing context does it (ADR-0061
-// §4), each step idempotent: the fetch's principal, the messages pending at
-// the connector's provider, recording one (its outcome: recorded or
-// already_recorded), and ending the Operation, with its counts and the
-// messages not fetched, or with the problem that stopped it. Finish and
-// Fail run in the transaction the caller set up.
+// §4), each step idempotent: the fetch's principal, the Operation of a
+// scheduled fetch recorded under the id its workflow chose, the messages
+// pending at the connector's provider, recording one (its outcome:
+// recorded, already_recorded or changed), and ending the Operation, with
+// its counts and the messages not fetched, or with the problem that
+// stopped it. Queue, Finish and Fail run in the transaction the caller set
+// up.
 type EInvoices interface {
 	Fetcher(tenant uuid.UUID) reqctx.Principal
+	QueueEInvoiceFetch(ctx context.Context, operation, connector uuid.UUID, workflowID string) error
 	PendingEInvoices(ctx context.Context, connector uuid.UUID, in Within) ([]EInvoiceMessage, error)
 	RecordEInvoice(ctx context.Context, connector, operation uuid.UUID, m EInvoiceMessage, in Within) (string, error)
 	FinishEInvoiceFetch(ctx context.Context, operation uuid.UUID, counts EInvoiceCounts, failed []EInvoiceFailure) error
@@ -86,9 +92,36 @@ const EInvoiceFetchWorkflow = "FetchEInvoices"
 
 // EInvoiceFetchWorkflowID is the id of an on-demand fetch's workflow:
 // {tenant}-einvoice_fetch-{operation} (ADR-0012, the Operation as business
-// key; the scheduled fetch of T65b names the connector and its period).
+// key; a scheduled fetch's names the connector and its period).
 func EInvoiceFetchWorkflowID(tenant, operation uuid.UUID) string {
 	return fmt.Sprintf("%s-einvoice_fetch-%s", tenant, operation)
+}
+
+// ScheduledEInvoiceFetchWorkflow is the registered name of
+// ScheduledEInvoiceFetch.
+const ScheduledEInvoiceFetchWorkflow = "ScheduledEInvoiceFetch"
+
+// ScheduledEInvoiceFetchWorkflowID is the id of a scheduled fetch's
+// workflow: {tenant}-connector-{connector}-einvoices-{period's Unix time},
+// naming the connector and the period, so the engine starts each period's
+// fetch once however many replicas dispatch it (ADR-0061 §4, ADR-0047's
+// pattern).
+func ScheduledEInvoiceFetchWorkflowID(tenant, connector uuid.UUID, period time.Time) string {
+	return fmt.Sprintf("%s-connector-%s-einvoices-%d", tenant, connector, period.Unix())
+}
+
+// ScheduledEInvoiceFetchInput is the fetch the dispatcher starts for the
+// connector and period: its Operation's id is a UUIDv7 whose time is the
+// period's start and whose other bits derive from the tenant, connector
+// and period, so the same fetch always has the same Operation, ordered
+// among the others by its period (operation ids are time-ordered).
+func ScheduledEInvoiceFetchInput(tenant, connector uuid.UUID, period time.Time) EInvoiceFetchInput {
+	id := uuid.NewSHA1(uuid.NameSpaceURL, fmt.Appendf(nil, "urn:agentic-erp:einvoice-fetch:%s:%s:%d", tenant, connector, period.Unix()))
+	var ms [8]byte
+	binary.BigEndian.PutUint64(ms[:], uint64(period.UnixMilli()))
+	copy(id[:6], ms[2:])
+	id[6] = 0x70 | id[6]&0x0f // version 7; NewSHA1 set the RFC 9562 variant
+	return EInvoiceFetchInput{TenantID: tenant, ConnectorID: connector, OperationID: id}
 }
 
 // fetchSteps are a fetch's steps. The workflow runs each as an activity
@@ -141,6 +174,8 @@ func (s fetchSteps) run() error {
 			failed = append(failed, failure(m.ID, err))
 		case outcome == "recorded":
 			counts.Recorded++
+		case outcome == "changed":
+			counts.Changed++
 		default:
 			counts.AlreadyRecorded++
 		}
@@ -158,39 +193,55 @@ func (s fetchSteps) run() error {
 	return nil
 }
 
+// fetchOptions are a fetch's steps' options: five tries with backoff on an
+// error of the machinery, none on a business problem.
+var fetchOptions = workflow.ActivityOptions{StartToCloseTimeout: 5 * time.Minute,
+	RetryPolicy: &temporal.RetryPolicy{InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: time.Minute, MaximumAttempts: 5,
+		NonRetryableErrorTypes: []string{ProblemError}}}
+
 // FetchEInvoices carries out a fetch. Each step is tried five times with
 // backoff on an error of the machinery (the provider unreachable, the store
 // or the database failing), as the other workflows' (ADR-0012); a business
 // problem is not retried. Ending the Operation is tried until it is
-// recorded (recording), so a fetch always ends.
-//
-// The steps return Future.Get's error unwrapped: it is the workflow result,
-// and the engine records Get's ActivityError, which carries the activity
-// type and id, as the failure; a wrap would put a generic wrapError failure
-// on top and add no context.
+// recorded (recording), so a fetch always ends. Each step runs through
+// perform, so a fetch whose tenant is suspended waits until it is active
+// again (po:2026-11-09), and its errors are perform's, unwrapped.
 func FetchEInvoices(ctx workflow.Context, in EInvoiceFetchInput) error {
-	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{StartToCloseTimeout: 5 * time.Minute,
-		RetryPolicy: &temporal.RetryPolicy{InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: time.Minute, MaximumAttempts: 5,
-			NonRetryableErrorTypes: []string{ProblemError}}})
+	ctx = workflow.WithActivityOptions(ctx, fetchOptions)
 	var a *EInvoiceFetches
 	return fetchSteps{
 		pending: func() ([]EInvoiceMessage, error) {
 			var messages []EInvoiceMessage
-			err := workflow.ExecuteActivity(ctx, a.PendingEInvoices, in).Get(ctx, &messages)
-			return messages, err //nolint:wrapcheck // the workflow result, see FetchEInvoices
+			err := perform(ctx, in.TenantID, &messages, a.PendingEInvoices, in)
+			return messages, err
 		},
 		record: func(m EInvoiceMessage) (string, error) {
 			var outcome string
-			err := workflow.ExecuteActivity(ctx, a.RecordEInvoice, in, m).Get(ctx, &outcome)
-			return outcome, err //nolint:wrapcheck // the workflow result, see FetchEInvoices
+			err := perform(ctx, in.TenantID, &outcome, a.RecordEInvoice, in, m)
+			return outcome, err
 		},
 		finish: func(counts EInvoiceCounts, failed []EInvoiceFailure) error {
-			return workflow.ExecuteActivity(recording(ctx), a.FinishEInvoiceFetch, in, counts, failed).Get(ctx, nil)
+			return perform(recording(ctx), in.TenantID, nil, a.FinishEInvoiceFetch, in, counts, failed)
 		},
 		fail: func(why problem.Problem) error {
-			return workflow.ExecuteActivity(recording(ctx), a.FailEInvoiceFetch, in, why).Get(ctx, nil)
+			return perform(recording(ctx), in.TenantID, nil, a.FailEInvoiceFetch, in, why)
 		},
 	}.run()
+}
+
+// ScheduledEInvoiceFetch carries out the fetch the dispatcher starts once
+// per period for an active connector (ADR-0061 §4): it records the
+// Operation under the id the input names, naming this workflow
+// (QueueEInvoiceFetch, idempotent), and then fetches as FetchEInvoices
+// does, the documents and counts under that Operation. Its steps wait
+// while the tenant is not active, as FetchEInvoices' do (perform).
+func ScheduledEInvoiceFetch(ctx workflow.Context, in EInvoiceFetchInput) error {
+	queue := workflow.WithActivityOptions(ctx, fetchOptions)
+	var a *EInvoiceFetches
+	if err := perform(queue, in.TenantID, nil, a.QueueEInvoiceFetch, in, workflow.GetInfo(ctx).WorkflowExecution.ID); err != nil {
+		return err
+	}
+	return FetchEInvoices(ctx, in)
 }
 
 // EInvoiceFetches holds the fetch's activities: each runs its step of the
@@ -207,7 +258,7 @@ type EInvoiceFetches struct {
 }
 
 func (f *EInvoiceFetches) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	return database.BeginOr(ctx, f.Pool, f.Begin, s)
+	return database.BeginActive(ctx, f.Pool, f.Begin, s)
 }
 
 // within is the fetch's Within: a transaction of its tenant as the
@@ -219,6 +270,14 @@ func (f *EInvoiceFetches) within(in EInvoiceFetchInput) Within {
 			return f.Fetches.Fetcher(in.TenantID), true, nil
 		}, fn)
 	}
+}
+
+// QueueEInvoiceFetch records a scheduled fetch's Operation, naming its
+// workflow.
+func (f *EInvoiceFetches) QueueEInvoiceFetch(ctx context.Context, in EInvoiceFetchInput, workflowID string) error {
+	return asProblem(f.within(in)(ctx, func(ctx context.Context) error {
+		return f.Fetches.QueueEInvoiceFetch(ctx, in.OperationID, in.ConnectorID, workflowID)
+	}))
 }
 
 // PendingEInvoices lists the messages the connector's provider holds.

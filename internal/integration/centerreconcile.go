@@ -60,11 +60,12 @@ func (rc *reconciler) readCenters(ctx context.Context) (*centerStates, error) {
 // centers compares the company's cost and profit centers (ADR-0050 §10)
 // where either side has any: how many there are, SAP's of the company
 // against the platform's active ones that runs loaded in it, and each
-// one's periods as SAP's slices give them against the platform's.
-func (rc *reconciler) centers(ctx context.Context, s companyScope) error {
+// one's periods as SAP's slices give them against the platform's. It
+// returns the centers runs loaded, which the center totals read too.
+func (rc *reconciler) centers(ctx context.Context, s companyScope) (*centerStates, error) {
 	st, err := rc.readCenters(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	sapCost, sapProfit := map[string]string{}, map[string]string{}
 	for _, c := range costCenters(rc.ext) {
@@ -96,7 +97,7 @@ func (rc *reconciler) centers(ctx context.Context, s companyScope) error {
 	}
 	rc.compareCenters(s.cc, "Cost centers", "cost center ", sapCost, platformCost)
 	rc.compareCenters(s.cc, "Profit centers", "profit center ", sapProfit, platformProfit)
-	return nil
+	return st, nil
 }
 
 // compareCenters adds the count and the differences of one kind of center,

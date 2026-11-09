@@ -380,7 +380,7 @@ func TestFinishEInvoiceFetch(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got, want := state(done), `succeeded /v1/e-invoices?fetch_operation_id=`+done.String()+` {"recorded": 2, "already_recorded": 1} -`; got != want {
+	if got, want := state(done), `succeeded /v1/e-invoices?fetch_operation_id=`+done.String()+` {"changed": 0, "recorded": 2, "already_recorded": 1} -`; got != want {
 		t.Errorf("a fetch done: got %s, want %s", got, want)
 	}
 	incomplete := s.fetch(t, s.connector)

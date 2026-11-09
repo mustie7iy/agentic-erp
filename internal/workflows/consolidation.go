@@ -139,20 +139,20 @@ func ConsolidationRun(ctx workflow.Context, in ConsolidationInput) error {
 	return consolidationSteps{
 		prepare: func() ([]uuid.UUID, error) {
 			var companies []uuid.UUID
-			err := workflow.ExecuteActivity(ctx, a.PrepareConsolidationRun, in).Get(ctx, &companies)
-			return companies, err //nolint:wrapcheck // the workflow result, see ConsolidationRun
+			err := perform(ctx, in.TenantID, &companies, a.PrepareConsolidationRun, in)
+			return companies, err
 		},
 		translate: func(company uuid.UUID) error {
-			return workflow.ExecuteActivity(ctx, a.TranslateMember, in, company).Get(ctx, nil)
+			return perform(ctx, in.TenantID, nil, a.TranslateMember, in, company)
 		},
 		eliminate: func() error {
-			return workflow.ExecuteActivity(ctx, a.EliminateConsolidationRun, in).Get(ctx, nil)
+			return perform(ctx, in.TenantID, nil, a.EliminateConsolidationRun, in)
 		},
 		complete: func() error {
-			return workflow.ExecuteActivity(ctx, a.CompleteConsolidationRun, in).Get(ctx, nil)
+			return perform(ctx, in.TenantID, nil, a.CompleteConsolidationRun, in)
 		},
 		fail: func(why problem.Problem) error {
-			return workflow.ExecuteActivity(recording(ctx), a.FailConsolidationRun, in, why).Get(ctx, nil)
+			return perform(recording(ctx), in.TenantID, nil, a.FailConsolidationRun, in, why)
 		},
 		final: true,
 	}.run()
@@ -173,7 +173,7 @@ type Consolidations struct {
 }
 
 func (c *Consolidations) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	return database.BeginOr(ctx, c.Pool, c.Begin, s)
+	return database.BeginActive(ctx, c.Pool, c.Begin, s)
 }
 
 // step runs fn in one transaction of the run's tenant as its requester; a

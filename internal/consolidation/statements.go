@@ -37,9 +37,8 @@ type statementCursor struct {
 
 // columns are a statement row's or total's amounts in the group
 // currency's minor units, debit positive: the companies' translated rows
-// summed and the run's eliminations. A run has no eliminations until
-// T68f and T68h build its entries (ADR-0059 §8, §9), so eliminations
-// stays zero until then.
+// summed and the run's elimination entries' lines summed (ADR-0059 §8,
+// §9).
 type columns struct {
 	reported, eliminations money.Minor
 }
@@ -89,23 +88,14 @@ func (e *Endpoints) GetConsolidatedStatement(ctx context.Context, params gen.Get
 			return nil, err
 		}
 	}
-	doc, err := e.version(ctx, r.ConfigVersion)
-	if err != nil {
-		return nil, fmt.Errorf("consolidation: configuration version %d of run %s: %w", r.ConfigVersion, r.ID, err)
-	}
-	sums, err := accountSums(ctx, tx, r)
+	s, stale, err := e.statementOf(ctx, tx, r)
 	if err != nil {
 		return nil, err
 	}
-	exp, err := currency.Exponent(ctx, tx, r.GroupCurrency, nil)
-	if err != nil {
-		return nil, fmt.Errorf("consolidation: currency %s: %w", r.GroupCurrency, err)
-	}
 	// The run's configuration version never changes and was activated
 	// with its group (validation), so Group is never nil, as runAPI reads it.
-	s := statement{chart: doc.Consolidation, sums: sums, group: r.GroupCurrency, exp: exp}
-	out := gen.ConsolidatedStatement{RunID: r.ID, GroupCode: r.GroupCode, GroupName: doc.Consolidation.Group(r.GroupCode).Name, FiscalYear: int32(r.FiscalYear),
-		Period: int32(r.Period), PeriodEnd: r.PeriodEnd, RunStatus: r.Status, Statement: params.Statement, GroupCurrency: r.GroupCurrency,
+	out := gen.ConsolidatedStatement{RunID: r.ID, GroupCode: r.GroupCode, GroupName: s.chart.Group(r.GroupCode).Name, FiscalYear: int32(r.FiscalYear),
+		Period: int32(r.Period), PeriodEnd: r.PeriodEnd, RunStatus: r.Status, Stale: stale, Statement: params.Statement, GroupCurrency: r.GroupCurrency,
 		Items: []gen.ConsolidatedStatementRow{}, Totals: s.totals(params.Statement)}
 	for _, a := range s.accounts(types) {
 		if params.PageToken.Set && a.Number <= after.Number {
@@ -121,14 +111,43 @@ func (e *Endpoints) GetConsolidatedStatement(ctx context.Context, params gen.Get
 	return &out, nil
 }
 
-// accountSums are a run's translated rows summed per group account.
+// statementOf reads what a run's statements are computed from: the group
+// chart of the version it read, its figures per group account and the
+// group currency's minor units; and whether the run is stale (ADR-0059
+// §10), which a computed, final or superseded run, every company of it
+// translated, always knows.
+func (e *Endpoints) statementOf(ctx context.Context, tx pgx.Tx, r Run) (statement, bool, error) {
+	doc, err := e.version(ctx, r.ConfigVersion)
+	if err != nil {
+		return statement{}, false, fmt.Errorf("consolidation: configuration version %d of run %s: %w", r.ConfigVersion, r.ID, err)
+	}
+	stale, _, err := e.staleOf(ctx, tx, r)
+	if err != nil {
+		return statement{}, false, err
+	}
+	sums, err := accountSums(ctx, tx, r)
+	if err != nil {
+		return statement{}, false, err
+	}
+	exp, err := currency.Exponent(ctx, tx, r.GroupCurrency, nil)
+	if err != nil {
+		return statement{}, false, fmt.Errorf("consolidation: currency %s: %w", r.GroupCurrency, err)
+	}
+	return statement{chart: doc.Consolidation, sums: sums, group: r.GroupCurrency, exp: exp}, stale, nil
+}
+
+// accountSums are a run's translated rows and its elimination entries'
+// lines summed per group account.
 func accountSums(ctx context.Context, tx pgx.Tx, r Run) (map[string]columns, error) {
-	rows, _ := tx.Query(ctx, `SELECT group_account, sum(amount_gc)::bigint FROM consolidation.run_balance WHERE run_id = $1 GROUP BY group_account`, r.ID)
+	rows, _ := tx.Query(ctx, `SELECT group_account, sum(reported)::bigint, sum(eliminated)::bigint FROM (
+			SELECT group_account, amount_gc AS reported, 0 AS eliminated FROM consolidation.run_balance WHERE run_id = $1
+			UNION ALL SELECT group_account, 0, amount_gc FROM consolidation.run_entry_line WHERE run_id = $1) x
+		GROUP BY group_account`, r.ID)
 	out := map[string]columns{}
 	var account string
-	var sum money.Minor
-	_, err := pgx.ForEachRow(rows, []any{&account, &sum}, func() error {
-		out[account] = columns{reported: sum}
+	var c columns
+	_, err := pgx.ForEachRow(rows, []any{&account, &c.reported, &c.eliminations}, func() error {
+		out[account] = c
 		return nil
 	})
 	if err != nil {

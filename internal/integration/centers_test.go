@@ -36,7 +36,8 @@ func centerSetup(t *testing.T) env {
 // SEG1; profit center P1 of companies 2000 and 1000, locked from
 // 2026-10-01; cost center C1 of 2000 with P1, locked for actual revenues
 // until 2026-06-30, and C2 (SALES), without a profit center, named in
-// German only.
+// German only. Its office supplies (ACDOCA 0100000001/000001) are on C1
+// with P1 and SEG1 (T56h4).
 func centersTiny() *sap.Extract {
 	x := tiny()
 	x.T001 = append(x.T001, sap.T001{BUKRS: "1000", BUTXT: "Acme Corp US", WAERS: "USD", LAND1: "US"})
@@ -52,6 +53,7 @@ func centersTiny() *sap.Extract {
 		{KOKRS: "A1", KOSTL: "C2", DATAB: "20260101", DATBI: "99991231", BUKRS: "2000", KOSAR: "SALES", VERAK: "Cy"}}
 	x.CSKT = []sap.CSKT{{KOKRS: "A1", KOSTL: "C1", DATBI: "99991231", SPRAS: "E", KTEXT: "Finance"},
 		{KOKRS: "A1", KOSTL: "C2", DATBI: "99991231", SPRAS: "D", KTEXT: "Vertrieb"}}
+	x.ACDOCA[0].RCNTR, x.ACDOCA[0].PRCTR, x.ACDOCA[0].SEGMENT = "C1", "P1", "SEG1"
 	return x
 }
 

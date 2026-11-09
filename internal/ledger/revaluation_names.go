@@ -21,6 +21,24 @@ type PartnerNames interface {
 // PartnerName is what a partner is known by.
 type PartnerName struct{ Number, Name string }
 
+// nameRevaluation names a revaluation's items and totals: the open items'
+// partners and entries (nameItems), and the trading partners of items and
+// totals, by company code and name to a caller who may act in the company
+// only, as a journal line's are (nameTradingPartners).
+func (e *Endpoints) nameRevaluation(ctx context.Context, items []gen.RevaluationItem, totals []gen.RevaluationTotal) error {
+	if err := e.nameItems(ctx, items); err != nil {
+		return err
+	}
+	partners := make([]*gen.OptTradingPartner, 0, len(items)+len(totals))
+	for i := range items {
+		partners = append(partners, &items[i].TradingPartner)
+	}
+	for i := range totals {
+		partners = append(partners, &totals[i].TradingPartner)
+	}
+	return e.nameTradingPartners(ctx, partners)
+}
+
 // nameItems names a revaluation's open items: each partner by its number
 // and name as they are now, and each entry by its document number, read
 // once for all the items. An id that names nothing is left unnamed, and

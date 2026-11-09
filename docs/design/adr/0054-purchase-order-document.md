@@ -182,7 +182,14 @@ stored, or whether producing it is audited.
   longer than an address holds is warned of by the quality gate and the
   supplier loads without one: the run never fails on it. A supplier an
   earlier run created is only extended with companies, so it keeps the
-  address it has. The configuration draft generated from SAP (sapconfig)
+  address it has. **Answered by the SAP specialist (po:2026-11-09, A1,
+  [H]):** the LFA1 fields exist but are a redundant copy of the central
+  address, and LFA1-STRAS (35 characters) holds street and house number
+  together; the authoritative address is ADRC (STREET, HOUSE_NUM1, CITY1,
+  POST_CODE1, REGION, COUNTRY) by LFA1-ADRNR = ADRC-ADDRNUMBER, with NATION
+  blank and the cutover date between DATE_FROM and DATE_TO
+  (docs/migration.md). Reading the address from ADRC is a tracker leaf.
+  The configuration draft generated from SAP (sapconfig)
   carries no company address: its reviewers enter it in the draft (where
   SAP keeps a company code's address is not read; no tracker item, as the
   product owner placed the address in configuration).
