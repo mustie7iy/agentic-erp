@@ -36,7 +36,7 @@ func MigrateRun(ctx workflow.Context, in MigrateInput) error {
 	ao := workflow.ActivityOptions{StartToCloseTimeout: 2 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: time.Minute, MaximumAttempts: 5}}
 	var a *Migrations
-	return workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), a.Execute, in).Get(ctx, nil) //nolint:wrapcheck // workflow result: the engine records Future.Get's ActivityError, which carries the activity type and id, as the failure; a wrap would put a generic wrapError failure on top and add no context
+	return perform(workflow.WithActivityOptions(ctx, ao), in.TenantID, nil, a.Execute, in)
 }
 
 // Actors reads who deferred work acts as: the person who queued it
@@ -95,7 +95,7 @@ type Migrations struct {
 }
 
 func (m *Migrations) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	return database.BeginOr(ctx, m.Pool, m.Begin, s)
+	return database.BeginActive(ctx, m.Pool, m.Begin, s)
 }
 
 // Execute does the run's work as the operation's requester, in one

@@ -843,7 +843,9 @@ Decisions taken while building it:
   suspended tenant's queued payment release still ran); since the
   2026-11-09 fix every worker round that reads work across tenants takes
   only active tenants' (`database.ActiveTenants`) and leaves the rest where
-  it is until the tenant is active again (ADR-0015, As built).
+  it is until the tenant is active again, and a workflow already running
+  waits at its next step (`database.BeginActive`, po:2026-11-09) and
+  carries on once the tenant is active again (ADR-0015, As built).
 
 Open points for the contract and design review:
 

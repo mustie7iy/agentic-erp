@@ -93,7 +93,7 @@ type SimulationWorker struct {
 }
 
 func (w *SimulationWorker) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	return database.BeginOr(ctx, w.Pool, w.Begin, s)
+	return database.BeginActive(ctx, w.Pool, w.Begin, s)
 }
 
 // tenants returns the tenants with queued simulations.

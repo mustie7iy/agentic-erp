@@ -139,17 +139,17 @@ func DepreciationRun(ctx workflow.Context, in DepreciationInput) error {
 	return depreciationSteps{
 		plan: func() ([]int32, error) {
 			var batches []int32
-			err := workflow.ExecuteActivity(ctx, a.PlanDepreciationRun, in).Get(ctx, &batches)
-			return batches, err //nolint:wrapcheck // the workflow result, see DepreciationRun
+			err := perform(ctx, in.TenantID, &batches, a.PlanDepreciationRun, in)
+			return batches, err
 		},
 		post: func(batch int32) error {
-			return workflow.ExecuteActivity(ctx, a.PostDepreciationBatch, in, batch).Get(ctx, nil)
+			return perform(ctx, in.TenantID, nil, a.PostDepreciationBatch, in, batch)
 		},
 		finish: func() error {
-			return workflow.ExecuteActivity(ctx, a.FinishDepreciationRun, in).Get(ctx, nil)
+			return perform(ctx, in.TenantID, nil, a.FinishDepreciationRun, in)
 		},
 		fail: func(why problem.Problem) error {
-			return workflow.ExecuteActivity(recording(ctx), a.FailDepreciationRun, in, why).Get(ctx, nil)
+			return perform(recording(ctx), in.TenantID, nil, a.FailDepreciationRun, in, why)
 		},
 		final: true,
 	}.run()
@@ -170,7 +170,7 @@ type Depreciations struct {
 }
 
 func (d *Depreciations) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	return database.BeginOr(ctx, d.Pool, d.Begin, s)
+	return database.BeginActive(ctx, d.Pool, d.Begin, s)
 }
 
 // as runs fn in one transaction of the run's tenant as its requester; a

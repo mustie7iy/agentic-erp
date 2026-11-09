@@ -112,6 +112,67 @@ daily cash snapshot is of the day's position, so a day missed while
 suspended is not taken afterwards; and without a workflow engine an
 in-process run already running (a release or a depreciation or
 consolidation run) pauses at its next step and goes on once the tenant is
-active again. A workflow already started before the suspension runs on: its activities'
-jobs (`uow.Job`) do not check the tenant's status. Whether a step should
-wait or fail for a tenant suspended mid-run is open for the product owner.
+active again.
+
+## As built: a running workflow waits while its tenant is suspended (po:2026-11-09)
+
+A workflow started before the suspension used to run on: its activities'
+transactions did not check the tenant's status, so a payment release
+started just before the suspension still posted. The product owner
+decided (po:2026-11-09) that the run waits: while the tenant is not
+active, its next step that does work on the tenant's behalf fails, to be
+tried again, and commits nothing; once the tenant is active again the run
+carries on where it stopped, and it never fails because of the
+suspension.
+
+The check is in one place, `database.BeginActive`: it begins as
+`database.BeginOr` does and, in a tenant's scope, reads the tenant's
+status in the transaction (the application role reads its own tenant's
+row under RLS), and for a tenant that is not active rolls back and returns
+a `*database.TenantInactiveError` naming the tenant and its status, an
+ordinary error, not a non-retryable application error. Every activity type of
+`internal/workflows` (payments, approvals, statements, recurring entries,
+cash snapshots, migrations, depreciation and consolidation runs) and the
+configuration simulation worker begin their transactions with it, so the
+check is not repeated in any activity; a scope without a tenant (a
+worker's read across tenants) is not checked. The status is read, not
+locked, as the unit of work reads it for a request: a step whose
+transaction began before the suspension committed may still commit, as a
+request in flight may; the next step waits.
+
+Retries: most steps' policies allow five attempts with backoff to a
+minute, which a suspension would spend in about fifteen seconds. Every
+workflow step therefore runs through `workflows.perform`, which adds
+`TenantInactiveError` (the type name the SDK gives the Go error) to the
+step's non-retryable types, so a step refused for its tenant goes to the
+workflow at once without spending its attempts. The workflow then runs
+`AwaitActive`, an activity that changes nothing, retried with no limit
+at most a minute apart, and once it succeeds runs the step again with its
+attempts whole. A step that wrapped the error is still recognised (the
+failure's chain is searched), after its policy's attempts. A suspension of
+any length therefore cannot exhaust the policy and fail the run; the
+engine records an activity's retries as one event, so a long suspension
+adds a few events to the history, not one per attempt. Other failures keep
+their policy's limit. The new commands follow only a
+failure that no activity returned before, so histories recorded earlier
+replay alike and no `workflow.GetVersion` is needed (the retry policy is
+not part of the command a replay matches). A release, migration,
+simulation, statement fetch, approval deadline, recurring entry or cash
+snapshot cancelled while it waits ends cancelled. Depreciation and
+consolidation runs, and a payment proposal's run after its cancellation,
+run their steps on a disconnected context so the run always ends
+(`DepreciationRun`, `ConsolidationRun`, `ProposePaymentRun`): they wait
+through a cancellation, and only the tenant's reactivation or terminating
+the workflow in the engine ends the wait.
+
+Not blocked: offboarding (export and erasure) begins its transactions
+with `database.BeginOr`, not `BeginActive`, and so do the outbox relay,
+bus consumers and the other workers listed above as not filtered. The
+in-process runners (releaser, depreciator, consolidator) call the same
+activity methods, so a run they carry stops at its next step when its
+tenant is suspended and is taken again by a later round once the tenant
+is active. Limits: a step of an offboarded tenant waits like a suspended
+one's, until the tenant is active again or the workflow is cancelled
+(where cancelling ends the wait, above) or terminated in the engine; a
+cash snapshot whose workflow waited is taken after the reactivation, as
+one delayed by an outage of the database is.

@@ -121,17 +121,17 @@ func ReleasePaymentRun(ctx workflow.Context, in ReleaseInput) error {
 	return releaseSteps{
 		toPost: func() ([]uuid.UUID, error) {
 			var todo []uuid.UUID
-			err := workflow.ExecuteActivity(ctx, a.PaymentsToPost, in).Get(ctx, &todo)
-			return todo, err //nolint:wrapcheck // the workflow result, see ReleasePaymentRun
+			err := perform(ctx, in.TenantID, &todo, a.PaymentsToPost, in)
+			return todo, err
 		},
 		post: func(pay uuid.UUID) error {
-			return workflow.ExecuteActivity(ctx, a.PostPayment, in, pay).Get(ctx, nil)
+			return perform(ctx, in.TenantID, nil, a.PostPayment, in, pay)
 		},
 		finish: func() error {
-			return workflow.ExecuteActivity(ctx, a.FinishRelease, in).Get(ctx, nil)
+			return perform(ctx, in.TenantID, nil, a.FinishRelease, in)
 		},
 		fail: func(why problem.Problem) error {
-			return workflow.ExecuteActivity(recording(ctx), a.FailRelease, in, why).Get(ctx, nil)
+			return perform(recording(ctx), in.TenantID, nil, a.FailRelease, in, why)
 		},
 	}.run()
 }

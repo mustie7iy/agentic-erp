@@ -1727,7 +1727,7 @@ func TestEscalateGuard(t *testing.T) {
 	})
 	t.Run("request not visible", func(t *testing.T) {
 		other := in
-		other.TenantID = uuid.New() // RLS hides the request from another tenant's scope
+		other.TenantID = pgtest.NewTenant(t).ID // RLS hides the request from another tenant's scope
 		if escalated, err := a.Escalate(context.Background(), workflows.EscalateInput{DeadlineInput: other, Prior: new(int16)}); err != nil || escalated {
 			t.Errorf("got %v, %v, want false, nil", escalated, err)
 		}
@@ -1740,7 +1740,7 @@ func TestEscalateGuard(t *testing.T) {
 			if err != nil {
 				return nil, err
 			}
-			return &pgtest.FailingTx{Tx: tx, FailAt: 3, Count: &count}, nil // set actor, guarded update, read
+			return &pgtest.FailingTx{Tx: tx, FailAt: 4, Count: &count}, nil // tenant status, set actor, guarded update, read
 		}}
 		stale := int16(0)
 		if _, err := a.Escalate(context.Background(), workflows.EscalateInput{DeadlineInput: in, Prior: &stale}); !errors.Is(err, pgtest.ErrInjected) {

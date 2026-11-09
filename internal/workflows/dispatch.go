@@ -337,7 +337,11 @@ func (d *Dispatcher) Run(ctx context.Context) {
 	}, d.Log, "workflow dispatch failed")
 }
 
-// Register registers the workflows and activities a cell's worker hosts.
+// Register registers the workflows and activities a cell's worker hosts:
+// with them AwaitActive, which every workflow's steps wait in while their
+// tenant is not active (perform), reading the status with the payment
+// activities' pool, role and Begin (a test's failures injected there
+// reach it too, as intended: it is the same database).
 func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a *Approvals, st *Statements, rc *Recurrences, sn *Snapshots, d *Depreciations,
 	c *Consolidations) {
 	r.RegisterWorkflowWithOptions(ProposePaymentRun, sdkworkflow.RegisterOptions{Name: ProposeWorkflow})
@@ -345,6 +349,7 @@ func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a
 	r.RegisterWorkflowWithOptions(SimulateChange, sdkworkflow.RegisterOptions{Name: SimulateWorkflow})
 	r.RegisterWorkflowWithOptions(MigrateRun, sdkworkflow.RegisterOptions{Name: MigrateWorkflow})
 	r.RegisterActivity(p)
+	r.RegisterActivity(&Tenants{Pool: p.Pool, AppRole: p.AppRole, Begin: p.Begin})
 	r.RegisterActivity(s)
 	r.RegisterWorkflowWithOptions(ApprovalDeadline, sdkworkflow.RegisterOptions{Name: DeadlineWorkflow})
 	r.RegisterActivity(m)

@@ -152,6 +152,49 @@ func BeginOr(ctx context.Context, pool *Pool, begin BeginFunc, s Scope) (pgx.Tx,
 	return pool.Begin(ctx, s)
 }
 
+// TenantInactiveError is why BeginActive refused a transaction: the
+// scope's tenant is not active (ADR-0015). It carries its own context
+// rather than being wrapped, so an activity that returns it as it is fails
+// with it outermost: its type name is what the workflow engine names that
+// failure and what a retry policy can match (workflows.TenantInactive), so
+// it is not renamed lightly.
+type TenantInactiveError struct {
+	Tenant uuid.UUID
+	Status string // suspended, provisioning or offboarded
+}
+
+func (e *TenantInactiveError) Error() string {
+	return fmt.Sprintf("database: tenant %s is %s, not active", e.Tenant, e.Status)
+}
+
+// BeginActive starts a transaction as BeginOr does and, in a tenant's
+// scope, only while the tenant is active: for one that is not, the
+// transaction is rolled back and a *TenantInactiveError returned, which a
+// workflow's step passes on as a failure to try again later
+// (po:2026-11-09: a running workflow waits while its tenant is suspended,
+// ADR-0015 As built). A scope without a tenant (a worker's read across
+// tenants) is not checked. The status is read, not locked, as the unit of
+// work reads it for a request: a step whose transaction began before a
+// suspension committed may still commit, as a request in flight may.
+func BeginActive(ctx context.Context, pool *Pool, begin BeginFunc, s Scope) (pgx.Tx, error) {
+	tx, err := BeginOr(ctx, pool, begin, s)
+	if err != nil || s.TenantID == uuid.Nil {
+		return tx, err
+	}
+	var status string
+	if err := tx.QueryRow(ctx, `SELECT status FROM tenancy.tenant WHERE id = $1`, s.TenantID).Scan(&status); err != nil {
+		// Best effort: the read's error is the one returned; a failed rollback
+		// only means the connection is discarded, which ends the transaction too.
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+		return nil, fmt.Errorf("database: read the status of tenant %s: %w", s.TenantID, err)
+	}
+	if status != "active" {
+		_ = tx.Rollback(context.WithoutCancel(ctx)) // best effort, as above
+		return nil, &TenantInactiveError{Tenant: s.TenantID, Status: status}
+	}
+	return tx, nil
+}
+
 func (p *Pool) setup(ctx context.Context, tx pgx.Tx, s Scope) error {
 	tenant := ""
 	if s.TenantID != uuid.Nil {
