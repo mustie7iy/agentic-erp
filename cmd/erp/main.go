@@ -428,6 +428,22 @@ func parseSource(s string) (sap.Source, error) {
 	return nil, fmt.Errorf("invalid -source %q: want file:PATH or odata:URL", s)
 }
 
+// externalAmounts says whether a source's amounts are in SAP's external
+// form: an OData source's always, a file extract's when -amount-format
+// says so (docs/migration.md, "Amounts in SAP's internal form").
+func externalAmounts(src sap.Source, form string) (bool, error) {
+	_, odata := src.(*sap.ODataSource)
+	switch {
+	case form == "":
+		return odata, nil
+	case form == "external":
+		return true, nil
+	case form == "internal" && !odata:
+		return false, nil
+	}
+	return false, fmt.Errorf(`invalid -amount-format %q: want "internal" or "external" for a file extract; OData's amounts are external`, form)
+}
+
 // configGenerate drafts a configuration document from SAP customizing, for
 // a change request (erp agent config -draft, or erp call createChangeRequest).
 func configGenerate(ctx context.Context, args []string) error {
@@ -437,6 +453,7 @@ func configGenerate(ctx context.Context, args []string) error {
 	year := fs.String("year", "2026", "fiscal year (for the extract)")
 	outPath := fs.String("out", "data/config-draft.yaml", "where to write the draft")
 	zones := fs.String("time-zone", "", "comma-separated CODE=ZONE, each company's IANA time zone (e.g. 3000=America/Toronto); SAP's extract has none")
+	form := fs.String("amount-format", "", `the form of a file extract's amounts: "internal" (the default, SAP's stored form, converted with the extract's TCURX) or "external"; OData's are external`)
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -445,6 +462,9 @@ func configGenerate(ctx context.Context, args []string) error {
 		return err
 	}
 	opts := sapconfig.DefaultOptions()
+	if opts.ExternalAmounts, err = externalAmounts(src, *form); err != nil {
+		return err
+	}
 	if opts.TimeZones, err = parseZones(*zones); err != nil {
 		return err
 	}

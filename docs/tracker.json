@@ -2882,17 +2882,17 @@
        },
        {
         "s": "T",
-        "t": "SAP migration over OData: the controlling tables T56h1 and T56h2 load (CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), TKA01, the sets 0101/0106) mapped onto the cost and profit center read APIs and whatever serves the groups, and the journal lines' centers T56h4 loads (ACDOCA RCNTR/PRCTR/SEGMENT) onto A_JournalEntryItemBasic's properties, their service and entity names taken from the pilot's $metadata (not recorded; split from T56h2 rather than guessed)",
+        "t": "SAP migration over OData: the controlling tables T56h1 and T56h2 load (CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), TKA01, the sets 0101/0106) mapped onto the cost and profit center read APIs and whatever serves the groups, and the journal lines' centers T56h4 loads (ACDOCA RCNTR/PRCTR/SEGMENT) onto A_JournalEntryItemBasic's properties, and the line's ledger (ACDOCA RLDNR, today a constant label in the OData mapping, so the quality gate cannot refuse an OData extract of several ledgers; review:T56h4), their service and entity names taken from the pilot's $metadata (not recorded; split from T56h2 rather than guessed)",
         "r": "T56h5",
         "src": "split:T56h · adr:ADR-0050",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
        {
-        "s": "T",
-        "t": "SAP migration: default account assignments (split from T56h): OKB9 (TKA3A and its detail tables) onto the companies' default_assignments through a configuration change; quality-gate issues (a default cost center not migrated, an account not in the chart); mock generator extended",
-        "r": "T56h3",
-        "src": "split:T56h · adr:ADR-0050",
+        "s": "D",
+        "t": "SAP migration: default account assignments (split from T56h): OKB9 (TKA3A and its detail tables) onto the companies' default_assignments through a configuration change; quality-gate issues (a default cost center not migrated, an account not in the chart); mock generator extended. As built: TKA3A/TKA3C/TKA3P in the file extract (the SAP specialist's fields; no OData API); the configuration draft notes a TKA3A row with REGEL blank and a cost center the run migrates in the company (open-ended, not locked), on an account of the chart needing one, as the default to propose after the migration, which a posting-related configuration change activates once the run has loaded the cost center (walkthrough step 3); REGEL 1/2/3 (naming its TKA3C/TKA3P rows, no fallback to TKA3A's cost center), order- or profit-center-only defaults, BSSUBST, a cost center not migrated and an account not in the chart are notes, not proposed; the mock's company 3000 has each case",
+        "r": "internal/sap types.go, source.go, mock.go (defaultAssignments), odata.go (not mapped) · internal/delivery/sapconfig defaults.go · docs/migration.md · walkthrough step 1 (default_assignments), step 3 (migrated_default_assignment) · ADR-0050 §10 as built · T56h · T56h3",
+        "src": "split:T56h · adr:ADR-0050 · po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
@@ -2902,6 +2902,13 @@
         "r": "internal/sap types.go, odata.go (not mapped), mock.go (lineCenters) · internal/integration linecenters.go, centertotals.go, load.go (journalPosting), reconcile.go · internal/app app.go (ledger.AssignmentBalances) · api/openapi.yaml (MigrationDiff key) · docs/migration.md · walkthrough step 3 (migrated_line_centers) · ADR-0050 §10 as built · T56h · T56h4",
         "src": "split:T56h · adr:ADR-0050",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "SAP migration: the ledger of journal lines (fix of T56h4): ACDOCA RLDNR was neither checked by the load nor by the reconciliation; the scope keeps its leading ledger's lines (sap.Scope.Ledger, 0L when empty, the SAP specialist's answer of 2026-11-09, to be confirmed in FINSC_LEDGER) and counts the other ledgers' lines, which the quality gate and the reconciliation refuse as a safety net, naming each ledger and its lines, so no line is posted or summed twice",
+        "r": "internal/sap source.go, types.go, odata.go · internal/integration ledgers.go, quality.go, reconcile.go · api/openapi.yaml (MigrationRunReport issues) · docs/migration.md · ADR-0050 §10 as built · T56h4b",
+        "src": "review:T56h4 · po:2026-11-09",
         "c": []
        },
        {
@@ -9437,9 +9444,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "SAP amounts in internal or external format told apart (the pilot customer questionnaire's D10 planning default, to be confirmed by the customer before go-live, po:2026-11-09: tables exported with SE16H or a custom report in SAP's internal amount format): the quality gate parses amounts with the currency's ISO exponent, i.e. in external format, and nothing reads TCURX, so a JPY 1,000 stored internally as 10.00 would load as 10 yen. To change, the step deciding which: either the extract reads TCURX and converts internal amounts of currencies with other than two decimals, or the customer is asked for external format and the gate refuses an internal one; in either case the gate refuses an amount whose format it cannot tell",
-      "r": "internal/integration/quality.go (amount parsing) · internal/sap · docs/migration.md (pilot customer facts, D10; amounts for currencies with no or three decimals)",
+      "r": "internal/integration/amounts.go target.amount · currencyDecimals · amountForm · sap_file settings.amount_format (internal default, external) · internal/sap TCURX, FilterScope, mock TCURX · TestAmountForms · TestAmountFormRefusals · TestODataAmountsAreExternal · walkthrough step 3 yen_item_rehearsed · sapconfig amount (T169G-WERTO, T042E limits), erp config generate -amount-format · ADR-0005 As built · docs/migration.md Amounts in SAP's internal form (TCURX)",
       "src": "po:2026-11-09",
       "pilot": "po:2026-10-31",
       "c": []

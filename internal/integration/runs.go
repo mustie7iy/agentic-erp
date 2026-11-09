@@ -265,15 +265,27 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 	if t.exponents, err = currency.Load(ctx, tx); err != nil {
 		return t, nil, c, fmt.Errorf("integration: read the currency exponents for run %s: %w", r.ID, err)
 	}
+	ext, err := e.extract(ctx, c, scope, &t)
+	return t, ext, c, err
+}
+
+// extract reads the scope from the connector's source and gives the
+// target the form of the extract's amounts with the decimals its TCURX
+// gives (amounts.go).
+func (e *Endpoints) extract(ctx context.Context, c Connector, scope sap.Scope, t *target) (*sap.Extract, error) {
 	src, err := e.source(ctx, c)
 	if err != nil {
-		return t, nil, c, err
+		return nil, err
 	}
 	ext, err := src.Extract(ctx, scope)
 	if err != nil {
-		return t, nil, c, problem.Unavailable("The scope cannot be extracted from "+src.Name()+"; try again.", 30).WithCause(err)
+		return nil, problem.Unavailable("The scope cannot be extracted from "+src.Name()+"; try again.", 30).WithCause(err)
 	}
-	return t, ext, c, nil
+	// The quality gate reports the TCURX rows the conversion cannot use
+	// (amountForm); here only the usable ones matter.
+	t.internal = amountsInternal(c)
+	t.decimals, _ = currencyDecimals(ext.TCURX)
+	return ext, nil
 }
 
 // summary is MigrationRunCompleted's summary (api/asyncapi.yaml): the

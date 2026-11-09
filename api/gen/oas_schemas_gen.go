@@ -21186,25 +21186,29 @@ type Connector struct {
 	Kind string `json:"kind"`
 	// Name, unique per tenant.
 	Name string `json:"name"`
-	// Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port`
-	// (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory`
-	// (absolute) and, for a bank that leaves statements there, `statements_directory` and
-	// `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first
-	// and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there
-	// are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https),
-	// `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys.
-	// EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics`
-	// connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector
-	// (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a
-	// `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or
-	// `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the
-	// liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An
-	// `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in,
-	// the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each
-	// company's participant identifier at the provider, by company code: at least one, each identifier
-	// once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is
-	// refused in production: creating or enabling one there answers 422
-	// `integration.adapter_not_certified`.
+	// Connector settings (endpoints, formats); never secrets. A `sap_file` connector takes `path` (the
+	// extract file, relative to the server's extract directory), optionally `system` (the source system's
+	// code in external references) and `amount_format`: `internal` (the default, SAP's stored form as
+	// table exports write it, which a migration run converts with the extract's TCURX) or `external` (the
+	// amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers
+	// amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`,
+	// `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a
+	// bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both
+	// or neither, not the same: statements are fetched from the first and moved to the second once
+	// imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
+	// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
+	// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
+	// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
+	// `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP
+	// server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
+	// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
+	// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
+	// its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
+	// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
+	// (the provider's, https), `participants` (each company's participant identifier at the provider, by
+	// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
+	// the provider's credentials. The stand-in is refused in production: creating or enabling one there
+	// answers 422 `integration.adapter_not_certified`.
 	Settings ConnectorSettings `json:"settings"`
 	// Vault path of the credentials.
 	SecretRef OptString `json:"secret_ref"`
@@ -21331,14 +21335,19 @@ type ConnectorCreate struct {
 	Kind string `json:"kind"`
 	// Name, unique per tenant.
 	Name string `json:"name"`
-	// Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22),
-	// `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and,
-	// for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute,
-	// both or neither, not the same: statements are fetched from the first and moved to the second once
-	// imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
-	// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
-	// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
-	// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
+	// Connector settings; never secrets. A `sap_file` connector takes `path` (the extract file, relative
+	// to the server's extract directory), optionally `system` (the source system's code in external
+	// references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write
+	// it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP
+	// displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in
+	// external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the
+	// server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves
+	// statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not
+	// the same: statements are fetched from the first and moved to the second once imported, ADR-0047);
+	// its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics`
+	// connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS
+	// 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified
+	// with a bank: creating or enabling a `bank_ebics` connector there answers 422
 	// `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP
 	// server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
 	// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
@@ -21394,14 +21403,19 @@ func (s *ConnectorCreate) SetSecretRef(val OptString) {
 	s.SecretRef = val
 }
 
-// Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22),
-// `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and,
-// for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute,
-// both or neither, not the same: statements are fetched from the first and moved to the second once
-// imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
-// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
-// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
-// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
+// Connector settings; never secrets. A `sap_file` connector takes `path` (the extract file, relative
+// to the server's extract directory), optionally `system` (the source system's code in external
+// references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write
+// it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP
+// displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in
+// external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the
+// server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves
+// statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not
+// the same: statements are fetched from the first and moved to the second once imported, ADR-0047);
+// its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics`
+// connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS
+// 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified
+// with a bank: creating or enabling a `bank_ebics` connector there answers 422
 // `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP
 // server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
 // statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
@@ -21517,25 +21531,29 @@ func (s *ConnectorPage) SetTotalEstimate(val OptInt64) {
 
 func (*ConnectorPage) listConnectorsRes() {}
 
-// Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port`
-// (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory`
-// (absolute) and, for a bank that leaves statements there, `statements_directory` and
-// `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first
-// and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there
-// are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https),
-// `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys.
-// EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics`
-// connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector
-// (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a
-// `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or
-// `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the
-// liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An
-// `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in,
-// the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each
-// company's participant identifier at the provider, by company code: at least one, each identifier
-// once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is
-// refused in production: creating or enabling one there answers 422
-// `integration.adapter_not_certified`.
+// Connector settings (endpoints, formats); never secrets. A `sap_file` connector takes `path` (the
+// extract file, relative to the server's extract directory), optionally `system` (the source system's
+// code in external references) and `amount_format`: `internal` (the default, SAP's stored form as
+// table exports write it, which a migration run converts with the extract's TCURX) or `external` (the
+// amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers
+// amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`,
+// `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a
+// bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both
+// or neither, not the same: statements are fetched from the first and moved to the second once
+// imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
+// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
+// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
+// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
+// `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP
+// server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
+// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
+// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
+// its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
+// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
+// (the provider's, https), `participants` (each company's participant identifier at the provider, by
+// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
+// the provider's credentials. The stand-in is refused in production: creating or enabling one there
+// answers 422 `integration.adapter_not_certified`.
 type ConnectorSettings map[string]jx.Raw
 
 func (s *ConnectorSettings) init() ConnectorSettings {
@@ -45650,8 +45668,9 @@ type MigrationRunReport struct {
 	// SAP documents of the scope not on the platform (`documents` mode), the first 100; absent when there
 	// are none.
 	MissingDocuments []string `json:"missing_documents"`
-	// SAP values the reconciliation could not use: amounts that do not parse, or sums out of the range of
-	// an amount; absent when there are none. Any one fails the reconciliation.
+	// SAP values the reconciliation could not use: amounts that do not parse, sums out of the range of an
+	// amount, or journal lines of other ledgers than the leading one (ACDOCA RLDNR; then no control is
+	// computed); absent when there are none. Any one fails the reconciliation.
 	Issues []MigrationIssue `json:"issues"`
 	// Whether every check passed and the reconciliation had no issue; the run is then `reconciled`.
 	Passed OptBool `json:"passed"`

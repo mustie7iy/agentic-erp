@@ -45,6 +45,11 @@ type Options struct {
 	// no time zone. A company without one is drafted without it, with a
 	// note, and the draft does not validate until a reviewer sets it.
 	TimeZones map[string]string
+	// ExternalAmounts says the extract's amounts are in SAP's external
+	// form (an OData source, or a table export asked for in it); without
+	// it they are in SAP's internal form, as table exports write them, and
+	// the draft converts them with the extract's TCURX (amounts.go).
+	ExternalAmounts bool
 }
 
 // DefaultOptions suit a standard S/4HANA procure-to-pay role design.
@@ -90,6 +95,8 @@ var documentTypes = map[string]string{"journal_sa": "", "journal_ab": "", "journ
 // Generate builds a draft configuration; validate it before proposing it.
 func Generate(e *sap.Extract, opts Options) (*config.Config, []Note) {
 	g := &gen{e: e, opts: opts, areas: areasOf(e)}
+	g.decimals, g.problems = sap.CurrencyDecimals(e.TCURX)
+	g.tcurxNotes()
 	c := &config.Config{Version: 1, Output: config.Output{PurchaseOrderChannel: "email"}}
 	for _, t := range e.T001 {
 		c.Companies = append(c.Companies, g.company(t))
@@ -117,6 +124,10 @@ type gen struct {
 	opts  Options
 	notes []Note
 	areas map[string][]string // controlling areas by company code (areasOf)
+	// decimals are TCURX's decimals of the currencies it lists, and
+	// problems its rows the conversion cannot use (sap.CurrencyDecimals).
+	decimals map[string]int
+	problems []sap.TCURXProblem
 }
 
 func (g *gen) note(path, msg string) { g.notes = append(g.notes, Note{Path: path, Message: msg}) }
@@ -282,9 +293,10 @@ func (g *gen) company(t sap.T001) config.Company {
 			co.TaxCodes = append(co.TaxCodes, config.TaxCode{Code: tx.MWSKZ, Description: tx.TEXT1, RatePercent: tx.KBETR, Account: sap.Alpha(tx.KONTS)})
 		}
 	}
-	co.InvoiceTolerance = g.invoiceTolerance(p, t.BUKRS)
+	co.InvoiceTolerance = g.invoiceTolerance(p, t.BUKRS, t.WAERS)
 	co.HouseBank, co.HouseBanks = g.houseBanks(p, &co)
 	co.PaymentMethods = g.paymentMethods(p, t.LAND1, &co)
+	g.defaultAssignments(p, &co)
 	return co
 }
 
@@ -469,15 +481,21 @@ func (g *gen) apReconciliation(p, company string) string {
 // invoiceTolerance is the company's price tolerance (T169G key PP), or 2%
 // and 5.00 with a note when SAP has none. A percentage that does not parse
 // keeps the 2% default and one with a fraction is cut to whole percent,
-// each with a note.
-func (g *gen) invoiceTolerance(p, company string) config.Tolerance {
+// and an amount that cannot be converted from SAP's internal form keeps
+// the 5.00 default, each with a note.
+func (g *gen) invoiceTolerance(p, company, cur string) config.Tolerance {
 	tolerance := config.Tolerance{PricePercent: 2, PriceAbsolute: "5.00"}
 	found := false
 	for _, tol := range g.e.T169G {
 		if tol.BUKRS != company || tol.TOLSL != "PP" {
 			continue
 		}
-		tolerance, found = config.Tolerance{PricePercent: 2, PriceAbsolute: tol.WERTO}, true
+		tolerance, found = config.Tolerance{PricePercent: 2, PriceAbsolute: "5.00"}, true
+		if werto, problem := g.amount(tol.WERTO, cur); problem != "" {
+			g.note(p+".invoice_tolerance.price_absolute", fmt.Sprintf("T169G key PP amount %q %s; used 5.00", tol.WERTO, problem))
+		} else {
+			tolerance.PriceAbsolute = werto
+		}
 		pct, exact, problem := wholePercent(tol.PROZ)
 		switch {
 		case problem != "":
