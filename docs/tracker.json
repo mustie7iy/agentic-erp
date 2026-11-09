@@ -5636,10 +5636,31 @@
           "c": []
          },
          {
-          "s": "T",
+          "s": "D",
           "t": "An import restores rows in any lifecycle state: the triggers that refuse inserting a row in any state but its first (closing.period_close, ledger.parked_entry, consolidation.run with run_member and run_balance, ledger.carry_forward_run) honour app.importing for the tenant as count_period_openings does, so a tenant with a signed-off close, a posted parked entry, a final consolidation or a superseded carry-forward can be restored and moved; the import test holds such rows; and a NOT NULL DEFAULT column an older export lacks gets its default, not NULL (ADR-0029 says defaults apply)",
-          "r": "offboarding.Importer · ADR-0029 · found fixing TestReonboarding in batch58",
+          "r": "offboarding.Importer · platform.importing · migration 000230 · db/import_states_test.go TestImportRestoresLifecycleStates · TestReonboarding · ADR-0029 As built · found fixing TestReonboarding in batch58",
           "src": "ci:batch58",
+          "c": []
+         },
+         {
+          "s": "T",
+          "t": "An import restores the rows the other insert triggers judge by a state that may have moved on since the row was written: journal entries and clearings in periods closed or locked since, approval decisions of decided requests, items of released purchase orders, snapshots of filed tax returns, plan lines of locked categories, memo records of inactive liquidity items, and assets, acquisitions, retirements, transfers, depreciation runs and batches, down payment requests, GR/IR clearings, tax returns, order changes, revaluation runs, variance comments and accrual proposals past their first state; each honours platform.importing as migration 000230's triggers do, and the import test holds such rows",
+          "r": "offboarding.Importer · ADR-0029 As built (not yet restored) · found building migration 000230 for the batch58 leaf before it",
+          "src": "ci:batch58",
+          "c": []
+         },
+         {
+          "s": "T",
+          "t": "An export reads each table in primary-key order (offboarding.go reads with no ORDER BY), so a table whose rows reference rows of the same table, such as chained carry-forward runs, imports in an order its references allow instead of failing every pass by read order",
+          "r": "internal/offboarding/offboarding.go export · ADR-0029 (found reviewing impfix)",
+          "src": "review:batch60",
+          "c": []
+         },
+         {
+          "s": "T",
+          "t": "Erasing a tenant that holds tax items: ledger.check_tax_item_fixed refuses every delete and ignores app.erasing, so platform.erase_tenant fails for any such tenant (read from the trigger source, not yet reproduced); a delete is allowed while app.erasing names the item's tenant, as platform.forbid_mutation allows, with a test erasing a tenant with tax items",
+          "r": "ledger.check_tax_item_fixed · platform.erase_tenant · ADR-0021 (found in impfix)",
+          "src": "review:batch60",
           "c": []
          },
          {
