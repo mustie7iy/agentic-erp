@@ -1460,6 +1460,32 @@ type Invoker interface {
 	//
 	// GET /v1/connectors/{id}
 	GetConnector(ctx context.Context, params GetConnectorParams) (GetConnectorRes, error)
+	// GetConsolidatedStatement invokes getConsolidatedStatement operation.
+	//
+	// A consolidated statement of a computed, final or superseded consolidation run (ADR-0059 §11, T68e):
+	// the balance sheet (`balance_sheet`: the group chart's asset, liability and equity accounts, the
+	// `cta`, `retained_earnings` and `nci` accounts among them) or the profit and loss (`profit_and_loss`:
+	// its revenue and expense accounts), one row per group account of the statement's types in the
+	// configuration version the run read, in number order, cursor-paged by number. Each row has the
+	// account's number, name, type and role, the companies' translated figures on it summed (`reported`:
+	// the total of `listConsolidationBalances?group_account=` for it), the run's eliminations on it
+	// (`eliminations`) and their sum (`consolidated`), each in the group currency and debit positive, as
+	// the trial balance shows them: a credit balance, and so a profit, is negative. A group account
+	// without figures has a row of zeros. With totals over the whole statement, each with the same three
+	// columns: for the balance sheet, the assets, liabilities and equity and the fiscal year's profit
+	// through the period (the profit and loss's), which together sum to zero; for the profit and loss, the
+	// revenue, the expenses and the profit. A run has no eliminations until intercompany matching and the
+	// investment's elimination are built (ADR-0059 §8, §9: T68f, T68h), so its eliminations are zero and
+	// its consolidated figures its reported ones. The statement is read from the run's stored rows alone,
+	// so a computed, final or superseded run's never changes. Refused for a run that is queued, running,
+	// failed or discarded (409 `consolidation.run_not_computed`) and for a statement other than these two
+	// (404 `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read`
+	// (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not
+	// found (404), as a run that does not exist. Read from one database state (a repeatable-read
+	// snapshot), so its page and totals agree.
+	//
+	// GET /v1/consolidation-runs/{id}/statements/{statement}
+	GetConsolidatedStatement(ctx context.Context, params GetConsolidatedStatementParams) (GetConsolidatedStatementRes, error)
 	// GetConsolidationGroup invokes getConsolidationGroup operation.
 	//
 	// One consolidation group of the active configuration by its code (ADR-0059 §3, T68a), as
@@ -22992,6 +23018,214 @@ func (c *Client) sendGetConnector(ctx context.Context, params GetConnectorParams
 
 	stage = "DecodeResponse"
 	result, err := decodeGetConnectorResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetConsolidatedStatement invokes getConsolidatedStatement operation.
+//
+// A consolidated statement of a computed, final or superseded consolidation run (ADR-0059 §11, T68e):
+// the balance sheet (`balance_sheet`: the group chart's asset, liability and equity accounts, the
+// `cta`, `retained_earnings` and `nci` accounts among them) or the profit and loss (`profit_and_loss`:
+// its revenue and expense accounts), one row per group account of the statement's types in the
+// configuration version the run read, in number order, cursor-paged by number. Each row has the
+// account's number, name, type and role, the companies' translated figures on it summed (`reported`:
+// the total of `listConsolidationBalances?group_account=` for it), the run's eliminations on it
+// (`eliminations`) and their sum (`consolidated`), each in the group currency and debit positive, as
+// the trial balance shows them: a credit balance, and so a profit, is negative. A group account
+// without figures has a row of zeros. With totals over the whole statement, each with the same three
+// columns: for the balance sheet, the assets, liabilities and equity and the fiscal year's profit
+// through the period (the profit and loss's), which together sum to zero; for the profit and loss, the
+// revenue, the expenses and the profit. A run has no eliminations until intercompany matching and the
+// investment's elimination are built (ADR-0059 §8, §9: T68f, T68h), so its eliminations are zero and
+// its consolidated figures its reported ones. The statement is read from the run's stored rows alone,
+// so a computed, final or superseded run's never changes. Refused for a run that is queued, running,
+// failed or discarded (409 `consolidation.run_not_computed`) and for a statement other than these two
+// (404 `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read`
+// (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not
+// found (404), as a run that does not exist. Read from one database state (a repeatable-read
+// snapshot), so its page and totals agree.
+//
+// GET /v1/consolidation-runs/{id}/statements/{statement}
+func (c *Client) GetConsolidatedStatement(ctx context.Context, params GetConsolidatedStatementParams) (GetConsolidatedStatementRes, error) {
+	res, err := c.sendGetConsolidatedStatement(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetConsolidatedStatement(ctx context.Context, params GetConsolidatedStatementParams) (res GetConsolidatedStatementRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getConsolidatedStatement"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/consolidation-runs/{id}/statements/{statement}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetConsolidatedStatementOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [4]string
+	pathParts[0] = "/v1/consolidation-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/statements/"
+	{
+		// Encode "statement" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "statement",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Statement))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetConsolidatedStatementOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetConsolidatedStatementResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

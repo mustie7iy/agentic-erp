@@ -28,8 +28,14 @@
 // EliminateConsolidationRun, CompleteConsolidationRun and
 // FailConsolidationRun, each idempotent. Each company's leading-ledger
 // balances are read through the Ledger port and translated into the group
-// currency (translate). Matching, eliminations, statements and
-// finalization follow in T68e-T68h.
+// currency (translate).
+//
+// T68e adds the consolidated statements (ADR-0059 §11,
+// GetConsolidatedStatement): a run's balance sheet or profit and loss,
+// one row per group account with the companies' translated figures
+// summed, the eliminations and the consolidated figure, and the totals,
+// read from the run's stored rows alone (§14). Matching, eliminations and
+// finalization follow in T68f-T68h.
 package consolidation
 
 import (

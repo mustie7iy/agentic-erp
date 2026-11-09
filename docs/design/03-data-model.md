@@ -3655,8 +3655,9 @@ required on every account of a company in a group), the eliminations
 parent, members with ownership, first period and investment account) are
 configuration, built in T68a (ADR-0059 §3, As built T68a): they keep no
 table, and migration 000223 adds the permission `consolidation.read`.
-T68b, T68c and T68d are built; the tables marked T68e-T68h below are
-planned, not built.
+T68b, T68c, T68d and T68e are built (T68e, the consolidated statements,
+reads `run_balance` and keeps no table); the tables marked T68f-T68h below
+are planned, not built.
 The ledger gained, in T68b, `journal_line.trading_partner_id` (the legal
 entity on the other side of an intercompany line, nullable, no foreign key)
 and the projection `ledger.trading_partner_balance`, maintained as

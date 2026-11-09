@@ -14287,6 +14287,54 @@ paths:
           $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/consolidation-runs/{id}/statements/{statement}":
+    get:
+      operationId: getConsolidatedStatement
+      tags:
+        - consolidation
+      summary: Get a consolidated statement of a run
+      description: "A consolidated statement of a computed, final or superseded consolidation run (ADR-0059 §11, T68e): the balance sheet (`balance_sheet`: the group chart's asset, liability and equity accounts, the `cta`, `retained_earnings` and `nci` accounts among them) or the profit and loss (`profit_and_loss`: its revenue and expense accounts), one row per group account of the statement's types in the configuration version the run read, in number order, cursor-paged by number. Each row has the account's number, name, type and role, the companies' translated figures on it summed (`reported`: the total of `listConsolidationBalances?group_account=` for it), the run's eliminations on it (`eliminations`) and their sum (`consolidated`), each in the group currency and debit positive, as the trial balance shows them: a credit balance, and so a profit, is negative. A group account without figures has a row of zeros. With totals over the whole statement, each with the same three columns: for the balance sheet, the assets, liabilities and equity and the fiscal year's profit through the period (the profit and loss's), which together sum to zero; for the profit and loss, the revenue, the expenses and the profit. A run has no eliminations until intercompany matching and the investment's elimination are built (ADR-0059 §8, §9: T68f, T68h), so its eliminations are zero and its consolidated figures its reported ones. The statement is read from the run's stored rows alone, so a computed, final or superseded run's never changes. Refused for a run that is queued, running, failed or discarded (409 `consolidation.run_not_computed`) and for a statement other than these two (404 `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
+      x-permission: consolidation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-snapshot: true
+      x-problem-codes:
+        - config.unknown_version
+        - consolidation.run_not_computed
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: statement
+          in: path
+          required: true
+          description: "The statement: `balance_sheet` or `profit_and_loss`."
+          schema:
+            type: string
+            description: "Consolidated statement. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [balance_sheet, profit_and_loss]
+          example: balance_sheet
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the statement's rows, with the totals over the whole statement.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsolidatedStatement"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/close-calendar:
     get:
       operationId: getCloseCalendar
@@ -39783,6 +39831,102 @@ components:
           amount_gc_booked: {amount: "-2025.00", currency: CAD}
           amount_gc: {amount: "-2100.00", currency: CAD}
           closing_rate: "1.4"
+    ConsolidatedStatement:
+      type: object
+      description: "One page of a consolidated statement of a consolidation run (ADR-0059 §11), with its run and the totals over the whole statement. Every figure is in the group currency, debit positive."
+      required: [run_id, group_code, group_name, fiscal_year, period, period_end, run_status, statement, group_currency, items, totals]
+      properties:
+        run_id: {type: string, format: uuid, description: "The run (`GET /v1/consolidation-runs/{id}`).", readOnly: true}
+        group_code: {type: string, description: "The group's code.", readOnly: true}
+        group_name: {type: string, description: "The group's name, in the configuration version the run read.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: The fiscal year., readOnly: true}
+        period: {type: integer, format: int32, description: The regular period., readOnly: true}
+        period_end: {type: string, format: date, description: "The period's last day: the balance sheet's date.", readOnly: true}
+        run_status:
+          type: string
+          x-extensible-enum: [computed, final, superseded]
+          description: "The run's status (`ConsolidationRun.status`): a draft (`computed`), the group's consolidated figures of the period (`final`), or a final run a later one superseded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        statement:
+          type: string
+          x-extensible-enum: [balance_sheet, profit_and_loss]
+          description: "The statement. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        group_currency: {type: string, pattern: "^[A-Z]{3}$", description: "The group currency (ISO 4217), every figure's.", readOnly: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ConsolidatedStatementRow"}
+          description: "The statement's rows on this page, by group account number."
+        totals: {$ref: "#/components/schemas/ConsolidatedStatementTotals"}
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+      examples:
+        - run_id: 0192a000-0000-7000-8000-000000000c01
+          group_code: MAPLE
+          group_name: Maple group
+          fiscal_year: 2026
+          period: 11
+          period_end: "2026-11-30"
+          run_status: computed
+          statement: balance_sheet
+          group_currency: CAD
+          items:
+            - number: G1000
+              name: Other assets
+              type: asset
+              reported: {amount: "5300.00", currency: CAD}
+              eliminations: {amount: "0.00", currency: CAD}
+              consolidated: {amount: "5300.00", currency: CAD}
+            - number: G3900
+              name: Currency translation reserve
+              type: equity
+              role: cta
+              reported: {amount: "100.00", currency: CAD}
+              eliminations: {amount: "0.00", currency: CAD}
+              consolidated: {amount: "100.00", currency: CAD}
+          totals:
+            assets: {reported: {amount: "5300.00", currency: CAD}, eliminations: {amount: "0.00", currency: CAD}, consolidated: {amount: "5300.00", currency: CAD}}
+            liabilities: {reported: {amount: "-2800.00", currency: CAD}, eliminations: {amount: "0.00", currency: CAD}, consolidated: {amount: "-2800.00", currency: CAD}}
+            equity: {reported: {amount: "100.00", currency: CAD}, eliminations: {amount: "0.00", currency: CAD}, consolidated: {amount: "100.00", currency: CAD}}
+            profit: {reported: {amount: "-2600.00", currency: CAD}, eliminations: {amount: "0.00", currency: CAD}, consolidated: {amount: "-2600.00", currency: CAD}}
+    ConsolidatedStatementRow:
+      type: object
+      description: "A row of a consolidated statement: an account of the group chart, in the configuration version the run read, with its figures in the group currency, debit positive."
+      required: [number, name, type, reported, eliminations, consolidated]
+      properties:
+        number: {type: string, description: "The group account's number.", readOnly: true}
+        name: {type: string, description: "The group account's name.", readOnly: true}
+        type:
+          type: string
+          x-extensible-enum: [asset, liability, equity, revenue, expense]
+          description: "The group account's type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        role:
+          type: string
+          x-extensible-enum: [cta, retained_earnings, nci, goodwill]
+          description: "The role a consolidation run gives the account, if any (`GroupAccount.role`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        reported: {$ref: "#/components/schemas/Money", description: "The companies' translated figures on the account summed (ADR-0059 §7)."}
+        eliminations: {$ref: "#/components/schemas/Money", description: "The run's eliminations on the account (ADR-0059 §8, §9); zero until they are built (T68f, T68h)."}
+        consolidated: {$ref: "#/components/schemas/Money", description: "The reported figure and the eliminations summed: the group's consolidated figure."}
+    ConsolidatedFigures:
+      type: object
+      description: "A total of a consolidated statement, in the group currency, debit positive: the companies' translated figures summed, the run's eliminations and their sum."
+      required: [reported, eliminations, consolidated]
+      properties:
+        reported: {$ref: "#/components/schemas/Money", description: "The companies' translated figures summed (ADR-0059 §7)."}
+        eliminations: {$ref: "#/components/schemas/Money", description: "The run's eliminations (ADR-0059 §8, §9); zero until they are built (T68f, T68h)."}
+        consolidated: {$ref: "#/components/schemas/Money", description: "The reported figures and the eliminations summed."}
+    ConsolidatedStatementTotals:
+      type: object
+      description: "The totals over the whole statement, every page. The balance sheet has `assets`, `liabilities`, `equity` and `profit`, which sum to zero in each column; the profit and loss `revenue`, `expenses` and `profit`."
+      required: [profit]
+      properties:
+        assets: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The balance sheet's asset accounts summed; absent on the profit and loss."}
+        liabilities: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The balance sheet's liability accounts summed; absent on the profit and loss."}
+        equity: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The balance sheet's equity accounts summed, the `cta`, `retained_earnings` and `nci` accounts included; absent on the profit and loss."}
+        revenue: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's revenue accounts summed; absent on the balance sheet."}
+        expenses: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's expense accounts summed; absent on the balance sheet."}
+        profit: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The fiscal year's profit through the period: the revenue and expense accounts summed, debit positive, so a profit is negative and a loss positive. On the balance sheet it closes the statement: assets, liabilities, equity and profit sum to zero."}
     GroupAccountRef:
       type: object
       description: "An account of the group chart, by number and name, in the configuration version a run read."

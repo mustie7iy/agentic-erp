@@ -56,7 +56,7 @@ The architecture must reach these numbers by adding capacity
 | Group liquidity forecast across the caller's companies over 100,000 open items in total (ADR-0051 §9, T53e5; product owner, 2026-11-04) | 3 s | 6 s |
 | Asset history sheet of one company, ledger and fiscal year (ADR-0057) | 1 s | 3 s |
 | Depreciation run preview over 100,000 assets of one company and ledger, every page (ADR-0057) | 1 s | 3 s |
-| Consolidated statement of one run, every page (ADR-0059, T68e) | 1 s | 3 s |
+| Consolidated statement of one run, every page (ADR-0059, T68e; `TestConsolidatedStatementBudget`: a run of 100 companies, 200,000 translated rows, on a group chart of 5,000 accounts, p95 0.2-0.3 s on a development machine, 2026-11-08) | 1 s | 3 s |
 | Balance carry-forward of one company and ledger, chained, 5,000 accounts in 3 currencies (ADR-0060 §13) | 3 s | 6 s |
 | Payment proposal over 100,000 open items | async, < 60 s | < 120 s |
 | Depreciation run over 100,000 assets of one company and ledger (ADR-0057) | async, < 120 s | < 240 s |

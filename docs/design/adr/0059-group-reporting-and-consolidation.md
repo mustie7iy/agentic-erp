@@ -1393,3 +1393,52 @@ owner to overrule:
 - Walkthrough: `consolidation_trading_partner` (step 40) has Cory, who may
   act in Maple alone, read Carla's intercompany entry and see company
   1000's id alone on its lines.
+
+**T68e (consolidated statements).** Built as §11 and §14 say:
+`getConsolidatedStatement` (`GET
+/v1/consolidation-runs/{id}/statements/{statement}`, `consolidation.read`
+and, by `x-also-permissions`, `ledger.entry.read`; read from one database
+state) in `internal/consolidation/statements.go`, with no migration and no
+table: a statement is computed from the run's `run_balance` rows, summed
+per group account in one statement, and the group chart of the
+configuration version the run read. Decided by default, for the product
+owner to overrule:
+- **Rows.** One per group account of the statement's types in the run's
+  version, those without figures as zeros, so every run of a version has
+  the same rows; `number`, `name`, `type`, `role` and the three columns
+  `reported`, `eliminations` and `consolidated`, each a `Money` in the
+  group currency. Cursor-paged by number (page size as every list, 50 by
+  default, at most 500); the totals are over the whole statement on every
+  page.
+- **Signs.** Debit positive throughout, totals included, as the trial
+  balance and the balances list show them, so a profit is negative and
+  the balance sheet's `assets`, `liabilities`, `equity` and `profit` sum to
+  zero in each column without a sign to flip; the profit and loss has
+  `revenue`, `expenses` and `profit`.
+- **What later slices add.** A run has no entries before T68f, so
+  `eliminations` is zero and `consolidated` equals `reported`; T68f and
+  T68h fill the column from the entry lines on each account without a
+  contract change. The response carries the run's status as `run_status`;
+  `stale` comes with T68g (§10, as the run's own read), and the profit and
+  loss's attribution to owners and non-controlling interests with T68h,
+  which builds the `nci` entries it is read from, rather than a zero share
+  that would read as a fact.
+- **Refusals.** A run that is queued, running, failed or discarded is 409
+  `consolidation.run_not_computed`; a statement other than the two is 404
+  `request.not_found` (the path names no resource), as an unknown custom
+  field entity is; a run outside the caller's companies 404 as every run
+  read (As built T68d).
+- **Budget (§14, 01 §1.3).** `TestConsolidatedStatementBudget` (workflows,
+  run with `ERP_MEASURE_BUDGETS=1`) computes `TestConsolidationRunBudget`'s
+  run of 100 companies (200,000 translated rows) on a group chart of
+  5,000 accounts, the most §3 allows, each budget account on a group
+  account of its own, and reads each statement ten times by its first page
+  of 50 and its first, a middle and its last page of 500: p95 0.20-0.32 s
+  at ERP_BUDGET_SCALE=1 and 0.18-0.31 s at 2 (load averages 13-19,
+  2026-11-08), against 1 s.
+- **Walkthrough.** `step_consolidation` gains `consolidation_statements`
+  after `consolidation_run`: Carla reads the run's balance sheet and profit
+  and loss; the balance sheet's totals and the profit sum to zero in the
+  reported and consolidated columns, the profit is the profit and loss's,
+  revenue and expenses make it, and every row's reported figure equals the
+  balances list's group total for its group account.

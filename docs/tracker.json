@@ -1910,9 +1910,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Consolidated statements: GET /v1/consolidation-runs/{id}/statements/{statement} (balance_sheet, profit_and_loss) with reported, eliminations and consolidated per group account, totals over the statement, paging by number; the statement's budget; walkthrough: the balance sheet's totals and the fiscal year's profit through the period sum to zero, each row equal to the balances list's total for its group account",
-        "r": "ADR-0059 · T68e",
+        "r": "GetConsolidatedStatement · TestConsolidatedStatementBudget · ADR-0059 As built · T68e",
         "src": "adr:ADR-0059",
         "c": []
        },
