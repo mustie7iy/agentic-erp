@@ -37,6 +37,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/consolidation"
 	"github.com/mustie7iy/agentic-erp/internal/controlling"
 	"github.com/mustie7iy/agentic-erp/internal/countrypack"
+	"github.com/mustie7iy/agentic-erp/internal/einvoicing"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
@@ -47,6 +48,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -86,6 +88,7 @@ type (
 	assetsAPI      = assets.Endpoints
 	closingAPI     = closing.Endpoints
 	consolAPI      = consolidation.Endpoints
+	einvoicingAPI  = einvoicing.Endpoints
 	controllingAPI = controlling.Endpoints
 	taxfilingAPI   = taxfiling.Endpoints
 )
@@ -111,6 +114,7 @@ type handler struct {
 	*assetsAPI
 	*closingAPI
 	*consolAPI
+	*einvoicingAPI
 	*controllingAPI
 	*taxfilingAPI
 }
@@ -176,6 +180,9 @@ type Config struct {
 	// (ERP_PACKS_DIR, refused in production): a demonstration's or a
 	// test's pack not yet released (ADR-0048). Empty: none.
 	UnreleasedPacks string
+	// Providers is the client e-invoicing providers are called through
+	// (einvoicing.NewClient, ADR-0061 §3); nil: a fetch is refused, 503.
+	Providers *egress.Client
 	// WebhookReceiver is the walkthrough's webhook receiver, the one
 	// loopback address a subscription may name (ERP_WALKTHROUGH_RECEIVER,
 	// refused outside development, ADR-0041 As built); zero: none.
@@ -230,6 +237,7 @@ func New(cfg Config) (http.Handler, error) {
 		assetsAPI:      Assets(cfg),
 		closingAPI:     Closing(cfg),
 		consolAPI:      Consolidation(cfg),
+		einvoicingAPI:  EInvoicing(cfg),
 		controllingAPI: &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{}},
 		taxfilingAPI: &taxfiling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now,
 			Items: ledger.TaxItems{}, Packs: library, Approvals: opener(), Periods: ledger.ReturnPeriods{}},

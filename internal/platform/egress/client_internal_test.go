@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/netip"
 	"testing"
+	"time"
 )
 
 // TestNewBounds: the client has the bounds ADR-0041 sets, and no proxy,
@@ -26,6 +27,9 @@ func TestNewBounds(t *testing.T) {
 	}
 	if tr.TLSHandshakeTimeout != ConnectTimeout {
 		t.Errorf("handshake timeout: got %v, want %v", tr.TLSHandshakeTimeout, ConnectTimeout)
+	}
+	if c.limit != MaxResponse {
+		t.Errorf("response limit: got %d, want %d", c.limit, MaxResponse)
 	}
 	cfg := tr.TLSClientConfig
 	if cfg.RootCAs != nil || cfg.Certificates != nil || cfg.GetClientCertificate != nil {
@@ -113,5 +117,20 @@ func TestAllowReceiver(t *testing.T) {
 				t.Errorf("allowed: got %v, want %v", got, c.allowed)
 			}
 		})
+	}
+}
+
+// TestOwnBounds: ResponseLimit and CallTimeout replace the webhook
+// client's bounds; the headers stay bounded by MaxResponse.
+func TestOwnBounds(t *testing.T) {
+	c, err := New(ResponseLimit(10<<20), CallTimeout(time.Minute))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if c.limit != 10<<20 || c.http.Timeout != time.Minute {
+		t.Errorf("bounds: got %d bytes and %v, want %d and %v", c.limit, c.http.Timeout, 10<<20, time.Minute)
+	}
+	if tr, _ := c.http.Transport.(*http.Transport); tr == nil || tr.MaxResponseHeaderBytes != MaxResponse { // not a transport: nil, refused
+		t.Errorf("header bound: got %v, want %d", tr, MaxResponse)
 	}
 }

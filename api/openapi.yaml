@@ -65,6 +65,8 @@ tags:
     description: "Financial close (ADR-0058): the close template, each company's close calendar and its period closes."
   - name: consolidation
     description: "Group reporting and consolidation (ADR-0059): the consolidation groups and the group chart of accounts."
+  - name: einvoicing
+    description: "E-invoicing (ADR-0061): e-invoices received from the tenant's accredited provider."
   - name: controlling
     description: "Controlling (ADR-0050): plan categories, plan lines by batch and plan against actual by cost center."
   - name: tax
@@ -14373,6 +14375,203 @@ paths:
           $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/e-invoices:fetch":
+    post:
+      operationId: fetchEInvoices
+      tags:
+        - einvoicing
+      summary: Fetch e-invoices from the provider now
+      description: "Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`) and carried out as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system principal acting for the connector's companies. It lists the documents the provider has not had acknowledged, and records each once per connector and the provider's message id: its bytes kept write-once in object storage under their SHA-256, the document `received` with its company (the connector's company whose participant identifier the provider listed it for; none when it names none of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged; after that commit the provider is told the document is kept (its acknowledgement), and `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement is sent again, so an acknowledgement lost is repaired by the next fetch. Its acknowledgement moves the document's version without an event. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`) and its `resource` the list of the documents it recorded (`/v1/e-invoices?fetch_operation_id={id}`); a message not recorded fails the Operation with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the store or the database failed (after five tries in the workflow engine, one in process), which the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10 MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is not an active `einvoice_provider` connector with credentials that resolve is refused before anything is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so is, in production, the provider's stand-in (422 `integration.adapter_not_certified`), the only adapter until a provider is chosen. A server without object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Human-only (`x-agent: false`)."
+      x-permission: einvoicing.einvoice.manage
+      x-agent: false
+      x-problem-codes:
+        - integration.adapter_not_certified
+        - integration.connector_disabled
+        - integration.invalid_settings
+        - integration.not_an_einvoice_provider
+        - integration.secret_required
+        - integration.secret_unavailable
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The connector to fetch from.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EInvoiceFetch"
+            examples:
+              provider:
+                summary: Fetch from the UAE company's provider
+                value:
+                  connector_id: 0192a000-0000-7000-8000-000000000e01
+      responses:
+        "202":
+          description: "Accepted; the fetch continues as a long-running operation. Poll the Operation at `Location`; once it succeeds, its `result` counts what it found and its `resource` lists the documents it recorded."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Operation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/e-invoices:
+    get:
+      operationId: listEInvoices
+      tags:
+        - einvoicing
+      summary: List e-invoices
+      description: "The e-invoices received from the tenant's accredited providers (ADR-0061 §15, T65a), newest received first: those of the companies the caller may act in, and, to a caller who may act in every company, those addressed to none of the connector's companies. Each carries its connector by id and name, its company by id, code and name, the provider's message id and the participant it was listed for, the SHA-256 and size of its bytes as received, its status, the fetch that recorded it and when it was received and acknowledged. Filters: company, connector, status, the fetch's Operation (`fetch_operation_id`, as a fetch's Operation names it in its `resource`) and when received. What a document says (number, issue date, supplier, amounts) is read by the processing slices (T65c, T65d), which add it here."
+      x-permission: einvoicing.einvoice.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: false
+          description: Only the e-invoices of this company.
+          schema:
+            type: string
+            format: uuid
+        - name: connector_id
+          in: query
+          required: false
+          description: Only the e-invoices received through this connector.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only e-invoices in this status.
+          schema:
+            type: string
+            description: "E-invoice status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [received]
+        - name: fetch_operation_id
+          in: query
+          required: false
+          description: Only the e-invoices this fetch recorded (its Operation's id).
+          schema:
+            type: string
+            format: uuid
+        - name: received_from
+          in: query
+          required: false
+          description: Only e-invoices received at or after this time.
+          schema:
+            type: string
+            format: date-time
+        - name: received_to
+          in: query
+          required: false
+          description: Only e-invoices received before this time.
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of e-invoices.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EInvoicePage"
+              example:
+                items:
+                  - id: 0192a000-0000-7000-8000-000000000e11
+                    connector_id: 0192a000-0000-7000-8000-000000000e01
+                    connector_name: UAE e-invoicing provider
+                    message_id: MSG-0001
+                    receiver: "0235:100000000000003"
+                    legal_entity_id: 0192a000-0000-7000-8000-000000000201
+                    company_code: AE01
+                    company_name: Maple Gulf Trading
+                    status: received
+                    sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+                    size: 2048
+                    fetch_operation_id: 0192a000-0000-7000-8000-000000000e21
+                    received_at: "2026-11-08T10:00:00Z"
+                    acknowledged_at: "2026-11-08T10:00:01Z"
+                    version: 2
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/e-invoices/{id}":
+    get:
+      operationId: getEInvoice
+      tags:
+        - einvoicing
+      summary: Get an e-invoice
+      description: "One e-invoice as `listEInvoices` gives it (ADR-0061 §15, T65a). One of a company the caller may not act in, or addressed to none of the connector's companies to a caller who may not act in every company, is not found (404), as one that does not exist, so ids of other companies cannot be probed."
+      x-permission: einvoicing.einvoice.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The e-invoice.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EInvoice"
+              example:
+                id: 0192a000-0000-7000-8000-000000000e11
+                connector_id: 0192a000-0000-7000-8000-000000000e01
+                connector_name: UAE e-invoicing provider
+                message_id: MSG-0001
+                receiver: "0235:100000000000003"
+                legal_entity_id: 0192a000-0000-7000-8000-000000000201
+                company_code: AE01
+                company_name: Maple Gulf Trading
+                status: received
+                sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+                size: 2048
+                fetch_operation_id: 0192a000-0000-7000-8000-000000000e21
+                received_at: "2026-11-08T10:00:00Z"
+                acknowledged_at: "2026-11-08T10:00:01Z"
+                version: 2
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/consolidation-runs/{id}/statements/{statement}":
     get:
       operationId: getConsolidatedStatement
@@ -20657,6 +20856,7 @@ paths:
               - tax_engine
               - ticketing
               - treasury_export
+              - einvoice_provider
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -20684,6 +20884,7 @@ paths:
       description: Creates a connector.
       x-permission: integration.connector.manage
       x-problem-codes:
+        - integration.adapter_not_certified
         - integration.duplicate_name
         - integration.ebics_not_certified
         - integration.invalid_settings
@@ -20821,6 +21022,7 @@ paths:
       description: "Allows the connector to exchange messages again. Requires status `disabled`."
       x-permission: integration.connector.manage
       x-problem-codes:
+        - integration.adapter_not_certified
         - integration.duplicate_name
         - integration.ebics_not_certified
         - integration.invalid_status
@@ -39997,6 +40199,44 @@ components:
         group_code: {type: string, pattern: "^[A-Z0-9_]{1,30}$", description: "The group's code.", example: MAPLE}
         fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2999, description: The fiscal year.}
         period: {type: integer, format: int32, minimum: 1, maximum: 16, description: "The period; a regular one (1-12)."}
+    EInvoiceFetch:
+      type: object
+      description: A fetch of e-invoices from a provider (ADR-0061 §4).
+      required: [connector_id]
+      additionalProperties: false
+      properties:
+        connector_id: {type: string, format: uuid, description: "The provider: an active `einvoice_provider` connector."}
+    EInvoicePage:
+      type: object
+      description: One page of e-invoices, newest received first.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/EInvoice"}
+          description: The e-invoices on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    EInvoice:
+      type: object
+      description: "A document the tenant's accredited e-invoicing provider delivered (ADR-0061 §4, §7, §15): recorded once per connector and the provider's message id, its bytes kept as received."
+      required: [id, connector_id, connector_name, message_id, receiver, legal_entity_id, company_code, company_name, status, sha256, size,
+        fetch_operation_id, received_at, acknowledged_at, version]
+      properties:
+        id: {type: string, format: uuid}
+        connector_id: {type: string, format: uuid, description: The `einvoice_provider` connector it was received through.}
+        connector_name: {type: string, description: "The connector's name."}
+        message_id: {type: string, description: "The provider's id of the document."}
+        receiver: {type: [string, 'null'], description: "The participant identifier the provider listed it for; null when it named none."}
+        legal_entity_id: {type: [string, 'null'], format: uuid, description: "The connector's company of that participant; null when the document is addressed to none of them."}
+        company_code: {type: [string, 'null'], description: "The company's code; null with `legal_entity_id`."}
+        company_name: {type: [string, 'null'], description: "The company's name; null with `legal_entity_id`."}
+        status: {type: string, description: "Open enum: received (recorded, not yet processed). The processing slices add entered, held, refused and dismissed (ADR-0061 §7)."}
+        sha256: {type: string, pattern: "^[0-9a-f]{64}$", description: The SHA-256 of its bytes as received, hex.}
+        size: {type: integer, format: int64, description: The size of its bytes as received.}
+        fetch_operation_id: {type: string, format: uuid, description: "The fetch that recorded it: its Operation's id."}
+        received_at: {type: string, format: date-time, description: When it was recorded.}
+        acknowledged_at: {type: [string, 'null'], format: date-time, description: "When the provider was told it is kept; null until then (the next fetch acknowledges it again)."}
+        version: {type: integer, format: int32}
     ConsolidationRunPage:
       type: object
       description: One page of consolidation runs, newest first.
@@ -45054,6 +45294,7 @@ components:
                 - tax_engine
                 - ticketing
                 - treasury_export
+                - einvoice_provider
               readOnly: true
             name:
               type: string
@@ -45063,7 +45304,7 @@ components:
             settings:
               type: object
               additionalProperties: true
-              description: "Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key."
+              description: "Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
             secret_ref:
               type: string
               description: Vault path of the credentials.
@@ -45106,6 +45347,7 @@ components:
             - tax_engine
             - ticketing
             - treasury_export
+            - einvoice_provider
         name:
           type: string
           description: Name, unique per tenant.
@@ -45114,7 +45356,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key."
+          description: "Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
         secret_ref:
           type: string
           description: Vault path of the credentials.
@@ -45136,7 +45378,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key."
+          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
         secret_ref:
           type:
             - string

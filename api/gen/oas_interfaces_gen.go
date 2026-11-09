@@ -353,6 +353,10 @@ type ExcludeBankStatementLineRes interface {
 	excludeBankStatementLineRes()
 }
 
+type FetchEInvoicesRes interface {
+	fetchEInvoicesRes()
+}
+
 type FileTaxReturnRes interface {
 	fileTaxReturnRes()
 }
@@ -519,6 +523,10 @@ type GetDepreciationRunRes interface {
 
 type GetDownPaymentRequestRes interface {
 	getDownPaymentRequestRes()
+}
+
+type GetEInvoiceRes interface {
+	getEInvoiceRes()
 }
 
 type GetEntryTemplateRes interface {
@@ -899,6 +907,10 @@ type ListDepreciationRunsRes interface {
 
 type ListDownPaymentRequestsRes interface {
 	listDownPaymentRequestsRes()
+}
+
+type ListEInvoicesRes interface {
+	listEInvoicesRes()
 }
 
 type ListEntryTemplatesRes interface {

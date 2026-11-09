@@ -3680,10 +3680,20 @@ creates the schema `consolidation` (with its outbox, for
 
 ## 3.25 E-invoicing (`einvoicing`)
 
-Planned, not built (ADR-0061, T65a-T65f). A leaf context: it reads
-integration's connectors, tenancy, tax filing's registrations and
-partner's tax identifier fingerprints through ports, and enters supplier
-invoices through payables' published API; no context reads it.
+ADR-0061, T65a-T65f. A leaf context: it reads integration's connectors,
+tenancy, tax filing's registrations and partner's tax identifier
+fingerprints through ports, and enters supplier invoices through
+payables' published API; no context reads it. T65a (migrations 000230,
+000231) builds `einvoicing.einvoice` with what a fetch records: the
+connector, the provider's message id (unique per tenant and connector,
+`einvoice_message_once`), the participant it was listed for and the
+connector's company of it (none when it names none), the SHA-256, size
+and object key of the bytes, the fetch's Operation, `received_at`,
+`acknowledged_at` (set once, never before receipt) and the version; the
+status `received` alone, which a trigger holds, with what was recorded
+fixed and only the acknowledgement written after (column grants and the
+trigger); the connector kind check widened to `einvoice_provider`. The
+other columns below arrive with the slices that write them (T65b-T65f).
 
 | Table | Purpose |
 |---|---|

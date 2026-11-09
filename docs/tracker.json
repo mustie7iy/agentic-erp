@@ -2397,14 +2397,14 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "E-invoicing and statutory reports designed (ADR-0061, decided by default under ADR-0053 d): a leaf einvoicing context; the accredited provider as a port behind an einvoice_provider connector with a stand-in, polled, never pushed to; UAE suppliers' PINT AE e-invoices recorded once and acknowledged, validated, refused or entered by capture's rules without a model, tax codes from the lines' categories, every refusal of the entering a hold people resolve; the FTA Audit File in tax filing once specified; sending with phase 3's sales invoices",
       "r": "ADR-0061 · T65 (split T65a-T65h)",
       "c": [
        {
-        "s": "T",
-        "t": "Fetching e-invoices on demand: connector kind einvoice_provider (adapter, https base_url, participants per company, format pint_ae, secret_ref; integration.adapter_not_certified for the stand-in in production); the einvoicing leaf (internal/layout) and schema einvoicing.einvoice (RLS, tenant_id first, unique per connector and provider message id, status trigger, schema tests); the Provider port, the loopback stand-in and the egress client's per-client response limit (10 MiB); FetchEInvoices's record activity run by POST /v1/e-invoices:fetch (an Operation counting what it recorded), bytes write-once in object storage, acknowledged after the commit (run-twice test); GET /v1/e-invoices (filters, cursor paging, company and supplier names, the entered invoice's number and reference) and /{id}; einvoicing.einvoice.read and manage; EInvoiceChanged; audit; walkthrough step_einvoice: Ada adds the UAE company AE01 and the connector, Alex fetches and finds the stand-in's e-invoice received under the fetch's operation, a second fetch counts it as already recorded",
-        "r": "ADR-0061 §2-§4, §11, §12, §15 · T65a",
+        "s": "D",
+        "t": "Fetching e-invoices on demand: connector kind einvoice_provider (adapter, https base_url, participants per company, format pint_ae, secret_ref; integration.adapter_not_certified for the stand-in in production); the einvoicing leaf (internal/layout) and schema einvoicing.einvoice (RLS, tenant_id first, unique per connector and provider message id, status trigger, schema tests); the Provider port, the loopback stand-in and the egress client's per-client response limit (10 MiB); FetchEInvoices's record activity run by POST /v1/e-invoices:fetch (an Operation counting what it recorded), bytes write-once in object storage, acknowledged after the commit (run-twice test); GET /v1/e-invoices (filters, cursor paging, the connector's and company's names; the supplier and the entered invoice's number and reference with T65c-T65d, which read and enter documents) and /{id}; einvoicing.einvoice.read and manage; EInvoiceChanged; audit; walkthrough step_einvoice: Ada adds the connector for the UAE pilot company of step 41 (5000), Alex fetches and finds the stand-in's e-invoice received under the fetch's operation, a second fetch counts it as already recorded",
+        "r": "db/migrations/000230, 000231 · einvoicing.einvoice · POST /v1/e-invoices:fetch · GET /v1/e-invoices · GET /v1/e-invoices/{id} · workflow FetchEInvoices · integration.EInvoiceProviders · einvoicing.StandIn · egress.ResponseLimit · walkthrough step_einvoice · ADR-0061 §2-§4, §11, §12, §15 and As built · T65a",
         "src": "adr:ADR-0061",
         "c": []
        },

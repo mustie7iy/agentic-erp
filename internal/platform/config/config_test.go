@@ -615,6 +615,7 @@ func TestProductionFailsClosed(t *testing.T) {
 	// (ADR-0041 As built, product owner 2026-11-04).
 	receiver := map[string]string{"ERP_WALKTHROUGH_RECEIVER": "127.0.0.1:18443", "ERP_WALKTHROUGH_RECEIVER_CA": tlstest.WriteFile(t, t.TempDir(), "receiver.pem", tlstest.NewCA(t).PEM)}
 	const receiverRefused = "ERP_WALKTHROUGH_RECEIVER and ERP_WALKTHROUGH_RECEIVER_CA must not be set unless ERP_ENV=development"
+	const providerRefused = "ERP_WALKTHROUGH_PROVIDER and ERP_WALKTHROUGH_PROVIDER_CA must not be set unless ERP_ENV=development"
 	with := func(base map[string]string, set map[string]string) map[string]string {
 		m := maps.Clone(base)
 		maps.Copy(m, set)
@@ -672,6 +673,7 @@ func TestProductionFailsClosed(t *testing.T) {
 		{"production walkthrough receiver", prod(receiver), []string{receiverRefused}},
 		{"production walkthrough receiver's address alone", prod(map[string]string{"ERP_WALKTHROUGH_RECEIVER": "127.0.0.1:18443"}), []string{receiverRefused}},
 		{"production walkthrough receiver's certificate alone", prod(map[string]string{"ERP_WALKTHROUGH_RECEIVER_CA": receiver["ERP_WALKTHROUGH_RECEIVER_CA"]}), []string{receiverRefused}},
+		{"production walkthrough provider", prod(map[string]string{"ERP_WALKTHROUGH_PROVIDER": "127.0.0.1:18444"}), []string{providerRefused}},
 		{"no environment, walkthrough receiver", with(receiver, map[string]string{"ERP_ENV": ""}), []string{envRequired, receiverRefused}},
 		{"production packs", prod(map[string]string{"ERP_PACKS_DIR": t.TempDir()}), []string{"ERP_PACKS_DIR must not be set with ERP_ENV=production"}},
 		{"production engine without codec", prod(map[string]string{"ERP_TEMPORAL_ADDRESS": "localhost:7233"}), []string{codecRefused}},
@@ -958,31 +960,43 @@ func TestLoadSchema(t *testing.T) {
 // read as one loopback address and port and the certificate it presents,
 // both or neither; anything else stops the server at start.
 func TestWalkthroughReceiver(t *testing.T) {
+	for _, name := range []string{"ERP_WALKTHROUGH_RECEIVER", "ERP_WALKTHROUGH_PROVIDER"} {
+		t.Run(name, func(t *testing.T) { walkthroughStandIn(t, name) })
+	}
+}
+
+// walkthroughStandIn checks the stand-in the variable name names.
+func walkthroughStandIn(t *testing.T, name string) {
+	t.Helper()
 	dir := t.TempDir()
 	ca := tlstest.WriteFile(t, dir, "receiver.pem", tlstest.NewCA(t).PEM)
 	notPEM := tlstest.WriteFile(t, dir, "receiver.txt", []byte("not a certificate"))
 	m := valid()
-	m["ERP_WALKTHROUGH_RECEIVER"], m["ERP_WALKTHROUGH_RECEIVER_CA"] = "127.0.0.1:18443", ca
+	m[name], m[name+"_CA"] = "127.0.0.1:18443", ca
 	c := mustLoad(t, m)
-	if c.Walkthrough.Receiver != netip.MustParseAddrPort("127.0.0.1:18443") || c.Walkthrough.Roots == nil {
-		t.Errorf("walkthrough: got %v with roots %v, want 127.0.0.1:18443 and the certificate's", c.Walkthrough.Receiver, c.Walkthrough.Roots != nil)
+	at, roots := c.Walkthrough.Receiver, c.Walkthrough.Roots
+	if name == "ERP_WALKTHROUGH_PROVIDER" {
+		at, roots = c.Walkthrough.Provider, c.Walkthrough.ProviderRoots
 	}
-	if c := mustLoad(t, valid()); c.Walkthrough.Receiver.IsValid() || c.Walkthrough.Roots != nil {
-		t.Errorf("without it: got %v, want no receiver", c.Walkthrough)
+	if at != netip.MustParseAddrPort("127.0.0.1:18443") || roots == nil {
+		t.Errorf("walkthrough: got %v with roots %v, want 127.0.0.1:18443 and the certificate's", at, roots != nil)
 	}
-	for name, set := range map[string]struct{ addr, ca, want string }{
+	if c := mustLoad(t, valid()); c.Walkthrough.Receiver.IsValid() || c.Walkthrough.Roots != nil || c.Walkthrough.Provider.IsValid() || c.Walkthrough.ProviderRoots != nil {
+		t.Errorf("without it: got %v, want no stand-in", c.Walkthrough)
+	}
+	for label, set := range map[string]struct{ addr, ca, want string }{
 		"the address alone":     {"127.0.0.1:18443", "", "are set together"},
 		"the certificate alone": {"", ca, "are set together"},
 		"a private address":     {"10.0.0.1:18443", ca, "must be a loopback address and port"},
 		"a name":                {"localhost:18443", ca, "must be a loopback address and port"},
 		"no port":               {"127.0.0.1", ca, "must be a loopback address and port"},
 		"port zero":             {"127.0.0.1:0", ca, "must be a loopback address and port"},
-		"a missing certificate": {"127.0.0.1:18443", filepath.Join(dir, "missing.pem"), "ERP_WALKTHROUGH_RECEIVER_CA: open"},
+		"a missing certificate": {"127.0.0.1:18443", filepath.Join(dir, "missing.pem"), name + "_CA: open"},
 		"not a certificate":     {"127.0.0.1:18443", notPEM, "holds no PEM certificate"},
 	} {
-		t.Run(name, func(t *testing.T) {
+		t.Run(label, func(t *testing.T) {
 			m := valid()
-			m["ERP_WALKTHROUGH_RECEIVER"], m["ERP_WALKTHROUGH_RECEIVER_CA"] = set.addr, set.ca
+			m[name], m[name+"_CA"] = set.addr, set.ca
 			if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), set.want) {
 				t.Errorf("got %v, want an error containing %q", err, set.want)
 			}

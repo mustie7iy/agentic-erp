@@ -31,6 +31,7 @@
 #   WALKTHROUGH_SFTP_ADDR    the treasury system's SFTP stand-in's listener (127.0.0.1:18022)
 #   WALKTHROUGH_NATS_ADDR    the event bus's listener (127.0.0.1:18222)
 #   WALKTHROUGH_HOOK_ADDR    the webhook subscriber's listener (127.0.0.1:18443)
+#   WALKTHROUGH_PROVIDER_ADDR   the e-invoicing provider's stand-in's listener (127.0.0.1:18444)
 #   WALKTHROUGH_DIR       work directory (default: a temporary one, removed after)
 #   WALKTHROUGH_BIN       directory with erp and erp-server already built (default: build them)
 #   WALKTHROUGH_KEEP=1    keep the server running at the end, to look around with erp call
@@ -53,6 +54,7 @@ MODEL_ADDR="${WALKTHROUGH_MODEL_ADDR:-127.0.0.1:18081}"
 SFTP_ADDR="${WALKTHROUGH_SFTP_ADDR:-127.0.0.1:18022}"
 NATS_ADDR="${WALKTHROUGH_NATS_ADDR:-127.0.0.1:18222}"
 HOOK_ADDR="${WALKTHROUGH_HOOK_ADDR:-127.0.0.1:18443}"
+PROVIDER_ADDR="${WALKTHROUGH_PROVIDER_ADDR:-127.0.0.1:18444}"
 PAUSE="${WALKTHROUGH_PAUSE:-0}"
 # shellcheck source=walkthrough/dates.sh
 . "$ROOT/scripts/walkthrough/dates.sh"
@@ -93,6 +95,7 @@ MODEL_PID=''
 SFTP_PID=''
 NATS_PID=''
 HOOK_PID=''
+PROVIDER_PID=''
 
 cleanup() {
   if [ -n "$MODEL_PID" ]; then
@@ -107,8 +110,8 @@ cleanup() {
     kill "$SERVER_PID" 2>/dev/null || true # it may have exited already: then there is nothing to stop
     wait "$SERVER_PID" 2>/dev/null || true # its exit status after a kill says nothing about the walkthrough
   fi
-  # The bus and the subscriber stop after the server, which uses them.
-  for pid in "$HOOK_PID" "$NATS_PID"; do
+  # The bus and the stand-ins stop after the server, which uses them.
+  for pid in "$HOOK_PID" "$PROVIDER_PID" "$NATS_PID"; do
     if [ -n "$pid" ]; then
       kill "$pid" 2>/dev/null || true # as the model stand-in
       wait "$pid" 2>/dev/null || true # as the model stand-in
@@ -457,6 +460,7 @@ start() {
   model_stub
   bus_stub
   hook_stub
+  provider_stub
   unset ERP_PACKS_DIR # the released packs alone
   ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64)
   ERP_FIELD_KEY=$(head -c 32 /dev/urandom | base64)
@@ -529,6 +533,23 @@ hook_stub() {
   HOOK_PID=$!
   wait_file "$WORK/hook/receiver.pem" "$HOOK_PID" "the webhook subscriber" "$WORK/hook.log" "is $HOOK_ADDR free? set WALKTHROUGH_HOOK_ADDR"
   export ERP_WALKTHROUGH_RECEIVER="$HOOK_ADDR" ERP_WALKTHROUGH_RECEIVER_CA="$WORK/hook/receiver.pem"
+}
+
+# provider_stub starts the e-invoicing provider's stand-in (step 43,
+# ADR-0061 §3) on this machine and names it to erp-server, with the
+# certificate it made (ERP_WALKTHROUGH_PROVIDER, _CA; development only). It
+# serves the documents of provider/inbox to requests bearing the token in
+# provider/token, which the connector's secret_ref names, and records each
+# acknowledgement there.
+provider_stub() {
+  stub providerstub internal/einvoicing/einvoicetest/providerstub
+  rm -rf "$WORK/provider"
+  mkdir -p "$WORK/provider/inbox"
+  head -c 24 /dev/urandom | base64 | tr -d '/+=' >"$WORK/provider/token"
+  "$STUB" -addr "$PROVIDER_ADDR" -ca "$WORK/provider/provider.pem" -token "$WORK/provider/token" -inbox "$WORK/provider/inbox" >"$WORK/provider.log" 2>&1 &
+  PROVIDER_PID=$!
+  wait_file "$WORK/provider/provider.pem" "$PROVIDER_PID" "the e-invoicing provider's stand-in" "$WORK/provider.log" "is $PROVIDER_ADDR free? set WALKTHROUGH_PROVIDER_ADDR"
+  export ERP_WALKTHROUGH_PROVIDER="$PROVIDER_ADDR" ERP_WALKTHROUGH_PROVIDER_CA="$WORK/provider/provider.pem"
 }
 
 # model_stub starts the stand-in for the model provider (step 18's capture,
@@ -3891,6 +3912,67 @@ uae_return() {
   expect "the quarter's draft after filing" "$(field .item_count)" 0
 }
 
+# step_einvoice is fetching e-invoices on demand (T65a; ADR-0061 §3, §4,
+# §15): Ada connects the UAE company's accredited e-invoicing provider, an
+# einvoice_provider connector to the provider's stand-in on this machine
+# (the only adapter until the product owner chooses a provider, refused in
+# production); the stand-in holds a supplier's e-invoice addressed to the
+# company's participant; Alex fetches, finds it in the list received under
+# the fetch's operation, its bytes the stand-in's, acknowledged; the
+# stand-in loses the acknowledgement and lists it again, and a second
+# fetch counts it as already recorded and acknowledges it again.
+step_einvoice() {
+  heading "Step 43 — E-invoices fetched on demand: the UAE company's provider connected, a supplier's e-invoice recorded once and acknowledged"
+  local connector op doc sum
+  as ada
+  say "The UAE company $AE receives its suppliers' e-invoices through an accredited provider (ADR-0049, ADR-0061). No"
+  say "provider is chosen yet (ADR-0061 Q1), so Ada connects the provider's stand-in on this machine: an einvoice_provider"
+  say "connector, its company's participant identifier at the provider (illustrative; its scheme is to confirm), the"
+  say "format PINT AE, and the credentials named by secret_ref. Production refuses the stand-in"
+  say "(integration.adapter_not_certified); the ERP polls the provider and opens no endpoint for it to call."
+  api 201 '"connector \(.name): \(.kind), \(.status), adapter \(.settings.adapter), \(.settings.format), participants \(.settings.participants | to_entries | map("\(.key) \(.value)") | join(", "))"' \
+    createConnector -body "{\"kind\": \"einvoice_provider\", \"name\": \"Maple Gulf e-invoicing\", \"secret_ref\": \"file:$WORK/provider/token\", \"settings\": {\"adapter\": \"standin\", \"base_url\": \"https://$PROVIDER_ADDR\", \"participants\": {\"$AE\": \"walkthrough:$AE\"}, \"format\": \"pint_ae\"}}"
+  connector=$(field .id)
+  say "Gulf Office Interiors sends its next invoice as an e-invoice; the provider holds it for Maple Gulf Trading's"
+  say "participant (an illustrative document: what it says is read when e-invoices are validated, T65c):"
+  {
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n'
+    printf '<!-- Illustrative only: not a validated PINT AE document. -->\n'
+    printf '<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"><ID>GOI-2001</ID><IssueDate>%s</IssueDate></Invoice>\n' "$TODAY"
+  } >"$WORK/provider/inbox/GOI-2001.xml"
+  printf 'walkthrough:%s\n' "$AE" >"$WORK/provider/inbox/GOI-2001.receiver"
+  sum=$(shasum -a 256 "$WORK/provider/inbox/GOI-2001.xml" | cut -d' ' -f1)
+  say "  message GOI-2001 for walkthrough:$AE, SHA-256 ${sum:0:16}…"
+  as alex
+  say "Alex fetches now: the fetch is an Operation; it records each document the provider holds once, keeps its bytes"
+  say "write-once, and tells the provider it is kept after the commit."
+  api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
+  wait_op
+  op=$(field .id)
+  excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded); its documents at \(.resource)"'
+  expect "the fetch's counts" "$(field '"\(.result.recorded) \(.result.already_recorded)"')" "1 0"
+  api 200 '.items[] | "  \(.message_id) for \(.company_code) \(.company_name): \(.status), \(.size) bytes, received through \(.connector_name), acknowledged \(.acknowledged_at != null)"' \
+    listEInvoices -p "fetch_operation_id=$op"
+  expect "the fetch's documents" "$(field '[.items[] | "\(.message_id) \(.company_code) \(.status)"] | join(", ")')" "GOI-2001 $AE received"
+  expect "its bytes, the stand-in's" "$(field '.items[0].sha256')" "$sum"
+  expect "acknowledged to the provider" "$(field '.items[0].acknowledged_at != null')" true
+  doc=$(field '.items[0].id')
+  [ -s "$WORK/provider/inbox/GOI-2001.acknowledged" ] || fail "the stand-in recorded no acknowledgement of GOI-2001"
+  say "The provider loses the acknowledgement and lists GOI-2001 again; the next fetch does not record it twice, and"
+  say "acknowledges it again:"
+  rm "$WORK/provider/inbox/GOI-2001.acknowledged"
+  api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
+  wait_op
+  excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded)"'
+  expect "the second fetch's counts" "$(field '"\(.result.recorded) \(.result.already_recorded)"')" "0 1"
+  [ -s "$WORK/provider/inbox/GOI-2001.acknowledged" ] || fail "the second fetch did not acknowledge GOI-2001 again"
+  api 200 '"  \(.message_id): \(.status), recorded by the first fetch \(.fetch_operation_id == "'"$op"'")"' getEInvoice -p "id=$doc"
+  expect "still the first fetch's" "$(field .fetch_operation_id)" "$op"
+  QUIET=1 api 200 '' listEInvoices -p "connector_id=$connector"
+  expect "the connector's documents" "$(field '.items | length')" 1
+  passed
+}
+
 # step_year_end is the year-end close of the fiscal year before today's,
 # PREV (ADR-0060): the walkthrough's configuration has no number range for
 # it until here, so no other step posts into it. Each slice of T64m adds
@@ -6080,7 +6162,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_close'
 
 main() {
   stop_unseen

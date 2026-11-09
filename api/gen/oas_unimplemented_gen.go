@@ -1331,6 +1331,42 @@ func (UnimplementedHandler) ExcludeBankStatementLine(ctx context.Context, req *R
 	return r, ht.ErrNotImplemented
 }
 
+// FetchEInvoices implements fetchEInvoices operation.
+//
+// Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of
+// an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's
+// inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`) and carried out
+// as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system
+// principal acting for the connector's companies. It lists the documents the provider has not had
+// acknowledged, and records each once per connector and the provider's message id: its bytes kept
+// write-once in object storage under their SHA-256, the document `received` with its company (the
+// connector's company whose participant identifier the provider listed it for; none when it names none
+// of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged;
+// after that commit the provider is told the document is kept (its acknowledgement), and
+// `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement
+// is sent again, so an acknowledgement lost is repaired by the next fetch. Its acknowledgement moves
+// the document's version without an event. When the fetch is done its Operation succeeds with the
+// counts in its `result` (`recorded`, `already_recorded`) and its `resource` the list of the documents
+// it recorded (`/v1/e-invoices?fetch_operation_id={id}`); a message not recorded fails the Operation
+// with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a
+// field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider,
+// the store or the database failed (after five tries in the workflow engine, one in process), which
+// the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above
+// 10 MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A
+// provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is
+// not an active `einvoice_provider` connector with credentials that resolve is refused before anything
+// is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409
+// `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`,
+// `integration.secret_unavailable`); so is, in production, the provider's stand-in (422
+// `integration.adapter_not_certified`), the only adapter until a provider is chosen. A server without
+// object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint
+// for the provider to call. Human-only (`x-agent: false`).
+//
+// POST /v1/e-invoices:fetch
+func (UnimplementedHandler) FetchEInvoices(ctx context.Context, req *EInvoiceFetch, params FetchEInvoicesParams) (r FetchEInvoicesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // FileTaxReturn implements fileTaxReturn operation.
 //
 // Records that a person filed the approved return with the authority on its portal, with the
@@ -1928,6 +1964,17 @@ func (UnimplementedHandler) GetDepreciationRun(ctx context.Context, params GetDe
 //
 // GET /v1/down-payment-requests/{id}
 func (UnimplementedHandler) GetDownPaymentRequest(ctx context.Context, params GetDownPaymentRequestParams) (r GetDownPaymentRequestRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetEInvoice implements getEInvoice operation.
+//
+// One e-invoice as `listEInvoices` gives it (ADR-0061 §15, T65a). One of a company the caller may not
+// act in, or addressed to none of the connector's companies to a caller who may not act in every
+// company, is not found (404), as one that does not exist, so ids of other companies cannot be probed.
+//
+// GET /v1/e-invoices/{id}
+func (UnimplementedHandler) GetEInvoice(ctx context.Context, params GetEInvoiceParams) (r GetEInvoiceRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3197,6 +3244,23 @@ func (UnimplementedHandler) ListDepreciationRuns(ctx context.Context, params Lis
 //
 // GET /v1/down-payment-requests
 func (UnimplementedHandler) ListDownPaymentRequests(ctx context.Context, params ListDownPaymentRequestsParams) (r ListDownPaymentRequestsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListEInvoices implements listEInvoices operation.
+//
+// The e-invoices received from the tenant's accredited providers (ADR-0061 §15, T65a), newest
+// received first: those of the companies the caller may act in, and, to a caller who may act in every
+// company, those addressed to none of the connector's companies. Each carries its connector by id and
+// name, its company by id, code and name, the provider's message id and the participant it was listed
+// for, the SHA-256 and size of its bytes as received, its status, the fetch that recorded it and when
+// it was received and acknowledged. Filters: company, connector, status, the fetch's Operation
+// (`fetch_operation_id`, as a fetch's Operation names it in its `resource`) and when received. What a
+// document says (number, issue date, supplier, amounts) is read by the processing slices (T65c, T65d),
+// which add it here.
+//
+// GET /v1/e-invoices
+func (UnimplementedHandler) ListEInvoices(ctx context.Context, params ListEInvoicesParams) (r ListEInvoicesRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

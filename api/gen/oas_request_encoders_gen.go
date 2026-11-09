@@ -1114,6 +1114,20 @@ func encodeExcludeBankStatementLineRequest(
 	return nil
 }
 
+func encodeFetchEInvoicesRequest(
+	req *EInvoiceFetch,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeFileTaxReturnRequest(
 	req *TaxReturnFile,
 	r *http.Request,
