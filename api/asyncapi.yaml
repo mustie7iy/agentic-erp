@@ -401,6 +401,7 @@ channels:
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       ConsolidationRunChanged: {$ref: '#/components/messages/ConsolidationRunChanged'}
+      IntercompanyDifferenceAccepted: {$ref: '#/components/messages/IntercompanyDifferenceAccepted'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -650,6 +651,7 @@ operations:
     channel: {$ref: '#/channels/consolidation'}
     messages:
       - $ref: '#/channels/consolidation/messages/ConsolidationRunChanged'
+      - $ref: '#/channels/consolidation/messages/IntercompanyDifferenceAccepted'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -3441,13 +3443,14 @@ components:
       name: ConsolidationRunChanged
       x-webhook: true
       title: Consolidation run changed
-      summary: A consolidation run was queued, started running, computed, failed or discarded.
+      summary: A consolidation run was queued, started running, computed, failed, discarded, finalized or superseded.
       description: |
         Emitted at each change of a consolidation run's status (ADR-0059
         §6, T68d): `consolidation-runs` (POST, `queued`, status_before
         null), its workflow's steps (`running`, `computed`, `failed` with
-        the problem) and `:discard` (`discarded`); finalization and
-        supersession follow in T68g. It says what changed;
+        the problem), `:discard` (`discarded`) and `:finalize` (T68g:
+        `final`, and the group's previous final run of the period
+        `superseded`, each its own event). It says what changed;
         `GET /v1/consolidation-runs/{id}` returns the run at `version`.
         Subject is the run id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
@@ -3461,6 +3464,30 @@ components:
         - name: computed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000c01, source: /erp/eu-1/consolidation, type: com.example.erp.consolidation.consolidation_run_changed.v1, subject: 0192a000-0000-7000-8000-000000000c01, time: '2026-11-20T10:00:02Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {run_id: 0192a000-0000-7000-8000-000000000c01, group_code: MAPLE, fiscal_year: 2026, fiscal_period: 11, status: computed, status_before: running, problem: null, version: 3}
+    IntercompanyDifferenceAccepted:
+      name: IntercompanyDifferenceAccepted
+      x-webhook: true
+      title: Intercompany difference accepted
+      summary: An open intercompany difference of a consolidation run was accepted by a person.
+      description: |
+        Emitted when a person accepts an open intercompany difference of a
+        computed consolidation run (ADR-0059 §8, T68g):
+        `consolidation-runs/{id}/differences/{difference_id}:accept`. It
+        names the run, the elimination, the pair of companies by id and code, the
+        difference in the group currency and the reason given;
+        `GET /v1/consolidation-runs/{id}/differences` shows it with names.
+        Subject is the difference id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.consolidation.intercompany_difference_accepted.v1}
+      payload: {$ref: '#/components/schemas/IntercompanyDifferenceAcceptedV1'}
+      examples:
+        - name: accepted
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000c02, source: /erp/eu-1/consolidation, type: com.example.erp.consolidation.intercompany_difference_accepted.v1, subject: 0192a000-0000-7000-8000-000000000d01, time: '2026-11-20T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {difference_id: 0192a000-0000-7000-8000-000000000d01, run_id: 0192a000-0000-7000-8000-000000000c01, group_code: MAPLE, fiscal_year: 2026, fiscal_period: 11, elimination_code: IC_BALANCES, legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c, company_code: '1000', partner_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b, partner_code: '3000', difference: {amount: '-100.00', currency: CAD}, tolerance: {amount: '10.00', currency: CAD}, reason: The receivable is booked at the invoice date's rate; the payable at the closing rate, status: accepted, version: 2, run_version: 5}
     EInvoiceChanged:
       name: EInvoiceChanged
       x-webhook: true
@@ -4113,6 +4140,26 @@ components:
             code: {type: string}
             detail: {type: string}
         version: {type: integer, description: "The run's version after the change."}
+    IntercompanyDifferenceAcceptedV1:
+      type: object
+      required: [difference_id, run_id, group_code, fiscal_year, fiscal_period, elimination_code, legal_entity_id, company_code, partner_id, partner_code, difference, tolerance, reason, status, version, run_version]
+      properties:
+        difference_id: {$ref: '#/components/schemas/Uuid', description: '`consolidation.run_difference.id`.'}
+        run_id: {$ref: '#/components/schemas/Uuid', description: '`consolidation.run.id`.'}
+        group_code: {type: string, description: "The group's code."}
+        fiscal_year: {type: integer}
+        fiscal_period: {type: integer, description: The regular period (1-12).}
+        elimination_code: {type: string, description: "The elimination's code (`consolidation.eliminations[].code`)."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: 'The pair''s company with the lower company code.'}
+        company_code: {type: string, description: "`legal_entity_id`'s company code, as the run read it."}
+        partner_id: {$ref: '#/components/schemas/Uuid', description: 'The pair''s other company.'}
+        partner_code: {type: string, description: "`partner_id`'s company code, as the run read it."}
+        difference: {$ref: '#/components/schemas/Money', description: 'The amount and the partner amount summed, in the group currency, debit positive.'}
+        tolerance: {$ref: '#/components/schemas/Money', description: "The elimination's tolerance the difference exceeds."}
+        reason: {type: string, description: Why it was accepted.}
+        status: {type: string, description: "The difference's status after the change: accepted."}
+        version: {type: integer, description: "The difference's version after the change."}
+        run_version: {type: integer, description: "The run's version after the change, which moves with its differences."}
     PeriodCloseChangedV1:
       type: object
       required: [period_close_id, legal_entity_id, fiscal_year, fiscal_period, change, task_code, reason, status, version]

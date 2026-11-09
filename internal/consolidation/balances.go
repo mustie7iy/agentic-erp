@@ -96,7 +96,11 @@ func (e *Endpoints) ListConsolidationBalances(ctx context.Context, params gen.Li
 		tok, _ := e.Pages.Encode(scope, balanceCursor{Code: page[size-1].code, Line: page[size-1].line}) // a string and a number always encode
 		out.NextPageToken.SetTo(tok)
 	}
-	n, err := e.namesOf(ctx, tx, r, page)
+	companies := make([]uuid.UUID, len(page))
+	for i, s := range page {
+		companies[i] = s.legalEntity
+	}
+	n, err := e.namesOf(ctx, tx, r, companies)
 	if err != nil {
 		return nil, err
 	}
@@ -107,21 +111,23 @@ func (e *Endpoints) ListConsolidationBalances(ctx context.Context, params gen.Li
 	return &out, err
 }
 
-// names are what a page of translated balances is shown with: the group
-// chart in the run's version, the companies the caller may act in by id
-// (every company of a run it may read, and the trading partners named to
-// it, product owner 2026-11-05), the accounts of the
-// page's companies and the currencies' minor units.
+// names are what a page of a run's rows is shown with: the group chart
+// and eliminations in the run's version, the companies the caller may act
+// in by id (every company of a run it may read, and the trading partners
+// named to it, product owner 2026-11-05), the accounts of the page's
+// companies and the currencies' minor units.
 type names struct {
 	chart     config.Consolidation
 	companies map[uuid.UUID]Company
 	accounts  map[uuid.UUID]Account
 	exps      map[string]int
 	group     string
+	people    map[uuid.UUID]string // who accepted the differences shown
 }
 
-// namesOf reads the names of a page of a run's translated balances.
-func (e *Endpoints) namesOf(ctx context.Context, tx pgx.Tx, r Run, page []storedBalance) (names, error) {
+// namesOf reads the names of a page of a run's rows, of the companies
+// whose accounts it names.
+func (e *Endpoints) namesOf(ctx context.Context, tx pgx.Tx, r Run, companies []uuid.UUID) (names, error) {
 	doc, err := e.version(ctx, r.ConfigVersion)
 	if err != nil {
 		return names{}, fmt.Errorf("consolidation: configuration version %d of run %s: %w", r.ConfigVersion, r.ID, err)
@@ -152,14 +158,14 @@ func (e *Endpoints) namesOf(ctx context.Context, tx pgx.Tx, r Run, page []stored
 		}
 	}
 	read := map[uuid.UUID]bool{}
-	for _, s := range page {
-		if read[s.legalEntity] {
+	for _, c := range companies {
+		if read[c] {
 			continue
 		}
-		read[s.legalEntity] = true
-		accounts, err := e.Ledger.Accounts(ctx, s.legalEntity)
+		read[c] = true
+		accounts, err := e.Ledger.Accounts(ctx, c)
 		if err != nil {
-			return names{}, fmt.Errorf("consolidation: accounts of %s: %w", s.code, err)
+			return names{}, fmt.Errorf("consolidation: accounts of company %s of run %s: %w", c, r.ID, err)
 		}
 		for _, a := range accounts {
 			n.accounts[a.ID] = a
@@ -174,14 +180,34 @@ func (n names) money(m money.Minor, code string) gen.Money {
 	return gen.Money{Amount: m.Plain(n.exps[code]), Currency: code}
 }
 
+// tradingPartner shows a trading partner, if any: its code and name to a
+// caller who may act in it, its id alone otherwise.
+func (n names) tradingPartner(id *uuid.UUID) gen.OptTradingPartner {
+	if id == nil {
+		return gen.OptTradingPartner{}
+	}
+	tp := gen.TradingPartner{ID: *id}
+	if p, ok := n.companies[*id]; ok {
+		tp.Code, tp.Name = gen.NewOptString(p.Code), gen.NewOptString(p.Name)
+	}
+	return gen.NewOptTradingPartner(tp)
+}
+
+// groupAccount shows a group account by number and its name in the run's
+// version.
+func (n names) groupAccount(number string) gen.GroupAccountRef {
+	out := gen.GroupAccountRef{Number: number}
+	if g := n.chart.GroupAccount(number); g != nil {
+		out.Name = g.Name
+	}
+	return out
+}
+
 // balanceAPI shows a translated row with its names.
 func (n names) balanceAPI(s storedBalance) gen.ConsolidationBalance {
 	co := n.companies[s.legalEntity]
 	out := gen.ConsolidationBalance{LegalEntityID: s.legalEntity, CompanyCode: s.code, CompanyName: co.Name, LineNo: s.line, Kind: s.kind,
-		GroupAccount: gen.GroupAccountRef{Number: s.groupAccount}, AccountID: apitypes.OptUUID(s.account), AmountGc: n.money(s.gc, n.group)}
-	if g := n.chart.GroupAccount(s.groupAccount); g != nil {
-		out.GroupAccount.Name = g.Name
-	}
+		GroupAccount: n.groupAccount(s.groupAccount), AccountID: apitypes.OptUUID(s.account), AmountGc: n.money(s.gc, n.group)}
 	if s.account != nil {
 		a := n.accounts[*s.account]
 		out.Account = gen.NewOptAssetAccountRef(gen.AssetAccountRef{Number: a.Number, Name: a.Name})
@@ -189,13 +215,7 @@ func (n names) balanceAPI(s storedBalance) gen.ConsolidationBalance {
 			out.ClosingRate = gen.NewOptString(plainRate(s.rate))
 		}
 	}
-	if s.partner != nil {
-		tp := gen.TradingPartner{ID: *s.partner}
-		if p, ok := n.companies[*s.partner]; ok {
-			tp.Code, tp.Name = gen.NewOptString(p.Code), gen.NewOptString(p.Name)
-		}
-		out.TradingPartner = gen.NewOptTradingPartner(tp)
-	}
+	out.TradingPartner = n.tradingPartner(s.partner)
 	if s.lc != nil {
 		out.AmountLc, out.AmountGcBooked = gen.NewOptMoney(n.money(*s.lc, s.currency)), gen.NewOptMoney(n.money(*s.booked, n.group))
 	}

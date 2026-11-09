@@ -160,6 +160,30 @@ type AcceptForecastVarianceCommentProposalPreconditionRequired Problem
 func (*AcceptForecastVarianceCommentProposalPreconditionRequired) acceptForecastVarianceCommentProposalRes() {
 }
 
+type AcceptIntercompanyDifferenceBadRequest Problem
+
+func (*AcceptIntercompanyDifferenceBadRequest) acceptIntercompanyDifferenceRes() {}
+
+type AcceptIntercompanyDifferenceForbidden Problem
+
+func (*AcceptIntercompanyDifferenceForbidden) acceptIntercompanyDifferenceRes() {}
+
+type AcceptIntercompanyDifferenceNotFound Problem
+
+func (*AcceptIntercompanyDifferenceNotFound) acceptIntercompanyDifferenceRes() {}
+
+type AcceptIntercompanyDifferencePreconditionFailed Problem
+
+func (*AcceptIntercompanyDifferencePreconditionFailed) acceptIntercompanyDifferenceRes() {}
+
+type AcceptIntercompanyDifferencePreconditionRequired Problem
+
+func (*AcceptIntercompanyDifferencePreconditionRequired) acceptIntercompanyDifferenceRes() {}
+
+type AcceptIntercompanyDifferenceUnprocessableEntity Problem
+
+func (*AcceptIntercompanyDifferenceUnprocessableEntity) acceptIntercompanyDifferenceRes() {}
+
 type AcceptMemoRecordProposalBadRequest Problem
 
 func (*AcceptMemoRecordProposalBadRequest) acceptMemoRecordProposalRes() {}
@@ -20807,6 +20831,7 @@ func (s *ConflictHeaders) SetResponse(val Problem) {
 func (*ConflictHeaders) acceptBankStatementGapRes()                {}
 func (*ConflictHeaders) acceptBankStatementLineProposalRes()       {}
 func (*ConflictHeaders) acceptForecastVarianceCommentProposalRes() {}
+func (*ConflictHeaders) acceptIntercompanyDifferenceRes()          {}
 func (*ConflictHeaders) acceptMemoRecordProposalRes()              {}
 func (*ConflictHeaders) acceptVarianceCommentRes()                 {}
 func (*ConflictHeaders) activateChangeRequestRes()                 {}
@@ -20894,6 +20919,7 @@ func (*ConflictHeaders) endSodRuleRes()                            {}
 func (*ConflictHeaders) excludeBankStatementLineRes()              {}
 func (*ConflictHeaders) fetchEInvoicesRes()                        {}
 func (*ConflictHeaders) fileTaxReturnRes()                         {}
+func (*ConflictHeaders) finalizeConsolidationRunRes()              {}
 func (*ConflictHeaders) getAccrualProposalRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                     {}
 func (*ConflictHeaders) getBankFileContentRes()                    {}
@@ -21511,7 +21537,7 @@ func (s *ConnectorUpdateSettings) init() ConnectorUpdateSettings {
 type ConsolidatedFigures struct {
 	// The companies' translated figures summed (ADR-0059 §7).
 	Reported Money `json:"reported"`
-	// The run's eliminations (ADR-0059 §8, §9); zero until they are built (T68f, T68h).
+	// The run's elimination entries' lines summed (ADR-0059 §8, §9).
 	Eliminations Money `json:"eliminations"`
 	// The reported figures and the eliminations summed.
 	Consolidated Money `json:"consolidated"`
@@ -21567,6 +21593,9 @@ type ConsolidatedStatement struct {
 	// of the period (`final`), or a final run a later one superseded. Open enumeration: clients must
 	// accept and preserve values not listed here; values may be added within /v1.
 	RunStatus string `json:"run_status"`
+	// The run's `stale` (`ConsolidationRun.stale`): whether a company's period changed since the run read
+	// its figures, so they may no longer be the ledger's (ADR-0059 §10).
+	Stale bool `json:"stale"`
 	// The statement. Open enumeration: clients must accept and preserve values not listed here; values may
 	// be added within /v1.
 	Statement string `json:"statement"`
@@ -21612,6 +21641,11 @@ func (s *ConsolidatedStatement) GetPeriodEnd() time.Time {
 // GetRunStatus returns the value of RunStatus.
 func (s *ConsolidatedStatement) GetRunStatus() string {
 	return s.RunStatus
+}
+
+// GetStale returns the value of Stale.
+func (s *ConsolidatedStatement) GetStale() bool {
+	return s.Stale
 }
 
 // GetStatement returns the value of Statement.
@@ -21674,6 +21708,11 @@ func (s *ConsolidatedStatement) SetRunStatus(val string) {
 	s.RunStatus = val
 }
 
+// SetStale sets the value of Stale.
+func (s *ConsolidatedStatement) SetStale(val bool) {
+	s.Stale = val
+}
+
 // SetStatement sets the value of Statement.
 func (s *ConsolidatedStatement) SetStatement(val string) {
 	s.Statement = val
@@ -21717,7 +21756,8 @@ type ConsolidatedStatementRow struct {
 	Role OptString `json:"role"`
 	// The companies' translated figures on the account summed (ADR-0059 §7).
 	Reported Money `json:"reported"`
-	// The run's eliminations on the account (ADR-0059 §8, §9); zero until they are built (T68f, T68h).
+	// The run's elimination entries' lines on the account summed (ADR-0059 §8, §9;
+	// `listConsolidationEntries`).
 	Eliminations Money `json:"eliminations"`
 	// The reported figure and the eliminations summed: the group's consolidated figure.
 	Consolidated Money `json:"consolidated"`
@@ -22175,6 +22215,350 @@ func (s *ConsolidationCompany) SetLocalCurrency(val string) {
 	s.LocalCurrency = val
 }
 
+// The number of a run's intercompany differences of one status.
+// Ref: #/components/schemas/ConsolidationDifferenceCount
+type ConsolidationDifferenceCount struct {
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Status string `json:"status"`
+	// How many there are.
+	Count int32 `json:"count"`
+}
+
+// GetStatus returns the value of Status.
+func (s *ConsolidationDifferenceCount) GetStatus() string {
+	return s.Status
+}
+
+// GetCount returns the value of Count.
+func (s *ConsolidationDifferenceCount) GetCount() int32 {
+	return s.Count
+}
+
+// SetStatus sets the value of Status.
+func (s *ConsolidationDifferenceCount) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetCount sets the value of Count.
+func (s *ConsolidationDifferenceCount) SetCount(val int32) {
+	s.Count = val
+}
+
+// An elimination entry of a consolidation run (ADR-0059 §8, §9): its lines sum to zero; the run
+// keeps it, no company's ledger.
+// Ref: #/components/schemas/ConsolidationEntry
+type ConsolidationEntry struct {
+	// Its number within the run.
+	EntryNo int32 `json:"entry_no"`
+	// `intercompany`: a pair's balances on an elimination's accounts reversed, with their difference;
+	// `investment` and `nci`: a member's investment and non-controlling interest (T68h). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Kind        string            `json:"kind"`
+	Elimination OptEliminationRef `json:"elimination"`
+	// Its company: of an intercompany entry, the pair's with the lower code.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code, as the run read it.
+	CompanyCode string `json:"company_code"`
+	// The company's name as it is now.
+	CompanyName string `json:"company_name"`
+	// Of an intercompany entry: the pair's other company.
+	Partner OptTradingPartner `json:"partner"`
+	// Its debit lines summed, in the group currency; its credits are the same amount.
+	Debits Money `json:"debits"`
+	// Its lines, by group account number, company code (none first), company account number and trading
+	// partner code.
+	Lines []ConsolidationEntryLine `json:"lines"`
+}
+
+// GetEntryNo returns the value of EntryNo.
+func (s *ConsolidationEntry) GetEntryNo() int32 {
+	return s.EntryNo
+}
+
+// GetKind returns the value of Kind.
+func (s *ConsolidationEntry) GetKind() string {
+	return s.Kind
+}
+
+// GetElimination returns the value of Elimination.
+func (s *ConsolidationEntry) GetElimination() OptEliminationRef {
+	return s.Elimination
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ConsolidationEntry) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ConsolidationEntry) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ConsolidationEntry) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetPartner returns the value of Partner.
+func (s *ConsolidationEntry) GetPartner() OptTradingPartner {
+	return s.Partner
+}
+
+// GetDebits returns the value of Debits.
+func (s *ConsolidationEntry) GetDebits() Money {
+	return s.Debits
+}
+
+// GetLines returns the value of Lines.
+func (s *ConsolidationEntry) GetLines() []ConsolidationEntryLine {
+	return s.Lines
+}
+
+// SetEntryNo sets the value of EntryNo.
+func (s *ConsolidationEntry) SetEntryNo(val int32) {
+	s.EntryNo = val
+}
+
+// SetKind sets the value of Kind.
+func (s *ConsolidationEntry) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetElimination sets the value of Elimination.
+func (s *ConsolidationEntry) SetElimination(val OptEliminationRef) {
+	s.Elimination = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ConsolidationEntry) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ConsolidationEntry) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ConsolidationEntry) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetPartner sets the value of Partner.
+func (s *ConsolidationEntry) SetPartner(val OptTradingPartner) {
+	s.Partner = val
+}
+
+// SetDebits sets the value of Debits.
+func (s *ConsolidationEntry) SetDebits(val Money) {
+	s.Debits = val
+}
+
+// SetLines sets the value of Lines.
+func (s *ConsolidationEntry) SetLines(val []ConsolidationEntryLine) {
+	s.Lines = val
+}
+
+// A line of an elimination entry: an amount in the group currency, debit positive, on a group account,
+// with the company, company account and trading partner of the translated row it reverses, if any.
+// Ref: #/components/schemas/ConsolidationEntryLine
+type ConsolidationEntryLine struct {
+	// Its number within the entry.
+	LineNo       int32           `json:"line_no"`
+	GroupAccount GroupAccountRef `json:"group_account"`
+	// The company of the row it reverses; absent on an intercompany difference's line, which is the
+	// pair's.
+	LegalEntityID OptUUID `json:"legal_entity_id"`
+	// That company's code, as the run read it.
+	CompanyCode OptString `json:"company_code"`
+	// That company's name as it is now.
+	CompanyName OptString `json:"company_name"`
+	// The company account of the row it reverses.
+	AccountID      OptUUID            `json:"account_id"`
+	Account        OptAssetAccountRef `json:"account"`
+	TradingPartner OptTradingPartner  `json:"trading_partner"`
+	// The amount in the group currency, debit positive.
+	Amount Money `json:"amount"`
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *ConsolidationEntryLine) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetGroupAccount returns the value of GroupAccount.
+func (s *ConsolidationEntryLine) GetGroupAccount() GroupAccountRef {
+	return s.GroupAccount
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ConsolidationEntryLine) GetLegalEntityID() OptUUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ConsolidationEntryLine) GetCompanyCode() OptString {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ConsolidationEntryLine) GetCompanyName() OptString {
+	return s.CompanyName
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *ConsolidationEntryLine) GetAccountID() OptUUID {
+	return s.AccountID
+}
+
+// GetAccount returns the value of Account.
+func (s *ConsolidationEntryLine) GetAccount() OptAssetAccountRef {
+	return s.Account
+}
+
+// GetTradingPartner returns the value of TradingPartner.
+func (s *ConsolidationEntryLine) GetTradingPartner() OptTradingPartner {
+	return s.TradingPartner
+}
+
+// GetAmount returns the value of Amount.
+func (s *ConsolidationEntryLine) GetAmount() Money {
+	return s.Amount
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *ConsolidationEntryLine) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetGroupAccount sets the value of GroupAccount.
+func (s *ConsolidationEntryLine) SetGroupAccount(val GroupAccountRef) {
+	s.GroupAccount = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ConsolidationEntryLine) SetLegalEntityID(val OptUUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ConsolidationEntryLine) SetCompanyCode(val OptString) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ConsolidationEntryLine) SetCompanyName(val OptString) {
+	s.CompanyName = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *ConsolidationEntryLine) SetAccountID(val OptUUID) {
+	s.AccountID = val
+}
+
+// SetAccount sets the value of Account.
+func (s *ConsolidationEntryLine) SetAccount(val OptAssetAccountRef) {
+	s.Account = val
+}
+
+// SetTradingPartner sets the value of TradingPartner.
+func (s *ConsolidationEntryLine) SetTradingPartner(val OptTradingPartner) {
+	s.TradingPartner = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ConsolidationEntryLine) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// One page of a consolidation run's elimination entries, with the totals over the filter.
+// Ref: #/components/schemas/ConsolidationEntryPage
+type ConsolidationEntryPage struct {
+	// The entries on this page, each with its lines.
+	Items []ConsolidationEntry `json:"items"`
+	// The totals of every entry the filter selects, over all pages, one per kind present, in the order
+	// intercompany, investment, nci.
+	Totals []ConsolidationEntryTotal `json:"totals"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ConsolidationEntryPage) GetItems() []ConsolidationEntry {
+	return s.Items
+}
+
+// GetTotals returns the value of Totals.
+func (s *ConsolidationEntryPage) GetTotals() []ConsolidationEntryTotal {
+	return s.Totals
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ConsolidationEntryPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ConsolidationEntryPage) SetItems(val []ConsolidationEntry) {
+	s.Items = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *ConsolidationEntryPage) SetTotals(val []ConsolidationEntryTotal) {
+	s.Totals = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ConsolidationEntryPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ConsolidationEntryPage) listConsolidationEntriesRes() {}
+
+// The entries of one kind summed, in the group currency.
+// Ref: #/components/schemas/ConsolidationEntryTotal
+type ConsolidationEntryTotal struct {
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Kind string `json:"kind"`
+	// The number of entries of the kind.
+	Count int32 `json:"count"`
+	// Their debit lines summed; their credits are the same amount.
+	Debits Money `json:"debits"`
+}
+
+// GetKind returns the value of Kind.
+func (s *ConsolidationEntryTotal) GetKind() string {
+	return s.Kind
+}
+
+// GetCount returns the value of Count.
+func (s *ConsolidationEntryTotal) GetCount() int32 {
+	return s.Count
+}
+
+// GetDebits returns the value of Debits.
+func (s *ConsolidationEntryTotal) GetDebits() Money {
+	return s.Debits
+}
+
+// SetKind sets the value of Kind.
+func (s *ConsolidationEntryTotal) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetCount sets the value of Count.
+func (s *ConsolidationEntryTotal) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetDebits sets the value of Debits.
+func (s *ConsolidationEntryTotal) SetDebits(val Money) {
+	s.Debits = val
+}
+
 // A consolidation group (ADR-0059 §3): a parent company and the subsidiaries it holds directly. From
 // the active configuration.
 // Ref: #/components/schemas/ConsolidationGroup
@@ -22378,7 +22762,8 @@ func (s *ConsolidationMember) SetInvestmentAccount(val AssetAccountRef) {
 
 // A consolidation run of a group for a regular period (ADR-0059 §6): its companies, each with the
 // closing rate it was translated at and its period's status and version when the run read its figures.
-// The translated figures are `GET /v1/consolidation-runs/{id}/balances`.
+// The translated figures are `GET /v1/consolidation-runs/{id}/balances`, the intercompany differences
+// `/differences` and the elimination entries `/entries`.
 // Ref: #/components/schemas/ConsolidationRun
 type ConsolidationRun struct {
 	// The run.
@@ -22396,9 +22781,10 @@ type ConsolidationRun struct {
 	// The period's last day: the closing rate's date.
 	PeriodEnd time.Time `json:"period_end"`
 	// Queued until its workflow starts it, running while its companies are translated, then computed, or
-	// failed with its problem; a computed or failed run may be discarded. final and superseded follow
-	// finalization (ADR-0059 §10). Open enumeration: clients must accept and preserve values not listed
-	// here; values may be added within /v1.
+	// failed with its problem; a computed or failed run may be discarded. A computed run is finalized
+	// (`:finalize`, ADR-0059 §10) as the group's consolidated figures of its period: final, until a later
+	// final run of the period supersedes it (superseded). Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
 	Status  string                     `json:"status"`
 	Problem OptConsolidationRunProblem `json:"problem"`
 	// The configuration version whose group, group chart and mapping the run read
@@ -22415,7 +22801,30 @@ type ConsolidationRun struct {
 	Members []ConsolidationRunMember `json:"members"`
 	// When it was computed; absent before.
 	ComputedAt OptDateTime `json:"computed_at"`
-	// The run's version (ETag).
+	// The number of its intercompany differences per status present
+	// (`GET /v1/consolidation-runs/{id}/differences`), in the order matched, within_tolerance, open,
+	// accepted, outside_group, no_trading_partner; empty until its companies are matched (ADR-0059 §8).
+	DifferenceCounts []ConsolidationDifferenceCount `json:"difference_counts"`
+	// Whether a company's leading-ledger period changed since the run read its figures: its version now
+	// differs from the `period_version` the run recorded (ADR-0059 §10), say by an unlock, a posting and
+	// a relock, or an unlock request. A stale run cannot be finalized, and a stale final run stays final
+	// but no longer shows the ledger's figures; a new run of the period, finalized, supersedes it. Absent
+	// until every company of the run is translated.
+	Stale OptBool `json:"stale"`
+	// Who finalized it (`:finalize`); absent unless it is final or superseded.
+	FinalizedBy OptUUID `json:"finalized_by"`
+	// Their name; absent unless it is final or superseded.
+	FinalizedByName OptString `json:"finalized_by_name"`
+	// When it was finalized; absent unless it is final or superseded.
+	FinalizedAt OptDateTime `json:"finalized_at"`
+	// The later final run of the group and period that superseded it (`GET /v1/consolidation-runs/{id}`);
+	// absent unless it is superseded.
+	SupersededBy OptUUID `json:"superseded_by"`
+	// The final run of the group and period this run superseded when it was finalized; absent when it
+	// superseded none.
+	Supersedes OptUUID `json:"supersedes"`
+	// The run's version (ETag); it moves with every change of the run and of its differences (ADR-0059
+	// §5).
 	Version int32 `json:"version"`
 	// When it was started.
 	CreatedAt time.Time `json:"created_at"`
@@ -22496,6 +22905,41 @@ func (s *ConsolidationRun) GetMembers() []ConsolidationRunMember {
 // GetComputedAt returns the value of ComputedAt.
 func (s *ConsolidationRun) GetComputedAt() OptDateTime {
 	return s.ComputedAt
+}
+
+// GetDifferenceCounts returns the value of DifferenceCounts.
+func (s *ConsolidationRun) GetDifferenceCounts() []ConsolidationDifferenceCount {
+	return s.DifferenceCounts
+}
+
+// GetStale returns the value of Stale.
+func (s *ConsolidationRun) GetStale() OptBool {
+	return s.Stale
+}
+
+// GetFinalizedBy returns the value of FinalizedBy.
+func (s *ConsolidationRun) GetFinalizedBy() OptUUID {
+	return s.FinalizedBy
+}
+
+// GetFinalizedByName returns the value of FinalizedByName.
+func (s *ConsolidationRun) GetFinalizedByName() OptString {
+	return s.FinalizedByName
+}
+
+// GetFinalizedAt returns the value of FinalizedAt.
+func (s *ConsolidationRun) GetFinalizedAt() OptDateTime {
+	return s.FinalizedAt
+}
+
+// GetSupersededBy returns the value of SupersededBy.
+func (s *ConsolidationRun) GetSupersededBy() OptUUID {
+	return s.SupersededBy
+}
+
+// GetSupersedes returns the value of Supersedes.
+func (s *ConsolidationRun) GetSupersedes() OptUUID {
+	return s.Supersedes
 }
 
 // GetVersion returns the value of Version.
@@ -22586,6 +23030,41 @@ func (s *ConsolidationRun) SetMembers(val []ConsolidationRunMember) {
 // SetComputedAt sets the value of ComputedAt.
 func (s *ConsolidationRun) SetComputedAt(val OptDateTime) {
 	s.ComputedAt = val
+}
+
+// SetDifferenceCounts sets the value of DifferenceCounts.
+func (s *ConsolidationRun) SetDifferenceCounts(val []ConsolidationDifferenceCount) {
+	s.DifferenceCounts = val
+}
+
+// SetStale sets the value of Stale.
+func (s *ConsolidationRun) SetStale(val OptBool) {
+	s.Stale = val
+}
+
+// SetFinalizedBy sets the value of FinalizedBy.
+func (s *ConsolidationRun) SetFinalizedBy(val OptUUID) {
+	s.FinalizedBy = val
+}
+
+// SetFinalizedByName sets the value of FinalizedByName.
+func (s *ConsolidationRun) SetFinalizedByName(val OptString) {
+	s.FinalizedByName = val
+}
+
+// SetFinalizedAt sets the value of FinalizedAt.
+func (s *ConsolidationRun) SetFinalizedAt(val OptDateTime) {
+	s.FinalizedAt = val
+}
+
+// SetSupersededBy sets the value of SupersededBy.
+func (s *ConsolidationRun) SetSupersededBy(val OptUUID) {
+	s.SupersededBy = val
+}
+
+// SetSupersedes sets the value of Supersedes.
+func (s *ConsolidationRun) SetSupersedes(val OptUUID) {
+	s.Supersedes = val
 }
 
 // SetVersion sets the value of Version.
@@ -27481,7 +27960,8 @@ func (s *DiscardConsolidationRunOKHeaders) SetResponse(val ConsolidationRun) {
 	s.Response = val
 }
 
-func (*DiscardConsolidationRunOKHeaders) discardConsolidationRunRes() {}
+func (*DiscardConsolidationRunOKHeaders) discardConsolidationRunRes()  {}
+func (*DiscardConsolidationRunOKHeaders) finalizeConsolidationRunRes() {}
 
 type DiscardConsolidationRunPreconditionFailed Problem
 
@@ -30121,6 +30601,30 @@ func (*FileTaxReturnPreconditionRequired) fileTaxReturnRes() {}
 type FileTaxReturnUnprocessableEntity Problem
 
 func (*FileTaxReturnUnprocessableEntity) fileTaxReturnRes() {}
+
+type FinalizeConsolidationRunBadRequest Problem
+
+func (*FinalizeConsolidationRunBadRequest) finalizeConsolidationRunRes() {}
+
+type FinalizeConsolidationRunForbidden Problem
+
+func (*FinalizeConsolidationRunForbidden) finalizeConsolidationRunRes() {}
+
+type FinalizeConsolidationRunNotFound Problem
+
+func (*FinalizeConsolidationRunNotFound) finalizeConsolidationRunRes() {}
+
+type FinalizeConsolidationRunPreconditionFailed Problem
+
+func (*FinalizeConsolidationRunPreconditionFailed) finalizeConsolidationRunRes() {}
+
+type FinalizeConsolidationRunPreconditionRequired Problem
+
+func (*FinalizeConsolidationRunPreconditionRequired) finalizeConsolidationRunRes() {}
+
+type FinalizeConsolidationRunUnprocessableEntity Problem
+
+func (*FinalizeConsolidationRunUnprocessableEntity) finalizeConsolidationRunRes() {}
 
 // The posting status of one fiscal period for one legal entity and ledger.
 // Ref: #/components/schemas/FiscalPeriod
@@ -36658,6 +37162,374 @@ type ImportBankStatementsUnprocessableEntity Problem
 
 func (*ImportBankStatementsUnprocessableEntity) importBankStatementsRes() {}
 
+// A consolidation run's intercompany difference (ADR-0059 §8): a pair of its companies on an
+// elimination's accounts (`matched`, `within_tolerance`, `open`), or a company's rows on them naming a
+// company outside the run (`outside_group`) or none (`no_trading_partner`). Amounts in the group
+// currency, debit positive.
+// Ref: #/components/schemas/IntercompanyDifference
+type IntercompanyDifference struct {
+	// The difference.
+	ID uuid.UUID `json:"id"`
+	// Its number within the run, in the list's order.
+	LineNo      int32          `json:"line_no"`
+	Elimination EliminationRef `json:"elimination"`
+	// The company: of a pair, the one with the lower company code.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code, as the run read it.
+	CompanyCode string `json:"company_code"`
+	// The company's name as it is now.
+	CompanyName string `json:"company_name"`
+	// The partner: the pair's other company, or the trading partner outside the run; absent for
+	// `no_trading_partner`.
+	Partner OptTradingPartner `json:"partner"`
+	// `matched`: the difference is zero; `within_tolerance`: its absolute value is at most the tolerance;
+	// `open`: above it, which stops finalization until it is accepted (`:accept`) or the companies correct
+	// their postings and run the group again; `accepted`: an open difference a person accepted, with who,
+	// when and why; `outside_group`, `no_trading_partner`: rows the run does not eliminate. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Status string `json:"status"`
+	// The company's translated rows on the elimination's accounts naming the partner (or, for
+	// `no_trading_partner`, none) summed.
+	Amount Money `json:"amount"`
+	// Of a pair: the partner's translated rows on them naming the company summed.
+	PartnerAmount OptMoney `json:"partner_amount"`
+	// Of a pair: the amount and the partner amount summed, eliminated to the elimination's difference
+	// account.
+	Difference OptMoney `json:"difference"`
+	// Of a pair: the elimination's tolerance, in the configuration version the run read.
+	Tolerance OptMoney `json:"tolerance"`
+	// Who accepted it; absent unless it is accepted.
+	AcceptedBy OptUUID `json:"accepted_by"`
+	// Their name; absent unless it is accepted.
+	AcceptedByName OptString `json:"accepted_by_name"`
+	// When it was accepted; absent unless it is accepted.
+	AcceptedAt OptDateTime `json:"accepted_at"`
+	// Why it was accepted, as given; absent unless it is accepted.
+	Reason OptString `json:"reason"`
+	// The difference's version (its ETag, `If-Match` of `:accept`).
+	Version int32 `json:"version"`
+}
+
+// GetID returns the value of ID.
+func (s *IntercompanyDifference) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *IntercompanyDifference) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetElimination returns the value of Elimination.
+func (s *IntercompanyDifference) GetElimination() EliminationRef {
+	return s.Elimination
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *IntercompanyDifference) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *IntercompanyDifference) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *IntercompanyDifference) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetPartner returns the value of Partner.
+func (s *IntercompanyDifference) GetPartner() OptTradingPartner {
+	return s.Partner
+}
+
+// GetStatus returns the value of Status.
+func (s *IntercompanyDifference) GetStatus() string {
+	return s.Status
+}
+
+// GetAmount returns the value of Amount.
+func (s *IntercompanyDifference) GetAmount() Money {
+	return s.Amount
+}
+
+// GetPartnerAmount returns the value of PartnerAmount.
+func (s *IntercompanyDifference) GetPartnerAmount() OptMoney {
+	return s.PartnerAmount
+}
+
+// GetDifference returns the value of Difference.
+func (s *IntercompanyDifference) GetDifference() OptMoney {
+	return s.Difference
+}
+
+// GetTolerance returns the value of Tolerance.
+func (s *IntercompanyDifference) GetTolerance() OptMoney {
+	return s.Tolerance
+}
+
+// GetAcceptedBy returns the value of AcceptedBy.
+func (s *IntercompanyDifference) GetAcceptedBy() OptUUID {
+	return s.AcceptedBy
+}
+
+// GetAcceptedByName returns the value of AcceptedByName.
+func (s *IntercompanyDifference) GetAcceptedByName() OptString {
+	return s.AcceptedByName
+}
+
+// GetAcceptedAt returns the value of AcceptedAt.
+func (s *IntercompanyDifference) GetAcceptedAt() OptDateTime {
+	return s.AcceptedAt
+}
+
+// GetReason returns the value of Reason.
+func (s *IntercompanyDifference) GetReason() OptString {
+	return s.Reason
+}
+
+// GetVersion returns the value of Version.
+func (s *IntercompanyDifference) GetVersion() int32 {
+	return s.Version
+}
+
+// SetID sets the value of ID.
+func (s *IntercompanyDifference) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *IntercompanyDifference) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetElimination sets the value of Elimination.
+func (s *IntercompanyDifference) SetElimination(val EliminationRef) {
+	s.Elimination = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *IntercompanyDifference) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *IntercompanyDifference) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *IntercompanyDifference) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetPartner sets the value of Partner.
+func (s *IntercompanyDifference) SetPartner(val OptTradingPartner) {
+	s.Partner = val
+}
+
+// SetStatus sets the value of Status.
+func (s *IntercompanyDifference) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *IntercompanyDifference) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetPartnerAmount sets the value of PartnerAmount.
+func (s *IntercompanyDifference) SetPartnerAmount(val OptMoney) {
+	s.PartnerAmount = val
+}
+
+// SetDifference sets the value of Difference.
+func (s *IntercompanyDifference) SetDifference(val OptMoney) {
+	s.Difference = val
+}
+
+// SetTolerance sets the value of Tolerance.
+func (s *IntercompanyDifference) SetTolerance(val OptMoney) {
+	s.Tolerance = val
+}
+
+// SetAcceptedBy sets the value of AcceptedBy.
+func (s *IntercompanyDifference) SetAcceptedBy(val OptUUID) {
+	s.AcceptedBy = val
+}
+
+// SetAcceptedByName sets the value of AcceptedByName.
+func (s *IntercompanyDifference) SetAcceptedByName(val OptString) {
+	s.AcceptedByName = val
+}
+
+// SetAcceptedAt sets the value of AcceptedAt.
+func (s *IntercompanyDifference) SetAcceptedAt(val OptDateTime) {
+	s.AcceptedAt = val
+}
+
+// SetReason sets the value of Reason.
+func (s *IntercompanyDifference) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// SetVersion sets the value of Version.
+func (s *IntercompanyDifference) SetVersion(val int32) {
+	s.Version = val
+}
+
+// IntercompanyDifferenceHeaders wraps IntercompanyDifference with response headers.
+type IntercompanyDifferenceHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           IntercompanyDifference
+}
+
+// GetETag returns the value of ETag.
+func (s *IntercompanyDifferenceHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *IntercompanyDifferenceHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *IntercompanyDifferenceHeaders) GetResponse() IntercompanyDifference {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *IntercompanyDifferenceHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *IntercompanyDifferenceHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *IntercompanyDifferenceHeaders) SetResponse(val IntercompanyDifference) {
+	s.Response = val
+}
+
+func (*IntercompanyDifferenceHeaders) acceptIntercompanyDifferenceRes() {}
+
+// One page of a consolidation run's intercompany differences, with the totals over the filter.
+// Ref: #/components/schemas/IntercompanyDifferencePage
+type IntercompanyDifferencePage struct {
+	// The differences on this page.
+	Items []IntercompanyDifference `json:"items"`
+	// The totals of every difference the filter selects, over all pages, one per status present, in the
+	// order matched, within_tolerance, open, outside_group, no_trading_partner.
+	Totals []IntercompanyDifferenceTotal `json:"totals"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *IntercompanyDifferencePage) GetItems() []IntercompanyDifference {
+	return s.Items
+}
+
+// GetTotals returns the value of Totals.
+func (s *IntercompanyDifferencePage) GetTotals() []IntercompanyDifferenceTotal {
+	return s.Totals
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *IntercompanyDifferencePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *IntercompanyDifferencePage) SetItems(val []IntercompanyDifference) {
+	s.Items = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *IntercompanyDifferencePage) SetTotals(val []IntercompanyDifferenceTotal) {
+	s.Totals = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *IntercompanyDifferencePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*IntercompanyDifferencePage) listIntercompanyDifferencesRes() {}
+
+// The differences of one status summed, in the group currency, debit positive.
+// Ref: #/components/schemas/IntercompanyDifferenceTotal
+type IntercompanyDifferenceTotal struct {
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Status string `json:"status"`
+	// The number of differences of the status.
+	Count int32 `json:"count"`
+	// Their amounts summed.
+	Amount Money `json:"amount"`
+	// Their partners' amounts summed; absent for `outside_group` and `no_trading_partner`.
+	PartnerAmount OptMoney `json:"partner_amount"`
+	// Their differences summed; absent for `outside_group` and `no_trading_partner`.
+	Difference OptMoney `json:"difference"`
+}
+
+// GetStatus returns the value of Status.
+func (s *IntercompanyDifferenceTotal) GetStatus() string {
+	return s.Status
+}
+
+// GetCount returns the value of Count.
+func (s *IntercompanyDifferenceTotal) GetCount() int32 {
+	return s.Count
+}
+
+// GetAmount returns the value of Amount.
+func (s *IntercompanyDifferenceTotal) GetAmount() Money {
+	return s.Amount
+}
+
+// GetPartnerAmount returns the value of PartnerAmount.
+func (s *IntercompanyDifferenceTotal) GetPartnerAmount() OptMoney {
+	return s.PartnerAmount
+}
+
+// GetDifference returns the value of Difference.
+func (s *IntercompanyDifferenceTotal) GetDifference() OptMoney {
+	return s.Difference
+}
+
+// SetStatus sets the value of Status.
+func (s *IntercompanyDifferenceTotal) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetCount sets the value of Count.
+func (s *IntercompanyDifferenceTotal) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *IntercompanyDifferenceTotal) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetPartnerAmount sets the value of PartnerAmount.
+func (s *IntercompanyDifferenceTotal) SetPartnerAmount(val OptMoney) {
+	s.PartnerAmount = val
+}
+
+// SetDifference sets the value of Difference.
+func (s *IntercompanyDifferenceTotal) SetDifference(val OptMoney) {
+	s.Difference = val
+}
+
 // Payment terms frozen when a document posted (T36b), as SAP keeps ZTERM, ZFBDT and ZBD1T..ZBD3T: a
 // later change to the payment term changes neither the net due date nor the discounts.
 // Ref: #/components/schemas/ItemPaymentTerms
@@ -41009,6 +41881,18 @@ type ListConsolidationBalancesNotFound Problem
 
 func (*ListConsolidationBalancesNotFound) listConsolidationBalancesRes() {}
 
+type ListConsolidationEntriesBadRequest Problem
+
+func (*ListConsolidationEntriesBadRequest) listConsolidationEntriesRes() {}
+
+type ListConsolidationEntriesForbidden Problem
+
+func (*ListConsolidationEntriesForbidden) listConsolidationEntriesRes() {}
+
+type ListConsolidationEntriesNotFound Problem
+
+func (*ListConsolidationEntriesNotFound) listConsolidationEntriesRes() {}
+
 type ListConsolidationGroupsBadRequest Problem
 
 func (*ListConsolidationGroupsBadRequest) listConsolidationGroupsRes() {}
@@ -41204,6 +42088,18 @@ func (*ListHouseBanksBadRequest) listHouseBanksRes() {}
 type ListHouseBanksForbidden Problem
 
 func (*ListHouseBanksForbidden) listHouseBanksRes() {}
+
+type ListIntercompanyDifferencesBadRequest Problem
+
+func (*ListIntercompanyDifferencesBadRequest) listIntercompanyDifferencesRes() {}
+
+type ListIntercompanyDifferencesForbidden Problem
+
+func (*ListIntercompanyDifferencesForbidden) listIntercompanyDifferencesRes() {}
+
+type ListIntercompanyDifferencesNotFound Problem
+
+func (*ListIntercompanyDifferencesNotFound) listIntercompanyDifferencesRes() {}
 
 type ListJournalEntriesBadRequest Problem
 
@@ -67612,6 +68508,7 @@ func (s *TooManyRequestsHeaders) SetResponse(val Problem) {
 func (*TooManyRequestsHeaders) acceptBankStatementGapRes()                {}
 func (*TooManyRequestsHeaders) acceptBankStatementLineProposalRes()       {}
 func (*TooManyRequestsHeaders) acceptForecastVarianceCommentProposalRes() {}
+func (*TooManyRequestsHeaders) acceptIntercompanyDifferenceRes()          {}
 func (*TooManyRequestsHeaders) acceptMemoRecordProposalRes()              {}
 func (*TooManyRequestsHeaders) acceptVarianceCommentRes()                 {}
 func (*TooManyRequestsHeaders) activateChangeRequestRes()                 {}
@@ -67701,6 +68598,7 @@ func (*TooManyRequestsHeaders) endSodRuleRes()                            {}
 func (*TooManyRequestsHeaders) excludeBankStatementLineRes()              {}
 func (*TooManyRequestsHeaders) fetchEInvoicesRes()                        {}
 func (*TooManyRequestsHeaders) fileTaxReturnRes()                         {}
+func (*TooManyRequestsHeaders) finalizeConsolidationRunRes()              {}
 func (*TooManyRequestsHeaders) getAccountRes()                            {}
 func (*TooManyRequestsHeaders) getAccrualProposalRes()                    {}
 func (*TooManyRequestsHeaders) getAgentSessionRes()                       {}
@@ -67830,6 +68728,7 @@ func (*TooManyRequestsHeaders) listCompanyAccessRes()                     {}
 func (*TooManyRequestsHeaders) listConfigVersionsRes()                    {}
 func (*TooManyRequestsHeaders) listConnectorsRes()                        {}
 func (*TooManyRequestsHeaders) listConsolidationBalancesRes()             {}
+func (*TooManyRequestsHeaders) listConsolidationEntriesRes()              {}
 func (*TooManyRequestsHeaders) listConsolidationGroupsRes()               {}
 func (*TooManyRequestsHeaders) listConsolidationRunsRes()                 {}
 func (*TooManyRequestsHeaders) listContractsRes()                         {}
@@ -67852,6 +68751,7 @@ func (*TooManyRequestsHeaders) listGrIrClearingsRes()                     {}
 func (*TooManyRequestsHeaders) listGroupAccountsRes()                     {}
 func (*TooManyRequestsHeaders) listHierarchiesRes()                       {}
 func (*TooManyRequestsHeaders) listHouseBanksRes()                        {}
+func (*TooManyRequestsHeaders) listIntercompanyDifferencesRes()           {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()                    {}
 func (*TooManyRequestsHeaders) listLedgerGroupsRes()                      {}
 func (*TooManyRequestsHeaders) listLedgerReconciliationEntriesRes()       {}
@@ -68111,6 +69011,7 @@ func (s *UnauthorizedHeaders) SetResponse(val Problem) {
 func (*UnauthorizedHeaders) acceptBankStatementGapRes()                {}
 func (*UnauthorizedHeaders) acceptBankStatementLineProposalRes()       {}
 func (*UnauthorizedHeaders) acceptForecastVarianceCommentProposalRes() {}
+func (*UnauthorizedHeaders) acceptIntercompanyDifferenceRes()          {}
 func (*UnauthorizedHeaders) acceptMemoRecordProposalRes()              {}
 func (*UnauthorizedHeaders) acceptVarianceCommentRes()                 {}
 func (*UnauthorizedHeaders) activateChangeRequestRes()                 {}
@@ -68200,6 +69101,7 @@ func (*UnauthorizedHeaders) endSodRuleRes()                            {}
 func (*UnauthorizedHeaders) excludeBankStatementLineRes()              {}
 func (*UnauthorizedHeaders) fetchEInvoicesRes()                        {}
 func (*UnauthorizedHeaders) fileTaxReturnRes()                         {}
+func (*UnauthorizedHeaders) finalizeConsolidationRunRes()              {}
 func (*UnauthorizedHeaders) getAccountRes()                            {}
 func (*UnauthorizedHeaders) getAccrualProposalRes()                    {}
 func (*UnauthorizedHeaders) getAgentSessionRes()                       {}
@@ -68329,6 +69231,7 @@ func (*UnauthorizedHeaders) listCompanyAccessRes()                     {}
 func (*UnauthorizedHeaders) listConfigVersionsRes()                    {}
 func (*UnauthorizedHeaders) listConnectorsRes()                        {}
 func (*UnauthorizedHeaders) listConsolidationBalancesRes()             {}
+func (*UnauthorizedHeaders) listConsolidationEntriesRes()              {}
 func (*UnauthorizedHeaders) listConsolidationGroupsRes()               {}
 func (*UnauthorizedHeaders) listConsolidationRunsRes()                 {}
 func (*UnauthorizedHeaders) listContractsRes()                         {}
@@ -68351,6 +69254,7 @@ func (*UnauthorizedHeaders) listGrIrClearingsRes()                     {}
 func (*UnauthorizedHeaders) listGroupAccountsRes()                     {}
 func (*UnauthorizedHeaders) listHierarchiesRes()                       {}
 func (*UnauthorizedHeaders) listHouseBanksRes()                        {}
+func (*UnauthorizedHeaders) listIntercompanyDifferencesRes()           {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()                    {}
 func (*UnauthorizedHeaders) listLedgerGroupsRes()                      {}
 func (*UnauthorizedHeaders) listLedgerReconciliationEntriesRes()       {}

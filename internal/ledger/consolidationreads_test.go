@@ -19,6 +19,7 @@ func TestConsolidationReadsOutsideRequest(t *testing.T) {
 	for name, read := range map[string]func() error{
 		"the leading ledger": func() error { _, err := r.LeadingLedger(ctx); return err },
 		"a period":           func() error { _, _, err := r.PeriodOf(ctx, id, id, 2026, 11); return err },
+		"periods":            func() error { _, err := r.PeriodsOf(ctx, []uuid.UUID{id}, id, 2026, 11); return err },
 		"the accounts":       func() error { _, err := r.AccountsOf(ctx, id); return err },
 		"the balances":       func() error { _, err := r.BalancesThrough(ctx, id, id, 2026, 11); return err },
 		"a rate":             func() error { _, _, err := r.RateOn(ctx, "average", "USD", "EUR", time.Now()); return err },

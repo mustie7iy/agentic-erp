@@ -71,10 +71,13 @@ func wideGroupChart(cs *config.Consolidation) {
 // balances: each account's balance and half of it with a trading
 // partner, the parent's naming 1000 and each member's the parent (written
 // without the triggers a posting runs, as TestDepreciationRunBudget seeds
-// its assets). The run is measured once, from its start (POST) to
+// its assets), the asset and liability accounts' group accounts in the
+// elimination. The run is measured once, from its start (POST) to
 // computed, carried out by the in-process runner (Consolidator), and
 // checked: every company translated, two rows per account, each company's
-// rows summing to zero.
+// rows summing to zero, the 99 pairs of the parent and a member matched
+// and eliminated and each company's rows naming no trading partner
+// listed.
 func TestConsolidationRunBudget(t *testing.T) {
 	nfr.Measure(t)
 	e := fixture.NewWith(t, nil, fixture.Consolidation, "consolidation.read", "consolidation.run.manage", "ledger.entry.read")
@@ -98,9 +101,13 @@ func TestConsolidationRunBudget(t *testing.T) {
 			|| ' ' || (SELECT count(*) FROM consolidation.run_balance b WHERE b.run_id = r.id AND b.kind = 'balance')
 			|| ' ' || (SELECT count(*) FROM (SELECT legal_entity_id FROM consolidation.run_balance b WHERE b.run_id = r.id
 				GROUP BY 1 HAVING sum(amount_gc) <> 0) x)
+			|| ' ' || (SELECT count(*) FROM consolidation.run_difference d WHERE d.run_id = r.id AND d.partner_id IS NOT NULL)
+			|| ' ' || (SELECT count(*) FROM consolidation.run_difference d WHERE d.run_id = r.id AND d.status = 'no_trading_partner')
+			|| ' ' || (SELECT count(*) FROM consolidation.run_entry e WHERE e.run_id = r.id)
 		FROM consolidation.run r WHERE r.id = $1`, []any{in.RunID}, &got)
-	if want := fmt.Sprintf("computed 100 %d 0", 100*2*budgetAccounts); got != want {
-		t.Errorf("the run: got %s, want %s (computed, 100 companies translated, two rows per account, each company's rows summing to zero)", got, want)
+	if want := fmt.Sprintf("computed 100 %d 0 99 100 99", 100*2*budgetAccounts); got != want {
+		t.Errorf("the run: got %s, want %s (computed, 100 companies translated, two rows per account, each company's rows summing to zero, "+
+			"99 pairs and 100 companies' rows without a trading partner matched, 99 entries)", got, want)
 	}
 	t.Logf("consolidation run of 100 companies: %v", elapsed)
 	if budget := nfr.Budget(120 * time.Second); elapsed > budget {
@@ -119,8 +126,19 @@ func seedBudgetGroup(t *testing.T, e fixture.Env, wide bool) {
 	}
 	doc := fixture.Document(t)
 	fixture.Consolidation(doc)
+	// The elimination holds the group accounts of the budget's asset and
+	// liability accounts, so that matching and eliminating (ADR-0059 §8)
+	// work on 400 rows with a trading partner per company.
+	el := &doc.Consolidation.Eliminations[0]
+	el.Accounts = []string{"G1000", "G2000"}
 	if wide {
 		wideGroupChart(&doc.Consolidation)
+		el.Accounts = nil
+		for i := range budgetAccounts {
+			if ty := budgetTypes[i%len(budgetTypes)]; ty == config.Asset || ty == config.Liability {
+				el.Accounts = append(el.Accounts, fmt.Sprintf("GB%05d", i))
+			}
+		}
 	}
 	group := &doc.Consolidation.Groups[0]
 	parent := doc.Company("2000")

@@ -13,6 +13,10 @@ type AcceptForecastVarianceCommentProposalRes interface {
 	acceptForecastVarianceCommentProposalRes()
 }
 
+type AcceptIntercompanyDifferenceRes interface {
+	acceptIntercompanyDifferenceRes()
+}
+
 type AcceptMemoRecordProposalRes interface {
 	acceptMemoRecordProposalRes()
 }
@@ -367,6 +371,10 @@ type FetchEInvoicesRes interface {
 
 type FileTaxReturnRes interface {
 	fileTaxReturnRes()
+}
+
+type FinalizeConsolidationRunRes interface {
+	finalizeConsolidationRunRes()
 }
 
 type GetAccountRes interface {
@@ -885,6 +893,10 @@ type ListConsolidationBalancesRes interface {
 	listConsolidationBalancesRes()
 }
 
+type ListConsolidationEntriesRes interface {
+	listConsolidationEntriesRes()
+}
+
 type ListConsolidationGroupsRes interface {
 	listConsolidationGroupsRes()
 }
@@ -971,6 +983,10 @@ type ListHierarchiesRes interface {
 
 type ListHouseBanksRes interface {
 	listHouseBanksRes()
+}
+
+type ListIntercompanyDifferencesRes interface {
+	listIntercompanyDifferencesRes()
 }
 
 type ListJournalEntriesRes interface {

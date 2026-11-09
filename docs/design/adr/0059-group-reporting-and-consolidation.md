@@ -1541,3 +1541,167 @@ owner to overrule:
   reported and consolidated columns, the profit is the profit and loss's,
   revenue and expenses make it, and every row's reported figure equals the
   balances list's group total for its group account.
+
+**T68f (intercompany matching and eliminations).** Built as §5 and §8
+say, in `internal/consolidation/eliminate.go` (the matching and the
+entries, `EliminateConsolidationRun`) and `differences.go` (the reads),
+migration 000233: `run_difference`, `run_entry` and `run_entry_line`,
+written while the run runs and never changed or removed (no update
+grant, the insert-while-running trigger), each entry's lines summing to
+zero at commit with two lines or more (`run_entry_balanced`, a deferred
+constraint trigger, as the ledger's), with their schema tests
+(`TestConsolidationEliminationRules`). The workflow is unchanged: its
+`EliminateConsolidationRun` step, which wrote nothing in T68d, now
+matches and eliminates in one transaction. The context answers
+`listIntercompanyDifferences` and `listConsolidationEntries`
+(`consolidation.read` and, by `x-also-permissions`, `ledger.entry.read`;
+read from one database state), and a run's read gains
+`difference_counts`; the statements' `eliminations` column (T68e) is now
+the entry lines on each group account. Decided by default, for the
+product owner to overrule:
+- **Pairs.** Every two companies of the run, the parent included, are a
+  pair; a difference is recorded only for a pair with translated rows on
+  an elimination's accounts naming each other, its company the one with
+  the lower code. `outside_group` is per company and partner (a trading
+  partner that is not a company of the run, a member before its first
+  period included) and `no_trading_partner` per company, each with its
+  amount alone (`partner_amount`, `difference` and `tolerance` absent);
+  neither is eliminated. A pair's status is its difference's against
+  the tolerance in the configuration version the run read, converted to
+  the group currency's minor units.
+- **Entries.** One `intercompany` entry per pair whose lines are not all
+  zero: each translated row reversed on its group account with its
+  company, company account and trading partner, and the difference, when
+  not zero, on the elimination's difference account as a line of no
+  company, account or trading partner (the entry names the pair). Lines
+  of zero are not written (`run_entry_line.amount_gc <> 0`), so a pair
+  whose rows are all zero has its `matched` difference and no entry.
+  Entries are numbered by elimination code and the pair's codes, lines by
+  group account, company code (none first) and the reversed row's line
+  number, which follows the company account's number and the trading
+  partner's code (§5).
+- **Columns left to later slices.** `run_difference` has `line_no`, its
+  place in §5's list order, so the list pages by one key; the `accepted`
+  status with `accepted_by`, `accepted_at`, `reason` and a difference's
+  `version` are T68g's, which adds its transition, and
+  `run_entry_line.component` T68h's, with its entries (the kinds
+  `investment` and `nci` are already allowed by `run_entry`'s check).
+- **The step.** It is a no-op on a run that has differences or entries
+  already, or is no longer running, so run again after a lost completion
+  it writes nothing twice; it is refused (an error, retried and then
+  `platform.internal`) while a company of the run is not translated, so
+  figures are matched only whole. A tolerance finer than the group
+  currency, which `consolidation.Setup` refuses when a change is
+  submitted, is the step's error too.
+- **Reads.** `listIntercompanyDifferences` pages by `line_no`, filters by
+  status, elimination and company (the differences whose company or
+  partner it is), and totals per status present: the count, the amounts,
+  the partners' amounts and the differences. `listConsolidationEntries`
+  answers entries, each with its lines and its debits, paged by entry
+  number (the page size counts entries), filters by kind, elimination and
+  company (the entry's company or partner), and totals per kind present:
+  the count and the debits. Names as the balances list's: a partner or a
+  line's trading partner by code and name only to a caller who may act in
+  that company (po:2026-11-05), so a partner outside the group may show
+  its id alone; the run's own companies are all in a reader's access.
+- **Budget (§14).** `TestConsolidationRunBudget` and
+  `TestConsolidatedStatementBudget` now put the group accounts of the
+  budget's asset and liability accounts in the elimination, so a run
+  matches 99 pairs and eliminates 400 rows with a trading partner per
+  company: the run 16.9 s at ERP_BUDGET_SCALE=1 and
+  16.9 s at 2 (T68d's 13-14 s), against 120 s; each statement page p95
+  0.12-0.34 s at 1 and 0.14-0.25 s at 2, against 1 s (load averages
+  9-75, 2026-11-09).
+- **Walkthrough.** `step_consolidation` gains `consolidation_eliminations`
+  between `consolidation_run` and `consolidation_statements`: the run has
+  one difference matched and one open; IC_RESULTS matches Maple's
+  intercompany revenue with Acme Corp US's intercompany expense (2,700.00
+  CAD each, booked at 1.35); IC_BALANCES is open, Acme Corp US's payable
+  at the closing 1.40 (-2,800.00) against Maple's receivable as booked
+  (2,700.00), a difference of -100.00 above its 10.00; the two entries
+  reverse the pairs' rows, the difference on G6950. The statements then
+  show G1250, G2250, G4250 and G5250 consolidated at zero and -100.00 on
+  G6950.
+- **Still open.** A revaluation's lines of a foreign currency
+  intercompany item carry no trading partner until the tracker leaf
+  "Revaluation of intercompany items by trading partner" (review:T68b) is
+  built, so such revaluation differences show as `no_trading_partner`.
+
+**T68g (accepting differences and finalizing runs).** Built as §5, §8 and
+§10 say, in `internal/consolidation/finalize.go`, migration 000234: a
+difference's `accepted` status with `accepted_by`, `accepted_at`,
+`reason` and `version` (the columns T68f left), its one transition open
+-> accepted kept by the trigger `run_difference_transition` with its
+schema tests (`TestConsolidationDifferenceAcceptance`), and the
+permissions `consolidation.difference.accept` and
+`consolidation.run.finalize`. Finalization uses the run's columns,
+transitions and one-final index of 000224. The context answers
+`acceptIntercompanyDifference` (`POST
+/v1/consolidation-runs/{id}/differences/{difference_id}:accept`) and
+`finalizeConsolidationRun` (`POST /v1/consolidation-runs/{id}:finalize`),
+both `x-agent: false`, which authz enforces from the contract (403
+`identity.agent_not_allowed`), as every people-only operation is, and
+both also needing `ledger.entry.read`; `consolidation.People` names
+finalizers and acceptors (adapted over identity's `People`). Decided by
+default, for the product owner to overrule:
+- **Accepting.** `If-Match` is the difference's own `version`, now on
+  every difference read (its ETag); the run's version moves with it in
+  the same transaction (§5), so a `:finalize` or `:discard` on a view of
+  the run read before the acceptance is refused (412). Only a computed
+  run's differences are accepted (409 `consolidation.run_not_computed`,
+  checked before 409 `consolidation.difference_not_open`), which the
+  trigger also holds: a draft is accepted before it is finalized, and a
+  final run has none open. The reason is `ReasonInput`'s (1-2000
+  characters), refused blank with 422 `request.validation_failed` before
+  the column's check would. An accepted difference stays eliminated as
+  it was; it is counted and totalled as `accepted`, after `open`.
+  `IntercompanyDifferenceAccepted` names the run, group, period,
+  elimination, the pair by legal entity id and company code, the
+  difference and tolerance in the group currency, the reason and both
+  versions (no company names; offered to webhooks); its audit record is
+  `consolidation.difference.accepted`. A difference written `accepted` is
+  refused but by an import (000230's `platform.importing`).
+- **Finalizing, in this order.** 409 `consolidation.run_not_computed`;
+  409 `consolidation.differences_open` with the count; 409
+  `consolidation.period_not_locked` naming each company whose period was
+  not `locked` when the run read it or is not now, with both statuses
+  ("none" for a period the ledger no longer has); 409
+  `consolidation.run_stale` naming each company whose period's version
+  moved, both versions and a pending unlock request. The period's pending
+  unlock request is read from the same `period_status` row
+  (`unlock_request_id`). §4a says T68g adds no read; it adds one,
+  `ConsolidationReads.PeriodsOf` (the port's `PeriodsOf`): `PeriodOf`
+  for many companies in one statement, since reading each company's
+  period apart cost a 100-company run's statement 200 round trips (p95
+  above 1 s at ERP_BUDGET_SCALE=1, load 53).
+- **Locks.** The run is read first without a lock (its visibility, group
+  and period), then every run of the group's period that is not
+  discarded is locked `FOR UPDATE` in id order and the run read again, so
+  a finalization never holds one run while it waits for another that a
+  single-run writer (a step, an acceptance, a discard) holds: no
+  deadlock. The previous final run is set `superseded` (with
+  `superseded_by`) before the run is set `final` (with `finalized_by`
+  and `finalized_at`); each change is audited and published as
+  `ConsolidationRunChanged`. `consolidation_run_one_final` maps to 409
+  `consolidation.final_exists`. A run's `stale` (§10) is shown on its
+  reads once every company of it is translated (absent before) and on
+  its statements; reading it costs one `PeriodsOf` per fiscal year and
+  period of the page. `TestConsolidatedStatementBudget` with it: p95
+  0.23-0.28 s at ERP_BUDGET_SCALE=1 and 0.23-0.42 s at 2 (load averages
+  19-24, 2026-11-09), against 1 s. The run also shows `finalized_by` with its name,
+  `finalized_at`, `superseded_by` and `supersedes` (the final run it
+  superseded), so `:finalize`'s answer names the run it superseded.
+- **Not in T68g.** Freezing a member's acquisition figures at its first
+  final run is T68h's, which builds them (§9); a finalization writes no
+  acquisition. Segregation of duties stays as question 5's answer: anyone
+  holding `consolidation.run.finalize` finalizes, the acceptor included.
+- **Walkthrough.** `step_consolidation` gains `consolidation_accept`
+  after `consolidation_statements`: Carla accepts the open IC_BALANCES
+  difference (-100.00 CAD, the rates' 1.35 against 1.40) with her reason,
+  and finalizing the run is refused with `consolidation.period_not_locked`
+  (both periods open when it read them). `step_close` ends with
+  `close_consolidation`: after the sign-off locked Maple's period, Carla
+  closes and locks Acme Corp US's, runs MAPLE again (both companies read
+  from locked periods), discards step 40's draft, accepts the new run's
+  open difference and finalizes it: final, by Carla Controller, not
+  stale; its balance sheet reads `final`.
