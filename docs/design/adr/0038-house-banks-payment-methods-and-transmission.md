@@ -172,8 +172,17 @@ and France, by EBICS.
   reads the content, and moves it to `sending` (attempt counted, the claim
   lasting five upload bounds, 10 minutes by default); it uploads with no
   transaction open, bounded (2 minutes by default), then, in a second
-  transaction guarded by the claim (still `sending` with the same attempt
-  count), records the hash and marks the file `transmitted` together,
+  transaction guarded by the row version its claim wrote (every write to
+  the file moves it, so a claimant whose claim lapsed records nothing; the
+  status and attempt count cannot tell claims apart, as a file failed
+  while a stalled claim was out and asked for again has a new claim
+  `sending` at attempt 1 too, whose outcome the stalled one recorded,
+  leaving the new operation never completed: T53h review,
+  `TestTransmitterStaleClaim`; a finish whose commit applied
+  unacknowledged is recorded and published once, as the transmitted file
+  is no longer due, and a finish run again on the same claim would find
+  the version moved, `TestTransmitterUnacknowledgedFinish`),
+  records the hash and marks the file `transmitted` together,
   publishes `bank_file_transmitted` and completes the operation. The hash
   record and the status now commit together, so T44c's transaction of its
   own is gone; if that commit is lost, the claim lapses and the file is
