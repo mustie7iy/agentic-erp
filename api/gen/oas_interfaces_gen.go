@@ -141,6 +141,10 @@ type CompleteCloseTaskRes interface {
 	completeCloseTaskRes()
 }
 
+type CompleteYearCloseTaskRes interface {
+	completeYearCloseTaskRes()
+}
+
 type CreateAssetAcquisitionRes interface {
 	createAssetAcquisitionRes()
 }
@@ -303,6 +307,10 @@ type CreateVarianceCommentRes interface {
 
 type CreateWebhookSubscriptionRes interface {
 	createWebhookSubscriptionRes()
+}
+
+type CreateYearCloseRes interface {
+	createYearCloseRes()
 }
 
 type DecideRecommendationRes interface {
@@ -719,6 +727,10 @@ type GetWebhookDeliveryRes interface {
 
 type GetWebhookSubscriptionRes interface {
 	getWebhookSubscriptionRes()
+}
+
+type GetYearCloseRes interface {
+	getYearCloseRes()
 }
 
 type GrantRolePermissionRes interface {
@@ -1149,6 +1161,10 @@ type ListWebhookSubscriptionsRes interface {
 	listWebhookSubscriptionsRes()
 }
 
+type ListYearClosesRes interface {
+	listYearClosesRes()
+}
+
 type LockCostCenterRes interface {
 	lockCostCenterRes()
 }
@@ -1355,6 +1371,10 @@ type RenewContractRes interface {
 
 type ReopenCloseTaskRes interface {
 	reopenCloseTaskRes()
+}
+
+type ReopenYearCloseTaskRes interface {
+	reopenYearCloseTaskRes()
 }
 
 type ReplayWebhookDeliveriesRes interface {
@@ -1567,6 +1587,10 @@ type UpdateSupplierInvoiceRes interface {
 
 type UpdateWebhookSubscriptionRes interface {
 	updateWebhookSubscriptionRes()
+}
+
+type UpdateYearCloseTaskRes interface {
+	updateYearCloseTaskRes()
 }
 
 type UploadMemoRecordsRes interface {

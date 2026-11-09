@@ -1798,9 +1798,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The year close and its manual checklist: close.year_tasks in the configuration (year checks only); closing.year_close, year_close_ledger and year_close_task (RLS, rules, schema tests); POST/GET/list /v1/year-closes and the task operations (PATCH, :complete, :reopen) sharing the period close's code; YearCloseChanged; audit; walkthrough: year tasks added through a change request, the year close opened, a manual task assigned and completed, a second year close refused",
-        "r": "ADR-0060 §8 · T64m4",
+        "r": "ADR-0060 §8, As built · T64m4 · db/migrations/000233 · internal/closing yearclose.go, kind.go · walkthrough year_end_close",
         "src": "adr:ADR-0060",
         "c": []
        },

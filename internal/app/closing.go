@@ -41,7 +41,8 @@ func (closingCompanies) Company(ctx context.Context, id uuid.UUID) (closing.Comp
 	return closing.Company{ID: le.ID, Code: le.Code, Name: le.Name, LocalCurrency: le.LocalCurrency}, ok, err
 }
 
-// closingLedger gives the closing context the ledger's posting periods,
+// closingLedger gives the closing context the ledger's posting periods
+// (a year's by ledger for a year close),
 // what a close's checks read (parked entries and revaluation runs), the
 // period lock a sign-off takes, the variance report's profit and loss and
 // the journal entries its comments cite, and an accrual proposal's
@@ -68,6 +69,18 @@ func (closingLedger) PeriodsOf(ctx context.Context, legalEntity uuid.UUID, fisca
 		if k.Period != nil {
 			p := closingPeriod(*k.Period)
 			out[i].Period = &p
+		}
+	}
+	return out, err
+}
+
+func (closingLedger) YearPeriods(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]closing.LedgerYear, error) {
+	ks, err := ledger.ClosePeriods{}.OfYear(ctx, legalEntity, fiscalYear)
+	out := make([]closing.LedgerYear, len(ks))
+	for i, k := range ks {
+		out[i] = closing.LedgerYear{LedgerID: k.LedgerID, Code: k.LedgerCode, Name: k.LedgerName, Leading: k.IsLeading, Periods: make([]closing.Period, len(k.Periods))}
+		for j, p := range k.Periods {
+			out[i].Periods[j] = closingPeriod(p)
 		}
 	}
 	return out, err
@@ -161,7 +174,7 @@ func (l closingLedger) Cancel(ctx context.Context, id uuid.UUID, reason string) 
 }
 
 func closingPeriod(p ledger.Period) closing.Period {
-	return closing.Period{ID: p.ID, Number: p.Period, StartDate: p.StartDate, EndDate: p.EndDate, Status: p.Status, Version: p.Version}
+	return closing.Period{ID: p.ID, Number: p.Period, StartDate: p.StartDate, EndDate: p.EndDate, Special: p.IsSpecial, Status: p.Status, Version: p.Version}
 }
 
 // closingPeople gives the closing context principals' names, kinds and

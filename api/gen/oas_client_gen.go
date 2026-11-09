@@ -425,6 +425,21 @@ type Invoker interface {
 	//
 	// POST /v1/period-closes/{id}/tasks/{code}:complete
 	CompleteCloseTask(ctx context.Context, request OptCloseTaskComplete, params CompleteCloseTaskParams) (CompleteCloseTaskRes, error)
+	// CompleteYearCloseTask invokes completeYearCloseTask operation.
+	//
+	// Marks an open manual task of a year close done, with an optional note (ADR-0060 §8, T64m4), as
+	// `completeCloseTask` does a period close's: refused while a task it depends on is open (409
+	// `closing.task_blocked`, naming them), for a task already done (409 `closing.task_already_done`) and
+	// for a check task, which is done by its check passing (409 `closing.task_is_check`). `If-Match` is
+	// the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and
+	// published as YearCloseChanged (`task_completed`). A signed-off year close (its sign-off is T64m6's)
+	// whose covered ledgers' periods of the year are all locked refuses it (409
+	// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
+	// request), the change sets the close open again first, published as YearCloseChanged (`reopened`)
+	// (ADR-0060 §8, ADR-0058 §7).
+	//
+	// POST /v1/year-closes/{id}/tasks/{code}:complete
+	CompleteYearCloseTask(ctx context.Context, request OptCloseTaskComplete, params CompleteYearCloseTaskParams) (CompleteYearCloseTaskRes, error)
 	// CreateAsset invokes createAsset operation.
 	//
 	// Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the
@@ -984,6 +999,23 @@ type Invoker interface {
 	//
 	// POST /v1/webhook-subscriptions
 	CreateWebhookSubscription(ctx context.Context, request *WebhookSubscriptionCreate, params CreateWebhookSubscriptionParams) (CreateWebhookSubscriptionRes, error)
+	// CreateYearClose invokes createYearClose operation.
+	//
+	// Opens the close of a company's fiscal year (ADR-0060 §8, T64m4): its checklist is the active
+	// configuration's year tasks (`close.year_tasks`, the close template's tasks of a year close) as given
+	// to the company, copied into the close with each task's due date (`due_day` business days of the
+	// company after the fiscal year's last day, the leading ledger's period 12's) and the configuration
+	// version, so a later change of the template leaves the close as it was. It covers the ledgers
+	// `ledger_ids` names, by default every ledger the company keeps; the leading ledger is always among
+	// them (422 `request.validation_failed` otherwise), each must be kept by the company (422
+	// `ledger.ledger_not_kept`) and have periods of the year (422 `closing.period_unknown`, naming the
+	// ledger). Refused when the year tasks give the company none (409 `closing.no_template`) and when the
+	// company has a close of the year already (409 `closing.year_close_exists`, with its `Location`). A
+	// legal entity the caller cannot act in is 422 `request.reference_not_found`. People only. Audited,
+	// and published as YearCloseChanged (`created`).
+	//
+	// POST /v1/year-closes
+	CreateYearClose(ctx context.Context, request *YearCloseCreate, params CreateYearCloseParams) (CreateYearCloseRes, error)
 	// DecideRecommendation invokes decideRecommendation operation.
 	//
 	// Records what a person did with an open recommendation: accepted, overridden or ignored. Human-only.
@@ -2099,6 +2131,18 @@ type Invoker interface {
 	//
 	// GET /v1/webhook-subscriptions/{id}
 	GetWebhookSubscription(ctx context.Context, params GetWebhookSubscriptionParams) (GetWebhookSubscriptionRes, error)
+	// GetYearClose invokes getYearClose operation.
+	//
+	// One year close with its company, the ledgers it covers (each with its periods of the year, regular
+	// and special, and their live posting status), its tasks in the template's order (at most 200) and
+	// their counts; a task is `overdue` while it is open and due before the company's date at the read in
+	// its time zone (`read_date`, `time_zone`). Its ETag is the version every change to the close or its
+	// tasks moves, which the task actions take as `If-Match`. A close of a legal entity the caller cannot
+	// act in is not found. Besides `closing.close.read` the caller needs `ledger.entry.read`
+	// (`x-also-permissions`).
+	//
+	// GET /v1/year-closes/{id}
+	GetYearClose(ctx context.Context, params GetYearCloseParams) (GetYearCloseRes, error)
 	// GrantRolePermission invokes grantRolePermission operation.
 	//
 	// Adds an effective-dated permission grant to the role.
@@ -3137,6 +3181,17 @@ type Invoker interface {
 	//
 	// GET /v1/webhook-subscriptions
 	ListWebhookSubscriptions(ctx context.Context, params ListWebhookSubscriptionsParams) (ListWebhookSubscriptionsRes, error)
+	// ListYearCloses invokes listYearCloses operation.
+	//
+	// The year closes of the legal entities the caller may act in (ADR-0060 §8, T64m4), without their
+	// tasks and ledgers (`GET /v1/year-closes/{id}` has them): each with its company, fiscal year, status
+	// and its tasks' counts, overdue judged on the company's date at the read in its configured time zone
+	// (`read_date`, `time_zone`; UTC when it has none). Sortable by: `year_end` (default), `created_at`.
+	// Besides `closing.close.read` the caller needs `ledger.entry.read`, as for every read of a close
+	// (ADR-0058 §13; `x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/year-closes
+	ListYearCloses(ctx context.Context, params ListYearClosesParams) (ListYearClosesRes, error)
 	// LockCostCenter invokes lockCostCenter operation.
 	//
 	// Sets or clears the cost center's locks for actual primary costs, actual revenue and plan from
@@ -3960,6 +4015,20 @@ type Invoker interface {
 	//
 	// POST /v1/period-closes/{id}/tasks/{code}:reopen
 	ReopenCloseTask(ctx context.Context, request *ReasonInput, params ReopenCloseTaskParams) (ReopenCloseTaskRes, error)
+	// ReopenYearCloseTask invokes reopenYearCloseTask operation.
+	//
+	// Returns a done task of a year close to open, with a reason (409 `closing.task_not_done` for an open
+	// one) (ADR-0060 §8, T64m4), as `reopenCloseTask` does a period close's: who completed it, when, and
+	// the note are cleared, and the reason is kept in the audit trail and the event. It reopens nothing
+	// else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task,
+	// with the close's new ETag. People only. Audited, and published as YearCloseChanged
+	// (`task_reopened`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods
+	// of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was
+	// unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first,
+	// published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
+	//
+	// POST /v1/year-closes/{id}/tasks/{code}:reopen
+	ReopenYearCloseTask(ctx context.Context, request *ReasonInput, params ReopenYearCloseTaskParams) (ReopenYearCloseTaskRes, error)
 	// ReplayWebhookDeliveries invokes replayWebhookDeliveries operation.
 	//
 	// Queues again every kept delivery of the subscription whose event occurred at or after `since`,
@@ -4608,6 +4677,21 @@ type Invoker interface {
 	//
 	// PATCH /v1/webhook-subscriptions/{id}
 	UpdateWebhookSubscription(ctx context.Context, request *WebhookSubscriptionUpdate, params UpdateWebhookSubscriptionParams) (UpdateWebhookSubscriptionRes, error)
+	// UpdateYearCloseTask invokes updateYearCloseTask operation.
+	//
+	// Sets or clears (null) the person a task of a year close is assigned to (ADR-0060 §8, T64m4), as
+	// `updateCloseTask` does a period close's: an active person of the tenant who may act in the close's
+	// company (422 `closing.assignee_invalid` for an agent, a service, a blocked or unknown principal, or
+	// a person without access to the close's company). `If-Match` is the close's ETag, so a change made on
+	// a stale view of the checklist is refused (412); the answer is the task, with the close's new ETag.
+	// People only. Audited, and published as YearCloseChanged (`task_assigned`). A signed-off year close
+	// (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409
+	// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
+	// request), the change sets the close open again first, published as YearCloseChanged (`reopened`)
+	// (ADR-0060 §8, ADR-0058 §7).
+	//
+	// PATCH /v1/year-closes/{id}/tasks/{code}
+	UpdateYearCloseTask(ctx context.Context, request *CloseTaskUpdate, params UpdateYearCloseTaskParams) (UpdateYearCloseTaskRes, error)
 	// UploadMemoRecords invokes uploadMemoRecords operation.
 	//
 	// Uploads a batch of memo records for a legal entity from a CSV file (ADR-0051 §7, T53d), such as the
@@ -10452,6 +10536,194 @@ func (c *Client) sendCompleteCloseTask(ctx context.Context, request OptCloseTask
 	return result, nil
 }
 
+// CompleteYearCloseTask invokes completeYearCloseTask operation.
+//
+// Marks an open manual task of a year close done, with an optional note (ADR-0060 §8, T64m4), as
+// `completeCloseTask` does a period close's: refused while a task it depends on is open (409
+// `closing.task_blocked`, naming them), for a task already done (409 `closing.task_already_done`) and
+// for a check task, which is done by its check passing (409 `closing.task_is_check`). `If-Match` is
+// the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and
+// published as YearCloseChanged (`task_completed`). A signed-off year close (its sign-off is T64m6's)
+// whose covered ledgers' periods of the year are all locked refuses it (409
+// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
+// request), the change sets the close open again first, published as YearCloseChanged (`reopened`)
+// (ADR-0060 §8, ADR-0058 §7).
+//
+// POST /v1/year-closes/{id}/tasks/{code}:complete
+func (c *Client) CompleteYearCloseTask(ctx context.Context, request OptCloseTaskComplete, params CompleteYearCloseTaskParams) (CompleteYearCloseTaskRes, error) {
+	res, err := c.sendCompleteYearCloseTask(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCompleteYearCloseTask(ctx context.Context, request OptCloseTaskComplete, params CompleteYearCloseTaskParams) (res CompleteYearCloseTaskRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("completeYearCloseTask"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/year-closes/{id}/tasks/{code}:complete"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CompleteYearCloseTaskOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/year-closes/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/tasks/"
+	{
+		// Encode "code" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "code",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Code))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":complete"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCompleteYearCloseTaskRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CompleteYearCloseTaskOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCompleteYearCloseTaskResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateAsset invokes createAsset operation.
 //
 // Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the
@@ -16145,6 +16417,147 @@ func (c *Client) sendCreateWebhookSubscription(ctx context.Context, request *Web
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateWebhookSubscriptionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateYearClose invokes createYearClose operation.
+//
+// Opens the close of a company's fiscal year (ADR-0060 §8, T64m4): its checklist is the active
+// configuration's year tasks (`close.year_tasks`, the close template's tasks of a year close) as given
+// to the company, copied into the close with each task's due date (`due_day` business days of the
+// company after the fiscal year's last day, the leading ledger's period 12's) and the configuration
+// version, so a later change of the template leaves the close as it was. It covers the ledgers
+// `ledger_ids` names, by default every ledger the company keeps; the leading ledger is always among
+// them (422 `request.validation_failed` otherwise), each must be kept by the company (422
+// `ledger.ledger_not_kept`) and have periods of the year (422 `closing.period_unknown`, naming the
+// ledger). Refused when the year tasks give the company none (409 `closing.no_template`) and when the
+// company has a close of the year already (409 `closing.year_close_exists`, with its `Location`). A
+// legal entity the caller cannot act in is 422 `request.reference_not_found`. People only. Audited,
+// and published as YearCloseChanged (`created`).
+//
+// POST /v1/year-closes
+func (c *Client) CreateYearClose(ctx context.Context, request *YearCloseCreate, params CreateYearCloseParams) (CreateYearCloseRes, error) {
+	res, err := c.sendCreateYearClose(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateYearClose(ctx context.Context, request *YearCloseCreate, params CreateYearCloseParams) (res CreateYearCloseRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createYearClose"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/year-closes"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateYearCloseOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/year-closes"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateYearCloseRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateYearCloseOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateYearCloseResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -31499,6 +31912,143 @@ func (c *Client) sendGetWebhookSubscription(ctx context.Context, params GetWebho
 
 	stage = "DecodeResponse"
 	result, err := decodeGetWebhookSubscriptionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetYearClose invokes getYearClose operation.
+//
+// One year close with its company, the ledgers it covers (each with its periods of the year, regular
+// and special, and their live posting status), its tasks in the template's order (at most 200) and
+// their counts; a task is `overdue` while it is open and due before the company's date at the read in
+// its time zone (`read_date`, `time_zone`). Its ETag is the version every change to the close or its
+// tasks moves, which the task actions take as `If-Match`. A close of a legal entity the caller cannot
+// act in is not found. Besides `closing.close.read` the caller needs `ledger.entry.read`
+// (`x-also-permissions`).
+//
+// GET /v1/year-closes/{id}
+func (c *Client) GetYearClose(ctx context.Context, params GetYearCloseParams) (GetYearCloseRes, error) {
+	res, err := c.sendGetYearClose(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetYearClose(ctx context.Context, params GetYearCloseParams) (res GetYearCloseRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getYearClose"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/year-closes/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetYearCloseOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/year-closes/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetYearCloseOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetYearCloseResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -56680,6 +57230,230 @@ func (c *Client) sendListWebhookSubscriptions(ctx context.Context, params ListWe
 	return result, nil
 }
 
+// ListYearCloses invokes listYearCloses operation.
+//
+// The year closes of the legal entities the caller may act in (ADR-0060 §8, T64m4), without their
+// tasks and ledgers (`GET /v1/year-closes/{id}` has them): each with its company, fiscal year, status
+// and its tasks' counts, overdue judged on the company's date at the read in its configured time zone
+// (`read_date`, `time_zone`; UTC when it has none). Sortable by: `year_end` (default), `created_at`.
+// Besides `closing.close.read` the caller needs `ledger.entry.read`, as for every read of a close
+// (ADR-0058 §13; `x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/year-closes
+func (c *Client) ListYearCloses(ctx context.Context, params ListYearClosesParams) (ListYearClosesRes, error) {
+	res, err := c.sendListYearCloses(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListYearCloses(ctx context.Context, params ListYearClosesParams) (res ListYearClosesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listYearCloses"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/year-closes"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListYearClosesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/year-closes"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalYear.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListYearClosesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListYearClosesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // LockCostCenter invokes lockCostCenter operation.
 //
 // Sets or clears the cost center's locks for actual primary costs, actual revenue and plan from
@@ -65332,6 +66106,193 @@ func (c *Client) sendReopenCloseTask(ctx context.Context, request *ReasonInput, 
 	return result, nil
 }
 
+// ReopenYearCloseTask invokes reopenYearCloseTask operation.
+//
+// Returns a done task of a year close to open, with a reason (409 `closing.task_not_done` for an open
+// one) (ADR-0060 §8, T64m4), as `reopenCloseTask` does a period close's: who completed it, when, and
+// the note are cleared, and the reason is kept in the audit trail and the event. It reopens nothing
+// else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task,
+// with the close's new ETag. People only. Audited, and published as YearCloseChanged
+// (`task_reopened`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods
+// of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was
+// unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first,
+// published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
+//
+// POST /v1/year-closes/{id}/tasks/{code}:reopen
+func (c *Client) ReopenYearCloseTask(ctx context.Context, request *ReasonInput, params ReopenYearCloseTaskParams) (ReopenYearCloseTaskRes, error) {
+	res, err := c.sendReopenYearCloseTask(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendReopenYearCloseTask(ctx context.Context, request *ReasonInput, params ReopenYearCloseTaskParams) (res ReopenYearCloseTaskRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("reopenYearCloseTask"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/year-closes/{id}/tasks/{code}:reopen"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ReopenYearCloseTaskOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/year-closes/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/tasks/"
+	{
+		// Encode "code" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "code",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Code))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":reopen"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeReopenYearCloseTaskRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ReopenYearCloseTaskOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeReopenYearCloseTaskResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ReplayWebhookDeliveries invokes replayWebhookDeliveries operation.
 //
 // Queues again every kept delivery of the subscription whose event occurred at or after `since`,
@@ -73972,6 +74933,193 @@ func (c *Client) sendUpdateWebhookSubscription(ctx context.Context, request *Web
 
 	stage = "DecodeResponse"
 	result, err := decodeUpdateWebhookSubscriptionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateYearCloseTask invokes updateYearCloseTask operation.
+//
+// Sets or clears (null) the person a task of a year close is assigned to (ADR-0060 §8, T64m4), as
+// `updateCloseTask` does a period close's: an active person of the tenant who may act in the close's
+// company (422 `closing.assignee_invalid` for an agent, a service, a blocked or unknown principal, or
+// a person without access to the close's company). `If-Match` is the close's ETag, so a change made on
+// a stale view of the checklist is refused (412); the answer is the task, with the close's new ETag.
+// People only. Audited, and published as YearCloseChanged (`task_assigned`). A signed-off year close
+// (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409
+// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
+// request), the change sets the close open again first, published as YearCloseChanged (`reopened`)
+// (ADR-0060 §8, ADR-0058 §7).
+//
+// PATCH /v1/year-closes/{id}/tasks/{code}
+func (c *Client) UpdateYearCloseTask(ctx context.Context, request *CloseTaskUpdate, params UpdateYearCloseTaskParams) (UpdateYearCloseTaskRes, error) {
+	res, err := c.sendUpdateYearCloseTask(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateYearCloseTask(ctx context.Context, request *CloseTaskUpdate, params UpdateYearCloseTaskParams) (res UpdateYearCloseTaskRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateYearCloseTask"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/year-closes/{id}/tasks/{code}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateYearCloseTaskOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [4]string
+	pathParts[0] = "/v1/year-closes/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/tasks/"
+	{
+		// Encode "code" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "code",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Code))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateYearCloseTaskRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateYearCloseTaskOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateYearCloseTaskResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

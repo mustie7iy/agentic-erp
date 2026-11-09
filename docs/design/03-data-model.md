@@ -401,7 +401,8 @@ names the company's weekend (`calendars[company].weekend`, T64a, ADR-0058
 Saturday and Sunday. A business day is neither a weekend day nor a holiday
 (`config.Config.BusinessDay`), the one rule the cash position and the close
 calendar count days by. The `close` section is the close template
-(`close.tasks`, T64a; §3.22); a company's `close.variance` its variance
+(`close.tasks`, T64a; §3.22) and its year tasks (`close.year_tasks`, T64m4;
+§3.22); a company's `close.variance` its variance
 report's settings (T64h; §3.22) and its `close.accrual_account` the
 liability its accruals are credited to (T64e, tier 3; §3.22).
 `POST /v1/country-pack-applications` (T62d) stores the draft as a change
@@ -3510,6 +3511,33 @@ is, its latest row is the close's signer. A covered period unlocked later
 off again has a second row. Read by close, oldest first
 (`sign_off_by_close`). Schema tests: `db/closing_test.go`
 (`TestCloseSignOffRules`).
+
+The year close (T64m4, migration 000233; ADR-0060 §8), with the closing
+outbox (`YearCloseChanged`), is stored apart from period closes:
+
+```
+closing.year_close        (tenant_id, id, legal_entity_id, fiscal_year, year_end, config_version,
+                           status open|signed_off, version, created_*, updated_*)
+                           PK (tenant_id, id); UNIQUE (tenant_id, legal_entity_id, fiscal_year)
+closing.year_close_ledger (tenant_id, close_id, ledger_id)                PK (tenant_id, close_id, ledger_id)
+closing.year_close_task   (as closing.close_task, its check result columns included)
+                           PK (tenant_id, close_id, code); UNIQUE (tenant_id, close_id, seq)
+```
+
+A year close is one per company and fiscal year (`year_close_once`), its
+`year_end` the leading ledger's last day of its last regular period, from
+which its tasks' `due_on` were counted from the configuration's year tasks
+(`close.year_tasks`, the same shape as `close.tasks`, validated alike;
+no year check is known before T64m5). Its ledgers carry no period: the
+close reads each covered ledger's periods of the year (`ledger.period_status`)
+through the ledger's port. Its rows follow the period close's rules
+through the same trigger functions (`closing.check_period_close`,
+`closing.check_close_task`, which name the table they guard), with the
+constraints `year_close_task_check_kind`, `year_close_task_completed`,
+`year_close_task_depends_on`, `year_close_task_checked` and
+`year_close_task_check_passed`; the ledgers are written once. Its sign-off
+(`year_sign_off`) is T64m6's. Schema tests: `db/closing_test.go`
+(`TestYearCloseRules`).
 
 Accrual proposals (T64e, migration 000216), with the closing outbox
 (`AccrualProposed`):

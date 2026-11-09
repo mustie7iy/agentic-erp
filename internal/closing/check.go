@@ -210,7 +210,8 @@ func (l foundLedger) toAPI() gen.CloseCheckLedger {
 // now, once every task it depends on is done, records the result on the
 // task, and sets it done when it passed and open when it did not.
 func (e *Endpoints) CheckCloseTask(ctx context.Context, params gen.CheckCloseTaskParams) (gen.CheckCloseTaskRes, error) {
-	return e.taskAction(ctx, params.ID, params.Code, params.IfMatch, func(ctx context.Context, tx pgx.Tx, p reqctx.Principal, t task) (change, bool, error) {
+	return periodTask(e.taskAction(ctx, periodCloses, params.ID, params.Code, params.IfMatch, func(ctx context.Context, tx pgx.Tx, _ *closeKind, p reqctx.Principal,
+		t task) (change, bool, error) {
 		switch {
 		case t.Kind != config.CloseCheck:
 			return change{}, false, problem.Conflict("closing.task_not_check", "Task "+t.Code+" is a manual task; a person completes it with :complete.")
@@ -227,7 +228,7 @@ func (e *Endpoints) CheckCloseTask(ctx context.Context, params gen.CheckCloseTas
 		}
 		return change{action: "check_task", name: "task_checked", task: &t.Code, passed: &passed,
 			detail: map[string]any{"check": *t.Check, "passed": passed, "summary": f.Summary, "warnings_count": f.WarningCount}}, true, nil
-	})
+	}))
 }
 
 // recordCheck records a check's result on its task: a pass makes it done,

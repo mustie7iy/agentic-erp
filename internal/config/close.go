@@ -11,11 +11,14 @@ import (
 )
 
 // Close is the tenant's close template (ADR-0058 §3): the tasks a
-// company's period close is given when it is created (T64b), in order.
-// It is configuration, not master data: short, rarely changed, and it
-// decides what a sign-off requires.
+// company's period close is given when it is created (T64b), in order,
+// and those its year close is given (YearTasks, ADR-0060 §8, T64m4): the
+// same shape with their own codes, each due counted from the fiscal year's
+// last day. It is configuration, not master data: short, rarely changed,
+// and it decides what a sign-off requires.
 type Close struct {
-	Tasks []CloseTask `yaml:"tasks,omitempty" json:"tasks,omitempty"`
+	Tasks     []CloseTask `yaml:"tasks,omitempty" json:"tasks,omitempty"`
+	YearTasks []CloseTask `yaml:"year_tasks,omitempty" json:"year_tasks,omitempty"`
 }
 
 // CloseTask is one task of the close template: a manual task a person
@@ -49,6 +52,12 @@ const (
 // accrual posted for the previous period's close reversed.
 var CloseChecks = []string{"no_parked_entries", "revaluation_posted", "variances_explained", "depreciation_posted", "accruals_decided", "accruals_reversed"}
 
+// YearCloseChecks are the checks this build runs on a year close (ADR-0060
+// §8), which a year task may name: none until T64m5 builds them, so a year
+// task is manual until then, as the period close's were before T64c. The
+// period checks (CloseChecks) are not among them.
+var YearCloseChecks = []string{}
+
 // Close template bounds (ADR-0058 §3).
 const (
 	maxCloseTasks = 200
@@ -63,11 +72,22 @@ func (t CloseTask) For(company string) bool {
 	return len(t.Companies) == 0 || slices.Contains(t.Companies, company)
 }
 
-// CloseTasksOf is the template's tasks a company's close is given, in
-// the template's order.
+// CloseTasksOf is the template's tasks a company's period close is given,
+// in the template's order.
 func (c *Config) CloseTasksOf(company string) []CloseTask {
+	return tasksFor(c.Close.Tasks, company)
+}
+
+// YearCloseTasksOf is the template's year tasks a company's year close is
+// given, in the template's order.
+func (c *Config) YearCloseTasksOf(company string) []CloseTask {
+	return tasksFor(c.Close.YearTasks, company)
+}
+
+// tasksFor are the tasks among tasks a company's close is given.
+func tasksFor(tasks []CloseTask, company string) []CloseTask {
 	var out []CloseTask
-	for _, t := range c.Close.Tasks {
+	for _, t := range tasks {
 		if t.For(company) {
 			out = append(out, t)
 		}
@@ -128,21 +148,39 @@ func (v *validator) weekend(p string, days []string) {
 	}
 }
 
-// closeTemplate checks the close template (ADR-0058 §3): at most 200
-// tasks, each with a unique code of up to 30 upper-case letters, digits or
-// underscores, a name, a kind, a check this build runs exactly when the
-// kind is check, a due day from -31 to 31, companies of the document each
-// once, and dependencies on other tasks of the template without a cycle,
-// each given to every company the dependent task is given to.
+// template is a list of close tasks as the validator checks it: its path
+// (close.tasks, close.year_tasks), the checks its tasks may name and what
+// their due days count from.
+type template struct {
+	path   string
+	tasks  []CloseTask
+	checks []string
+	of     string // "period" or "year": the close's kind, in messages
+	from   string // what due days count from, in messages
+}
+
+// closeTemplate checks the close template (ADR-0058 §3) and its year tasks
+// (ADR-0060 §8) alike: at most 200 tasks each, each with a unique code of
+// up to 30 upper-case letters, digits or underscores, a name, a kind, a
+// check this build runs on its kind of close exactly when the kind is
+// check, a due day from -31 to 31, companies of the document each once,
+// and dependencies on other tasks of the same list without a cycle, each
+// given to every company the dependent task is given to.
 func (v *validator) closeTemplate(c *Config) {
-	tasks := c.Close.Tasks
+	v.tasks(c, template{path: "close.tasks", tasks: c.Close.Tasks, checks: CloseChecks, of: "period", from: "the period's last day"})
+	v.tasks(c, template{path: "close.year_tasks", tasks: c.Close.YearTasks, checks: YearCloseChecks, of: "year", from: "the fiscal year's last day"})
+}
+
+// tasks checks one list of close tasks.
+func (v *validator) tasks(c *Config, tp template) {
+	tasks := tp.tasks
 	if len(tasks) > maxCloseTasks {
-		v.err("close.tasks", "at most %d tasks", maxCloseTasks)
+		v.err(tp.path, "at most %d tasks", maxCloseTasks)
 	}
 	byCode := map[string]*CloseTask{}
 	for i := range tasks {
 		t := &tasks[i]
-		p := "close.tasks[" + t.Code + "]"
+		p := tp.path + "[" + t.Code + "]"
 		switch {
 		case !closeTaskRe.MatchString(t.Code):
 			v.err(p+".code", "a task's code is 1-30 upper-case letters, digits or underscores")
@@ -150,16 +188,16 @@ func (v *validator) closeTemplate(c *Config) {
 			v.err(p, "duplicate task")
 		}
 		byCode[t.Code] = t
-		v.closeTask(c, p, t)
+		v.closeTask(c, tp, p, t)
 	}
 	for i := range tasks {
-		v.closeDependencies(byCode, &tasks[i])
+		v.closeDependencies(tp.path, byCode, &tasks[i])
 	}
-	v.closeCycles(tasks, byCode)
+	v.closeCycles(tp.path, tasks, byCode)
 }
 
 // closeTask checks one task's own fields.
-func (v *validator) closeTask(c *Config, p string, t *CloseTask) {
+func (v *validator) closeTask(c *Config, tp template, p string, t *CloseTask) {
 	if strings.TrimSpace(t.Name) == "" {
 		v.err(p+".name", "name is required")
 	}
@@ -170,11 +208,11 @@ func (v *validator) closeTask(c *Config, p string, t *CloseTask) {
 		v.err(p+".check", "only a check task names a check")
 	case t.Kind == CloseCheck && t.Check == "":
 		v.err(p+".check", "a check task names its check")
-	case t.Kind == CloseCheck && !slices.Contains(CloseChecks, t.Check):
-		v.err(p+".check", "%q is not a check this build runs", t.Check)
+	case t.Kind == CloseCheck && !slices.Contains(tp.checks, t.Check):
+		v.err(p+".check", "%q is not a check this build runs on a %s close", t.Check, tp.of)
 	}
 	if t.DueDay < -maxDueDay || t.DueDay > maxDueDay {
-		v.err(p+".due_day", "business days from -%d to %d around the period's last day", maxDueDay, maxDueDay)
+		v.err(p+".due_day", "business days from -%d to %d around %s", maxDueDay, maxDueDay, tp.from)
 	}
 	seen := map[string]bool{}
 	for _, co := range t.Companies {
@@ -188,11 +226,11 @@ func (v *validator) closeTask(c *Config, p string, t *CloseTask) {
 	}
 }
 
-// closeDependencies checks that a task depends on other tasks of the
-// template, each once, and given to every company the task is, so no
+// closeDependencies checks that a task depends on other tasks of its list
+// (at path), each once, and given to every company the task is, so no
 // close holds a task whose dependency it lacks.
-func (v *validator) closeDependencies(byCode map[string]*CloseTask, t *CloseTask) {
-	p := "close.tasks[" + t.Code + "].depends_on"
+func (v *validator) closeDependencies(path string, byCode map[string]*CloseTask, t *CloseTask) {
+	p := path + "[" + t.Code + "].depends_on"
 	seen := map[string]bool{}
 	for _, code := range t.DependsOn {
 		d := byCode[code]
@@ -227,10 +265,10 @@ func covers(d, t *CloseTask) bool {
 // closeCycles refuses each task whose dependencies lead back to it (one
 // depending on itself included). A template has at most 200 tasks, so a
 // search from each is cheap.
-func (v *validator) closeCycles(tasks []CloseTask, byCode map[string]*CloseTask) {
+func (v *validator) closeCycles(path string, tasks []CloseTask, byCode map[string]*CloseTask) {
 	for _, t := range tasks {
 		if reaches(byCode, t.DependsOn, t.Code, map[string]bool{}) {
-			v.err("close.tasks["+t.Code+"].depends_on", "the dependencies of %s lead back to it", t.Code)
+			v.err(path+"["+t.Code+"].depends_on", "the dependencies of %s lead back to it", t.Code)
 		}
 	}
 }

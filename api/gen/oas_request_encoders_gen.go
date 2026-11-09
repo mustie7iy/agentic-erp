@@ -428,6 +428,26 @@ func encodeCompleteCloseTaskRequest(
 	return nil
 }
 
+func encodeCompleteYearCloseTaskRequest(
+	req OptCloseTaskComplete,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	if !req.Set {
+		// Keep request with empty body if value is not set.
+		return nil
+	}
+	e := new(jx.Encoder)
+	{
+		if req.Set {
+			req.Encode(e)
+		}
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateAssetRequest(
 	req *AssetCreate,
 	r *http.Request,
@@ -990,6 +1010,20 @@ func encodeCreateVarianceCommentRequest(
 
 func encodeCreateWebhookSubscriptionRequest(
 	req *WebhookSubscriptionCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateYearCloseRequest(
+	req *YearCloseCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -1817,6 +1851,20 @@ func encodeReopenCloseTaskRequest(
 	return nil
 }
 
+func encodeReopenYearCloseTaskRequest(
+	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeReplayWebhookDeliveriesRequest(
 	req *WebhookReplay,
 	r *http.Request,
@@ -2383,6 +2431,20 @@ func encodeUpdateSupplierInvoiceRequest(
 
 func encodeUpdateWebhookSubscriptionRequest(
 	req *WebhookSubscriptionUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateYearCloseTaskRequest(
+	req *CloseTaskUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

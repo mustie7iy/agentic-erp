@@ -16,48 +16,71 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-var closeSort = pagination.Sort{Default: "period_end", Fields: []pagination.Field{
-	{Name: "period_end", Column: "c.period_end", Type: "date"}, {Name: "created_at", Column: "c.created_at", Type: "timestamptz"},
-}}
+var (
+	closeSort = pagination.Sort{Default: "period_end", Fields: []pagination.Field{
+		{Name: "period_end", Column: "c.period_end", Type: "date"}, {Name: "created_at", Column: "c.created_at", Type: "timestamptz"},
+	}}
+	yearCloseSort = pagination.Sort{Default: "year_end", Fields: []pagination.Field{
+		{Name: "year_end", Column: "c.year_end", Type: "date"}, {Name: "created_at", Column: "c.created_at", Type: "timestamptz"},
+	}}
+)
 
 // ListPeriodCloses implements GET /v1/period-closes: the closes of the
 // legal entities the caller may act in, without their tasks.
 func (e *Endpoints) ListPeriodCloses(ctx context.Context, params gen.ListPeriodClosesParams) (gen.ListPeriodClosesRes, error) {
-	tx, _, err := reqctx.Request(ctx)
-	if err != nil {
-		return nil, err
-	}
-	le, year := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[int32](params.FiscalYear)
-	// The year by its Opt value: a pointer prints its address, which would
-	// bind the token to one request.
-	scope := fmt.Sprintf("listPeriodCloses|%s|%v|%s", le, params.FiscalYear, params.Status.Value)
-	ks, err := e.Pages.Keyset(closeSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
-	if err != nil {
-		return nil, err
-	}
-	access, err := authz.Companies(ctx)
-	if err != nil {
-		return nil, err
-	}
-	q, args := ks.SQL(closeSelect+` WHERE ($1 OR c.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR c.legal_entity_id = $3)
-		AND ($4::int IS NULL OR c.fiscal_year = $4) AND ($5 = '' OR c.status = $5)`, []any{access.All, access.IDs, le, year, params.Status.Value})
-	rows, _ := tx.Query(ctx, q, args...)
-	cs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (periodClose, error) { return scanClose(r) })
-	if err != nil {
-		return nil, fmt.Errorf("closing: list period closes: %w", err)
-	}
-	items, next, err := apitypes.PageWith(ks, cs, func(c periodClose) (string, uuid.UUID) {
-		if ks.Field() == "created_at" {
-			return c.CreatedAt.UTC().Format(time.RFC3339Nano), c.ID
-		}
-		return c.PeriodEnd.Format(time.DateOnly), c.ID
-	}, func(page []periodClose) (view, error) {
-		return e.view(ctx, idref.Of(page, func(c periodClose) *uuid.UUID { return &c.LegalEntityID }), nil, signers(page...)...)
-	}, func(c periodClose, v view) gen.PeriodCloseItem { return v.itemToAPI(c) })
+	items, next, err := listCloses(ctx, e, periodCloses, "listPeriodCloses", closeSort, closeFilter{legalEntity: params.LegalEntityID,
+		fiscalYear: params.FiscalYear, status: params.Status, page: apitypes.Page(params.OrderBy, params.PageSize, params.PageToken)}, view.itemToAPI)
 	if err != nil {
 		return nil, err
 	}
 	return &gen.PeriodClosePage{Items: items, NextPageToken: next}, nil
+}
+
+// closeFilter is a list of closes' filters and the page asked for.
+type closeFilter struct {
+	legalEntity gen.OptUUID
+	fiscalYear  gen.OptInt32
+	status      gen.OptString
+	page        pagination.Request
+}
+
+// listCloses reads a page of closes of a kind of the legal entities the
+// caller may act in, filtered by company, fiscal year and status, sorted
+// by its last day (the default) or creation, each shown by toAPI. op names
+// the list its page tokens are bound to.
+func listCloses[A any](ctx context.Context, e *Endpoints, k *closeKind, op string, sort pagination.Sort, f closeFilter,
+	toAPI func(view, closeRow) A) ([]A, gen.OptString, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, gen.OptString{}, err
+	}
+	le, year := apitypes.Ptr[uuid.UUID](f.legalEntity), apitypes.Ptr[int32](f.fiscalYear)
+	// The year by its Opt value: a pointer prints its address, which would
+	// bind the token to one request.
+	scope := fmt.Sprintf("%s|%s|%v|%s", op, le, f.fiscalYear, f.status.Value)
+	ks, err := e.Pages.Keyset(sort, scope, f.page)
+	if err != nil {
+		return nil, gen.OptString{}, err
+	}
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return nil, gen.OptString{}, err
+	}
+	q, args := ks.SQL(k.q(closeSelect+` WHERE ($1 OR c.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR c.legal_entity_id = $3)
+		AND ($4::int IS NULL OR c.fiscal_year = $4) AND ($5 = '' OR c.status = $5)`), []any{access.All, access.IDs, le, year, f.status.Value})
+	rows, _ := tx.Query(ctx, q, args...)
+	cs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (closeRow, error) { return scanClose(r) })
+	if err != nil {
+		return nil, gen.OptString{}, fmt.Errorf("closing: list %ss: %w", k.noun, err)
+	}
+	return apitypes.PageWith(ks, cs, func(c closeRow) (string, uuid.UUID) {
+		if ks.Field() == "created_at" {
+			return c.CreatedAt.UTC().Format(time.RFC3339Nano), c.ID
+		}
+		return c.PeriodEnd.Format(time.DateOnly), c.ID
+	}, func(page []closeRow) (view, error) {
+		return e.view(ctx, idref.Of(page, func(c closeRow) *uuid.UUID { return &c.LegalEntityID }), nil, signers(page...)...)
+	}, func(c closeRow, v view) A { return toAPI(v, c) })
 }
 
 // taskCursor is a worklist page's position: its last task's due date,
@@ -120,10 +143,10 @@ func (e *Endpoints) ListCloseTasks(ctx context.Context, params gen.ListCloseTask
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, taskSelect+` WHERE ($1 OR c.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR t.assignee_id = $3)
+	rows, _ := tx.Query(ctx, periodCloses.q(taskSelect+` WHERE ($1 OR c.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR t.assignee_id = $3)
 			AND ($4::uuid IS NULL OR c.legal_entity_id = $4) AND ($5::uuid IS NULL OR t.close_id = $5) AND ($6 = '' OR t.status = $6)
 			AND ($7::date IS NULL OR t.due_on < $7) AND ($8::date IS NULL OR (t.due_on, t.close_id, t.code) > ($8::date, $9::uuid, $10::text))
-		ORDER BY t.due_on, t.close_id, t.code LIMIT $11`, pagination.PlanPerCall,
+		ORDER BY t.due_on, t.close_id, t.code LIMIT $11`), pagination.PlanPerCall,
 		access.All, access.IDs, f.assignee, f.legalEntity, f.closeID, f.status, f.dueBefore, afterDue, after.Close, after.Code, size+1)
 	ts, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (task, error) { return scanTask(r) })
 	if err != nil {

@@ -163,7 +163,7 @@ func (e *Endpoints) ProposeAccrual(ctx context.Context, req *gen.AccrualProposal
 // the number of the supplier it is for, if any (checkAccrual), which
 // AccrualProposed names beside its id.
 type accrualTarget struct {
-	close            periodClose
+	close            closeRow
 	company          Company
 	exp              int
 	expense, accrual Account
@@ -177,10 +177,10 @@ type accrualTarget struct {
 // expense account, the supplier and the evidence are checked, the entry
 // parked and the proposal written.
 func (e *Endpoints) writeAccrual(ctx context.Context, tx pgx.Tx, p reqctx.Principal, req *gen.AccrualProposalInput) (accrual, bool, error) {
-	if _, err := lockClose(ctx, tx, req.CloseID); err != nil {
+	if _, err := lockClose(ctx, tx, periodCloses, req.CloseID); err != nil {
 		return accrual{}, false, err
 	}
-	unlocked, err := e.writable(ctx, tx, req.CloseID)
+	unlocked, err := e.writable(ctx, tx, periodCloses, req.CloseID)
 	if err != nil {
 		return accrual{}, false, err
 	}
@@ -203,7 +203,7 @@ func (e *Endpoints) writeAccrual(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	if err != nil {
 		return accrual{}, false, err
 	}
-	if err := reopen(ctx, tx, p, req.CloseID, unlocked); err != nil {
+	if err := reopen(ctx, tx, periodCloses, p, req.CloseID, unlocked); err != nil {
 		return accrual{}, false, err
 	}
 	a, err := e.parkAccrual(ctx, tx, p, target, in, cited)
@@ -213,7 +213,7 @@ func (e *Endpoints) writeAccrual(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 // accrualTarget reads the close, its company and currency, and parses
 // the amount.
 func (e *Endpoints) accrualTarget(ctx context.Context, tx pgx.Tx, req *gen.AccrualProposalInput) (accrualTarget, accrualInput, error) {
-	c, err := readClose(ctx, tx, req.CloseID)
+	c, err := readClose(ctx, tx, periodCloses, req.CloseID)
 	if err != nil {
 		return accrualTarget{}, accrualInput{}, err
 	}

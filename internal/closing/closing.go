@@ -85,12 +85,13 @@ type Companies interface {
 }
 
 // Period is a posting period of a company's ledger as the closing
-// context reads it.
+// context reads it: Special for the special periods 13-16.
 type Period struct {
 	ID        uuid.UUID
 	Number    int16
 	StartDate time.Time
 	EndDate   time.Time
+	Special   bool
 	Status    string
 	Version   int32
 }
@@ -102,6 +103,16 @@ type LedgerPeriod struct {
 	Code, Name string
 	Leading    bool
 	Period     *Period
+}
+
+// LedgerYear is a ledger a legal entity keeps and its posting periods of
+// a fiscal year, regular and special, by period: none when the year is not
+// set up in it.
+type LedgerYear struct {
+	LedgerID   uuid.UUID
+	Code, Name string
+	Leading    bool
+	Periods    []Period
 }
 
 // AccountNet is a profit and loss account with its net movement of a
@@ -186,7 +197,8 @@ type EntryStatus struct {
 // Ledger reads the ledger context: the leading ledger's regular periods
 // of a legal entity in a fiscal year, by period; the ledgers it keeps with
 // their period of a fiscal year and period, the leading one first, then by
-// code; how many of its parked entries with a posting date from from to to
+// code, and with their periods of a fiscal year (YearPeriods, a year
+// close's, ADR-0060 §2); how many of its parked entries with a posting date from from to to
 // are in one of the statuses, and the first limit of them by posting date,
 // those parked for a special period left out (ADR-0060 §3: the year's);
 // its ledger's posted revaluation run at a key date, ok false when there
@@ -209,6 +221,7 @@ type EntryStatus struct {
 type Ledger interface {
 	LeadingPeriods(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]Period, error)
 	PeriodsOf(ctx context.Context, legalEntity uuid.UUID, fiscalYear, period int16) ([]LedgerPeriod, error)
+	YearPeriods(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]LedgerYear, error)
 	Parked(ctx context.Context, legalEntity uuid.UUID, from, to time.Time, statuses []string, limit int) (int, []ParkedEntry, error)
 	PostedRevaluation(ctx context.Context, legalEntity, ledger uuid.UUID, keyDate time.Time) (run uuid.UUID, ok bool, err error)
 	Lock(ctx context.Context, period uuid.UUID, version int32) error

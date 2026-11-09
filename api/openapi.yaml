@@ -14886,7 +14886,6 @@ paths:
       x-agent: false
       x-problem-codes:
         - closing.assignee_invalid
-        - closing.close_exists
         - closing.close_signed_off
         - config.not_bootstrapped
         - request.version_mismatch
@@ -14946,7 +14945,6 @@ paths:
         - ledger.entry.read
       x-agent: false
       x-problem-codes:
-        - closing.close_exists
         - closing.close_signed_off
         - closing.task_already_done
         - closing.task_blocked
@@ -15009,7 +15007,6 @@ paths:
         - ledger.entry.read
       x-agent: false
       x-problem-codes:
-        - closing.close_exists
         - closing.close_signed_off
         - closing.task_not_done
         - config.not_bootstrapped
@@ -15070,7 +15067,6 @@ paths:
         - ledger.entry.read
       x-agent: false
       x-problem-codes:
-        - closing.close_exists
         - closing.close_signed_off
         - closing.task_blocked
         - closing.task_not_check
@@ -15175,6 +15171,332 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/year-closes:
+    get:
+      operationId: listYearCloses
+      tags:
+        - closing
+      summary: List year closes
+      description: "The year closes of the legal entities the caller may act in (ADR-0060 §8, T64m4), without their tasks and ledgers (`GET /v1/year-closes/{id}` has them): each with its company, fiscal year, status and its tasks' counts, overdue judged on the company's date at the read in its configured time zone (`read_date`, `time_zone`; UTC when it has none). Sortable by: `year_end` (default), `created_at`. Besides `closing.close.read` the caller needs `ledger.entry.read`, as for every read of a close (ADR-0058 §13; `x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: closing.close.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: fiscal_year
+          in: query
+          required: false
+          description: Only closes of this fiscal year.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: status
+          in: query
+          required: false
+          description: Only closes in this status.
+          schema:
+            type: string
+            description: "Year close status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [open, signed_off]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of year closes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YearClosePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createYearClose
+      tags:
+        - closing
+      summary: Open a year close
+      description: "Opens the close of a company's fiscal year (ADR-0060 §8, T64m4): its checklist is the active configuration's year tasks (`close.year_tasks`, the close template's tasks of a year close) as given to the company, copied into the close with each task's due date (`due_day` business days of the company after the fiscal year's last day, the leading ledger's period 12's) and the configuration version, so a later change of the template leaves the close as it was. It covers the ledgers `ledger_ids` names, by default every ledger the company keeps; the leading ledger is always among them (422 `request.validation_failed` otherwise), each must be kept by the company (422 `ledger.ledger_not_kept`) and have periods of the year (422 `closing.period_unknown`, naming the ledger). Refused when the year tasks give the company none (409 `closing.no_template`) and when the company has a close of the year already (409 `closing.year_close_exists`, with its `Location`). A legal entity the caller cannot act in is 422 `request.reference_not_found`. People only. Audited, and published as YearCloseChanged (`created`)."
+      x-permission: closing.close.manage
+      x-agent: false
+      x-problem-codes:
+        - closing.no_template
+        - closing.period_unknown
+        - closing.year_close_exists
+        - config.not_bootstrapped
+        - ledger.ledger_not_kept
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The company and fiscal year to close.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/YearCloseCreate"
+      responses:
+        "201":
+          description: "Created; the year close with its tasks."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YearClose"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/year-closes/{id}":
+    get:
+      operationId: getYearClose
+      tags:
+        - closing
+      summary: Get a year close
+      description: "One year close with its company, the ledgers it covers (each with its periods of the year, regular and special, and their live posting status), its tasks in the template's order (at most 200) and their counts; a task is `overdue` while it is open and due before the company's date at the read in its time zone (`read_date`, `time_zone`). Its ETag is the version every change to the close or its tasks moves, which the task actions take as `If-Match`. A close of a legal entity the caller cannot act in is not found. Besides `closing.close.read` the caller needs `ledger.entry.read` (`x-also-permissions`)."
+      x-permission: closing.close.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - config.not_bootstrapped
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The year close.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YearClose"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/year-closes/{id}/tasks/{code}":
+    patch:
+      operationId: updateYearCloseTask
+      tags:
+        - closing
+      summary: Assign a year close task
+      description: "Sets or clears (null) the person a task of a year close is assigned to (ADR-0060 §8, T64m4), as `updateCloseTask` does a period close's: an active person of the tenant who may act in the close's company (422 `closing.assignee_invalid` for an agent, a service, a blocked or unknown principal, or a person without access to the close's company). `If-Match` is the close's ETag, so a change made on a stale view of the checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_assigned`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
+      x-permission: closing.close.manage
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - closing.assignee_invalid
+        - closing.close_signed_off
+        - config.not_bootstrapped
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/YearCloseTaskCode"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the task.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/CloseTaskUpdate"
+      responses:
+        "200":
+          description: "Updated; the task, with the close's new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YearCloseTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/year-closes/{id}/tasks/{code}:complete":
+    post:
+      operationId: completeYearCloseTask
+      tags:
+        - closing
+      summary: Complete a year close task
+      description: "Marks an open manual task of a year close done, with an optional note (ADR-0060 §8, T64m4), as `completeCloseTask` does a period close's: refused while a task it depends on is open (409 `closing.task_blocked`, naming them), for a task already done (409 `closing.task_already_done`) and for a check task, which is done by its check passing (409 `closing.task_is_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_completed`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
+      x-permission: closing.close.manage
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - closing.close_signed_off
+        - closing.task_already_done
+        - closing.task_blocked
+        - closing.task_is_check
+        - config.not_bootstrapped
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/YearCloseTaskCode"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of completeYearCloseTask.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloseTaskComplete"
+      responses:
+        "200":
+          description: "The task after the change, with the close's new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YearCloseTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/year-closes/{id}/tasks/{code}:reopen":
+    post:
+      operationId: reopenYearCloseTask
+      tags:
+        - closing
+      summary: Reopen a year close task
+      description: "Returns a done task of a year close to open, with a reason (409 `closing.task_not_done` for an open one) (ADR-0060 §8, T64m4), as `reopenCloseTask` does a period close's: who completed it, when, and the note are cleared, and the reason is kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_reopened`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
+      x-permission: closing.close.manage
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - closing.close_signed_off
+        - closing.task_not_done
+        - config.not_bootstrapped
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/YearCloseTaskCode"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of reopenYearCloseTask.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "200":
+          description: "The task after the change, with the close's new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YearCloseTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/accrual-proposals:
     post:
       operationId: proposeAccrual
@@ -15193,7 +15515,6 @@ paths:
         - closing.accrual_account_invalid
         - closing.accrual_account_missing
         - closing.accrual_duplicate
-        - closing.close_exists
         - closing.close_signed_off
         - closing.evidence_unknown
         - config.not_bootstrapped
@@ -15413,7 +15734,6 @@ paths:
       x-agent: false
       x-problem-codes:
         - closing.accrual_not_open
-        - closing.close_exists
         - closing.close_signed_off
         - config.not_bootstrapped
         - ledger.invalid_parked_status
@@ -15480,7 +15800,6 @@ paths:
         - agents.session_ended
         - closing.basis_not_configured
         - closing.citation_invalid
-        - closing.close_exists
         - closing.close_signed_off
         - closing.comment_already_proposed
         - closing.variance_row_unknown
@@ -15625,7 +15944,6 @@ paths:
       x-problem-codes:
         - closing.basis_not_configured
         - closing.citation_invalid
-        - closing.close_exists
         - closing.close_signed_off
         - closing.comment_already_proposed
         - closing.variance_row_unknown
@@ -15720,7 +16038,6 @@ paths:
         - ledger.entry.read
       x-agent: false
       x-problem-codes:
-        - closing.close_exists
         - closing.close_signed_off
         - closing.comment_not_proposed
         - config.not_bootstrapped
@@ -15781,7 +16098,6 @@ paths:
         - ledger.entry.read
       x-agent: false
       x-problem-codes:
-        - closing.close_exists
         - closing.close_signed_off
         - closing.comment_not_proposed
         - config.not_bootstrapped
@@ -22931,6 +23247,15 @@ components:
         type: string
         pattern: "^[A-Z0-9_]{1,30}$"
       example: AP_CUTOFF
+    YearCloseTaskCode:
+      name: code
+      in: path
+      required: true
+      description: "A task's code in its year close."
+      schema:
+        type: string
+        pattern: "^[A-Z0-9_]{1,30}$"
+      example: AUDIT_ADJUSTMENTS
     IfMatch:
       name: If-Match
       in: header
@@ -38680,6 +39005,574 @@ components:
       additionalProperties: false
       examples:
         - {assignee_id: 0192a000-0000-7000-8000-000000000101}
+    YearCloseCreate:
+      type: object
+      description: "A company's fiscal year to close."
+      required:
+        - legal_entity_id
+        - fiscal_year
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The company's legal entity.
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          description: Fiscal year.
+        ledger_ids:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+          description: "The ledgers the close covers, the leading one among them; default every ledger the company keeps."
+      additionalProperties: false
+      examples:
+        - legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+          fiscal_year: 2025
+    YearClose:
+      type: object
+      description: "A company's close of one fiscal year (ADR-0060 §8): the ledgers it covers, each with its periods of the year, and its checklist, copied from the close template's year tasks when it was opened."
+      required:
+        - id
+        - legal_entity_id
+        - company_code
+        - company_name
+        - fiscal_year
+        - year_end
+        - config_version
+        - status
+        - read_date
+        - time_zone
+        - tasks_total
+        - tasks_done
+        - tasks_open
+        - tasks_overdue
+        - ledgers
+        - tasks
+        - version
+        - created_at
+        - created_by
+        - updated_at
+        - updated_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The company's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The company's name.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year.
+          readOnly: true
+        year_end:
+          type: string
+          format: date
+          description: "The fiscal year's last day, the leading ledger's period 12's, which the tasks' due dates count from."
+          readOnly: true
+        config_version:
+          type: integer
+          format: int32
+          description: "The configuration version whose year tasks the checklist was copied from."
+          readOnly: true
+        status:
+          type: string
+          description: "`open` until it is signed off (T64m6). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [open, signed_off]
+          readOnly: true
+        read_date:
+          type: string
+          format: date
+          description: "The company's date at the read in its time zone, on which `overdue` is judged."
+          readOnly: true
+        time_zone:
+          type: string
+          description: "The IANA time zone `read_date` is the company's date in (UTC when its company sets none)."
+          readOnly: true
+        tasks_total:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Its tasks.
+          readOnly: true
+        tasks_done:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Its tasks done.
+          readOnly: true
+        tasks_open:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Its tasks open.
+          readOnly: true
+        tasks_overdue:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "Its tasks open and due before `read_date`."
+          readOnly: true
+        ledgers:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/YearCloseLedger"
+          description: "The ledgers the close covers, the leading one first, then by code."
+          readOnly: true
+        tasks:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/YearCloseTask"
+          description: "Its tasks, in the template's order."
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version, the ETag; moved by every change to the close or its tasks."
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: Principal that opened the close.
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: Last change time.
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          description: Principal that last changed it or its tasks.
+          readOnly: true
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000f61
+          legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+          company_code: "1000"
+          company_name: Maple Manufacturing Ltd.
+          fiscal_year: 2025
+          year_end: "2025-12-31"
+          config_version: 9
+          status: open
+          read_date: "2026-01-05"
+          time_zone: America/Toronto
+          tasks_total: 1
+          tasks_done: 0
+          tasks_open: 1
+          tasks_overdue: 0
+          ledgers:
+            - ledger_id: 0192a000-0000-7000-8000-000000000a01
+              ledger_code: 0L
+              ledger_name: Leading ledger
+              is_leading: true
+              periods:
+                - {fiscal_period_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d4c, period: 12, is_special: false, status: closed}
+                - {fiscal_period_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d4d, period: 13, is_special: true, status: open}
+          tasks:
+            - close_id: 0192a000-0000-7000-8000-000000000f61
+              close_version: 1
+              legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+              company_code: "1000"
+              company_name: Maple Manufacturing Ltd.
+              fiscal_year: 2025
+              code: AUDIT_ADJUSTMENTS
+              seq: 1
+              name: Auditors' adjustments entered
+              kind: manual
+              due_on: "2026-01-28"
+              depends_on: []
+              blocked_by: []
+              status: open
+              overdue: false
+              read_date: "2026-01-05"
+          version: 1
+          created_at: "2026-01-05T14:00:00Z"
+          created_by: 0192a000-0000-7000-8000-000000000101
+          updated_at: "2026-01-05T14:00:00Z"
+          updated_by: 0192a000-0000-7000-8000-000000000101
+    YearCloseItem:
+      type: object
+      description: "A year close as a list shows it: without its ledgers and tasks, with its tasks' counts."
+      required:
+        - id
+        - legal_entity_id
+        - company_code
+        - company_name
+        - fiscal_year
+        - year_end
+        - config_version
+        - status
+        - read_date
+        - time_zone
+        - tasks_total
+        - tasks_done
+        - tasks_open
+        - tasks_overdue
+        - version
+        - created_at
+        - created_by
+        - updated_at
+        - updated_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The company's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The company's name.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year.
+          readOnly: true
+        year_end:
+          type: string
+          format: date
+          description: "The fiscal year's last day, the leading ledger's."
+          readOnly: true
+        config_version:
+          type: integer
+          format: int32
+          description: "The configuration version whose year tasks the checklist was copied from."
+          readOnly: true
+        status:
+          type: string
+          description: "Year close status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [open, signed_off]
+          readOnly: true
+        read_date:
+          type: string
+          format: date
+          description: "The company's date at the read in its time zone, on which overdue tasks are judged."
+          readOnly: true
+        time_zone:
+          type: string
+          description: "The IANA time zone `read_date` is the company's date in."
+          readOnly: true
+        tasks_total:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Its tasks.
+          readOnly: true
+        tasks_done:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Its tasks done.
+          readOnly: true
+        tasks_open:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Its tasks open.
+          readOnly: true
+        tasks_overdue:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "Its tasks open and due before `read_date`."
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version, the close's ETag."
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: Principal that opened the close.
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: Last change time.
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          description: Principal that last changed it or its tasks.
+          readOnly: true
+    YearClosePage:
+      type: object
+      description: One page of year closes.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/YearCloseItem"
+          description: The year closes on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
+    YearCloseLedger:
+      type: object
+      description: "A ledger a year close covers, with its periods of the year and their live posting status."
+      required:
+        - ledger_id
+        - ledger_code
+        - ledger_name
+        - is_leading
+        - periods
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: The ledger.
+          readOnly: true
+        ledger_code:
+          type: string
+          description: "The ledger's code (`0L`, `2L`)."
+          readOnly: true
+        ledger_name:
+          type: string
+          description: The ledger's name.
+          readOnly: true
+        is_leading:
+          type: boolean
+          description: Whether it is the leading ledger.
+          readOnly: true
+        periods:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/YearClosePeriod"
+          description: "The ledger's periods of the year, regular (1-12) and special (13-16), by period."
+          readOnly: true
+    YearClosePeriod:
+      type: object
+      description: "A posting period of a ledger a year close covers, with its live posting status."
+      required:
+        - fiscal_period_id
+        - period
+        - is_special
+        - status
+      properties:
+        fiscal_period_id:
+          type: string
+          format: uuid
+          description: "The posting period (`GET /v1/fiscal-periods/{id}`)."
+          readOnly: true
+        period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          description: "Its number: 1-12 regular, 13-16 special."
+          readOnly: true
+        is_special:
+          type: boolean
+          description: "Whether it is a special period, the year-end adjustments' (ADR-0060 §3)."
+          readOnly: true
+        status:
+          type: string
+          description: "Its posting status now. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [open, closed, locked]
+          readOnly: true
+    YearCloseTask:
+      type: object
+      description: "A task of a year close (ADR-0060 §8), with its close and company."
+      required:
+        - close_id
+        - close_version
+        - legal_entity_id
+        - company_code
+        - company_name
+        - fiscal_year
+        - code
+        - seq
+        - name
+        - kind
+        - due_on
+        - depends_on
+        - blocked_by
+        - status
+        - overdue
+        - read_date
+      properties:
+        close_id:
+          type: string
+          format: uuid
+          description: "The year close (`GET /v1/year-closes/{id}`)."
+          readOnly: true
+        close_version:
+          type: integer
+          format: int32
+          description: "The close's version, whose ETag (`\"<close_version>\"`) the task's actions take as `If-Match`."
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The close's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The company's name.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: The close's fiscal year.
+          readOnly: true
+        code:
+          type: string
+          description: "The template year task's code, unique in the close."
+          pattern: "^[A-Z0-9_]{1,30}$"
+          readOnly: true
+        seq:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Its place in the template's order.
+          readOnly: true
+        name:
+          type: string
+          description: What is to be done.
+          readOnly: true
+        kind:
+          type: string
+          description: "`manual`: a person completes it; `check`: its check completes it by passing (T64m5). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [manual, check]
+          readOnly: true
+        check:
+          type: string
+          description: "The check a `check` task runs; absent for a manual task."
+          readOnly: true
+        due_on:
+          type: string
+          format: date
+          description: "Its due date: `due_day` business days of the company after the fiscal year's last day."
+          readOnly: true
+        depends_on:
+          type: array
+          maxItems: 200
+          items:
+            type: string
+          description: "The codes of the tasks of the close it waits for."
+          readOnly: true
+        blocked_by:
+          type: array
+          maxItems: 200
+          items:
+            type: string
+          description: "The codes of the tasks it depends on that are still open: while any is, it cannot be completed."
+          readOnly: true
+        assignee_id:
+          type: string
+          format: uuid
+          description: "The person it is assigned to; absent when nobody is."
+          readOnly: true
+        assignee_name:
+          type: string
+          description: "The assignee's name; absent when `assignee_id` is."
+          readOnly: true
+        status:
+          type: string
+          description: "Year close task status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [open, done]
+          readOnly: true
+        overdue:
+          type: boolean
+          description: "Open and due before `read_date`."
+          readOnly: true
+        read_date:
+          type: string
+          format: date
+          description: "The company's date at the read in its time zone, on which `overdue` is judged."
+          readOnly: true
+        completed_by:
+          type: string
+          format: uuid
+          description: "Who completed it; absent while it is open."
+          readOnly: true
+        completed_by_name:
+          type: string
+          description: "Their name; absent while it is open."
+          readOnly: true
+        completed_at:
+          type: string
+          format: date-time
+          description: "When it was completed; absent while it is open."
+          readOnly: true
+        note:
+          type: string
+          description: "The note given when it was completed; absent without one."
+          readOnly: true
+      examples:
+        - close_id: 0192a000-0000-7000-8000-000000000f61
+          close_version: 3
+          legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+          company_code: "1000"
+          company_name: Maple Manufacturing Ltd.
+          fiscal_year: 2025
+          code: AUDIT_ADJUSTMENTS
+          seq: 1
+          name: Auditors' adjustments entered
+          kind: manual
+          due_on: "2026-01-28"
+          depends_on: []
+          blocked_by: []
+          assignee_id: 0192a000-0000-7000-8000-000000000101
+          assignee_name: Carla Controller
+          status: done
+          overdue: false
+          read_date: "2026-01-20"
+          completed_by: 0192a000-0000-7000-8000-000000000101
+          completed_by_name: Carla Controller
+          completed_at: "2026-01-20T10:00:00Z"
+          note: The auditors' three adjustments posted into period 13.
     PeriodCloseSignOffInput:
       type: object
       description: "A period close's sign-off."
