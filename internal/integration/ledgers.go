@@ -2,48 +2,34 @@ package integration
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
 
 // The ledger of SAP's journal lines (ACDOCA RLDNR; review:T56h4, ADR-0050
-// As built). The Universal Journal holds a line once per ledger, so an
-// extract with the lines of a non-leading ledger beside the leading
-// ledger's would be posted twice by the load and summed twice by the
-// reconciliation. Which ledger is SAP's leading one is not written down
-// in the repository (a question for the SAP specialist, docs/migration.md),
-// and a run's scope names no ledger, so nothing filters on a guessed
-// identifier: the quality gate and the reconciliation refuse an extract
-// whose lines are in more than one ledger, naming the ledgers found, and
-// one ledger's lines are taken as they are.
+// As built). The Universal Journal holds a line once per ledger, and the
+// other ledgers (local GAAP, extension ledgers holding delta lines) must
+// never be added to the leading one, which the SAP specialist names 0L
+// (PO 2026-11-09, to be confirmed in FINSC_LEDGER). The scope keeps the
+// leading ledger's lines alone (sap.FilterScope); the export is to hold
+// only those, so lines of another ledger in it are refused by the quality
+// gate and the reconciliation as a safety net, naming the ledgers and
+// their lines, rather than the run going on without them unnoticed.
 
-// journalLedgers are the ledgers the extract's journal lines are in,
-// sorted; a line without RLDNR counts as the ledger "".
-func journalLedgers(e *sap.Extract) []string {
-	var out []string
-	for _, l := range e.ACDOCA {
-		if !slices.Contains(out, l.RLDNR) {
-			out = append(out, l.RLDNR)
-		}
-	}
-	slices.Sort(out)
-	return out
-}
-
-// ledgerIssue is the error that refuses an extract whose journal lines are
-// in more than one ledger, and false when they are in one or none.
+// ledgerIssue is the error that refuses an extract holding lines of other
+// ledgers than its leading ledger, and false when it holds none.
 func ledgerIssue(e *sap.Extract) (Issue, bool) {
-	ledgers := journalLedgers(e)
-	if len(ledgers) < 2 {
+	if len(e.OtherLedgers) == 0 {
 		return Issue{}, false
 	}
-	quoted := make([]string, len(ledgers))
-	for i, l := range ledgers {
-		quoted[i] = fmt.Sprintf("%q", l)
+	var others []string
+	for _, l := range sortedKeys(e.OtherLedgers) {
+		n := e.OtherLedgers[l]
+		others = append(others, fmt.Sprintf("%q: %d %s", l, n, map[bool]string{true: "line", false: "lines"}[n == 1]))
 	}
 	return Issue{Severity: SevError, Table: "ACDOCA", Key: "RLDNR", Message: fmt.Sprintf(
-		"the journal lines are in %d ledgers (RLDNR %s): SAP holds a line once per ledger, so they would be posted and summed more than once; extract the leading ledger's lines only",
-		len(ledgers), strings.Join(quoted, ", "))}, true
+		"the extract holds journal lines of other ledgers than the leading ledger %q (RLDNR %s): they are left out, never posted or summed, "+
+			"and the run is refused, as the export is to hold the leading ledger's lines alone (WHERE RLDNR = '%s')",
+		e.Ledger, strings.Join(others, ", "), e.Ledger)}, true
 }

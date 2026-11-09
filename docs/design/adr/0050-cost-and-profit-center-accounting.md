@@ -1247,16 +1247,19 @@ SAP specialist, docs/migration.md):
   trial balance already compares each account. Three checks and their
   differences (`cost center total`, `profit center total`, `segment
   total`).
-- **The ledger of SAP's lines** (review:T56h4, decided by default: the
-  leading ledger's identifier is not recorded, and a run's scope names no
-  ledger): SAP holds a line once per ledger (ACDOCA RLDNR), so lines of a
-  non-leading ledger would post, and add to every center total, twice.
-  The scope no longer keeps the lines of a guessed "0L"; the quality gate
-  refuses an extract whose lines are in more than one ledger, naming
-  them, and the reconciliation refuses one without computing a control.
-  The specialist is asked for the identifier and whether the file extract
-  should be limited to it (docs/migration.md); the OData mapping labels
-  every line alike, so its ledgers are a T56h5 question.
+- **The ledger of SAP's lines** (review:T56h4): SAP holds a line once per
+  ledger (ACDOCA RLDNR), so lines of a non-leading ledger would post, and
+  add to every center total, twice. The SAP specialist (PO 2026-11-09)
+  names the standard leading ledger 0L, to be confirmed in FINSC_LEDGER,
+  and asks for the export to hold its lines alone with the load's refusal
+  kept as a safety net. So the scope keeps the lines of its leading
+  ledger (`sap.Scope.Ledger`, `sap.LeadingLedger` 0L when empty; not yet
+  in the API's run scope, decided by default as no pilot is known to
+  differ), counts the others' lines (`Extract.OtherLedgers`), and the
+  quality gate refuses an extract holding any, naming each ledger and its
+  lines, as the reconciliation does without computing a control. The
+  OData mapping labels every line the leading ledger, so its ledgers are
+  a T56h5 question.
 
 As built in T56h3 (no migration; OKB9's tables and fields are the SAP
 specialist's answers, PO 2026-11-09, to be validated in SE11 on the

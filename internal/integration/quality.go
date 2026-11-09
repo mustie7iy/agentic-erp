@@ -332,8 +332,8 @@ func (q *qualityCheck) movements() {
 	}
 }
 
-// ledgers refuses an extract whose journal lines are in more than one
-// ledger (ledgerIssue).
+// ledgers refuses an extract holding journal lines of other ledgers than
+// the leading one (ledgerIssue).
 func (q *qualityCheck) ledgers() {
 	if issue, ok := ledgerIssue(q.e); ok {
 		q.out = append(q.out, issue)

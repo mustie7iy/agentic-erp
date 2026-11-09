@@ -38,8 +38,8 @@ type Diff struct {
 
 // Reconciliation is the reconciliation part of a run's report. Issues are
 // SAP values it could not use: amounts that do not parse, sums out of the
-// range of an amount, or journal lines in more than one ledger
-// (ledgerIssue), which it refuses without computing a control. A
+// range of an amount, or journal lines of other ledgers than the leading
+// one (ledgerIssue), which it refuses without computing a control. A
 // reconciliation run extracts again without the quality gate, so it
 // reports them as the gate does, and fails.
 type Reconciliation struct {

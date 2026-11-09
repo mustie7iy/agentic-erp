@@ -163,11 +163,10 @@ type RSEG struct {
 
 // ACDOCA - Universal Journal line item.
 type ACDOCA struct {
-	// RLDNR is the line's ledger. SAP holds a line once per ledger, and
-	// which identifier its leading ledger has is not recorded (a question
-	// for the SAP specialist, docs/migration.md), so no ledger is chosen
-	// by a guessed one: the migration's quality gate refuses an extract
-	// whose lines are in more than one (review:T56h4).
+	// RLDNR is the line's ledger. SAP holds a line once per ledger; a
+	// scope migrates its leading ledger's (LeadingLedger, Scope.Ledger),
+	// and the migration's quality gate refuses an extract holding lines
+	// of others (Extract.OtherLedgers; review:T56h4).
 	RLDNR  string `json:"RLDNR"`
 	RBUKRS string `json:"RBUKRS"`
 	GJAHR  string `json:"GJAHR"`
@@ -703,6 +702,13 @@ type Extract struct {
 	AGR_DEFINE []AGRDefine `json:"AGR_DEFINE,omitempty"`
 	AGR_TCODES []AGRTcode  `json:"AGR_TCODES,omitempty"`
 	AGR_USERS  []AGRUser   `json:"AGR_USERS,omitempty"`
+
+	// Ledger is the ledger whose journal lines ACDOCA holds, and
+	// OtherLedgers the number of the scope's lines of each other ledger
+	// FilterScope left out, by RLDNR (review:T56h4). FilterScope derives
+	// both, so an extract file holds neither.
+	Ledger       string         `json:"-"`
+	OtherLedgers map[string]int `json:"-"`
 
 	// VendorsWithoutPartner are the vendors (LFA1-LIFNR) of an OData
 	// extract that no business partner links to as its supplier, so whose

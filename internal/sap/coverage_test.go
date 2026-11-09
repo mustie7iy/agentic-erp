@@ -281,3 +281,30 @@ func TestMockLineCenters(t *testing.T) {
 		}
 	}
 }
+
+// TestFilterScopeKeepsTheLeadingLedger: a scope keeps the journal lines of
+// its leading ledger, 0L unless it names another (review:T56h4), and counts
+// its lines of the other ledgers, by RLDNR, leaving out those of other
+// company codes and years.
+func TestFilterScopeKeepsTheLeadingLedger(t *testing.T) {
+	line := func(ledger, company, year string) ACDOCA { return ACDOCA{RLDNR: ledger, RBUKRS: company, GJAHR: year} }
+	all := &Extract{ACDOCA: []ACDOCA{line("0L", "1000", "2026"), line("2L", "1000", "2026"), line("2L", "1000", "2026"), line("", "1000", "2026"),
+		line("E1", "2000", "2026"), line("E1", "1000", "2025")}}
+	for name, tc := range map[string]struct {
+		ledger, want string
+		others       map[string]int
+	}{
+		"the standard leading ledger": {"", "0L 1", map[string]int{"2L": 2, "": 1}},
+		"a ledger the scope names":    {"2L", "2L 2", map[string]int{"0L": 1, "": 1}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := FilterScope(all, Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026", Ledger: tc.ledger})
+			if kept := fmt.Sprintf("%s %d", got.Ledger, len(got.ACDOCA)); kept != tc.want {
+				t.Errorf("ledger and lines kept: got %s, want %s", kept, tc.want)
+			}
+			if fmt.Sprint(got.OtherLedgers) != fmt.Sprint(tc.others) {
+				t.Errorf("other ledgers' lines: got %v, want %v", got.OtherLedgers, tc.others)
+			}
+		})
+	}
+}

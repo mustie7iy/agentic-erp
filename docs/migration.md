@@ -356,14 +356,20 @@ Each control is computed twice: from the raw SAP extract and from the
 platform, read through the owning contexts.
 They must be equal.
 
-SAP holds a journal line once per ledger (ACDOCA RLDNR), and which
-identifier the leading ledger has is not recorded here (a question for the
-SAP specialist, below). So no ledger is picked by a guessed identifier:
-the quality gate refuses an extract whose journal lines are in more than
-one ledger, naming the ledgers found, and the reconciliation, which
+SAP holds a journal line once per ledger (ACDOCA RLDNR), and the other
+ledgers (local GAAP such as 2L or L1, extension ledgers such as E1, which
+hold delta lines only) must never be added to the leading one. A run takes
+the leading ledger's lines alone: 0L, the SAP specialist's answer (PO
+2026-11-09), to be confirmed on the pilot system in FINSC_LEDGER (its
+"Leading ledger" flag); the scope's `Ledger` setting names another
+(internal/sap `Scope`; not yet in the API's run scope). The export is to
+hold the leading ledger's lines alone (`WHERE RLDNR = '0L'`), so the
+quality gate refuses, as a safety net, an extract holding lines of
+another ledger or of none named, listing each ledger with its number of
+lines, which are left out and never posted; the reconciliation, which
 extracts again without the gate, refuses such an extract without
-computing any control, rather than post or sum each line once per ledger
-(review:T56h4). An extract of one ledger's lines loads as it is.
+computing any control (review:T56h4). Plan data is in ACDOCP, not
+ACDOCA, so no plan filter is needed.
 
 - Trial balance per account (differences listed by account)
 - Total debits posted (`documents` mode)
@@ -597,14 +603,14 @@ stopped the run before the load.
   latest slice open-ended without BKZKP); the ledger checks it again when
   the change activates. The orders and profit centers a row names (AUFK
   with JEST/JCDS, CEPC) are not checked, as no such row is proposed.
-- The ledger of the journal lines (ACDOCA RLDNR; review:T56h4): which
-  identifier the leading ledger has in the pilot's system, and whether the
-  file extract should be limited to its lines (the load refuses an extract
-  whose lines are in more than one ledger and takes one ledger's lines as
-  they are, whichever it is). The OData mapping does not read the line's
-  ledger and labels every line alike, so the gate cannot tell an OData
-  extract's ledgers apart: confirm whether `A_JournalEntryItemBasic`
-  returns the leading ledger's lines alone (T56h5).
+- The ledger of the journal lines (ACDOCA RLDNR; review:T56h4): the SAP
+  specialist answered (PO 2026-11-09) that the standard leading ledger is
+  0L, which the run takes; confirm it on the pilot system in FINSC_LEDGER
+  (flag "Leading ledger"), and export its lines alone (`WHERE RLDNR =
+  '0L'`). Which other ledgers the pilot keeps is for its SAP team. The
+  OData mapping does not read the line's ledger and labels every line the
+  leading ledger, so the gate cannot tell an OData extract's ledgers apart
+  until `A_JournalEntryItemBasic`'s ledger property is mapped (T56h5).
 - Amounts for currencies with no decimals or three decimals (JPY, KWD) come in
   external format.
 - **SAP digital-access licensing:** reading data is usually fine, but agents

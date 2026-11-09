@@ -2807,9 +2807,9 @@
        },
        {
         "s": "D",
-        "t": "SAP migration: the ledger of journal lines (fix of T56h4): ACDOCA RLDNR was neither checked by the load nor by the reconciliation, and the scope kept the lines of a guessed leading ledger \"0L\"; the scope keeps every ledger's lines, the quality gate refuses an extract whose lines are in more than one ledger, naming them, and the reconciliation refuses one without computing a control, so no line is posted or summed twice; the specialist is asked for the leading ledger's identifier and whether the file extract should be limited to it",
+        "t": "SAP migration: the ledger of journal lines (fix of T56h4): ACDOCA RLDNR was neither checked by the load nor by the reconciliation; the scope keeps its leading ledger's lines (sap.Scope.Ledger, 0L when empty, the SAP specialist's answer of 2026-11-09, to be confirmed in FINSC_LEDGER) and counts the other ledgers' lines, which the quality gate and the reconciliation refuse as a safety net, naming each ledger and its lines, so no line is posted or summed twice",
         "r": "internal/sap source.go, types.go, odata.go · internal/integration ledgers.go, quality.go, reconcile.go · api/openapi.yaml (MigrationRunReport issues) · docs/migration.md · ADR-0050 §10 as built · T56h4b",
-        "src": "review:T56h4",
+        "src": "review:T56h4 · po:2026-11-09",
         "c": []
        },
        {

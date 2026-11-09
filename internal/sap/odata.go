@@ -115,16 +115,15 @@ var DefaultEntities = []EntityMapping{
 	// the API's properties for them are not recorded, so an OData
 	// extract's lines load without centers, the ledger deriving them as
 	// for any line without, until the pilot's $metadata names them (T56h5).
-	// Nor is the line's ledger: RLDNR is a constant label, so the quality
-	// gate cannot tell an OData extract's ledgers apart as it does a file
-	// extract's (review:T56h4); whether the API returns the leading
-	// ledger's lines alone is a question for the SAP specialist
-	// (docs/migration.md).
+	// Nor is the line's ledger: every line is labelled the leading ledger,
+	// so the quality gate cannot tell an OData extract's ledgers apart as
+	// it does a file extract's (review:T56h4); the API's ledger property
+	// is to be mapped from the pilot's $metadata (T56h5).
 	// OKB9's default account assignments (TKA3A, TKA3C, TKA3P; T56h3) have
 	// no released OData API (the SAP specialist, PO 2026-11-09): only a
 	// file extract carries them.
 	{Table: "ACDOCA", Service: "API_JOURNALENTRYITEMBASIC_SRV", Entity: "A_JournalEntryItemBasic", CompanyField: "CompanyCode", YearField: "FiscalYear",
-		Static: map[string]string{"RLDNR": "0L"},
+		Static: map[string]string{"RLDNR": LeadingLedger},
 		Fields: map[string]string{"RBUKRS": "CompanyCode", "GJAHR": "FiscalYear", "BELNR": "AccountingDocument",
 			"DOCLN": "LedgerGLLineItem", "RACCT": "GLAccount", "HSL": "AmountInCompanyCodeCurrency",
 			"BUDAT": "PostingDate", "BLART": "AccountingDocumentType", "LIFNR": "Supplier",
