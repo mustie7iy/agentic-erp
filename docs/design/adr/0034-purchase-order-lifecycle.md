@@ -276,7 +276,13 @@ SAP's GR/IR credit stayed on the account with no order item to clear it
 
 For an SAP specialist: that ACDOCA carries the order item under EBELN and
 EBELP on every GR/IR line, and the OData properties for them and for T030
-(not mapped).
+(not mapped). **Answered (po:2026-11-09, A13(a) and A7, [M], to verify on
+the pilot system):** lines SAP's materials management posts (MIGO, MIRO,
+MR11, MR8M) carry it; manual G/L postings to the GR/IR account (when it is
+not "post automatically only", SKB1-XINTB), legacy or migration balances
+and some reclassification postings do not, and the gate refuses them. The
+OData properties are `PurchasingDocument` and `PurchasingDocumentItem` of
+`A_JournalEntryItemBasic`; T030 has no API [H] and comes by file only.
 
 ## As built: later runs top GR/IR positions up (review:batch21)
 
@@ -465,7 +471,15 @@ other than the order's, which the gate refuses; that SAP clears GR/IR in
 company code currency at the receipt's value and posts the exchange
 difference to an account of its own, so an open position's HSL is its
 receipts' value at their rates; and whether SAP ever posts a GR/IR line of
-such an order in company code currency alone.
+such an order in company code currency alone. **Answered (po:2026-11-09,
+A13(b), (c), [M], to verify on the pilot system):** a goods receipt's line
+carries the order's currency, but an invoice's carries the invoice's,
+which MIRO allows to differ from the order's: the gate's refusal of such a
+line is to change (a tracker leaf). SAP matches GR/IR by quantity and posts
+the difference between receipt and invoice valuation to the exchange rate
+difference account (key KDM) or, by price control and stock coverage, to
+stock or price difference (PRD): not always one account. The last point
+(a GR/IR line in company code currency alone) was not answered.
 
 ## As built: later runs clear what SAP cleared across runs (review:batch22)
 
@@ -531,7 +545,10 @@ prior-year invoice paid this year is loaded open in its year's run and the
 later year's run clears it with the payment it loads. This needs SAP's
 clearing date and the clearing document's fiscal year in the extract
 (AUGDT and AUGGJ, the field names stated from memory, for an SAP
-specialist to confirm in the extract, which the build waits on); the load
+specialist to confirm in the extract, which the build waits on; confirmed
+po:2026-11-09, A3, [H]: both on ACDOCA from S/4HANA 1610, empty on an open
+item, and emptied again by a clearing reset, FBRA, so an item open at a
+year's end is told by AUGDT after that day); the load
 then reads a line as cleared only when its clearing falls in the run's
 fiscal year. Tracked as the item that follows this one.
 
@@ -638,6 +655,10 @@ extract's LFBK names its vendor itself and is unchanged:
   `Supplier` names it, are stated from memory, not from a primary source in
   this repository. Confirm both against the pilot system's `$metadata` and
   set-up (docs/migration.md, "What to check on a real SAP system").
+  **Answered (po:2026-11-09, A7):** every supplier has a business partner
+  [H] (CVI_VEND_LINK), its number possibly different, so joining through
+  the link is right; `A_BusinessPartner`'s `Supplier` [M, to verify in
+  the pilot's `$metadata`].
 
 ## As built: an order item's delivery date (T53g, ADR-0051 decision P7)
 

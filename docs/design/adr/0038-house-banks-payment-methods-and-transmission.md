@@ -457,7 +457,13 @@ under that amendment (ADR-0053 §d):
   number comes first. Which form a
   given SAP system keeps Canadian bank keys in is its bank master's, so it is
   on the specialist list rather than assumed; a key in another form is
-  converted in the extract, not guessed at.
+  converted in the extract, not guessed at. **Answered by the SAP
+  specialist (po:2026-11-09, A6, [M], to verify on the pilot system):** the
+  routing form is the usual one, but legacy data also holds the paper
+  (MICR) form `TTTTT-III` (`12345-001`) and sometimes eight digits without
+  the leading zero; the hyphenated form converts without guessing
+  (`12345-001` is `000112345`) and is to be accepted, ambiguous forms still
+  refused (a tracker leaf; docs/migration.md).
 - **Quality gate.** A vendor's Canadian account (its first LFBK row, the
   one loaded) whose bank key is not that form, or whose account number is
   not 7 to 12 digits, is an error of the gate (table LFBK), so the run
@@ -899,7 +905,12 @@ wrong, left in a form validation refuses):
   marks a payment term SAP's days cannot give; a currency the reference data
   does not know is refused the same way. What an empty WAERS means in SAP is
   for the specialist; the company's currency would be a guess that could
-  never be corrected.
+  never be corrected. **Answered by the SAP specialist (po:2026-11-09,
+  A5):** WAERS is the account's currency [H]; an empty one means no
+  currency was maintained, so SAP does not restrict the account, and the
+  binding currency is its G/L account's (T012K-HKONT, SKB1-WAERS), usually
+  the company code's [M, to verify on the pilot system]. Taking SKB1-WAERS
+  when WAERS is blank, rather than `UNKNOWN`, is a tracker leaf.
 - **Revaluation.** A foreign-currency bank's ledger accounts must be
   flagged `revalue_foreign_currency` with their unrealised gain and loss in
   `fx_valuation.accounts` (T53a, ADR-0042). SAP's valuation accounts are not
@@ -945,7 +956,10 @@ counterpart for is noted):
   method and currency, and pays from the bank of highest priority in the
   ranking. So the extract carries T042Z, T042E, T042A and T042I, and the
   ranking is T042A's. All four, and that a lower RANGF ranks first, are on
-  the specialist list.
+  the specialist list. **Answered by the SAP specialist (po:2026-11-09,
+  A4):** the tables and fields are as stated, T042I included [H]; a lower
+  RANGF ranks first [H]; a T042A row without a currency applies to every
+  currency without a row of its own [M].
 - **The draft.** A company's methods are its T042E rows, each named by the
   T042Z row of the company's country (T001 LAND1) and ranking, per currency,
   the banks T042A ranks for it, in RANGF order (an order that is not a
@@ -977,7 +991,14 @@ counterpart for is noted):
   configuration does not have, or one twice, before anything loads, as it
   refuses unknown payment terms; the partner context checks the same again
   (`PaymentMethods` port). That ZWELS's order is SAP's order of preference
-  is on the specialist list. The OData source maps it to
+  is on the specialist list. **Answered (po:2026-11-09, A4(c), [M], to
+  verify on the pilot system): it is not.** SAP's payment run tries the
+  methods in the order of its own parameters per company code, restricted
+  to those ZWELS allows, and an item's fixed method (BSEG/ACDOCA-ZLSCH)
+  wins over both; T042I's account (HKTID) tells which T012K account a bank
+  pays from by method and currency. The Decision's "first method of its
+  company data" and the draft's one account per house bank are to change
+  (a tracker leaf; this ADR is amended in that step). The OData source maps it to
   `A_SupplierCompany`'s `PaymentMethodsList` (SAP Cloud SDK,
   https://help.sap.com/doc/505cd8d2cbd340a38eeae8b63b5df753/1.0/en-US/interfaces/_sap_cloud_sdk_vdm_business_partner_service.suppliercompanytype.html);
   the T042 tables, like T012K, come from file extracts.

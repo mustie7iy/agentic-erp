@@ -48,7 +48,26 @@ network in the lane).
   GST/HST return (and the FPZ-500 for a Quebec registrant), which are T61's.
 - **Pilot facts not known yet** (ADR-0049, "Information needed from the
   pilot"): "whether the UAE company's revenue reaches AED 50m (e-invoicing
-  from 2027-01-01, T65)" and its billing system.
+  from 2027-01-01, T65)" and its billing system. The revenue is now known
+  (below AED 50m, the next bullet); the billing system has a planning
+  default (D8, next bullet).
+- **The mandate's timeline** (a fact, not a decision; the UAE tax
+  specialist, po:2026-11-09, from Ministerial Decision No. 244 of 2025 on
+  the Implementation of the Electronic Invoicing System as amended,
+  Ministerial Decision No. 66 of 2026 the amendment the specialist names):
+  a business with revenue of AED 50 million or more had to appoint an
+  accredited service provider by 30 October 2026 and must go live by
+  1 January 2027; a business below AED 50 million appoints one by
+  31 March 2027 and goes live on 1 July 2027.
+- **The pilot's UAE company** (product owner, po:2026-11-09; confirmed facts,
+  not defaults): its revenue is **below AED 50 million**, and it has
+  appointed no accredited service provider yet. Its dates are therefore to
+  appoint one by **31 March 2027** and to go live on **1 July 2027**. This
+  overrides the pilot customer questionnaire's planning default for D7
+  (AED 50 million or more). Its billing system (D8) has a planning default
+  only, to be confirmed by the customer before go-live: both companies bill
+  from SAP S/4HANA SD, one journal per billing document read through the
+  API.
 
 ### What the ERP has today
 - **Capture** (T34e, 03 §3.9, `internal/capture`,
@@ -292,6 +311,100 @@ answered to the supplier: whether the UAE model expects a buyer's
 response through the network is to confirm; until then a person takes it
 up with the supplier.
 
+**Answered by the UAE tax specialist (po:2026-11-09, C1-C8; [H] from an
+official source, [M] official source plus interpretation, [L] not found in
+an official source, to confirm with the FTA, the Ministry of Finance or the
+provider).** What changes T65c-T65e is in their tracker leaves (src
+po:2026-11-09).
+- **The binding specification (C1, [H]).** The Ministry of Finance sets
+  the requirements; the specification is PINT AE, published by OpenPeppol
+  on its behalf. Documents to cite: Ministerial Decision No. 243 of 2025 on
+  the Electronic Invoicing System
+  (https://mof.gov.ae/wp-content/uploads/2025/09/Ministerial-Decision-no.-243-of-2025-on-the-Electronic-Invoicing-System.pdf);
+  Ministerial Decision No. 244 of 2025 on its implementation, amended by
+  Ministerial Decision No. 66 of 2026
+  (https://mof.gov.ae/wp-content/uploads/2025/09/Ministerial-Decision-No.-244-of-2025-on-the-Implementation-of-the-Electronic-Invoicing-System.pdf);
+  UAE Electronic Invoice, Mandatory Fields, V1.0, 23 February 2026
+  (https://mof.gov.ae/wp-content/uploads/2026/02/UAE-Electronic-Invoice-mandatory-fields_V-1.0-23Feb2026.pdf);
+  the UAE Electronic Invoicing Guidelines (V1.1 reported June 2026,
+  https://mof.gov.ae/einvoicing/); and PINT AE Billing, invoice and credit
+  note (https://docs.peppol.eu/poac/ae/2025-Q2/pint-ae/). The provider's
+  validation is not the binding specification: ask it which PINT AE
+  release it validates against.
+- **Version and syntax (C2).** UBL 2.1 XML [H]. PINT AE Billing was first
+  released on 9 June 2025 (OpenPeppol's 2025-Q2 release, 1.0.0), with
+  v1.0.1 on 31 July 2025 [M]; no replacement date was found [L].
+  Record the document's specification identifier (IBT-024) and the release
+  validated against, and check https://docs.peppol.eu/poac/ae/ for a newer
+  release folder before go-live.
+- **The fields §5 reads (C3; business terms [H], UBL paths [M], to confirm
+  against the syntax binding; a credit note uses `CreditNote` element
+  names):** document type IBT-003 `cbc:InvoiceTypeCode` or
+  `cbc:CreditNoteTypeCode` (M); number IBT-001 `cbc:ID` (M; also BTAE-07,
+  the unique identifier number, M); issue date IBT-002 `cbc:IssueDate` (M);
+  currency IBT-005 `cbc:DocumentCurrencyCode` (M); seller's TRN IBT-031
+  `cac:AccountingSupplierParty/cac:Party/cac:PartyTaxScheme/cbc:CompanyID`,
+  tax scheme `VAT` (M for a VAT-registered seller); buyer's TRN IBT-048
+  `cac:AccountingCustomerParty/cac:Party/cac:PartyTaxScheme/cbc:CompanyID`
+  (M on a B2B tax invoice to a registered buyer); order reference IBT-013
+  `cac:OrderReference/cbc:ID` (O); the invoice a credit note refers to
+  IBG-03, IBT-025
+  `cac:BillingReference/cac:InvoiceDocumentReference/cbc:ID`, its date
+  IBT-026 (C); per line the name IBT-153 `cac:Item/cbc:Name` and
+  description IBT-154 `cac:Item/cbc:Description` (M, both), quantity
+  IBT-129 `cbc:InvoicedQuantity` with its unit IBT-130 `@unitCode` (M), net
+  amount IBT-131 `cbc:LineExtensionAmount` (M), tax category IBT-151
+  `cac:Item/cac:ClassifiedTaxCategory/cbc:ID` and rate IBT-152
+  `…/cbc:Percent` (M), order line reference IBT-132
+  `cac:OrderLineReference/cbc:LineID` (O; IBT-183 the line's order
+  reference); tax total per category IBG-23, IBT-116
+  `cac:TaxTotal/cac:TaxSubtotal/cbc:TaxableAmount`, IBT-117
+  `…/cbc:TaxAmount`, IBT-118 `…/cac:TaxCategory/cbc:ID`, IBT-119
+  `…/cbc:Percent` (M); totals IBT-109
+  `cac:LegalMonetaryTotal/cbc:TaxExclusiveAmount` (IBT-106 the lines' sum),
+  IBT-110 `cac:TaxTotal/cbc:TaxAmount` in the document's currency, IBT-112
+  `cac:LegalMonetaryTotal/cbc:TaxInclusiveAmount` and IBT-115
+  `cbc:PayableAmount` (M). Also mandatory: the electronic addresses
+  IBT-034 and IBT-049, the seller's and buyer's names, address line 1,
+  city, country subdivision and country code, IBT-023, IBT-024 and the
+  payment means IBT-081. (M mandatory in an electronic tax invoice by the
+  Ministry's list, O optional, C conditional.)
+- **Codes and credit notes (C4, [M]).** An invoice is `380`, a credit note
+  `381`, sent as a UBL `CreditNote`; other codes of the PINT AE code list
+  (such as self-billing) stay refused. A tax credit note must name the
+  invoice it corrects (IBG-03, IBT-025), and routing one that names none to
+  a person is safer than refusing it, even if the rules allowed it empty.
+- **Amounts in AED (C5; terms [H], paths [M]).** The tax accounting
+  currency IBT-006 `cbc:TaxCurrencyCode` (`AED`) and the invoice's total VAT
+  in it IBT-111 (a second `cac:TaxTotal/cbc:TaxAmount` with
+  `@currencyID="AED"`), required when IBT-005 is not AED; the exchange rate
+  BTAE-04 (0..1); per line BTAE-08, the VAT line amount in AED, and
+  BTAE-10, the line amount in AED (IBG-39), both listed as mandatory in the
+  Ministry's field list (#48, #49); BTAE-20 the total with VAT in AED (0..1).
+  The VAT 201 reads IBT-111, and BTAE-08 reconciles it per line; whether the
+  rules enforce the AED fields only on a document not in AED is to confirm
+  in the Schematron.
+- **The buyer's identifier (C6, [H]).** Scheme `0235` (businesses
+  registered in the UAE); the identifier is the TIN, the first 10 digits of
+  the 15-digit TRN (the Corporate Tax TRN): TRN `100123456700003` is
+  endpoint `0235:1001234567`. A member of a VAT tax group uses the first 10
+  digits of its own Corporate Tax TRN, not the representative's. So
+  `not_addressed_to_company` is decided on the IBT-049 endpoint (0235 and
+  the company's TIN), and IBT-048 (the buyer's VAT TRN, a tax group's for a
+  member) is checked apart, not required to equal it digit for digit.
+- **Validation rules (C7).** Published [H]: Schematron files for invoices
+  and credit notes and a resources package, linked from
+  https://docs.peppol.eu/poac/ae/2025-Q2/pint-ae/. Their licence [L]:
+  OpenPeppol's validation artefacts are usually under an open licence
+  (Mozilla Public License 2.0 for Peppol BIS artefacts); read the package's
+  LICENSE before shipping them.
+- **Responding to a refused e-invoice (C8, [L]).** No business-level
+  response obligation was found: the Peppol network has a Message Level
+  Response between providers, but no Ministry requirement that the buyer
+  accept or reject was found. A person contacting the supplier stays (6.
+  under "Decided by default"); ask the provider whether it returns such
+  responses automatically on a validation failure.
+
 ### 6. Entering: capture's rules without the model
 A valid document is entered through `payables.EInvoices.Enter`, in the
 processing transaction. Payables builds its input as capture builds an
@@ -425,6 +538,20 @@ transmitted, by their billing systems (P2). When sales invoices exist:
   returns; one is added as another report of this kind once named
   (question Q4). **SAF-T**: the leaf's name; neither pilot country is
   recorded as requiring it, so it is a format for a later country pack.
+- **Answered by the UAE tax specialist (po:2026-11-09, C9).** The FTA Audit
+  File (FAF) specification FAFv1.0.0, part of the FTA's requirements for
+  tax accounting software [M]; no current public link was found on
+  tax.gov.ae, so it is to be requested from the FTA (or through an
+  FTA-registered tax agent) and kept on file. Format: one CSV file,
+  comma-separated [M]; encoding UTF-8 in practice (English and Arabic
+  text), not stated explicitly [L]; seven sections in the one file: company
+  information, purchase listing, supply listing and general ledger, with
+  their totals rows [M]; scope: a date range (period start and end in the
+  header) for one taxable person (TRN) [M]; deadline: none fixed for the
+  file itself, the FTA sets it in its request during an audit (it gives
+  notice of a field audit in advance under the Tax Procedures law), so
+  design for production within one working day [L]. T65g still starts from
+  the specification itself; its tracker leaf records these facts.
 
 ### 11. Permissions
 | Permission | Allows | Who |
@@ -581,7 +708,8 @@ built), 03 §3.25 (and §3.20 with T65g) and this ADR's "As built".
 6. Refused (unreadable, inconsistent without any tax rule, not ours)
    versus held (any refusal of the entering); refused documents get no
    response to the supplier until the specialist confirms one is
-   expected (§5, §6).
+   expected (§5, §6). The specialist found no such obligation on
+   2026-11-09 (C8, [L]; §5).
 7. Tax codes from the lines' categories by capture's rule, ambiguity
    holding the invoice for a person (§6).
 8. Documents kept write-once as received, no retention lock; retention
@@ -611,6 +739,9 @@ built), 03 §3.25 (and §3.20 with T65g) and this ADR's "As built".
   (they lack buyer, description and quantity: new scope).
   Recommendation: (a), and T65a-T65f before 2027-01-01 if the company is
   in the mandate; please tell us its revenue and billing system.
+  **Fact (po:2026-11-09):** the company is below AED 50m and has no
+  provider yet, so its dates are 31 March 2027 (appoint) and 1 July 2027
+  (go live).
 - **Q3. Push from the provider** (security posture). If the chosen
   provider cannot be polled, accept an inbound endpoint authenticated by
   the provider's signature? Options: (a) no, choose a provider that can
@@ -632,6 +763,15 @@ tracker item only when one does (07 §7.5).
 - Screens in the web workspace.
 
 ## Facts for a specialist (stated from secondary sources or memory, not verified here)
+Answered by the UAE tax specialist on 2026-11-09 (po:2026-11-09): the
+current Ministerial Decisions and the timeline (Context); PINT AE's
+publisher, version, syntax, elements, validation artefacts, credit notes
+and amounts in AED, the participant identifier scheme and whether a buyer's
+response is mandated (§5, C1-C8); the FTA Audit File (§10, C9, the
+specification itself still to obtain). Still open: how the AED 50m
+threshold is measured, the five-corner model's reporting, the accredited providers, retention, UAE
+rounding, the code lists (units, categories), sending (phase 3), Canadian
+reports and Art. 59.
 - The UAE mandate (ADR-0049, from EY's summary): the AED 50m threshold's
   measure, the dates for smaller businesses, whether receiving and
   buyer's responses are mandated, and the current Ministerial Decisions.

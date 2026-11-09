@@ -912,7 +912,13 @@ companies (all in the tenant, under RLS). A registration change is financial
   whose periods overlap, so a return reports an item once (§11). The
   number must be printable ASCII (its last four characters are shown)
   of at most 40 characters without spaces; its format is not checked: no pack or primary source defines the
-  BN/RT or TRN format here (a tracker item for the tax specialist). The
+  BN/RT or TRN format here (a tracker item for the tax specialist). For the
+  UAE the tax specialist answered on 2026-11-09 (po:2026-11-09, C12): a TRN
+  is 15 digits, numeric [H], a registered business's typically beginning
+  with `100` [M]; its first 10 digits are the TIN used in e-invoicing [H];
+  no check digit is published [L], so length and digits are what to
+  validate, and the FTA's TRN verification on EmaraTax gives certainty
+  (the tracker item records it; Canada's formats stay open). The
   registration is kept by `taxfiling.Setup` in `tax.registration`, the
   number sealed with the tenant's key, fingerprinted and shown by its last
   four characters (fieldcrypt, as tax identifiers and house bank accounts
@@ -1024,13 +1030,26 @@ companies (all in the tenant, under RLS). A registration change is financial
     expression box's is its expression over the earlier boxes' parts);
     their signed tax is summed for information. **The threshold's measure
     is open** (product owner and tax specialist: net or gross, per earlier
-    period or pooled, per error); until it is settled `above_threshold` is
+    period or pooled, per error; answered by the UAE tax specialist on
+    2026-11-09, below); until it is settled `above_threshold` is
     raised, conservatively, when the input or the output tax of the items
     of any one earlier period (by the registration's periods; one bucket
     before its first) exceeds the pack's threshold in magnitude, so
     directions and periods never cancel and the flag errs towards a
     person's review. No threshold means always the next return (P7,
     Canada's case). No released pack sets one yet (T61k's UAE pack will).
+    **The UAE tax specialist's answer (po:2026-11-09, C11, each [M]; Federal
+    Decree-Law No. 28 of 2022 on Tax Procedures, Art. 10, and Cabinet
+    Decision No. 74 of 2023, its Executive Regulation, Art. 10):** the
+    measure is net, the difference in payable tax (output less recoverable
+    input) the errors cause; per tax period, each earlier return on its
+    own; in total for that return, every error found in it added, since one
+    disclosure is made per return. The threshold concerns underpaid tax
+    (over-declared tax may be corrected either way); a voluntary disclosure
+    is due within 20 business days of discovery, and is needed even below
+    AED 10,000 when no return is available to correct it. So the flag is to
+    become "a net payable-tax shortfall above AED 10,000 per earlier
+    period", with the 20-business-day disclosure shown: a tracker leaf.
   - **Refusals** (problem values): a `period_start` that starts none of
     the registration's periods (422 `tax.not_a_period`); a period not yet
     ended on the registrant's date in its time zone (409
@@ -1681,6 +1700,16 @@ Information needed from the pilot (not decisions): each pilot company's
 province or emirate, registrations (BN/RT, QST, PST, TRN, tax group), filing
 frequency, whether it is in a designated zone, its billing system, and whether
 the UAE company's revenue reaches AED 50m (e-invoicing from 2027-01-01, T65).
+The product owner confirmed on 2026-11-09 (po:2026-11-09) that the UAE
+company's revenue is below AED 50m and no provider is appointed: its
+e-invoicing dates are 31 March 2027 (appoint) and 1 July 2027 (go live)
+(ADR-0061, Context). The rest has **planning defaults, to be confirmed by
+the customer before go-live** (the pilot customer questionnaire's defaults
+of 2026-11-09; ⚠ marks those that could do harm if wrong): ⚠ Ontario (HST
+13%), selling into every other province (D1); no QST registration (D2);
+GST/HST filed monthly (D3); no PST registration, self-assessed PST codes
+kept (D4); ⚠ Dubai, VAT 201 quarterly, no VAT tax group (D5); not in a
+designated zone (D6); both companies billing from SAP S/4HANA SD (D8).
 
 ## Sources
 - CRA, Instructions for preparing a GST/HST return:
@@ -1762,6 +1791,7 @@ confirm or for the tax specialist stand confirmed.
   authorities' due dates (§10, not built), the Context's "one month after
   a monthly or quarterly period" among them; the measure of the prior-period
   threshold (§11 As built: net or gross, per period or pooled; no released
-  pack sets a threshold, the UAE's will); and whether a predecessor
+  pack sets a threshold, the UAE's will; answered for the UAE on 2026-11-09,
+  C11, a tracker leaf); and whether a predecessor
   registration's unfiled period's items belong to its own return or the
   new code's (§11 As built, not decided).
