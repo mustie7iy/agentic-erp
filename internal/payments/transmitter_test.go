@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -481,4 +482,147 @@ func TestBankFileTransmissionSchema(t *testing.T) {
 			}
 		})
 	}
+}
+
+// held is a bank connector that keeps its first upload until released:
+// a claim in flight while another claimant finishes.
+type held struct {
+	once     sync.Once
+	claimed  chan struct{}
+	released chan struct{}
+}
+
+func (h *held) Transmit(context.Context, payments.File) error {
+	h.once.Do(func() {
+		close(h.claimed)
+		<-h.released
+	})
+	return nil
+}
+
+// TestTransmitterStaleClaim: a claimant stalled past its lease, whose file
+// was failed (its request cancelled) and asked for again, finds the new
+// request's claim at the same attempt number; its late outcome is not
+// recorded as the new claim's, which records its own and completes the new
+// request's operation (T53h review: the guard is the row version the claim
+// wrote, ADR-0008).
+func TestTransmitterStaleClaim(t *testing.T) {
+	e := setup(t)
+	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
+	file := asked(t, e, "INV-1")
+	first := operationOf(t, file)
+	later := func() time.Time { return time.Now().Add(claimLapsed) }
+	h := &held{claimed: make(chan struct{}), released: make(chan struct{})}
+	var release sync.Once
+	t.Cleanup(func() { release.Do(func() { close(h.released) }) }) // a failed step leaves no upload held
+	var again string
+	done := make(chan error, 1)
+	e.connector.during = func() {
+		e.connector.during = nil
+		// The claim lapses; the request is cancelled and the sweep fails
+		// the file, which may be at the bank.
+		_, etag := e.Must(200, "GET", "/v1/operations/"+first, "", "")
+		e.Must(200, "POST", "/v1/operations/"+first+":cancel", "", etag)
+		sweep := e.transmitter(t)
+		sweep.Endpoints.Connector, sweep.Now = &connector{}, later
+		if _, err := sweep.RunOnce(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		// Asked for again: a new claim takes attempt 1 and is in flight.
+		op, _ := e.Must(202, "POST", "/v1/bank-files/"+file+":transmit", "", version(t, e, file))
+		again = op["id"].(string)
+		next := e.transmitter(t)
+		next.Endpoints.Connector, next.Now = h, later
+		go func() {
+			_, err := next.RunOnce(context.Background())
+			done <- err
+		}()
+		select {
+		case <-h.claimed:
+		case err := <-done:
+			t.Fatalf("new claim: got %v before its upload, want it in flight", err)
+		}
+	}
+	if _, err := e.transmitter(t).RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	release.Do(func() { close(h.released) })
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got := opStatus(t, first); got != "cancelled" {
+		t.Errorf("first operation: got %s, want cancelled", got)
+	}
+	if got := opStatus(t, again); got != "succeeded" {
+		t.Errorf("operation asked for again: got %s, want succeeded", got)
+	}
+	if status, attempts, _ := fileState(t, file); status != "transmitted" || attempts != 1 {
+		t.Errorf("file: got %s after %d attempts, want transmitted after 1", status, attempts)
+	}
+	if n := transmittedEvents(t, e, file); n != 1 {
+		t.Errorf("transmitted events: got %d, want 1", n)
+	}
+}
+
+// claimLapsed is past a claim's lease at the default upload bound.
+const claimLapsed = 11 * time.Minute
+
+// TestTransmitterUnacknowledgedFinish: an outcome whose commit applied but
+// was not acknowledged is not recorded again when the transmitter runs
+// again past the claim's lease: the file is transmitted, sent and
+// published once, and its operation completed (ADR-0012).
+func TestTransmitterUnacknowledgedFinish(t *testing.T) {
+	e := setup(t)
+	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
+	file := asked(t, e, "INV-1")
+	before := len(e.connector.files)
+	tr := e.transmitter(t)
+	begun := 0
+	tr.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		tx, err := pgtest.Pool(t).Begin(ctx, s)
+		if err != nil || s.TenantID == uuid.Nil {
+			return tx, err
+		}
+		if begun++; begun == 2 { // the claim, then the finish
+			return pgtest.AckLostTx{Tx: tx}, nil
+		}
+		return tx, nil
+	}
+	if _, err := tr.RunOnce(context.Background()); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("got %v, want the unacknowledged commit reported", err)
+	}
+	again := e.transmitter(t)
+	again.Now = func() time.Time { return time.Now().Add(claimLapsed) }
+	if n, err := again.RunOnce(context.Background()); err != nil || n != 0 {
+		t.Errorf("run again: got %d (%v), want nothing to do", n, err)
+	}
+	if status, attempts, _ := fileState(t, file); status != "transmitted" || attempts != 1 {
+		t.Errorf("file: got %s after %d attempts, want transmitted after 1", status, attempts)
+	}
+	if got := len(e.connector.files) - before; got != 1 {
+		t.Errorf("uploads: got %d, want 1", got)
+	}
+	if got := opStatus(t, operationOf(t, file)); got != "succeeded" {
+		t.Errorf("operation: got %s, want succeeded", got)
+	}
+	var sent int
+	pgtest.Scan(t, `SELECT count(*) FROM payments.sent_bank_file WHERE bank_file_id = $1`, []any{file}, &sent)
+	if sent != 1 {
+		t.Errorf("sent records: got %d, want 1", sent)
+	}
+	if n := transmittedEvents(t, e, file); n != 1 {
+		t.Errorf("transmitted events: got %d, want 1", n)
+	}
+}
+
+// transmittedEvents counts the file's bank_file_transmitted events.
+func transmittedEvents(t *testing.T, e env, file string) int {
+	t.Helper()
+	n := 0
+	for _, ev := range events(t, e.Tenant, "bank_file_transmitted") {
+		if ev["bank_file_id"] == file {
+			n++
+		}
+	}
+	return n
 }

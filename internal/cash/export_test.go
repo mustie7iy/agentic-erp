@@ -457,7 +457,7 @@ func TestCashExportLastAttemptLapsing(t *testing.T) {
 			return tx, err
 		}
 		if begun++; begun == 2 {
-			return ackLostTx{tx}, nil
+			return pgtest.AckLostTx{Tx: tx}, nil
 		}
 		return tx, nil
 	}
@@ -475,17 +475,6 @@ func TestCashExportLastAttemptLapsing(t *testing.T) {
 		}
 	}
 	want(t, "published once", events, 1)
-}
-
-// ackLostTx commits, then reports the commit failed: a commit whose
-// acknowledgement was lost.
-type ackLostTx struct{ pgx.Tx }
-
-func (a ackLostTx) Commit(ctx context.Context) error {
-	if err := a.Tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit: %w", err)
-	}
-	return pgtest.ErrInjected
 }
 
 func mustExport(t *testing.T, e exportEnv, id string) map[string]any {

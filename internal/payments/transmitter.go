@@ -24,7 +24,9 @@ import (
 // due files, then, per file, claims it in one short transaction of its
 // tenant (FOR UPDATE SKIP LOCKED, so replicas share the queue), uploads it
 // with no transaction open, and records the outcome in a second one,
-// guarded by the claim it made. A failed attempt is tried again after
+// guarded by the row version its claim wrote (ADR-0008): every write to
+// the file moves it, so a claimant whose claim lapsed, or whose file was
+// failed and asked for again since, records nothing. A failed attempt is tried again after
 // transmitBackoff; a refusal (a problem below 500) or the last attempt's
 // failure leaves the file failed, with bank_file_transmission_failed. A
 // claim whose outcome never came (the replica stopped) lapses and the file
@@ -80,6 +82,7 @@ type claim struct {
 	f         BankFile
 	q         queued
 	attempt   int16
+	version   int32 // the row version the claim wrote: a later one means the claim no longer holds
 	conn      Connector
 	connector *uuid.UUID
 	file      File
@@ -256,8 +259,8 @@ func (w *Transmitter) prepare(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, 
 	if c.file, err = w.Endpoints.bankFile(ctx, tx, tenant, f); err != nil {
 		return nil, w.retry(ctx, tx, c, err, now)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE payments.bank_file SET status = 'sending', attempts = $2, next_attempt_at = $3, version = version + 1 WHERE id = $1`,
-		f.ID, c.attempt, now.Add(claimLease*w.upload())); err != nil {
+	if err := tx.QueryRow(ctx, `UPDATE payments.bank_file SET status = 'sending', attempts = $2, next_attempt_at = $3, version = version + 1 WHERE id = $1
+		RETURNING version`, f.ID, c.attempt, now.Add(claimLease*w.upload())).Scan(&c.version); err != nil {
 		return nil, fmt.Errorf("payments: claim bank file %s: %w", f.ID, err)
 	}
 	return c, nil
@@ -295,15 +298,21 @@ func (w *Transmitter) send(ctx context.Context, c *claim) error {
 	return nil
 }
 
-// finish records the upload's outcome, if the claim still holds: a claim
-// that lapsed belongs to the sweep, which queued the file again.
+// finish records the upload's outcome, if the claim still holds: the row
+// is as the claim left it. A claim that lapsed belongs to the sweep, which
+// queued the file again or failed it. A finish whose commit applied
+// unacknowledged is not run again, as the transmitted file is no longer
+// due; were it run again on the same claim, the version it moved would
+// refuse it, so the outcome is recorded and published once. Status and
+// attempt number do not tell claims apart: a file failed and asked for
+// again counts its attempts afresh, so its new claim has the stalled
+// one's status and number (T53h review).
 func (w *Transmitter) finish(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, c *claim, sendErr error) (bool, error) {
-	var status string
-	var attempts int16
-	if err := tx.QueryRow(ctx, `SELECT status, attempts FROM payments.bank_file WHERE id = $1 FOR UPDATE`, c.f.ID).Scan(&status, &attempts); err != nil {
+	var version int32
+	if err := tx.QueryRow(ctx, `SELECT version FROM payments.bank_file WHERE id = $1 FOR UPDATE`, c.f.ID).Scan(&version); err != nil {
 		return false, fmt.Errorf("payments: read bank file %s after its upload: %w", c.f.ID, err)
 	}
-	if status != FileSending || attempts != c.attempt {
+	if version != c.version {
 		return false, nil
 	}
 	err := uow.Act(ctx, tx, actor(tenant), w.Now, func(ctx context.Context) error {
