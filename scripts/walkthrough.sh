@@ -4774,7 +4774,7 @@ step_asset_estimate() {
   say "the end (IAS 16.51). Its depreciation is booked through this period in the leading ledger, so its terms there"
   say "change only by a change in estimate, prospectively from a later period (IAS 8.36-38): the periods before keep"
   say "what was planned and booked, and from the next period the net book value then is spread over the life left."
-  local lathe period year next tag
+  local lathe period year next tag from
   QUIET=1 api 200 '' listAssets -p "legal_entity_id=$LE" -p status=active
   lathe=$(field '[.items[] | select(.description == "CNC lathe") | .id][0]')
   api 200 '(.terms[] | "  \(.ledger_code): \(.method) over \(.useful_life_months) months, residual value \(.residual_value.amount) \(.residual_value.currency), booked through \(.booked_through_year // "-")/\(.booked_through_period // "-")")' \
@@ -4787,11 +4787,12 @@ step_asset_estimate() {
   estimate_body() { echo "{\"terms\": [{\"ledger_id\": \"$LEADING\", \"useful_life_months\": 60, \"residual_value\": {\"amount\": \"500.00\", \"currency\": \"CAD\"}$1}]}"; }
   say "A change of the booked terms without the period it applies from is refused, and so is one from this period:"
   refused 409 assets.terms_in_use updateAsset -p "id=$lathe" -if-match "$tag" -body "$(estimate_body '')"
-  refused 422 assets.change_not_prospective updateAsset -p "id=$lathe" -if-match "$tag" \
-    -body "$(estimate_body ", \"effective_from\": {\"fiscal_year\": $year, \"period\": $period}")"
+  # The member is built first: inside $(...), a {a, b} argument is brace-expanded.
+  from=", \"effective_from\": {\"fiscal_year\": $year, \"period\": $period}"
+  refused 422 assets.change_not_prospective updateAsset -p "id=$lathe" -if-match "$tag" -body "$(estimate_body "$from")"
   api 200 '(.terms[] | select(.ledger_code == "0L") | "  \(.ledger_code): \(.method) over \(.useful_life_months) months, residual value \(.residual_value.amount) \(.residual_value.currency)",
     (.estimate_changes[] | "    changed from \(.fiscal_year)/\(.period) (\(.effective_from)): was \(.before.useful_life_months) months, residual \(.before.residual_value.amount)"))' \
-    updateAsset -p "id=$lathe" -if-match "$tag" -body "$(estimate_body ", \"effective_from\": {\"fiscal_year\": $next}")"
+    updateAsset -p "id=$lathe" -if-match "$tag" -body "$(from=", \"effective_from\": {\"fiscal_year\": $next}"; estimate_body "$from")"
   expect "the change" "$(field '.terms[] | select(.ledger_code == "0L") | .estimate_changes | map("\(.before.useful_life_months)>\(.useful_life_months) \(.residual_value.amount)") | join(" ")')" "120>60 500.00"
   say "The schedule: this period keeps its 41.67, booked; the next one depreciates the net book value then, 4,958.33,"
   say "less the residual value over the 59 periods left of 60: (4,958.33 - 500.00) / 59 = 75.56."
