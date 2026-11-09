@@ -120,6 +120,9 @@ var DefaultEntities = []EntityMapping{
 	// extract's (review:T56h4); whether the API returns the leading
 	// ledger's lines alone is a question for the SAP specialist
 	// (docs/migration.md).
+	// OKB9's default account assignments (TKA3A, TKA3C, TKA3P; T56h3) have
+	// no released OData API (the SAP specialist, PO 2026-11-09): only a
+	// file extract carries them.
 	{Table: "ACDOCA", Service: "API_JOURNALENTRYITEMBASIC_SRV", Entity: "A_JournalEntryItemBasic", CompanyField: "CompanyCode", YearField: "FiscalYear",
 		Static: map[string]string{"RLDNR": "0L"},
 		Fields: map[string]string{"RBUKRS": "CompanyCode", "GJAHR": "FiscalYear", "BELNR": "AccountingDocument",

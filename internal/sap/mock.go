@@ -795,6 +795,45 @@ func (g *mockGen) centers(cc string) {
 	g.groups()
 	g.costElements(cc)
 	g.lineCenters(cc)
+	g.defaultAssignments(cc)
+}
+
+// mockClient is the mock's SAP client (MANDT).
+const mockClient = "100"
+
+// defaultAssignments adds the company's default account assignments
+// (OKB9: TKA3A with its details TKA3C and TKA3P; T56h3), one per case the
+// configuration draft tells apart: salaries (610000) on cost center 3100,
+// which the draft proposes; office supplies (520000) on 3999, a cost center
+// the extract does not have; 599000, an account the company's chart does
+// not have, on 3120; raw materials (510000) by valuation area (REGEL 1),
+// IT services (530000) by business area (REGEL 2) and freight (540000) by
+// profit center (REGEL 3), each with its detail rows and, for freight, a
+// cost center of its own that is no fallback; price differences (591000)
+// on an internal order alone; sales revenue (400000) on a profit center
+// alone; and FX losses (680000) with the profitability segment found by
+// substitution (BSSUBST).
+func (g *mockGen) defaultAssignments(cc string) {
+	row := func(kstar, kostl, aufnr, prctr, regel, bssubst string) TKA3A {
+		return TKA3A{MANDT: mockClient, BUKRS: cc, KSTAR: kstar, KOKRS: mockArea, KOSTL: kostl, AUFNR: aufnr, PRCTR: prctr, REGEL: regel, BSSUBST: bssubst}
+	}
+	g.e.TKA3A = append(g.e.TKA3A,
+		row("0000610000", "3100", "", "", "", ""),
+		row("0000520000", "3999", "", "", "", ""),
+		row("0000599000", "3120", "", "", "", ""),
+		row("0000510000", "", "", "", "1", ""),
+		row("0000530000", "", "", "", "2", ""),
+		row("0000540000", "3120", "", "", "3", ""),
+		row(priceDifferenceAccount, "", "000000400001", "", "", ""),
+		row("0000400000", "", "", "P3100", "", ""),
+		row("0000680000", "3100", "", "", "", "X"))
+	g.e.TKA3C = append(g.e.TKA3C,
+		TKA3C{MANDT: mockClient, BUKRS: cc, KSTAR: "0000510000", BWKEY: cc, KOKRS: mockArea, KOSTL: "3120"},
+		TKA3C{MANDT: mockClient, BUKRS: cc, KSTAR: "0000530000", GSBER: "CA01", KOKRS: mockArea, KOSTL: "3100"},
+		TKA3C{MANDT: mockClient, BUKRS: cc, KSTAR: "0000530000", GSBER: "CA02", KOKRS: mockArea, KOSTL: "3200"})
+	g.e.TKA3P = append(g.e.TKA3P,
+		TKA3P{MANDT: mockClient, BUKRS: cc, KSTAR: "0000540000", PRCTR: "P3100", KOKRS: mockArea, KOSTL: "3120"},
+		TKA3P{MANDT: mockClient, BUKRS: cc, KSTAR: "0000540000", PRCTR: "P3200", KOKRS: mockArea, KOSTL: "3200"})
 }
 
 // lineCenters gives the company's journal lines their cost center, profit

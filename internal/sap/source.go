@@ -97,6 +97,9 @@ func FilterScope(all *Extract, scope Scope) *Extract {
 	out.T042E = keep(all.T042E, func(r T042E) bool { return inCC(r.ZBUKR) })
 	out.T042A = keep(all.T042A, func(r T042A) bool { return inCC(r.ZBUKR) })
 	out.T042I = keep(all.T042I, func(r T042I) bool { return inCC(r.ZBUKR) })
+	out.TKA3A = keep(all.TKA3A, func(r TKA3A) bool { return inCC(r.BUKRS) })
+	out.TKA3C = keep(all.TKA3C, func(r TKA3C) bool { return inCC(r.BUKRS) })
+	out.TKA3P = keep(all.TKA3P, func(r TKA3P) bool { return inCC(r.BUKRS) })
 	out.AGR_DEFINE, out.AGR_TCODES, out.AGR_USERS = all.AGR_DEFINE, all.AGR_TCODES, all.AGR_USERS
 	return out
 }

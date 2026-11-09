@@ -225,7 +225,36 @@ in another language with a warning; its person responsible is VERAK of its
 latest slice. Each center is created at its leaf of SAP's standard
 hierarchy (below), or at the standard hierarchy's UNASSIGNED leaf, as a
 center created without a node is, when the extract has none for its
-controlling area; the default assignments (OKB9) are T56h3.
+controlling area.
+
+SAP's default account assignments (OKB9) are configuration, so they come
+into the configuration draft (`erp config generate`, T56h3) rather than
+the run, as the cost elements do. The SAP specialist described them (PO,
+2026-11-09): TKA3A gives a company code's cost element (KSTAR, the G/L
+account) a default cost center (KOSTL), internal order (AUFNR) or profit
+center (PRCTR) in its controlling area (KOKRS), unless its detail
+indicator REGEL says SAP takes the object per valuation area (1) or
+business area (2) from TKA3C, or per profit center (3) from TKA3P; there
+are no validity dates (a change overwrites the row) and no released OData
+API, so only a file extract carries them. The platform keeps one default
+cost center per company and account (`default_assignments`), and the
+ledger activates a default only for a cost center it holds (ADR-0050 §4),
+which the run loads after the tenant's first configuration is provisioned.
+So the draft holds no default: its notes give, for a row that is the
+general assignment (REGEL blank) of a cost center the migration loads in
+the company (every CSKS slice of it in the company code and area, the
+latest open-ended and not locked for actual costs, BKZKP) on an account of
+the company's chart that needs a cost center (`primary_cost`), the entry
+to propose in a configuration change once the run has loaded the cost
+center (`propose after the migration: {account: "610000", cost_center:
+"3100"}`), as the walkthrough's step 3 does. Every other row is a note
+naming why it is not proposed: REGEL 1, 2 or 3 with the TKA3C or TKA3P
+rows it reads (TKA3A's own cost center is never taken as a fallback), a
+default naming only an order or a profit center, BSSUBST set (the
+profitability segment found by substitution), a cost center the extract
+does not have in the company or that ends or is locked, or an account not
+in the chart or needing no cost center. SAP keeps no history of OKB9; the
+configuration's versions keep the platform's.
 
 Each SAP line the run posts as it stands carries SAP's account assignment
 (ACDOCA RCNTR, PRCTR and SEGMENT; T56h4): the cost center, profit center
@@ -552,18 +581,22 @@ stopped the run before the load.
   primary costs and 11 and 12 revenues and sales deductions; and whether
   the extract should read TKA02 to tell a company code's controlling area.
   The OData mapping reads none of these tables.
-- The default account assignments (OKB9, T56h3; not built, waiting on
-  these answers): ADR-0050 §10 names their tables from memory as TKA3A
-  "and its detail tables", and no field of them is written down, so the
-  extract does not read them. To be confirmed: which tables and fields of
-  the pilot's release hold a default cost center per company code and
-  account (the platform's `default_assignments` hold exactly that); the
-  names of the detail tables and the key of each; whether a default is
-  time-dependent; what a default given by business area, valuation area
-  or profit center, rather than by company code alone, should become
-  (the platform has one cost center per company and account); and whether
-  a default naming an order or another object than a cost center can
-  occur and is to be noted only.
+- The default account assignments (OKB9, T56h3; tables and fields from the
+  SAP specialist, PO 2026-11-09, to be validated in SE11 and SE37 on the
+  pilot's release): TKA3A keyed by MANDT, BUKRS and KSTAR with KOKRS,
+  KOSTL, AUFNR, PRCTR, REGEL (data element CO_MASCHK), XGSBER and BSSUBST;
+  TKA3C keyed by MANDT, BUKRS, KSTAR, BWKEY and GSBER (blanks kept) with
+  KOKRS, KOSTL, AUFNR and PRCTR; TKA3P keyed by MANDT, BUKRS, KSTAR and
+  PRCTR with KOKRS, KOSTL and AUFNR (to be confirmed). Whether SAP falls
+  back to TKA3A's own objects when REGEL is set is to be tested in the
+  target system with K_ACCOUNT_ASSIGNMENT_GET and test postings (the
+  specialist's tests A to E); the draft assumes it does not. TKA3A and
+  TKA3C were pooled tables in ECC (check TKA3P too): check the table
+  category before choosing how to extract them. The draft checks a
+  default's cost center against the extract's CSKS (in the company, its
+  latest slice open-ended without BKZKP); the ledger checks it again when
+  the change activates. The orders and profit centers a row names (AUFK
+  with JEST/JCDS, CEPC) are not checked, as no such row is proposed.
 - The ledger of the journal lines (ACDOCA RLDNR; review:T56h4): which
   identifier the leading ledger has in the pilot's system, and whether the
   file extract should be limited to its lines (the load refuses an extract
