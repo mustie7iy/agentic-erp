@@ -632,6 +632,11 @@ commit-time check, like the balance trigger).
   the supply's value instead is listed for the specialist. Every UAE code
   of the pack carries its UN/CEFACT category (§1) but import VAT, IM5,
   for which this ADR records none (pending the specialist).
+- **As built (T62f sign-off, 2026-11-09):** UAE pack 2026.4 is signed off
+  (Sources, As built: sign-off of the UAE pack), and its tier is the
+  same without `pending_sign_off`: an invoice above AED 10,000 without a
+  UAE tax identifier is warned with `pending_sign_off: false`. The
+  earlier versions, unsigned, keep their pending tier.
 
 
 ### 7. Output tax and the pilot's sales
@@ -733,6 +738,29 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   validates them; an instance of the previous release refuses a service
   principal's entry outright (403, `x-agent: false`) and never writes the
   columns, so the key fails closed in a mixed cell and needs no ordering.
+- **As built (the emirate guard, review:T61k, migration 000233):** a
+  component levying its lines' subdivision lists the subdivisions it
+  accepts (`subdivisions`, each a subdivision of its country, listed once;
+  only on such a component: `config.Validate`, and the database's
+  `tax_component_subdivisions`), and the ledger refuses a line naming
+  another with 422 `ledger.jurisdiction_not_levied`, naming those it
+  levies (`checkJurisdictions`; trigger `journal_line_tax_jurisdiction_code`
+  behind it, which a reversal still passes), so a mistyped emirate cannot
+  leave a sale's output VAT off the VAT 201's boxes 1a-1g. UAE pack 2026.3
+  is 2026.2 with S5 listing the seven emirates, AE-AZ, AE-DU, AE-SH, AE-AJ,
+  AE-UQ, AE-RK and AE-FU, the ISO 3166-2 codes the tax specialist confirmed
+  (product owner, 2026-11-09; ADR-0048 As built, the emirate guard).
+  **Decided by default:** the list is optional, a component without one
+  accepting any subdivision of its country as before, since the released
+  2026.1 and 2026.2 hold none and a released version never changes, and a
+  tenant's own code levying its lines' subdivision (an adjustment code for
+  box 1's adjustment column) is valid without it; the 422 keeps the
+  existing code and its field error (`not_levied`), its message listing
+  what the code levies. **Rolling upgrade (06 §6.4):** 000233 is additive
+  (a null list accepts what it did); an instance of the previous release
+  never writes the list, and a configuration activated by it leaves the
+  list as it was, so a pack listing subdivisions is applied once the
+  rollout is complete.
 
 ### 8. Calculation and rounding
 - Base × rate is exact (`big.Rat`, as `money.Convert`), rounded **once per
@@ -1378,6 +1406,17 @@ companies (all in the tenant, under RLS). A registration change is financial
     memory and the mapping, listed in `packs/ca/TAX-PENDING-T61j.md`,
     which `TestCanadaPackGST34` holds the pack to; the sign-off is a later
     version, its own tracker leaf (split from T61j), as T62h was.
+  - **Signed off (2026-11-09).** The product owner reported that the tax
+    specialist, Musto Ibrahim, signed off the GST/HST return as written:
+    2026.6's GST34 lines, the sums of 112, 113A, 113B, 113C, 114 and 115
+    written from memory, and how the tenant's codes map to the lines,
+    items 1-7 of `packs/ca/TAX-PENDING-T61j.md`. Canada pack 2026.7 is
+    2026.6 with `sign_off: {tax_specialist: "Musto Ibrahim", date:
+    2026-11-09}` and nothing else (`TestCanadaPack2026_7`; ADR-0048 As
+    built, Canada 2026.7). **Decided by default**, as for the VAT 201:
+    the labels' "from memory, pending the tax specialist" markers stay, the
+    sign-off freezing the content (dropping them is a later version, for
+    the product owner). The FPZ-500 (item 8) is not part of it.
   - **The FPZ-500 is not built.** P4 (b) includes it only if the pilot
     company is registered in Quebec, which the pilot has not said, and
     the Context records none of its lines (Unsure list): nothing is
@@ -1440,7 +1479,8 @@ companies (all in the tenant, under RLS). A registration change is financial
     another subdivision of AE is on no box and its item stays unreported
     (the ledger checks only the country). A guard refusing an emirate the
     pack does not list is its own tracker leaf (review:T61k), to land
-    before the sign-off.
+    before the sign-off (landed: §7 As built, the emirate guard, UAE
+    2026.3).
   - **The mapping.** Box 3 takes the owed part (`vat_due`, `self_output`)
     of reverse-charge codes, RC5 and DR5, as §9 As built reports the
     domestic reverse charge in box 3 (the Context lists imports only);
@@ -1475,7 +1515,25 @@ companies (all in the tenant, under RLS). A registration change is financial
     correction -100.00 (375.00 after); the next quarter shows a late
     invoice's VAT apart, below the threshold and then, at 11,050.00 of
     earlier input VAT, above it.
-  - **Walkthrough.** Step 41 applies 2026.2 to Maple Gulf Trading, whose
+  - **Signed off (2026-11-09).** The product owner reported that the tax
+    specialist, Musto Ibrahim, signed off the VAT 201 as written: the
+    boxes against EmaraTax's labels, the columns of boxes 2-7, the totals'
+    sums of 8, 11, 12 and 13, the emirates' letters a-g and ISO 3166-2
+    codes (guarded since 2026.3, §7 As built), and the mapping of the
+    tenant's codes, items 1-10 of `packs/ae/TAX-PENDING-T61k.md`, with
+    the AED 10,000 prior-period threshold (P7) and the amendment carrying
+    the corrected figures and the differences as built. UAE pack 2026.4
+    carries this sign-off with T62f's, one version as the leaf says
+    (ADR-0048 As built, UAE 2026.4), its `returns.yaml` 2026.2's byte for
+    byte (`TestUAEPackVAT201SignedOff`). **Decided by default:** the box
+    labels keep the markers ("column pending the tax specialist", "from
+    memory, pending the tax specialist", "its ISO code pending") they had,
+    since the sign-off froze the content and dropping them is a content
+    change (a later version, for the product owner). **Still open:** the
+    threshold's measure (T61h above), which declaration the FTA takes an
+    amendment in, and the due dates (§10, not built), questions the
+    approval of what exists does not answer.
+  - **Walkthrough.** Step 41 applies 2026.2 (2026.4 since the sign-off) to Maple Gulf Trading, whose
     proposed company carries its FTA registration (quarterly, from the
     latest quarter ended in Dubai); Carla posts the quarter's sales by
     emirate, an export, an exempt supply and a customs declaration's
@@ -1809,3 +1867,43 @@ confirm or for the tax specialist stand confirmed.
   C11, a tracker leaf); and whether a predecessor
   registration's unfiled period's items belong to its own return or the
   new code's (§11 As built, not decided).
+
+**As built (sign-off of the UAE pack, T62f; product owner, 2026-11-09):**
+the product owner reported that the tax specialist, Musto Ibrahim, signed
+off the UAE pack on 2026-11-09, as written; UAE pack 2026.4 records it
+(`sign_off: {tax_specialist: "Musto Ibrahim", date: 2026-11-09}`, the
+model's `SignOff`; ADR-0048 As built, UAE 2026.4), the version that also
+carries the VAT 201's sign-off (T61k's leaf: one version for both). The
+approval freezes what exists and builds nothing new; nothing above is
+rewritten.
+- **Confirmed as written (UAE pack, T62f):** the nine VAT codes, the
+  standard rate of 5% and the zero, exempt and out-of-scope categories,
+  each rate from 2026-01-01 as the pack starts it (an earlier start is a
+  later version, if a document dated before 2026 needs it); the codes
+  chosen (V5, VB5, RC5, DR5, IM5, S5 by emirate, Z0, E0, OS; no
+  zero-rated or exempt purchase code); recovery wholly on 1300, VB5's
+  blocked input recovering nothing (Executive Regulation Art. 53), with
+  VAT Law Art. 55's six-month payment rule unchecked by the ERP as built;
+  the UN/CEFACT categories, none for import VAT; the documentary tier
+  (§6 As built: above AED 10,000, measured on the invoice's gross total,
+  the supplier's TRN alone, any tax identifier scheme named after the UAE,
+  Executive Regulation Art. 59), so 2026.4's tier is no longer
+  `pending_sign_off` and its warning says so; `rate_type: average` (VAT
+  Law Art. 69) and `rounding: document`; the bases recorded in
+  `packs/ae/TAX-PENDING-T62f.md`, Art. 51 (designated zones) among them.
+- **Still open, not in the pack:** the UAE's public holidays and the
+  company's weekend (no source recorded) and apportionment for a business
+  that also makes exempt supplies (P8 (b), a later step), as
+  `packs/ae/TAX-PENDING-T62f.md` lists them.
+- **Confirmed as written (VAT 201, T61k):** the boxes, columns, totals,
+  letters, ISO codes and mapping of `packs/ae/TAX-PENDING-T61k.md` (§11 As
+  built, T61k: Signed off), in 2026.4 with the pack's. With the UAE pack's
+  and the VAT 201's sign-offs, the UAE items of "Still pending" under
+  T62h's note above are confirmed as written but these: the threshold's
+  measure after the 2026 procedures amendments, the scope of the five-year
+  limit and the FTA's side of the amended return, which stay open as
+  questions.
+- **Confirmed as written (GST34, T61j, 2026-11-09):** the lines, sums and
+  mapping of `packs/ca/TAX-PENDING-T61j.md` (§11 As built, T61j: Signed
+  off), in Canada pack 2026.7. The FPZ-500's lines (P4) wait for the
+  specialist's list and the pilot's registrations, its own tracker leaf.

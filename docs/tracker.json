@@ -2417,9 +2417,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "GST/HST return signed off by the tax specialist before the pilot: a new Canada pack version with sign_off (a released version never changes), after the specialist confirms 2026.6's GST34 lines, the sums of 112, 113A, 113B, 113C, 114 and 115 written from memory, and how the tenant's codes map to the lines (packs/ca/TAX-PENDING-T61j.md)",
-        "r": "after T61j · ADR-0049 §11 As built (T61j) · ADR-0048",
+        "r": "packs/ca/2026.7 (sign_off Musto Ibrahim 2026-11-09) · packs/released.sha256 · packs/ca/TAX-PENDING-T61j.md · TestCanadaPack2026_7 · ADR-0049 §11 As built (T61j: Signed off) and Sources As built · ADR-0048 As built (T61j sign-off) · walkthrough steps 2 and 11 · after T61j · po:2026-11-09",
         "src": "split:T61j · adr:ADR-0049",
         "pilot": "po:2026-10-31 · adr:ADR-0048",
         "c": []
@@ -2449,17 +2449,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "VAT 201 signed off by the tax specialist before the pilot: a new UAE pack version with sign_off (a released version never changes; one version with T62f's sign-off), after the specialist confirms 2026.2's boxes against EmaraTax's labels, the columns of boxes 2-7, the totals 8, 11, 12 and 13 written from memory, the emirates' letters and ISO codes, and how the tenant's codes map to the boxes (packs/ae/TAX-PENDING-T61k.md)",
-        "r": "after T61k and the emirate guard below · ADR-0049 §11 As built (T61k) · ADR-0048 As built (T61k)",
+        "r": "packs/ae/2026.4 (one version with T62f's sign-off, Musto Ibrahim 2026-11-09) · packs/ae/TAX-PENDING-T61k.md · TestUAEPackVAT201SignedOff · ADR-0049 §11 As built (T61k: Signed off) and Sources As built · ADR-0048 As built (T62f and T61k sign-offs) · walkthrough step 41 · after T61k and the emirate guard below · po:2026-11-09",
         "src": "split:T61k · adr:ADR-0049",
         "pilot": "po:2026-10-31 · adr:ADR-0048",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Emirate guard: a tax code component that levies its lines' subdivision lists the subdivisions it accepts (the UAE pack's seven emirates, their ISO 3166-2 codes confirmed by the tax specialist), and the ledger refuses a line naming another with 422 ledger.jurisdiction_not_levied, so a mistyped emirate cannot leave a sale's output VAT off the VAT 201's boxes 1a-1g unreported (today the ledger checks only the country prefix); a schema or ledger test",
-        "r": "after T61k · before the VAT 201's sign-off · ADR-0049 §7 and §11 As built (T61k)",
+        "r": "config.TaxComponent.Subdivisions · ledger checkJurisdictions · db/migrations/000233 (tax_component_subdivisions, journal_line_tax_jurisdiction_code) · TestLineJurisdictionRules · TestOutputTaxRefused · packs/ae/2026.3 · TestUAEPack2026_3 · ADR-0049 §7 As built (the emirate guard) · ADR-0048 As built (the emirate guard) · walkthrough step 41 · after T61k · before the VAT 201's sign-off",
         "src": "review:T61k",
         "pilot": "po:2026-10-31 · adr:ADR-0049",
         "c": []
@@ -6068,7 +6068,7 @@
     "ph": 2,
     "c": [
      {
-      "s": "P",
+      "s": "D",
       "t": "Country packs",
       "r": "ADR-0048 · T62 (split T62a-T62f)",
       "c": [
@@ -6116,9 +6116,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "UAE pack signed off by the tax specialist before the pilot: a new UAE pack version with sign_off (a released version never changes) and its documentary tier no longer pending, after the specialist confirms 2026.1's VAT codes, rates and their start, recovery, categories, tax settings and the items of packs/ae/TAX-PENDING-T62f.md",
-        "r": "after T62f · ADR-0048 As built (T62f) · ADR-0049 §6 As built (T62f)",
+        "r": "packs/ae/2026.4 (sign_off Musto Ibrahim 2026-11-09, the tier not pending) · packs/released.sha256 · packs/ae/TAX-PENDING-T62f.md · TestUAEPack2026_4 · ADR-0048 As built (T62f and T61k sign-offs) · ADR-0049 §6 As built (T62f sign-off) and Sources As built (sign-off of the UAE pack) · walkthrough step 41 · after T62f · po:2026-11-09",
         "src": "split:T62f · adr:ADR-0049",
         "pilot": "po:2026-10-31 · adr:ADR-0048",
         "c": []

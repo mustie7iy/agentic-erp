@@ -1101,7 +1101,11 @@ ADR-0049 §7), exactly where a component of its code levies its lines'
 (`tax_component.jurisdiction_on_line`, its jurisdiction then a country,
 `tax_component_jurisdiction_on_line`); only with a tax code
 (`journal_line_tax_jurisdiction`), one of the component's country (trigger
-`journal_line_tax_jurisdiction_code`, passed by reversals). The items are
+`journal_line_tax_jurisdiction_code`, passed by reversals) and, where that
+component lists the subdivisions it accepts (`tax_component.subdivisions`,
+migration 000233, the emirate guard: only on a component levying its
+lines', each a subdivision of its country, `tax_component_subdivisions`;
+null accepts any), one of them. The items are
 per jurisdiction. A parked line keeps it (`parked_entry_line.tax_jurisdiction`).
 
 A journal line may declare a tax base (`tax_base_tc`, `tax_base_lc`;

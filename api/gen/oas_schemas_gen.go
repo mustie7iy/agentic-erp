@@ -38901,8 +38901,9 @@ type JournalLineInput struct {
 	// The province or emirate the line's tax is levied in (ISO 3166-2, `CA-ON`, `AE-DU`; ADR-0049 §7):
 	// required on every line, base and tax, of a code whose component levies its lines' subdivision
 	// (`jurisdiction_on_line`; 422 `ledger.jurisdiction_required`), a subdivision of that component's
-	// country, and on no other line (422 `ledger.jurisdiction_not_levied`). The code's items are per
-	// jurisdiction.
+	// country and, where the component lists the subdivisions it accepts (`subdivisions`, the emirate
+	// guard), one of them, and on no other line (422 `ledger.jurisdiction_not_levied`). The code's items
+	// are per jurisdiction.
 	TaxJurisdiction OptString `json:"tax_jurisdiction"`
 	// Declared tax base of a tax line of an `import` code (ADR-0049 §9): the import's tax posted from the
 	// customs declaration, as tax lines alone, on the declared value no line of the entry carries. Only on

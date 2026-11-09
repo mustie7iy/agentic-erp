@@ -434,8 +434,8 @@ start() {
   say ""
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
-  say "  - the tax specialist's sign-off of the GST34's lines (T61j: Canada $CA_PACK is not signed off), the FPZ-500 for a"
-  say "    Quebec registrant and the UAE VAT 201's sign-off (T61k: step 41 files it, not signed off): step 11 prepares,"
+  say "  - the FPZ-500 for a Quebec registrant (the GST34's lines are signed off in Canada $CA_PACK, the UAE VAT 201"
+  say "    in UAE pack 2026.4, which step 41 files): step 11 prepares,"
   say "    approves and files the GST/HST returns in order with the pack's lines, the tax agent explaining the draft and"
   say "    proposing an adjustment entry and a tax code correction before Carla prepares it"
   say "  - the liquidity forecast's SAP migration (T53k): step 13 shows the"
@@ -1446,18 +1446,17 @@ step_pack() {
   local version
   version=$(field '[.items[] | select(.country == "CA") | .version] | sort_by(split(".") | map(tonumber)) | last')
   expect "the latest Canada pack" "$version" "$CA_PACK"
-  say "CA $version defines the GST/HST return's lines (returns.yaml, T61j) for step 11. The tax specialist has not"
-  say "signed them off yet, so production refuses to apply it (409 config.pack_not_signed_off) and 2026.5 is the"
-  say "signed-off version; outside production it is applied with a note, as here."
+  say "CA $version defines the GST/HST return's lines (returns.yaml, T61j) for step 11, signed off by the tax specialist"
+  say "(Musto Ibrahim, 2026-11-09), so production applies it; 2026.6, the same pack unsigned, stays released."
+  expect "the latest Canada pack's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "'"$version"'") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
+    "true Musto Ibrahim 2026-11-09"
   say "Ada applies the latest Canada pack, $version, to company $CC. The merge keeps what the company"
   say "already has (SAP's chart and number ranges) and adds the rest; it becomes a draft change request."
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
     -body "{\"country\": \"CA\", \"version\": \"$version\", \"company\": \"$CC\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
   local cr
   cr=$(field .id)
-  say "The merge's notes for the reviewers include, outside production, that the pack is not signed off:"
-  excerpt '.notes[] | select(.path | startswith("packs")) | "note: \(.message)"'
-  field '.notes[] | .message' | grep -q 'signed' || fail "no note says the pack is not signed off"
+  expect "notes that the pack is not signed off" "$(field '[.notes[] | select((.path | startswith("packs")) and (.message | contains("signed")))] | length')" 0
   say "  ($(field '[.notes[] | select(.message | startswith("conflict"))] | length') more notes list where SAP's settings were kept over the pack's)"
   say "Ada adds the pilot's own settings to the proposal: RBC house banks in CAD and USD, USD accounts revalued"
   say "at month end, bank statement rules (match by end-to-end id, approval above CAD 10,000), payment runs"
@@ -2200,10 +2199,11 @@ step_tax() {
   expect "Canada 2026.4's tax codes" "$(field '.items[] | select(.country == "CA" and .version == "2026.4") | .contents.tax_codes')" 10
   expect "Canada 2026.5's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "2026.5") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "true Musto Ibrahim 2026-11-02"
-  expect "Canada $CA_PACK's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "'"$CA_PACK"'") | .signed_off')" false
+  expect "Canada $CA_PACK's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "'"$CA_PACK"'") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
+    "true Musto Ibrahim 2026-11-09"
   say "Canada pack 2026.4 brought the purchase codes for GST/HST, QST and PST (T62g), each with all its dated rates,"
   say "backed by the pack's sources; 2026.5 is the same pack signed off by the tax specialist (T62h), so production"
-  say "applies it. $CA_PACK adds the GST/HST return's lines (T61j), not yet signed off; step 2 applied it. Nova Scotia's HST:"
+  say "applies it. $CA_PACK brings the GST/HST return's lines (T61j), signed off too; step 2 applied it. Nova Scotia's HST:"
   api 200 '.items[0].document.companies[] | select(.code == "'"$CC"'") | .tax_codes[] | select(.code == "HNS") |
     "tax code \(.code) \(.description): \([.components[] | .key as $k | .account as $a | .rates[] | "\($k) \(.rate_percent)% from \(.valid_from)\(if .valid_to then " to \(.valid_to)" else "" end) to \($a)"] | join("; "))"' \
     listConfigVersions -p is_active=true
@@ -4140,23 +4140,29 @@ governed() {
 
 # step_uae is the UAE country pack (T62f, ADR-0048, ADR-0049 §6 As built):
 # Ada creates the UAE pilot company, proposes it in the configuration and
-# applies the UAE pack to it, not signed off, so with a note; Alex posts a
-# UAE supplier's invoice above AED 10,000 and one below: the supplier has
-# no TRN on file, so the first carries the documentary warning of the
-# pack's tier, pending the tax specialist, and the second none; the
+# applies the UAE pack to it, 2026.4, signed off by the tax specialist, so
+# without a note (2026.3 brought the emirate guard: S5 accepts the seven
+# emirates alone); Alex posts a UAE supplier's invoice above AED 10,000
+# and one below: the supplier has no TRN on file, so the first carries the
+# documentary warning of the pack's tier, no longer pending, and the
+# second none; the
 # company's VAT 201 of the latest quarter ended is computed, prepared,
-# approved and filed (T61k, uae_return).
+# approved and filed (T61k, uae_return), a sale naming a mistyped emirate
+# refused first.
 step_uae() {
   heading "Step 41 — The UAE country pack: the UAE pilot company applies it; an invoice above AED 10,000 without the supplier's TRN is flagged; its VAT 201 is filed"
   as ada
   local cal ae base cr p supplier expense recon item invoice company=${UAE_COMPANY//@AE@/$AE}
   say "The second pilot is a UAE company (07 §7.6). The image holds the UAE pack (T62f): its VAT codes and tax"
   say "settings as ADR-0049 records them for the UAE, a starter chart, number ranges and payment terms; no holidays"
-  say "(no source is recorded); 2026.2 adds the VAT 201's boxes (T61k). Every UAE tax item waits for the tax"
-  say "specialist (packs/ae/TAX-PENDING-T62f.md and TAX-PENDING-T61k.md), so the pack is not signed off and production"
-  say "refuses to apply it (409 config.pack_not_signed_off); outside production it is applied with a note, as here."
+  say "(no source is recorded); 2026.2 adds the VAT 201's boxes (T61k), and 2026.3 the emirate guard: the sales code"
+  say "S5 accepts the seven emirates alone, their ISO codes confirmed by the tax specialist. 2026.4 is 2026.3 signed off"
+  say "by the tax specialist, Musto Ibrahim, on 2026-11-09: the VAT codes, tax settings and the VAT 201 (the items of"
+  say "packs/ae/TAX-PENDING-T62f.md and TAX-PENDING-T61k.md), so production applies it; the earlier versions stay unsigned."
   api 200 '.items[] | select(.country == "AE") | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
-  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false"
+  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true"
+  expect "UAE 2026.4's sign-off" "$(field '.items[] | select(.country == "AE" and .version == "2026.4") | "\(.sign_off.tax_specialist) \(.sign_off.date)"')" \
+    "Musto Ibrahim 2026-11-09"
   say "Ada creates the UAE company's legal entity, Maple Gulf Trading ($AE, in AED), and activates it."
   QUIET=1 api 200 '' getLegalEntity -p "id=$LE"
   cal=$(field .fiscal_calendar_id)
@@ -4175,19 +4181,23 @@ step_uae() {
     proposed: (.items[0].document | .companies += [${company//@FIRST@/$(uae_first)}])}" "$WORK/last.json" >"$WORK/uae-company.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-company.json
   governed "$(field .id)" "the UAE company"
-  say "Ada applies the latest UAE pack, 2026.2, to $AE for $YEAR. The merge keeps the company's accounts, which are"
-  say "the pack's, and adds the rest; its notes for the reviewers say the pack is not signed off:"
+  say "Ada applies the latest UAE pack, 2026.4, to $AE for $YEAR. The merge keeps the company's accounts, which are"
+  say "the pack's, and adds the rest; signed off, the pack brings no note saying otherwise:"
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
-    -body "{\"country\": \"AE\", \"version\": \"2026.2\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
+    -body "{\"country\": \"AE\", \"version\": \"2026.4\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
   cr=$(field .id)
   excerpt '.notes[] | "note \(.path): \(.message)"'
-  expect "the note that the pack is not signed off" "$(field '[.notes[] | select(.path == "packs['"$AE"']" and (.message | contains("signed")))] | length')" 1
+  expect "notes that the pack is not signed off" "$(field '[.notes[] | select(.path == "packs['"$AE"']" and (.message | contains("signed")))] | length')" 0
   expect "conflicts with the company's own settings" "$(field '[.notes[] | select((.path | startswith("companies['"$AE"']")) and (.message | startswith("conflict")))] | length')" 0
   say "The company takes the pack's VAT codes, each with its UN/CEFACT category, and its tax settings:"
   excerpt '.proposed.companies[] | select(.code == "'"$AE"'") | (.tax_codes[] | "  \(.code) \(.direction) \(.kind) \(.category // "-"): \(.description)"),
-    (.tax_settings | "  rate type \(.rate_type), rounding per \(.rounding)", (.documentary_requirements[] | "  above AED \(.above): \(.requires | join(", ")), pending sign-off \(.pending_sign_off) (\(.source))"))'
-  expect "the documentary tier" "$(field '.proposed.companies[] | select(.code == "'"$AE"'") | .tax_settings.documentary_requirements | map("\(.above) \(.requires | join(" ")) \(.pending_sign_off)") | join(", ")')" \
-    "10000 supplier_tax_id true"
+    (.tax_settings | "  rate type \(.rate_type), rounding per \(.rounding)", (.documentary_requirements[] | "  above AED \(.above): \(.requires | join(", ")), pending sign-off \(.pending_sign_off // false) (\(.source))"))'
+  expect "the documentary tier" "$(field '.proposed.companies[] | select(.code == "'"$AE"'") | .tax_settings.documentary_requirements | map("\(.above) \(.requires | join(" ")) \(.pending_sign_off // false)") | join(", ")')" \
+    "10000 supplier_tax_id false"
+  say "S5, the sales code levying the emirate each line names, lists the emirates it accepts (the emirate guard):"
+  excerpt '.proposed.companies[] | select(.code == "'"$AE"'") | .tax_codes[] | select(.code == "S5") | .components[] | "  S5 \(.key): \(.subdivisions | join(", "))"'
+  expect "the emirates S5 accepts" "$(field '.proposed.companies[] | select(.code == "'"$AE"'") | .tax_codes[] | select(.code == "S5") | .components[0].subdivisions | join(" ")')" \
+    "AE-AZ AE-DU AE-SH AE-AJ AE-UQ AE-RK AE-FU"
   governed "$cr" "the UAE pack"
   say "The pack's number ranges gave $AE the periods of $YEAR, closed; Ada opens the one of today."
   QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$ae" -p "fiscal_year=$YEAR" -p page_size=100
@@ -4215,7 +4225,7 @@ step_uae() {
   say "Its tax invoice for office furniture: AED 12,000.00 plus 600.00 VAT on V5, the pack's standard purchase code,"
   say "AED 12,600.00 in all. Posting calculates the VAT at the code's 5% and checks the documentary requirement the"
   say "pack brings (Executive Regulation Art. 59, as ADR-0049 records it): above AED 10,000 the supplier's TRN, a tax"
-  say "identifier of the UAE that the supplier does not have. A warning, pending the tax specialist; not a refusal:"
+  say "identifier of the UAE that the supplier does not have. A warning, signed off with the pack; not a refusal:"
   item="{\"account_id\": \"$expense\", \"description\": \"Office furniture\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"12000.00\", \"currency\": \"AED\"}, \"tax_code\": \"V5\"}"
   api 201 '"\(.kind) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
     -body "{\"legal_entity_id\": \"$ae\", \"supplier_id\": \"$supplier\", \"supplier_reference\": \"GOI-1001\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"12600.00\", \"currency\": \"AED\"}, \"tax_amount\": {\"amount\": \"600.00\", \"currency\": \"AED\"}, \"items\": [$item]}"
@@ -4225,7 +4235,7 @@ step_uae() {
   expect "the invoice's status" "$(field .status)" posted
   expect "the invoice's documentary warnings" \
     "$(field '[.documentary_warnings[] | "\(.code) \(.threshold.amount) \(.threshold.currency) \(.threshold_inclusive) \(.pending_sign_off)"] | join(", ")')" \
-    "supplier_tax_id_missing 10000.00 AED false true"
+    "supplier_tax_id_missing 10000.00 AED false false"
   say "Its next invoice, AED 4,000.00 plus 200.00 VAT, is below the threshold: no warning."
   api 201 '"\(.kind) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
     -body "{\"legal_entity_id\": \"$ae\", \"supplier_id\": \"$supplier\", \"supplier_reference\": \"GOI-1002\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"4200.00\", \"currency\": \"AED\"}, \"tax_amount\": {\"amount\": \"200.00\", \"currency\": \"AED\"}, \"items\": [${item//12000.00/4000.00}]}"
@@ -4254,7 +4264,7 @@ uae_return() {
   vat=$(field '.items[] | select(.number == "2300") | .id')
   input=$(field '.items[] | select(.number == "1300") | .id')
   say "Maple Gulf Trading's VAT is filed under its FTA registration (the number illustrative), its return the VAT 201"
-  say "that UAE pack 2026.2 defines; its first period is the latest quarter ended, the one it files now:"
+  say "that UAE pack 2026.4 defines; its first period is the latest quarter ended, the one it files now:"
   api 200 '.items[] | "registration \(.code): \(.authority), number ending \(.number_last4), return \(.return_type), \(.frequency) from \(.first_period_start), company \(.company_code)"' \
     listTaxRegistrations -p "legal_entity_id=$ae"
   expect "the UAE registration" "$(field '.items[0] | "\(.code) \(.return_type) \(.first_period_start)"')" "FTA_VAT VAT201 $(uae_first)"
@@ -4282,6 +4292,10 @@ uae_return() {
   say "VAT 201 reports them by emirate (boxes 1a-1g); a zero-rated export (Z0) and an exempt supply (E0):"
   api 201 "$entry" postJournalEntry -body "$(uae_entry "Sales of the Dubai branch" "$(uae_line "$bank" 10500.00), $(uae_line "$sales" -10000.00 S5 AE-DU), $(uae_line "$vat" -500.00 S5 AE-DU)")"
   api 201 "$entry" postJournalEntry -body "$(uae_entry "Sales of the Abu Dhabi branch" "$(uae_line "$bank" 4200.00), $(uae_line "$sales" -4000.00 S5 AE-AZ), $(uae_line "$vat" -200.00 S5 AE-AZ)")"
+  say "A sale keyed with a mistyped emirate, AE-DB for Dubai, is refused: S5 accepts the seven emirates alone (the"
+  say "emirate guard), so its VAT cannot fall outside boxes 1a-1g unreported:"
+  refused 422 ledger.jurisdiction_not_levied postJournalEntry \
+    -body "$(uae_entry "Sales of the Dubai branch, mistyped" "$(uae_line "$bank" 1050.00), $(uae_line "$sales" -1000.00 S5 AE-DB), $(uae_line "$vat" -50.00 S5 AE-DB)")"
   api 201 "$entry" postJournalEntry -body "$(uae_entry "Export, zero-rated" "$(uae_line "$bank" 3000.00), $(uae_line "$sales" -3000.00 Z0)")"
   api 201 "$entry" postJournalEntry -body "$(uae_entry "Exempt supply" "$(uae_line "$bank" 1500.00), $(uae_line "$sales" -1500.00 E0)")"
   say "Goods imported through customs: the declaration's AED 10,000.00, its import VAT of 500.00 accounted for in the"
@@ -4300,10 +4314,11 @@ uae_return() {
   done
   as carla
   say "Carla computes the draft VAT 201 (ADR-0049 §11): each box sums the items the pack maps to it. The boxes are"
-  say "ADR-0049's record of the FTA's guide through secondary summaries; their columns and totals it does not record"
-  say "say so in their labels, and all wait for the tax specialist (packs/ae/TAX-PENDING-T61k.md). Boxes not zero:"
+  say "ADR-0049's record of the FTA's guide through secondary summaries, signed off by the tax specialist with the pack"
+  say "(2026.4; packs/ae/TAX-PENDING-T61k.md); the labels still carry the markers of the unsigned version. Boxes not zero:"
   api 200 '"draft \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end), \(.currency), pack \(.pack.country) \(.pack.version): \(.item_count) items", (.boxes[] | select(.amount.amount != "0.00") | "  \(.code) \(.amount.amount): \(.label)")' \
     getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
+  expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.4"
   expect "the boxes in the pack's order" "$(field '[.boxes[].code] | .[0:3] + .[-3:] | join(" ")')" "1a_amount 1a_vat 1a_adjustment 12 13 14"
   expect "boxes 1a and 1b, by emirate" "$(field '[.boxes[] | select(.code | test("^1[ab]_(amount|vat)$")) | .amount.amount] | join(" ")')" "4000.00 200.00 10000.00 500.00"
   expect "boxes 3, 4, 5 and 6" "$(field '[.boxes[] | select(.code | test("^[3-6]_")) | .amount.amount] | join(" ")')" "2000.00 100.00 3000.00 1500.00 10000.00 500.00"

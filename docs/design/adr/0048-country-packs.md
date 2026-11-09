@@ -200,6 +200,15 @@ settings cannot simply overwrite their document.
   the API lists it first by version and a tenant in production applies
   2026.5 until the signed version exists. The walkthrough applies it
   instead of an unreleased copy with an illustrative return.
+- **As built (T61j sign-off): Canada 2026.7** is 2026.6 signed off. The
+  product owner reported on 2026-11-09 that the tax specialist, **Musto
+  Ibrahim**, signed off the GST/HST return as written; 2026.7's files are
+  2026.6's byte for byte but `pack.yaml`, which gains `sign_off:
+  {tax_specialist: "Musto Ibrahim", date: 2026-11-09}`, its version and
+  header comment (`TestCanadaPack2026_7`). Production applies it; 2026.6
+  stays released, unsigned. What was confirmed is in ADR-0049 §11 As
+  built (T61j: Signed off). It is the newest Canada version, which the
+  walkthrough's step 2 applies, without the note an unsigned pack brings.
 - **As built (T62f): the UAE pack, 2026.1** (`packs/ae/2026.1`): a starter
   chart with every account determination key (1300 VAT recoverable, 2300
   VAT payable), the Canada pack's number ranges and net payment terms (the
@@ -258,6 +267,39 @@ settings cannot simply overwrite their document.
   the return is a new version rather than a change to 2026.1, which is
   released. It is the newest UAE version; the walkthrough's step 41
   applies it.
+- **As built (the emirate guard, review:T61k): UAE 2026.3** is 2026.2 with
+  S5's component, which levies the emirate each sales line names, listing
+  the seven emirates it accepts (`subdivisions: [AE-AZ, AE-DU, AE-SH,
+  AE-AJ, AE-UQ, AE-RK, AE-FU]`, the ISO 3166-2 codes the tax specialist
+  confirmed, product owner 2026-11-09), so the ledger refuses a line naming
+  another (ADR-0049 §7 As built, the emirate guard). Every file but
+  `pack.yaml` and `tax.yaml` is 2026.2's byte for byte, and the manifest
+  differs only in its version and header comment (`TestUAEPack2026_3`);
+  `returns.yaml`'s labels calling the codes pending stay, as the file is
+  2026.2's. It carries no `sign_off`, as 2026.2 does not: the sign-off of
+  T62f's items and the VAT 201 is the next version. **Decided by
+  default**, as for 2026.2: the guard is a new version rather than a change
+  to a released one. The walkthrough's step 41 shows a sale naming a
+  mistyped emirate (AE-DB) refused, on 2026.4, which carries the guard.
+- **As built (T62f and T61k sign-offs): UAE 2026.4** is 2026.3 signed off.
+  The product owner reported on 2026-11-09 that the tax specialist,
+  **Musto Ibrahim**, signed off the UAE pack and the VAT 201, as written;
+  one version carries both, as the VAT 201's leaf says. `pack.yaml` gains
+  `sign_off: {tax_specialist: "Musto Ibrahim", date: 2026-11-09}` (the
+  model's `SignOff`: the specialist's name and the date), its version and
+  header comment; `tax.yaml` drops the documentary tier's
+  `pending_sign_off` (a signed-off pack holds no pending tier, the
+  validator refuses one) and that remark; every other file is 2026.3's
+  byte for byte (`TestUAEPack2026_4`). Production applies it; 2026.1-2026.3
+  stay released, unsigned. What was confirmed and what stays open is in
+  ADR-0049 (Sources, As built: sign-off of the UAE pack; §6 As built).
+  **Decided by default**, as for Canada 2026.5: the remarks in `tax.yaml`
+  and `returns.yaml`, and the VAT 201's box labels, that call items
+  pending the tax specialist or written from memory stay as 2026.3 has
+  them, since the sign-off freezes the content as it is (a label without
+  the marker is a later version, for the product owner); a tenant on an
+  earlier version moves by applying 2026.4, an ordinary upgrade. The
+  walkthrough's step 41 applies 2026.4: no note, the tier not pending.
 
 ## Consequences
 - A pack upgrade never silently overwrites a tenant's decision; reviewers

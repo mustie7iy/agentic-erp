@@ -99,7 +99,10 @@ The boxes:
    is on no box and its item stays unreported, as the ledger checks only
    that it is a subdivision of AE: a guard refusing an emirate the pack
    does not list is a tracker leaf of its own (review:T61k), which lands
-   before the sign-off.
+   before the sign-off. Landed in 2026.3: the tax specialist confirmed the
+   seven codes (product owner, 2026-11-09), S5 lists them, and the ledger
+   refuses a line naming another (422 `ledger.jurisdiction_not_levied`;
+   ADR-0049 §7 As built, the emirate guard).
 
 How the tenant's codes reach the boxes (the pack's mapping, decided by
 default in ADR-0049 §11 As built, T61k):
@@ -159,3 +162,12 @@ The return's rules:
 Sources (in `2026.2/pack.yaml`):
 - VAT 201 guide, as summarised by Zoho (secondary): https://www.zoho.com/ae/books/vat/guides/vat-return.html
 - VAT 201 guide, as summarised by ClearTax (secondary): https://cleartax.com/ae/vat-return-uae
+
+Signed off (`2026.4/pack.yaml`, with `TAX-PENDING-T62f.md`'s items): the
+tax specialist, Musto Ibrahim, confirmed the boxes, their columns and
+totals, the letters and ISO codes and the mapping above, items 1-10, as
+written on 2026-11-09 (reported by the product owner); 2026.4's
+`returns.yaml` is 2026.2's byte for byte, its labels' "pending" markers
+included (ADR-0049 §11 As built, T61k: Signed off). Items 11-13 (the
+threshold's measure, the FTA's side of the amendment, due dates) stay
+open as questions the approval of what exists does not answer.
