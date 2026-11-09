@@ -73,6 +73,9 @@ func TestFilterScopeKeepsOnlyTheScope(t *testing.T) {
 	if len(us.T052) != len(all.T052) {
 		t.Errorf("T052 rows in scope: got %d, want all %d", len(us.T052), len(all.T052))
 	}
+	if len(us.TCURX) != len(all.TCURX) || len(all.TCURX) == 0 {
+		t.Errorf("TCURX rows in scope: got %d, want all %d, client-wide", len(us.TCURX), len(all.TCURX))
+	}
 	if len(us.AGR_USERS) != len(all.AGR_USERS) {
 		t.Errorf("AGR_USERS rows in scope: got %d, want all %d", len(us.AGR_USERS), len(all.AGR_USERS))
 	}

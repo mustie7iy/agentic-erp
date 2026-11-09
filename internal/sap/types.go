@@ -640,6 +640,22 @@ type T074 struct {
 	SKONT string `json:"SKONT"`
 }
 
+// TCURX - the decimal places of currencies (CURRKEY, CURRDEC), client-wide.
+// SAP stores every amount with two decimals and shifts the amount of a
+// currency TCURX lists by 2 - CURRDEC: JPY 1,000 (CURRDEC 0) is stored as
+// 10.00 and KWD 1.234 (CURRDEC 3) as 12.34. Table exports (SE16N, SE16H,
+// raw dumps) write that internal form, which the migration converts with
+// this table (the pilot customer questionnaire's D10 planning default,
+// po:2026-11-09). CURRDEC is the number as the export writes it ("0",
+// "3"). The table and field names are SAP's as the questionnaire names
+// the table; the fields, and that a currency TCURX does not list has two
+// decimals, are stated from memory and wait for the SAP specialist
+// (docs/migration.md).
+type TCURX struct {
+	CURRKEY string `json:"CURRKEY"`
+	CURRDEC string `json:"CURRDEC"`
+}
+
 // AGR_DEFINE - roles.
 type AGRDefine struct {
 	AGR_NAME string `json:"AGR_NAME"`
@@ -699,6 +715,7 @@ type Extract struct {
 	T042E      []T042E     `json:"T042E,omitempty"`
 	T042A      []T042A     `json:"T042A,omitempty"`
 	T042I      []T042I     `json:"T042I,omitempty"`
+	TCURX      []TCURX     `json:"TCURX,omitempty"`
 	AGR_DEFINE []AGRDefine `json:"AGR_DEFINE,omitempty"`
 	AGR_TCODES []AGRTcode  `json:"AGR_TCODES,omitempty"`
 	AGR_USERS  []AGRUser   `json:"AGR_USERS,omitempty"`
@@ -721,8 +738,9 @@ type Extract struct {
 // tables a migration run reads and the customizing its report has always
 // counted. The payment method tables (T042*) are read only by the
 // configuration draft (delivery/sapconfig), so a run's report does not
-// count them, nor CSKB and the default account assignments (TKA3A, TKA3C,
-// TKA3P).
+// count them, nor CSKB, the default account assignments (TKA3A, TKA3C,
+// TKA3P) and the currencies' decimals (TCURX), which the quality gate
+// reads to convert amounts.
 func (e *Extract) Counts() map[string]int {
 	return map[string]int{
 		"T001": len(e.T001), "SKB1": len(e.SKB1), "LFA1": len(e.LFA1), "LFB1": len(e.LFB1),

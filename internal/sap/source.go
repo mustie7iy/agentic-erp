@@ -97,8 +97,14 @@ func FilterScope(all *Extract, scope Scope) *Extract {
 	out.RSEG = keep(all.RSEG, func(r RSEG) bool { return invs[r.BELNR+"/"+r.GJAHR] })
 	filterLedger(all, out, scope, inCC)
 	filterCenters(all, out, inCC)
-	// Customizing: company-specific tables by company code; client-wide
-	// tables (payment terms, payment methods per country, roles) unchanged.
+	filterCustomizing(all, out, inCC)
+	return out
+}
+
+// filterCustomizing keeps the company-specific customizing of the scope's
+// company codes and the client-wide tables (payment terms, payment
+// methods per country, currencies' decimals, roles) unchanged.
+func filterCustomizing(all, out *Extract, inCC func(string) bool) {
 	out.T052 = all.T052
 	out.T007A = keep(all.T007A, func(r T007A) bool { return inCC(r.BUKRS) })
 	out.T030 = keep(all.T030, func(r T030) bool { return inCC(r.BUKRS) })
@@ -106,6 +112,7 @@ func FilterScope(all *Extract, scope Scope) *Extract {
 	out.T012K = keep(all.T012K, func(r T012K) bool { return inCC(r.BUKRS) })
 	out.T074 = keep(all.T074, func(r T074) bool { return inCC(r.BUKRS) })
 	out.T042Z = all.T042Z // per country, client-wide
+	out.TCURX = all.TCURX // client-wide
 	out.T042E = keep(all.T042E, func(r T042E) bool { return inCC(r.ZBUKR) })
 	out.T042A = keep(all.T042A, func(r T042A) bool { return inCC(r.ZBUKR) })
 	out.T042I = keep(all.T042I, func(r T042I) bool { return inCC(r.ZBUKR) })
@@ -113,7 +120,6 @@ func FilterScope(all *Extract, scope Scope) *Extract {
 	out.TKA3C = keep(all.TKA3C, func(r TKA3C) bool { return inCC(r.BUKRS) })
 	out.TKA3P = keep(all.TKA3P, func(r TKA3P) bool { return inCC(r.BUKRS) })
 	out.AGR_DEFINE, out.AGR_TCODES, out.AGR_USERS = all.AGR_DEFINE, all.AGR_TCODES, all.AGR_USERS
-	return out
 }
 
 // filterLedger keeps the scope's journal lines of its leading ledger and

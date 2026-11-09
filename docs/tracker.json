@@ -9444,9 +9444,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "SAP amounts in internal or external format told apart (the pilot customer questionnaire's D10 planning default, to be confirmed by the customer before go-live, po:2026-11-09: tables exported with SE16H or a custom report in SAP's internal amount format): the quality gate parses amounts with the currency's ISO exponent, i.e. in external format, and nothing reads TCURX, so a JPY 1,000 stored internally as 10.00 would load as 10 yen. To change, the step deciding which: either the extract reads TCURX and converts internal amounts of currencies with other than two decimals, or the customer is asked for external format and the gate refuses an internal one; in either case the gate refuses an amount whose format it cannot tell",
-      "r": "internal/integration/quality.go (amount parsing) · internal/sap · docs/migration.md (pilot customer facts, D10; amounts for currencies with no or three decimals)",
+      "r": "internal/integration/amounts.go target.amount · currencyDecimals · amountForm · sap_file settings.amount_format (internal default, external) · internal/sap TCURX, FilterScope, mock TCURX · TestAmountForms · TestAmountFormRefusals · TestODataAmountsAreExternal · walkthrough step 3 yen_item_rehearsed · sapconfig amount (T169G-WERTO, T042E limits), erp config generate -amount-format · ADR-0005 As built · docs/migration.md Amounts in SAP's internal form (TCURX)",
       "src": "po:2026-11-09",
       "pilot": "po:2026-10-31",
       "c": []

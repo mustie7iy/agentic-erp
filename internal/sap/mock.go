@@ -95,7 +95,8 @@ type mockGen struct {
 
 // mockDecimals is the digits of the mock's amounts: they are generated in
 // hundredths, and its companies are in USD, EUR and CAD, two-digit currencies
-// in ref.currency. SAP extracts write an amount with its currency's digits.
+// in ref.currency, whose amounts SAP's internal form (two decimals, TCURX)
+// and its external form write alike.
 const mockDecimals = 2
 
 var mockCompanies = []T001{
@@ -683,6 +684,14 @@ func (g *mockGen) mockPaymentMethods(c T001) {
 	}
 }
 
+// mockTCURX are the decimals of the currencies the mock's system keeps with
+// other than two: the yen with none, the Kuwaiti and Bahraini dinars with
+// three, as ISO 4217 gives them (ref.currency). The mock's own documents
+// are in two-digit currencies, whose internal and external forms agree; a
+// document in one of these is written in SAP's internal form, shifted by
+// 2 - CURRDEC (JPY 1,000 as "10.00").
+var mockTCURX = []TCURX{{CURRKEY: "BHD", CURRDEC: "3"}, {CURRKEY: "JPY", CURRDEC: "0"}, {CURRKEY: "KWD", CURRDEC: "3"}}
+
 // customizing adds the configuration tables a real system carries, including
 // one deliberate segregation-of-duties conflict: user SUPER1 holds both
 // invoice posting (MIRO) and payment release (BNK_APP).
@@ -693,6 +702,7 @@ func (g *mockGen) customizing() {
 		{ZTERM: "NT45", ZTAG1: "45", TEXT1: "Net 45 days"},
 		{ZTERM: "NT60", ZTAG1: "60", TEXT1: "Net 60 days"},
 	}
+	g.e.TCURX = mockTCURX
 	banks := map[string][2]string{
 		"1000": {"GB33BUKB20201555555555", "BUKBGB22"},
 		"2000": {"DE89370400440532013000", "COBADEFFXXX"},

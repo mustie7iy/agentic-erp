@@ -861,6 +861,7 @@ step_migrate() {
   connector=$(field .id)
   parallel_run_extract
   small_item_refused "$connector"
+  yen_item_rehearsed "$connector"
   say "A rehearsal first: load, reconcile and roll back."
   show erp migrate -connector "$connector" -legal-entities "$LE" -year "$YEAR" -rehearsal
   "$ERP" migrate -connector "$connector" -legal-entities "$LE" -year "$YEAR" -rehearsal >"$WORK/rehearsal.out" 2>&1 ||
@@ -1146,6 +1147,48 @@ small_item_refused() {
     { sed 's/^/     /' "$WORK/small.out"; fail "the quality gate did not name the USD item of no CAD amount"; }
   grep -q '\[error\] ACDOCA [^ ]*/0199999990/000003: line of SAP document 0199999990 has a document amount (WSL "0.01", RWCUR "USD")' "$WORK/small.out" ||
     { sed 's/^/     /' "$WORK/small.out"; fail "the quality gate did not name the USD G/L line of no CAD amount"; }
+  mv "$WORK/data/extract.good.json" "$WORK/data/extract.json"
+}
+
+# yen_item_rehearsed shows SAP's internal amount form (the pilot customer
+# questionnaire's D10 planning default, po:2026-11-09): a table export
+# stores every amount with two decimals, shifted by TCURX-CURRDEC, so an
+# open invoice of JPY 100,000 (CAD 920.00) from Tyrell Office Products, a
+# copy of the mock's USD invoice (TY-USD-1) in yen, is written "1000.00".
+# A rehearsal with it converts the yen with the extract's TCURX and
+# reconciles them with SAP; without TCURX the quality gate refuses the run
+# naming the yen instead of loading JPY 1,000. The extract is put back.
+yen_item_rehearsed() {
+  cp "$WORK/data/extract.json" "$WORK/data/extract.good.json"
+  jq --arg cc "$CC" '[.ACDOCA[] | select(.RBUKRS == $cc and .XBLNR == "TY-USD-1")] as $doc
+    | .ACDOCA += [$doc[] | .BELNR = "0199999980" | .XBLNR = "TY-JPY-1" | .RWCUR = "JPY"
+        | .HSL = (if (.HSL | startswith("-")) then "-920.00" else "920.00" end)
+        | .WSL = (if (.WSL | startswith("-")) then "-1000.00" else "1000.00" end)]' \
+    "$WORK/data/extract.good.json" >"$WORK/data/extract.json" || fail "the extract with a yen invoice could not be made"
+  say "SAP stores every amount with two decimals and shifts a currency of other decimals by TCURX (D10, po:2026-11-09):"
+  say "suppose the extract held an open invoice of JPY 100,000, CAD 920.00, which a table export writes as 1000.00."
+  jq -r --arg cc "$CC" '(.TCURX[] | select(.CURRKEY == "JPY") | "     TCURX \(.CURRKEY): CURRDEC \(.CURRDEC)"),
+    (.ACDOCA[] | select(.RBUKRS == $cc and .BELNR == "0199999980")
+      | "     ACDOCA \(.BELNR)/\(.DOCLN): account \(.RACCT)\(if .LIFNR != "" then ", vendor \(.LIFNR)" else "" end), WSL \(.WSL) \(.RWCUR), HSL \(.HSL) CAD")' \
+    "$WORK/data/extract.json"
+  say "The rehearsal converts the yen with the extract's TCURX, and the reconciliation agrees with SAP in yen:"
+  show erp migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" -rehearsal
+  "$ERP" migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" -rehearsal >"$WORK/yen.out" 2>&1 ||
+    { sed 's/^/     /' "$WORK/yen.out"; fail "the rehearsal with a yen invoice did not reconcile"; }
+  grep -E '^Migration run|Open items in JPY' "$WORK/yen.out" | sed 's/^/     /'
+  grep -E 'Open items in JPY total +-100000 JPY +-100000 JPY +PASS$' "$WORK/yen.out" >/dev/null ||
+    { sed 's/^/     /' "$WORK/yen.out"; fail "the yen invoice did not reconcile as JPY 100,000"; }
+  jq 'del(.TCURX)' "$WORK/data/extract.json" >"$WORK/data/extract.yen.json" || fail "the yen extract without TCURX could not be made"
+  mv "$WORK/data/extract.yen.json" "$WORK/data/extract.json"
+  say "Without TCURX the run cannot tell what 1000.00 yen are, so the quality gate refuses it, naming the currency:"
+  show erp migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" -rehearsal
+  if "$ERP" migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" -rehearsal >"$WORK/yen.out" 2>&1; then
+    sed 's/^/     /' "$WORK/yen.out"
+    fail "the run with yen and no TCURX was not refused"
+  fi
+  grep -E '^Migration run|\[error\] TCURX' "$WORK/yen.out" | sed 's/^/     /'
+  grep -q '\[error\] TCURX : the extract.s amounts are in SAP.s internal form .*it holds no TCURX to convert the amounts in JPY (0 decimals)' "$WORK/yen.out" ||
+    { sed 's/^/     /' "$WORK/yen.out"; fail "the quality gate did not name the yen without TCURX"; }
   mv "$WORK/data/extract.good.json" "$WORK/data/extract.json"
 }
 

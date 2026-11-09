@@ -37,6 +37,43 @@ rather than promising one number up front.
 A scope may only be cut over when `erp migrate` exits 0: no load rejections
 and every reconciliation check passing.
 
+## Amounts in SAP's internal form (TCURX)
+
+SAP stores every amount with two decimals and shifts the amount of a
+currency with other decimals by 2 − TCURX-CURRDEC: JPY 1,000 (CURRDEC 0) is
+stored as `10.00`, KWD 1.234 (CURRDEC 3) as `12.34`. Table exports (SE16N,
+SE16H, a custom report, raw dumps) write that internal form; OData writes the
+amount itself. Following the pilot customer questionnaire's D10 planning
+default (po:2026-11-09), a `sap_file` connector reads its extract's amounts
+in internal form unless its settings say `"amount_format": "external"`, and
+the extract carries TCURX (CURRKEY, CURRDEC), which the run converts with:
+an amount of a currency TCURX lists is read with two decimals and shifted to
+its CURRDEC, a currency it does not list has two. A `sap_odata` connector's
+amounts are external, unshifted, and it takes no `amount_format`. The
+quality gate never guesses:
+
+- an extract in internal form that holds amounts in a currency of other
+  than two decimals (ISO 4217, `ref.currency`) which its TCURX does not
+  list, or that has no TCURX, is refused once, naming those currencies, and
+  each such amount is refused where it is checked;
+- an amount with more significant decimals than its form allows (two in
+  internal form, the currency's in external), or than the currency's minor
+  unit holds once converted (a TCURX that gives a currency more decimals
+  than ISO's), is refused;
+- a TCURX row whose CURRDEC is not a number of decimals from 0 to 9, or a
+  currency listed twice with different decimals, is refused.
+
+The reconciliation reads SAP's side through the same conversion, so its
+`Open items in JPY total` compares `-100000 JPY` with the platform's, never
+SAP's stored `-1000.00`. The configuration draft (`erp config generate`)
+converts the same way: a file extract's amounts are internal unless
+`-amount-format external` says otherwise, an OData source's external. The
+price tolerance T169G-WERTO becomes the company's `price_absolute`
+converted; one it cannot convert (no TCURX row for a currency of other
+than two decimals, more than two decimals) keeps the 5.00 default with a
+note, and a note quoting T042E's payment limits quotes them converted, or
+as exported saying why not.
+
 ## Choosing a mode
 
 | Mode | Loads | Use for |
@@ -760,8 +797,16 @@ others record a confirmation.
   OData mapping does not read the line's ledger and labels every line the
   leading ledger, so the gate cannot tell an OData extract's ledgers apart
   until `A_JournalEntryItemBasic`'s ledger property is mapped (T56h5).
-- Amounts for currencies with no decimals or three decimals (JPY, KWD) come in
-  external format.
+- SAP's internal amount form (built, see "Amounts in SAP's internal form";
+  stated from memory, for the SAP specialist to confirm): that TCURX keys a
+  currency by CURRKEY and gives its decimals as CURRDEC; that a currency
+  TCURX does not list has two decimals (the run relies on it only for
+  currencies of two ISO decimals and refuses the others without a row);
+  that every amount the run reads (ACDOCA-HSL and WSL, EKPO-NETPR,
+  RBKP-RMWWR and WMWST1, RSEG-WRBTR) is stored with two decimals in that
+  form; that SE16H and the custom extract report write the internal form
+  unless asked for the external one; and that the OData APIs deliver
+  external amounts.
 - **SAP digital-access licensing:** reading data is usually fine, but agents
   creating documents in SAP may count as indirect use. This design never
   writes to SAP. Confirm with the contract owner anyway.
@@ -797,9 +842,10 @@ po:2026-11-09; ⚠ marks a default that could do harm if wrong):
   (or SAP Data Services) for ACDOCA and other large tables; CSV in UTF-8,
   separator `;`, a header row of technical field names, dates `YYYYMMDD`,
   decimal point `.`, no thousands separators; amounts in SAP's **internal**
-  format, not external, so the extract is also to take TCURX (to build: tracker leaf; until then the bullet above holds) to convert the
-  amounts of currencies with other than two decimals (the bullet above on
-  JPY and KWD assumes the external format).
+  format, not external, so the extract also takes TCURX, which the run
+  converts the amounts of currencies with other than two decimals with
+  (built: "Amounts in SAP's internal form"; a connector set to
+  `amount_format` external reads an export in external form instead).
 - D12: SAP's standard cost center categories E (development), F
   (production), H (service), L (management), V (administration) and W
   (sales), to be created in the configuration; the extract's distinct
