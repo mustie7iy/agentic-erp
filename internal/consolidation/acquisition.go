@@ -20,29 +20,30 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// The investment and equity elimination (ADR-0059 §9, As built T68h). For
-// each member M first consolidated in period F, its acquisition is
-// measured at F-1, the regular period before F: M translated through F-1
-// at F-1's closing rate, its net assets the sum of its asset and liability
-// rows (N in local currency, A translated), its acquisition equity every
-// other row per group account (its equity accounts; retained earnings,
-// with every result through F-1, which were earned before the group held
-// it, IFRS 10.B88; the translation reserve), summing to -A. The
-// investment I is the parent's balance on M's investment account through
-// the run's period. The investment entry reverses the acquisition equity
-// and the investment.
+// The investment and equity elimination (ADR-0059 §9, As built T68h and
+// T68h2). For each member M first consolidated in period F, its
+// acquisition is measured at F-1, the regular period before F: its net
+// assets, the sum of its asset and liability rows translated through F-1
+// at F-1's closing rate (N in local currency, A translated), shown for
+// the steps that compute goodwill; and its acquisition equity, its share
+// capital per group account as booked through the run's period
+// (shareCapital). The investment I is the parent's balance on M's
+// investment account through the run's period. The investment entry
+// reverses the share capital and the investment: the accounting
+// specialist (po:2026-11-09) has a subsidiary the parent incorporated,
+// to which IFRS 3 does not apply, eliminated against its share capital
+// (B5(a)), its results counted from its incorporation (B8) and so kept in
+// the group's retained earnings at their group amounts (B3), as its
+// translation reserve is, zero at go-live (po:2026-11-05).
 //
-// Goodwill (I - A + the interest) and the non-controlling interest are
-// not computed: the accounting specialist (po:2026-11-09, B5) accepts
-// book values only for a subsidiary the parent incorporated, where IFRS 3
-// does not apply and the investment is eliminated against its equity, and
-// the pilot's group is such a subsidiary held whole (D11). A run therefore
-// refuses a member held at less than 100% or acquired
-// (consolidation.structure_unsupported) and one whose investment differs
-// from its net assets at acquisition (consolidation.investment_mismatch);
-// fair values, goodwill and the interest are the tracker's non-pilot
-// leaves (B5-B7, B9), for which run_acquisition and acquisition keep
-// their columns at zero.
+// Goodwill and the non-controlling interest are not computed: the
+// specialist accepts book values only for such a subsidiary, and the
+// pilot's group is one held whole (D11). A run therefore refuses a member
+// held at less than 100% or acquired (consolidation.structure_unsupported)
+// and one whose investment differs from its share capital
+// (consolidation.investment_mismatch); fair values, goodwill and the
+// interest are the tracker's non-pilot leaves (B5-B7, B9), for which
+// run_acquisition and acquisition keep their columns at zero.
 //
 // The first final run including M freezes its figures in acquisition and
 // acquisition_equity; every later run reads them instead of measuring and
@@ -65,7 +66,7 @@ const nonPilot = "goodwill, fair values and non-controlling interests are not bu
 // non-controlling interest (422 consolidation.structure_unsupported).
 func structureUnsupported(group string, m config.GroupMember) *problem.Problem {
 	return problem.Unprocessable("consolidation.structure_unsupported", fmt.Sprintf("Company %s, a member of group %s, is held at %s%% and %s; a run "+
-		"consolidates a member the parent incorporated and holds whole, whose investment is eliminated against its equity without goodwill or a "+
+		"consolidates a member the parent incorporated and holds whole, whose investment is eliminated against its share capital without goodwill or a "+
 		"non-controlling interest: %s.", m.Company, group, m.OwnershipPercent, originText(m.Origin), nonPilot),
 		problem.FieldError{Field: "group_code", Code: "structure_unsupported", Message: "company " + m.Company + " incorporated by the parent and held at 100%"})
 }

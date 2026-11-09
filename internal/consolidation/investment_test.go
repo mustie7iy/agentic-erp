@@ -83,32 +83,30 @@ func acquisitionOf(t *testing.T, e fixture.Env, run uuid.UUID) string {
 	return strings.Join(out, " | ")
 }
 
-// TestInvestmentElimination (ADR-0059 §9): figures' company 1000, first
-// consolidated in November 2026, is measured at October, the period
-// before: its bank's USD 1,300.00 (1,000.00 of 2025 revenue, 500.00 of
-// share capital, less October's 200.00 expense) at October's closing
-// 0.85 is 1,105.00 EUR of net assets; its equity at acquisition is its
-// share capital as booked (-400.00), its results through October on
-// retained earnings (-800.00 + 170.00 = -630.00) and the rest on the
-// reserve (-75.00), summing to -1,105.00. 2000's investment of 1,105.00
-// equals them, so there is no goodwill: the investment entry debits the
-// equity back and credits the investment. The first final run freezes
-// the acquisition; a later run reads it frozen, also once October has
-// moved (a posting there changes nothing), and fails when 2000's
-// investment changes (consolidation.investment_changed).
+// TestInvestmentElimination (ADR-0059 §9, As built T68h2): figures'
+// company 1000, first consolidated in November 2026, is measured at
+// October, the period before: its bank's USD 1,300.00 (1,000.00 of 2025
+// revenue, 500.00 of share capital, less October's 200.00 expense) at
+// October's closing 0.85 is 1,105.00 EUR of net assets. The parent
+// incorporated it, so 2000's investment of 400.00 is eliminated against
+// its share capital alone, as booked (-400.00, B5(a)): the investment
+// entry debits the share capital back and credits the investment, and
+// its results through October (-630.00 on retained earnings) and its
+// reserve stay the group's (TestConsolidatedStatements). The first final
+// run freezes the acquisition; a later run reads it frozen, also once
+// October has moved (a posting there changes nothing), and fails when
+// 2000's investment changes (consolidation.investment_changed).
 func TestInvestmentElimination(t *testing.T) {
 	e := investedEnv(t)
 	h := app.Consolidation(app.Config{})
 	run := computed(t, e)
-	want := "entry 1 investment 1000, debits 1105.00 EUR\n" +
-		"  1 G1500 2000 150000 investment: -1105.00 EUR\n" +
-		"  2 G3000 1000 acquisition_equity: 400.00 EUR\n" +
-		"  3 G3800 1000 acquisition_equity: 630.00 EUR\n" +
-		"  4 G3900 1000 acquisition_equity: 75.00 EUR"
+	want := "entry 1 investment 1000, debits 400.00 EUR\n" +
+		"  1 G1500 2000 150000 investment: -400.00 EUR\n" +
+		"  2 G3000 1000 acquisition_equity: 400.00 EUR"
 	if got := investmentLines(t, e, run); got != want {
 		t.Errorf("the investment entry: got\n%s\nwant\n%s", got, want)
 	}
-	measured := "2000 none | 1000 at 2026-10, rate 0.85 from 2026-10-01: net assets 1300.00 USD = 1105.00 EUR, investment 1105.00 EUR, goodwill 0.00 EUR, " +
+	measured := "2000 none | 1000 at 2026-10, rate 0.85 from 2026-10-01: net assets 1300.00 USD = 1105.00 EUR, investment 400.00 EUR, goodwill 0.00 EUR, " +
 		"interest 0.00 EUR, frozen false"
 	if got := acquisitionOf(t, e, run); got != measured {
 		t.Errorf("the acquisition: got %s, want %s", got, measured)
@@ -127,13 +125,13 @@ func TestInvestmentElimination(t *testing.T) {
 	pgtest.Scan(t, `SELECT concat_ws(' ', origin, ownership_percent, first_fiscal_year, first_fiscal_period, local_currency, net_assets_lc, closing_rate,
 			rate_valid_from, net_assets_gc, investment_gc, goodwill_gc, nci_gc, run_id = $2)
 		FROM consolidation.acquisition WHERE tenant_id = $1 AND group_code = 'ACME' AND legal_entity_id = $3`, []any{e.Tenant.ID, run, e.US}, &frozen)
-	if w := "incorporated 100.0000 2026 11 USD 130000 0.850000000000 2026-10-01 110500 110500 0 0 t"; frozen != w {
+	if w := "incorporated 100.0000 2026 11 USD 130000 0.850000000000 2026-10-01 110500 40000 0 0 t"; frozen != w {
 		t.Errorf("the frozen acquisition: got %s, want %s", frozen, w)
 	}
 	pgtest.Scan(t, `SELECT string_agg(group_account || '=' || amount_gc, ' ' ORDER BY group_account) FROM consolidation.acquisition_equity
 		WHERE tenant_id = $1 AND legal_entity_id = $2`, []any{e.Tenant.ID, e.US}, &equity)
-	if equity != "G3000=-40000 G3800=-63000 G3900=-7500" {
-		t.Errorf("the frozen equity: got %s, want the acquisition equity per group account", equity)
+	if equity != "G3000=-40000" {
+		t.Errorf("the frozen equity: got %s, want the share capital per group account", equity)
 	}
 	var audited int
 	pgtest.Scan(t, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'consolidation.acquisition.frozen' AND object_id = $2`,
@@ -163,7 +161,7 @@ func TestInvestmentElimination(t *testing.T) {
 	post(t, e, e.DE, "2000", "EUR", "2026-10-20", "150000", "100000", "10.00", nil)
 	changed, _ := start(t, e)
 	if err := eliminated(t, e, h, changed); problem.From(err).Code != "consolidation.investment_changed" ||
-		!strings.Contains(problem.From(err).Detail, "1115.00 EUR, differs from 1105.00 EUR") {
+		!strings.Contains(problem.From(err).Detail, "410.00 EUR, differs from 400.00 EUR") {
 		t.Errorf("a changed investment: got %v, want consolidation.investment_changed naming both", err)
 	}
 }
@@ -188,15 +186,14 @@ func eliminated(t *testing.T, e fixture.Env, h *consolidation.Endpoints, run uui
 	return apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { return h.EliminateConsolidationRun(ctx, run) })
 }
 
-// TestInvestmentFirstPeriodOne (ADR-0059 §9): a member first consolidated
-// in January 2026 is measured at December 2025, the previous fiscal
-// year's last period, at its closing 0.82: 1000's bank of USD 1,000.00
-// (June 2025's revenue) is 820.00 EUR, and its equity at acquisition is
-// 2025's revenue, of the fiscal year of that period, on retained earnings
-// (-800.00 as booked at 0.80) and -20.00 on the reserve. November's run
-// eliminates 2000's 820.00 against them: October's expense (170.00), after
-// the acquisition, stays in the group's results, and the reserve keeps
-// its change since (-90.00 + 20.00).
+// TestInvestmentFirstPeriodOne (ADR-0059 §9, As built T68h2): a member
+// first consolidated in January 2026 is measured at December 2025, the
+// previous fiscal year's last period, at its closing 0.82: 1000's bank of
+// USD 1,500.00 (June 2025's revenue and share capital) is 1,230.00 EUR.
+// November's run eliminates 2000's 400.00 against its share capital as
+// booked at 0.80; 2025's revenue (-800.00) stays on the group's retained
+// earnings, October's expense (170.00) in its results, and its reserve,
+// -140.00, whole.
 func TestInvestmentFirstPeriodOne(t *testing.T) {
 	e := fixture.NewWith(t, nil, func(doc *config.Config) {
 		withRuns(doc)
@@ -209,25 +206,109 @@ func TestInvestmentFirstPeriodOne(t *testing.T) {
 		       ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-11-30', 0.9, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
 	sameCalendar(t, e)
 	post(t, e, e.US, "1000", "USD", "2025-06-15", "100000", "400000", "1000.00", nil)
+	post(t, e, e.US, "1000", "USD", "2025-06-15", "100000", "300000", "500.00", nil)
 	post(t, e, e.US, "1000", "USD", "2026-10-15", "520000", "100000", "200.00", nil)
-	invest(t, e, "820.00")
+	invest(t, e, "400.00")
 	run := computed(t, e)
-	want := "entry 1 investment 1000, debits 820.00 EUR\n" +
-		"  1 G1500 2000 150000 investment: -820.00 EUR\n" +
-		"  2 G3800 1000 acquisition_equity: 800.00 EUR\n" +
-		"  3 G3900 1000 acquisition_equity: 20.00 EUR"
+	want := "entry 1 investment 1000, debits 400.00 EUR\n" +
+		"  1 G1500 2000 150000 investment: -400.00 EUR\n" +
+		"  2 G3000 1000 acquisition_equity: 400.00 EUR"
 	if got := investmentLines(t, e, run); got != want {
 		t.Errorf("the investment entry: got\n%s\nwant\n%s", got, want)
 	}
-	if got, w := acquisitionOf(t, e, run), "2000 none | 1000 at 2025-12, rate 0.82 from 2025-12-31: net assets 1000.00 USD = 820.00 EUR, investment "+
-		"820.00 EUR, goodwill 0.00 EUR, interest 0.00 EUR, frozen false"; got != w {
+	if got, w := acquisitionOf(t, e, run), "2000 none | 1000 at 2025-12, rate 0.82 from 2025-12-31: net assets 1500.00 USD = 1230.00 EUR, investment "+
+		"400.00 EUR, goodwill 0.00 EUR, interest 0.00 EUR, frozen false"; got != w {
 		t.Errorf("the acquisition: got %s, want %s", got, w)
 	}
 	bs, _ := e.Must(200, "GET", statementPath(run, "balance_sheet"), "", "")
-	if got, w := statementTotals(bs, "assets", "liabilities", "equity", "profit"), "assets 720.00 EUR / -820.00 EUR / -100.00 EUR, liabilities "+
-		"0.00 EUR / 0.00 EUR / 0.00 EUR, equity -890.00 EUR / 820.00 EUR / -70.00 EUR, profit 170.00 EUR / 0.00 EUR / 170.00 EUR"; got != w {
-		t.Errorf("the balance sheet's totals: got %s, want %s", got, w)
+	if got, w := statementRow(bs, "G3800")+", "+statementTotals(bs, "assets", "liabilities", "equity", "profit"), "G3800 Retained earnings equity "+
+		"(retained_earnings): -800.00 EUR / 0.00 EUR / -800.00 EUR, assets 1170.00 EUR / -400.00 EUR / 770.00 EUR, liabilities 0.00 EUR / 0.00 EUR / "+
+		"0.00 EUR, equity -1340.00 EUR / 400.00 EUR / -940.00 EUR, profit 170.00 EUR / 0.00 EUR / 170.00 EUR"; got != w {
+		t.Errorf("the balance sheet: got %s, want %s", got, w)
 	}
+}
+
+// TestInvestmentOpeningEntry (ADR-0059 As built T68h2; the pilot's case):
+// company 1000's opening entry, migrated into November 2026, its first
+// consolidated period, carries its bank of USD 1,500.00, its share capital
+// of 500.00 and its retained earnings of 1,000.00 (on 330000, its retained
+// earnings account, ADR-0060 §4), at the entry's 0.85 (po:2026-11-05).
+// October, where the acquisition is measured, holds nothing; the share
+// capital is read through the run's period, as the investment is, so
+// 2000's 425.00 is eliminated against it alone, and the retained earnings
+// (-850.00, on G3000 as the fixture maps every equity account) stay the
+// group's. The elimination step run twice writes the entry and the
+// acquisition once; the final run freezes the share capital.
+func TestInvestmentOpeningEntry(t *testing.T) {
+	e := fixture.NewWith(t, nil, func(doc *config.Config) {
+		co := doc.Company("1000")
+		co.ChartOfAccounts = append(co.ChartOfAccounts, config.Account{Number: "330000", Name: "Retained earnings", Type: config.Equity})
+		co.YearEnd.RetainedEarningsAccount = "330000"
+		withRuns(doc)
+	}, runPermissions...)
+	e.Tenant.Grant(t, "consolidation.run.finalize", e.Tenant.Human)
+	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
+		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-10-01', 0.85, 'ECB', $2),
+		       ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-11-30', 0.9, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
+	sameCalendar(t, e)
+	e.Must(201, "POST", "/v1/journal-entries", fmt.Sprintf(`{"legal_entity_id": %q, "document_date": "2026-11-01", "posting_date": "2026-11-01",
+		"currency": "USD", "header_text": "Opening balances", "lines": [{"account_id": %q, "amount": {"amount": "1500.00", "currency": "USD"}},
+		{"account_id": %q, "amount": {"amount": "-500.00", "currency": "USD"}}, {"account_id": %q, "amount": {"amount": "-1000.00", "currency": "USD"}}]}`,
+		e.US, e.Account(t, "1000", "100000"), e.Account(t, "1000", "300000"), e.Account(t, "1000", "330000")), "")
+	invest(t, e, "425.00")
+	setPeriod(t, e, []uuid.UUID{e.US, e.DE}, "closed", "locked")
+	setOctober(t, e, "closed", "locked")
+	h := app.Consolidation(app.Config{})
+	run, _ := start(t, e)
+	for i := range 2 {
+		if err := eliminatedAgain(t, e, h, run, i > 0); err != nil {
+			t.Fatalf("eliminate %d: %v", i+1, err)
+		}
+	}
+	var counts string
+	pgtest.Scan(t, `SELECT (SELECT count(*) FROM consolidation.run_entry WHERE run_id = $1 AND kind = 'investment') || ' ' ||
+		(SELECT count(*) FROM consolidation.run_acquisition WHERE run_id = $1)`, []any{run}, &counts)
+	if counts != "1 1" {
+		t.Errorf("investment entries and acquisitions after two eliminations: got %s, want 1 1", counts)
+	}
+	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { return h.CompleteConsolidationRun(ctx, run) }); err != nil {
+		t.Fatal(err)
+	}
+	want := "entry 1 investment 1000, debits 425.00 EUR\n" +
+		"  1 G1500 2000 150000 investment: -425.00 EUR\n" +
+		"  2 G3000 1000 acquisition_equity: 425.00 EUR"
+	if got := investmentLines(t, e, run); got != want {
+		t.Errorf("the investment entry: got\n%s\nwant\n%s", got, want)
+	}
+	if got, w := acquisitionOf(t, e, run), "2000 none | 1000 at 2026-10, rate 0.85 from 2026-10-01: net assets 0.00 USD = 0.00 EUR, investment "+
+		"425.00 EUR, goodwill 0.00 EUR, interest 0.00 EUR, frozen false"; got != w {
+		t.Errorf("the acquisition: got %s, want %s", got, w)
+	}
+	bs, _ := e.Must(200, "GET", statementPath(run, "balance_sheet"), "", "")
+	if got, w := statementRow(bs, "G3000")+", "+statementTotals(bs, "assets", "liabilities", "equity", "profit"), "G3000 Share capital equity: "+
+		"-1275.00 EUR / 425.00 EUR / -850.00 EUR, assets 1350.00 EUR / -425.00 EUR / 925.00 EUR, liabilities 0.00 EUR / 0.00 EUR / 0.00 EUR, equity -1350.00 EUR / 425.00 EUR / -925.00 EUR, profit 0.00 EUR / "+
+		"0.00 EUR / 0.00 EUR"; got != w {
+		t.Errorf("the balance sheet: got %s, want %s", got, w)
+	}
+	if got := finalize(t, e, run); got["status"] != "final" {
+		t.Fatalf("the run: got %v, want final", got["status"])
+	}
+	var equity string
+	pgtest.Scan(t, `SELECT string_agg(group_account || '=' || amount_gc, ' ' ORDER BY group_account) FROM consolidation.acquisition_equity
+		WHERE tenant_id = $1 AND legal_entity_id = $2`, []any{e.Tenant.ID, e.US}, &equity)
+	if equity != "G3000=-42500" {
+		t.Errorf("the frozen equity: got %s, want the share capital alone", equity)
+	}
+}
+
+// eliminatedAgain carries a run out to its elimination step, or, again,
+// runs that step alone, and returns its error.
+func eliminatedAgain(t *testing.T, e fixture.Env, h *consolidation.Endpoints, run uuid.UUID, again bool) error {
+	t.Helper()
+	if !again {
+		return eliminated(t, e, h, run)
+	}
+	return apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { return h.EliminateConsolidationRun(ctx, run) })
 }
 
 // TestInvestmentRefusals: a member held at less than 100%, or acquired,
@@ -235,7 +316,7 @@ func TestInvestmentFirstPeriodOne(t *testing.T) {
 // it is refused (consolidation.structure_unsupported); one without a
 // closing rate for the period before its first, or without that period,
 // is refused at creation; and a member whose investment differs from its
-// net assets at acquisition fails the elimination step
+// share capital fails the elimination step
 // (consolidation.investment_mismatch): an incorporated subsidiary has no
 // goodwill, and the difference waits for the specialist.
 func TestInvestmentRefusals(t *testing.T) {
@@ -280,34 +361,34 @@ func TestInvestmentRefusals(t *testing.T) {
 			t.Errorf("the refusal: got %s, want December 2025 of 1000 named", d)
 		}
 	})
-	t.Run("an investment that is not the net assets", func(t *testing.T) {
+	t.Run("an investment that is not the share capital", func(t *testing.T) {
 		e := runEnv(t)
 		sameCalendar(t, e)
 		figures(t, e)
 		invest(t, e, "5.00")
 		run, _ := start(t, e)
 		err := eliminated(t, e, app.Consolidation(app.Config{}), run)
-		if p := problem.From(err); p.Code != "consolidation.investment_mismatch" || !strings.Contains(p.Detail, "1110.00 EUR on account 150000, differs from "+
-			"its net assets at acquisition, 1105.00 EUR") {
+		if p := problem.From(err); p.Code != "consolidation.investment_mismatch" || !strings.Contains(p.Detail, "405.00 EUR on account 150000, differs from "+
+			"its share capital, 400.00 EUR") || !strings.Contains(p.Detail, "has no retained earnings account (companies[].year_end.retained_earnings_account)") {
 			t.Errorf("the elimination: got %v, want consolidation.investment_mismatch naming both", err)
 		}
 	})
 }
 
 // TestFinalizeAgainstAnotherFrozen: two runs of November computed on
-// different acquisitions of 1000 (October moved between them, and 2000's
-// investment with it); finalizing the first freezes its acquisition, and
+// different acquisitions of 1000 (October moved between them, 1000's share
+// capital and 2000's investment with it); finalizing the first freezes its acquisition, and
 // finalizing the second, whose acquisition differs, is refused
 // (consolidation.acquisition_changed) rather than consolidated on figures
 // other than the frozen ones. A run computed after the freeze finalizes.
 func TestFinalizeAgainstAnotherFrozen(t *testing.T) {
 	e := investedEnv(t)
 	first := computed(t, e)
-	post(t, e, e.US, "1000", "USD", "2026-10-20", "100000", "400000", "100.00", nil)
+	post(t, e, e.US, "1000", "USD", "2026-10-20", "100000", "300000", "100.00", nil)
 	post(t, e, e.DE, "2000", "EUR", "2026-10-20", "150000", "100000", "85.00", nil)
 	second := computed(t, e)
 	setOctober(t, e, "closed", "locked")
-	if got := acquisitionOf(t, e, second); !strings.Contains(got, "net assets 1400.00 USD = 1190.00 EUR, investment 1190.00 EUR") {
+	if got := acquisitionOf(t, e, second); !strings.Contains(got, "net assets 1400.00 USD = 1190.00 EUR, investment 485.00 EUR") {
 		t.Fatalf("the second run's acquisition: got %s, want October's move in it", got)
 	}
 	finalize(t, e, first)

@@ -35,6 +35,17 @@ func statementRows(page map[string]any) []string {
 	return out
 }
 
+// statementRow is the statement's row of the group account, as
+// statementRows shows it, or none.
+func statementRow(page map[string]any, number string) string {
+	for _, r := range statementRows(page) {
+		if strings.HasPrefix(r, number+" ") {
+			return r
+		}
+	}
+	return "none"
+}
+
 // columnsOf shows a row's or a total's three columns.
 func columnsOf(m any) string {
 	x := m.(map[string]any)
@@ -61,10 +72,10 @@ func statementTotals(page map[string]any, names ...string) string {
 // TestConsolidatedStatements (ADR-0059 §11): TestConsolidationRun's run
 // as its balance sheet and profit and loss, every group account of their
 // types in number order with the companies' translated figures summed,
-// the eliminations of 2000's investment in 1000 against 1000's equity at
-// acquisition (T68h: its share capital, its results before November on
-// retained earnings and October's 75.00 of the reserve, leaving
-// November's -80.00), and the totals: the balance sheet's assets,
+// the eliminations of 2000's investment in 1000 against 1000's share
+// capital (T68h2: an incorporated member's results before November stay
+// on the group's retained earnings, and its reserve stays whole), and the
+// totals: the balance sheet's assets,
 // liabilities, equity and the year's profit summing to zero, the profit
 // and loss's revenue, expenses, profit and its attribution, all of it to
 // the owners of the parent. Each row's reported figure is
@@ -83,22 +94,22 @@ func TestConsolidatedStatements(t *testing.T) {
 		t.Errorf("the balance sheet's run: got %s, want ACME's computed November in EUR", got)
 	}
 	want := []string{
-		"G1000 Other assets asset: 435.00 EUR / 0.00 EUR / 435.00 EUR",
+		"G1000 Other assets asset: 1140.00 EUR / 0.00 EUR / 1140.00 EUR",
 		"G1250 Intercompany receivables asset: 0.00 EUR / 0.00 EUR / 0.00 EUR",
-		"G1500 Investments in subsidiaries asset: 1105.00 EUR / -1105.00 EUR / 0.00 EUR",
+		"G1500 Investments in subsidiaries asset: 400.00 EUR / -400.00 EUR / 0.00 EUR",
 		"G1900 Goodwill asset (goodwill): 0.00 EUR / 0.00 EUR / 0.00 EUR",
 		"G2000 Liabilities liability: 0.00 EUR / 0.00 EUR / 0.00 EUR",
 		"G2250 Intercompany payables liability: 0.00 EUR / 0.00 EUR / 0.00 EUR",
 		"G3000 Share capital equity: -400.00 EUR / 400.00 EUR / 0.00 EUR",
-		"G3800 Retained earnings equity (retained_earnings): -630.00 EUR / 630.00 EUR / 0.00 EUR",
-		"G3900 Currency translation reserve equity (cta): -155.00 EUR / 75.00 EUR / -80.00 EUR",
+		"G3800 Retained earnings equity (retained_earnings): -630.00 EUR / 0.00 EUR / -630.00 EUR",
+		"G3900 Currency translation reserve equity (cta): -155.00 EUR / 0.00 EUR / -155.00 EUR",
 		"G3950 Non-controlling interests equity (nci): 0.00 EUR / 0.00 EUR / 0.00 EUR",
 	}
 	if got, w := strings.Join(statementRows(bs), "\n"), strings.Join(want, "\n"); got != w {
 		t.Errorf("the balance sheet: got\n%s\nwant\n%s", got, w)
 	}
-	if got, w := statementTotals(bs, "assets", "liabilities", "equity", "profit"), "assets 1540.00 EUR / -1105.00 EUR / 435.00 EUR, "+
-		"liabilities 0.00 EUR / 0.00 EUR / 0.00 EUR, equity -1185.00 EUR / 1105.00 EUR / -80.00 EUR, profit -355.00 EUR / 0.00 EUR / -355.00 EUR"; got != w {
+	if got, w := statementTotals(bs, "assets", "liabilities", "equity", "profit"), "assets 1540.00 EUR / -400.00 EUR / 1140.00 EUR, "+
+		"liabilities 0.00 EUR / 0.00 EUR / 0.00 EUR, equity -1185.00 EUR / 400.00 EUR / -785.00 EUR, profit -355.00 EUR / 0.00 EUR / -355.00 EUR"; got != w {
 		t.Errorf("the balance sheet's totals: got %s, want %s (summing to zero)", got, w)
 	}
 	pl, _ := e.Must(200, "GET", statementPath(run, "profit_and_loss"), "", "")
@@ -147,7 +158,7 @@ func statementPages(t *testing.T, e fixture.Env, run uuid.UUID) {
 		for _, it := range page["items"].([]any) {
 			seen = append(seen, it.(map[string]any)["number"].(string))
 		}
-		if got := columnsOf(page["totals"].(map[string]any)["assets"]); got != "1540.00 EUR / -1105.00 EUR / 435.00 EUR" {
+		if got := columnsOf(page["totals"].(map[string]any)["assets"]); got != "1540.00 EUR / -400.00 EUR / 1140.00 EUR" {
 			t.Errorf("a page's assets: got %s, want the whole statement's", got)
 		}
 		next = ""

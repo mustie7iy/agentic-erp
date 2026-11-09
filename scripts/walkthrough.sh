@@ -3709,10 +3709,11 @@ consolidation_run() {
   say "the difference on the currency translation reserve, so its translated figures sum to zero:"
   api 200 '.items[] | "  \(.line_no) \(.kind) \(.group_account.number) \(.group_account.name)\(if .account then " / \(.account.number) \(.account.name)" else "" end)\(if .trading_partner then ", trading partner \(.trading_partner.code)" else "" end): \(if .amount_lc then "\(.amount_lc.amount) \(.amount_lc.currency), booked \(.amount_gc_booked.amount), " else "" end)translated \(.amount_gc.amount) \(.amount_gc.currency)\(if .closing_rate then " at \(.closing_rate)" else "" end)"' \
     listConsolidationBalances -p "id=$run" -p "legal_entity_id=$us"
-  # The bank's USD 5,000.00 at the closing 1.40, the payable at 1.40, the
-  # share capital and the expense as booked; the rest on the reserve.
-  local cta=$((-(700000 - 280000 - CAPITAL + 270000))) rows
-  rows="balance 100000 5000.00 7000.00, balance 225000 -2000.00 -2800.00, balance 300000 -5000.00 -$(amount "$CAPITAL")"
+  # The bank's USD 5,800.00 at the closing 1.40, the payable at 1.40, the
+  # share capital, the earlier sales and the expense as booked; the rest
+  # on the reserve.
+  local cta=$((-(812000 - 280000 - CAPITAL - RETAINED + 270000))) rows
+  rows="balance 100000 5800.00 8120.00, balance 225000 -2000.00 -2800.00, balance 300000 -5000.00 -$(amount "$CAPITAL"), prior_results - -800.00 -$(amount "$RETAINED")"
   [ "$cta" = 0 ] || rows="$rows, cta - - $(amount "$cta")"
   expect "Acme Corp US's rows" "$(field '[.items[] | "\(.kind) \(.account.number // "-") \(.amount_lc.amount // "-") \(.amount_gc.amount)"] | join(", ")')" \
     "$rows, balance 525000 2000.00 2700.00"
@@ -3722,12 +3723,13 @@ consolidation_run() {
     listConsolidationBalances -p "id=$run" -p "legal_entity_id=$LE" -p kind=cta
   expect "Maple's translation differences" "$(field '.items | length')" 0
   say "Acme Corp US's acquisition (ADR-0059 §9): Maple incorporated it, so there is no goodwill and no non-controlling"
-  say "interest; its net assets at the end of the period before its first, translated at that period's closing rate, are"
-  say "its equity at acquisition, which Maple's investment equals:"
+  say "interest, and Maple's investment equals its share capital as booked, which alone it is eliminated against (B5(a));"
+  say "its net assets at the end of the period before its first, its earlier sales among them, are shown at that period's"
+  say "closing rate:"
   api 200 '.members[] | select(.acquisition) | "  \(.company_code) at \(.acquisition.fiscal_year)-\(.acquisition.period), rate \(.acquisition.closing_rate) from \(.acquisition.rate_valid_from): net assets \(.acquisition.net_assets.amount) \(.acquisition.net_assets.currency) = \(.acquisition.net_assets_group.amount) \(.acquisition.net_assets_group.currency), investment \(.acquisition.investment.amount), goodwill \(.acquisition.goodwill.amount), non-controlling interest \(.acquisition.non_controlling_interest.amount), frozen \(.acquisition.frozen)"' \
     getConsolidationRun -p "id=$run"
   expect "Acme Corp US's acquisition" "$(field '.members[] | select(.acquisition) | .acquisition | "\(.net_assets.amount) \(.net_assets_group.amount) \(.investment.amount) \(.goodwill.amount) \(.non_controlling_interest.amount) \(.frozen)"')" \
-    "5000.00 $(amount "$CAPITAL") $(amount "$CAPITAL") 0.00 0.00 false"
+    "5800.00 $(amount $((5800 * ${CAPITAL} / 5000))) $(amount "$CAPITAL") 0.00 0.00 false"
 }
 
 # consolidation_investment US is the investment a run eliminates (T68h,
@@ -3736,15 +3738,19 @@ consolidation_run() {
 # its first, at the rate Tom records from that day, so that the period has
 # a closing rate from within it (1.35; in January the 1.38 of December's
 # last day, which step_year_end records too, so that the final run of
-# step_close measures the acquisition at the same rate); and Maple's
-# investment, its CAD amount, on the month's first day against its bank.
-# CAPITAL is that amount in cents, ACQ_PERIOD that period (YYYY-MM).
+# step_close measures the acquisition at the same rate), with USD 800.00
+# of sales on the same day, its retained earnings before the group's
+# first period, which stay the group's (T68h2: an incorporated subsidiary's
+# investment is eliminated against its share capital alone, B5(a) and B8,
+# po:2026-11-09); and Maple's investment, the share capital's CAD amount,
+# on the month's first day against its bank. CAPITAL and RETAINED are
+# those CAD amounts in cents, ACQ_PERIOD that period (YYYY-MM).
 consolidation_investment() {
   local us=$1 first="${TODAY:0:7}-01" end rate=135 p year period
   end=$(date_add "$first" -1)
   [ "${TODAY:5:2}" = 01 ] && rate=138
   year=$((10#${end:0:4})) period=$((10#${end:5:2}))
-  CAPITAL=$((5000 * rate)) ACQ_PERIOD=${end:0:7}
+  CAPITAL=$((5000 * rate)) RETAINED=$((800 * rate)) ACQ_PERIOD=${end:0:7}
   as tom
   say "Maple founded Acme Corp US with USD 5,000.00 of share capital, booked on $end, the last day of the period before"
   say "the group's first; Tom records the USD rate of that day, so that the period has a closing rate:"
@@ -3755,6 +3761,9 @@ consolidation_investment() {
   api 200 '"period \(.fiscal_year)-\(.period) of Acme Corp US: \(.status)"' openFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
   api 201 '"journal entry \(.document_number) of \(.posting_date): \([.lines[] | "\(.amount.amount) \(.amount.currency)"] | join(" / "))"' postJournalEntry \
     -body "{\"legal_entity_id\": \"$us\", \"document_date\": \"$end\", \"posting_date\": \"$end\", \"currency\": \"USD\", \"header_text\": \"Share capital paid in by Maple\", \"lines\": [{\"account_id\": \"$(jq -r '.items[] | select(.number == "100000") | .id' "$WORK/us-accounts.json")\", \"amount\": {\"amount\": \"5000.00\", \"currency\": \"USD\"}}, {\"account_id\": \"$(jq -r '.items[] | select(.number == "300000") | .id' "$WORK/us-accounts.json")\", \"amount\": {\"amount\": \"-5000.00\", \"currency\": \"USD\"}}]}"
+  say "Acme Corp US sold USD 800.00 of engineering on the same day, a result before the group's first period:"
+  api 201 '"journal entry \(.document_number) of \(.posting_date): \([.lines[] | "\(.amount.amount) \(.amount.currency)"] | join(" / "))"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$us\", \"document_date\": \"$end\", \"posting_date\": \"$end\", \"currency\": \"USD\", \"header_text\": \"Engineering sold before the group's first period\", \"lines\": [{\"account_id\": \"$(jq -r '.items[] | select(.number == "100000") | .id' "$WORK/us-accounts.json")\", \"amount\": {\"amount\": \"800.00\", \"currency\": \"USD\"}}, {\"account_id\": \"$(jq -r '.items[] | select(.number == "400000") | .id' "$WORK/us-accounts.json")\", \"amount\": {\"amount\": \"-800.00\", \"currency\": \"USD\"}}]}"
   accounts
   say "Maple books its investment, CAD $(amount "$CAPITAL"), on $first:"
   api 201 '"journal entry \(.document_number) of \(.posting_date): \([.lines[] | "\(.amount.amount) \(.amount.currency)"] | join(" / "))"' postJournalEntry \
@@ -3806,7 +3815,7 @@ consolidation_eliminations() {
     listConsolidationEntries -p "id=$run"
   expect "the entries' lines" "$(field '[.items[] | "\(.entry_no):" + ([.lines[] | "\(.group_account.number)=\(.amount.amount)"] | join(" "))] | join(", ")')" \
     "1:G1250=-2700.00 G2250=2800.00 G6950=-100.00, 2:G4250=2700.00 G5250=-2700.00, 3:G1700=-$(amount "$CAPITAL") G3000=$(amount "$CAPITAL")"
-  say "Maple's investment is eliminated against Acme Corp US's equity at acquisition, its share capital (ADR-0059 §9):"
+  say "Maple's investment is eliminated against Acme Corp US's share capital alone (ADR-0059 §9, As built T68h2):"
   expect "the investment entry" "$(field '[.items[] | select(.kind == "investment") | .lines[] | "\(.component) \(.company_code) \(.account.number // "-") \(.amount.amount)"] | join(", ")')" \
     "investment $CC 1700 -$(amount "$CAPITAL"), acquisition_equity 1000 - $(amount "$CAPITAL")"
   expect "the entries' debits" "$(field '[.totals[] | "\(.kind) \(.count) \(.debits.amount)"] | join(", ")')" "intercompany 2 5500.00, investment 1 $(amount "$CAPITAL")"
@@ -3816,13 +3825,14 @@ consolidation_eliminations() {
 # ADR-0059 §11), part of step_consolidation: Carla reads the balance sheet
 # and the profit and loss of consolidation_run's run, one row per group
 # account with the companies' translated figures summed, the eliminations
-# (T68f's intercompany entries) and the consolidated figure; the balance
-# sheet's
+# (T68f's intercompany entries, T68h's investment against the share
+# capital alone, which leaves Acme Corp US's earlier sales on retained
+# earnings, T68h2) and the consolidated figure; the balance sheet's
 # assets, liabilities and equity and the fiscal year's profit sum to zero,
 # the profit is the profit and loss's, and each row's reported figure is
 # the balances list's total for its group account.
 consolidation_statements() {
-  local run statement number reported total differ="" cents='(.amount | tonumber * 100 | round)'
+  local run statement number reported total us differ="" cents='(.amount | tonumber * 100 | round)'
   as carla
   QUIET=1 api 200 '' listConsolidationRuns -p group_code=MAPLE -p status=computed
   run=$(field '.items[0].id')
@@ -3841,6 +3851,14 @@ consolidation_statements() {
     "G1250 0.00, G2250 0.00"
   expect "the investment, eliminated" "$(field '[.items[] | select(.number | IN("G1700", "G1900", "G3950")) | "\(.number) \(.reported.amount) \(.eliminations.amount) \(.consolidated.amount)"] | join(", ")')" \
     "G1700 $(amount "$CAPITAL") -$(amount "$CAPITAL") 0.00, G1900 0.00 0.00 0.00, G3950 0.00 0.00 0.00"
+  say "Acme Corp US's sales before the group's first period are a result since Maple incorporated it (B8): they stay on the"
+  say "group's retained earnings, uneliminated, as booked (B3):"
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  us=$(field '.items[] | select(.code == "1000") | .id')
+  api 200 '.items[] | "  \(.company_code) \(.kind) \(.group_account.number) \(.group_account.name): \(.amount_lc.amount) \(.amount_lc.currency), translated \(.amount_gc.amount) \(.amount_gc.currency)"' \
+    listConsolidationBalances -p "id=$run" -p group_account=G3800 -p "legal_entity_id=$us"
+  expect "Acme Corp US's retained earnings" "$(field '[.items[] | "\(.kind) \(.amount_gc.amount)"] | join(", ")')" "prior_results -$(amount "$RETAINED")"
+  expect "the retained earnings, consolidated" "$(jq -r '.items[] | select(.number == "G3800") | "\(.eliminations.amount) \(.consolidated.amount == .reported.amount)"' "$WORK/balance-sheet.json")" "0.00 true"
   say "And the profit and loss, whose profit closes the balance sheet:"
   api 200 '"\(.statement) of \(.group_code) for \(.fiscal_year)-\(.period):",
     (.items[] | "  \(.number) \(.name) (\(.type)): reported \(.reported.amount), eliminations \(.eliminations.amount), consolidated \(.consolidated.amount)"),
@@ -5744,9 +5762,9 @@ close_consolidation() {
   api 202 '"operation \(.kind) \(.status): \(.resource)"' createConsolidationRun -body "{\"group_code\": \"MAPLE\", \"fiscal_year\": $YEAR, \"period\": $period}"
   draft=$(field '.resource | split("/") | last')
   wait_op
-  api 200 '"run \(.status): \([.members[] | select(.acquisition) | "\(.company_code)'"'"'s acquisition \(.acquisition.net_assets_group.amount) \(.acquisition.net_assets_group.currency), frozen \(.acquisition.frozen)"] | join(", "))"' \
+  api 200 '"run \(.status): \([.members[] | select(.acquisition) | "\(.company_code)'"'"'s acquisition, investment \(.acquisition.investment.amount) \(.acquisition.investment.currency), frozen \(.acquisition.frozen)"] | join(", "))"' \
     getConsolidationRun -p "id=$draft"
-  expect "the later run's acquisition" "$(field '"\(.status) \([.members[] | select(.acquisition) | "\(.acquisition.net_assets_group.amount) \(.acquisition.frozen)"] | join(" "))"')" \
+  expect "the later run's acquisition" "$(field '"\(.status) \([.members[] | select(.acquisition) | "\(.acquisition.investment.amount) \(.acquisition.frozen)"] | join(" "))"')" \
     "computed $(amount "$CAPITAL") true"
   api 200 '"  run \(.id): \(.status)"' discardConsolidationRun -p "id=$draft" -if-match "$ETAG"
 }

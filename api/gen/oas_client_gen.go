@@ -713,29 +713,31 @@ type Invoker interface {
 	// in the fiscal year of its first period those of the periods before it, as one row on the group
 	// chart's `retained_earnings` account; and the translation difference, which makes each company's
 	// translated rows sum to zero, as one row on its `cta` account. Each member's investment is then
-	// eliminated against its equity at acquisition (§9): its translated figures at the period before its
-	// first, at that period's closing rate, or those the group's first final run including it froze (the
-	// member's `acquisition`, its `investment` entry). A run consolidates only a member the parent
-	// incorporated and holds whole, with no goodwill and no non-controlling interest (ADR-0059 As built
-	// T68h; the accounting specialist's B5, po:2026-11-09). A run may be made for any period, open or not:
-	// a draft shows the figures as they stand. Refused when the group is unknown to the caller (404
-	// `consolidation.group_unknown`: one that does not exist, or whose parent or a member the caller may
-	// not act in), for a special period (422 `consolidation.special_period`), a period the parent's
-	// leading ledger does not have (422 `consolidation.period_unknown`), a member included on another
-	// fiscal calendar (422 `consolidation.calendar_mismatch`, naming it), a parent whose local currency is
-	// not the group currency (422 `consolidation.parent_currency`), a company currency without a closing
-	// rate of the period (422 `consolidation.rate_missing`) or with one valid from before the period's
-	// first day (422 `consolidation.rate_stale`, ADR-0042's rule), each naming the pair and the date, and
-	// likewise for the period before the first of a member whose acquisition is not frozen yet, or a
-	// member without that period (422 `consolidation.period_unknown`); a member held at less than 100% or
-	// acquired rather than incorporated, which needs goodwill or a non-controlling interest, not built
-	// (422 `consolidation.structure_unsupported`, naming it); and while another run of the group is queued
-	// or running (409 `consolidation.run_in_progress`, whose detail and `Location` name it). A business
+	// eliminated against its share capital (§9): its rows on its equity accounts other than its retained
+	// earnings account through the run's period, as booked, or those the group's first final run including
+	// it froze (the member's `acquisition`, measured at the period before its first, and its `investment`
+	// entry); its earlier results and translation reserve stay the group's. A run consolidates only a
+	// member the parent incorporated and holds whole, with no goodwill and no non-controlling interest
+	// (ADR-0059 As built T68h and T68h2; the accounting specialist's B5(a), B3 and B8, po:2026-11-09). A
+	// run may be made for any period, open or not: a draft shows the figures as they stand. Refused when
+	// the group is unknown to the caller (404 `consolidation.group_unknown`: one that does not exist, or
+	// whose parent or a member the caller may not act in), for a special period (422
+	// `consolidation.special_period`), a period the parent's leading ledger does not have (422
+	// `consolidation.period_unknown`), a member included on another fiscal calendar (422
+	// `consolidation.calendar_mismatch`, naming it), a parent whose local currency is not the group
+	// currency (422 `consolidation.parent_currency`), a company currency without a closing rate of the
+	// period (422 `consolidation.rate_missing`) or with one valid from before the period's first day (422
+	// `consolidation.rate_stale`, ADR-0042's rule), each naming the pair and the date, and likewise for
+	// the period before the first of a member whose acquisition is not frozen yet, or a member without
+	// that period (422 `consolidation.period_unknown`); a member held at less than 100% or acquired rather
+	// than incorporated, which needs goodwill or a non-controlling interest, not built (422
+	// `consolidation.structure_unsupported`, naming it); and while another run of the group is queued or
+	// running (409 `consolidation.run_in_progress`, whose detail and `Location` name it). A business
 	// problem while the run is carried out (a rate recorded since, a company account with a balance and no
 	// group account, `consolidation.account_unmapped`, a member's period gone, its requester blocked
-	// since; a member whose investment differs from its net assets at acquisition, which an incorporated
-	// subsidiary without goodwill cannot explain, `consolidation.investment_mismatch`; a member whose
-	// ownership, origin, first period or investment account differs from its frozen acquisition's,
+	// since; a member whose investment differs from its share capital, which an incorporated subsidiary
+	// without goodwill cannot explain, `consolidation.investment_mismatch`; a member whose ownership,
+	// origin, first period or investment account differs from its frozen acquisition's,
 	// `consolidation.acquisition_changed`, or whose parent's investment balance does,
 	// `consolidation.investment_changed`) fails the run and its Operation with the problem. Cancelling the
 	// Operation (`POST /v1/operations/{id}:cancel`) fails the run at its next step with
@@ -12768,29 +12770,31 @@ func (c *Client) sendCreateConnector(ctx context.Context, request *ConnectorCrea
 // in the fiscal year of its first period those of the periods before it, as one row on the group
 // chart's `retained_earnings` account; and the translation difference, which makes each company's
 // translated rows sum to zero, as one row on its `cta` account. Each member's investment is then
-// eliminated against its equity at acquisition (§9): its translated figures at the period before its
-// first, at that period's closing rate, or those the group's first final run including it froze (the
-// member's `acquisition`, its `investment` entry). A run consolidates only a member the parent
-// incorporated and holds whole, with no goodwill and no non-controlling interest (ADR-0059 As built
-// T68h; the accounting specialist's B5, po:2026-11-09). A run may be made for any period, open or not:
-// a draft shows the figures as they stand. Refused when the group is unknown to the caller (404
-// `consolidation.group_unknown`: one that does not exist, or whose parent or a member the caller may
-// not act in), for a special period (422 `consolidation.special_period`), a period the parent's
-// leading ledger does not have (422 `consolidation.period_unknown`), a member included on another
-// fiscal calendar (422 `consolidation.calendar_mismatch`, naming it), a parent whose local currency is
-// not the group currency (422 `consolidation.parent_currency`), a company currency without a closing
-// rate of the period (422 `consolidation.rate_missing`) or with one valid from before the period's
-// first day (422 `consolidation.rate_stale`, ADR-0042's rule), each naming the pair and the date, and
-// likewise for the period before the first of a member whose acquisition is not frozen yet, or a
-// member without that period (422 `consolidation.period_unknown`); a member held at less than 100% or
-// acquired rather than incorporated, which needs goodwill or a non-controlling interest, not built
-// (422 `consolidation.structure_unsupported`, naming it); and while another run of the group is queued
-// or running (409 `consolidation.run_in_progress`, whose detail and `Location` name it). A business
+// eliminated against its share capital (§9): its rows on its equity accounts other than its retained
+// earnings account through the run's period, as booked, or those the group's first final run including
+// it froze (the member's `acquisition`, measured at the period before its first, and its `investment`
+// entry); its earlier results and translation reserve stay the group's. A run consolidates only a
+// member the parent incorporated and holds whole, with no goodwill and no non-controlling interest
+// (ADR-0059 As built T68h and T68h2; the accounting specialist's B5(a), B3 and B8, po:2026-11-09). A
+// run may be made for any period, open or not: a draft shows the figures as they stand. Refused when
+// the group is unknown to the caller (404 `consolidation.group_unknown`: one that does not exist, or
+// whose parent or a member the caller may not act in), for a special period (422
+// `consolidation.special_period`), a period the parent's leading ledger does not have (422
+// `consolidation.period_unknown`), a member included on another fiscal calendar (422
+// `consolidation.calendar_mismatch`, naming it), a parent whose local currency is not the group
+// currency (422 `consolidation.parent_currency`), a company currency without a closing rate of the
+// period (422 `consolidation.rate_missing`) or with one valid from before the period's first day (422
+// `consolidation.rate_stale`, ADR-0042's rule), each naming the pair and the date, and likewise for
+// the period before the first of a member whose acquisition is not frozen yet, or a member without
+// that period (422 `consolidation.period_unknown`); a member held at less than 100% or acquired rather
+// than incorporated, which needs goodwill or a non-controlling interest, not built (422
+// `consolidation.structure_unsupported`, naming it); and while another run of the group is queued or
+// running (409 `consolidation.run_in_progress`, whose detail and `Location` name it). A business
 // problem while the run is carried out (a rate recorded since, a company account with a balance and no
 // group account, `consolidation.account_unmapped`, a member's period gone, its requester blocked
-// since; a member whose investment differs from its net assets at acquisition, which an incorporated
-// subsidiary without goodwill cannot explain, `consolidation.investment_mismatch`; a member whose
-// ownership, origin, first period or investment account differs from its frozen acquisition's,
+// since; a member whose investment differs from its share capital, which an incorporated subsidiary
+// without goodwill cannot explain, `consolidation.investment_mismatch`; a member whose ownership,
+// origin, first period or investment account differs from its frozen acquisition's,
 // `consolidation.acquisition_changed`, or whose parent's investment balance does,
 // `consolidation.investment_changed`) fails the run and its Operation with the problem. Cancelling the
 // Operation (`POST /v1/operations/{id}:cancel`) fails the run at its next step with

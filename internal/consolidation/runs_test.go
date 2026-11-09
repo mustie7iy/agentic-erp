@@ -87,13 +87,14 @@ func figures(t *testing.T, e fixture.Env) {
 	post(t, e, e.US, "1000", "USD", "2026-10-15", "520000", "100000", "200.00", nil)
 	post(t, e, e.US, "1000", "USD", "2026-11-10", "100000", "400000", "300.00", &e.DE)
 	post(t, e, e.DE, "2000", "EUR", "2026-11-05", "100000", "400000", "100.00", nil)
-	invest(t, e, "1105.00")
+	invest(t, e, "400.00")
 }
 
 // invest posts company 2000's investment in company 1000 on 150000
-// against its bank on 5 November 2026. For figures, 1,105.00 EUR is 1000's
-// net assets at acquisition: its bank's USD 1,300.00 through October 2026
-// at October's closing 0.85 (ADR-0059 §9).
+// against its bank on 5 November 2026. For figures, 400.00 EUR is 1000's
+// share capital, USD 500.00 as booked at 0.80, which an incorporated
+// member's investment is eliminated against (ADR-0059 §9, As built
+// T68h2).
 func invest(t *testing.T, e fixture.Env, amount string) {
 	t.Helper()
 	post(t, e, e.DE, "2000", "EUR", "2026-11-05", "150000", "100000", amount, nil)
@@ -204,8 +205,8 @@ func TestConsolidationRun(t *testing.T) {
 		"1000 Acme Corp US #3 prior_results G3800 Retained earnings: -800.00 USD / -630.00 EUR / -630.00 EUR",
 		"1000 Acme Corp US #4 cta G3900 Currency translation reserve: - / - / -155.00 EUR",
 		"1000 Acme Corp US #5 balance G4000 Revenue 400000 Sales Revenue tp 2000 Acme GmbH: -300.00 USD / -255.00 EUR / -255.00 EUR",
-		"2000 Acme GmbH #1 balance G1000 Other assets 100000 Bank - Operating: -1005.00 EUR / -1005.00 EUR / -1005.00 EUR at 1",
-		"2000 Acme GmbH #2 balance G1500 Investments in subsidiaries 150000 Investment in Acme Corp US: 1105.00 EUR / 1105.00 EUR / 1105.00 EUR at 1",
+		"2000 Acme GmbH #1 balance G1000 Other assets 100000 Bank - Operating: -300.00 EUR / -300.00 EUR / -300.00 EUR at 1",
+		"2000 Acme GmbH #2 balance G1500 Investments in subsidiaries 150000 Investment in Acme Corp US: 400.00 EUR / 400.00 EUR / 400.00 EUR at 1",
 		"2000 Acme GmbH #3 balance G4000 Revenue 400000 Sales Revenue: -100.00 EUR / -100.00 EUR / -100.00 EUR",
 	}
 	if s, w := strings.Join(balanceLines(page), "\n"), strings.Join(want, "\n"); s != w {
@@ -233,7 +234,7 @@ func balanceFilters(t *testing.T, e fixture.Env, run uuid.UUID) {
 		{"company 1000", "legal_entity_id=" + e.US.String(), "1000#1 1000#2 1000#3 1000#4 1000#5", "local USD 0.00, booked 0.00, group 0.00"},
 		{"the translation differences", "kind=cta", "1000#4", "local , booked 0.00, group -155.00"},
 		{"the revenue", "group_account=G4000", "1000#5 2000#3", "local EUR -100.00 USD -300.00, booked -355.00, group -355.00"},
-		{"the bank of 2000", "account_id=" + e.Account(t, "2000", "100000").String(), "2000#1", "local EUR -1005.00, booked -1005.00, group -1005.00"},
+		{"the bank of 2000", "account_id=" + e.Account(t, "2000", "100000").String(), "2000#1", "local EUR -300.00, booked -300.00, group -300.00"},
 		{"trading partner 2000", "trading_partner_id=" + e.DE.String(), "1000#5", "local USD -300.00, booked -255.00, group -255.00"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -296,7 +297,7 @@ func TestConsolidationRunProjected(t *testing.T) {
 	fixture.Project(t)
 	post(t, e, e.US, "1000", "USD", "2026-11-10", "100000", "400000", "200.00", &e.DE)
 	post(t, e, e.DE, "2000", "EUR", "2026-11-05", "100000", "400000", "100.00", nil)
-	invest(t, e, "1105.00")
+	invest(t, e, "400.00")
 	for _, p := range []struct {
 		year       int
 		lc, gc     int64
@@ -317,8 +318,8 @@ func TestConsolidationRunProjected(t *testing.T) {
 		"1000 Acme Corp US #3 prior_results G3800 Retained earnings: -750.00 USD / -590.00 EUR / -590.00 EUR",
 		"1000 Acme Corp US #4 cta G3900 Currency translation reserve: - / - / -195.00 EUR",
 		"1000 Acme Corp US #5 balance G4000 Revenue 400000 Sales Revenue tp 2000 Acme GmbH: -300.00 USD / -255.00 EUR / -255.00 EUR",
-		"2000 Acme GmbH #1 balance G1000 Other assets 100000 Bank - Operating: -1005.00 EUR / -1005.00 EUR / -1005.00 EUR at 1",
-		"2000 Acme GmbH #2 balance G1500 Investments in subsidiaries 150000 Investment in Acme Corp US: 1105.00 EUR / 1105.00 EUR / 1105.00 EUR at 1",
+		"2000 Acme GmbH #1 balance G1000 Other assets 100000 Bank - Operating: -300.00 EUR / -300.00 EUR / -300.00 EUR at 1",
+		"2000 Acme GmbH #2 balance G1500 Investments in subsidiaries 150000 Investment in Acme Corp US: 400.00 EUR / 400.00 EUR / 400.00 EUR at 1",
 		"2000 Acme GmbH #3 balance G4000 Revenue 400000 Sales Revenue: -100.00 EUR / -100.00 EUR / -100.00 EUR",
 	}
 	if s, w := strings.Join(balanceLines(page), "\n"), strings.Join(want, "\n"); s != w {

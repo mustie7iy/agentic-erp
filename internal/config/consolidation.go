@@ -70,10 +70,10 @@ type GroupMember struct {
 // How the parent came to hold a member (ADR-0059 As built T68h; the
 // accounting specialist's B5, po:2026-11-09): incorporated by it, so IFRS
 // 3 does not apply and the investment is eliminated against the member's
-// equity, or acquired, a business combination with goodwill and fair
-// values. A run consolidates only a member the parent incorporated and
-// holds whole; the others wait for the steps that compute goodwill and
-// the non-controlling interest.
+// share capital (As built T68h2), or acquired, a business combination
+// with goodwill and fair values. A run consolidates only a member the
+// parent incorporated and holds whole; the others wait for the steps that
+// compute goodwill and the non-controlling interest.
 const (
 	OriginIncorporated = "incorporated"
 	OriginAcquired     = "acquired"
