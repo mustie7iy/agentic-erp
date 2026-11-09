@@ -93,7 +93,7 @@ func (e *Endpoints) PostRevaluationRun(ctx context.Context, req *gen.Revaluation
 		return nil, err
 	}
 	rep := revaluationRunToAPI(run)
-	if err := e.nameItems(ctx, rep.Items); err != nil {
+	if err := e.nameRevaluation(ctx, rep.Items, rep.Totals); err != nil {
 		return nil, err
 	}
 	return &gen.RevaluationRunHeaders{ETag: gen.NewOptString(etag.Format(run.Version)), Location: gen.NewOptString("/v1/revaluation-runs/" + run.ID.String()), Response: rep}, nil
@@ -186,7 +186,11 @@ type valuationAccounts struct {
 // direction. The entry is in local currency, so a line's transaction
 // amount is its local one; local and group amounts are each the total's
 // own difference (ADR-0042), so a group difference of the other sign
-// posts to the same account.
+// posts to the same account. Both lines carry the total's trading partner
+// (ADR-0059 §4, T68b2): the difference revalues an intercompany item or
+// balance, so a consolidation run reads it with the item it adjusts, and
+// its offset is part of the same intercompany transaction, as an
+// invoice's expense line takes its partner line's.
 func revaluationLines(ctx context.Context, tx pgx.Tx, r Revaluation, totals []RevaluationTotal) ([]Line, error) {
 	accounts := map[uuid.UUID]valuationAccounts{}
 	rows, _ := tx.Query(ctx, `SELECT account_id, adjustment_account_id, gain_account_id, loss_account_id FROM ledger.fx_valuation_account
@@ -219,8 +223,8 @@ func revaluationLines(ctx context.Context, tx pgx.Tx, r Revaluation, totals []Re
 		}
 		text := "Revaluation " + t.CurrencyTC + " " + r.KeyDate.Format(time.DateOnly)
 		lines = append(lines,
-			Line{AccountID: target, TC: t.DifferenceLC, LC: t.DifferenceLC, GC: t.DifferenceGC, Text: &text},
-			Line{AccountID: offset, TC: -t.DifferenceLC, LC: -t.DifferenceLC, GC: -t.DifferenceGC, Text: &text})
+			Line{AccountID: target, TC: t.DifferenceLC, LC: t.DifferenceLC, GC: t.DifferenceGC, Text: &text, TradingPartnerID: t.TradingPartner},
+			Line{AccountID: offset, TC: -t.DifferenceLC, LC: -t.DifferenceLC, GC: -t.DifferenceGC, Text: &text, TradingPartnerID: t.TradingPartner})
 	}
 	return lines, nil
 }
@@ -276,13 +280,13 @@ func recordRevaluationRun(ctx context.Context, tx pgx.Tx, p reqctx.Principal, ru
 // recordRevaluationItems inserts a run's items, numbered in order.
 func recordRevaluationItems(ctx context.Context, tx pgx.Tx, tenant, run uuid.UUID, items []RevaluedItem) error {
 	n := len(items)
-	accounts, partners, entries := make([]uuid.UUID, n), make([]*uuid.UUID, n), make([]*uuid.UUID, n)
+	accounts, partners, tradingPartners, entries := make([]uuid.UUID, n), make([]*uuid.UUID, n), make([]*uuid.UUID, n), make([]*uuid.UUID, n)
 	years, lineNos := make([]*int16, n), make([]*int32, n)
 	currencies, rates, ratesGC := make([]string, n), make([]*string, n), make([]*string, n)
 	froms, fromsGC := make([]*time.Time, n), make([]*time.Time, n)
 	tcs, lcs, gcs, valuedLC, valuedGC := make([]money.Minor, n), make([]money.Minor, n), make([]money.Minor, n), make([]money.Minor, n), make([]money.Minor, n)
 	for i, it := range items {
-		accounts[i], partners[i], currencies[i] = it.AccountID, it.PartnerID, it.CurrencyTC
+		accounts[i], partners[i], tradingPartners[i], currencies[i] = it.AccountID, it.PartnerID, it.TradingPartner, it.CurrencyTC
 		if it.Line != nil {
 			years[i], entries[i], lineNos[i] = &it.Line.FiscalYear, &it.Line.EntryID, &it.Line.LineNo
 		}
@@ -296,11 +300,13 @@ func recordRevaluationItems(ctx context.Context, tx pgx.Tx, tenant, run uuid.UUI
 		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.revaluation_item (tenant_id, run_id, item_no, account_id, partner_id, fiscal_year, journal_entry_id,
-			line_no, currency_tc, amount_tc, amount_lc, amount_gc, rate, rate_valid_from, valued_lc, rate_gc, rate_gc_valid_from, valued_gc)
-		SELECT $1, $2, n, a, pa, y, je, ln, c, tc, lc, gc, rt::numeric, f, vl, rg::numeric, fg, vg
+			line_no, currency_tc, amount_tc, amount_lc, amount_gc, rate, rate_valid_from, valued_lc, rate_gc, rate_gc_valid_from, valued_gc, trading_partner_id)
+		SELECT $1, $2, n, a, pa, y, je, ln, c, tc, lc, gc, rt::numeric, f, vl, rg::numeric, fg, vg, tp
 		FROM unnest($3::uuid[], $4::uuid[], $5::smallint[], $6::uuid[], $7::int[], $8::text[], $9::bigint[], $10::bigint[], $11::bigint[], $12::text[],
-			$13::date[], $14::bigint[], $15::text[], $16::date[], $17::bigint[]) WITH ORDINALITY AS x(a, pa, y, je, ln, c, tc, lc, gc, rt, f, vl, rg, fg, vg, n)`,
-		tenant, run, accounts, partners, years, entries, lineNos, currencies, tcs, lcs, gcs, rates, froms, valuedLC, ratesGC, fromsGC, valuedGC); err != nil {
+			$13::date[], $14::bigint[], $15::text[], $16::date[], $17::bigint[], $18::uuid[])
+			WITH ORDINALITY AS x(a, pa, y, je, ln, c, tc, lc, gc, rt, f, vl, rg, fg, vg, tp, n)`,
+		tenant, run, accounts, partners, years, entries, lineNos, currencies, tcs, lcs, gcs, rates, froms, valuedLC, ratesGC, fromsGC, valuedGC,
+		tradingPartners); err != nil {
 		return fmt.Errorf("ledger: record revaluation run %s: items: %w", run, err)
 	}
 	return nil
@@ -357,7 +363,7 @@ func (e *Endpoints) revaluationRunWithItems(ctx context.Context, tx pgx.Tx, run 
 	}
 	run.Valuation = &r
 	rep := revaluationRunToAPI(run)
-	return rep, e.nameItems(ctx, rep.Items)
+	return rep, e.nameRevaluation(ctx, rep.Items, rep.Totals)
 }
 
 // revaluationRunItems reads a run's items back, with the differences they
@@ -369,22 +375,20 @@ func revaluationRunItems(ctx context.Context, tx pgx.Tx, run RevaluationRun, lc,
 		return Revaluation{}, err
 	}
 	r.ExpLC, r.ExpGC = exps[lc], exps[gc]
-	rows, _ := tx.Query(ctx, `SELECT i.account_id, i.partner_id, i.fiscal_year, i.journal_entry_id, i.line_no, i.currency_tc, c.exponent, i.amount_tc,
-			i.amount_lc, i.amount_gc, coalesce(i.rate::text, ''), i.rate_valid_from, i.valued_lc, coalesce(i.rate_gc::text, ''), i.rate_gc_valid_from, i.valued_gc
+	rows, _ := tx.Query(ctx, `SELECT i.account_id, i.partner_id, i.trading_partner_id, i.fiscal_year, i.journal_entry_id, i.line_no, i.currency_tc,
+			c.exponent, i.amount_tc, i.amount_lc, i.amount_gc, coalesce(i.rate::text, ''), i.rate_valid_from, i.valued_lc, coalesce(i.rate_gc::text, ''),
+			i.rate_gc_valid_from, i.valued_gc
 		FROM ledger.revaluation_item i JOIN ref.currency c ON c.code = i.currency_tc WHERE i.run_id = $1 ORDER BY i.item_no`, run.ID)
 	var it RevaluedItem
 	var year *int16
 	var entry *uuid.UUID
 	var lineNo *int32
 	var from, fromGC *time.Time
-	_, err = pgx.ForEachRow(rows, []any{&it.AccountID, &it.PartnerID, &year, &entry, &lineNo, &it.CurrencyTC, &it.ExpTC, &it.AmountTC, &it.AmountLC,
-		&it.AmountGC, &it.Rate, &from, &it.ValuedLC, &it.RateGC, &fromGC, &it.ValuedGC}, func() error {
+	_, err = pgx.ForEachRow(rows, []any{&it.AccountID, &it.PartnerID, &it.TradingPartner, &year, &entry, &lineNo, &it.CurrencyTC, &it.ExpTC, &it.AmountTC,
+		&it.AmountLC, &it.AmountGC, &it.Rate, &from, &it.ValuedLC, &it.RateGC, &fromGC, &it.ValuedGC}, func() error {
 		item := it
 		item.Line, item.RateValidFrom, item.RateGCValidFrom = nil, time.Time{}, time.Time{}
-		if item.PartnerID != nil {
-			partner := *item.PartnerID
-			item.PartnerID = &partner
-		}
+		item.PartnerID, item.TradingPartner = copied(item.PartnerID), copied(item.TradingPartner)
 		if entry != nil {
 			item.Line = &ItemRef{FiscalYear: *year, EntryID: *entry, LineNo: *lineNo}
 		}

@@ -3385,7 +3385,10 @@ step_asset_depreciation() {
 # Acme Corp US's number ranges as Maple's this year, and its journal
 # entries' in the previous fiscal year too, whose periods it then has
 # (ADR-0059 §Steps); and the group MAPLE, Maple holding 80% of Acme Corp
-# US from period @FIRST@. @CC@, @YEAR@ and @FIRST@ are replaced.
+# US from period @FIRST@. Maple's intercompany receivables are kept in
+# foreign currency and revalued (ADR-0042) into its unrealised gain and
+# loss, as its USD bank accounts are. @CC@, @YEAR@ and @FIRST@ are
+# replaced.
 CONSOLIDATION_SETTINGS='(.consolidation = {
   "accounts": [
     {"number": "G1000", "name": "Other assets", "type": "asset"},
@@ -3409,9 +3412,10 @@ CONSOLIDATION_SETTINGS='(.consolidation = {
   "groups": [{"code": "MAPLE", "name": "Maple group", "parent": "@CC@",
     "members": [{"company": "1000", "ownership_percent": "80", "first_period": "@FIRST@", "investment_account": "1700"}]}]})
 | (.companies[] | select(.code == "@CC@") | .chart_of_accounts) += [
-    {"number": "1250", "name": "Intercompany receivables", "type": "asset"},
+    {"number": "1250", "name": "Intercompany receivables", "type": "asset", "revalue_foreign_currency": true},
     {"number": "1700", "name": "Investment in Acme Corp US", "type": "asset"},
     {"number": "4250", "name": "Intercompany revenue", "type": "revenue"}]
+| (.companies[] | select(.code == "@CC@") | .fx_valuation.accounts) += [{"account": "1250", "unrealised_gain": "4900", "unrealised_loss": "6900"}]
 | .companies += [{"code": "1000", "name": "Acme Corp US", "currency": "USD", "country": "US", "fiscal_year_start_month": 1,
     "time_zone": "America/New_York",
     "chart_of_accounts": [
@@ -3446,7 +3450,7 @@ CONSOLIDATION_SETTINGS='(.consolidation = {
 # approved and activated; Carla reads the group with its companies named
 # and the group chart; Cory, who may act in Maple alone, sees no group.
 step_consolidation() {
-  heading "Step 40 — Group reporting: the group chart, the companies' mapping and the group MAPLE through a governed change, trading partners, a consolidation run, its intercompany eliminations and its consolidated statements"
+  heading "Step 40 — Group reporting: the group chart, the companies' mapping and the group MAPLE through a governed change, trading partners, a consolidation run, its intercompany eliminations, its consolidated statements and an intercompany balance revalued by trading partner"
   as ada
   local base settings first cr request
   first="$YEAR-${TODAY:5:2}"
@@ -3517,6 +3521,7 @@ step_consolidation() {
   consolidation_run
   consolidation_eliminations
   consolidation_statements
+  consolidation_revaluation
   as tom
   passed
 }
@@ -3753,6 +3758,89 @@ consolidation_statements() {
   done
   say "  $(jq '.items | length' "$WORK/balance-sheet.json") balance sheet and $(jq '.items | length' "$WORK/profit-and-loss.json") profit and loss rows checked against the balances list"
   expect "rows whose reported figure differs from the balances list's total" "$differ" ""
+}
+
+# consolidation_revaluation is the revaluation of intercompany items by
+# trading partner (T68b2, ADR-0059 §4, ADR-0042), part of
+# step_consolidation: Maple's USD 2,000.00 receivable from Acme Corp US,
+# booked at 1.35, is worth 1.40 at the month's end, a gain of CAD 100.00
+# that the valuation entry posts on 1250 and 4900 with trading partner
+# 1000, so a new run of the group finds the receivable and payable pair
+# matched at 2,800.00, where the gain without a trading partner would have
+# shown as no_trading_partner. A second run of the key date is refused.
+# The month is still running, so Carla cancels the revaluation, which
+# reverses both its entries, and discards the new group run: the later
+# steps see the month as booked.
+consolidation_revaluation() {
+  local eom period=$((10#${TODAY:5:2})) body reval valuation run
+  eom=$(month_end)
+  next_year_open
+  as carla
+  accounts
+  say "Maple's intercompany receivable is in USD: Carla revalues Maple's foreign-currency items at $eom (ADR-0042). The"
+  say "receivable's USD 2,000.00, booked at 1.35, is worth 1.40: a gain of CAD 100.00. A balance is valued per trading"
+  say "partner, and each total's two lines carry it (ADR-0059 §4):"
+  body="{\"legal_entity_id\": \"$LE\", \"key_date\": \"$eom\"}"
+  api 201 '"run \(.id[0:8])… at \(.key_date): \(.status), \(.item_count) items",
+    (.totals[] | "  \(.account_id | acct) \(.currency) \(.direction) \(.difference_lc.amount) CAD\(if .trading_partner then ", trading partner \(.trading_partner.code) \(.trading_partner.name)" else "" end)")' \
+    postRevaluationRun -body "$body"
+  reval=$(field .id)
+  valuation=$(field .valuation_entry_id)
+  expect "the intercompany receivable's total" \
+    "$(jq -r --arg a "$(account 1250)" '[.totals[] | select(.account_id == $a) | "\(.direction) \(.amount.amount) \(.difference_lc.amount) \(.trading_partner.code)"] | join(", ")' "$WORK/last.json")" \
+    "gain 2000.00 100.00 1000"
+  say "Its valuation entry posts the gain on the receivable and on the unrealised gain, both naming company 1000:"
+  api 200 '.lines[] | select(.trading_partner) | "  line \(.line_no): \(.account_id | acct) \(.amount_lc.amount) CAD, trading partner \(.trading_partner.code)"' \
+    getJournalEntry -p "id=$valuation"
+  expect "the receivable's revaluation lines" \
+    "$(jq -r --arg r "$(account 1250)" --arg g "$(account 4900)" '[.lines[] | select(.trading_partner and (.account_id == $r or .account_id == $g)) | "\(.amount_lc.amount) \(.trading_partner.code)"] | join(", ")' "$WORK/last.json")" \
+    "100.00 1000, -100.00 1000"
+  say "A second run at the same key date is refused, naming the first:"
+  refused 409 ledger.revaluation_exists postRevaluationRun -body "$body"
+  say "Carla runs the group again: Maple's receivable is now CAD 2,800.00 with trading partner 1000, the payable's figure:"
+  api 202 '"operation \(.kind) \(.status): \(.resource)"' createConsolidationRun -body "{\"group_code\": \"MAPLE\", \"fiscal_year\": $YEAR, \"period\": $period}"
+  run=$(field '.resource | split("/") | last')
+  wait_op
+  api 200 '.items[] | "  \(.elimination.code): \(.company_code) and \(.partner.code): \(.amount.amount) + \(.partner_amount.amount) = \(.difference.amount) \(.difference.currency), \(.status)"' \
+    listIntercompanyDifferences -p "id=$run"
+  expect "the differences after the revaluation" \
+    "$(field '[.items[] | "\(.elimination.code) \(.company_code)/\(.partner.code) \(.amount.amount) \(.partner_amount.amount) \(.difference.amount) \(.status)"] | join(", ")')" \
+    "IC_BALANCES 1000/$CC -2800.00 2800.00 0.00 matched, IC_RESULTS 1000/$CC 2700.00 -2700.00 0.00 matched"
+  say "The month is still running: Carla discards this run and cancels the revaluation, which reverses both its entries,"
+  say "so the steps that follow see the month as booked."
+  QUIET=1 api 200 '' getConsolidationRun -p "id=$run"
+  api 200 '"run \(.id[0:8])…: \(.status)"' discardConsolidationRun -p "id=$run" -if-match "$ETAG"
+  expect "the group run" "$(field .status)" discarded
+  QUIET=1 api 200 '' getRevaluationRun -p "id=$reval"
+  api 200 '"revaluation run \(.id[0:8])…: \(.status)"' cancelRevaluationRun -p "id=$reval" -if-match "$ETAG" \
+    -body '{"reason": "The month is still running; it is revalued at its end"}'
+  expect "the revaluation run" "$(field .status)" cancelled
+}
+
+# next_year_open has, in December only, Ada set up next fiscal year (a
+# journal number range of the company for it, which creates its periods,
+# closed, as year_end_setup sets up PREV) and Carla open its first period
+# in the leading ledger, where a month-end revaluation's reset entry, dated
+# the next day, goes (ADR-0042).
+next_year_open() {
+  local next=$((YEAR + 1)) base cr p
+  [ "${TODAY:5:2}" = 12 ] || return 0
+  as ada
+  say "The revaluation's reset is dated $next-01-01: Ada sets $next up, a journal number range of $CC for it."
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Fiscal year $next\", rationale: \"The reset of December's revaluation (ADR-0042)\", base_version: $base,
+    proposed: (.items[0].document | .number_ranges += [.number_ranges[] | select(.company == \"$CC\" and .document_type == \"journal_sa\" and .fiscal_year == $YEAR)
+      | .fiscal_year = $next])}" "$WORK/last.json" >"$WORK/next-year-sa.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @next-year-sa.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  as carla
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$next" -p "ledger_id=$LEADING" -p page_size=100
+  p=$(field '.items[] | select(.period == 1) | "\(.id)/\(.version)"')
+  api 200 '"period \(.fiscal_year)/\(.period): \(.status)"' openFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
 }
 
 # UAE_COMPANY is the UAE pilot company in the configuration before its

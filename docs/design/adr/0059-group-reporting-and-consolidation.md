@@ -1181,11 +1181,9 @@ default, for the product owner to overrule:
   both lines naming company 1000; reads it back with the company's code
   and name; lists Maple's entries by trading partner; and a line naming
   Maple is refused with `ledger.trading_partner_invalid`.
-- **Not built (a tracker leaf, src review:T68b, before T68f):** a
-  revaluation's lines of a foreign currency intercompany item (ADR-0042)
-  do not carry the item's trading partner (the run groups its totals per
-  account, currency and direction), so they would show as
-  `no_trading_partner` until that leaf groups them by trading partner too.
+- **Revaluation (built in T68b2, below):** a revaluation's lines of a
+  foreign currency intercompany item (ADR-0042) carry the item's trading
+  partner.
 
 **T68c (trading partner from the business partner).** Built as §4 and
 §4a say, in `internal/partner` (the group company) and
@@ -1523,7 +1521,45 @@ product owner to overrule:
   reverse the pairs' rows, the difference on G6950. The statements then
   show G1250, G2250, G4250 and G5250 consolidated at zero and -100.00 on
   G6950.
-- **Still open.** A revaluation's lines of a foreign currency
-  intercompany item carry no trading partner until the tracker leaf
-  "Revaluation of intercompany items by trading partner" (review:T68b) is
-  built, so such revaluation differences show as `no_trading_partner`.
+- **Revaluation differences** carry their items' trading partners since
+  T68b2 (below), so a revalued intercompany balance matches by trading
+  partner.
+
+**T68b2 (revaluation of intercompany items by trading partner, review:T68b).**
+A foreign currency revaluation (ADR-0042) of a company's intercompany
+items posts their differences with their trading partners, so a
+consolidation run reads them on the trading partner of the item they
+adjust, not as `no_trading_partner`. Built in `internal/ledger`
+(`revaluation.go`, `revaluation_run.go`), migrations 000234
+(`revaluation_item.trading_partner_id`), 000235 and 000236 (a run's
+balances unique per account, currency and trading partner, nulls not
+distinct, replacing `revaluation_item_balance`). Decided by default, for
+the product owner to overrule:
+- **What carries it.** An open item carries its journal line's trading
+  partner; a flagged account's balance is one per currency and trading
+  partner, none being one of them, so the account's lines naming no
+  trading partner are one balance as before. A total is per account,
+  currency, direction and trading partner, and both lines it posts, the
+  difference on the account (or its adjustment account) and its offset on
+  the unrealised gain or loss, carry the total's trading partner, as §4
+  propagates a partner line's to the entry's other lines; the reset
+  copies them, and cancelling reverses them through the reversal path,
+  which copies them too.
+- **Amounts.** Items and totals naming no trading partner are valued and
+  posted exactly as before; an account's balance that has intercompany
+  lines is valued in two parts, each rounded once (ADR-0042), so its
+  rounding may differ from the undivided balance's by a minor unit per
+  part. Each total's two lines still sum to zero in both currencies.
+- **API.** `RevaluationItem` and `RevaluationTotal` gain an optional
+  `trading_partner` (id, and code and name to a caller who may act in
+  that company, as a journal line's); events are unchanged (ids only).
+- **Walkthrough.** `consolidation_revaluation`, the end of step 40:
+  Maple's 1250 Intercompany receivables is flagged for revaluation in the
+  group reporting change; Carla revalues Maple at the month's end, the
+  receivable's USD 2,000.00 booked at 1.35 worth 1.40, a gain of CAD
+  100.00 posted on 1250 and 4900 with trading partner 1000; a second run
+  is refused; a new run of MAPLE finds IC_BALANCES matched (-2,800.00
+  against 2,800.00); she then discards that run and cancels the
+  revaluation, so later steps see the month as booked. In December the
+  reset's period is in the next fiscal year, which `next_year_open` sets
+  up first.

@@ -232,8 +232,8 @@ func TestRevaluationRuns(t *testing.T) {
 }
 
 // TestRevaluationItems: an item is an open item (a journal line, with its
-// partner) or a flagged account's balance in one currency (no line, no
-// partner), valued once per run, at positive rates into local and group
+// partner) or a flagged account's balance in one currency and trading
+// partner, none being one (no line, no partner; T68b2), valued once per run, at positive rates into local and group
 // currency, except a balance zero in its currency, which has none; an open item has an amount in its currency, a balance one in
 // some currency (a residual in local or group currency of a balance that
 // is zero in its own is what a run corrects); items are insert-only.
@@ -264,9 +264,21 @@ func TestRevaluationItems(t *testing.T) {
 				f.tenant, run, no, account, partner, year, entry, lineNo, tc, lc, rate, rateGC)
 		}
 	}
+	// balanceWith inserts the bank's balance kept for a trading partner.
+	partner := id()
+	balanceWith := func(no int, tradingPartner uuid.UUID) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO ledger.revaluation_item (tenant_id, run_id, item_no, account_id, trading_partner_id, currency_tc, amount_tc, amount_lc,
+				amount_gc, rate, rate_valid_from, valued_lc, rate_gc, rate_gc_valid_from, valued_gc)
+				VALUES ($1,$2,$3,$4,$5,'GBP',50,-90,-90,0.95,'2026-03-01',-95,0.96,'2026-03-01',-96)`, f.tenant, run, no, f.bank, tradingPartner)
+		}
+	}
 	two, one := 2, 1
 	mustApp(t, f.tenant, item(1, f.ap, &f.supplier, &invoice, &two, -100, -90, "0.95", "0.96"))
 	mustApp(t, f.tenant, item(2, f.bank, nil, nil, nil, 50, -90, "0.95", "0.96"))
+	// The same account's balance in the same currency kept for a trading
+	// partner is another balance.
+	mustApp(t, f.tenant, balanceWith(5, partner))
 	// A balance that is zero in its currency, with a local residual.
 	// It is worth zero at any rate, so it is valued without one.
 	mustApp(t, f.tenant, item(4, f.tax, nil, nil, nil, 0, -90, "", ""))
@@ -276,7 +288,8 @@ func TestRevaluationItems(t *testing.T) {
 		fails  string
 	}{
 		{"an open item twice", item(3, f.ap, &f.supplier, &invoice, &two, -100, -90, "0.95", "0.96"), "revaluation_item_line"},
-		{"a balance twice", item(3, f.bank, nil, nil, nil, 50, -90, "0.95", "0.96"), "revaluation_item_balance"},
+		{"a balance twice", item(3, f.bank, nil, nil, nil, 50, -90, "0.95", "0.96"), "revaluation_item_balance_by_partner"},
+		{"a trading partner's balance twice", balanceWith(3, partner), "revaluation_item_balance_by_partner"},
 		{"a balance with a partner", item(3, f.tax, &f.supplier, nil, nil, 50, -90, "0.95", "0.96"), "revaluation_item_kind"},
 		{"a line without its number", item(3, f.ap, &f.supplier, &invoice, nil, -100, -90, "0.95", "0.96"), "revaluation_item_kind"},
 		{"a line that is not posted", item(3, f.ap, &f.supplier, &invoice, &[]int{9}[0], -100, -90, "0.95", "0.96"),

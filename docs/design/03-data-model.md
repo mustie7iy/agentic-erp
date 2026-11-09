@@ -1215,7 +1215,10 @@ of its legal entity and ledger and no other run's (`revaluation_run_entries`,
 key date (`revaluation_run_posted`). `revaluation_item`, insert-only, is
 what a run valued: an open item (a journal line, with its partner) or a
 flagged account's balance in one currency (`revaluation_item_kind`), each
-once per run, with its transaction and booked local and group amounts and,
+with its trading partner (an open item's is its line's; a balance is one
+per currency and trading partner, none being one of them; T68b2,
+migrations 000234–000236, ADR-0059 §4), each once per run
+(`revaluation_item_line`, `revaluation_item_balance_by_partner`), with its transaction and booked local and group amounts and,
 for local and for group currency each, the rate, its validity (none for
 the group's own currency) and the amount at that rate: group currency is
 valued on its own. An open item has a transaction-currency amount; a

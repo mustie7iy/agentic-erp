@@ -1,0 +1,11 @@
+-- A revaluation's items carry their trading partner (ADR-0059 §4, ADR-0042,
+-- T68b2): an open item its journal line's, and a flagged account's balance
+-- is one per currency and trading partner, so that a run posts the
+-- difference of an intercompany item or balance with its trading partner
+-- and a consolidation run matches it by trading partner instead of
+-- showing it as no_trading_partner. Tenancy is another context, so no
+-- foreign key (02 §2.1), as journal_line.trading_partner_id (000219);
+-- the items are copied from lines the ledger checked. Nullable: items
+-- recorded before carry none, as their entries' lines did. 000235 and
+-- 000236 key a run's balances by it.
+ALTER TABLE ledger.revaluation_item ADD COLUMN trading_partner_id uuid;
